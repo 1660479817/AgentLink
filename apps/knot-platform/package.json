@@ -1,0 +1,20 @@
+{
+  "name": "knot-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "migrate": "node scripts/migrate.js",
+    "config:import": "node scripts/config-import-env.js",
+    "config:show": "node scripts/config-show.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^7.0.13",
+    "pg": "^8.13.1"
+  }
+}

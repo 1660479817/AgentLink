@@ -1,0 +1,17 @@
+[Unit]
+Description=Knot Platform API
+After=network-online.target knot-postgres.service
+Wants=network-online.target
+Requires=knot-postgres.service
+
+[Service]
+Type=simple
+User=__KNOT_USER__
+WorkingDirectory=__KNOT_HOME__/apps/knot-platform
+EnvironmentFile=/etc/knot/knot-platform.env
+ExecStart=/usr/bin/env node src/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,37 @@
+---
+description: Knot 前端 UI — SVG 图标与 i18n 文案（当前仅中文）
+alwaysApply: true
+---
+
+# Knot 前端 UI 与文案
+
+适用于 **`apps/web`** 及后续 Web 相关前端。后端/API 不受本规则约束。
+
+## SVG 图标
+
+- 导航、主操作、状态、空态等 **能用图标表达的一律用 SVG**，不要仅用文字按钮代替。
+- 使用 **`apps/web/src/icons/`** 内组件：内联 `<svg>`，`viewBox` + `currentColor`，默认 `width/height="1em"`，支持 `className` / `aria-hidden`。
+- 图标可点击时必须配 **`aria-label`**（文案走 i18n，见下）；装饰性图标 `aria-hidden="true"`。
+- 不用位图图标替代可矢量表达的场景；不用 emoji 充当 UI 图标。
+
+```vue
+<!-- ✅ -->
+<button type="button" :aria-label="t('nav.plaza')">
+  <PlazaIcon class="nav-icon" aria-hidden="true" />
+  <span>{{ t("nav.plaza") }}</span>
+</button>
+```
+
+## 多语种文案（当前仅中文）
+
+- **禁止**在 Vue 模板/脚本中散落面向用户的硬编码中文/英文字符串（`console`、注释除外）。
+- 所有 UI 文案经 **`t("namespace.key")`**，键名用 **英文 dot 路径**；文案存放在 **`apps/web/src/i18n/locales/<locale>.json`**。
+- 当前只维护 **`zh`**；新增语言时只加 locale 文件与注册，不改组件键名。
+- 带插值用 `t("key", { name })`；复数/性别等预留键，Phase 0 可不实现复杂 plural。
+- 平台/API 返回的展示文案（如卡片 title）**不要**进 i18n；仅 **壳层 UI**（导航、按钮、说明、错误提示模板）进 locale。
+
+## 新增页面/组件检查
+
+1. 导航与主 CTA 是否有对应 SVG + `t()` 键  
+2. `zh.json` 是否已补全本页键  
+3. 无障碍：图标按钮有 `aria-label`

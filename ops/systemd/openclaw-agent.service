@@ -1,0 +1,16 @@
+[Unit]
+Description=Knot OpenClaw ingest worker (Phase 0 poll loop)
+After=network-online.target knot-platform.service
+Wants=knot-platform.service
+
+[Service]
+Type=simple
+User=__KNOT_USER__
+WorkingDirectory=__KNOT_HOME__/apps/openclaw-agent
+EnvironmentFile=/etc/knot/openclaw-agent.env
+ExecStart=/usr/bin/env node src/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

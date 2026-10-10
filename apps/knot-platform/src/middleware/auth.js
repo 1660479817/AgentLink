@@ -1,0 +1,13 @@
+export function requireUser(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  next();
+}
+
+export function requireRegistered(req, res, next) {
+  if (!req.user) {
+    return res.status(403).json({ error: "REGISTER_REQUIRED" });
+  }
+  next();
+}
