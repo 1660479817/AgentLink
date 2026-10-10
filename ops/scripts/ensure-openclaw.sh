@@ -86,9 +86,20 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "缺少 $ENV_FILE，无法写入 OPENCLAW_PROCESS_AGENT" >&2
   exit 1
 fi
-if ! grep -q '^OPENCLAW_PROCESS_AGENT=' "$ENV_FILE"; then
-  printf '\nOPENCLAW_PROCESS_AGENT=knot-process\nOPENCLAW_BIN=openclaw\nOPENCLAW_PROCESS_TIMEOUT=90\n' >>"$ENV_FILE"
-fi
+ensure_line() {
+  local key="$1"
+  local value="$2"
+  if ! grep -q "^${key}=" "$ENV_FILE"; then
+    printf '%s=%s\n' "$key" "$value" >>"$ENV_FILE"
+  fi
+}
+ensure_line OPENCLAW_PROCESS_AGENT knot-process
+ensure_line OPENCLAW_SOURCE_AGENT knot-source
+ensure_line OPENCLAW_MATCH_AGENT knot-match
+ensure_line OPENCLAW_FEEDBACK_AGENT knot-feedback
+ensure_line OPENCLAW_BIN openclaw
+ensure_line OPENCLAW_PROCESS_TIMEOUT 90
+ensure_line OPENCLAW_AGENT_TIMEOUT 45
 uid="$(id -u)"
 launchctl kickstart -k "gui/$uid/com.knot.platform" 2>/dev/null || true
-echo "OK: Knot Backend 拉起 OpenClaw agent knot-process"
+echo "OK: Knot Backend 拉起 Process、Source、Match、Feedback"

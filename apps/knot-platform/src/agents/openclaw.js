@@ -3,9 +3,30 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-export function processAgentId() {
-  const id = String(process.env.OPENCLAW_PROCESS_AGENT || "").trim();
+function agentId(name) {
+  const id = String(process.env[name] || "").trim();
   return id || null;
+}
+
+export function processAgentId() {
+  return agentId("OPENCLAW_PROCESS_AGENT");
+}
+
+export function matchAgentId() {
+  return agentId("OPENCLAW_MATCH_AGENT");
+}
+
+export function sourceAgentId() {
+  return agentId("OPENCLAW_SOURCE_AGENT");
+}
+
+export function feedbackAgentId() {
+  return agentId("OPENCLAW_FEEDBACK_AGENT");
+}
+
+function agentTimeout() {
+  const timeout = Number(process.env.OPENCLAW_AGENT_TIMEOUT || 45);
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : 45;
 }
 
 function cleanText(value) {
@@ -66,6 +87,24 @@ function publishReply(value) {
     evaluation: readEvaluation(value, "publish"),
     intelClass: readIntelClass(value),
   };
+}
+
+export function parseMatchReply(text) {
+  const value = readJsonObject(text);
+  if (typeof value.fits !== "boolean") throw new Error("match_agent_bad_json");
+  return { fits: value.fits };
+}
+
+export function parseSourceReply(text) {
+  const suggestion = clip(text && readJsonObject(text).suggestion, 400);
+  if (!suggestion) throw new Error("source_agent_bad_json");
+  return { suggestion };
+}
+
+export function parseFeedbackReply(text) {
+  const body = clip(text && readJsonObject(text).body, 400);
+  if (!body) throw new Error("feedback_agent_bad_json");
+  return { body };
 }
 
 export function parseProcessReply(text) {
@@ -188,6 +227,79 @@ function run(bin, args, timeoutMs) {
   });
 }
 
+async function askEmployee(agentId, sessionKey, message, timeoutSec) {
+  const bin = process.env.OPENCLAW_BIN || "openclaw";
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-agent-"));
+  const file = path.join(dir, "message.txt");
+  try {
+    await writeFile(file, message, "utf8");
+    const stdout = await run(
+      bin,
+      [
+        "agent",
+        "--agent",
+        agentId,
+        "--session-key",
+        sessionKey,
+        "--message-file",
+        file,
+        "--json",
+        "--timeout",
+        String(timeoutSec),
+      ],
+      (timeoutSec + 15) * 1000
+    );
+    return replyText(JSON.parse(stdout));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+export async function runMatchAgent(demand, supply) {
+  const id = matchAgentId();
+  if (!id) throw new Error("match_agent_unconfigured");
+  const message = [
+    "比较这一对已整理的需求和供给。只返回一个 JSON 对象。",
+    '{"fits":true} 或 {"fits":false}',
+    "只有两边说的是同一件事、能够互相满足时为 true。个别字面重合、事情对不上时为 false。",
+    "demand:",
+    demand.text,
+    "supply:",
+    supply.text,
+  ].join("\n");
+  const text = await askEmployee(id, `match-${demand.id}-${supply.id}`, message, agentTimeout());
+  return parseMatchReply(text);
+}
+
+export async function runSourceAgent(demand) {
+  const id = sourceAgentId();
+  if (!id) throw new Error("source_agent_unconfigured");
+  const message = [
+    "这条需求还没有对得上的供给。只返回一个 JSON 对象。",
+    '{"suggestion":"一到两句中文建议"}',
+    "不要编造供给方，不要写发布者。",
+    "demand:",
+    demand.text,
+  ].join("\n");
+  const text = await askEmployee(id, `source-${demand.id}`, message, agentTimeout());
+  return parseSourceReply(text);
+}
+
+export async function runFeedbackAgent(input) {
+  const id = feedbackAgentId();
+  if (!id) throw new Error("feedback_agent_unconfigured");
+  const message = [
+    "整理要送回提交者的一句话。只返回一个 JSON 对象。",
+    '{"body":""}',
+    "有配对时以「已配对：」起头，后面是对方的摘要。有寻源建议时，body 就是那条建议。其余用「已记下：」加上这条表达自己的摘要。",
+    `self: ${input.self}`,
+    `peer: ${input.peer || ""}`,
+    `suggestion: ${input.suggestion || ""}`,
+  ].join("\n");
+  const text = await askEmployee(id, `feedback-${input.id}`, message, agentTimeout());
+  return parseFeedbackReply(text);
+}
+
 export async function runProcessAgent(expression, imagePaths = []) {
   const agentId = processAgentId();
   if (!agentId) throw new Error("process_agent_unconfigured");
@@ -210,29 +322,6 @@ export async function runProcessAgent(expression, imagePaths = []) {
     String(expression.body || ""),
     ...(notes.length ? ["images:", ...notes.map((note, index) => `图${index + 1}:\n${note}`)] : []),
   ].join("\n");
-  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-process-"));
-  const file = path.join(dir, "message.txt");
-  try {
-    await writeFile(file, message, "utf8");
-    const stdout = await run(
-      bin,
-      [
-        "agent",
-        "--agent",
-        agentId,
-        "--session-key",
-        `expr-${expression.id}`,
-        "--message-file",
-        file,
-        "--json",
-        "--timeout",
-        String(timeoutSec),
-      ],
-      (timeoutSec + 15) * 1000
-    );
-    const envelope = JSON.parse(stdout);
-    return parseProcessReply(replyText(envelope));
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  const text = await askEmployee(agentId, `expr-${expression.id}`, message, timeoutSec);
+  return parseProcessReply(text);
 }

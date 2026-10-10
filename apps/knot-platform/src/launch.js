@@ -1,5 +1,13 @@
 import { compose } from "./agents/feedback.js";
-import { fits } from "./agents/match.js";
+import { overlapScore } from "./agents/match.js";
+import {
+  feedbackAgentId,
+  matchAgentId,
+  runFeedbackAgent,
+  runMatchAgent,
+  runSourceAgent,
+  sourceAgentId,
+} from "./agents/openclaw.js";
 import { suggest } from "./agents/source.js";
 import { recordMessage } from "./messages.js";
 import { recordNotification } from "./notifications.js";
@@ -43,7 +51,39 @@ function subjectOf(expression) {
   return expression.processed || "";
 }
 
-function choose(expression, peers) {
+function shortlist(expression, peers) {
+  return peers
+    .map((peer) => ({ peer, score: overlapScore(subjectOf(expression), subjectOf(peer)) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((item) => item.peer);
+}
+
+async function partnerFor(expression, peers) {
+  const ranked = shortlist(expression, peers);
+  if (!ranked.length) return null;
+  if (!matchAgentId()) return ranked[0];
+  let failed = 0;
+  for (const peer of ranked) {
+    const demand = expression.role === "demand" ? expression : peer;
+    const supply = expression.role === "supply" ? expression : peer;
+    try {
+      const reply = await runMatchAgent(
+        { id: demand.id, text: subjectOf(demand) },
+        { id: supply.id, text: subjectOf(supply) }
+      );
+      if (reply.fits) return peer;
+    } catch (err) {
+      console.error(err);
+      failed += 1;
+    }
+  }
+  if (failed === ranked.length) return ranked[0];
+  return null;
+}
+
+async function choose(expression, peers) {
   if (expression.review_status === "rejected") return null;
   if (expression.review_status === "pending" || !expression.processed) {
     return { kind: "process" };
@@ -52,7 +92,7 @@ function choose(expression, peers) {
     if (needsFeedback(expression)) return { kind: "feedback" };
     return null;
   }
-  const partner = peers.find((peer) => fits(subjectOf(expression), subjectOf(peer)));
+  const partner = await partnerFor(expression, peers);
   if (partner) return { kind: "match", partner };
   if (expression.role === "demand" && !expression.source_result) return { kind: "source" };
   if (needsFeedback(expression)) return { kind: "feedback" };
@@ -110,10 +150,16 @@ async function apply(pool, expression, step) {
     return null;
   }
   if (step.kind === "source") {
-    await pool.query(`UPDATE expressions SET source_result = $1 WHERE id = $2`, [
-      suggest(subjectOf(expression)),
-      expression.id,
-    ]);
+    let suggestion = suggest(subjectOf(expression));
+    if (sourceAgentId()) {
+      try {
+        const reply = await runSourceAgent({ id: expression.id, text: subjectOf(expression) });
+        suggestion = reply.suggestion;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    await pool.query(`UPDATE expressions SET source_result = $1 WHERE id = $2`, [suggestion, expression.id]);
     return null;
   }
   if (step.kind === "match") {
@@ -140,12 +186,27 @@ async function apply(pool, expression, step) {
     const demandRow = await load(pool, demand.id);
     const supplyRow = await load(pool, supply.id);
     await notifyMatch(pool, matchId, demandRow, supplyRow);
-    return supply.id;
+    return expression.id === demand.id ? supply.id : demand.id;
   }
   const current = await load(pool, expression.id);
   let partner = null;
   if (current.match_id) partner = await load(pool, current.match_id);
-  const response = compose(current, partner);
+  let response = compose(current, partner);
+  if (feedbackAgentId()) {
+    try {
+      const reply = await runFeedbackAgent({
+        id: current.id,
+        self: subjectOf(current),
+        peer: partner ? subjectOf(partner) : "",
+        suggestion: current.source_result || "",
+      });
+      response = reply.body;
+      if (!partner && current.source_result) response = current.source_result;
+      if (partner && !response.startsWith("已配对")) response = compose(current, partner);
+    } catch (err) {
+      console.error(err);
+    }
+  }
   await pool.query(`UPDATE expressions SET feedback = $1 WHERE id = $2`, [response, expression.id]);
   await recordMessage(pool, {
     personId: current.person_id,
@@ -170,7 +231,7 @@ export async function advance(pool, expressionId, seen = new Set()) {
     for (const peer of peers) {
       if (!(await hasMatch(pool, expression.id, peer.id))) filtered.push(peer);
     }
-    const step = choose(expression, filtered);
+    const step = await choose(expression, filtered);
     if (!step) break;
     const linked = await apply(pool, expression, step);
     if (linked) partnerId = linked;

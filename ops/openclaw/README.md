@@ -28,7 +28,7 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 | `knot-match` | Match | 一条需求和对得上的供给都在 | `fits` |
 | `knot-feedback` | Feedback | 已经有要送回去的结果 | `body` |
 
-四类并排，互不调用。`allowAgents` 都是空数组。当前 Backend 已经拉起 `knot-process`。Source、Match、Feedback 的提示词和技能名单先登记在这里，运行时仍用 Backend 里的本地函数，等各自的交回格式接上后再换。
+四类并排，互不调用。`allowAgents` 都是空数组。`ops/env/knot-platform.local.env` 写上对应的员工 id 后，Backend 按状态拉起这四个员工。员工没有交回可用 JSON 时，Backend 用本地规则把这一步走完：字面重合最高的一条暂作配对，寻源写成一句建议，反馈按「已记下」「已配对」或寻源建议送出。
 
 ## 技能
 
@@ -46,10 +46,6 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 
 ## 拉起
 
-`ops/env/knot-platform.local.env` 里有 `OPENCLAW_PROCESS_AGENT=knot-process` 时，Knot Backend 执行：
+Knot Backend 执行 `openclaw agent --agent <id> --session-key <key> --message-file <file> --json --timeout <秒>`。Process 的会话键是 `expr-<id>`，超时见 `OPENCLAW_PROCESS_TIMEOUT`。Source、Match、Feedback 的超时见 `OPENCLAW_AGENT_TIMEOUT`。
 
-```bash
-openclaw agent --agent knot-process --session-key expr-<id> --message-file <file> --json --timeout 90
-```
-
-Backend 解析 JSON，自己写入数据库、积分和通知。员工不访问数据库。
+Backend 解析 JSON，自己写入数据库、积分和通知。员工不访问数据库。Match 只在字面重合较高的最多三条里判断是否同一件事；都不对得上，需求才交给 Source。
