@@ -57,6 +57,18 @@ alwaysApply: true
 <section class="card">
 ```
 
+## 输入引导
+
+输入框里的 placeholder 就是引导。框外不要再写红色的「请先输入」「写上内容」来重复它。
+
+没有可提交的内容时，发送按钮 `disabled`。人看见引导语，按键是灰的。
+
+请求没完成、文件过大、积分不足，写在这个操作所在的卡片里，紧挨按钮下方。不要插在页面标题和卡片之间。
+
+```vue
+<AppButton type="submit" :disabled="!text.trim()">{{ t("home.send") }}</AppButton>
+```
+
 ## 新增页面/组件检查
 
 1. 导航与主 CTA 是否有对应 SVG + `t()` 键  

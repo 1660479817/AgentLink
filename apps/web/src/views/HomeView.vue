@@ -3,47 +3,58 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import { useRoute, useRouter } from "vue-router";
-import { createExpression, listInformation, searchInformation, uploadImage } from "../api.js";
+import { createIntel, listInformation, searchInformation, uploadAttachment, uploadImage } from "../api.js";
 import { t } from "../i18n/index.js";
-import { CameraIcon, ComposeIcon, PlusIcon, SendIcon, UploadIcon } from "../icons/index.js";
-import { useMessageStore } from "../stores/messages";
+import { CameraIcon, ComposeIcon, PaperclipIcon, PlusIcon, SendIcon, UserIcon } from "../icons/index.js";
 import { useNotificationStore } from "../stores/notifications";
 import { useSessionStore } from "../stores/session";
 
-const open = ref(false);
-const role = ref("demand");
-const body = ref("");
-const error = ref("");
-const busy = ref(false);
 const items = ref([]);
 const intelOpen = ref(false);
 const intelMode = ref(null);
 const intelBody = ref("");
 const intelError = ref("");
 const intelBusy = ref(false);
-const messages = useMessageStore();
 const notifications = useNotificationStore();
 const session = useSessionStore();
-const contact = ref("");
 const route = useRoute();
 const router = useRouter();
 const searchQ = computed(() => String(route.query.q || "").trim());
-const imageInput = ref(null);
-const pendingImages = ref([]);
+const createMark = computed(() => nameMark(session.user));
+const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_FILES = 5;
+
 const intelImageInput = ref(null);
+const intelFileInput = ref(null);
 const intelPendingImages = ref([]);
 const intelPreviewUrls = ref([]);
+const intelPendingFiles = ref([]);
+const intelCanSend = computed(() => {
+  if (intelMode.value === "photo") return intelPendingImages.value.length > 0;
+  if (intelMode.value === "text") return Boolean(intelBody.value.trim() || intelPendingFiles.value.length);
+  return false;
+});
 
-const roles = [
-  { id: "demand", label: "role.demand" },
-  { id: "supply", label: "role.supply" },
-];
+function nameMark(user) {
+  const name = String(user?.displayName || "").trim();
+  if (name) {
+    const parts = name.split(/\s+/).filter(Boolean);
+    const latin = parts.every((part) => /^[A-Za-z]/.test(part));
+    if (latin && parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (latin) return parts[0].slice(0, 1).toUpperCase();
+    const chars = Array.from(name.replace(/\s+/g, ""));
+    return chars.slice(-2).join("");
+  }
+  const email = String(user?.email || "").trim();
+  return email ? email.slice(0, 1).toUpperCase() : "";
+}
 
 onMounted(load);
-
 watch(searchQ, load);
-
-onUnmounted(clearIntelPreviews);
+onUnmounted(() => {
+  clearIntelPreviews();
+  clearIntelFiles();
+});
 
 watch(intelMode, async (mode) => {
   if (mode !== "photo") return;
@@ -63,12 +74,6 @@ async function load() {
 
 function clearSearch() {
   router.push({ name: "home", query: {} });
-}
-
-function pickImages(event, bucket) {
-  const files = Array.from(event.target.files || []);
-  bucket.value = [...bucket.value, ...files].slice(0, 6);
-  event.target.value = "";
 }
 
 function clearIntelPreviews() {
@@ -94,11 +99,50 @@ function pickIntelPhoto(event) {
   event.target.value = "";
 }
 
+function clearIntelFiles() {
+  for (const item of intelPendingFiles.value) {
+    if (item.preview) URL.revokeObjectURL(item.preview);
+  }
+  intelPendingFiles.value = [];
+}
+
+function addIntelFiles(list) {
+  intelError.value = "";
+  const next = [...intelPendingFiles.value];
+  for (const file of list) {
+    if (next.length >= MAX_FILES) break;
+    if (file.size > MAX_BYTES) {
+      intelError.value = t("error.file_too_large");
+      continue;
+    }
+    const image = String(file.type || "").startsWith("image/");
+    next.push({
+      file,
+      name: file.name,
+      image,
+      preview: image ? URL.createObjectURL(file) : "",
+    });
+  }
+  intelPendingFiles.value = next;
+}
+
+function pickIntelFile(event) {
+  addIntelFiles(Array.from(event.target.files || []));
+  event.target.value = "";
+}
+
+function removeIntelFile(index) {
+  const item = intelPendingFiles.value[index];
+  if (item?.preview) URL.revokeObjectURL(item.preview);
+  intelPendingFiles.value = intelPendingFiles.value.filter((_, i) => i !== index);
+}
+
 function selectIntelPhotoMode() {
   intelError.value = "";
   intelBody.value = "";
   intelPendingImages.value = [];
   clearIntelPreviews();
+  clearIntelFiles();
   intelMode.value = "photo";
 }
 
@@ -107,11 +151,15 @@ function selectIntelTextMode() {
   intelBody.value = "";
   intelPendingImages.value = [];
   clearIntelPreviews();
+  clearIntelFiles();
   intelMode.value = "text";
 }
 
-async function ensureSession() {
-  if (!session.person) await session.start();
+function ensureSession() {
+  if (session.user) return;
+  const err = new Error("no_session");
+  err.code = "no_session";
+  throw err;
 }
 
 async function uploadAll(files) {
@@ -121,31 +169,6 @@ async function uploadAll(files) {
     ids.push(data.id);
   }
   return ids;
-}
-
-async function submit() {
-  error.value = "";
-  busy.value = true;
-  try {
-    await ensureSession();
-    const imageIds = await uploadAll(pendingImages.value);
-    await createExpression(role.value, body.value.trim(), {
-      imageIds,
-      contact: contact.value.trim(),
-    });
-    body.value = "";
-    contact.value = "";
-    pendingImages.value = [];
-    open.value = false;
-    await load();
-    await messages.load();
-    await notifications.load();
-  } catch (err) {
-    const key = `error.${err.code}`;
-    error.value = t(key) === key ? t("error.request_failed") : t(key);
-  } finally {
-    busy.value = false;
-  }
 }
 
 function openIntelComposer() {
@@ -158,6 +181,7 @@ function openIntelComposer() {
   intelBody.value = "";
   intelPendingImages.value = [];
   clearIntelPreviews();
+  clearIntelFiles();
   intelOpen.value = true;
 }
 
@@ -168,33 +192,26 @@ function closeIntelComposer() {
   intelBody.value = "";
   intelPendingImages.value = [];
   clearIntelPreviews();
+  clearIntelFiles();
 }
 
 async function submitIntel() {
+  if (!intelCanSend.value) return;
   intelError.value = "";
-  if (intelMode.value === "photo") {
-    if (!intelPendingImages.value.length) {
-      intelError.value = t("error.empty_intel_photo");
-      return;
-    }
-  } else if (intelMode.value === "text") {
-    if (!intelBody.value.trim()) {
-      intelError.value = t("error.empty_intel_text");
-      return;
-    }
-  } else {
-    return;
-  }
   intelBusy.value = true;
   try {
     await ensureSession();
-    const imageIds =
-      intelMode.value === "photo" ? await uploadAll(intelPendingImages.value) : [];
-    const bodyToSend = intelBody.value.trim();
-    await createExpression("intel", bodyToSend, { imageIds });
+    const imageIds = intelMode.value === "photo" ? await uploadAll(intelPendingImages.value) : [];
+    const fileIds = [];
+    if (intelMode.value === "text") {
+      for (const item of intelPendingFiles.value) {
+        const uploaded = await uploadAttachment(item.file);
+        fileIds.push(uploaded.id);
+      }
+    }
+    await createIntel(intelBody.value.trim(), imageIds, fileIds);
     closeIntelComposer();
     await load();
-    await messages.load();
     await notifications.load();
   } catch (err) {
     const key = `error.${err.code}`;
@@ -203,7 +220,6 @@ async function submitIntel() {
     intelBusy.value = false;
   }
 }
-
 </script>
 
 <template>
@@ -212,64 +228,14 @@ async function submitIntel() {
     <AppButton variant="secondary" @click="clearSearch">{{ t("home.clearSearch") }}</AppButton>
   </section>
 
-  <section class="card composer">
-    <button v-if="!open" type="button" class="composer-open" @click="open = true">
-      <span class="avatar" aria-hidden="true" />
-      <span class="composer-pill">{{ t("home.composer") }}</span>
-    </button>
-    <form v-else class="composer-dialog" @submit.prevent="submit">
-      <label class="visually-hidden" for="information-body">{{ t("home.composer") }}</label>
-      <textarea
-        id="information-body"
-        v-model="body"
-        rows="4"
-        :placeholder="t('home.placeholder')"
-        required
-      />
-      <label class="visually-hidden" for="information-contact">{{ t("home.contact") }}</label>
-      <input
-        id="information-contact"
-        v-model="contact"
-        type="text"
-        class="composer-contact"
-        :placeholder="t('home.contactPlaceholder')"
-      />
-      <div class="role-pills" role="radiogroup" :aria-label="t('home.kind')">
-        <label v-for="item in roles" :key="item.id" class="role-pill" :class="{ 'is-selected': role === item.id }">
-          <input v-model="role" type="radio" name="kind" :value="item.id" />
-          {{ t(item.label) }}
-        </label>
-      </div>
-      <div class="composer-media">
-        <input
-          ref="imageInput"
-          type="file"
-          accept="image/*"
-          multiple
-          class="visually-hidden"
-          @change="pickImages($event, pendingImages)"
-        />
-        <button type="button" class="composer-media-btn" :aria-label="t('home.addImages')" @click="imageInput?.click()">
-          <UploadIcon aria-hidden="true" />
-          <span>{{ t("home.addImages") }}</span>
-        </button>
-        <p v-if="pendingImages.length" class="muted composer-media-count">
-          {{ t("home.imageCount", { count: pendingImages.length }) }}
-        </p>
-        <p class="muted composer-media-hint">{{ t("home.mediaHint") }}</p>
-      </div>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <div class="form-actions">
-        <AppButton type="submit" :disabled="busy">{{ t("home.publish") }}</AppButton>
-        <AppButton variant="secondary" @click="open = false">{{ t("home.close") }}</AppButton>
-      </div>
-    </form>
-  </section>
-
   <section class="card intel-rail" :aria-label="t('home.intelRail')">
     <div class="intel-rail-viewport">
       <button type="button" class="intel-create" @click="openIntelComposer">
-        <span class="intel-create-photo" aria-hidden="true" />
+        <span class="intel-create-photo" aria-hidden="true">
+          <img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="" />
+          <span v-else-if="createMark">{{ createMark }}</span>
+          <UserIcon v-else />
+        </span>
         <span class="intel-create-plus" aria-hidden="true">
           <PlusIcon />
         </span>
@@ -328,7 +294,7 @@ async function submitIntel() {
           class="intel-send-input"
           :placeholder="t('home.intelPhotoCaption')"
         />
-        <AppButton variant="icon" type="submit" class="intel-send-btn" :disabled="intelBusy" :aria-label="t('home.send')">
+        <AppButton variant="icon" type="submit" class="intel-send-btn" :disabled="intelBusy || !intelCanSend" :aria-label="t('home.send')">
           <SendIcon aria-hidden="true" />
         </AppButton>
       </div>
@@ -344,9 +310,24 @@ async function submitIntel() {
           class="intel-text-input"
           :placeholder="t('home.intelPlaceholder')"
         />
-        <AppButton variant="icon" type="submit" class="intel-text-send" :disabled="intelBusy" :aria-label="t('home.send')">
-          <SendIcon aria-hidden="true" />
-        </AppButton>
+        <ul v-if="intelPendingFiles.length" class="chat-pending">
+          <li v-for="(item, index) in intelPendingFiles" :key="`${item.name}-${index}`" class="chat-pending-item">
+            <img v-if="item.image" :src="item.preview" alt="" class="chat-thumb" />
+            <span v-else class="chat-file-name">{{ item.name }}</span>
+            <AppButton variant="secondary" type="button" :disabled="intelBusy" @click="removeIntelFile(index)">
+              {{ t("home.remove") }}
+            </AppButton>
+          </li>
+        </ul>
+        <div class="intel-text-tools">
+          <input ref="intelFileInput" type="file" multiple class="visually-hidden" @change="pickIntelFile" />
+          <AppButton variant="icon" type="button" :disabled="intelBusy" :aria-label="t('home.addFile')" @click="intelFileInput?.click()">
+            <PaperclipIcon aria-hidden="true" />
+          </AppButton>
+          <AppButton variant="icon" type="submit" class="intel-text-send" :disabled="intelBusy || !intelCanSend" :aria-label="t('home.send')">
+            <SendIcon aria-hidden="true" />
+          </AppButton>
+        </div>
       </div>
       <p v-if="intelError" class="error" role="alert">{{ intelError }}</p>
     </form>
@@ -358,7 +339,7 @@ async function submitIntel() {
     :role="item.role"
     :body="item.body || ''"
     :image-urls="item.imageUrls || []"
-    :category="item.category || ''"
+    :attachments="item.attachments || []"
   />
   <p v-if="items.length === 0" class="muted feed-empty">
     {{ searchQ ? t("home.searchEmpty") : t("home.empty") }}

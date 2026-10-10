@@ -2,14 +2,14 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
 export function createSessionMiddleware({ pool, sessionCookieName }) {
   return async function session(req, _res, next) {
-    req.person = null;
+    req.user = null;
     const sid = req.cookies?.[sessionCookieName];
     if (!sid) return next();
     const { rows } = await pool.query(
-      `SELECT person_id FROM sessions WHERE sid = $1 AND expires_at > now()`,
+      `SELECT user_id FROM sessions WHERE sid = $1 AND expires_at > now()`,
       [sid]
     );
-    if (rows[0]) req.person = { id: rows[0].person_id };
+    if (rows[0]) req.user = { id: rows[0].user_id };
     next();
   };
 }

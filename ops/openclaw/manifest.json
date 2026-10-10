@@ -6,27 +6,21 @@
   "commonSkills": ["knot-employee"],
   "agents": [
     {
-      "id": "knot-process",
-      "employee": "Process",
-      "skills": ["knot-process"],
+      "id": "knot-intel",
+      "employee": "Intel",
+      "skills": ["knot-intel"],
       "allowAgents": []
     },
     {
-      "id": "knot-source",
-      "employee": "Source",
-      "skills": ["knot-source"],
+      "id": "knot-demand",
+      "employee": "Demand",
+      "skills": ["knot-demand"],
       "allowAgents": []
     },
     {
-      "id": "knot-match",
-      "employee": "Match",
-      "skills": ["knot-match"],
-      "allowAgents": []
-    },
-    {
-      "id": "knot-feedback",
-      "employee": "Feedback",
-      "skills": ["knot-feedback"],
+      "id": "knot-seek",
+      "employee": "Seek",
+      "skills": ["knot-seek"],
       "allowAgents": []
     }
   ]

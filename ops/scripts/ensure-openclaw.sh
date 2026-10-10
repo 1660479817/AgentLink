@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 按仓库 ops/openclaw 同步 bot01 上的 OpenClaw 员工、提示词和技能名单。
-# OPENCLAW_ENABLE_PROCESS=1 时让 Knot Backend 拉起 knot-process。
+# OPENCLAW_ENABLE_PROCESS=1 时让 Knot Backend 拉起 knot-intel、knot-demand 与 knot-seek。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -83,7 +83,7 @@ if [[ "${OPENCLAW_ENABLE_PROCESS:-}" != 1 ]]; then
 fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "缺少 $ENV_FILE，无法写入 OPENCLAW_PROCESS_AGENT" >&2
+  echo "缺少 $ENV_FILE，无法写入 OPENCLAW_INTEL_AGENT" >&2
   exit 1
 fi
 ensure_line() {
@@ -93,13 +93,12 @@ ensure_line() {
     printf '%s=%s\n' "$key" "$value" >>"$ENV_FILE"
   fi
 }
-ensure_line OPENCLAW_PROCESS_AGENT knot-process
-ensure_line OPENCLAW_SOURCE_AGENT knot-source
-ensure_line OPENCLAW_MATCH_AGENT knot-match
-ensure_line OPENCLAW_FEEDBACK_AGENT knot-feedback
+ensure_line OPENCLAW_INTEL_AGENT knot-intel
+ensure_line OPENCLAW_DEMAND_AGENT knot-demand
+ensure_line OPENCLAW_SEEK_AGENT knot-seek
 ensure_line OPENCLAW_BIN openclaw
 ensure_line OPENCLAW_PROCESS_TIMEOUT 90
 ensure_line OPENCLAW_AGENT_TIMEOUT 45
 uid="$(id -u)"
 launchctl kickstart -k "gui/$uid/com.knot.platform" 2>/dev/null || true
-echo "OK: Knot Backend 拉起 Process、Source、Match、Feedback"
+echo "OK: Knot Backend 拉起 knot-intel、knot-demand、knot-seek"

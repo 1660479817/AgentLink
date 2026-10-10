@@ -1,29 +1,32 @@
 import { defineStore } from "pinia";
-import { endSession, getSession, startSession } from "../api.js";
+import { confirmLoginKey, endSession, getSession, requestLoginKey } from "../api.js";
 
 export const useSessionStore = defineStore("session", {
   state: () => ({
-    person: null,
+    user: null,
     ready: false,
   }),
   actions: {
     async load() {
       try {
         const data = await getSession();
-        this.person = data.person;
+        this.user = data.user;
       } catch {
-        this.person = null;
+        this.user = null;
       } finally {
         this.ready = true;
       }
     },
-    async start() {
-      const data = await startSession();
-      this.person = { id: data.personId };
+    async requestKey(email) {
+      await requestLoginKey(email);
+    },
+    async confirmKey(email, key) {
+      const data = await confirmLoginKey(email, key);
+      this.user = data.user;
     },
     async end() {
       await endSession();
-      this.person = null;
+      this.user = null;
     },
   },
 });

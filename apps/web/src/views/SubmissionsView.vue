@@ -10,7 +10,10 @@ const items = ref([]);
 const loaded = ref(false);
 
 onMounted(async () => {
-  if (!session.person) await session.start();
+  if (!session.user) {
+    loaded.value = true;
+    return;
+  }
   try {
     const data = await listSubmissions();
     items.value = data.submissions;
@@ -22,7 +25,7 @@ onMounted(async () => {
 });
 
 function statusKey(status) {
-  if (status === "published") return "submissions.statusPublished";
+  if (status === "passed") return "submissions.statusPublished";
   if (status === "rejected") return "submissions.statusRejected";
   return "submissions.statusPending";
 }
@@ -30,19 +33,22 @@ function statusKey(status) {
 
 <template>
   <h1 class="page-title">{{ t("submissions.title") }}</h1>
-  <p v-if="!session.person" class="muted">{{ t("mine.login") }}</p>
+  <p v-if="!session.user" class="muted">{{ t("mine.login") }}</p>
   <p v-else-if="loaded && items.length === 0" class="muted">{{ t("submissions.empty") }}</p>
   <article v-for="item in items" :key="item.id" class="card post">
     <header class="post-head information-head">
-      <span class="role-badge" :data-role="item.role">{{ t(`role.${item.role}`) }}</span>
-      <span class="muted">{{ t(statusKey(item.reviewStatus)) }}</span>
+      <span class="role-badge" data-role="intel">{{ t("role.intel") }}</span>
+      <span class="muted">{{ t(statusKey(item.verdict)) }}</span>
     </header>
-    <p class="post-body">{{ item.body }}</p>
-    <p v-if="item.summary" class="muted">{{ t("submissions.cardSummary", { text: item.summary }) }}</p>
-    <p v-if="item.intelClass" class="muted">{{ t("submissions.intelClass", { category: item.intelClass.category }) }}</p>
-    <p v-if="item.evaluation" class="muted">{{ t("submissions.evaluation", { n: item.evaluation.score }) }}</p>
+    <div v-if="item.attachments?.length" class="information-files">
+      <template v-for="file in item.attachments" :key="file.id">
+        <img v-if="file.image" :src="file.url" alt="" class="information-photo" />
+        <a v-else class="chat-file-link" :href="file.url">{{ file.name || t("home.file") }}</a>
+      </template>
+    </div>
+    <p v-if="item.body" class="post-body">{{ item.body }}</p>
     <p v-if="item.rejectReason" class="error" role="alert">{{ item.rejectReason }}</p>
-    <p v-if="item.intelReward" class="muted">{{ t("submissions.intelReward", { n: item.intelReward }) }}</p>
+    <p v-if="item.reward" class="muted">{{ t("submissions.intelReward", { n: item.reward }) }}</p>
   </article>
   <div class="form-actions">
     <AppButton variant="secondary" to="/mine">{{ t("submissions.back") }}</AppButton>

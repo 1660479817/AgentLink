@@ -1,79 +1,161 @@
 import { Router } from "express";
 import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import multer from "multer";
-import { advance } from "../launch.js";
-import { recordMessage } from "../messages.js";
-import { adjustPoints, getBalance } from "../points.js";
-import { scoreInformation } from "../search.js";
+import { createDemand, createIntel, listDemands, listPublicIntel, presentIntel, searchPublicIntel } from "../market.js";
+import { hashLoginKey, newLoginKey, normalizeEmail, normalizeLoginKey, sendLoginKey } from "../login.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
-import { expressionResult, RESULT_COLUMNS, RESULT_FROM } from "../expression-result.js";
 import { ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
-const EXPRESSION_COLUMNS = `id, role, body, feedback, created_at, review_status, reject_reason, processed, intel_reward`;
+const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance`;
 
-function publicCard(row) {
-  const body = typeof row.body === "string" ? row.body.trim() : "";
+function presentUser(row) {
+  const entitlements = row.entitlements && typeof row.entitlements === "object" ? row.entitlements : {};
   return {
     id: row.id,
-    role: row.role,
-    body,
-    imageUrls: row.imageUrls || [],
-    category: row.intel_category || null,
+    email: row.email,
+    displayName: row.display_name || "",
+    avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
+    level: row.level,
+    entitlements,
+    pointsBalance: row.points_balance,
+  };
+}
+
+async function loadUser(pool, id) {
+  const { rows } = await pool.query(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]);
+  return rows[0] ? presentUser(rows[0]) : null;
+}
+
+function attachmentOf(row) {
+  const mime = row.mime || "";
+  return {
+    id: row.id,
+    name: row.original_name || "",
+    mime,
+    url: publicUploadUrl(row.id),
+    image: mime.startsWith("image/"),
+  };
+}
+
+function publicCard(row) {
+  const attachments = row.attachments || [];
+  return {
+    id: row.id,
+    role: "intel",
+    body: typeof row.body === "string" ? row.body.trim() : "",
+    imageUrls: attachments.filter((item) => item.image).map((item) => item.url),
+    attachments,
   };
 }
 
 async function withUploads(pool, rows) {
   if (!rows.length) return rows;
-  const { rows: images } = await pool.query(
-    `SELECT expression_id, upload_id
-     FROM expression_images
-     WHERE expression_id = ANY($1::uuid[])
-     ORDER BY sort_order ASC, upload_id ASC`,
+  const { rows: files } = await pool.query(
+    `SELECT f.intel_id, u.id, u.mime, u.original_name
+     FROM intel_files f
+     JOIN uploads u ON u.id = f.upload_id
+     WHERE f.intel_id = ANY($1::uuid[])
+     ORDER BY f.sort_order ASC, f.upload_id ASC`,
     [rows.map((row) => row.id)]
   );
   const byId = new Map();
-  for (const image of images) {
-    const list = byId.get(image.expression_id) || [];
-    list.push(publicUploadUrl(image.upload_id));
-    byId.set(image.expression_id, list);
+  for (const file of files) {
+    const list = byId.get(file.intel_id) || [];
+    list.push(attachmentOf(file));
+    byId.set(file.intel_id, list);
   }
-  return rows.map((row) => ({ ...row, imageUrls: byId.get(row.id) || [] }));
+  return rows.map((row) => ({ ...row, attachments: byId.get(row.id) || [] }));
 }
 
 export function webRouter({ pool, sessionCookieName, uploadDir }) {
   ensureUploadDir(uploadDir);
+  const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadDir),
+    filename: (_req, file, cb) => cb(null, newStorageName(file.originalname)),
+  });
   const upload = multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => cb(null, uploadDir),
-      filename: (_req, file, cb) => cb(null, newStorageName(file.originalname)),
-    }),
+    storage,
     limits: { fileSize: 8 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       if (String(file.mimetype || "").startsWith("image/")) cb(null, true);
       else cb(new Error("bad_mime"));
     },
   });
+  const attachment = multer({
+    storage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
 
   const router = Router();
 
-  router.post("/session", async (_req, res) => {
-    const person = await pool.query(`INSERT INTO persons DEFAULT VALUES RETURNING id`);
-    const personId = person.rows[0].id;
+  router.post("/login", async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    if (!email) return res.status(400).json({ error: "bad_email" });
+    const recent = await pool.query(
+      `SELECT 1 FROM login_keys WHERE email = $1 AND created_at > now() - interval '60 seconds' LIMIT 1`,
+      [email]
+    );
+    if (recent.rowCount) return res.status(429).json({ error: "too_many" });
+    const key = newLoginKey();
+    const inserted = await pool.query(
+      `INSERT INTO login_keys (email, key_hash, expires_at)
+       VALUES ($1, $2, now() + interval '10 minutes')
+       RETURNING id`,
+      [email, hashLoginKey(key)]
+    );
+    try {
+      await sendLoginKey(email, key);
+    } catch (err) {
+      await pool.query(`DELETE FROM login_keys WHERE id = $1`, [inserted.rows[0].id]);
+      const code = err.code === "mail_unavailable" ? "mail_unavailable" : "mail_failed";
+      return res.status(503).json({ error: code });
+    }
+    res.json({ ok: true });
+  });
+
+  router.post("/login/key", async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const key = normalizeLoginKey(req.body?.key);
+    if (!email) return res.status(400).json({ error: "bad_email" });
+    if (!key) return res.status(400).json({ error: "bad_key" });
+    const matched = await pool.query(
+      `UPDATE login_keys
+       SET used_at = now()
+       WHERE id = (
+         SELECT id FROM login_keys
+         WHERE email = $1 AND key_hash = $2 AND used_at IS NULL AND expires_at > now()
+         ORDER BY created_at DESC
+         LIMIT 1
+       )
+       RETURNING id`,
+      [email, hashLoginKey(key)]
+    );
+    if (!matched.rowCount) return res.status(400).json({ error: "bad_key" });
+    const saved = await pool.query(
+      `INSERT INTO users (email) VALUES ($1)
+       ON CONFLICT (lower(email)) WHERE email IS NOT NULL
+       DO UPDATE SET email = EXCLUDED.email
+       RETURNING id`,
+      [email]
+    );
+    const userId = saved.rows[0].id;
     const sid = randomBytes(24).toString("hex");
     const expires = new Date(Date.now() + SESSION_TTL_MS);
-    await pool.query(`INSERT INTO sessions (sid, person_id, expires_at) VALUES ($1, $2, $3)`, [
+    await pool.query(`INSERT INTO sessions (sid, user_id, expires_at) VALUES ($1, $2, $3)`, [
       sid,
-      personId,
+      userId,
       expires,
     ]);
     setSessionCookie(res, sessionCookieName, sid);
-    res.status(201).json({ personId });
+    res.json({ user: await loadUser(pool, userId) });
   });
 
-  router.get("/session", (req, res) => {
-    if (!req.person) return res.json({ person: null });
-    res.json({ person: { id: req.person.id } });
+  router.get("/session", async (req, res) => {
+    if (!req.user) return res.json({ user: null });
+    const user = await loadUser(pool, req.user.id);
+    res.json({ user });
   });
 
   router.delete("/session", async (req, res) => {
@@ -83,8 +165,43 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.json({ ok: true });
   });
 
+  router.patch("/profile", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const hasName = typeof req.body?.displayName === "string";
+    const name = hasName ? req.body.displayName.trim() : null;
+    if (hasName && name.length > 40) return res.status(400).json({ error: "bad_name" });
+    let avatarId;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "avatarUploadId")) {
+      const raw = req.body.avatarUploadId;
+      if (raw === null || raw === "") {
+        avatarId = null;
+      } else {
+        const { rows } = await pool.query(
+          `SELECT id FROM uploads WHERE id = $1 AND user_id = $2 AND mime LIKE 'image/%'`,
+          [raw, req.user.id]
+        );
+        if (!rows.length) return res.status(400).json({ error: "bad_avatar" });
+        avatarId = rows[0].id;
+      }
+    }
+    if (!hasName && avatarId === undefined) return res.status(400).json({ error: "empty_body" });
+    const sets = ["updated_at = now()"];
+    const params = [];
+    if (hasName) {
+      params.push(name);
+      sets.push(`display_name = $${params.length}`);
+    }
+    if (avatarId !== undefined) {
+      params.push(avatarId);
+      sets.push(`avatar_upload_id = $${params.length}`);
+    }
+    params.push(req.user.id);
+    await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+    res.json({ user: await loadUser(pool, req.user.id) });
+  });
+
   router.post("/uploads", (req, res, next) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
+    if (!req.user) return res.status(401).json({ error: "no_session" });
     upload.single("file")(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message === "bad_mime" ? "bad_mime" : "upload_failed" });
       if (!req.file) return res.status(400).json({ error: "empty_file" });
@@ -92,10 +209,34 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     });
   }, async (req, res) => {
     const { rows } = await pool.query(
-      `INSERT INTO uploads (person_id, storage_name, mime) VALUES ($1, $2, $3) RETURNING id`,
-      [req.person.id, req.file.filename, req.file.mimetype]
+      `INSERT INTO uploads (user_id, storage_name, mime) VALUES ($1, $2, $3) RETURNING id`,
+      [req.user.id, req.file.filename, req.file.mimetype]
     );
     res.status(201).json({ id: rows[0].id, url: publicUploadUrl(rows[0].id) });
+  });
+
+  router.post("/files", (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    attachment.single("file")(req, res, (err) => {
+      if (err) {
+        const tooBig = err.code === "LIMIT_FILE_SIZE";
+        return res.status(400).json({ error: tooBig ? "file_too_large" : "upload_failed" });
+      }
+      if (!req.file) return res.status(400).json({ error: "empty_file" });
+      next();
+    });
+  }, async (req, res) => {
+    const name = path.basename(req.file.originalname || "").slice(0, 180);
+    const { rows } = await pool.query(
+      `INSERT INTO uploads (user_id, storage_name, mime, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [req.user.id, req.file.filename, req.file.mimetype, name || null]
+    );
+    res.status(201).json({
+      id: rows[0].id,
+      url: publicUploadUrl(rows[0].id),
+      name,
+      mime: req.file.mimetype,
+    });
   });
 
   router.get("/uploads/:id", async (req, res) => {
@@ -107,88 +248,52 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     fs.createReadStream(filePath).pipe(res);
   });
 
-  router.post("/expressions", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
-    const role = req.body?.role;
+  router.post("/intel", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
     const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
-    const contact = typeof req.body?.contact === "string" ? req.body.contact.trim() : "";
-    const imageIds = Array.isArray(req.body?.imageIds)
-      ? req.body.imageIds.filter((id) => typeof id === "string")
-      : [];
-    if (role !== "demand" && role !== "supply" && role !== "intel") {
-      return res.status(400).json({ error: "bad_role" });
-    }
-    if (!body && !imageIds.length) return res.status(400).json({ error: "empty_body" });
-    const inserted = await pool.query(
-      `INSERT INTO expressions (person_id, actor, door, role, body, contact)
-       VALUES ($1, 'person', 'webui', $2, $3, $4)
-       RETURNING id`,
-      [req.person.id, role, body, contact || null]
-    );
-    const expressionId = inserted.rows[0].id;
-    if (imageIds.length) {
-      const { rows: owned } = await pool.query(
-        `SELECT id FROM uploads WHERE person_id = $1 AND id = ANY($2::uuid[])`,
-        [req.person.id, imageIds]
-      );
-      for (let i = 0; i < owned.length; i += 1) {
-        await pool.query(
-          `INSERT INTO expression_images (expression_id, upload_id, sort_order) VALUES ($1, $2, $3)`,
-          [expressionId, owned[i].id, i]
-        );
-      }
-    }
-    await recordMessage(pool, {
-      personId: req.person.id,
-      expressionId,
-      door: "webui",
-      direction: "out",
-      body,
-    });
+    const imageIds = Array.isArray(req.body?.imageIds) ? req.body.imageIds.filter((id) => typeof id === "string") : [];
+    const fileIds = Array.isArray(req.body?.fileIds) ? req.body.fileIds.filter((id) => typeof id === "string") : [];
+    if (!body && !imageIds.length && !fileIds.length) return res.status(400).json({ error: "empty_body" });
     try {
-      await advance(pool, expressionId);
-    } catch (err) {
-      console.error(err);
-      return res.status(503).json({ error: "process_unavailable" });
+      const intel = await createIntel(pool, {
+        userId: req.user.id,
+        actor: "person",
+        door: "webui",
+        body,
+        imageIds,
+        fileIds,
+      });
+      res.status(201).json({ intel });
+    } catch (error) {
+      console.error(error);
+      res.status(503).json({ error: "process_unavailable" });
     }
-    const { rows } = await pool.query(`SELECT ${RESULT_COLUMNS} FROM ${RESULT_FROM} WHERE e.id = $1`, [expressionId]);
-    res.status(201).json({ expression: expressionResult(rows[0]) });
   });
 
   router.get("/submissions", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
+    if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT e.id, e.role, e.body, e.review_status, e.reject_code, e.reject_reason, e.processed, e.evaluation, e.intel_reward, e.created_at,
-              c.category AS intel_category, c.fact AS intel_fact, c.basis AS intel_basis
-       FROM expressions e
-       LEFT JOIN intel_classes c ON c.expression_id = e.id
-       WHERE e.person_id = $1 AND e.door = 'webui'
-       ORDER BY e.created_at DESC`,
-      [req.person.id]
+      `SELECT id, body, verdict, reject_reason, created_at
+       FROM intel
+       WHERE user_id = $1 AND door = 'webui'
+       ORDER BY created_at DESC`,
+      [req.user.id]
     );
     const submissions = [];
     for (const row of rows) {
-      const imgs = await pool.query(
-        `SELECT upload_id FROM expression_images WHERE expression_id = $1 ORDER BY sort_order`,
+      const files = await pool.query(
+        `SELECT u.id, u.mime, u.original_name
+         FROM intel_files f
+         JOIN uploads u ON u.id = f.upload_id
+         WHERE f.intel_id = $1
+         ORDER BY f.sort_order`,
         [row.id]
       );
+      const attachments = files.rows.map(attachmentOf);
       submissions.push({
-        id: row.id,
-        role: row.role,
-        body: row.body,
-        reviewStatus: row.review_status,
-        rejectReason: row.reject_reason,
-        rejectCode: row.reject_code,
-        summary: row.processed,
-        evaluation: row.evaluation
-          ? { score: row.evaluation.score, reason: row.evaluation.reason || "" }
-          : null,
-        intelClass: row.intel_category
-          ? { category: row.intel_category, fact: row.intel_fact, basis: row.intel_basis }
-          : null,
-        intelReward: row.intel_reward,
-        imageIds: imgs.rows.map((r) => r.upload_id),
-        createdAt: row.created_at,
+        ...presentIntel(row),
+        imageIds: attachments.filter((item) => item.image).map((item) => item.id),
+        attachments,
       });
     }
     res.json({ submissions });
@@ -197,65 +302,26 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/search", async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (!q) return res.json({ information: [] });
-    const { rows } = await pool.query(
-      `SELECT e.id, e.role, e.body, e.processed, e.card, e.created_at,
-              c.category AS intel_category, c.fact AS intel_fact
-       FROM expressions e
-       LEFT JOIN intel_classes c ON c.expression_id = e.id
-       WHERE e.review_status = 'published' AND e.processed IS NOT NULL
-       ORDER BY e.created_at DESC
-       LIMIT 500`
-    );
-    const matched = rows
-      .map((row) => ({ ...row, score: scoreInformation(q, row) }))
-      .filter((row) => row.score > 0)
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-      .slice(0, 30);
-    res.json({ information: (await withUploads(pool, matched)).map(publicCard) });
-  });
-
-  router.get("/information", async (_req, res) => {
-    const { rows } = await pool.query(
-      `SELECT e.id, e.role, e.body, e.created_at, c.category AS intel_category
-       FROM expressions e
-       LEFT JOIN intel_classes c ON c.expression_id = e.id
-       WHERE e.review_status = 'published' AND e.processed IS NOT NULL
-       ORDER BY e.created_at DESC
-       LIMIT 30`
-    );
+    const rows = await searchPublicIntel(pool, q);
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
-  router.get("/expressions", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
-    const { rows } = await pool.query(
-      `SELECT ${EXPRESSION_COLUMNS} FROM expressions
-       WHERE person_id = $1 AND door = 'webui'
-       ORDER BY created_at DESC`,
-      [req.person.id]
-    );
-    res.json({ expressions: rows });
-  });
-
-  router.get("/points", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
-    const balance = await getBalance(pool, req.person.id);
-    res.json({ balance });
+  router.get("/information", async (_req, res) => {
+    const rows = await listPublicIntel(pool, 30);
+    res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
   router.get("/notifications", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
+    if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
       `SELECT id, kind, title, body, href, read_at, created_at
        FROM notifications
-       WHERE person_id = $1
-       ORDER BY created_at DESC
-       LIMIT 100`,
-      [req.person.id]
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [req.user.id]
     );
-    const unread = rows.filter((row) => !row.read_at).length;
     res.json({
-      unread,
+      unread: rows.filter((row) => !row.read_at).length,
       notifications: rows.map((row) => ({
         id: row.id,
         kind: row.kind,
@@ -269,140 +335,63 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   });
 
   router.post("/notifications/read", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
+    if (!req.user) return res.status(401).json({ error: "no_session" });
     await pool.query(
-      `UPDATE notifications SET read_at = now()
-       WHERE person_id = $1 AND read_at IS NULL`,
-      [req.person.id]
+      `UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL`,
+      [req.user.id]
     );
     res.json({ ok: true });
   });
 
-  router.get("/messages", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
-    const { rows } = await pool.query(
-      `SELECT m.id, m.expression_id, m.direction, m.body, m.read_at, m.created_at, m.match_id,
-              e.role, ma.status AS match_status
-       FROM messages m
-       JOIN expressions e ON e.id = m.expression_id
-       LEFT JOIN matches ma ON ma.id = m.match_id
-       WHERE m.person_id = $1 AND m.door = 'webui'
-       ORDER BY m.created_at DESC`,
-      [req.person.id]
-    );
-    const unread = rows.filter((row) => row.direction === "in" && !row.read_at).length;
-    res.json({
-      unread,
-      messages: rows.map((row) => ({
-        id: row.id,
-        expressionId: row.expression_id,
-        role: row.role,
-        direction: row.direction,
-        body: row.body,
-        read: Boolean(row.read_at),
-        createdAt: row.created_at,
-        matchId: row.match_id,
-        canConnect: Boolean(row.match_id && row.match_status === "pending"),
-        connected: row.match_status === "connected",
-      })),
-    });
-  });
-
-  router.post("/messages/read", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
-    await pool.query(
-      `UPDATE messages SET read_at = now()
-       WHERE person_id = $1 AND door = 'webui' AND direction = 'in' AND read_at IS NULL`,
-      [req.person.id]
-    );
-    res.json({ ok: true });
-  });
-
-  router.post("/matches/:matchId/connect", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
-    const { rows } = await pool.query(
-      `SELECT m.id, m.status, m.connect_cost, m.demand_expression_id, m.supply_expression_id,
-              d.body AS demand_body, d.contact AS demand_contact, d.person_id AS demand_person,
-              s.body AS supply_body, s.contact AS supply_contact, s.person_id AS supply_person,
-              pd.contact AS demand_person_contact, ps.contact AS supply_person_contact
-       FROM matches m
-       JOIN expressions d ON d.id = m.demand_expression_id
-       JOIN expressions s ON s.id = m.supply_expression_id
-       JOIN persons pd ON pd.id = d.person_id
-       JOIN persons ps ON ps.id = s.person_id
-       WHERE m.id = $1`,
-      [req.params.matchId]
-    );
-    if (!rows.length) return res.status(404).json({ error: "not_found" });
-    const match = rows[0];
-    if (match.status === "connected") {
-      return res.json({
-        alreadyConnected: true,
-        rawSelf: req.person.id === match.demand_person ? match.demand_body : match.supply_body,
-        rawPeer: req.person.id === match.demand_person ? match.supply_body : match.demand_body,
-        contact:
-          req.person.id === match.demand_person
-            ? match.supply_contact || match.supply_person_contact || "未提供"
-            : match.demand_contact || match.demand_person_contact || "未提供",
+  router.post("/demands", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const brief = typeof req.body?.brief === "string" ? req.body.brief.trim() : "";
+    const fileIds = Array.isArray(req.body?.fileIds) ? req.body.fileIds.filter((id) => typeof id === "string") : [];
+    if (!brief && !fileIds.length) return res.status(400).json({ error: "empty_body" });
+    try {
+      const demand = await createDemand(pool, {
+        userId: req.user.id,
+        actor: "person",
+        door: "webui",
+        brief,
+        citationLimit: req.body?.citationLimit,
+        fileIds,
       });
+      res.status(201).json({ demand });
+    } catch (error) {
+      console.error(error);
+      res.status(503).json({ error: "process_unavailable" });
     }
-    const isParty =
-      req.person.id === match.demand_person || req.person.id === match.supply_person;
-    if (!isParty) return res.status(403).json({ error: "forbidden" });
-    const balance = await getBalance(pool, req.person.id);
-    if (balance < match.connect_cost) return res.status(402).json({ error: "insufficient_points" });
-    await adjustPoints(pool, {
-      personId: req.person.id,
-      delta: -match.connect_cost,
-      reason: "connect",
-      refId: match.id,
-    });
-    await pool.query(
-      `UPDATE matches SET status = 'connected', connected_at = now() WHERE id = $1`,
-      [match.id]
-    );
-    const rawSelf = req.person.id === match.demand_person ? match.demand_body : match.supply_body;
-    const rawPeer = req.person.id === match.demand_person ? match.supply_body : match.demand_body;
-    const contact =
-      req.person.id === match.demand_person
-        ? match.supply_contact || match.supply_person_contact || "未提供"
-        : match.demand_contact || match.demand_person_contact || "未提供";
-    res.json({ rawSelf, rawPeer, contact, cost: match.connect_cost });
   });
 
-  router.get("/feedback", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
-    const { rows } = await pool.query(
-      `SELECT ${EXPRESSION_COLUMNS} FROM expressions
-       WHERE person_id = $1 AND door = 'webui' AND feedback IS NOT NULL
-       ORDER BY created_at DESC`,
-      [req.person.id]
-    );
-    res.json({ feedback: rows });
+  router.get("/demands", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const demands = await listDemands(pool, req.user.id, "webui");
+    res.json({ demands });
   });
 
   router.post("/delegation", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
+    if (!req.user) return res.status(401).json({ error: "no_session" });
     const token = randomBytes(24).toString("base64url");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     await pool.query(
-      `INSERT INTO delegations (person_id, token_hash)
+      `INSERT INTO delegations (user_id, token_hash)
        VALUES ($1, $2)
-       ON CONFLICT (person_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, created_at = now()`,
-      [req.person.id, tokenHash]
+       ON CONFLICT (user_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, created_at = now()`,
+      [req.user.id, tokenHash]
     );
     res.status(201).json({ token });
   });
 
   router.get("/delegation", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
-    const { rows } = await pool.query(`SELECT 1 FROM delegations WHERE person_id = $1`, [req.person.id]);
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const { rows } = await pool.query(`SELECT 1 FROM delegations WHERE user_id = $1`, [req.user.id]);
     res.json({ delegated: rows.length > 0 });
   });
 
   router.delete("/delegation", async (req, res) => {
-    if (!req.person) return res.status(401).json({ error: "no_session" });
-    await pool.query(`DELETE FROM delegations WHERE person_id = $1`, [req.person.id]);
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    await pool.query(`DELETE FROM delegations WHERE user_id = $1`, [req.user.id]);
     res.json({ ok: true });
   });
 

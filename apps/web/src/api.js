@@ -18,12 +18,20 @@ export function getSession() {
   return request("/api/web/session");
 }
 
-export function startSession() {
-  return request("/api/web/session", { method: "POST", body: "{}" });
+export function requestLoginKey(email) {
+  return request("/api/web/login", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export function confirmLoginKey(email, key) {
+  return request("/api/web/login/key", { method: "POST", body: JSON.stringify({ email, key }) });
 }
 
 export function endSession() {
   return request("/api/web/session", { method: "DELETE" });
+}
+
+export function updateProfile(profile) {
+  return request("/api/web/profile", { method: "PATCH", body: JSON.stringify(profile) });
 }
 
 export function uploadImage(file) {
@@ -40,23 +48,32 @@ export function searchInformation(q) {
   return request(`/api/web/search?q=${encodeURIComponent(q)}`);
 }
 
-export function createExpression(role, body, { imageIds = [], contact = "" } = {}) {
-  return request("/api/web/expressions", {
+export function createIntel(body, imageIds = [], fileIds = []) {
+  return request("/api/web/intel", {
     method: "POST",
-    body: JSON.stringify({ role, body, imageIds, contact }),
+    body: JSON.stringify({ body, imageIds, fileIds }),
   });
+}
+
+export function uploadAttachment(file) {
+  const form = new FormData();
+  form.append("file", file);
+  return request("/api/web/files", { method: "POST", body: form });
+}
+
+export function createDemand(brief, fileIds = []) {
+  return request("/api/web/demands", {
+    method: "POST",
+    body: JSON.stringify({ brief, fileIds }),
+  });
+}
+
+export function listDemands() {
+  return request("/api/web/demands");
 }
 
 export function listSubmissions() {
   return request("/api/web/submissions");
-}
-
-export function listMessages() {
-  return request("/api/web/messages");
-}
-
-export function readMessages() {
-  return request("/api/web/messages/read", { method: "POST", body: "{}" });
 }
 
 export function listNotifications() {
@@ -65,17 +82,6 @@ export function listNotifications() {
 
 export function readNotifications() {
   return request("/api/web/notifications/read", { method: "POST", body: "{}" });
-}
-
-export function getPoints() {
-  return request("/api/web/points");
-}
-
-export function connectMatch(matchId) {
-  return request(`/api/web/matches/${encodeURIComponent(matchId)}/connect`, {
-    method: "POST",
-    body: "{}",
-  });
 }
 
 export function getDelegation() {

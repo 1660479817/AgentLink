@@ -2,7 +2,7 @@
 
 Knot 的平台员工放在 OpenClaw 上。这份目录是开发平台里的配置源。bot01 上的 `~/.openclaw` 由 `ops/scripts/ensure-openclaw.sh` 按这里同步，不在那台机器上单独改提示词或技能名单。
 
-Personal Agent 不是这里的员工。人在 Knot WebUI 委托后，Personal Agent 用凭证调用 `/api/agent/*`。下面四个 id 只由 Knot Backend 拉起。
+Personal Agent 不是这里的员工。人在 Knot WebUI 委托后，Personal Agent 用凭证调用 `/api/agent/*`。下面三个 id 只由 Knot Backend 拉起。
 
 ## 机器上的位置
 
@@ -17,18 +17,17 @@ Personal Agent 不是这里的员工。人在 Knot WebUI 委托后，Personal Ag
 
 Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 OpenClaw。脚本不重跑 onboarding，也不改 `channels`、`auth`、`gateway.auth`。
 
-## 四个员工
+## 三个员工
 
 提示词在 `ops/openclaw/agents/<id>/`：`IDENTITY.md`、`SOUL.md`、`USER.md`、`AGENTS.md`。脚本每次都覆盖工作区里的这四个文件。
 
 | id | 员工 | Backend 何时拉起 | 交回 |
 | --- | --- | --- | --- |
-| `knot-process` | Process | 有一条尚未整理的表达。附带图片时，Backend 先用该员工的模型转写图片，再把转写放进消息 | `verdict`、`card`、`evaluation`。不违规即公开。高价值情报另交 `intelClass` |
-| `knot-source` | Source | 需求还没有配对上的供给 | `leads`、`suggestion`。线索只能来自 Backend 放进消息的已公开供给和情报 |
-| `knot-match` | Match | 字面重合较高的一批候选都在 | `id`。没有对得上的则为 null |
-| `knot-feedback` | Feedback | 已经有要送回去的结果 | `body` |
+| `knot-intel` | Intel | 有一条新的情报。附带图片时，Backend 先转写图片，再把转写放进消息 | `verdict` 为 `pass` 或 `reject`。通过后 Backend 奖励 1 积分 |
+| `knot-demand` | Demand | 有一次对话，库存候选已放进消息 | `citations` 与 `ask`。`ask` 为空时 Backend 按引用条数扣同一个单价，并按一条情报一张卡提交 |
+| `knot-seek` | Seek | demand 的 `ask` 不为空 | `able` 与 `items`。能补上时 Backend 交给 knot-intel，通过后由 demand 写入库存并提交 |
 
-四类并排，互不调用。`allowAgents` 都是空数组。`ops/env/knot-platform.local.env` 写上对应的员工 id 后，Backend 按状态拉起这四个员工。员工没有交回可用 JSON 时，Backend 用本地规则把这一步走完：字面重合最高的一条暂作配对，寻源带回重合的已有线索或一句建议，反馈按「已记下」「已配对」或寻源结果送出。
+三个并排，互不调用。`allowAgents` 都是空数组。环境变量是 `OPENCLAW_INTEL_AGENT`、`OPENCLAW_DEMAND_AGENT` 与 `OPENCLAW_SEEK_AGENT`。员工没有交回可用 JSON 时，情报在未配置员工时直接通过；对话改由 Backend 按字面重合从库存里取；seek 未配置时视为不能补上。
 
 ## 技能
 
@@ -36,16 +35,15 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 
 | 范围 | 名单 | 技能 | 谁看得见 |
 | --- | --- | --- | --- |
-| 公共 | `commonSkills` | `knot-employee` | 四个 Knot 员工都复制一份 |
-| Process | `knot-process` | `knot-process` | 只此员工 |
-| Source | `knot-source` | `knot-source` | 只此员工 |
-| Match | `knot-match` | `knot-match` | 只此员工 |
-| Feedback | `knot-feedback` | `knot-feedback` | 只此员工 |
+| 公共 | `commonSkills` | `knot-employee` | 三个 Knot 员工都复制一份 |
+| Intel | `knot-intel` | `knot-intel` | 只此员工 |
+| Demand | `knot-demand` | `knot-demand` | 只此员工 |
+| Seek | `knot-seek` | `knot-seek` | 只此员工 |
 
-公共技能写四个员工共同遵守的边界。每个员工自己的技能只写该类交回的 JSON。以后要加外部技能，先把 `SKILL.md` 放进 `ops/openclaw/skills/`，再把名字写入 `manifest.json`，然后在 bot01 的仓库里执行 `./ops/scripts/ensure-openclaw.sh`。
+公共技能写三个员工共同遵守的边界。每个员工自己的技能只写该类交回的 JSON。以后要加外部技能，先把 `SKILL.md` 放进 `ops/openclaw/skills/`，再把名字写入 `manifest.json`，然后在 bot01 的仓库里执行 `./ops/scripts/ensure-openclaw.sh`。
 
 ## 拉起
 
-Knot Backend 执行 `openclaw agent --agent <id> --session-key <key> --message-file <file> --json --timeout <秒>`。Process 的会话键是 `expr-<id>`，超时见 `OPENCLAW_PROCESS_TIMEOUT`。Source、Match、Feedback 的超时见 `OPENCLAW_AGENT_TIMEOUT`。
+Knot Backend 执行 `openclaw agent --agent <id> --session-key <key> --message-file <file> --json --timeout <秒>`。`knot-intel` 的会话键是 `intel-<id>`，超时见 `OPENCLAW_PROCESS_TIMEOUT`。`knot-demand` 的会话键是 `demand-<id>`，`knot-seek` 的会话键是 `seek-<id>`，超时都见 `OPENCLAW_AGENT_TIMEOUT`。
 
-Backend 解析 JSON，自己写入数据库、积分和通知。员工不访问数据库。Match 在最近 200 条对侧表达里，看字面重合较高的最多 8 条，一次选出对得上的那条。都不对得上，需求才交给 Source。Source 只能引用这批已公开供给和情报。
+Backend 解析 JSON，自己写入数据库、积分和通知。员工不访问数据库。对话侧最多引用 10 条，并且不超过当时积分付得起的条数。同一条库存在同一次回复里只算一次。点星不经过员工。

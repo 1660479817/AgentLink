@@ -27,15 +27,13 @@ if [[ -z "${TESTER_SID:-}" ]]; then
 fi
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
-ALTER TABLE persons ADD COLUMN IF NOT EXISTS label TEXT;
-CREATE UNIQUE INDEX IF NOT EXISTS persons_label_key ON persons (label) WHERE label IS NOT NULL;
-INSERT INTO persons (id, label, points_balance)
-VALUES ('${TESTER_ID}', 'tester', 100)
+INSERT INTO users (id, display_name, label, points_balance)
+VALUES ('${TESTER_ID}', '测试员', 'tester', 100)
 ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label;
-INSERT INTO sessions (sid, person_id, expires_at)
+INSERT INTO sessions (sid, user_id, expires_at)
 VALUES ('${TESTER_SID}', '${TESTER_ID}', now() + interval '10 years')
 ON CONFLICT (sid) DO UPDATE
-  SET person_id = EXCLUDED.person_id, expires_at = now() + interval '10 years';
+  SET user_id = EXCLUDED.user_id, expires_at = now() + interval '10 years';
 SQL
 
 echo "tester ${TESTER_ID}"

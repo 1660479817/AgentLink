@@ -1,140 +1,84 @@
 # Knot 项目规划
 
-| 字段 | 内容 |
-|------|------|
-| **项目名** | Knot |
-| **代码仓库** | [manwjh/AgentLink](https://github.com/manwjh/AgentLink) |
-| **日期** | 2026-10-10 |
+愿景、三个角色和系统架构见 [README](../README.md)。本文只写那里没有的运行约定。
 
-愿景、三个角色、系统架构以 [README](../README.md) 为准。本文说明怎样把那份总体设计做成可运行的系统。
+表结构见 [KNOT_DATABASE.md](./KNOT_DATABASE.md)。页面见 [KNOT_WEB_UI.md](./KNOT_WEB_UI.md)。WebUI 与 Backend 的契约见 [KNOT_WEB_API.md](./KNOT_WEB_API.md)。
 
 ---
 
-## 1. 目标
+## 1. 账号
 
-Knot 是面向 AI 时代、服务于 Agent 的信息交换网。
+账号在 `users`。称呼、头像、等级、权益、积分都在这一行。人和他委托的 Personal Agent 是同一个用户。
 
-AI模型已经读过公开世界。人或 Personal Agent 在 Knot 上说出需要什么、能供应什么，平台里的 Agent 员工把两边撮合起来。
+登录和注册用同一张表单。写下邮箱，登录密钥发到这个邮箱。新邮箱注册，已有邮箱登录。密钥十分钟内有效，用过即废。
 
----
-
-## 2. 三个角色
-
-**需求方**表达自己需要什么。
-
-**供给方**表达自己能供应什么。
-
-**平台**是一个由Agent驱动的信息撮合方。
-
-需求方和供给方可以是人，也可以是 Personal Agent（个人 AI 智能体）。同一方在一次交换里表达需求，在另一次交换里表达供给。平台由 Knot Agent 处理信息、提供反馈、撮合供需。
+首页浏览已通过的情报不扣积分。把寻找交给平台才扣。
 
 ---
 
-## 3. 系统架构
+## 2. 委托
 
-Knot 是这张网，AgentLink 是承载它的平台。架构图：
-
-![Knot 系统架构](knot-architecture.jpg)
-
-| 组成 | 位置 | 职责 |
-|------|------|------|
-| **Knot WebUI** | AgentLink 外 | 人表达需求或供给，并在这扇门上看反馈 |
-| **Agent API** | AgentLink 内 | Personal Agent 的门 |
-| **Knot Backend** | AgentLink 内 | 保存网络状态，按状态拉起 Knot Agent，把反馈从进来的那扇门送出 |
-| **数据库** | AgentLink 内 | 只由 Knot Backend 写入和读取 |
-| **Knot Agent** | AgentLink 内 | 平台员工。Process、Source、Match、Feedback 四类并排 |
-
-人通过平台外的 Knot WebUI 访问 Knot Backend。人委托的 Personal Agent 经 Agent API 进入同一个 Backend。
-
-Knot Backend 保存网络状态，并写入数据库。状态需要处理时，Backend 拉起相应的 Knot Agent；员工做完，把结果写回 Backend。反馈从进来的那扇门出去：从 Knot WebUI 进来的回到 Knot WebUI，从 Agent API 进来的回到 Personal Agent。
-
-Knot Agent 是平台员工。Personal Agent 在平台外，由人委托。
+人在 WebUI 给 Personal Agent 发一串凭证，只显示一次。`delegations` 每个用户一行，只存 SHA-256。再委托会换一把新的，旧的立刻失效。收回删掉这一行。WebUI 的会话还在。
 
 ---
 
-## 4. Knot Agent
-
-四类由 Knot Backend 按状态分别拉起。每一类只把自己的结果写回 Backend。
-
-| Knot Agent | 做什么 |
-|------------|--------|
-| **Process** 信息处理 | 把供需和情报整理成可以展示、可以撮合的信息。除违规外都保留，并把高价值情报归类 |
-| **Source** 寻源 | 没有人供应时，收集或寻找，或者给出建议 |
-| **Match** 撮合 | 把需求和对得上的供给配在一起 |
-| **Feedback** 反馈 | 整理要送回去的结果，写回 Knot Backend |
-
-Backend 看到一条新的表达，就拉起 Process。供给还没有着落，就拉起 Source。需求和对得上的供给都在，就拉起 Match。有了要送回去的结果，就拉起 Feedback。Feedback 写回之后，Backend 从这条表达进来的那扇门把结果送出。
-
-不违规的供需和情报都留下，成为可检索的库存。Process 把高价值情报按类别另存。原文在公域开放，不展示发布者。对接时扣除的积分是撮合费，并给出对方的联络方式。高价值情报入账的积分记在另一笔账上，用来购买库存。
-
----
-
-## 5. 两扇门
-
-| 门 | 谁进来 | 进来之后 | 反馈回到 |
-|----|--------|----------|----------|
-| **Knot WebUI** | 人 | Knot Backend | Knot WebUI |
-| **Agent API** | Personal Agent | Knot Backend | Personal Agent |
-
-两扇门进入的是同一个 Knot Backend。Knot WebUI 不调用 Agent API。Personal Agent 不经过 Knot WebUI。
-
-人在 Knot WebUI 上委托自己的 Personal Agent。委托产生的凭证只给 Agent API 使用。
-
----
-
-## 6. Backend 保存的状态
+## 3. Backend 保存的状态
 
 | 状态 | 内容 |
 |------|------|
-| 当事人 | 人，或被这个人委托的 Personal Agent |
-| 表达 | 需求或供给，以及它从哪扇门进来 |
-| 可撮合信息 | Process 写回的结果。不违规即公开 |
-| 高价值情报 | Process 归类后的类别、事实和依据 |
-| 寻源结果 | Source 写回的收集、寻找或建议 |
-| 配对 | Match 写回的需求与供给 |
-| 待送出的反馈 | Feedback 写回的结果，由 Backend 从进门送出 |
-| **消息** | 人发出的信息，以及平台送回的回应。回应未读时记在这一侧 |
+| 用户 | `users` 里的账号 |
+| 委托 | 凭证。收回后没有这一行 |
+| 情报 | 提交的一条，以及是否通过 |
+| 对话 | 一次输入，文字和附件 |
+| 交付 | 一张张卡片。一条情报一张，引用几条就几张 |
 
-Knot Backend 在收下一条信息时记下一条发出的消息。Feedback 写回、Backend 从这扇门送出时，再记下一条回应。人在 Knot WebUI 看这扇门的消息。Personal Agent 经 Agent API 看那扇门的消息。
-
-Knot WebUI、Agent API、Knot Agent 都不直接读写这些状态。它们经过 Knot Backend。
+库存盖不住时见下一节。
 
 ---
 
-## 7. 分期
+## 4. 库存不够时
 
-**Phase 0：** 两扇门都进入 Knot Backend；数据库只由 Backend 访问；四类 Knot Agent 能按状态被拉起并写回；反馈从进来的那扇门出去。
+knot-demand 发现缺的那一截，问 knot-seek 能不能补上。两名员工不直接对话，由 Backend 把问题和结果递过去。
 
-步骤与验收见 [KNOT_PHASE0_FOUNDATION.md](./KNOT_PHASE0_FOUNDATION.md)。
+seek 回答不能，demand 用已经对上的库存提交。缺的那一截不收费。
 
-人使用的 Knot WebUI 见 [KNOT_WEB_UI.md](./KNOT_WEB_UI.md)。WebUI 与 Backend 的契约见 [KNOT_WEB_API.md](./KNOT_WEB_API.md)。
+seek 回答能，就做完，把结果交给 demand。demand 先把每条结果写成库存里的情报，记在平台账号上，再提交。补进库之前仍由 knot-intel 判断，违规不留下。
 
-**当前回路：** Backend 拉起 Process 整理表达。Match 在最近一批对侧表达里选出唯一对得上的一条才配对。没有配对时，Source 从已公开的供给和情报里带回线索；没有线索就写回建议。Feedback 整理要送回的一句话，Backend 从进门送出。
-
-**随后：** 寻源还可以到平台以外寻找。架构组成不变。
+平台补上的情报通过时入账 1 分，只这一次。以后再被引用，提问的人仍按条付，平台不再加。
 
 ---
 
-## 8. Agent API
+## 5. 星星
 
-Personal Agent 的门。鉴权使用人在 Knot WebUI 委托时得到的凭证。
+回复里的每张卡可以点亮一颗星。点亮后，这张卡进入这个人的收藏，这条情报的权重加 1。熄灭则从收藏拿走，权重收回这 1 分。同一个人同一条只贡献 1 分。权重等于现在还亮着的人数。
+
+首页和对话取库存时，权重大的靠前，相同权重再按时间从新到旧。
+
+---
+
+## 6. Agent API
+
+鉴权使用第 2 节的凭证。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/agent/expressions` | 提交需求或供给 |
-| GET | `/api/agent/feedback` | 读取从这扇门送回的反馈 |
-| GET | `/api/agent/messages` | 读取这扇门上的消息：发出的信息，以及平台的回应 |
-
-请求进入 Knot Backend。反馈由 Backend 送回，不由 Knot Agent 直接发给 Personal Agent。
+| POST | `/api/agent/intel` | 提供一条情报 |
+| POST | `/api/agent/demands` | 发起一次对话 |
+| GET | `/api/agent/demands` | 读取这扇门上的对话和交回的卡片 |
 
 ---
 
-## 9. 验收
+## 7. 还没有
 
-- [ ] 人在 Knot WebUI 表达需求或供给，反馈回到 Knot WebUI
-- [ ] Personal Agent 经 Agent API 表达需求或供给，反馈回到 Personal Agent
-- [ ] 数据库只由 Knot Backend 访问
-- [ ] Knot Backend 按状态拉起 Knot Agent，员工把结果写回
-- [ ] Process、Source、Match、Feedback 并排，由状态决定拉起哪一类
-- [ ] Feedback 把要送回去的结果写回 Backend，由进来的那扇门送出
-- [ ] Knot Agent 与 Personal Agent 是两类主体
+把卡片寄到邮箱。
+
+---
+
+## 8. 验收
+
+- [ ] 人用邮箱收到登录密钥后进入账号，并能改称呼和头像
+- [ ] 人在 Knot WebUI 提供情报，通过后出现在首页并奖励 1 积分
+- [ ] 人在 Knot WebUI 发起对话，按一条情报一张卡收到回复，并按张扣积分
+- [ ] 库里没有时，demand 问 seek；seek 能做则补进库，再由 demand 以卡片提交。平台这张卡入账 1 分
+- [ ] 点亮星后出现在收藏里，这条情报权重加 1；熄灭后两边都收回
+- [ ] 人委托后，Agent API 做同样两件事；收回后凭证失效

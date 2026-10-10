@@ -6,21 +6,24 @@ const props = defineProps({
   role: { type: String, required: true },
   body: { type: String, default: "" },
   imageUrls: { type: Array, default: () => [] },
-  category: { type: String, default: "" },
-  compact: { type: Boolean, default: false },
+  attachments: { type: Array, default: () => [] },
 });
+
+const files = computed(() => props.attachments.filter((item) => !item.image));
 
 const roleLabel = computed(() => t(`role.${props.role}`));
 </script>
 
 <template>
-  <article class="card post information-card" :class="{ 'information-card-compact': compact }">
+  <article class="card post information-card">
     <header class="post-head information-head">
       <span class="role-badge" :data-role="role">{{ roleLabel }}</span>
-      <span v-if="category" class="info-category">{{ category }}</span>
     </header>
     <div v-if="imageUrls.length" class="information-images">
       <img v-for="url in imageUrls" :key="url" :src="url" alt="" class="information-photo" />
+    </div>
+    <div v-if="files.length" class="information-files">
+      <a v-for="file in files" :key="file.id" class="chat-file-link" :href="file.url">{{ file.name || t("home.file") }}</a>
     </div>
     <p v-if="body" class="post-body information-body">{{ body }}</p>
   </article>

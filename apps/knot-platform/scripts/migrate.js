@@ -11,8 +11,13 @@ async function main() {
   const { databaseUrl } = loadBootstrapConfig();
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
-  const present = await client.query(`SELECT to_regclass('public.expressions') AS name`);
-  if (!present.rows[0]?.name) {
+  const present = await client.query(
+    `SELECT to_regclass('public.users') AS users,
+            to_regclass('public.persons') AS persons,
+            to_regclass('public.expressions') AS expressions`
+  );
+  const marker = present.rows[0] || {};
+  if (!marker.users || marker.persons || marker.expressions) {
     await client.query("DROP SCHEMA IF EXISTS public CASCADE");
     await client.query("CREATE SCHEMA public");
   }

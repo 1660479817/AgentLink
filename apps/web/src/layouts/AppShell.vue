@@ -2,13 +2,11 @@
 import { nextTick, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
-import { BackIcon, HistoryIcon, MessageIcon, SearchIcon, UserIcon, ZapIcon } from "../icons/index.js";
+import { BackIcon, ChatIcon, HistoryIcon, SearchIcon, UserIcon, ZapIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
-import { useMessageStore } from "../stores/messages";
 import { useNotificationStore } from "../stores/notifications";
 
 const router = useRouter();
-const messages = useMessageStore();
 const notifications = useNotificationStore();
 const mark = t("app.name").slice(0, 1);
 const HISTORY_KEY = "knot.search.history";
@@ -53,7 +51,6 @@ function search(text = query.value) {
 }
 
 onMounted(() => {
-  messages.load();
   notifications.load();
 });
 </script>
@@ -97,9 +94,8 @@ onMounted(() => {
               notifications.unread > 99 ? "99+" : notifications.unread
             }}</span>
           </AppButton>
-          <AppButton variant="icon" to="/messages" :aria-label="t('nav.messages')">
-            <MessageIcon class="nav-icon" aria-hidden="true" />
-            <span v-if="messages.unread > 0" class="nav-badge">{{ messages.unread > 99 ? "99+" : messages.unread }}</span>
+          <AppButton variant="icon" to="/buy" :aria-label="t('nav.buy')">
+            <ChatIcon class="nav-icon" aria-hidden="true" />
           </AppButton>
           <AppButton variant="icon" to="/mine" :aria-label="t('nav.mine')">
             <UserIcon class="nav-icon" aria-hidden="true" />

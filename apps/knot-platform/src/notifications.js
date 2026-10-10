@@ -1,9 +1,9 @@
-export async function recordNotification(pool, { personId, kind, title, body = "", href = null }) {
+export async function recordNotification(pool, { userId, kind, title, body = "", href = null }) {
   const { rows } = await pool.query(
-    `INSERT INTO notifications (person_id, kind, title, body, href)
+    `INSERT INTO notifications (user_id, kind, title, body, href)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [personId, kind, title, body, href]
+    [userId, kind, title, body, href]
   );
   return rows[0].id;
 }

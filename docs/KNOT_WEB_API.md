@@ -2,7 +2,9 @@
 
 Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend。
 
-信息架构见 [KNOT_WEB_UI.md](./KNOT_WEB_UI.md)。
+信息架构见 [KNOT_WEB_UI.md](./KNOT_WEB_UI.md)。库见 [KNOT_DATABASE.md](./KNOT_DATABASE.md)。
+
+人和 Personal Agent 是同一套逻辑。WebUI 走本文。Personal Agent 走 `/api/agent`，见项目规划。
 
 ---
 
@@ -10,78 +12,75 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/web/session` | 建立会话 |
-| GET | `/api/web/session` | 当前会话 |
-| DELETE | `/api/web/session` | 结束会话 |
+| POST | `/api/web/login` | `{ email }`。登录和注册同一入口。把登录密钥寄到这个邮箱。同一邮箱一分钟内只寄一次 |
+| POST | `/api/web/login/key` | `{ email, key }`。密钥正确则进入账号。邮箱还没有用户时注册，已有则登录。返回 `{ user }` |
+| GET | `/api/web/session` | 当前用户。无会话时 `{ user: null }` |
+| DELETE | `/api/web/session` | 结束会话，不删除用户 |
+| PATCH | `/api/web/profile` | `{ displayName?, avatarUploadId? }`。称呼最多 40 字。头像必须是本人已上传的图片 |
+
+`user` 为 `{ id, email, displayName, avatarUrl, level, entitlements, pointsBalance }`。等级和权益只读。
 
 ---
 
-## 2. 上传与表达
+## 2. 提供信息
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/web/uploads` | `multipart` 字段 `file`，图片存平台，返回 `{ id, url }` |
-| GET | `/api/web/uploads/:id` | 读取图片 |
-| POST | `/api/web/expressions` | `{ role, body, imageIds?, contact? }` |
-| GET | `/api/web/submissions` | 当前用户的原文、审核态、摘要、评价、高价值归类、奖励 |
+| POST | `/api/web/files` | 文字输入的附件。`multipart` 字段 `file`，5MB 以内，返回 `{ id, url, name, mime }` |
+| GET | `/api/web/uploads/:id` | 读取图片或附件 |
+| POST | `/api/web/intel` | `{ body, imageIds?, fileIds? }`。文字、图片、附件至少有一个 |
+| GET | `/api/web/submissions` | 当前用户从 WebUI 提交的信息，含 `attachments` |
 
-`role`：`demand` \| `supply` \| `intel`。Process 交回卡片、评价，以及高价值情报的归类后，Backend 写入。不违规则 `review_status = published`。
+不区分关于自己还是关于别人。knot-intel 判断通过后 `verdict = passed`，奖励 1 积分。只有违规才 `rejected`。只有图片或附件时 `body` 可以为空。页面文案写「信息」，不写「情报」。
 
-提交成功返回给提交者：
-
-`{ id, role, reviewStatus, summary, reject, evaluation, intelClass, intelReward }`
-
-`summary` 是撮合用的一句话，不是公域上代替原文的文案。`reject` 为 `{ code, reason }` 或 `null`。`code` 只有 `violation`（违法、欺诈、隐私或骚扰）。`evaluation` 为 `{ score, reason }`，公开时 `score` 为 1～10，用来排序，不决定能不能展示。`intelClass` 为 `{ category, fact, basis }` 或 `null`，只在高价值情报上有值。只有这时 `intelReward` 等于 `evaluation.score`。需求和供给、以及未归类的情报只存评价，不入账。有图片时 `body` 可以为空。
+提交成功返回 `{ intel }`：`{ id, body, verdict, rejectReason, reward, createdAt }`。通过时 `reward` 为 1，否则为 `null`。
 
 ---
 
-## 3. 信息卡片（公域）
+## 3. 信息流
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/web/information` | feed |
-| GET | `/api/web/search?q=` | 搜索 |
+| GET | `/api/web/information` | 已通过的信息里权重最高的 30 条 |
+| GET | `/api/web/search?q=` | 在更大范围内筛选，最多 30 条 |
 
-条目：`{ id, role, body, imageUrls, category }`。仅 `published`。`body` 是用户原文；只有图片时为空。`imageUrls` 是用户上传的原图，按提交顺序。`category` 只在高价值情报上有值，否则为 `null`。不返回发布者，也不返回联络方式。Knot WebUI 和 Agent API 进来的都包括在内。
-
-`GET /information` 是最新 30 条，按时间从新到旧。`GET /search` 在更大范围内筛选，命中后同样按时间从新到旧，最多 30 条。评价分不参与排序。
+条目：`{ id, role, body, imageUrls, attachments, weight }`。`role` 恒为 `intel`。`attachments` 为 `{ id, name, mime, url, image }`。不返回发布者。排序先权重、后时间。
 
 ---
 
-## 4. 通知
+## 4. 对话与星星
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/web/notifications` | `{ unread, notifications[] }`，含已读历史 |
+| POST | `/api/web/files` | `multipart` 字段 `file`，5MB 以内，返回 `{ id, url, name, mime }` |
+| POST | `/api/web/demands` | `{ brief, fileIds?, citationLimit? }`。文字和附件至少有一个 |
+| GET | `/api/web/demands` | 当前用户在 WebUI 的对话和卡片 |
+
+`citationLimit` 缺省为 10，最大 10。knot-demand 按一条情报一张卡提交。引用几条就扣几个积分，每条同价。余额不够时少引用。库存盖不住时，Backend 问 knot-seek；能补上的先入库再进卡片。缺的那一截不收费。
+
+返回 `{ demand }`：`{ id, brief, citationLimit, status, citationCount, cost, createdAt, cards }`。`cards` 为 `{ id, body, imageUrls, weight, starred }`。一条引用一张卡。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/web/intel/:id/star` | 点亮。写入收藏，该情报权重加 1。已经亮着则不变 |
+| DELETE | `/api/web/intel/:id/star` | 熄灭。移出收藏，权重减 1 |
+| GET | `/api/web/stars` | 当前用户的收藏，卡片字段与上面相同 |
+
+---
+
+## 5. 通知与积分
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/web/notifications` | `{ unread, notifications[] }` |
 | POST | `/api/web/notifications/read` | 全部标已读 |
 
-`kind` 示例：`review_rejected`、`intel_credited`、`match_pending`。
+`kind`：`intel_rejected`、`intel_credited`、`demand_fulfilled`。余额在会话返回的 `user.pointsBalance`。
 
 ---
 
-## 5. 消息与对接
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/web/messages` | 回应列表；含 `matchId`、`canConnect`、`connected` |
-| POST | `/api/web/messages/read` | 回应标已读 |
-| POST | `/api/web/matches/:matchId/connect` | 扣积分（默认 1）；返回 `{ rawSelf, rawPeer, contact }` |
-
-对接仅作用于该 `matchId`；其它 match 仍可为 `pending`。
-
----
-
-## 6. 积分
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/web/points` | `{ balance }` |
-
-高价值情报的奖励等于 Process 给出的评价分数（1～10），由 Backend 入账。这是购买库存。对接扣除的积分是撮合费，记在另一笔账上。需求和供给、以及未归类情报的评价只存档。
-
----
-
-## 7. 委托
+## 6. 委托
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -91,17 +90,16 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 
 ---
 
-## 8. 错误
+## 7. 错误
 
 | HTTP | `error` |
 |------|---------|
 | 401 | `no_session` |
-| 400 | `bad_role`、`empty_body`、`bad_mime` |
-| 402 | `insufficient_points` |
-| 404 | `not_found` |
+| 400 | `empty_body`、`bad_mime` |
+| 503 | `process_unavailable` |
 
 ---
 
-## 9. 边界
+## 8. 边界
 
-数据库与 Knot Agent 流水线仅在 Backend 内。上传文件目录由 `UPLOAD_DIR` 配置（默认 `data/uploads`）。
+数据库与 knot-intel、knot-demand、knot-seek 的流水线只在 Backend 内。上传目录由 `UPLOAD_DIR` 配置。登录密钥经 SMTP 寄出（`SMTP_HOST`、`MAIL_FROM`）。卡片仍先在 WebUI 打开，`deliveries.emailed_at` 留空。
