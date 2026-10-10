@@ -109,9 +109,9 @@ Knot WebUI、Agent API、Knot Agent 都不直接读写这些状态。它们经�
 
 人使用的 Knot WebUI 见 [KNOT_WEB_UI.md](./KNOT_WEB_UI.md)。WebUI 与 Backend 的契约见 [KNOT_WEB_API.md](./KNOT_WEB_API.md)。
 
-**当前回路：** Backend 拉起 Process 整理表达。字面重合较高的需求与供给交给 Match，只有对得上才配对。没有对得上的供给时，Source 写回建议。Feedback 整理要送回的一句话，Backend 从进门送出。
+**当前回路：** Backend 拉起 Process 整理表达。Match 在最近一批对侧表达里选出唯一对得上的一条才配对。没有配对时，Source 从已公开的供给和情报里带回线索；没有线索就写回建议。Feedback 整理要送回的一句话，Backend 从进门送出。
 
-**随后：** 在同一条回路上容纳更多表达，并让寻源带回真实的供给线索。架构组成不变。
+**随后：** 寻源还可以到平台以外寻找。架构组成不变。
 
 ---
 

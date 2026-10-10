@@ -91,14 +91,24 @@ function publishReply(value) {
 
 export function parseMatchReply(text) {
   const value = readJsonObject(text);
-  if (typeof value.fits !== "boolean") throw new Error("match_agent_bad_json");
-  return { fits: value.fits };
+  if (value.id === null) return { id: null };
+  const id = cleanText(value.id);
+  if (!id) throw new Error("match_agent_bad_json");
+  return { id };
 }
 
 export function parseSourceReply(text) {
-  const suggestion = clip(text && readJsonObject(text).suggestion, 400);
-  if (!suggestion) throw new Error("source_agent_bad_json");
-  return { suggestion };
+  const value = readJsonObject(text);
+  const leads = [];
+  for (const item of Array.isArray(value.leads) ? value.leads : []) {
+    const id = cleanText(item?.id);
+    if (!id) continue;
+    leads.push({ id, note: clip(item?.note, 120) });
+    if (leads.length === 3) break;
+  }
+  const suggestion = clip(value.suggestion, 400);
+  if (!leads.length && !suggestion) throw new Error("source_agent_bad_json");
+  return { leads, suggestion };
 }
 
 export function parseFeedbackReply(text) {
@@ -255,31 +265,35 @@ async function askEmployee(agentId, sessionKey, message, timeoutSec) {
   }
 }
 
-export async function runMatchAgent(demand, supply) {
+export async function runMatchAgent(input) {
   const id = matchAgentId();
   if (!id) throw new Error("match_agent_unconfigured");
+  const lines = input.candidates.map((item) => `${item.id} ${item.text}`);
   const message = [
-    "比较这一对已整理的需求和供给。只返回一个 JSON 对象。",
-    '{"fits":true} 或 {"fits":false}',
-    "只有两边说的是同一件事、能够互相满足时为 true。个别字面重合、事情对不上时为 false。",
-    "demand:",
-    demand.text,
-    "supply:",
-    supply.text,
+    "从候选里选出唯一一条与这条表达是同一件事、能够互相满足的。只返回一个 JSON 对象。",
+    '{"id":"候选id"} 或 {"id":null}',
+    "个别字面重合、事情对不上时 id 为 null。不要改写原文。",
+    `focus: ${input.focusText}`,
+    "candidates:",
+    ...lines,
   ].join("\n");
-  const text = await askEmployee(id, `match-${demand.id}-${supply.id}`, message, agentTimeout());
+  const text = await askEmployee(id, `match-${input.focusId}`, message, agentTimeout());
   return parseMatchReply(text);
 }
 
 export async function runSourceAgent(demand) {
   const id = sourceAgentId();
   if (!id) throw new Error("source_agent_unconfigured");
+  const lines = demand.clues.map((clue) => `${clue.id} ${clue.kind} ${clue.text}`);
   const message = [
-    "这条需求还没有对得上的供给。只返回一个 JSON 对象。",
-    '{"suggestion":"一到两句中文建议"}',
-    "不要编造供给方，不要写发布者。",
+    "这条需求还没有配对上的供给。只返回一个 JSON 对象。",
+    '{"leads":[{"id":"候选id","note":"这条线索如何对上需求"}],"suggestion":""}',
+    "leads 只能使用下面列出的 id，最多三条。对不上的不要写。没有可用线索时 leads 为空，suggestion 用一两句中文。",
+    "不要编造供给方，不要写发布者、电话或微信。",
     "demand:",
     demand.text,
+    "clues:",
+    ...(lines.length ? lines : ["（没有现成线索）"]),
   ].join("\n");
   const text = await askEmployee(id, `source-${demand.id}`, message, agentTimeout());
   return parseSourceReply(text);
@@ -291,7 +305,7 @@ export async function runFeedbackAgent(input) {
   const message = [
     "整理要送回提交者的一句话。只返回一个 JSON 对象。",
     '{"body":""}',
-    "有配对时以「已配对：」起头，后面是对方的摘要。有寻源建议时，body 就是那条建议。其余用「已记下：」加上这条表达自己的摘要。",
+    "有配对时以「已配对：」起头，后面是对方的摘要。有寻源结果时，body 就是那条寻源结果。其余用「已记下：」加上这条表达自己的摘要。",
     `self: ${input.self}`,
     `peer: ${input.peer || ""}`,
     `suggestion: ${input.suggestion || ""}`,

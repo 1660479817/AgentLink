@@ -8,12 +8,14 @@ import {
   runSourceAgent,
   sourceAgentId,
 } from "./agents/openclaw.js";
-import { suggest } from "./agents/source.js";
+import { leadText, suggest } from "./agents/source.js";
 import { recordMessage } from "./messages.js";
 import { recordNotification } from "./notifications.js";
 import { runReview } from "./review.js";
 
 const COLUMNS = `id, person_id, actor, door, role, body, processed, card, source_result, match_id, feedback, review_status`;
+const POOL_LIMIT = 200;
+const SHORTLIST = 8;
 
 async function load(pool, id) {
   const { rows } = await pool.query(`SELECT ${COLUMNS} FROM expressions WHERE id = $1`, [id]);
@@ -25,7 +27,8 @@ async function candidates(pool, expression) {
   const { rows } = await pool.query(
     `SELECT ${COLUMNS} FROM expressions
      WHERE role = $1 AND id <> $2 AND processed IS NOT NULL AND review_status = 'published'
-     ORDER BY created_at ASC`,
+     ORDER BY created_at DESC
+     LIMIT ${POOL_LIMIT}`,
     [opposite, expression.id]
   );
   return rows;
@@ -56,7 +59,7 @@ function shortlist(expression, peers) {
     .map((peer) => ({ peer, score: overlapScore(subjectOf(expression), subjectOf(peer)) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
+    .slice(0, SHORTLIST)
     .map((item) => item.peer);
 }
 
@@ -64,23 +67,69 @@ async function partnerFor(expression, peers) {
   const ranked = shortlist(expression, peers);
   if (!ranked.length) return null;
   if (!matchAgentId()) return ranked[0];
-  let failed = 0;
-  for (const peer of ranked) {
-    const demand = expression.role === "demand" ? expression : peer;
-    const supply = expression.role === "supply" ? expression : peer;
-    try {
-      const reply = await runMatchAgent(
-        { id: demand.id, text: subjectOf(demand) },
-        { id: supply.id, text: subjectOf(supply) }
-      );
-      if (reply.fits) return peer;
-    } catch (err) {
-      console.error(err);
-      failed += 1;
-    }
+  try {
+    const reply = await runMatchAgent({
+      focusId: expression.id,
+      focusText: subjectOf(expression),
+      candidates: ranked.map((peer) => ({ id: peer.id, text: subjectOf(peer) })),
+    });
+    if (!reply.id) return null;
+    return ranked.find((peer) => peer.id === reply.id) || null;
+  } catch (err) {
+    console.error(err);
+    return ranked[0];
   }
-  if (failed === ranked.length) return ranked[0];
-  return null;
+}
+
+function takeClues(expression, supplies, intelRows) {
+  const text = subjectOf(expression);
+  const items = [
+    ...supplies.map((peer) => ({ id: peer.id, kind: "供给", text: subjectOf(peer) })),
+    ...intelRows.map((row) => ({ id: row.id, kind: `情报/${row.category}`, text: row.fact })),
+  ];
+  const ranked = items
+    .map((clue) => ({ clue, score: overlapScore(text, clue.text) }))
+    .filter((item) => item.score > 0 && item.clue.id !== expression.id)
+    .sort((a, b) => b.score - a.score);
+  const seen = new Set();
+  const clues = [];
+  for (const item of ranked) {
+    if (seen.has(item.clue.id)) continue;
+    seen.add(item.clue.id);
+    clues.push(item.clue);
+    if (clues.length === 12) break;
+  }
+  return clues;
+}
+
+async function loadClues(pool, expression) {
+  const { rows: supplies } = await pool.query(
+    `SELECT ${COLUMNS} FROM expressions
+     WHERE role = 'supply' AND review_status = 'published' AND processed IS NOT NULL AND id <> $1
+     ORDER BY created_at DESC
+     LIMIT ${POOL_LIMIT}`,
+    [expression.id]
+  );
+  const { rows: intel } = await pool.query(
+    `SELECT e.id, c.category, c.fact
+     FROM intel_classes c
+     JOIN expressions e ON e.id = c.expression_id
+     WHERE e.review_status = 'published'
+     ORDER BY e.created_at DESC
+     LIMIT 80`
+  );
+  return takeClues(expression, supplies, intel);
+}
+
+function sourceSentence(reply, clues, fallback) {
+  const byId = new Map(clues.map((clue) => [clue.id, clue]));
+  const notes = [];
+  for (const lead of reply?.leads || []) {
+    const clue = byId.get(lead.id);
+    if (!clue) continue;
+    notes.push(lead.note || clue.text);
+  }
+  return leadText(notes) || reply?.suggestion || fallback;
 }
 
 async function choose(expression, peers) {
@@ -150,16 +199,18 @@ async function apply(pool, expression, step) {
     return null;
   }
   if (step.kind === "source") {
-    let suggestion = suggest(subjectOf(expression));
+    const clues = await loadClues(pool, expression);
+    const fallback = leadText(clues.slice(0, 3).map((clue) => clue.text)) || suggest(subjectOf(expression));
+    let sentence = fallback;
     if (sourceAgentId()) {
       try {
-        const reply = await runSourceAgent({ id: expression.id, text: subjectOf(expression) });
-        suggestion = reply.suggestion;
+        const reply = await runSourceAgent({ id: expression.id, text: subjectOf(expression), clues });
+        sentence = sourceSentence(reply, clues, fallback);
       } catch (err) {
         console.error(err);
       }
     }
-    await pool.query(`UPDATE expressions SET source_result = $1 WHERE id = $2`, [suggestion, expression.id]);
+    await pool.query(`UPDATE expressions SET source_result = $1 WHERE id = $2`, [sentence, expression.id]);
     return null;
   }
   if (step.kind === "match") {

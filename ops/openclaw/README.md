@@ -24,11 +24,11 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 | id | 员工 | Backend 何时拉起 | 交回 |
 | --- | --- | --- | --- |
 | `knot-process` | Process | 有一条尚未整理的表达。附带图片时，Backend 先用该员工的模型转写图片，再把转写放进消息 | `verdict`、`card`、`evaluation`。不违规即公开。高价值情报另交 `intelClass` |
-| `knot-source` | Source | 需求还没有对得上的供给 | `suggestion` |
-| `knot-match` | Match | 一条需求和对得上的供给都在 | `fits` |
+| `knot-source` | Source | 需求还没有配对上的供给 | `leads`、`suggestion`。线索只能来自 Backend 放进消息的已公开供给和情报 |
+| `knot-match` | Match | 字面重合较高的一批候选都在 | `id`。没有对得上的则为 null |
 | `knot-feedback` | Feedback | 已经有要送回去的结果 | `body` |
 
-四类并排，互不调用。`allowAgents` 都是空数组。`ops/env/knot-platform.local.env` 写上对应的员工 id 后，Backend 按状态拉起这四个员工。员工没有交回可用 JSON 时，Backend 用本地规则把这一步走完：字面重合最高的一条暂作配对，寻源写成一句建议，反馈按「已记下」「已配对」或寻源建议送出。
+四类并排，互不调用。`allowAgents` 都是空数组。`ops/env/knot-platform.local.env` 写上对应的员工 id 后，Backend 按状态拉起这四个员工。员工没有交回可用 JSON 时，Backend 用本地规则把这一步走完：字面重合最高的一条暂作配对，寻源带回重合的已有线索或一句建议，反馈按「已记下」「已配对」或寻源结果送出。
 
 ## 技能
 
@@ -48,4 +48,4 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 
 Knot Backend 执行 `openclaw agent --agent <id> --session-key <key> --message-file <file> --json --timeout <秒>`。Process 的会话键是 `expr-<id>`，超时见 `OPENCLAW_PROCESS_TIMEOUT`。Source、Match、Feedback 的超时见 `OPENCLAW_AGENT_TIMEOUT`。
 
-Backend 解析 JSON，自己写入数据库、积分和通知。员工不访问数据库。Match 只在字面重合较高的最多三条里判断是否同一件事；都不对得上，需求才交给 Source。
+Backend 解析 JSON，自己写入数据库、积分和通知。员工不访问数据库。Match 在最近 200 条对侧表达里，看字面重合较高的最多 8 条，一次选出对得上的那条。都不对得上，需求才交给 Source。Source 只能引用这批已公开供给和情报。

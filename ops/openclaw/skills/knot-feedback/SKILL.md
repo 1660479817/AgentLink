@@ -11,4 +11,4 @@ description: Phrase the Knot result that Backend will send back to the sender.
 {"body":"已记下：摘要"}
 ```
 
-有配对时以「已配对：」起头，后面是对方的摘要。有寻源建议时，`body` 就是那条建议。情报或尚无配对的供给，用「已记下：」加上这条表达自己的摘要。
+有配对时以「已配对：」起头，后面是对方的摘要。有寻源结果时，`body` 就是那条寻源结果。情报或尚无配对的供给，用「已记下：」加上这条表达自己的摘要。

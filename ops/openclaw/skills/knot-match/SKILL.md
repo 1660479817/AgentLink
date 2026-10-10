@@ -1,14 +1,14 @@
 ---
 name: knot-match
-description: Decide whether one Knot demand and one Knot supply fit.
+description: Pick the one Knot candidate that fits the focus expression.
 ---
 
 # Match
 
-判断这条已整理的需求和这条已整理的供给是否对得上。只有两边说的是同一件事、能够互相满足时为 `true`。
+从候选里选出唯一一条与 focus 是同一件事、能够互相满足的表达。只有个别字面重合时不要选。
 
 ```json
-{"fits":true}
+{"id":null}
 ```
 
-`fits` 只能是 `true` 或 `false`。
+对得上时 `id` 是候选 id。没有则为 `null`。
