@@ -1,26 +1,29 @@
 import { defineStore } from "pinia";
-import { authMe } from "../api.js";
-import { t } from "../i18n/index.js";
+import { endSession, getSession, startSession } from "../api.js";
 
 export const useSessionStore = defineStore("session", {
   state: () => ({
-    user: undefined,
+    person: null,
+    ready: false,
   }),
-  getters: {
-    ready: (s) => s.user !== undefined,
-    loadingText: () => t("app.loading"),
-  },
   actions: {
     async load() {
       try {
-        const data = await authMe();
-        this.user = data.user ?? null;
+        const data = await getSession();
+        this.person = data.person;
       } catch {
-        this.user = null;
+        this.person = null;
+      } finally {
+        this.ready = true;
       }
     },
-    setUser(user) {
-      this.user = user;
+    async start() {
+      const data = await startSession();
+      this.person = { id: data.personId };
+    },
+    async end() {
+      await endSession();
+      this.person = null;
     },
   },
 });

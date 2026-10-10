@@ -11,6 +11,11 @@ async function main() {
   const { databaseUrl } = loadBootstrapConfig();
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
+  const present = await client.query(`SELECT to_regclass('public.expressions') AS name`);
+  if (!present.rows[0]?.name) {
+    await client.query("DROP SCHEMA IF EXISTS public CASCADE");
+    await client.query("CREATE SCHEMA public");
+  }
   await client.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       name TEXT PRIMARY KEY,

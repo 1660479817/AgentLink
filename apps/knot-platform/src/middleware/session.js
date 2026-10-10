@@ -1,46 +1,30 @@
-import { SESSION_TTL_MS } from "../lib/auth-codes.js";
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
 export function createSessionMiddleware({ pool, sessionCookieName }) {
-  return async function session(req, res, next) {
-    req.session = null;
-    req.user = null;
+  return async function session(req, _res, next) {
+    req.person = null;
     const sid = req.cookies?.[sessionCookieName];
     if (!sid) return next();
-    const now = Date.now();
     const { rows } = await pool.query(
-      `SELECT s.user_id, s.expires_at, u.email, u.status
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.sid = $1`,
+      `SELECT person_id FROM sessions WHERE sid = $1 AND expires_at > now()`,
       [sid]
     );
-    const row = rows[0];
-    if (!row || Number(row.expires_at) <= now || row.status !== "active") {
-      res.clearCookie(sessionCookieName, cookieOpts());
-      return next();
-    }
-    req.session = { sid, userId: row.user_id, expiresAt: Number(row.expires_at) };
-    req.user = { id: row.user_id, email: row.email };
+    if (rows[0]) req.person = { id: rows[0].person_id };
     next();
   };
 }
 
-export function setSessionCookie(res, sessionCookieName, sid, expiresAt) {
+export function setSessionCookie(res, sessionCookieName, sid) {
   res.cookie(sessionCookieName, sid, {
-    ...cookieOpts(),
-    expires: new Date(expiresAt),
-  });
-}
-
-export function clearSessionCookie(res, sessionCookieName) {
-  res.clearCookie(sessionCookieName, cookieOpts());
-}
-
-function cookieOpts() {
-  return {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL_MS,
-  };
+  });
 }
+
+export function clearSessionCookie(res, sessionCookieName) {
+  res.clearCookie(sessionCookieName, { httpOnly: true, sameSite: "lax", path: "/" });
+}
+
+export { SESSION_TTL_MS };

@@ -1,5 +1,0 @@
-# 同机生产：Postgres 仅监听本机，勿暴露到局域网
-services:
-  postgres:
-    ports:
-      - "127.0.0.1:5433:5432"

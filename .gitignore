@@ -13,4 +13,5 @@ venv/
 .vscode/
 *.log
 var/
+data/uploads/
 ops/env/*.local.env

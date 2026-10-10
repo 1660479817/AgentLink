@@ -40,6 +40,5 @@ echo "==> remote deploy-macos.sh"
 echo "==> verify"
 curl -sf "http://192.168.3.91:8080/api/health"
 echo
-curl -sf "http://192.168.3.91:8080/api/web/v1/snapshot?surfaces=home" | head -c 160
-echo
+curl -sf -o /dev/null -w "web %{http_code}\n" "http://192.168.3.91:8080/"
 echo "OK: http://192.168.3.91:8080/"

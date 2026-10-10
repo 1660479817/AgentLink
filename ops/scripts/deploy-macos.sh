@@ -5,9 +5,9 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$KNOT_HOME"
 
-chmod +x ops/scripts/run-knot-platform.sh ops/scripts/run-openclaw-agent.sh
+chmod +x ops/scripts/run-knot-platform.sh
 
-mkdir -p "$KNOT_HOME/var/uploads" "$KNOT_HOME/var/log"
+mkdir -p "$KNOT_HOME/var/log"
 
 if [[ -n "${KNOT_DATABASE_URL:-}" ]]; then
   echo "==> using KNOT_DATABASE_URL"
@@ -25,44 +25,50 @@ npm ci
 echo "==> build web"
 npm run build -w web
 
-if [[ -z "${KNOT_DATABASE_URL:-}" ]] && docker info >/dev/null 2>&1; then
-  echo "==> postgres (docker)"
-  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d postgres
-  export KNOT_DATABASE_URL="${KNOT_DATABASE_URL:-postgres://knot:knot@127.0.0.1:5433/knot}"
+ENV_FILE="$KNOT_HOME/ops/env/knot-platform.local.env"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+  set +a
 fi
-export DATABASE_URL="${KNOT_DATABASE_URL:-postgres://knot@127.0.0.1:5433/knot}"
+export DATABASE_URL="${DATABASE_URL:-${KNOT_DATABASE_URL:-postgres://knot@127.0.0.1:5433/knot}}"
+
+UID_NUM="$(id -u)"
+DOMAIN="gui/$UID_NUM"
+echo "==> stop Knot Backend before migrate"
+launchctl bootout "$DOMAIN/com.knot.platform" 2>/dev/null || true
 
 echo "==> migrate"
+migrated=0
 for _ in $(seq 1 20); do
   if npm run migrate; then
+    migrated=1
     break
   fi
   sleep 2
 done
+if [[ "$migrated" != 1 ]]; then
+  echo "migrate failed" >&2
+  exit 1
+fi
 
-ENV_FILE="$KNOT_HOME/ops/env/knot-platform.local.env"
 if [[ ! -f "$ENV_FILE" ]]; then
   cat >"$ENV_FILE" <<EOF
 PORT=8080
 BIND_HOST=0.0.0.0
 DATABASE_URL=${DATABASE_URL}
 SESSION_COOKIE_NAME=knot_sid
-UPLOAD_DIR=$KNOT_HOME/var/uploads
 PUBLIC_WEB_ORIGIN=http://192.168.3.91:8080
 STATIC_WEB_DIR=$KNOT_HOME/apps/web/dist
 EOF
 fi
-
-AGENT_ENV="$KNOT_HOME/ops/env/openclaw-agent.local.env"
-if [[ ! -f "$AGENT_ENV" ]]; then
-  cp "$KNOT_HOME/ops/env/openclaw-agent.env.example" "$AGENT_ENV"
+if ! grep -q '^STATIC_WEB_DIR=' "$ENV_FILE"; then
+  echo "STATIC_WEB_DIR=$KNOT_HOME/apps/web/dist" >>"$ENV_FILE"
 fi
 
 LAUNCH_DIR="$HOME/Library/LaunchAgents"
 mkdir -p "$LAUNCH_DIR"
-UID_NUM="$(id -u)"
-DOMAIN="gui/$UID_NUM"
-
 install_plist() {
   local src="$1"
   local label="$2"
@@ -76,14 +82,12 @@ install_plist() {
 install_plist "$KNOT_HOME/ops/launchd/com.knot.postgres.plist" "com.knot.postgres"
 install_plist "$KNOT_HOME/ops/launchd/com.knot.platform.plist" "com.knot.platform"
 
-if grep -qE '^KNOT_AGENT_TOKEN=knt_[A-Za-z0-9_-]{20,}' "$AGENT_ENV" 2>/dev/null \
-  && grep -qE '^KNOT_AGENT_EMAIL=.+@.+' "$AGENT_ENV" 2>/dev/null; then
-  install_plist "$KNOT_HOME/ops/launchd/com.knot.openclaw-agent.plist" "com.knot.openclaw-agent"
-else
-  echo "skip openclaw-agent launchd (set token in $AGENT_ENV first)"
-  launchctl bootout "$DOMAIN/com.knot.openclaw-agent" 2>/dev/null || true
-fi
-
 sleep 2
+curl -sf "http://127.0.0.1:8080/api/health" && echo
+
+echo "==> openclaw"
+chmod +x "$KNOT_HOME/ops/scripts/ensure-openclaw.sh"
+OPENCLAW_ENABLE_PROCESS=1 "$KNOT_HOME/ops/scripts/ensure-openclaw.sh"
+
 curl -sf "http://127.0.0.1:8080/api/health" && echo
 echo "OK: http://192.168.3.91:8080/"

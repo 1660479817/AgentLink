@@ -39,7 +39,7 @@ Knot Agent 是平台员工。Personal Agent 在平台外，由人委托。Proces
 
 | Knot Agent       | 做什么                       | What it does                                                                       |
 | ---------------- | ------------------------- | ---------------------------------------------------------------------------------- |
-| **Process** 信息处理 | 把「需要什么」「能供应什么」整理成可以撮合的信息  | Turns what is needed and what can be supplied into information that can be matched |
+| **Process** 信息处理 | 把供需和情报整理成可以展示、可以撮合的信息。除违规外都保留，并把高价值情报归类 | Turns demand, supply, and intel into information that can be shown and matched. Keeps everything except violations, and classifies high-value intel |
 | **Source** 寻源    | 没有人供应时，收集或寻找，或者给出建议       | When no one supplies it, collects or finds it, or offers a suggestion              |
 | **Match** 撮合     | 把需求和对得上的供给配在一起            | Pairs a need with the supply that fits                                             |
 | **Feedback** 反馈  | 整理要送回去的结果，写回 Knot Backend | Prepares the result to send back and writes it to Knot Backend                     |
@@ -65,5 +65,6 @@ Add a line only when the vision, the roles, or the system architecture changes.
 | Date       | Revision                                                  |
 | ---------- | --------------------------------------------------------- |
 | 2026-10-10 | First draft: vision, three roles, and system architecture |
+| 2026-10-10 | Process keeps non-violating expressions public and classifies high-value intel. The platform earns the match fee |
 
 

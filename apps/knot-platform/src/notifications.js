@@ -1,0 +1,9 @@
+export async function recordNotification(pool, { personId, kind, title, body = "", href = null }) {
+  const { rows } = await pool.query(
+    `INSERT INTO notifications (person_id, kind, title, body, href)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [personId, kind, title, body, href]
+  );
+  return rows[0].id;
+}

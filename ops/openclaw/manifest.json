@@ -1,0 +1,33 @@
+{
+  "gateway": {
+    "bind": "loopback",
+    "port": 18789
+  },
+  "commonSkills": ["knot-employee"],
+  "agents": [
+    {
+      "id": "knot-process",
+      "employee": "Process",
+      "skills": ["knot-process"],
+      "allowAgents": []
+    },
+    {
+      "id": "knot-source",
+      "employee": "Source",
+      "skills": ["knot-source"],
+      "allowAgents": []
+    },
+    {
+      "id": "knot-match",
+      "employee": "Match",
+      "skills": ["knot-match"],
+      "allowAgents": []
+    },
+    {
+      "id": "knot-feedback",
+      "employee": "Feedback",
+      "skills": ["knot-feedback"],
+      "allowAgents": []
+    }
+  ]
+}

@@ -6,6 +6,7 @@ function knotIcon(children) {
       "svg",
       {
         xmlns: "http://www.w3.org/2000/svg",
+        viewBox: "0 0 24 24",
         width: "1em",
         height: "1em",
         fill: "none",
@@ -46,6 +47,30 @@ export const LogOutIcon = knotIcon([
   h("path", { d: "M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" }),
   h("path", { d: "M11 12 4 12M4 12 7 9M4 12 7 15" }),
 ]);
+export const MessageIcon = knotIcon([
+  h("path", { d: "M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16Z" }),
+  h("path", { d: "M10 19a2 2 0 0 0 4 0" }),
+]);
+export const ZapIcon = knotIcon([
+  h("path", {
+    d: "M13 2.5 6.5 13.5H11l-1.5 8 7.5-11H13l1.5-8Z",
+    fill: "currentColor",
+    stroke: "none",
+  }),
+]);
+export const BackIcon = knotIcon([
+  h("path", { d: "M15 5 8 12l7 7" }),
+]);
+export const ForwardIcon = knotIcon([
+  h("path", { d: "M9 5l7 7-7 7" }),
+]);
+export const PlusIcon = knotIcon([
+  h("path", { d: "M12 6v12M6 12h12" }),
+]);
+export const HistoryIcon = knotIcon([
+  h("circle", { cx: 12, cy: 12, r: 7 }),
+  h("path", { d: "M12 8v4.5L15 15" }),
+]);
 export const SearchIcon = knotIcon([
   h("circle", { cx: 11, cy: 11, r: 5.5 }),
   h("path", { d: "M16 16 20 20" }),
@@ -58,6 +83,16 @@ export const RefreshIcon = knotIcon([
 export const UploadIcon = knotIcon([
   h("path", { d: "M12 16V6M12 6l3.5 3.5M12 6 8.5 9.5" }),
   h("path", { d: "M5 18h14" }),
+]);
+export const CameraIcon = knotIcon([
+  h("path", { d: "M5 8h2.5l1.2-1.5H15l1.2 1.5H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" }),
+  h("circle", { cx: 12, cy: 13, r: 3.25 }),
+]);
+export const ComposeIcon = knotIcon([
+  h("path", { d: "M5 7h14M5 12h14M5 17h9" }),
+]);
+export const SendIcon = knotIcon([
+  h("path", { d: "m5 12 14-7v14l-14-7Zm14-7-5.5 5.5" }),
 ]);
 export const StackIcon = knotIcon([
   h("path", { d: "M6 9 12 6l6 3-6 3-6-3Z" }),

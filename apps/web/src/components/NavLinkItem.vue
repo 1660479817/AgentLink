@@ -13,10 +13,11 @@ defineProps({
       :href="href"
       class="nav-link"
       :class="{ 'is-active': end ? isExactActive : isActive }"
+      :aria-label="label"
       @click="navigate"
     >
       <component :is="icon" class="nav-icon" aria-hidden="true" />
-      <span>{{ label }}</span>
+      <span class="nav-label">{{ label }}</span>
     </a>
   </RouterLink>
 </template>

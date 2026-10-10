@@ -1,0 +1,34 @@
+---
+description: Knot 页面按键只用 AppButton：主按钮、次按钮、图标按钮
+alwaysApply: true
+---
+
+# Knot 按键
+
+适用于 **`apps/web`**。页面上的操作按键只用 **`apps/web/src/components/AppButton.vue`**。不要给裸 `<button>` 填主色，不要在页面里另写按钮皮肤。
+
+## 三种变体
+
+- **`primary`**（默认）：实心 `#0866FF`，白字，字重 600。一组操作里只放一个，例如发布、提交、授权。
+- **`secondary`**：底 `#E4E6EB`，字 `#050505`。关闭、取消、收回。
+- **`icon`**：正圆，尺寸 `--header-control`（44px），灰底，里面只放一个 SVG。必须有 `aria-label`（走 `t()`）。顶栏搜索、消息、账号用它。搜索框里的返回再加 `plain`（透明底）。
+
+## 尺寸与状态
+
+- 主/次按键圆角 `--radius-sm`（6px）。桌面最小高度 36px；约 390px 宽时最小高度 44px。
+- 悬停：主色 `#0056d6`，次色与图标 `#D8DADF`。`plain` 悬停为页面底色。
+- `disabled` 透明度 0.45，不可点。焦点沿用 2px `#0866FF` 外框。
+- 文案走 `t()`。图标 `aria-hidden="true"`。主/次按键可以在文字左侧放 SVG，间距 0.35rem。
+- 跳转用 `to`，样式与按钮相同，不要下划线。
+
+## 不要套成按键
+
+导航、角色胶囊、首页输入条、情报横滑卡片与其翻页箭头、搜索历史行、搜索遮罩保持原有结构，不使用 `AppButton`，也不填主色。信息流底部的轻操作用 `.post-action`。
+
+```vue
+<AppButton type="submit" :disabled="busy">{{ t("home.publish") }}</AppButton>
+<AppButton variant="secondary" @click="close">{{ t("home.close") }}</AppButton>
+<AppButton variant="icon" :aria-label="t('nav.search')" @click="openSearch">
+  <SearchIcon class="nav-icon" aria-hidden="true" />
+</AppButton>
+```
