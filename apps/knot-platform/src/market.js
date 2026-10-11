@@ -1,6 +1,15 @@
 import { access } from "node:fs/promises";
-import { demandAgentId, intelAgentId, runDemandAgent, runIntelAgent } from "./agents/openclaw.js";
+import {
+  demandAgentId,
+  intelAgentId,
+  runDemandAgent,
+  runIntelAgent,
+  runSeekAgent,
+  seekAgentId,
+} from "./agents/openclaw.js";
 import { loadBootstrapConfig } from "./config.js";
+import { openGapBounty } from "./bounties.js";
+import { fileView, informationOf } from "./information.js";
 import { recordNotification } from "./notifications.js";
 import { applyPoints, getBalance, UNIT_PRICE } from "./points.js";
 import { scoreText } from "./search.js";
@@ -49,7 +58,7 @@ export function presentIntel(row) {
   if (!row) return null;
   return {
     id: row.id,
-    body: row.body || "",
+    ...informationOf({ body: row.body, files: row.files || [] }),
     verdict: row.verdict,
     rejectReason: row.reject_reason,
     reward: row.verdict === "passed" ? UNIT_PRICE : null,
@@ -59,6 +68,7 @@ export function presentIntel(row) {
 
 export function presentDemand(row) {
   if (!row) return null;
+  const info = informationOf({ files: row.attachments || [] });
   return {
     id: row.id,
     brief: row.brief,
@@ -68,19 +78,14 @@ export function presentDemand(row) {
     citationCount: row.citation_count ?? 0,
     cost: row.cost ?? 0,
     createdAt: row.created_at,
-    attachments: row.attachments || [],
+    images: info.images,
+    attachments: info.attachments,
+    cards: row.cards || [],
   };
 }
 
 function attachmentView(row) {
-  const mime = row.mime || "";
-  return {
-    id: row.id,
-    name: row.original_name || "",
-    mime,
-    url: `/api/web/uploads/${row.id}`,
-    image: mime.startsWith("image/"),
-  };
+  return fileView(row);
 }
 
 async function withDemandFiles(pool, rows) {
@@ -99,12 +104,69 @@ async function withDemandFiles(pool, rows) {
     list.push(attachmentView(file));
     byId.set(file.demand_id, list);
   }
-  return rows.map((row) => presentDemand({ ...row, attachments: byId.get(row.id) || [] }));
+  const withFiles = rows.map((row) => presentDemand({ ...row, attachments: byId.get(row.id) || [] }));
+  return withDemandCards(pool, withFiles);
+}
+
+async function filesByIntel(pool, ids) {
+  const byId = new Map();
+  if (!ids.length) return byId;
+  const { rows } = await pool.query(
+    `SELECT f.intel_id, u.id, u.mime, u.original_name
+     FROM intel_files f
+     JOIN uploads u ON u.id = f.upload_id
+     WHERE f.intel_id = ANY($1::uuid[])
+     ORDER BY f.sort_order ASC, f.upload_id ASC`,
+    [ids]
+  );
+  for (const row of rows) {
+    const list = byId.get(row.intel_id) || [];
+    list.push(fileView(row));
+    byId.set(row.intel_id, list);
+  }
+  return byId;
+}
+
+async function withDemandCards(pool, demands) {
+  if (!demands.length) return demands;
+  const { rows } = await pool.query(
+    `SELECT v.demand_id, i.id, i.body
+     FROM deliveries v
+     JOIN delivery_citations c ON c.delivery_id = v.id
+     JOIN intel i ON i.id = c.intel_id
+     WHERE v.demand_id = ANY($1::uuid[])
+     ORDER BY i.created_at ASC`,
+    [demands.map((item) => item.id)]
+  );
+  const files = await filesByIntel(pool, rows.map((row) => row.id));
+  const byDemand = new Map();
+  for (const row of rows) {
+    const list = byDemand.get(row.demand_id) || [];
+    list.push({
+      id: row.id,
+      ...informationOf({ body: row.body, files: files.get(row.id) || [] }),
+    });
+    byDemand.set(row.demand_id, list);
+  }
+  return demands.map((item) => ({ ...item, cards: byDemand.get(item.id) || [] }));
 }
 
 async function loadIntel(pool, id) {
-  const { rows } = await pool.query(`SELECT id, user_id, body, verdict, detail FROM intel WHERE id = $1`, [id]);
+  const { rows } = await pool.query(
+    `SELECT id, user_id, body, verdict, detail FROM intel WHERE id = $1`,
+    [id]
+  );
   return rows[0] || null;
+}
+
+async function loadPresentedIntel(pool, id) {
+  const { rows } = await pool.query(
+    `SELECT id, body, verdict, reject_reason, created_at FROM intel WHERE id = $1`,
+    [id]
+  );
+  if (!rows[0]) return null;
+  const files = await filesByIntel(pool, [id]);
+  return presentIntel({ ...rows[0], files: files.get(id) || [] });
 }
 
 export async function judgeIntel(pool, id) {
@@ -149,11 +211,7 @@ export async function judgeIntel(pool, id) {
       });
     }
   }
-  const { rows } = await pool.query(
-    `SELECT id, body, verdict, reject_reason, created_at FROM intel WHERE id = $1`,
-    [id]
-  );
-  return presentIntel(rows[0]);
+  return loadPresentedIntel(pool, id);
 }
 
 async function adjustReward(pool, userId, intelId) {
@@ -201,21 +259,29 @@ export async function createIntel(pool, { userId, actor, door, body, imageIds = 
   return judgeIntel(pool, intelId);
 }
 
-export async function listPublicIntel(pool, limit = 30) {
+const PUBLIC_INTEL_SQL = `
+  SELECT i.id, i.body, i.detail, i.created_at, u.display_name, u.avatar_upload_id
+  FROM intel i
+  JOIN users u ON u.id = i.user_id
+  WHERE i.verdict = 'passed'
+    AND ($1::uuid IS NULL OR NOT EXISTS (
+      SELECT 1 FROM intel_dismissals d
+      WHERE d.intel_id = i.id AND d.user_id = $1
+    ))
+`;
+
+export async function listPublicIntel(pool, limit = 30, userId = null) {
   const { rows } = await pool.query(
-    `SELECT id, body, created_at FROM intel WHERE verdict = 'passed' ORDER BY created_at DESC LIMIT $1`,
-    [limit]
+    `${PUBLIC_INTEL_SQL} ORDER BY i.created_at DESC LIMIT $2`,
+    [userId, limit]
   );
   return rows;
 }
 
-export async function searchPublicIntel(pool, query) {
+export async function searchPublicIntel(pool, query, userId = null) {
   const { rows } = await pool.query(
-    `SELECT id, body, detail, created_at
-     FROM intel
-     WHERE verdict = 'passed'
-     ORDER BY created_at DESC
-     LIMIT 500`
+    `${PUBLIC_INTEL_SQL} ORDER BY i.created_at DESC LIMIT 500`,
+    [userId]
   );
   return rows
     .map((row) => ({ ...row, score: scoreText(query, intelText(row)) }))
@@ -241,6 +307,92 @@ function localCitations(brief, items, limit) {
     .map((entry) => entry.item);
 }
 
+function pickCitations(citations, inventory, limit) {
+  const byId = new Map(inventory.map((item) => [item.id, item]));
+  const chosen = [];
+  for (const id of citations) {
+    const item = byId.get(id);
+    if (!item || chosen.some((row) => row.id === item.id)) continue;
+    chosen.push(item);
+    if (chosen.length >= limit) break;
+  }
+  return chosen;
+}
+
+async function platformUserId(pool) {
+  const { rows } = await pool.query(`SELECT id FROM users WHERE label = 'platform'`);
+  return rows[0]?.id || null;
+}
+
+async function filePlatformIntel(pool, item) {
+  const userId = await platformUserId(pool);
+  if (!userId) return null;
+  const source = typeof item.source === "string" ? item.source.trim() : "";
+  const text = typeof item.body === "string" ? item.body.trim() : "";
+  const body = source && !text.includes(source) ? [text, source].filter(Boolean).join("\n") : text;
+  const inserted = await pool.query(
+    `INSERT INTO intel (user_id, actor, door, body) VALUES ($1, 'platform', 'platform', $2) RETURNING id`,
+    [userId, body]
+  );
+  const id = inserted.rows[0].id;
+  try {
+    const judged = await judgeIntel(pool, id);
+    if (!judged || judged.verdict !== "passed") return null;
+    const { rows } = await pool.query(
+      `UPDATE intel
+       SET detail = COALESCE(detail, '{}'::jsonb) || $2::jsonb
+       WHERE id = $1 AND verdict = 'passed'
+       RETURNING id, body, detail`,
+      [id, JSON.stringify({ source: item.source })]
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { id: row.id, text: intelText(row) || row.body || "" };
+  } catch (error) {
+    console.error(error);
+    await pool.query(`DELETE FROM intel WHERE id = $1 AND verdict = 'pending'`, [id]);
+    return null;
+  }
+}
+
+async function fillGap(pool, demand, ask, room) {
+  const gap = typeof ask === "string" ? ask.trim() : "";
+  if (!gap) return [];
+  try {
+    await openGapBounty(pool, demand.id, gap);
+  } catch (error) {
+    console.error(error);
+  }
+  if (!seekAgentId() || room < 1) return [];
+  let found;
+  try {
+    found = await runSeekAgent({ id: demand.id, ask: gap, limit: room });
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+  if (!found.able) return [];
+  const passed = [];
+  for (const item of found.items) {
+    const row = await filePlatformIntel(pool, item);
+    if (row) passed.push(row);
+  }
+  if (!passed.length) return [];
+  try {
+    const reply = await runDemandAgent({
+      id: demand.id,
+      brief: demand.brief,
+      limit: room,
+      items: passed,
+      selectOnly: true,
+    });
+    return pickCitations(reply.citations, passed, room);
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
 async function attachDemandFiles(pool, demandId, userId, fileIds) {
   if (!fileIds.length) return "";
   const { rows: owned } = await pool.query(
@@ -262,7 +414,7 @@ async function attachDemandFiles(pool, demandId, userId, fileIds) {
     .join(" ");
 }
 
-export async function createDemand(pool, { userId, actor, door, brief, citationLimit, fileIds = [] }) {
+export async function createDemand(pool, { userId, actor, door, brief, citationLimit, fileIds = [], imageIds = [] }) {
   const limit = clampLimit(citationLimit);
   const inserted = await pool.query(
     `INSERT INTO demands (user_id, actor, door, brief, citation_limit)
@@ -271,7 +423,7 @@ export async function createDemand(pool, { userId, actor, door, brief, citationL
     [userId, actor, door, brief, limit]
   );
   const demandId = inserted.rows[0].id;
-  await attachDemandFiles(pool, demandId, userId, fileIds);
+  await attachDemandFiles(pool, demandId, userId, [...imageIds, ...fileIds]);
   try {
     await fulfillDemand(pool, demandId);
   } catch (error) {
@@ -296,13 +448,14 @@ async function fulfillDemand(pool, demandId) {
      ORDER BY f.sort_order ASC`,
     [demandId]
   );
-  const brief = [demand.brief, ...names.map((row) => row.original_name).filter(Boolean)].filter(Boolean).join("\n");
+  const brief = [demand.brief, ...names.map((row) => row.original_name).filter(Boolean)]
+    .filter(Boolean)
+    .join("\n");
   demand.brief = brief || demand.brief;
   const inventory = await candidates(pool);
   const balance = await getBalance(pool, demand.user_id);
   const cap = Math.min(demand.citation_limit, Math.max(0, Math.floor(balance / UNIT_PRICE)));
   let chosen = [];
-  let body = "";
   if (cap > 0 && demandAgentId()) {
     try {
       const reply = await runDemandAgent({
@@ -311,20 +464,22 @@ async function fulfillDemand(pool, demandId) {
         limit: cap,
         items: inventory,
       });
-      const byId = new Map(inventory.map((item) => [item.id, item]));
-      chosen = reply.citations.map((id) => byId.get(id)).filter(Boolean).slice(0, cap);
-      const same =
-        chosen.length === reply.citations.length && reply.citations.every((id, index) => chosen[index]?.id === id);
-      body = same && reply.body ? reply.body : composeFile(demand.brief, chosen);
+      chosen = pickCitations(reply.citations, inventory, cap);
+      const added = await fillGap(pool, demand, reply.ask, cap - chosen.length);
+      const seen = new Set(chosen.map((item) => item.id));
+      for (const item of added) {
+        if (seen.has(item.id) || chosen.length >= cap) continue;
+        chosen.push(item);
+        seen.add(item.id);
+      }
     } catch (error) {
       console.error(error);
       chosen = localCitations(demand.brief, inventory, cap);
-      body = composeFile(demand.brief, chosen);
     }
   } else {
     chosen = localCitations(demand.brief, inventory, cap);
-    body = composeFile(demand.brief, chosen);
   }
+  const body = composeFile(demand.brief, chosen);
   const cost = chosen.length * UNIT_PRICE;
   const client = await pool.connect();
   try {

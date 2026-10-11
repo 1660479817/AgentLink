@@ -26,6 +26,11 @@ export function hashLoginKey(key) {
   return createHash("sha256").update(key).digest("hex");
 }
 
+function smtpSecureEnabled() {
+  const value = String(process.env.SMTP_SECURE || "").trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+}
+
 function mailTransport() {
   const host = process.env.SMTP_HOST || "";
   const from = process.env.MAIL_FROM || process.env.SMTP_FROM || "";
@@ -37,7 +42,7 @@ function mailTransport() {
     transport: nodemailer.createTransport({
       host,
       port: Number(process.env.SMTP_PORT || 587),
-      secure: process.env.SMTP_SECURE === "1",
+      secure: smtpSecureEnabled(),
       auth: user ? { user, pass } : undefined,
     }),
   };

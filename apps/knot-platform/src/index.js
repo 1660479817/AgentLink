@@ -2,6 +2,8 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import path from "node:path";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import { kickSettle } from "./bounties.js";
 import { loadBootstrapConfig } from "./config.js";
 import { getPool } from "./db.js";
 import { createSessionMiddleware } from "./middleware/session.js";
@@ -33,6 +35,15 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "knot-backend" });
 });
 
+const helpPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../help.md");
+
+app.get("/help", (_req, res) => {
+  fs.readFile(helpPath, "utf8", (err, text) => {
+    if (err) return res.status(404).type("text/plain").send("not_found");
+    res.set("Content-Type", "text/markdown; charset=utf-8").send(text);
+  });
+});
+
 app.use(
   "/api/web",
   webRouter({
@@ -41,7 +52,7 @@ app.use(
     uploadDir: bootstrap.uploadDir,
   })
 );
-app.use("/api/agent", agentRouter({ pool }));
+app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir }));
 
 if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
   const dir = path.resolve(bootstrap.staticWebDir);
@@ -59,4 +70,6 @@ app.use((err, _req, res, _next) => {
 
 app.listen(bootstrap.port, bootstrap.bindHost, () => {
   console.log(`knot-backend listening on ${bootstrap.bindHost}:${bootstrap.port}`);
+  kickSettle(pool);
+  setInterval(() => kickSettle(pool), 60_000);
 });

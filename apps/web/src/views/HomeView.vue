@@ -3,13 +3,14 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import { useRoute, useRouter } from "vue-router";
-import { createIntel, listInformation, searchInformation, uploadAttachment, uploadImage } from "../api.js";
+import { createIntel, dismissInformation, listBounties, listInformation, searchInformation, uploadAttachment, uploadImage } from "../api.js";
 import { t } from "../i18n/index.js";
-import { CameraIcon, ComposeIcon, PaperclipIcon, PlusIcon, SendIcon, UserIcon } from "../icons/index.js";
+import { CameraIcon, ClaimedIcon, ComposeIcon, PaperclipIcon, PlusIcon, PointsIcon, ReadyIcon, SendIcon, SubmittedIcon, UserIcon } from "../icons/index.js";
 import { useNotificationStore } from "../stores/notifications";
 import { useSessionStore } from "../stores/session";
 
 const items = ref([]);
+const bounties = ref([]);
 const intelOpen = ref(false);
 const intelMode = ref(null);
 const intelBody = ref("");
@@ -30,7 +31,7 @@ const intelPendingImages = ref([]);
 const intelPreviewUrls = ref([]);
 const intelPendingFiles = ref([]);
 const intelCanSend = computed(() => {
-  if (intelMode.value === "photo") return intelPendingImages.value.length > 0;
+  if (intelMode.value === "photo") return intelPendingImages.value.length > 0 || Boolean(intelBody.value.trim());
   if (intelMode.value === "text") return Boolean(intelBody.value.trim() || intelPendingFiles.value.length);
   return false;
 });
@@ -62,6 +63,13 @@ watch(intelMode, async (mode) => {
   openIntelCamera();
 });
 
+function bountyLabel(bounty) {
+  if (bounty.status === "claimed") return t("home.bountyClaimed");
+  if (bounty.status === "completed") return t("home.bountyCompleted");
+  if (bounty.status === "submitted") return t("home.bountySubmitted");
+  return t("home.bountyReward", { n: bounty.reward });
+}
+
 async function load() {
   try {
     const q = searchQ.value;
@@ -70,10 +78,26 @@ async function load() {
   } catch {
     items.value = [];
   }
+  try {
+    const data = await listBounties();
+    bounties.value = data.bounties || [];
+  } catch {
+    bounties.value = [];
+  }
 }
 
 function clearSearch() {
   router.push({ name: "home", query: {} });
+}
+
+async function dismissItem(item) {
+  const previous = items.value;
+  items.value = items.value.filter((row) => row.id !== item.id);
+  try {
+    await dismissInformation(item.id);
+  } catch (error) {
+    if (error.status !== 401) items.value = previous;
+  }
 }
 
 function clearIntelPreviews() {
@@ -241,6 +265,23 @@ async function submitIntel() {
         </span>
         <span class="intel-create-label">{{ t("home.intelCreate") }}</span>
       </button>
+      <article v-for="bounty in bounties" :key="bounty.id" class="intel-bounty">
+        <p class="intel-bounty-body">
+          <span class="intel-bounty-text">{{ bounty.body }}</span>
+        </p>
+        <p class="intel-bounty-reward">
+          <span class="visually-hidden">{{ bountyLabel(bounty) }}</span>
+          <span class="intel-bounty-line">
+            <ClaimedIcon v-if="bounty.status === 'claimed'" class="intel-bounty-mark" aria-hidden="true" />
+            <ReadyIcon v-else-if="bounty.status === 'completed'" class="intel-bounty-mark" aria-hidden="true" />
+            <SubmittedIcon v-else-if="bounty.status === 'submitted'" class="intel-bounty-mark" aria-hidden="true" />
+            <template v-else>
+              <PointsIcon class="intel-bounty-mark" aria-hidden="true" />
+              <span class="intel-bounty-count">{{ bounty.reward }}</span>
+            </template>
+          </span>
+        </p>
+      </article>
     </div>
   </section>
 
@@ -336,10 +377,13 @@ async function submitIntel() {
   <InformationCard
     v-for="item in items"
     :key="item.id"
-    :role="item.role"
     :body="item.body || ''"
-    :image-urls="item.imageUrls || []"
+    :image-urls="item.imageUrls || item.images?.map((file) => file.url) || []"
     :attachments="item.attachments || []"
+    :author-name="item.author?.name || ''"
+    :avatar-url="item.author?.avatarUrl || ''"
+    :created-at="item.createdAt || ''"
+    @dismiss="dismissItem(item)"
   />
   <p v-if="items.length === 0" class="muted feed-empty">
     {{ searchQ ? t("home.searchEmpty") : t("home.empty") }}

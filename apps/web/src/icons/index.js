@@ -1,6 +1,6 @@
 import { h } from "vue";
 
-function knotIcon(children) {
+function knotIcon(children, options = {}) {
   return (props, { attrs }) =>
     h(
       "svg",
@@ -11,7 +11,7 @@ function knotIcon(children) {
         height: "1em",
         fill: "none",
         stroke: "currentColor",
-        strokeWidth: 1.75,
+        strokeWidth: options.strokeWidth ?? 1.75,
         strokeLinecap: "round",
         strokeLinejoin: "round",
         "aria-hidden": attrs["aria-hidden"] !== false,
@@ -50,6 +50,13 @@ export const SearchIcon = knotIcon([
   h("circle", { cx: 11, cy: 11, r: 5.5 }),
   h("path", { d: "M16 16 20 20" }),
 ]);
+export const BookmarkIcon = knotIcon([
+  h("path", { d: "M7 4.5h10a1 1 0 0 1 1 1V20l-6-3.5L6 20V5.5a1 1 0 0 1 1-1Z" }),
+]);
+export const ActivityIcon = knotIcon([
+  h("path", { d: "M4 15.5 8.5 11l3 3L20 6.5" }),
+  h("path", { d: "M14.5 6.5H20V12" }),
+]);
 export const PaperclipIcon = knotIcon([
   h("path", { d: "m8.5 12.5 6.2-6.2a2.6 2.6 0 0 1 3.7 3.7l-7.6 7.6a3.6 3.6 0 0 1-5.1-5.1l7-7" }),
 ]);
@@ -63,3 +70,40 @@ export const ComposeIcon = knotIcon([
 export const SendIcon = knotIcon([
   h("path", { d: "m5 12 14-7v14l-14-7Zm14-7-5.5 5.5" }),
 ]);
+export const CloseIcon = knotIcon([
+  h("path", { d: "M7 7 17 17M17 7 7 17" }),
+]);
+export const RefreshIcon = knotIcon([
+  h("path", { d: "M20 12a8 8 0 0 0-8-8 8.7 8.7 0 0 0-6 2.5L4 8" }),
+  h("path", { d: "M4 4v4h4" }),
+  h("path", { d: "M4 12a8 8 0 0 0 8 8 8.7 8.7 0 0 0 6-2.5L20 16" }),
+  h("path", { d: "M16 16h4v4" }),
+]);
+export const PointsIcon = knotIcon([
+  h("path", {
+    d: "M12 2.95 14.41 9.64 21.51 9.86 15.9 14.22 17.88 21.05 12 17.05 6.12 21.05 8.1 14.22 2.49 9.86 9.59 9.64Z",
+    fill: "currentColor",
+    stroke: "none",
+  }),
+]);
+export const ClaimedIcon = knotIcon(
+  [
+    h("circle", { cx: 12, cy: 12, r: 9 }),
+    h("path", { d: "M8.15 12.2 11.05 15.15 16.2 9.4" }),
+  ],
+  { strokeWidth: 2 }
+);
+export const ReadyIcon = knotIcon(
+  [
+    h("path", { d: "M12 19.6V7.2" }),
+    h("path", { d: "M7.7 11.2 12 6.4 16.3 11.2" }),
+  ],
+  { strokeWidth: 2 }
+);
+export const SubmittedIcon = knotIcon(
+  [
+    h("circle", { cx: 12, cy: 12, r: 9 }),
+    h("path", { d: "M12 7.6V12.2l3.1 1.9" }),
+  ],
+  { strokeWidth: 2 }
+);

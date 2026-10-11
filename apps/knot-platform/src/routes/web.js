@@ -3,6 +3,8 @@ import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
+import { listBounties } from "../bounties.js";
+import { informationOf } from "../information.js";
 import { createDemand, createIntel, listDemands, listPublicIntel, presentIntel, searchPublicIntel } from "../market.js";
 import { hashLoginKey, newLoginKey, normalizeEmail, normalizeLoginKey, sendLoginKey } from "../login.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
@@ -40,13 +42,17 @@ function attachmentOf(row) {
 }
 
 function publicCard(row) {
-  const attachments = row.attachments || [];
+  const info = informationOf({ body: row.body, files: row.attachments || [] });
   return {
     id: row.id,
     role: "intel",
-    body: typeof row.body === "string" ? row.body.trim() : "",
-    imageUrls: attachments.filter((item) => item.image).map((item) => item.url),
-    attachments,
+    ...info,
+    imageUrls: info.images.map((item) => item.url),
+    author: {
+      name: row.display_name || "",
+      avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
+    },
+    createdAt: row.created_at,
   };
 }
 
@@ -290,11 +296,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         [row.id]
       );
       const attachments = files.rows.map(attachmentOf);
-      submissions.push({
-        ...presentIntel(row),
-        imageIds: attachments.filter((item) => item.image).map((item) => item.id),
-        attachments,
-      });
+      submissions.push(presentIntel({ ...row, files: attachments }));
     }
     res.json({ submissions });
   });
@@ -302,12 +304,50 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/search", async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (!q) return res.json({ information: [] });
-    const rows = await searchPublicIntel(pool, q);
+    const rows = await searchPublicIntel(pool, q, req.user?.id || null);
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
-  router.get("/information", async (_req, res) => {
-    const rows = await listPublicIntel(pool, 30);
+  router.get("/bounties", async (req, res) => {
+    const bounties = await listBounties(pool, req.user?.id || null);
+    res.json({ bounties });
+  });
+
+  router.get("/information", async (req, res) => {
+    const rows = await listPublicIntel(pool, 30, req.user?.id || null);
+    res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
+  });
+
+  router.post("/intel/:id/dismiss", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    const { rows } = await pool.query(`SELECT id FROM intel WHERE id = $1 AND verdict = 'passed'`, [id]);
+    if (!rows.length) return res.status(404).json({ error: "not_found" });
+    await pool.query(
+      `INSERT INTO intel_dismissals (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [req.user.id, id]
+    );
+    res.json({ ok: true });
+  });
+
+  router.get("/stars", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const { rows } = await pool.query(
+      `SELECT i.id, i.body, i.created_at, u.display_name, u.avatar_upload_id
+       FROM intel_stars s
+       JOIN intel i ON i.id = s.intel_id
+       JOIN users u ON u.id = i.user_id
+       WHERE s.user_id = $1 AND i.verdict = 'passed'
+         AND NOT EXISTS (
+           SELECT 1 FROM intel_dismissals d
+           WHERE d.intel_id = i.id AND d.user_id = s.user_id
+         )
+       ORDER BY s.created_at DESC`,
+      [req.user.id]
+    );
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
@@ -374,19 +414,20 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const token = randomBytes(24).toString("base64url");
     const tokenHash = createHash("sha256").update(token).digest("hex");
-    await pool.query(
+    const { rows } = await pool.query(
       `INSERT INTO delegations (user_id, token_hash)
        VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, created_at = now()`,
+       ON CONFLICT (user_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, created_at = now()
+       RETURNING created_at`,
       [req.user.id, tokenHash]
     );
-    res.status(201).json({ token });
+    res.status(201).json({ token, createdAt: rows[0].created_at });
   });
 
   router.get("/delegation", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
-    const { rows } = await pool.query(`SELECT 1 FROM delegations WHERE user_id = $1`, [req.user.id]);
-    res.json({ delegated: rows.length > 0 });
+    const { rows } = await pool.query(`SELECT created_at FROM delegations WHERE user_id = $1`, [req.user.id]);
+    res.json({ delegated: rows.length > 0, createdAt: rows[0]?.created_at ?? null });
   });
 
   router.delete("/delegation", async (req, res) => {

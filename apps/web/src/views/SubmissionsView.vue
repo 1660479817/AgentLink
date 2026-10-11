@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import AppButton from "../components/AppButton.vue";
 import { listSubmissions } from "../api.js";
 import { t } from "../i18n/index.js";
+import { PaperclipIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
@@ -29,6 +30,14 @@ function statusKey(status) {
   if (status === "rejected") return "submissions.statusRejected";
   return "submissions.statusPending";
 }
+
+function imagesOf(item) {
+  return item.images?.length ? item.images : (item.attachments || []).filter((file) => file.image);
+}
+
+function filesOf(item) {
+  return item.images ? item.attachments || [] : (item.attachments || []).filter((file) => !file.image);
+}
 </script>
 
 <template>
@@ -36,17 +45,19 @@ function statusKey(status) {
   <p v-if="!session.user" class="muted">{{ t("mine.login") }}</p>
   <p v-else-if="loaded && items.length === 0" class="muted">{{ t("submissions.empty") }}</p>
   <article v-for="item in items" :key="item.id" class="card post">
-    <header class="post-head information-head">
-      <span class="role-badge" data-role="intel">{{ t("role.intel") }}</span>
-      <span class="muted">{{ t(statusKey(item.verdict)) }}</span>
-    </header>
-    <div v-if="item.attachments?.length" class="information-files">
-      <template v-for="file in item.attachments" :key="file.id">
-        <img v-if="file.image" :src="file.url" alt="" class="information-photo" />
-        <a v-else class="chat-file-link" :href="file.url">{{ file.name || t("home.file") }}</a>
-      </template>
+    <p class="information-status">{{ t(statusKey(item.verdict)) }}</p>
+    <p v-if="item.body" class="information-body">{{ item.body }}</p>
+    <div v-if="imagesOf(item).length" class="information-images">
+      <img v-for="file in imagesOf(item)" :key="file.id" :src="file.url" alt="" class="information-photo" />
     </div>
-    <p v-if="item.body" class="post-body">{{ item.body }}</p>
+    <ul v-if="filesOf(item).length" class="information-files">
+      <li v-for="file in filesOf(item)" :key="file.id">
+        <a class="information-file" :href="file.url">
+          <PaperclipIcon class="information-file-icon" aria-hidden="true" />
+          <span>{{ file.name || t("home.file") }}</span>
+        </a>
+      </li>
+    </ul>
     <p v-if="item.rejectReason" class="error" role="alert">{{ item.rejectReason }}</p>
     <p v-if="item.reward" class="muted">{{ t("submissions.intelReward", { n: item.reward }) }}</p>
   </article>

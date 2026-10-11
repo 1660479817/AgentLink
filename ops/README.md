@@ -34,6 +34,15 @@ cd ~/knot/AgentLink
 curl -s http://127.0.0.1:8080/api/health
 ```
 
+## 系统复位
+
+清空测试阶段写入的信息、对话、通知、积分流水和上传文件。用户和会话留下。平台积分回到 0，测试员回到 100，其他人回到 10。OpenClaw 的模型、密钥、飞书和员工不动。
+
+```bash
+cd ~/knot/AgentLink
+./ops/scripts/reset-knot.sh --yes
+```
+
 浏览器打开 `http://192.168.3.91:8080/`。
 
 ## 环境

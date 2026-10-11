@@ -44,6 +44,18 @@ export function listInformation() {
   return request("/api/web/information");
 }
 
+export function dismissInformation(id) {
+  return request(`/api/web/intel/${id}/dismiss`, { method: "POST", body: "{}" });
+}
+
+export function listStars() {
+  return request("/api/web/stars");
+}
+
+export function listBounties() {
+  return request("/api/web/bounties");
+}
+
 export function searchInformation(q) {
   return request(`/api/web/search?q=${encodeURIComponent(q)}`);
 }
@@ -90,8 +102,4 @@ export function getDelegation() {
 
 export function createDelegation() {
   return request("/api/web/delegation", { method: "POST", body: "{}" });
-}
-
-export function revokeDelegation() {
-  return request("/api/web/delegation", { method: "DELETE" });
 }

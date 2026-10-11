@@ -1,0 +1,57 @@
+<script setup>
+import { onMounted, ref } from "vue";
+import InformationCard from "../components/InformationCard.vue";
+import { dismissInformation, listStars } from "../api.js";
+import { t } from "../i18n/index.js";
+import { useSessionStore } from "../stores/session";
+
+const session = useSessionStore();
+const items = ref([]);
+const loaded = ref(false);
+const failed = ref(false);
+
+async function dismissItem(item) {
+  const previous = items.value;
+  items.value = items.value.filter((row) => row.id !== item.id);
+  try {
+    await dismissInformation(item.id);
+  } catch (error) {
+    if (error.status !== 401) items.value = previous;
+  }
+}
+
+onMounted(async () => {
+  if (!session.user) {
+    loaded.value = true;
+    return;
+  }
+  try {
+    const data = await listStars();
+    items.value = data.information || [];
+  } catch {
+    failed.value = true;
+  } finally {
+    loaded.value = true;
+  }
+});
+</script>
+
+<template>
+  <h1 class="page-title">{{ t("stars.title") }}</h1>
+  <p v-if="!session.user" class="muted">{{ t("mine.login") }}</p>
+  <p v-else-if="failed" class="error" role="alert">{{ t("error.request_failed") }}</p>
+  <template v-else-if="loaded">
+    <InformationCard
+      v-for="item in items"
+      :key="item.id"
+      :body="item.body || ''"
+      :image-urls="item.imageUrls || item.images?.map((file) => file.url) || []"
+      :attachments="item.attachments || []"
+      :author-name="item.author?.name || ''"
+      :avatar-url="item.author?.avatarUrl || ''"
+      :created-at="item.createdAt || ''"
+      @dismiss="dismissItem(item)"
+    />
+    <p v-if="items.length === 0" class="muted">{{ t("stars.empty") }}</p>
+  </template>
+</template>

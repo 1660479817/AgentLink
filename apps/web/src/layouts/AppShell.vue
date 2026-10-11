@@ -2,7 +2,7 @@
 import { nextTick, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
-import { BackIcon, ChatIcon, HistoryIcon, SearchIcon, UserIcon, ZapIcon } from "../icons/index.js";
+import { ActivityIcon, BackIcon, BookmarkIcon, ChatIcon, HistoryIcon, SearchIcon, UserIcon, ZapIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { useNotificationStore } from "../stores/notifications";
 
@@ -121,8 +121,38 @@ onMounted(() => {
         </div>
       </div>
     </Teleport>
-    <main id="main-content" class="layout">
-      <slot />
-    </main>
+    <div class="stage">
+      <nav class="rail rail-shortcuts" :aria-label="t('rail.shortcuts')">
+        <div class="shortcut-list">
+          <RouterLink :to="{ name: 'mine' }" class="shortcut">
+            <UserIcon class="shortcut-icon" aria-hidden="true" />
+            <span class="shortcut-label">{{ t("nav.mine") }}</span>
+          </RouterLink>
+          <RouterLink :to="{ name: 'stars' }" class="shortcut">
+            <BookmarkIcon class="shortcut-icon" aria-hidden="true" />
+            <span class="shortcut-label">{{ t("rail.stars") }}</span>
+          </RouterLink>
+          <RouterLink :to="{ name: 'activity' }" class="shortcut">
+            <ActivityIcon class="shortcut-icon" aria-hidden="true" />
+            <span class="shortcut-label">{{ t("rail.activity") }}</span>
+          </RouterLink>
+        </div>
+      </nav>
+      <main id="main-content" class="layout">
+        <slot />
+      </main>
+      <aside class="rail rail-sponsor" :aria-label="t('rail.sponsored')">
+        <p class="rail-label">{{ t("rail.sponsored") }}</p>
+        <RouterLink :to="{ name: 'buy' }" class="sponsor-card">
+          <span class="sponsor-media" aria-hidden="true">
+            <span class="brand-mark">{{ mark }}</span>
+          </span>
+          <span class="sponsor-copy">
+            <span class="sponsor-title">{{ t("rail.sponsorTitle") }}</span>
+            <span class="sponsor-meta">{{ t("rail.sponsorMeta") }}</span>
+          </span>
+        </RouterLink>
+      </aside>
+    </div>
   </div>
 </template>

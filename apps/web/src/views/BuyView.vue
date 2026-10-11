@@ -145,15 +145,20 @@ async function submit() {
   <article v-for="item in items" :key="item.id" class="chat-turn">
     <div class="chat-mine">
       <p v-if="item.brief" class="chat-text">{{ item.brief }}</p>
-      <div v-if="item.attachments?.length" class="chat-attachments">
-        <template v-for="file in item.attachments" :key="file.id">
-          <img v-if="file.image" :src="file.url" alt="" class="chat-thumb" />
+      <div v-if="item.images?.length || item.attachments?.length" class="chat-attachments">
+        <template v-for="file in [...(item.images || []), ...(item.attachments || [])]" :key="file.id">
+          <img v-if="file.image || file.mime?.startsWith('image/')" :src="file.url" alt="" class="chat-thumb" />
           <a v-else class="chat-file-link" :href="file.url">{{ file.name || t("buy.file") }}</a>
         </template>
       </div>
     </div>
-    <div v-if="item.body" class="chat-reply">
-      <pre class="chat-text">{{ item.body }}</pre>
+    <div v-if="item.body || item.cards?.length" class="chat-reply">
+      <article v-for="card in item.cards || []" :key="card.id">
+        <p v-if="card.body" class="chat-text">{{ card.body }}</p>
+        <img v-for="file in card.images || []" :key="file.id" :src="file.url" alt="" class="chat-thumb" />
+        <a v-for="file in card.attachments || []" :key="file.id" class="chat-file-link" :href="file.url">{{ file.name || t("buy.file") }}</a>
+      </article>
+      <pre v-if="item.body && !(item.cards || []).length" class="chat-text">{{ item.body }}</pre>
     </div>
   </article>
 </template>

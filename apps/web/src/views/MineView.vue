@@ -1,14 +1,20 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import AppButton from "../components/AppButton.vue";
-import { UserIcon } from "../icons";
+import { RefreshIcon, UserIcon } from "../icons";
 import { t } from "../i18n";
-import { updateProfile, uploadImage } from "../api";
+import { createDelegation, getDelegation, updateProfile, uploadImage } from "../api";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
 const error = ref("");
 const busy = ref(false);
+const agentCreatedAt = ref(null);
+const agentDelegated = ref(false);
+const agentBrief = ref("");
+const agentBusy = ref(false);
+const agentError = ref("");
+let agentLoad = 0;
 const name = ref("");
 const email = ref("");
 const loginKey = ref("");
@@ -18,6 +24,19 @@ const fileInput = ref(null);
 onMounted(() => {
   if (session.user) session.load();
 });
+
+watch(
+  () => session.user?.id,
+  (id) => {
+    agentBrief.value = "";
+    agentError.value = "";
+    agentCreatedAt.value = null;
+    agentDelegated.value = false;
+    if (!id) return;
+    loadAgent();
+  },
+  { immediate: true }
+);
 
 watch(
   () => session.user?.displayName,
@@ -34,6 +53,22 @@ const entitlementText = computed(() => {
   }
   return Object.keys(value).join("、");
 });
+
+const agentLine = computed(() => {
+  if (!agentDelegated.value) return t("mine.agentCodeEmpty");
+  if (!agentCreatedAt.value) return t("mine.agentCodeOnly", { code: t("mine.agentCodeMask") });
+  return t("mine.agentCode", {
+    code: t("mine.agentCodeMask"),
+    time: formatAgentTime(agentCreatedAt.value),
+  });
+});
+
+function formatAgentTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function showError(err) {
   const key = `error.${err.code}`;
@@ -104,6 +139,48 @@ async function pickAvatar(event) {
     showError(err);
   } finally {
     busy.value = false;
+  }
+}
+
+function showAgentError(err) {
+  const key = `error.${err.code}`;
+  const message = t(key);
+  agentError.value = message === key ? t("error.request_failed") : message;
+}
+
+async function loadAgent() {
+  if (!session.user) return;
+  const ticket = ++agentLoad;
+  try {
+    const data = await getDelegation();
+    if (ticket !== agentLoad) return;
+    agentDelegated.value = Boolean(data.delegated || data.createdAt);
+    agentCreatedAt.value = data.createdAt || null;
+  } catch (err) {
+    if (ticket !== agentLoad) return;
+    showAgentError(err);
+  }
+}
+
+async function regenerate() {
+  agentError.value = "";
+  agentBusy.value = true;
+  const ticket = ++agentLoad;
+  try {
+    const data = await createDelegation();
+    if (ticket !== agentLoad) return;
+    agentDelegated.value = true;
+    agentCreatedAt.value = data.createdAt || new Date().toISOString();
+    agentBrief.value = t("mine.agentBrief", {
+      origin: window.location.origin,
+      email: session.user?.email || "",
+      token: data.token,
+    });
+  } catch (err) {
+    if (ticket !== agentLoad) return;
+    showAgentError(err);
+  } finally {
+    if (ticket === agentLoad) agentBusy.value = false;
   }
 }
 
@@ -227,10 +304,26 @@ async function leave() {
 
     <section class="card">
       <h2 class="page-title">{{ t("mine.agent") }}</h2>
-      <p class="post-body">{{ t("mine.agentHint") }}</p>
-      <div class="form-actions">
-        <AppButton variant="secondary" to="/delegate">{{ t("mine.agentOpen") }}</AppButton>
+      <div class="agent-line">
+        <p>{{ agentLine }}</p>
+        <AppButton
+          variant="icon"
+          :aria-label="t('mine.agentRegenerate')"
+          :disabled="agentBusy"
+          @click="regenerate"
+        >
+          <RefreshIcon aria-hidden="true" />
+        </AppButton>
       </div>
+      <p v-if="agentError" class="error" role="alert">{{ agentError }}</p>
+      <div class="agent-tips">
+        <p class="agent-tips-title">{{ t("mine.agentTipsTitle") }}</p>
+        <ul>
+          <li>{{ t("mine.agentTipOnce") }}</li>
+          <li>{{ t("mine.agentTipRotate") }}</li>
+        </ul>
+      </div>
+      <pre v-if="agentBrief" class="agent-brief">{{ agentBrief }}</pre>
     </section>
   </template>
 </template>

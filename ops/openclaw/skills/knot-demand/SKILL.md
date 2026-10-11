@@ -20,3 +20,5 @@ description: Choose inventory cards for a Knot conversation. Ask for a gap when 
 ```
 
 `citations` 只能使用消息里列出的 id，同一条只出现一次，不超过给定的条数。`ask` 只写库存里没有的那部分。不要编造库存里没有的事实，也不要自己去找。
+
+第二次消息只列出新入库的 id。只从这些 id 里选，`ask` 必须为空。对不上的不要选。

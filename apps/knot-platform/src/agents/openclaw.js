@@ -16,6 +16,10 @@ export function demandAgentId() {
   return agentId("OPENCLAW_DEMAND_AGENT") || agentId("OPENCLAW_MATCH_AGENT");
 }
 
+export function seekAgentId() {
+  return agentId("OPENCLAW_SEEK_AGENT");
+}
+
 function agentTimeout() {
   const timeout = Number(process.env.OPENCLAW_AGENT_TIMEOUT || 45);
   return Number.isFinite(timeout) && timeout > 0 ? timeout : 45;
@@ -54,14 +58,29 @@ export function parseIntelReply(text) {
 
 export function parseDemandReply(text) {
   const value = readJsonObject(text);
-  const body = typeof value.body === "string" ? value.body.trim() : "";
+  if (!Array.isArray(value.citations)) throw new Error("demand_agent_bad_json");
   const citations = [];
-  for (const id of Array.isArray(value.citations) ? value.citations : []) {
+  for (const id of value.citations) {
     const clean = cleanText(id);
     if (clean && !citations.includes(clean)) citations.push(clean);
   }
-  if (!body && !citations.length) throw new Error("demand_agent_bad_json");
-  return { body, citations };
+  return { citations, ask: clip(value.ask, 400) };
+}
+
+export function parseSeekReply(text) {
+  const value = readJsonObject(text);
+  if (value.able !== true) return { able: false, items: [] };
+  const items = [];
+  for (const raw of Array.isArray(value.items) ? value.items : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const body = clip(raw.body, 2000);
+    const note = clip(raw.note, 400);
+    const source = clip(raw.source, 300);
+    if (!body || !source) continue;
+    items.push({ body, note, source });
+  }
+  if (!items.length) return { able: false, items: [] };
+  return { able: true, items };
 }
 
 function replyText(envelope) {
@@ -188,21 +207,57 @@ export async function runIntelAgent(intel, imagePaths = []) {
   return parseIntelReply(text);
 }
 
-export async function runDemandAgent(input) {
-  const agent = demandAgentId();
-  if (!agent) throw new Error("demand_agent_unconfigured");
+function demandMessage(input) {
   const lines = input.items.map((item) => `${item.id} ${item.text}`);
-  const message = [
-    "按约定从库存写一份文件。只返回一个 JSON 对象。",
-    '{"body":"交给用户的文件","citations":["库存id"]}',
+  const inventory = lines.length ? lines : ["（没有库存）"];
+  if (input.selectOnly) {
+    return [
+      "只从下面这些新入库的 id 里选择要并入这次提交的卡片。只返回一个 JSON 对象。",
+      '{"citations":["库存id"],"ask":""}',
+      `最多引用 ${input.limit} 条。ask 必须是空字符串，不要再写空档。`,
+      "citations 只能使用下面列出的 id，同一条只出现一次。对不上的不要选。",
+      "brief:",
+      input.brief,
+      "inventory:",
+      ...inventory,
+    ].join("\n");
+  }
+  return [
+    "按约定从库存选出卡片。只返回一个 JSON 对象。",
+    '{"citations":["库存id"],"ask":""}',
+    '{"citations":["已经对得上的库存id"],"ask":"缺的那一截"}',
     `最多引用 ${input.limit} 条。citations 只能使用下面列出的 id，同一条只出现一次。`,
-    "body 里引用的资料必须都在 citations 里。没有对得上的库存时 citations 为空，body 说明没有可交的资料。",
-    "不要编造库存里没有的事实，不要写电话或微信。",
+    "ask 只写库存里没有的那一截。盖得住时 ask 为空。不要编造，不要自己去找。",
     "brief:",
     input.brief,
     "inventory:",
-    ...(lines.length ? lines : ["（没有库存）"]),
+    ...inventory,
   ].join("\n");
-  const text = await askEmployee(agent, `demand-${input.id}`, message, agentTimeout());
-  return parseDemandReply(text);
+}
+
+export async function runDemandAgent(input) {
+  const agent = demandAgentId();
+  if (!agent) throw new Error("demand_agent_unconfigured");
+  const text = await askEmployee(agent, `demand-${input.id}`, demandMessage(input), agentTimeout());
+  const reply = parseDemandReply(text);
+  if (input.selectOnly) reply.ask = "";
+  return reply;
+}
+
+export async function runSeekAgent(input) {
+  const agent = seekAgentId();
+  if (!agent) throw new Error("seek_agent_unconfigured");
+  const message = [
+    "判断这段空档能不能从公开来源补上。只返回一个 JSON 对象。",
+    '{"able":false,"items":[]}',
+    '{"able":true,"items":[{"body":"一条可入库的事实","note":"给检索用的一句","source":"公开出处"}]}',
+    `最多 ${input.limit} 条。每条 item 必须有 source。`,
+    "没有公开出处、查不到、或要联系对方才能知道的，able 为 false。不要编造。",
+    "gap:",
+    input.ask,
+  ].join("\n");
+  const text = await askEmployee(agent, `seek-${input.id}`, message, agentTimeout());
+  const reply = parseSeekReply(text);
+  reply.items = reply.items.slice(0, input.limit);
+  return reply;
 }

@@ -24,10 +24,10 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 | id | 员工 | Backend 何时拉起 | 交回 |
 | --- | --- | --- | --- |
 | `knot-intel` | Intel | 有一条新的情报。附带图片时，Backend 先转写图片，再把转写放进消息 | `verdict` 为 `pass` 或 `reject`。通过后 Backend 奖励 1 积分 |
-| `knot-demand` | Demand | 有一次对话，库存候选已放进消息 | `citations` 与 `ask`。`ask` 为空时 Backend 按引用条数扣同一个单价，并按一条情报一张卡提交 |
-| `knot-seek` | Seek | demand 的 `ask` 不为空 | `able` 与 `items`。能补上时 Backend 交给 knot-intel，通过后由 demand 写入库存并提交 |
+| `knot-demand` | Demand | 有一次对话，库存候选已放进消息。补进库之后再拉起一次，只给新 id | `citations` 与 `ask`。`ask` 为空时按条提交。第二次 `ask` 作废，只并入它从新 id 里选中的 |
+| `knot-seek` | Seek | demand 的 `ask` 不为空，并且还有可引用的条数 | `able` 与 `items`。没有 `source` 的条目丢掉，一条都没有则视为不能。能补上时先过 knot-intel |
 
-三个并排，互不调用。`allowAgents` 都是空数组。环境变量是 `OPENCLAW_INTEL_AGENT`、`OPENCLAW_DEMAND_AGENT` 与 `OPENCLAW_SEEK_AGENT`。员工没有交回可用 JSON 时，情报在未配置员工时直接通过；对话改由 Backend 按字面重合从库存里取；seek 未配置时视为不能补上。
+三个并排，互不调用。`allowAgents` 都是空数组。环境变量是 `OPENCLAW_INTEL_AGENT`、`OPENCLAW_DEMAND_AGENT` 与 `OPENCLAW_SEEK_AGENT`。员工没有交回可用 JSON 时，情报在未配置员工时直接通过；对话改由 Backend 按字面重合从库存里取。seek 未配置，或条目都没有公开出处时，视为不能补上。
 
 ## 技能
 
