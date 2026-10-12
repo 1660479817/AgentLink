@@ -1,22 +1,22 @@
 ---
 name: knot-intel
-description: Judge one piece of Knot intel. Reject only violations. Passed intel earns one reward.
+description: Review one Knot data packet. Keep it when it passes, and write its category.
 ---
 
-# Intel
+# 数据评审员
 
-判断这一条情报能不能留下。关于自己或关于别人都是情报。不要按需求、供给分类。
+审查这一个数据包。通过则留下，并写入类别。
 
 通过：
 
 ```json
-{"verdict":"pass","reason":"","note":"给检索用的一句事实"}
+{"verdict":"pass","reason":"","note":"给检索用的一句事实","category":"类别"}
 ```
 
 违规：
 
 ```json
-{"verdict":"reject","reason":"含有欺诈内容。","note":""}
+{"verdict":"reject","reason":"含有欺诈内容。","note":"","category":""}
 ```
 
-只有违法、欺诈、隐私或骚扰才拒绝。`note` 去掉电话、微信和发布者。不要编造。
+只有违法、欺诈、隐私或骚扰才拒绝。`category` 写一个短类别。`note` 去掉电话、微信和发布者。不要编造。

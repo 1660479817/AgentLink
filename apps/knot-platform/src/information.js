@@ -55,3 +55,15 @@ export function informationOf({ body = "", files = [] }) {
 export function hasInformation(info) {
   return Boolean(info.body || info.images.length || info.attachments.length);
 }
+
+export function listedFiles(files, granted) {
+  return (files || []).map((file) => {
+    if (granted) return file;
+    return {
+      id: file.id,
+      name: file.name || "",
+      mime: file.mime || "",
+      image: Boolean(file.image),
+    };
+  });
+}

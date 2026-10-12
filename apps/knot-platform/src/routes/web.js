@@ -3,10 +3,10 @@ import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
-import { listBounties } from "../bounties.js";
-import { informationOf } from "../information.js";
-import { createDemand, createIntel, listDemands, listPublicIntel, presentIntel, searchPublicIntel } from "../market.js";
-import { hashLoginKey, newLoginKey, normalizeEmail, normalizeLoginKey, sendLoginKey } from "../login.js";
+import { listBounties, openBounty } from "../bounties.js";
+import { informationOf, listedFiles } from "../information.js";
+import { createDemand, createIntel, downloadPacket, listDemands, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar, stopDemand } from "../market.js";
+import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
 import { ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
@@ -41,17 +41,31 @@ function attachmentOf(row) {
   };
 }
 
+function httpError(res, error) {
+  const code = error.code || error.message;
+  if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
+  if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
+  if (code === "not_found") return res.status(404).json({ error: "not_found" });
+  console.error(error);
+  return res.status(503).json({ error: "process_unavailable" });
+}
+
 function publicCard(row) {
-  const info = informationOf({ body: row.body, files: row.attachments || [] });
+  const granted = Boolean(row.granted);
+  const info = informationOf({ body: row.body, files: listedFiles(row.attachments || [], granted) });
   return {
     id: row.id,
     role: "intel",
     ...info,
-    imageUrls: info.images.map((item) => item.url),
+    imageUrls: granted ? info.images.map((item) => item.url).filter(Boolean) : [],
+    category: row.category || "",
+    price: Number(row.price) || 0,
+    granted,
     author: {
       name: row.display_name || "",
       avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
     },
+    starred: Boolean(row.starred),
     createdAt: row.created_at,
   };
 }
@@ -99,25 +113,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.post("/login", async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     if (!email) return res.status(400).json({ error: "bad_email" });
-    const recent = await pool.query(
-      `SELECT 1 FROM login_keys WHERE email = $1 AND created_at > now() - interval '60 seconds' LIMIT 1`,
-      [email]
-    );
-    if (recent.rowCount) return res.status(429).json({ error: "too_many" });
-    const key = newLoginKey();
-    const inserted = await pool.query(
-      `INSERT INTO login_keys (email, key_hash, expires_at)
-       VALUES ($1, $2, now() + interval '10 minutes')
-       RETURNING id`,
-      [email, hashLoginKey(key)]
-    );
-    try {
-      await sendLoginKey(email, key);
-    } catch (err) {
-      await pool.query(`DELETE FROM login_keys WHERE id = $1`, [inserted.rows[0].id]);
-      const code = err.code === "mail_unavailable" ? "mail_unavailable" : "mail_failed";
-      return res.status(503).json({ error: code });
-    }
+    const sent = await requestLoginKey(pool, email);
+    if (sent.error) return res.status(sent.status).json({ error: sent.error });
     res.json({ ok: true });
   });
 
@@ -126,27 +123,9 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     const key = normalizeLoginKey(req.body?.key);
     if (!email) return res.status(400).json({ error: "bad_email" });
     if (!key) return res.status(400).json({ error: "bad_key" });
-    const matched = await pool.query(
-      `UPDATE login_keys
-       SET used_at = now()
-       WHERE id = (
-         SELECT id FROM login_keys
-         WHERE email = $1 AND key_hash = $2 AND used_at IS NULL AND expires_at > now()
-         ORDER BY created_at DESC
-         LIMIT 1
-       )
-       RETURNING id`,
-      [email, hashLoginKey(key)]
-    );
-    if (!matched.rowCount) return res.status(400).json({ error: "bad_key" });
-    const saved = await pool.query(
-      `INSERT INTO users (email) VALUES ($1)
-       ON CONFLICT (lower(email)) WHERE email IS NOT NULL
-       DO UPDATE SET email = EXCLUDED.email
-       RETURNING id`,
-      [email]
-    );
-    const userId = saved.rows[0].id;
+    const redeemed = await redeemLoginKey(pool, email, key);
+    if (redeemed.error) return res.status(redeemed.status).json({ error: redeemed.error });
+    const userId = redeemed.userId;
     const sid = randomBytes(24).toString("hex");
     const expires = new Date(Date.now() + SESSION_TTL_MS);
     await pool.query(`INSERT INTO sessions (sid, user_id, expires_at) VALUES ($1, $2, $3)`, [
@@ -268,18 +247,19 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         body,
         imageIds,
         fileIds,
+        price: req.body?.price,
+        bountyId: typeof req.body?.bountyId === "string" ? req.body.bountyId : null,
       });
       res.status(201).json({ intel });
     } catch (error) {
-      console.error(error);
-      res.status(503).json({ error: "process_unavailable" });
+      httpError(res, error);
     }
   });
 
   router.get("/submissions", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT id, body, verdict, reject_reason, created_at
+      `SELECT id, body, verdict, reject_reason, category, price, created_at
        FROM intel
        WHERE user_id = $1 AND door = 'webui'
        ORDER BY created_at DESC`,
@@ -308,9 +288,37 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
-  router.get("/bounties", async (req, res) => {
-    const bounties = await listBounties(pool, req.user?.id || null);
-    res.json({ bounties });
+  router.get("/bounties", async (_req, res) => {
+    res.json({ bounties: await listBounties(pool) });
+  });
+
+  router.post("/bounties", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    try {
+      const result = await openBounty(pool, {
+        userId: req.user.id,
+        body: req.body?.body,
+        hours: req.body?.hours,
+      });
+      if (result.error) return res.status(result.status).json({ error: result.error });
+      res.status(201).json(result);
+    } catch (error) {
+      httpError(res, error);
+    }
+  });
+
+  router.post("/intel/:id/download", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    try {
+      const intel = await downloadPacket(pool, req.user.id, id);
+      res.json({ intel: { ...intel, granted: true } });
+    } catch (error) {
+      httpError(res, error);
+    }
   });
 
   router.get("/information", async (req, res) => {
@@ -333,10 +341,32 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.json({ ok: true });
   });
 
+  async function writeStar(req, res, starred) {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    try {
+      res.json(await setIntelStar(pool, req.user.id, id, starred));
+    } catch (error) {
+      if (error.code === "not_found") return res.status(404).json({ error: "not_found" });
+      console.error(error);
+      res.status(500).json({ error: "internal" });
+    }
+  }
+
+  router.post("/intel/:id/star", (req, res) => writeStar(req, res, true));
+  router.delete("/intel/:id/star", (req, res) => writeStar(req, res, false));
+
   router.get("/stars", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.created_at, u.display_name, u.avatar_upload_id
+      `SELECT i.id, i.body, i.price, i.category, i.user_id, i.created_at, u.display_name, u.avatar_upload_id,
+        TRUE AS starred,
+        (i.user_id = $1 OR EXISTS (
+          SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
+        )) AS granted
        FROM intel_stars s
        JOIN intel i ON i.id = s.intel_id
        JOIN users u ON u.id = i.user_id
@@ -399,8 +429,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       });
       res.status(201).json({ demand });
     } catch (error) {
-      console.error(error);
-      res.status(503).json({ error: "process_unavailable" });
+      httpError(res, error);
     }
   });
 
@@ -408,6 +437,19 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const demands = await listDemands(pool, req.user.id, "webui");
     res.json({ demands });
+  });
+
+  router.post("/demands/:id/stop", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    try {
+      const demand = await stopDemand(pool, req.params.id, req.user.id);
+      res.json({ demand });
+    } catch (error) {
+      if (error.code === "not_found") return res.status(404).json({ error: "not_found" });
+      if (error.code === "not_open") return res.status(409).json({ error: "not_open" });
+      console.error(error);
+      res.status(500).json({ error: "internal" });
+    }
   });
 
   router.post("/delegation", async (req, res) => {

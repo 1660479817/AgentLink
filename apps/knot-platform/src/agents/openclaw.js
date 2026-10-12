@@ -16,6 +16,10 @@ export function demandAgentId() {
   return agentId("OPENCLAW_DEMAND_AGENT") || agentId("OPENCLAW_MATCH_AGENT");
 }
 
+export function briefAgentId() {
+  return agentId("OPENCLAW_BRIEF_AGENT");
+}
+
 export function seekAgentId() {
   return agentId("OPENCLAW_SEEK_AGENT");
 }
@@ -46,14 +50,27 @@ function readJsonObject(text) {
   return value;
 }
 
+function categoryOf(value) {
+  return clip(value.category, 40);
+}
+
 export function parseIntelReply(text) {
   const value = readJsonObject(text);
   const note = clip(value.note, 400);
   if (value.verdict === "reject") {
     const reason = cleanText(value.reason || value.reject?.reason);
-    if (reason) return { verdict: "reject", reason, note: "" };
+    if (reason) return { verdict: "reject", reason, note: "", category: "" };
   }
-  return { verdict: "pass", reason: "", note };
+  return { verdict: "pass", reason: "", note, category: categoryOf(value) };
+}
+
+export function parseBriefReply(text) {
+  const value = readJsonObject(text);
+  if (value.verdict === "reject") {
+    const reason = cleanText(value.reason || value.reject?.reason);
+    if (reason) return { verdict: "reject", reason, category: "" };
+  }
+  return { verdict: "pass", reason: "", category: categoryOf(value) };
 }
 
 export function parseDemandReply(text) {
@@ -194,10 +211,10 @@ export async function runIntelAgent(intel, imagePaths = []) {
     notes.push(await describeImage(bin, agent, file, 60_000));
   }
   const message = [
-    "判断这一条情报能不能留下。只返回一个 JSON 对象。",
-    '{"verdict":"pass","reason":"","note":"给检索用的一句事实"}',
-    '{"verdict":"reject","reason":"违规原因","note":""}',
-    "只有违法、欺诈、隐私或骚扰才 reject。关于自己或关于别人都是情报。",
+    "审查这一个数据包。通过则留下，并写入类别。只返回一个 JSON 对象。",
+    '{"verdict":"pass","reason":"","note":"给检索用的一句事实","category":"类别"}',
+    '{"verdict":"reject","reason":"违规原因","note":"","category":""}',
+    "只有违法、欺诈、隐私或骚扰才 reject。category 写一个短类别。",
     "note 去掉电话、微信和发布者。不要编造。",
     "body:",
     String(intel.body || ""),
@@ -210,29 +227,31 @@ export async function runIntelAgent(intel, imagePaths = []) {
 function demandMessage(input) {
   const lines = input.items.map((item) => `${item.id} ${item.text}`);
   const inventory = lines.length ? lines : ["（没有库存）"];
-  if (input.selectOnly) {
-    return [
-      "只从下面这些新入库的 id 里选择要并入这次提交的卡片。只返回一个 JSON 对象。",
-      '{"citations":["库存id"],"ask":""}',
-      `最多引用 ${input.limit} 条。ask 必须是空字符串，不要再写空档。`,
-      "citations 只能使用下面列出的 id，同一条只出现一次。对不上的不要选。",
-      "brief:",
-      input.brief,
-      "inventory:",
-      ...inventory,
-    ].join("\n");
-  }
   return [
-    "按约定从库存选出卡片。只返回一个 JSON 对象。",
-    '{"citations":["库存id"],"ask":""}',
-    '{"citations":["已经对得上的库存id"],"ask":"缺的那一截"}',
+    "按需求从库存里选出带附件的数据包。只返回一个 JSON 对象。",
+    '{"citations":["库存id"]}',
     `最多引用 ${input.limit} 条。citations 只能使用下面列出的 id，同一条只出现一次。`,
-    "ask 只写库存里没有的那一截。盖得住时 ask 为空。不要编造，不要自己去找。",
+    "对不上的不要选。不要编造。",
     "brief:",
     input.brief,
     "inventory:",
     ...inventory,
   ].join("\n");
+}
+
+export async function runBriefAgent(input) {
+  const agent = briefAgentId();
+  if (!agent) throw new Error("brief_agent_unconfigured");
+  const message = [
+    "审查这一条需求。通过则留下，并写入类别。只返回一个 JSON 对象。",
+    '{"verdict":"pass","reason":"","category":"类别"}',
+    '{"verdict":"reject","reason":"违规原因","category":""}',
+    "只有违法、欺诈、隐私或骚扰才 reject。category 写一个短类别。不要编造。",
+    "brief:",
+    String(input.brief || ""),
+  ].join("\n");
+  const text = await askEmployee(agent, `brief-${input.id}`, message, agentTimeout());
+  return parseBriefReply(text);
 }
 
 export async function runDemandAgent(input) {

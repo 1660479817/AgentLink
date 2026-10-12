@@ -12,15 +12,15 @@
       "allowAgents": []
     },
     {
-      "id": "knot-demand",
-      "employee": "Demand",
-      "skills": ["knot-demand"],
+      "id": "knot-brief",
+      "employee": "Brief",
+      "skills": ["knot-brief"],
       "allowAgents": []
     },
     {
-      "id": "knot-seek",
-      "employee": "Seek",
-      "skills": ["knot-seek"],
+      "id": "knot-demand",
+      "employee": "Demand",
+      "skills": ["knot-demand"],
       "allowAgents": []
     }
   ]

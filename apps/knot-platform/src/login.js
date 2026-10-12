@@ -1,5 +1,6 @@
 import { createHash, randomInt } from "node:crypto";
 import nodemailer from "nodemailer";
+import { feeConfig } from "./points.js";
 
 const KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -46,6 +47,53 @@ function mailTransport() {
       auth: user ? { user, pass } : undefined,
     }),
   };
+}
+
+export async function requestLoginKey(pool, email) {
+  const recent = await pool.query(
+    `SELECT 1 FROM login_keys WHERE email = $1 AND created_at > now() - interval '60 seconds' LIMIT 1`,
+    [email]
+  );
+  if (recent.rowCount) return { error: "too_many", status: 429 };
+  const key = newLoginKey();
+  const inserted = await pool.query(
+    `INSERT INTO login_keys (email, key_hash, expires_at)
+     VALUES ($1, $2, now() + interval '10 minutes')
+     RETURNING id`,
+    [email, hashLoginKey(key)]
+  );
+  try {
+    await sendLoginKey(email, key);
+  } catch (err) {
+    await pool.query(`DELETE FROM login_keys WHERE id = $1`, [inserted.rows[0].id]);
+    const code = err.code === "mail_unavailable" ? "mail_unavailable" : "mail_failed";
+    return { error: code, status: 503 };
+  }
+  return { ok: true };
+}
+
+export async function redeemLoginKey(pool, email, key) {
+  const matched = await pool.query(
+    `UPDATE login_keys
+     SET used_at = now()
+     WHERE id = (
+       SELECT id FROM login_keys
+       WHERE email = $1 AND key_hash = $2 AND used_at IS NULL AND expires_at > now()
+       ORDER BY created_at DESC
+       LIMIT 1
+     )
+     RETURNING id`,
+    [email, hashLoginKey(key)]
+  );
+  if (!matched.rowCount) return { error: "bad_key", status: 400 };
+  const saved = await pool.query(
+    `INSERT INTO users (email, points_balance) VALUES ($1, $2)
+     ON CONFLICT (lower(email)) WHERE email IS NOT NULL
+     DO UPDATE SET email = EXCLUDED.email
+     RETURNING id, points_balance`,
+    [email, feeConfig().signupGrant]
+  );
+  return { userId: saved.rows[0].id, pointsBalance: saved.rows[0].points_balance };
 }
 
 export async function sendLoginKey(email, key) {

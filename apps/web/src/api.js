@@ -52,6 +52,14 @@ export function listStars() {
   return request("/api/web/stars");
 }
 
+export function starInformation(id) {
+  return request(`/api/web/intel/${id}/star`, { method: "POST", body: "{}" });
+}
+
+export function unstarInformation(id) {
+  return request(`/api/web/intel/${id}/star`, { method: "DELETE" });
+}
+
 export function listBounties() {
   return request("/api/web/bounties");
 }
@@ -60,10 +68,21 @@ export function searchInformation(q) {
   return request(`/api/web/search?q=${encodeURIComponent(q)}`);
 }
 
-export function createIntel(body, imageIds = [], fileIds = []) {
+export function createIntel(body, imageIds = [], fileIds = [], extra = {}) {
   return request("/api/web/intel", {
     method: "POST",
-    body: JSON.stringify({ body, imageIds, fileIds }),
+    body: JSON.stringify({ body, imageIds, fileIds, ...extra }),
+  });
+}
+
+export function downloadInformation(id) {
+  return request(`/api/web/intel/${id}/download`, { method: "POST", body: "{}" });
+}
+
+export function createBounty(body, hours) {
+  return request("/api/web/bounties", {
+    method: "POST",
+    body: JSON.stringify({ body, hours }),
   });
 }
 
@@ -82,6 +101,10 @@ export function createDemand(brief, fileIds = []) {
 
 export function listDemands() {
   return request("/api/web/demands");
+}
+
+export function stopDemand(id) {
+  return request(`/api/web/demands/${id}/stop`, { method: "POST", body: "{}" });
 }
 
 export function listSubmissions() {

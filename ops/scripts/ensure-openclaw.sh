@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 按仓库 ops/openclaw 同步 bot01 上的 OpenClaw 员工、提示词和技能名单。
-# OPENCLAW_ENABLE_PROCESS=1 时让 Knot Backend 拉起 knot-intel、knot-demand 与 knot-seek。
+# OPENCLAW_ENABLE_PROCESS=1 时让 Knot Backend 拉起 knot-intel、knot-brief 与 knot-demand。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -94,11 +94,11 @@ ensure_line() {
   fi
 }
 ensure_line OPENCLAW_INTEL_AGENT knot-intel
+ensure_line OPENCLAW_BRIEF_AGENT knot-brief
 ensure_line OPENCLAW_DEMAND_AGENT knot-demand
-ensure_line OPENCLAW_SEEK_AGENT knot-seek
 ensure_line OPENCLAW_BIN openclaw
 ensure_line OPENCLAW_PROCESS_TIMEOUT 90
 ensure_line OPENCLAW_AGENT_TIMEOUT 45
 uid="$(id -u)"
 launchctl kickstart -k "gui/$uid/com.knot.platform" 2>/dev/null || true
-echo "OK: Knot Backend 拉起 knot-intel、knot-demand、knot-seek"
+echo "OK: Knot Backend 拉起 knot-intel、knot-brief、knot-demand"

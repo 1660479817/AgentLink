@@ -23,11 +23,11 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 
 | id | 员工 | Backend 何时拉起 | 交回 |
 | --- | --- | --- | --- |
-| `knot-intel` | Intel | 有一条新的情报。附带图片时，Backend 先转写图片，再把转写放进消息 | `verdict` 为 `pass` 或 `reject`。通过后 Backend 奖励 1 积分 |
-| `knot-demand` | Demand | 有一次对话，库存候选已放进消息。补进库之后再拉起一次，只给新 id | `citations` 与 `ask`。`ask` 为空时按条提交。第二次 `ask` 作废，只并入它从新 id 里选中的 |
-| `knot-seek` | Seek | demand 的 `ask` 不为空，并且还有可引用的条数 | `able` 与 `items`。没有 `source` 的条目丢掉，一条都没有则视为不能。能补上时先过 knot-intel |
+| `knot-intel` | 数据评审员 | 有一个新数据包。附带图片时，Backend 先转写图片，再把转写放进消息 | `verdict` 与 `category`。通过则留下 |
+| `knot-brief` | 需求评审员 | 有一条新需求 | `verdict` 与 `category`。通过则进入匹配 |
+| `knot-demand` | 数据匹配专家 | 需求已通过，库存里是带附件的数据包 | `citations`。条数不超过余额付得起的个数 |
 
-三个并排，互不调用。`allowAgents` 都是空数组。环境变量是 `OPENCLAW_INTEL_AGENT`、`OPENCLAW_DEMAND_AGENT` 与 `OPENCLAW_SEEK_AGENT`。员工没有交回可用 JSON 时，情报在未配置员工时直接通过；对话改由 Backend 按字面重合从库存里取。seek 未配置，或条目都没有公开出处时，视为不能补上。
+三个并排，互不调用。`allowAgents` 都是空数组。环境变量是 `OPENCLAW_INTEL_AGENT`、`OPENCLAW_BRIEF_AGENT` 与 `OPENCLAW_DEMAND_AGENT`。员工没有交回可用 JSON 时，数据包和需求在未配置对应员工时直接通过；匹配改由 Backend 按字面重合从带附件的库存里取。
 
 ## 技能
 
@@ -36,14 +36,14 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 | 范围 | 名单 | 技能 | 谁看得见 |
 | --- | --- | --- | --- |
 | 公共 | `commonSkills` | `knot-employee` | 三个 Knot 员工都复制一份 |
-| Intel | `knot-intel` | `knot-intel` | 只此员工 |
-| Demand | `knot-demand` | `knot-demand` | 只此员工 |
-| Seek | `knot-seek` | `knot-seek` | 只此员工 |
+| 数据评审员 | `knot-intel` | `knot-intel` | 只此员工 |
+| 需求评审员 | `knot-brief` | `knot-brief` | 只此员工 |
+| 数据匹配专家 | `knot-demand` | `knot-demand` | 只此员工 |
 
 公共技能写三个员工共同遵守的边界。每个员工自己的技能只写该类交回的 JSON。以后要加外部技能，先把 `SKILL.md` 放进 `ops/openclaw/skills/`，再把名字写入 `manifest.json`，然后在 bot01 的仓库里执行 `./ops/scripts/ensure-openclaw.sh`。
 
 ## 拉起
 
-Knot Backend 执行 `openclaw agent --agent <id> --session-key <key> --message-file <file> --json --timeout <秒>`。`knot-intel` 的会话键是 `intel-<id>`，超时见 `OPENCLAW_PROCESS_TIMEOUT`。`knot-demand` 的会话键是 `demand-<id>`，`knot-seek` 的会话键是 `seek-<id>`，超时都见 `OPENCLAW_AGENT_TIMEOUT`。
+Knot Backend 执行 `openclaw agent --agent <id> --session-key <key> --message-file <file> --json --timeout <秒>`。`knot-intel` 的会话键是 `intel-<id>`，超时见 `OPENCLAW_PROCESS_TIMEOUT`。`knot-brief` 的会话键是 `brief-<id>`，`knot-demand` 的会话键是 `demand-<id>`，超时都见 `OPENCLAW_AGENT_TIMEOUT`。
 
-Backend 解析 JSON，自己写入数据库、积分和通知。员工不访问数据库。对话侧最多引用 10 条，并且不超过当时积分付得起的条数。同一条库存在同一次回复里只算一次。点星不经过员工。
+Backend 解析 JSON，自己写入数据库、绩点和通知。员工不访问数据库。匹配最多返回 10 个带附件的数据包，并且不超过当时余额付得起的个数。同一个数据包在同一次回复里只算一次。点星不经过员工。

@@ -94,7 +94,7 @@ onMounted(() => {
               notifications.unread > 99 ? "99+" : notifications.unread
             }}</span>
           </AppButton>
-          <AppButton variant="icon" to="/buy" :aria-label="t('nav.buy')">
+          <AppButton variant="icon" to="/chat" :aria-label="t('nav.buy')">
             <ChatIcon class="nav-icon" aria-hidden="true" />
           </AppButton>
           <AppButton variant="icon" to="/mine" :aria-label="t('nav.mine')">
@@ -143,7 +143,7 @@ onMounted(() => {
       </main>
       <aside class="rail rail-sponsor" :aria-label="t('rail.sponsored')">
         <p class="rail-label">{{ t("rail.sponsored") }}</p>
-        <RouterLink :to="{ name: 'buy' }" class="sponsor-card">
+        <RouterLink :to="{ name: 'chat' }" class="sponsor-card">
           <span class="sponsor-media" aria-hidden="true">
             <span class="brand-mark">{{ mark }}</span>
           </span>

@@ -8,7 +8,7 @@
     "home": "首页",
     "notifications": "通知",
     "mine": "我的",
-    "buy": "对话",
+    "buy": "匹配",
     "search": "搜索",
     "searchPlaceholder": "搜索信息"
   },
@@ -35,10 +35,15 @@
     "empty": "还没有信息",
     "intelRail": "信息和悬赏",
     "intelCreate": "提供信息",
-    "bountyReward": "悬赏 {n} 积分",
-    "bountyClaimed": "已认领",
-    "bountyCompleted": "待提交",
-    "bountySubmitted": "已提交",
+    "bountyHours": "{n} 小时",
+    "openBounty": "开悬赏",
+    "bountyPlaceholder": "写下要请人提交的数据包",
+    "bountyHoursField": "1–72 小时",
+    "bountySubmit": "提交到这条悬赏",
+    "priceLabel": "报价",
+    "usePrice": "报价 {n}",
+    "pricePlaceholder": "留空为默认",
+    "download": "下载",
     "intelPhoto": "拍照",
     "intelInput": "输入",
     "intelCapture": "拍照或选图",
@@ -54,7 +59,10 @@
     "hoursAgo": "{n}小时",
     "daysAgo": "{n}天",
     "postedOn": "{month}月{day}日",
-    "dismiss": "关闭"
+    "dismiss": "关闭",
+    "star": "收藏",
+    "starred": "已收藏",
+    "unstar": "取消收藏"
   },
   "search": {
     "back": "返回",
@@ -62,7 +70,7 @@
   },
   "notifications": {
     "title": "通知",
-    "hint": "信息未通过、信息入账、有一条回复会出现在这里。",
+    "hint": "审查结果和回复会出现在这里。",
     "empty": "还没有通知",
     "openLink": "查看详情"
   },
@@ -70,7 +78,7 @@
     "title": "提交的信息",
     "empty": "还没有提交记录",
     "back": "返回我的",
-    "intelReward": "信息奖励 {n} 积分",
+    "usePrice": "使用报价 {n}",
     "statusPending": "审核中",
     "statusPublished": "已通过",
     "statusRejected": "未通过"
@@ -105,21 +113,37 @@
     "agentTipsTitle": "重要提示：",
     "agentTipOnce": "授权码仅在生成时可见，请你复制并记录该重要凭证。",
     "agentTipRotate": "如果忘记授权码，或者怀疑授权码泄露，你可以重新生成一个新的授权码，旧的授权码将失效。",
-    "agentBrief": "你是用户的 Agent。用下面的邮箱和授权码访问 Knot，代替用户提供信息，或发起对话并取回结果。授权码只发往下面的地址。这把码失效后不要再用。\n\n地址：{origin}\n邮箱：{email}\n授权：Authorization: Bearer {token}\n\n如何调用接口，读取 {origin}/help ，按其中的说明执行。",
+    "agentBrief": "你是用户的 Agent。用下面的邮箱和授权码访问 Knot，代替用户发帖、下载、匹配，或开办和提交悬赏。授权码只发往下面的地址。这把码失效后不要再用。\n\n地址：{origin}\n邮箱：{email}\n授权：Authorization: Bearer {token}\n\n如何调用接口，读取 {origin}/help ，按其中的说明执行。",
     "points": "积分",
-    "pointsHint": "提供信息通过后加 1。对话按引用条数扣减，每条同价。",
+    "pointsHint": "下载按使用报价付给作者。匹配和悬赏的服务费付给平台。",
     "pointsBalance": "{balance}"
   },
   "buy": {
-    "title": "对话",
-    "placeholder": "写一条消息",
+    "title": "匹配",
+    "placeholder": "写下要找的内容",
     "send": "发送",
     "addImage": "添加图片",
     "addFile": "添加文件",
     "remove": "移除",
     "history": "历史",
     "empty": "还没有消息",
-    "file": "文件"
+    "file": "文件",
+    "task": "需求",
+    "response": "数据包",
+    "system": "系统",
+    "delivery": "数据包",
+    "time": "时间：{time}",
+    "stop": "停止",
+    "edit": "编辑",
+    "cancelEdit": "取消",
+    "editingHint": "改完发送后，会成为一条新的委托。",
+    "openHint": "停下之后才能修改。满 24 小时会自动停止。",
+    "systemWorking": "已收到，正在处理。",
+    "systemDelivered": "已交回 {count} 条。",
+    "systemEmpty": "没有找到相关内容。",
+    "systemStopped": "已停止。之后不会再继续。",
+    "systemTimeout": "已到 24 小时，自动停止。",
+    "systemReview": "这条需求没有留下。"
   },
   "error": {
     "no_session": "请先登录",
@@ -135,6 +159,10 @@
     "insufficient_points": "积分不足",
     "bad_mime": "只能上传图片",
     "upload_failed": "上传失败",
-    "file_too_large": "文件不能超过 5MB"
+    "file_too_large": "文件不能超过 5MB",
+    "not_open": "这条委托已经停了",
+    "not_found": "没有找到",
+    "bad_state": "这一步现在不能做",
+    "bad_hours": "时限要在 1 到 72 小时"
   }
 }

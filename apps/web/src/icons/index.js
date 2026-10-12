@@ -79,6 +79,32 @@ export const RefreshIcon = knotIcon([
   h("path", { d: "M4 12a8 8 0 0 0 8 8 8.7 8.7 0 0 0 6-2.5L20 16" }),
   h("path", { d: "M16 16h4v4" }),
 ]);
+export const StarIcon = (props, { attrs }) => {
+  const filled = props.filled === true || props.filled === "";
+  const rest = { ...attrs };
+  delete rest.filled;
+  return h(
+    "svg",
+    {
+      xmlns: "http://www.w3.org/2000/svg",
+      viewBox: "0 0 24 24",
+      width: "1em",
+      height: "1em",
+      fill: filled ? "currentColor" : "none",
+      stroke: "currentColor",
+      strokeWidth: 1.75,
+      strokeLinejoin: "round",
+      "aria-hidden": rest["aria-hidden"] !== false,
+      ...rest,
+      class: rest.class,
+    },
+    [
+      h("path", {
+        d: "M12 3.2 14.2 8.7l5.9.5-4.5 3.9 1.4 5.7L12 16.2 7 18.8l1.4-5.7L3.9 9.2l5.9-.5Z",
+      }),
+    ]
+  );
+};
 export const PointsIcon = knotIcon([
   h("path", {
     d: "M12 2.95 14.41 9.64 21.51 9.86 15.9 14.22 17.88 21.05 12 17.05 6.12 21.05 8.1 14.22 2.49 9.86 9.59 9.64Z",
@@ -107,3 +133,19 @@ export const SubmittedIcon = knotIcon(
   ],
   { strokeWidth: 2 }
 );
+export const StopIcon = knotIcon([
+  h("rect", { x: 6, y: 6, width: 12, height: 12, rx: 2 }),
+]);
+export const EditIcon = knotIcon([
+  h("path", { d: "M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.1L16.6 5.5a1.5 1.5 0 0 0-2.1 0L4 16v4Z" }),
+  h("path", { d: "M13.5 6.5 17.5 10.5" }),
+]);
+export const DownloadIcon = knotIcon([
+  h("path", { d: "M12 4v10" }),
+  h("path", { d: "m8 10 4 4 4-4" }),
+  h("path", { d: "M5 19h14" }),
+]);
+export const ClockIcon = knotIcon([
+  h("circle", { cx: 12, cy: 12, r: 8 }),
+  h("path", { d: "M12 8v4.5l2.5 1.5" }),
+]);

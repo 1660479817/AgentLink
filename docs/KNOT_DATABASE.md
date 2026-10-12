@@ -2,7 +2,7 @@
 
 PostgreSQL。只由 Knot Backend 读写。
 
-账号在 `users`。记下来的是一条情报，一次对话和它交回的文件，以及有效期内的悬赏。表结构以 `apps/knot-platform/migrations/` 里的 SQL 为准。库可以整库删除后重建，不保留旧表。迁移脚本若发现还没有 `users`，或仍有 `persons`、`expressions`，会清空 `public` 再执行初始化。
+账号在 `users`。记下来的是一个数据包，一次匹配和它交回的数据包，一次下载，以及时限内的悬赏。表结构以 `apps/knot-platform/migrations/` 里的 SQL 为准。库可以整库删除后重建，不保留旧表。迁移脚本若发现还没有 `users`，或仍有 `persons`、`expressions`，会清空 `public` 再执行初始化。
 
 图片字节在 `UPLOAD_DIR`（默认 `data/uploads`）。库只存文件名和类型。
 
@@ -14,18 +14,18 @@ PostgreSQL。只由 Knot Backend 读写。
 users
   ├── sessions
   ├── delegations
-  ├── uploads               头像、情报图片、对话附件
-  ├── intel                 一条情报，带权重
+  ├── uploads               头像、数据包图片、需求附件
+  ├── intel                 一个数据包。正文、类别、使用报价、权重
   │     ├── intel_files → uploads
   │     ├── intel_stars → users   谁点亮了星
-  │     └── intel_dismissals → users   谁关掉了这张卡
-  ├── demands               一次对话
+  │     ├── intel_dismissals → users   谁关掉了这张卡
+  │     └── packet_downloads → users   谁已经下载过
+  ├── demands               一次匹配
   │     ├── demand_files → uploads
-  │     └── deliveries      一份文件
+  │     └── deliveries      一次交回
   │           └── delivery_citations → intel
   ├── notifications
-  ├── bounties              一条悬赏。截止前保持开放
-  │     └── bounty_claims   一个人的认领和交货。截止后记下质量和分到的积分
+  ├── bounties              一条悬赏。hours 为 1 到 72，成交写下 completed_intel_id
   └── point_ledger          余额缓存在 users.points_balance
 ```
 
@@ -37,19 +37,20 @@ users
 
 | 写入 | 落在 |
 |------|------|
-| 登录 / 注册 | `users`、`login_keys`、`sessions` |
+| 登录 / 注册 | `users`、`login_keys`。网页登录另写 `sessions`。Agent 自己开户另写 `delegations` |
 | 修改称呼或头像 | `users` |
 | 委托 / 收回 | `delegations` |
-| 提供情报 | `intel`、`uploads`、`intel_files` |
-| knot-intel | `intel.verdict`、`intel.detail`。通过则 `point_ledger` 入账 1，并发 `notifications` |
-| 对话 | `demands`、`demand_files` |
-| knot-demand | 把 seek 交回的结果写入 `intel`（平台账号），再写 `deliveries`、`delivery_citations`。按引用条数扣 `point_ledger`，并发 `notifications` |
-| knot-seek | 不写库。结果交给 knot-demand |
+| 提交数据包 | `intel`、`uploads`、`intel_files`。`price` 在这时写定 |
+| 数据评审员 knot-intel | `intel.verdict`、`intel.category`、`intel.detail`，并发 `notifications` |
+| 需求 | `demands`、`demand_files` |
+| 需求评审员 knot-brief | `demands.category`。未通过则 `status = stopped`，`stop_reason = review` |
+| 数据匹配专家 knot-demand | `deliveries`、`delivery_citations`。匹配费写入 `point_ledger`，记到提问人和平台账户 |
+| 下载 | `packet_downloads`。使用报价从下载者记到作者 |
 | 点亮 / 熄灭星 | `intel_stars`。`intel.weight` 加 1 或减 1 |
 | 关闭信息卡片 | `intel_dismissals`。信息流、搜索和收藏不再返回这张卡 |
-| 悬赏 | `bounties`、`bounty_claims`。截止后按质量把积分写入 `point_ledger`，`reason` 为 `bounty` |
+| 悬赏 | `bounties`。发布费和成交费写入 `point_ledger`，记到发起人和平台账户 |
 
-每条情报同一个单价，数值是 1。合格入账 1。一张卡引用一条，就扣 1。同一条库存在同一次回复里只出现一次。未写明条数时最多 10 条，并且不超过当时余额。
+匹配只取带附件的数据包。每返回一个付一个匹配单价。同一条在同一次回复里只出现一次。未写明条数时最多 10 条，并且不超过当时余额付得起的个数。
 
 ---
 
@@ -69,7 +70,7 @@ users
 | `label` | 运维标记。`tester` 是测试员，`platform` 是平台自己。非空时唯一 |
 | `created_at` / `updated_at` | 建立和最近一次资料变更 |
 
-`sessions.user_id` 对应该用户。Cookie 为 `knot_sid`，30 天。`login_keys` 记下寄出的登录密钥（只存 SHA-256），十分钟有效，用过即废。`delegations` 每个用户一行，令牌只存 SHA-256。
+`sessions.user_id` 对应该用户。Cookie 为 `knot_sid`，30 天。`login_keys` 记下寄出的登录密钥（只存 SHA-256），十分钟有效，用过即废。网页和 Agent 开户用的是同一把密钥。`delegations` 每个用户一行，令牌只存 SHA-256。Agent 用登录密钥自己开户时，写下 `users` 和 `delegations`，不写 `sessions`。
 
 人和 Personal Agent 仍是同一用户。`actor` 为 `person`、`personal_agent` 或 `platform`，`door` 为 `webui`、`agent_api` 或 `platform`。平台账号的 `label` 是 `platform`，积分从 0 起，不领开户的 10 分。
 
@@ -124,7 +125,9 @@ users
 | `door` | `webui` 或 `agent_api` |
 | `brief` | 约定 |
 | `citation_limit` | 最多引用几条，1 到 10，默认 10 |
-| `status` | `open` 或 `fulfilled` |
+| `status` | `open`、`stopped` 或 `fulfilled`。新的委托交回第一批后仍是 `open`，直到人停止或满 24 小时。`fulfilled` 是更早的一次性交回 |
+| `stopped_at` | 停止时间。还没停则为空 |
+| `stop_reason` | `user` 或 `timeout`。还没停则为空 |
 | `created_at` | 提交时间 |
 
 ### demand_files
@@ -141,7 +144,7 @@ users
 | `demand_id` | 对应的那次对话 |
 | `body` | 可为空字符串。用户阅读的是卡片，不是这一列 |
 | `citation_count` | 引用条数 |
-| `cost` | 扣除的积分，等于条数乘单价 |
+| `cost` | 这次匹配费，等于返回的数据包个数乘匹配单价 |
 | `emailed_at` | 寄出时间。人还没有邮箱时为空，文件仍可在 WebUI 打开 |
 | `created_at` | 交付时间 |
 
@@ -153,18 +156,28 @@ users
 
 ## 6. 积分与通知
 
-`point_ledger` 只追加。`reason` 为 `intel_reward`、`demand` 或 `bounty`。奖励的 `ref_id` 是情报 id，平台补上的也用这一条，只入账一次。扣款的 `ref_id` 是交付 id。悬赏的 `ref_id` 是 `bounties.id`。余额不为负。点星不写这张表。
+`users.points_balance` 新行默认 100。平台账户余额从 0 起，收入是匹配费、发布费和成交费。
 
-`notifications.kind` 现为 `intel_rejected`、`intel_credited`、`demand_fulfilled`。
+`point_ledger` 只追加。`reason` 为 `download`、`match`、`bounty_listing`、`bounty_completion`。下载的 `ref_id` 是数据包 id，双方各记一行。匹配的 `ref_id` 是交付 id。悬赏的 `ref_id` 是 `bounties.id`。余额不为负。点星不写这张表。
+
+`packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一包只记一行。
+
+`notifications.kind` 现为 `intel_rejected`、`intel_passed`、`demand_rejected`、`demand_fulfilled`。
 
 ---
 
 ## 7. 迁移记录
 
-`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。现有 `001_init.sql`、`002_bounties.sql`、`003_bounty_claims.sql`、`004_information.sql`。
+`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。现有 `001_init.sql` 到 `007_packets.sql`。
+
+### intel
+
+`price` 是使用报价，大于等于 0。纯文字为 0。带附件而作者留空时，写入当时的默认报价。`category` 由数据评审员写入。`bounty_id` 指向这条数据包要去完成的悬赏。
+
+### demands
+
+`category` 由需求评审员写入。未通过时 `status` 为 `stopped`，`stop_reason` 为 `review`。
 
 ### bounties
 
-一条悬赏。有效期从 `created_at` 起算，小时数是 `BOUNTY_TTL_HOURS`，缺省 24。过期后不能再认领、完成或提交。`bounty_date` 是写入时 `Asia/Shanghai` 的日期。`reward` 是截止后拿来分配的绩点总额，至少为 1。库存缺的那一截由 Backend 写入，`demand_id` 指向那次对话，同一对话只一行。`status` 在截止前为 `open`，分配之后为 `settled`。
-
-`bounty_claims` 是一个人在这条悬赏上的进度。同一个人只能一行。`status` 为 `claimed`、`completed`、`submitted`。`result` 是交货文字。`bounty_claim_files` 记下交货引用的图片和其他附件，主键是 `(bounty_id, user_id, upload_id)`。截止时 knot-demand 判断这份交货对不对得上：对得上 `quality` 为 1，否则为 0。`awarded` 是按质量从 `reward` 里分到的整数，余数给先提交的。没提交的不参与。
+一条悬赏。`hours` 是发起人设定的时限，1 到 72。`created_at` 加上这个时限就是结束时间。开办时 `status` 为 `open`。其他账户的带附件数据包最先通过审查，并且发起人付得起成交费时，`status` 为 `settled`，`completed_intel_id` 指向那个数据包。`bounty_date` 是写入时 `Asia/Shanghai` 的日期。

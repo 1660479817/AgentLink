@@ -4,6 +4,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { kickSettle } from "./bounties.js";
+import { expireDemands } from "./market.js";
 import { loadBootstrapConfig } from "./config.js";
 import { getPool } from "./db.js";
 import { createSessionMiddleware } from "./middleware/session.js";
@@ -71,5 +72,9 @@ app.use((err, _req, res, _next) => {
 app.listen(bootstrap.port, bootstrap.bindHost, () => {
   console.log(`knot-backend listening on ${bootstrap.bindHost}:${bootstrap.port}`);
   kickSettle(pool);
-  setInterval(() => kickSettle(pool), 60_000);
+  expireDemands(pool).catch((error) => console.error(error));
+  setInterval(() => {
+    kickSettle(pool);
+    expireDemands(pool).catch((error) => console.error(error));
+  }, 60_000);
 });

@@ -1,4 +1,29 @@
-export const UNIT_PRICE = 1;
+export const PLATFORM_USER_ID = "00000000-0000-4000-8000-000000000001";
+
+function nonNegativeInt(raw, fallback) {
+  if (raw == null || String(raw).trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) return fallback;
+  return value;
+}
+
+export function feeConfig() {
+  return {
+    defaultPrice: nonNegativeInt(process.env.KNOT_DEFAULT_PRICE, 10),
+    matchUnit: nonNegativeInt(process.env.KNOT_MATCH_UNIT, 1),
+    listingFee: nonNegativeInt(process.env.KNOT_LISTING_FEE, 1),
+    completionFee: nonNegativeInt(process.env.KNOT_COMPLETION_FEE, 1),
+    signupGrant: nonNegativeInt(process.env.KNOT_SIGNUP_GRANT, 100),
+  };
+}
+
+export function packetPrice(fileCount, raw) {
+  if (!fileCount) return 0;
+  if (raw == null || raw === "") return feeConfig().defaultPrice;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) return feeConfig().defaultPrice;
+  return value;
+}
 
 export async function getBalance(pool, userId) {
   const { rows } = await pool.query(`SELECT points_balance FROM users WHERE id = $1`, [userId]);

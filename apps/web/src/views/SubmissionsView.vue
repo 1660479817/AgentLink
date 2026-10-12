@@ -46,6 +46,10 @@ function filesOf(item) {
   <p v-else-if="loaded && items.length === 0" class="muted">{{ t("submissions.empty") }}</p>
   <article v-for="item in items" :key="item.id" class="card post">
     <p class="information-status">{{ t(statusKey(item.verdict)) }}</p>
+    <p class="information-time">
+      <span v-if="item.category">{{ item.category }} · </span>
+      <span>{{ t("submissions.usePrice", { n: item.price || 0 }) }}</span>
+    </p>
     <p v-if="item.body" class="information-body">{{ item.body }}</p>
     <div v-if="imagesOf(item).length" class="information-images">
       <img v-for="file in imagesOf(item)" :key="file.id" :src="file.url" alt="" class="information-photo" />
@@ -58,8 +62,7 @@ function filesOf(item) {
         </a>
       </li>
     </ul>
-    <p v-if="item.rejectReason" class="error" role="alert">{{ item.rejectReason }}</p>
-    <p v-if="item.reward" class="muted">{{ t("submissions.intelReward", { n: item.reward }) }}</p>
+    <p v-if="item.rejectReason" class="error card-notice" role="alert">{{ item.rejectReason }}</p>
   </article>
   <div class="form-actions">
     <AppButton variant="secondary" to="/mine">{{ t("submissions.back") }}</AppButton>

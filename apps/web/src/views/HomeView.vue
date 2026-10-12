@@ -3,9 +3,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import { useRoute, useRouter } from "vue-router";
-import { createIntel, dismissInformation, listBounties, listInformation, searchInformation, uploadAttachment, uploadImage } from "../api.js";
+import { createBounty, createIntel, dismissInformation, downloadInformation, listBounties, listInformation, searchInformation, starInformation, unstarInformation, uploadAttachment, uploadImage } from "../api.js";
 import { t } from "../i18n/index.js";
-import { CameraIcon, ClaimedIcon, ComposeIcon, PaperclipIcon, PlusIcon, PointsIcon, ReadyIcon, SendIcon, SubmittedIcon, UserIcon } from "../icons/index.js";
+import { CameraIcon, ClockIcon, ComposeIcon, PaperclipIcon, PlusIcon, SendIcon, UserIcon } from "../icons/index.js";
 import { useNotificationStore } from "../stores/notifications";
 import { useSessionStore } from "../stores/session";
 
@@ -30,11 +30,19 @@ const intelFileInput = ref(null);
 const intelPendingImages = ref([]);
 const intelPreviewUrls = ref([]);
 const intelPendingFiles = ref([]);
+const intelPrice = ref("");
+const intelBountyId = ref("");
+const bountyHours = ref("24");
 const intelCanSend = computed(() => {
   if (intelMode.value === "photo") return intelPendingImages.value.length > 0 || Boolean(intelBody.value.trim());
   if (intelMode.value === "text") return Boolean(intelBody.value.trim() || intelPendingFiles.value.length);
+  if (intelMode.value === "bounty") return Boolean(intelBody.value.trim());
   return false;
 });
+const intelHasFiles = computed(
+  () => intelPendingImages.value.length > 0 || intelPendingFiles.value.length > 0
+);
+const activeBounty = computed(() => bounties.value.find((item) => item.id === intelBountyId.value) || null);
 
 function nameMark(user) {
   const name = String(user?.displayName || "").trim();
@@ -64,10 +72,7 @@ watch(intelMode, async (mode) => {
 });
 
 function bountyLabel(bounty) {
-  if (bounty.status === "claimed") return t("home.bountyClaimed");
-  if (bounty.status === "completed") return t("home.bountyCompleted");
-  if (bounty.status === "submitted") return t("home.bountySubmitted");
-  return t("home.bountyReward", { n: bounty.reward });
+  return t("home.bountyHours", { n: bounty.hours });
 }
 
 async function load() {
@@ -97,6 +102,18 @@ async function dismissItem(item) {
     await dismissInformation(item.id);
   } catch (error) {
     if (error.status !== 401) items.value = previous;
+  }
+}
+
+async function toggleStar(item) {
+  if (!session.user) return;
+  const previous = Boolean(item.starred);
+  item.starred = !previous;
+  try {
+    if (item.starred) await starInformation(item.id);
+    else await unstarInformation(item.id);
+  } catch {
+    item.starred = previous;
   }
 }
 
@@ -196,16 +213,30 @@ async function uploadAll(files) {
 }
 
 function openIntelComposer() {
-  if (intelOpen.value) {
+  if (intelOpen.value && !intelBountyId.value) {
     closeIntelComposer();
     return;
   }
   intelError.value = "";
   intelMode.value = null;
   intelBody.value = "";
+  intelPrice.value = "";
+  intelBountyId.value = "";
   intelPendingImages.value = [];
   clearIntelPreviews();
   clearIntelFiles();
+  intelOpen.value = true;
+}
+
+function openBountySubmit(bounty) {
+  intelError.value = "";
+  intelBody.value = "";
+  intelPrice.value = "";
+  intelBountyId.value = bounty.id;
+  intelPendingImages.value = [];
+  clearIntelPreviews();
+  clearIntelFiles();
+  intelMode.value = "text";
   intelOpen.value = true;
 }
 
@@ -214,9 +245,35 @@ function closeIntelComposer() {
   intelMode.value = null;
   intelError.value = "";
   intelBody.value = "";
+  intelPrice.value = "";
+  intelBountyId.value = "";
   intelPendingImages.value = [];
   clearIntelPreviews();
   clearIntelFiles();
+}
+
+function readPrice() {
+  const raw = intelPrice.value.trim();
+  if (!raw) return undefined;
+  if (!/^\d+$/.test(raw)) return undefined;
+  return Number(raw);
+}
+
+async function downloadItem(item) {
+  item.notice = "";
+  try {
+    await ensureSession();
+    const data = await downloadInformation(item.id);
+    const intel = data.intel;
+    item.images = intel.images || [];
+    item.attachments = intel.attachments || [];
+    item.imageUrls = (intel.images || []).map((file) => file.url).filter(Boolean);
+    item.granted = true;
+    if (session.user) await session.load();
+  } catch (err) {
+    const key = `error.${err.code}`;
+    item.notice = t(key) === key ? t("error.request_failed") : t(key);
+  }
 }
 
 async function submitIntel() {
@@ -225,15 +282,24 @@ async function submitIntel() {
   intelBusy.value = true;
   try {
     await ensureSession();
-    const imageIds = intelMode.value === "photo" ? await uploadAll(intelPendingImages.value) : [];
-    const fileIds = [];
-    if (intelMode.value === "text") {
-      for (const item of intelPendingFiles.value) {
-        const uploaded = await uploadAttachment(item.file);
-        fileIds.push(uploaded.id);
+    if (intelMode.value === "bounty") {
+      const hours = Number(bountyHours.value);
+      await createBounty(intelBody.value.trim(), hours);
+    } else {
+      const imageIds = intelMode.value === "photo" ? await uploadAll(intelPendingImages.value) : [];
+      const fileIds = [];
+      if (intelMode.value === "text") {
+        for (const item of intelPendingFiles.value) {
+          const uploaded = await uploadAttachment(item.file);
+          fileIds.push(uploaded.id);
+        }
       }
+      const extra = {};
+      const price = readPrice();
+      if (price !== undefined) extra.price = price;
+      if (intelBountyId.value) extra.bountyId = intelBountyId.value;
+      await createIntel(intelBody.value.trim(), imageIds, fileIds, extra);
     }
-    await createIntel(intelBody.value.trim(), imageIds, fileIds);
     closeIntelComposer();
     await load();
     await notifications.load();
@@ -265,23 +331,21 @@ async function submitIntel() {
         </span>
         <span class="intel-create-label">{{ t("home.intelCreate") }}</span>
       </button>
-      <article v-for="bounty in bounties" :key="bounty.id" class="intel-bounty">
-        <p class="intel-bounty-body">
+      <button
+        v-for="bounty in bounties"
+        :key="bounty.id"
+        type="button"
+        class="intel-bounty"
+        @click="openBountySubmit(bounty)"
+      >
+        <span class="intel-bounty-body">
           <span class="intel-bounty-text">{{ bounty.body }}</span>
-        </p>
-        <p class="intel-bounty-reward">
-          <span class="visually-hidden">{{ bountyLabel(bounty) }}</span>
-          <span class="intel-bounty-line">
-            <ClaimedIcon v-if="bounty.status === 'claimed'" class="intel-bounty-mark" aria-hidden="true" />
-            <ReadyIcon v-else-if="bounty.status === 'completed'" class="intel-bounty-mark" aria-hidden="true" />
-            <SubmittedIcon v-else-if="bounty.status === 'submitted'" class="intel-bounty-mark" aria-hidden="true" />
-            <template v-else>
-              <PointsIcon class="intel-bounty-mark" aria-hidden="true" />
-              <span class="intel-bounty-count">{{ bounty.reward }}</span>
-            </template>
-          </span>
-        </p>
-      </article>
+        </span>
+        <span class="intel-bounty-reward">
+          <ClockIcon class="intel-bounty-mark" aria-hidden="true" />
+          <span>{{ bountyLabel(bounty) }}</span>
+        </span>
+      </button>
     </div>
   </section>
 
@@ -294,6 +358,10 @@ async function submitIntel() {
       <button type="button" class="intel-mode-btn" @click="selectIntelTextMode">
         <ComposeIcon class="intel-mode-icon" aria-hidden="true" />
         <span>{{ t("home.intelInput") }}</span>
+      </button>
+      <button type="button" class="intel-mode-btn" @click="intelMode = 'bounty'">
+        <ClockIcon class="intel-mode-icon" aria-hidden="true" />
+        <span>{{ t("home.openBounty") }}</span>
       </button>
     </div>
 
@@ -325,7 +393,6 @@ async function submitIntel() {
           </button>
         </div>
       </div>
-      <p v-if="intelError" class="error" role="alert">{{ intelError }}</p>
       <div class="intel-send-composer">
         <label class="visually-hidden" for="intel-photo-caption">{{ t("home.intelPhotoCaption") }}</label>
         <input
@@ -335,14 +402,53 @@ async function submitIntel() {
           class="intel-send-input"
           :placeholder="t('home.intelPhotoCaption')"
         />
+        <label v-if="intelHasFiles" class="visually-hidden" for="intel-photo-price">{{ t("home.priceLabel") }}</label>
+        <input
+          v-if="intelHasFiles"
+          id="intel-photo-price"
+          v-model="intelPrice"
+          inputmode="numeric"
+          class="composer-price"
+          :placeholder="t('home.pricePlaceholder')"
+        />
         <AppButton variant="icon" type="submit" class="intel-send-btn" :disabled="intelBusy || !intelCanSend" :aria-label="t('home.send')">
           <SendIcon aria-hidden="true" />
         </AppButton>
       </div>
+      <p v-if="intelError" class="error" role="alert">{{ intelError }}</p>
+    </form>
+
+    <form v-else-if="intelMode === 'bounty'" class="composer-dialog" @submit.prevent="submitIntel">
+      <div class="intel-text-composer">
+        <label class="visually-hidden" for="bounty-body">{{ t("home.openBounty") }}</label>
+        <textarea
+          id="bounty-body"
+          v-model="intelBody"
+          rows="4"
+          class="intel-text-input"
+          :placeholder="t('home.bountyPlaceholder')"
+        />
+        <div class="intel-text-tools">
+          <label class="visually-hidden" for="bounty-hours">{{ t("home.bountyHoursField") }}</label>
+          <input
+            id="bounty-hours"
+            v-model="bountyHours"
+            inputmode="numeric"
+            class="composer-hours"
+            :placeholder="t('home.bountyHoursField')"
+          />
+          <AppButton variant="icon" type="submit" class="intel-text-send" :disabled="intelBusy || !intelCanSend" :aria-label="t('home.send')">
+            <SendIcon aria-hidden="true" />
+          </AppButton>
+        </div>
+      </div>
+      <p v-if="intelError" class="error" role="alert">{{ intelError }}</p>
     </form>
 
     <form v-else class="composer-dialog" @submit.prevent="submitIntel">
       <div class="intel-text-composer">
+        <p v-if="activeBounty" class="composer-context">{{ t("home.bountySubmit") }}</p>
+        <p v-if="activeBounty" class="composer-context-body">{{ activeBounty.body }}</p>
         <label class="visually-hidden" for="intel-body">{{ t("home.intelInput") }}</label>
         <textarea
           id="intel-body"
@@ -365,6 +471,15 @@ async function submitIntel() {
           <AppButton variant="icon" type="button" :disabled="intelBusy" :aria-label="t('home.addFile')" @click="intelFileInput?.click()">
             <PaperclipIcon aria-hidden="true" />
           </AppButton>
+          <label v-if="intelHasFiles" class="visually-hidden" for="intel-file-price">{{ t("home.priceLabel") }}</label>
+          <input
+            v-if="intelHasFiles"
+            id="intel-file-price"
+            v-model="intelPrice"
+            inputmode="numeric"
+            class="composer-price"
+            :placeholder="t('home.pricePlaceholder')"
+          />
           <AppButton variant="icon" type="submit" class="intel-text-send" :disabled="intelBusy || !intelCanSend" :aria-label="t('home.send')">
             <SendIcon aria-hidden="true" />
           </AppButton>
@@ -378,12 +493,21 @@ async function submitIntel() {
     v-for="item in items"
     :key="item.id"
     :body="item.body || ''"
-    :image-urls="item.imageUrls || item.images?.map((file) => file.url) || []"
+    :category="item.category || ''"
+    :price="Number(item.price) || 0"
+    :granted="item.granted !== false"
+    :image-urls="item.imageUrls || item.images?.map((file) => file.url).filter(Boolean) || []"
+    :images="item.images || []"
     :attachments="item.attachments || []"
     :author-name="item.author?.name || ''"
     :avatar-url="item.author?.avatarUrl || ''"
     :created-at="item.createdAt || ''"
+    :starred="Boolean(item.starred)"
+    :can-star="Boolean(session.user)"
+    :notice="item.notice || ''"
     @dismiss="dismissItem(item)"
+    @star="toggleStar(item)"
+    @download="downloadItem(item)"
   />
   <p v-if="items.length === 0" class="muted feed-empty">
     {{ searchQ ? t("home.searchEmpty") : t("home.empty") }}

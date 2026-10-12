@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import AppButton from "../components/AppButton.vue";
-import { createDemand, listDemands, uploadAttachment } from "../api.js";
+import DemandCard from "../components/DemandCard.vue";
+import { createDemand, downloadInformation, listDemands, starInformation, stopDemand, unstarInformation, uploadAttachment } from "../api.js";
 import { t } from "../i18n/index.js";
 import { CameraIcon, PaperclipIcon, SendIcon } from "../icons/index.js";
 import { useNotificationStore } from "../stores/notifications";
@@ -20,9 +21,28 @@ const items = ref([]);
 const pending = ref([]);
 const imageInput = ref(null);
 const fileInput = ref(null);
+const editing = ref(false);
+const stoppingId = ref("");
+const stopNotice = ref("");
+const stopNoticeId = ref("");
 
 onMounted(load);
 onUnmounted(clearPending);
+
+async function downloadReply(reply) {
+  reply.notice = "";
+  try {
+    const data = await downloadInformation(reply.id);
+    const intel = data.intel;
+    reply.images = intel.images || [];
+    reply.attachments = intel.attachments || [];
+    reply.granted = true;
+    await session.load();
+  } catch (err) {
+    const key = `error.${err.code}`;
+    reply.notice = t(key) === key ? t("error.request_failed") : t(key);
+  }
+}
 
 async function load() {
   if (!session.user) {
@@ -71,8 +91,59 @@ function onPick(event) {
 
 function removePending(index) {
   const item = pending.value[index];
-  if (item?.preview) URL.revokeObjectURL(item.preview);
+  if (item?.preview && item.file) URL.revokeObjectURL(item.preview);
   pending.value = pending.value.filter((_, i) => i !== index);
+}
+
+function beginEdit(demand) {
+  if (demand.status === "open") return;
+  clearPending();
+  text.value = demand.brief || "";
+  pending.value = [...(demand.images || []), ...(demand.attachments || [])].map((file) => ({
+    id: file.id,
+    name: file.name || t("buy.file"),
+    image: Boolean(file.image || file.mime?.startsWith("image/")),
+    preview: file.image || file.mime?.startsWith("image/") ? file.url : "",
+  }));
+  editing.value = true;
+  error.value = "";
+  document.getElementById("chat-text")?.focus();
+}
+
+function cancelEdit() {
+  editing.value = false;
+  text.value = "";
+  clearPending();
+  error.value = "";
+}
+
+async function toggleStar(reply) {
+  if (!session.user || !reply?.starrable) return;
+  const previous = Boolean(reply.starred);
+  reply.starred = !previous;
+  try {
+    if (reply.starred) await starInformation(reply.id);
+    else await unstarInformation(reply.id);
+  } catch {
+    reply.starred = previous;
+  }
+}
+
+async function stop(demand) {
+  if (demand.status !== "open" || stoppingId.value) return;
+  stoppingId.value = demand.id;
+  stopNotice.value = "";
+  stopNoticeId.value = "";
+  try {
+    await stopDemand(demand.id);
+    await load();
+  } catch (err) {
+    const key = `error.${err.code}`;
+    stopNoticeId.value = demand.id;
+    stopNotice.value = t(key) === key ? t("error.request_failed") : t(key);
+  } finally {
+    stoppingId.value = "";
+  }
 }
 
 async function submit() {
@@ -88,12 +159,17 @@ async function submit() {
     }
     const fileIds = [];
     for (const item of pending.value) {
+      if (item.id) {
+        fileIds.push(item.id);
+        continue;
+      }
       const uploaded = await uploadAttachment(item.file);
       fileIds.push(uploaded.id);
     }
     await createDemand(brief, fileIds);
     text.value = "";
     clearPending();
+    editing.value = false;
     await load();
     await notifications.load();
   } catch (err) {
@@ -132,33 +208,27 @@ async function submit() {
       <AppButton variant="icon" type="button" :aria-label="t('buy.addFile')" @click="fileInput?.click()">
         <PaperclipIcon aria-hidden="true" />
       </AppButton>
+      <AppButton v-if="editing" variant="secondary" type="button" @click="cancelEdit">{{ t("buy.cancelEdit") }}</AppButton>
       <AppButton type="submit" :disabled="busy || !canSend" :aria-label="t('buy.send')">
         <SendIcon aria-hidden="true" />
         {{ t("buy.send") }}
       </AppButton>
     </div>
+    <p v-if="editing" class="demand-note">{{ t("buy.editingHint") }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
   </form>
 
   <h2 class="chat-history-title">{{ t("buy.history") }}</h2>
   <p v-if="session.user && items.length === 0" class="muted">{{ t("buy.empty") }}</p>
-  <article v-for="item in items" :key="item.id" class="chat-turn">
-    <div class="chat-mine">
-      <p v-if="item.brief" class="chat-text">{{ item.brief }}</p>
-      <div v-if="item.images?.length || item.attachments?.length" class="chat-attachments">
-        <template v-for="file in [...(item.images || []), ...(item.attachments || [])]" :key="file.id">
-          <img v-if="file.image || file.mime?.startsWith('image/')" :src="file.url" alt="" class="chat-thumb" />
-          <a v-else class="chat-file-link" :href="file.url">{{ file.name || t("buy.file") }}</a>
-        </template>
-      </div>
-    </div>
-    <div v-if="item.body || item.cards?.length" class="chat-reply">
-      <article v-for="card in item.cards || []" :key="card.id">
-        <p v-if="card.body" class="chat-text">{{ card.body }}</p>
-        <img v-for="file in card.images || []" :key="file.id" :src="file.url" alt="" class="chat-thumb" />
-        <a v-for="file in card.attachments || []" :key="file.id" class="chat-file-link" :href="file.url">{{ file.name || t("buy.file") }}</a>
-      </article>
-      <pre v-if="item.body && !(item.cards || []).length" class="chat-text">{{ item.body }}</pre>
-    </div>
-  </article>
+  <DemandCard
+    v-for="item in items"
+    :key="item.id"
+    :demand="item"
+    :stopping="stoppingId === item.id"
+    :notice="stopNoticeId === item.id ? stopNotice : ''"
+    @stop="stop(item)"
+    @edit="beginEdit(item)"
+    @star="toggleStar"
+    @download="downloadReply"
+  />
 </template>

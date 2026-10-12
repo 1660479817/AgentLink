@@ -1,14 +1,23 @@
 import { Router } from "express";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import multer from "multer";
-import { claimBounty, completeBounty, listBounties, submitBounty } from "../bounties.js";
+import { listBounties, openBounty } from "../bounties.js";
 import { hasInformation, idsOf, MAX_FILES, MAX_IMAGES } from "../information.js";
-import { normalizeEmail } from "../login.js";
-import { createDemand, createIntel } from "../market.js";
+import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
+import { createDemand, createIntel, downloadPacket } from "../market.js";
 import { ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function agentFail(res, error) {
+  const code = error.code || error.message;
+  if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
+  if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
+  if (code === "not_found") return res.status(404).json({ error: "not_found" });
+  console.error(error);
+  return res.status(503).json({ error: "process_unavailable" });
+}
 
 function bearerToken(header) {
   return String(header || "").replace(/^Bearer\s+/i, "").trim();
@@ -87,6 +96,38 @@ export function agentRouter({ pool, uploadDir }) {
     });
   }
 
+  router.post("/register", async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    if (!email) return res.status(400).json({ error: "bad_email" });
+    const sent = await requestLoginKey(pool, email);
+    if (sent.error) return res.status(sent.status).json({ error: sent.error });
+    res.json({ ok: true });
+  });
+
+  router.post("/register/key", async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const key = normalizeLoginKey(req.body?.key);
+    if (!email) return res.status(400).json({ error: "bad_email" });
+    if (!key) return res.status(400).json({ error: "bad_key" });
+    const redeemed = await redeemLoginKey(pool, email, key);
+    if (redeemed.error) return res.status(redeemed.status).json({ error: redeemed.error });
+    const token = randomBytes(24).toString("base64url");
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const { rows } = await pool.query(
+      `INSERT INTO delegations (user_id, token_hash)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, created_at = now()
+       RETURNING created_at`,
+      [redeemed.userId, tokenHash]
+    );
+    res.status(201).json({
+      token,
+      email,
+      pointsBalance: redeemed.pointsBalance,
+      createdAt: rows[0].created_at,
+    });
+  });
+
   router.post("/uploads", acceptFile("image"), storeUpload);
   router.post("/files", acceptFile("file"), storeUpload);
 
@@ -105,36 +146,47 @@ export function agentRouter({ pool, uploadDir }) {
         body: delivery.body,
         imageIds: delivery.imageIds,
         fileIds: delivery.fileIds,
+        price: req.body?.price,
+        bountyId: typeof req.body?.bountyId === "string" ? req.body.bountyId : null,
       });
       res.status(201).json({ intel });
     } catch (error) {
-      console.error(error);
-      res.status(503).json({ error: "process_unavailable" });
+      agentFail(res, error);
+    }
+  });
+
+  router.post("/intel/:id/download", async (req, res) => {
+    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
+    try {
+      const intel = await downloadPacket(pool, access.userId, req.params.id);
+      res.json({ intel: { ...intel, granted: true } });
+    } catch (error) {
+      agentFail(res, error);
     }
   });
 
   router.get("/bounties", async (req, res) => {
     const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    res.json({ bounties: await listBounties(pool, access.userId) });
+    res.json({ bounties: await listBounties(pool) });
   });
 
-  router.post("/bounties/:id/claim", async (req, res) => {
+  router.post("/bounties", async (req, res) => {
     const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
-    const result = await claimBounty(pool, access.userId, req.params.id);
-    if (result.error) return res.status(result.status).json({ error: result.error });
-    res.json(result);
-  });
-
-  router.post("/bounties/:id/complete", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
-    if (!access.userId) return res.status(access.status).json({ error: access.error });
-    if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
-    const result = await completeBounty(pool, access.userId, req.params.id);
-    if (result.error) return res.status(result.status).json({ error: result.error });
-    res.json(result);
+    try {
+      const result = await openBounty(pool, {
+        userId: access.userId,
+        body: req.body?.body,
+        hours: req.body?.hours,
+      });
+      if (result.error) return res.status(result.status).json({ error: result.error });
+      res.status(201).json(result);
+    } catch (error) {
+      agentFail(res, error);
+    }
   });
 
   router.post("/bounties/:id/submit", async (req, res) => {
@@ -146,12 +198,19 @@ export function agentRouter({ pool, uploadDir }) {
       return res.status(400).json({ error: "empty_body" });
     }
     try {
-      const result = await submitBounty(pool, access.userId, req.params.id, delivery);
-      if (result.error) return res.status(result.status).json({ error: result.error });
-      res.json(result);
+      const intel = await createIntel(pool, {
+        userId: access.userId,
+        actor: "personal_agent",
+        door: "agent_api",
+        body: delivery.body,
+        imageIds: delivery.imageIds,
+        fileIds: delivery.fileIds,
+        price: req.body?.price,
+        bountyId: req.params.id,
+      });
+      res.status(201).json({ intel });
     } catch (error) {
-      console.error(error);
-      res.status(503).json({ error: "process_unavailable" });
+      agentFail(res, error);
     }
   });
 
@@ -175,8 +234,7 @@ export function agentRouter({ pool, uploadDir }) {
       });
       res.status(201).json({ demand });
     } catch (error) {
-      console.error(error);
-      res.status(503).json({ error: "process_unavailable" });
+      agentFail(res, error);
     }
   });
 
