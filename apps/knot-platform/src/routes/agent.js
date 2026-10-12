@@ -47,6 +47,28 @@ function readDelivery(body) {
   return { body: text, imageIds: images, fileIds: attachments };
 }
 
+function presentUser(row) {
+  const entitlements = row.entitlements && typeof row.entitlements === "object" ? row.entitlements : {};
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name || "",
+    avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
+    level: row.level,
+    entitlements,
+    pointsBalance: row.points_balance,
+  };
+}
+
+async function loadUser(pool, userId) {
+  const { rows } = await pool.query(
+    `SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance
+     FROM users WHERE id = $1`,
+    [userId]
+  );
+  return rows[0] ? presentUser(rows[0]) : null;
+}
+
 export function agentRouter({ pool, uploadDir }) {
   ensureUploadDir(uploadDir);
   const storage = multer.diskStorage({
@@ -126,6 +148,52 @@ export function agentRouter({ pool, uploadDir }) {
       pointsBalance: redeemed.pointsBalance,
       createdAt: rows[0].created_at,
     });
+  });
+
+  router.get("/profile", async (req, res) => {
+    const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const user = await loadUser(pool, access.userId);
+    if (!user) return res.status(401).json({ error: "bad_token" });
+    res.json({ user });
+  });
+
+  router.patch("/profile", async (req, res) => {
+    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const hasName = typeof req.body?.displayName === "string";
+    const name = hasName ? req.body.displayName.trim() : null;
+    if (hasName && name.length > 40) return res.status(400).json({ error: "bad_name" });
+    let avatarId;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "avatarUploadId")) {
+      const raw = req.body.avatarUploadId;
+      if (raw === null || raw === "") {
+        avatarId = null;
+      } else if (!UUID.test(String(raw))) {
+        return res.status(400).json({ error: "bad_avatar" });
+      } else {
+        const { rows } = await pool.query(
+          `SELECT id FROM uploads WHERE id = $1 AND user_id = $2 AND mime LIKE 'image/%'`,
+          [raw, access.userId]
+        );
+        if (!rows.length) return res.status(400).json({ error: "bad_avatar" });
+        avatarId = rows[0].id;
+      }
+    }
+    if (!hasName && avatarId === undefined) return res.status(400).json({ error: "empty_body" });
+    const sets = ["updated_at = now()"];
+    const params = [];
+    if (hasName) {
+      params.push(name);
+      sets.push(`display_name = $${params.length}`);
+    }
+    if (avatarId !== undefined) {
+      params.push(avatarId);
+      sets.push(`avatar_upload_id = $${params.length}`);
+    }
+    params.push(access.userId);
+    await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+    res.json({ user: await loadUser(pool, access.userId) });
   });
 
   router.post("/uploads", acceptFile("image"), storeUpload);
