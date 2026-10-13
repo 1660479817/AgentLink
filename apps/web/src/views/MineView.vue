@@ -47,11 +47,15 @@ watch(
 );
 
 const entitlementText = computed(() => {
-  const value = session.user?.entitlements;
-  if (!value || typeof value !== "object" || Object.keys(value).length === 0) {
-    return t("mine.entitlementsEmpty");
-  }
-  return Object.keys(value).join("、");
+  const honors = session.user?.entitlements?.honors;
+  if (!Array.isArray(honors) || honors.length === 0) return t("mine.entitlementsEmpty");
+  return honors.filter((item) => typeof item === "string" && item.trim()).join("、");
+});
+
+const muteLine = computed(() => {
+  if (!session.user?.muted) return "";
+  if (!session.user.mutedUntil) return t("mine.mutedForever");
+  return t("mine.mutedUntil", { time: formatAgentTime(session.user.mutedUntil) });
 });
 
 const agentLine = computed(() => {
@@ -334,6 +338,10 @@ async function leave() {
         <div>
           <dt>{{ t("mine.entitlements") }}</dt>
           <dd>{{ entitlementText }}</dd>
+        </div>
+        <div v-if="session.user.muted">
+          <dt>{{ t("mine.muted") }}</dt>
+          <dd>{{ muteLine }}</dd>
         </div>
         <div>
           <dt>{{ t("mine.points") }}</dt>

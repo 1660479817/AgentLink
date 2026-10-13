@@ -13,6 +13,7 @@ import {
   requestLoginKey,
   sendFeedback,
 } from "../login.js";
+import { muteState } from "../account.js";
 import { createIntel, downloadPacket } from "../market.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
 
@@ -38,6 +39,7 @@ function agentFail(res, error) {
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
+  if (code === "muted") return res.status(403).json({ error: "muted" });
   if (code === "not_found") return res.status(404).json({ error: "not_found" });
   console.error(error);
   return res.status(503).json({ error: "process_unavailable" });
@@ -100,6 +102,7 @@ function readDelivery(body, limits = {}) {
 
 function presentUser(row) {
   const entitlements = row.entitlements && typeof row.entitlements === "object" ? row.entitlements : {};
+  const mute = muteState(row.muted_until);
   return {
     id: row.id,
     email: row.email,
@@ -108,12 +111,14 @@ function presentUser(row) {
     level: row.level,
     entitlements,
     pointsBalance: row.points_balance,
+    muted: mute.muted,
+    mutedUntil: mute.mutedUntil,
   };
 }
 
 async function loadUser(pool, userId) {
   const { rows } = await pool.query(
-    `SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance
+    `SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until
      FROM users WHERE id = $1`,
     [userId]
   );

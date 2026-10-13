@@ -3,7 +3,7 @@ import { nextTick, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import RememberLoginCard from "../components/RememberLoginCard.vue";
-import { ActivityIcon, BackIcon, BookmarkIcon, ChatIcon, HeaderUserIcon, HistoryIcon, SearchIcon, UserIcon, ZapIcon } from "../icons/index.js";
+import { ActivityIcon, BackIcon, BellIcon, ChatIcon, ClockIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { listSponsors } from "../api.js";
 import { useNotificationStore } from "../stores/notifications";
@@ -64,6 +64,13 @@ function sponsorMark(title) {
   return text ? text.slice(0, 1) : mark;
 }
 
+function refreshHome(event) {
+  event.preventDefault();
+  const cleanHome = window.location.pathname === "/" && !window.location.search && !window.location.hash;
+  if (cleanHome) window.location.reload();
+  else window.location.assign("/");
+}
+
 function linkAttrs(href) {
   if (internalHref(href)) return { to: href };
   return { href, target: "_blank", rel: "noopener noreferrer" };
@@ -86,20 +93,20 @@ onMounted(() => {
     <a href="#main-content" class="skip-link">{{ t("app.skipToContent") }}</a>
     <header class="site-header">
       <div class="header-bar">
-        <RouterLink to="/" class="brand" :aria-label="t('nav.home')">
+        <a href="/" class="brand" :aria-label="t('nav.home')" @click="refreshHome">
           <span class="brand-mark" aria-hidden="true">{{ mark }}</span>
-        </RouterLink>
+        </a>
         <AppButton
           v-if="!searchOpen"
           variant="icon"
           :aria-label="t('nav.search')"
           @click="openSearch"
         >
-          <SearchIcon class="nav-icon" aria-hidden="true" />
+          <SearchIcon class="nav-icon" weight="header" aria-hidden="true" />
         </AppButton>
         <form v-else class="header-search" @submit.prevent="search()">
           <AppButton variant="icon" plain :aria-label="t('search.back')" @click="closeSearch">
-            <BackIcon class="nav-icon" aria-hidden="true" />
+            <BackIcon class="nav-icon" weight="header" aria-hidden="true" />
           </AppButton>
           <label class="search-field">
             <SearchIcon class="header-search-icon" aria-hidden="true" />
@@ -115,10 +122,10 @@ onMounted(() => {
         </form>
         <div class="header-side header-side-end">
           <AppButton variant="icon" to="/wish" :aria-label="t('nav.wish')">
-            <ChatIcon class="nav-icon" aria-hidden="true" />
+            <ChatIcon class="nav-icon" weight="header" aria-hidden="true" />
           </AppButton>
           <AppButton variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
-            <ZapIcon class="nav-icon nav-icon-zap" aria-hidden="true" />
+            <BellIcon class="nav-icon" weight="header" aria-hidden="true" />
             <span v-if="notifications.unread > 0" class="nav-badge">{{
               notifications.unread > 99 ? "99+" : notifications.unread
             }}</span>
@@ -131,7 +138,7 @@ onMounted(() => {
             :aria-label="t('nav.mine')"
           >
             <img v-if="session.user?.avatarUrl" class="header-avatar" :src="session.user.avatarUrl" alt="" />
-            <HeaderUserIcon v-else class="nav-icon nav-icon-solid" aria-hidden="true" />
+            <UserIcon v-else filled weight="header" class="nav-icon" aria-hidden="true" />
           </AppButton>
         </div>
       </div>
@@ -145,7 +152,7 @@ onMounted(() => {
             <li v-for="item in history" :key="item">
               <button type="button" @click="search(item)">
                 <span class="history-mark" aria-hidden="true">
-                  <HistoryIcon class="nav-icon" />
+                  <ClockIcon class="nav-icon" />
                 </span>
                 <span class="history-text">{{ item }}</span>
               </button>
@@ -162,7 +169,7 @@ onMounted(() => {
             <span class="shortcut-label">{{ t("nav.mine") }}</span>
           </RouterLink>
           <RouterLink :to="{ name: 'stars' }" class="shortcut">
-            <BookmarkIcon class="shortcut-icon" aria-hidden="true" />
+            <StarIcon class="shortcut-icon" aria-hidden="true" />
             <span class="shortcut-label">{{ t("rail.stars") }}</span>
           </RouterLink>
           <RouterLink :to="{ name: 'activity' }" class="shortcut">

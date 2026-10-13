@@ -2,6 +2,12 @@ import { toRecord } from "./card.js";
 import { fileView } from "./information.js";
 import { publicUploadUrl } from "./uploads.js";
 
+function iso(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 async function filesByIntel(pool, ids) {
   const names = new Map();
   const unique = [...new Set(ids.filter(Boolean))];
@@ -83,6 +89,53 @@ export async function listMyResponses(pool, userId) {
         )
       : null,
   }));
+}
+
+export async function listLooks(pool, userId) {
+  const { rows } = await pool.query(
+    `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.price, i.category, i.kind, i.is_public, i.created_at, i.updated_at,
+            l.created_at AS looked_at,
+            EXISTS (
+              SELECT 1 FROM request_unlocks u
+              WHERE u.intel_id = i.id AND u.user_id = $1
+            ) AS unlocked
+     FROM request_looks l
+     JOIN intel i ON i.id = l.intel_id AND i.kind = 'wish' AND i.verdict = 'passed'
+     WHERE l.user_id = $1
+     ORDER BY l.created_at DESC`,
+    [userId]
+  );
+  const files = await filesByIntel(pool, rows.map((row) => row.id));
+  return rows.map((row) => ({
+    lookedAt: iso(row.looked_at),
+    wish: {
+      ...toRecord({ ...row, verdict: "passed" }, { files: files.get(row.id) || [], granted: Boolean(row.unlocked) }),
+      unlocked: Boolean(row.unlocked),
+    },
+  }));
+}
+
+export async function lookRequest(pool, userId, requestId) {
+  const { rows } = await pool.query(
+    `SELECT id, user_id FROM intel WHERE id = $1 AND kind = 'wish' AND verdict = 'passed'`,
+    [requestId]
+  );
+  if (!rows.length) {
+    const error = new Error("not_found");
+    error.code = "not_found";
+    throw error;
+  }
+  if (rows[0].user_id === userId) {
+    const error = new Error("bad_state");
+    error.code = "bad_state";
+    throw error;
+  }
+  await pool.query(
+    `INSERT INTO request_looks (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [userId, requestId]
+  );
+  const looks = await listLooks(pool, userId);
+  return looks.find((item) => item.wish?.id === requestId) || null;
 }
 
 export async function listRequestResponses(pool, userId, requestId) {

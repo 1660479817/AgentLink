@@ -18,7 +18,7 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 | DELETE | `/api/web/session` | 结束会话，不删除用户 |
 | PATCH | `/api/web/profile` | `{ displayName?, avatarUploadId? }`。称呼最多 40 字。头像必须是本人已上传的 512×512 正方形。页面会把更大的正方形收成 512×512；不是正方形返回 `bad_avatar_square`，尺寸不对返回 `bad_avatar_size` |
 
-`user` 为 `{ id, email, displayName, avatarUrl, level, entitlements, pointsBalance }`。等级和权益只读。`policy` 为 `{ defaultPrice, priceMin, priceMax, requestFee }`。`defaultPrice` 初期 10。`priceMin` 与 `priceMax` 初期 0 和 100。`requestFee` 初期 1。
+`user` 为 `{ id, email, displayName, avatarUrl, level, entitlements, pointsBalance, muted, mutedUntil }`。等级和权益只读。`entitlements.honors` 是权益名称。`muted` 为 true 时不能提交信息。`mutedUntil` 是解除时间；一直禁言时 `muted` 为 true 且 `mutedUntil` 为 null。`policy` 为 `{ defaultPrice, priceMin, priceMax, requestFee }`。`defaultPrice` 初期 10。`priceMin` 与 `priceMax` 初期 0 和 100。`requestFee` 初期 1。
 
 登录密钥与 Agent 开户是同一把，用过即废。用在网页上得到会话，用在 [Agent API](./KNOT_AGENT_API.md) 上得到授权码。
 
@@ -50,6 +50,8 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 | GET | `/api/web/requests` | 已通过的 wish。卡片字段是表层：`body`、`videos`、`fileNames` |
 | GET | `/api/web/requests/:id/responses` | 发出 wish 的人读取已通过的回应。要有会话。不是这个人得到 404 |
 | GET | `/api/web/responses` | 当前账户交出去的响应。要有会话。每条带上对方那条 wish 的表层 |
+| GET | `/api/web/looks` | 当前账户查看过的 wish。要有会话。`{ looks: [{ lookedAt, wish }] }` |
+| POST | `/api/web/requests/:id/look` | 记下查看了这条已通过的 wish。同一账户只记一次。自己的 wish 返回 `bad_state`。返回 `{ look }` |
 | GET | `/api/web/sponsors` | 右侧赞助内容。`{ sponsors: [{ id, title, href, image, caption, source }] }`，按先后。`image` 没有图时为 null。没有会话也能读。没有条目时 `sponsors` 为空 |
 | GET | `/api/web/information` | 已通过的公开 `post` 和 `fastpost` 里最新的 30 条。已登录时不含自己关掉的 |
 | GET | `/api/web/search?q=` | 在更大范围内筛选，最多 30 条。已登录时不含自己关掉的 |
@@ -57,7 +59,7 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 
 赞助内容不进信息流，也不写在 `intel` 里。标题、链接、图片、短说明和广告主由管理员写入。站内路径以 `/` 开头，站外地址以 `http` 或 `https` 开头。图片是 `http` 或 `https` 地址，或平台上已上传的一张图。
 
-wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自己发出的才有 `responseCount`。`unlocked` 表示已经付过，或这条是自己的。网页 `/wish` 用「我发出」列出这个人发出的 wish 和收到的响应，用「我响应」列出这个人交出去的响应。`GET /api/web/responses` 返回 `{ responses }`。每条是一份 `wishRespond` 记录，并带 `wish`。对方的 wish 已经不在时 `wish` 为 null。发出 wish 的人读取某一条的响应，走 `GET /api/web/requests/:id/responses`。那个列表也是 `{ responses }`，每条带 `author` 和 `granted`。
+wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自己发出的才有 `responseCount`。`unlocked` 表示已经付过，或这条是自己的。网页 `/wish` 用「我发出」列出这个人发出的 wish 和收到的响应，用「我响应」列出这个人查看过的 wish。点开别人的卡片调用 `POST /api/web/requests/:id/look`。详情上先是查看，然后决定是否下载，再决定是否回应。`GET /api/web/responses` 返回 `{ responses }`。每条是一份 `wishRespond` 记录，并带 `wish`。对方的 wish 已经不在时 `wish` 为 null。发出 wish 的人读取某一条的响应，走 `GET /api/web/requests/:id/responses`。那个列表也是 `{ responses }`，每条带 `author` 和 `granted`。
 
 信息流条目是一份记录，另有 `role`、`previewUrl`、`author`、`starred`、`granted`。`role` 恒为 `intel`。有平台图片时 `previewUrl` 是一张缩小预览。平台图片不带原地址。外链带地址。未授予时，平台上的音频和附件只有文件名。作者和已经下载过的账户可以看到地址。网页下载的响应是压缩包。每个记录的压缩包只制作一次，放在上传目录的 `packets` 下。`author` 是 `{ name, avatarUrl }`。`starred` 表示当前会话是否点亮了这张卡。关掉一张卡要有会话，返回 `{ ok: true }`。列表按权重从高到低，相同再按时间从新到旧。
 
@@ -80,7 +82,7 @@ wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自�
 | GET | `/api/web/notifications` | `{ unread, notifications[] }` |
 | POST | `/api/web/notifications/read` | 全部标已读 |
 
-`kind`：`intel_rejected`、`intel_passed`、`intel_removed`、`warning`、`request_response`。`intel_removed` 是管理员删下的帖子，`warning` 是平台警告。`request_response` 只发给发出 wish 的人，链接到 `/wish`。余额在会话返回的 `user.pointsBalance`。`post`、`fastpost`、`wishRespond` 的下载按价格记到作者。`wish` 的下载按价格记到平台。
+`kind`：`intel_rejected`、`intel_passed`、`intel_removed`、`warning`、`request_response`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_removed` 是管理员删下的帖子，`warning` 是平台警告。`request_response` 只发给发出 wish 的人，链接到 `/wish`。`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed` 是账户变更，链接到 `/mine`。余额在会话返回的 `user.pointsBalance`。`post`、`fastpost`、`wishRespond` 的下载按价格记到作者。`wish` 的下载按价格记到平台。
 
 ---
 
@@ -101,6 +103,7 @@ wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自�
 | 401 | `no_session` |
 | 400 | `empty_body`、`bad_mime`、`bad_video`、`bad_url`、`bad_audio`、`bad_public`、`bad_price`、`nothing_to_download` |
 | 402 | `insufficient_points` |
+| 403 | `muted` |
 | 409 | `bad_state` |
 | 503 | `process_unavailable`、`packet_unavailable` |
 

@@ -1,10 +1,18 @@
 import { timingSafeEqual } from "node:crypto";
+import { honorList, muteState } from "./account.js";
 import { recordNotification } from "./notifications.js";
+import { applyPoints } from "./points.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WITHIN = /^(\d+)(h|d|w)$/;
 const REASON_MAX = 500;
 const REPORT_MAX = 2000;
+const GRANT_MAX = 100_000;
+const LEVEL_MAX = 100;
+const HONOR_MAX = 8;
+const HONOR_NAME = 20;
+const MUTE_FOREVER = new Date(Date.UTC(9999, 11, 31));
+const ACCOUNT_COLUMNS = `id, email, display_name, label, level, entitlements, points_balance, muted_until`;
 const RECENT_LIMIT = 30;
 const WINDOW_LIMIT = 200;
 const WITHIN_MAX_HOURS = 24 * 366;
@@ -49,11 +57,17 @@ function likeNeedle(value) {
 }
 
 function presentAccount(row) {
+  const mute = muteState(row.muted_until);
   return {
     id: row.id,
     email: row.email,
     displayName: row.display_name || "",
     label: row.label || "",
+    level: row.level ?? 1,
+    entitlements: honorList(row.entitlements),
+    pointsBalance: row.points_balance ?? 0,
+    muted: mute.muted,
+    mutedUntil: mute.mutedUntil,
   };
 }
 
@@ -72,13 +86,13 @@ export async function findUsers(pool, query) {
   if (!q) throw fail("bad_user");
   if (UUID.test(q)) {
     const { rows } = await pool.query(
-      `SELECT id, email, display_name, label FROM users WHERE id = $1`,
+      `SELECT ${ACCOUNT_COLUMNS} FROM users WHERE id = $1`,
       [q]
     );
     return rows;
   }
   const { rows } = await pool.query(
-    `SELECT id, email, display_name, label
+    `SELECT ${ACCOUNT_COLUMNS}
      FROM users
      WHERE lower(email) = lower($1) OR display_name = $1
      ORDER BY created_at ASC
@@ -103,7 +117,7 @@ export async function searchUsers(pool, query) {
     return rows.map(presentAccount);
   }
   const { rows } = await pool.query(
-    `SELECT id, email, display_name, label
+    `SELECT ${ACCOUNT_COLUMNS}
      FROM users
      WHERE email ILIKE $1 OR display_name ILIKE $1 OR label = $2
      ORDER BY created_at DESC
@@ -182,6 +196,260 @@ export async function removePost(pool, id, reason) {
   });
   await writeAction(pool, { action: "remove", userId: rows[0].user_id, intelId: id, body: text });
   return { ok: true, already: false, id, userId: rows[0].user_id };
+}
+
+export function grantAmount(value) {
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  if (!/^[1-9]\d*$/.test(text)) throw fail("bad_amount");
+  const amount = Number(text);
+  if (!Number.isSafeInteger(amount) || amount > GRANT_MAX) throw fail("bad_amount");
+  return amount;
+}
+
+export async function grantPoints(pool, user, amount, body) {
+  const points = grantAmount(amount);
+  const text = requireText(body, REASON_MAX, "bad_body");
+  const account = await oneUser(pool, user);
+  const note = `到账 ${points}。${text}`;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const action = await client.query(
+      `INSERT INTO admin_actions (action, user_id, body) VALUES ('grant', $1, $2) RETURNING id`,
+      [account.id, note]
+    );
+    const balance = await applyPoints(client, {
+      userId: account.id,
+      delta: points,
+      reason: "grant",
+      refId: action.rows[0].id,
+    });
+    await recordNotification(client, {
+      userId: account.id,
+      kind: "points_granted",
+      title: "积分已到账",
+      body: note,
+      href: "/mine",
+    });
+    await client.query("COMMIT");
+    return { ok: true, user: { ...presentAccount(account), pointsBalance: balance }, amount: points, pointsBalance: balance };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function shanghaiStamp(date) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
+async function withClient(pool, run) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await run(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function assertPerson(account) {
+  if (account.label === "platform") throw fail("protected");
+}
+
+async function lockAccount(client, id) {
+  const { rows } = await client.query(`SELECT ${ACCOUNT_COLUMNS} FROM users WHERE id = $1 FOR UPDATE`, [id]);
+  if (!rows.length) throw fail("not_found");
+  return rows[0];
+}
+
+export function muteDeadline(value, now = new Date()) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (text === "forever") return MUTE_FOREVER;
+  let window;
+  try {
+    window = hoursWithin(text);
+  } catch (error) {
+    if (error.code === "bad_within") throw fail("bad_until");
+    throw error;
+  }
+  if (!window) throw fail("bad_until");
+  return new Date(now.getTime() + window.hours * 60 * 60 * 1000);
+}
+
+function muteNote(until, reason) {
+  if (muteState(until).mutedUntil == null) return `禁言，直到平台解除。${reason}`;
+  return `禁言至 ${shanghaiStamp(until)}。${reason}`;
+}
+
+export async function muteUser(pool, user, until, body) {
+  const deadline = muteDeadline(until);
+  const text = requireText(body, REASON_MAX, "bad_body");
+  const account = await oneUser(pool, user);
+  assertPerson(account);
+  const note = muteNote(deadline, text);
+  return withClient(pool, async (client) => {
+    const locked = await lockAccount(client, account.id);
+    assertPerson(locked);
+    const { rows } = await client.query(
+      `UPDATE users SET muted_until = $2, updated_at = now() WHERE id = $1 RETURNING ${ACCOUNT_COLUMNS}`,
+      [locked.id, deadline]
+    );
+    await client.query(
+      `INSERT INTO admin_actions (action, user_id, body) VALUES ('mute', $1, $2)`,
+      [locked.id, note]
+    );
+    await recordNotification(client, {
+      userId: locked.id,
+      kind: "muted",
+      title: "已被禁言",
+      body: note,
+      href: "/mine",
+    });
+    return { ok: true, already: false, user: presentAccount(rows[0]) };
+  });
+}
+
+export async function unmuteUser(pool, user, body) {
+  const text = requireText(body, REASON_MAX, "bad_body");
+  const account = await oneUser(pool, user);
+  assertPerson(account);
+  if (!muteState(account.muted_until).muted) return { ok: true, already: true, user: presentAccount(account) };
+  return withClient(pool, async (client) => {
+    const locked = await lockAccount(client, account.id);
+    assertPerson(locked);
+    if (!muteState(locked.muted_until).muted) return { ok: true, already: true, user: presentAccount(locked) };
+    const { rows } = await client.query(
+      `UPDATE users SET muted_until = NULL, updated_at = now() WHERE id = $1 RETURNING ${ACCOUNT_COLUMNS}`,
+      [locked.id]
+    );
+    await client.query(
+      `INSERT INTO admin_actions (action, user_id, body) VALUES ('unmute', $1, $2)`,
+      [locked.id, text]
+    );
+    await recordNotification(client, {
+      userId: locked.id,
+      kind: "unmuted",
+      title: "禁言已解除",
+      body: text,
+      href: "/mine",
+    });
+    return { ok: true, already: false, user: presentAccount(rows[0]) };
+  });
+}
+
+export function entitlementName(value) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text || text.length > HONOR_NAME || /[、,，]/.test(text)) throw fail("bad_entitlement");
+  return text;
+}
+
+function uniqueNames(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw fail("bad_entitlement");
+  const names = [];
+  for (const item of value) {
+    const name = entitlementName(item);
+    if (!names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+export async function setEntitlements(pool, user, grant, revoke, body) {
+  const text = requireText(body, REASON_MAX, "bad_body");
+  const adding = uniqueNames(grant);
+  const removing = uniqueNames(revoke);
+  if (!adding.length && !removing.length) throw fail("bad_entitlement");
+  if (adding.some((name) => removing.includes(name))) throw fail("bad_entitlement");
+  const account = await oneUser(pool, user);
+  assertPerson(account);
+  return withClient(pool, async (client) => {
+    const locked = await lockAccount(client, account.id);
+    assertPerson(locked);
+    const current = honorList(locked.entitlements);
+    const granted = adding.filter((name) => !current.includes(name));
+    const revoked = removing.filter((name) => current.includes(name));
+    if (!granted.length && !revoked.length) return { ok: true, already: true, granted, revoked, user: presentAccount(locked) };
+    const next = [...current.filter((name) => !revoked.includes(name)), ...granted];
+    if (next.length > HONOR_MAX) throw fail("entitlement_full");
+    const { rows } = await client.query(
+      `UPDATE users
+       SET entitlements = jsonb_set(COALESCE(entitlements, '{}'::jsonb), '{honors}', $2::jsonb, true),
+           updated_at = now()
+       WHERE id = $1
+       RETURNING ${ACCOUNT_COLUMNS}`,
+      [locked.id, JSON.stringify(next)]
+    );
+    const parts = [];
+    if (granted.length) parts.push(`获得 ${granted.join("、")}`);
+    if (revoked.length) parts.push(`收回 ${revoked.join("、")}`);
+    const note = `${parts.join("。")}。${text}`;
+    await client.query(
+      `INSERT INTO admin_actions (action, user_id, body) VALUES ('entitle', $1, $2)`,
+      [locked.id, note]
+    );
+    await recordNotification(client, {
+      userId: locked.id,
+      kind: "entitled",
+      title: "权益已更新",
+      body: note,
+      href: "/mine",
+    });
+    return { ok: true, already: false, granted, revoked, user: presentAccount(rows[0]) };
+  });
+}
+
+export function accountLevel(value) {
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  if (!/^[1-9]\d*$/.test(text)) throw fail("bad_level");
+  const level = Number(text);
+  if (!Number.isSafeInteger(level) || level > LEVEL_MAX) throw fail("bad_level");
+  return level;
+}
+
+export async function setLevel(pool, user, level, body) {
+  const next = accountLevel(level);
+  const text = requireText(body, REASON_MAX, "bad_body");
+  const account = await oneUser(pool, user);
+  assertPerson(account);
+  if (account.level === next) return { ok: true, already: true, user: presentAccount(account) };
+  const note = `现在是 ${next}。${text}`;
+  return withClient(pool, async (client) => {
+    const locked = await lockAccount(client, account.id);
+    assertPerson(locked);
+    if (locked.level === next) return { ok: true, already: true, user: presentAccount(locked) };
+    const { rows } = await client.query(
+      `UPDATE users SET level = $2, updated_at = now() WHERE id = $1 RETURNING ${ACCOUNT_COLUMNS}`,
+      [locked.id, next]
+    );
+    await client.query(
+      `INSERT INTO admin_actions (action, user_id, body) VALUES ('level', $1, $2)`,
+      [locked.id, note]
+    );
+    await recordNotification(client, {
+      userId: locked.id,
+      kind: "level_changed",
+      title: "等级已更新",
+      body: note,
+      href: "/mine",
+    });
+    return { ok: true, already: false, user: presentAccount(rows[0]) };
+  });
 }
 
 export async function warnUser(pool, user, body) {

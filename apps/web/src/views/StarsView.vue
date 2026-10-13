@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import InformationCard from "../components/InformationCard.vue";
+import { StarIcon } from "../icons/index.js";
 import { dismissInformation, downloadInformation, listStars, unstarInformation } from "../api.js";
 import { acceptDownload } from "../download/consent.js";
 import { payeeOf, priceOf } from "../record.js";
@@ -100,6 +101,9 @@ onMounted(async () => {
       @star="toggleStar(item)"
       @download="downloadItem(item)"
     />
-    <p v-if="items.length === 0" class="muted">{{ t("stars.empty") }}</p>
+    <p v-if="items.length === 0" class="muted empty-line">
+      <StarIcon class="empty-icon" aria-hidden="true" />
+      <span>{{ t("stars.empty") }}</span>
+    </p>
   </template>
 </template>

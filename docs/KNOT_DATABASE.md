@@ -20,9 +20,10 @@ users
   │     ├── intel_stars → users   谁点亮了星
   │     ├── intel_dismissals → users   谁关掉了这张卡
   │     ├── packet_downloads → users   谁已经下载过
-  │     └── request_unlocks → users   谁已经为一条 wish 付过费用
+  │     ├── request_unlocks → users   谁已经为一条 wish 付过费用
+  │     └── request_looks → users     谁查看过一条 wish
   ├── notifications
-  ├── admin_actions         删除、警告、巡查记录
+  ├── admin_actions         删除、警告、发放绩点、巡查记录
   └── point_ledger          余额缓存在 users.points_balance
 
 sponsors                    右侧赞助内容。不挂在用户或记录上
@@ -41,7 +42,7 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 | 委托 / 收回 | `delegations` |
 | 提交记录 | `intel`、`uploads`、`intel_files`。外链写入 `intel.links`。`price` 在这时写定 |
 | 数据评审员 knot-intel | `intel.verdict`、`intel.category`、`intel.detail`，并发 `notifications` |
-| 管理员 knot-admin | 经本机 `/api/admin` 由 Backend 写入：`intel.verdict = removed`、`notifications`（`intel_removed` 或 `warning`）、`admin_actions`。赞助内容写入 `sponsors` |
+| 管理员 knot-admin | 经本机 `/api/admin` 由 Backend 写入：`intel.verdict = removed`、`notifications`、`admin_actions`。发放绩点写入 `point_ledger`。禁言写入 `users.muted_until`。权益写入 `users.entitlements.honors`。等级写入 `users.level`。赞助内容写入 `sponsors` |
 | 下载 | `packet_downloads` 或 `request_unlocks`。`post`、`fastpost`、`wishRespond` 从下载者记到作者。`wish` 记到平台 |
 | 点亮 / 熄灭星 | `intel_stars`。`intel.weight` 加 1 或减 1 |
 | 关闭信息卡片 | `intel_dismissals`。信息流、搜索和收藏不再返回这张卡 |
@@ -60,9 +61,10 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 | `email` | 可空。唯一（忽略大小写）。登录和注册都写在这里。测试员可以没有邮箱，靠已有会话进入 |
 | `display_name` | 称呼，默认空，最长由接口限制为 40 字 |
 | `avatar_upload_id` | 头像，指向自己的 512×512 正方形 `uploads`，可空 |
-| `level` | 等级，默认 1，至少为 1 |
-| `entitlements` | JSON 对象，默认 `{}`。权益以后往这里加，客户端不能改 |
+| `level` | 等级，默认 1，至少为 1，至多由管理接口写成 100 |
+| `entitlements` | JSON 对象，默认 `{}`。`honors` 是权益名称列表，最多 8 个。客户端不能改 |
 | `points_balance` | 积分余额。开户写入 `KNOT_SIGNUP_GRANT`，缺省 100。这笔没有对应流水 |
+| `muted_until` | 禁言截止时间。空，或已过，表示可以发言。`9999-12-31` 表示直到平台解除。禁言期间不能提交 `post`、`fastpost`、`wish`、`wishRespond` |
 | `label` | 运维标记。`tester` 是测试员，`platform` 是平台自己。非空时唯一 |
 | `created_at` / `updated_at` | 建立和最近一次资料变更 |
 
@@ -121,13 +123,13 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 
 平台账户余额从 0 起。收入是下载付给作者的价格，以及 wish 付给平台的请求费。
 
-`point_ledger` 只追加。当前写入的 `reason` 是 `download` 和 `request_detail`。`download` 的 `ref_id` 是记录 id，下载者和作者各记一行。`request_detail` 的 `ref_id` 也是记录 id，下载者和平台各记一行。余额不为负。点星不写这张表。
+`point_ledger` 只追加。当前写入的 `reason` 是 `download`、`request_detail` 和 `grant`。`download` 的 `ref_id` 是记录 id，下载者和作者各记一行。`request_detail` 的 `ref_id` 也是记录 id，下载者和平台各记一行。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。余额不为负。点星不写这张表。
 
-`packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一条只记一行。有平台文件的记录在第一次下载时打成一份压缩包，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经为一条 wish 付过费用。
+`packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一条只记一行。有平台文件的记录在第一次下载时打成一份压缩包，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经为一条 wish 付过费用。`request_looks` 记下谁查看过一条 wish，主键同样是 `(user_id, intel_id)`。点开别人的卡片写一行，再点不重复。
 
-`notifications.kind` 为 `intel_rejected`、`intel_passed`、`intel_removed`、`warning`、`request_response`。`request_response` 只发给发出 wish 的人。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。
+`notifications.kind` 为 `intel_rejected`、`intel_passed`、`intel_removed`、`warning`、`request_response`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`request_response` 只发给发出 wish 的人。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。
 
-`admin_actions` 只追加。`action` 为 `remove`、`warn` 或 `patrol`。巡查记录的 `user_id` 和 `intel_id` 为空，`created_at` 是下一次巡查看新帖的起点。赞助内容的增删改不写这张表。
+`admin_actions` 只追加。`action` 为 `remove`、`warn`、`patrol`、`grant`、`mute`、`unmute`、`entitle` 或 `level`。巡查记录的 `user_id` 和 `intel_id` 为空，`created_at` 是下一次巡查看新帖的起点。`grant` 记下发给谁、数量和原因。`mute` 和 `unmute` 记下禁言期限和原因。`entitle` 记下获得或收回的名称。`level` 记下新等级。赞助内容的增删改不写这张表。平台账户不能被禁言，也不能改等级和权益。
 
 ### sponsors
 
@@ -137,7 +139,7 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 
 ## 6. 迁移记录
 
-`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。
+`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。
 
 ### intel
 

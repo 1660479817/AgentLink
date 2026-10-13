@@ -1,6 +1,6 @@
 ---
 name: knot-admin
-description: Delete a named Knot post, warn a named account, list one account's posts in a time window, change the sponsored rail, and run the daily patrol.
+description: Delete a named Knot post, warn a named account, grant points, mute or unmute an account, grant or revoke honors, set a level, list one account's posts in a time window, change the sponsored rail, and run the daily patrol.
 ---
 
 # 管理员
@@ -13,7 +13,7 @@ Knot Backend 在本机提供管理接口。只从这台机器调用 `http://127.
 
 `GET /api/admin/users?q=`
 
-`q` 是邮箱、称呼、用户 id，或 `label`。返回 `{ users: [{ id, email, displayName, label }] }`。
+`q` 是邮箱、称呼、用户 id，或 `label`。返回 `{ users: [{ id, email, displayName, label, level, entitlements, pointsBalance, muted, mutedUntil }] }`。`entitlements` 是权益名称列表。`muted` 为 true 时这个人不能发帖、发 wish、响应 wish。`mutedUntil` 是解除时间；`muted` 为 true 且 `mutedUntil` 为 null，表示直到平台解除。平台账户的 `label` 是 `platform`，不能禁言，也不能改等级和权益。
 
 ## 看帖
 
@@ -50,6 +50,66 @@ Knot Backend 在本机提供管理接口。只从这台机器调用 `http://127.
 ```
 
 `user` 同样必须只对上一个账户。`body` 不能空，最多 500 字。作者在通知里看到标题「平台警告」和这段正文。
+
+## 发放绩点
+
+`POST /api/admin/points`
+
+```json
+{"user":"name@example.com","amount":50,"body":"补偿一次失败的下载。"}
+```
+
+`user` 必须只对上一个账户。`amount` 是正整数，一次最多 100000。`body` 不能空，最多 500 字，写主人给出的原因。
+
+成功返回 `{ ok, user, amount, pointsBalance }`。`pointsBalance` 是发放之后的余额。Backend 记一笔 `grant`，并通知这个人「积分已到账」，正文带上数量和原因。再调一次会再发一次。只增加，不扣。巡查不调用这个接口。
+
+## 禁言
+
+`POST /api/admin/mute`
+
+```json
+{"user":"name@example.com","until":"7d","body":"请停止骚扰。"}
+```
+
+`until` 用 `24h`、`7d`、`2w`，最长 `366d`，从现在算起。`forever` 表示直到以后解除。`body` 不能空，最多 500 字，写主人给出的原因。
+
+成功后这个人不能再提交 `post`、`fastpost`、`wish`、`wishRespond`。阅读、下载和改资料仍可以。通知标题是「已被禁言」。再禁言一次会按新的期限重算。
+
+解除：
+
+`POST /api/admin/unmute`
+
+```json
+{"user":"name@example.com","body":"可以恢复发言。"}
+```
+
+已经能发言时返回 `{ already: true }`，不再通知。
+
+`label` 为 `platform` 的账户返回 `protected`。期限写错返回 `bad_until`。
+
+## 权益
+
+`POST /api/admin/entitlements`
+
+```json
+{"user":"name@example.com","grant":["早期用户"],"revoke":[],"body":"感谢长期供稿。"}
+```
+
+`grant` 和 `revoke` 是名称列表，至少有一个名称。名称不能空，最多 20 字，不能含顿号或逗号。一个账户最多 8 个。已经有的不会重复发，没有的收回会被跳过。两边都没有变化时返回 `{ already: true }`。满了返回 `entitlement_full`。名称不合格返回 `bad_entitlement`。
+
+成功返回 `{ ok, granted, revoked, user }`。通知标题是「权益已更新」。这些名称出现在这个人的「我的」里。平台账户返回 `protected`。
+
+## 等级
+
+`POST /api/admin/level`
+
+```json
+{"user":"name@example.com","level":2,"body":"供稿稳定。"}
+```
+
+`level` 是 1 到 100 的整数。和现在相同返回 `{ already: true }`，不再通知。改了之后通知标题是「等级已更新」。不合格返回 `bad_level`。平台账户返回 `protected`。
+
+禁言、权益、等级和绩点都不在巡查里调用。
 
 ## 赞助内容
 
@@ -118,6 +178,9 @@ curl -sS -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8080/api/admin/patr
 curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"reason":"含有欺诈内容。"}' \
   "http://127.0.0.1:8080/api/admin/posts/POST_ID/remove"
+curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"user":"name@example.com","amount":50,"body":"补偿一次失败的下载。"}' \
+  "http://127.0.0.1:8080/api/admin/points"
 ```
 
 `401` 是令牌不对。`503` 且 `error` 为 `admin_unconfigured` 是 Backend 还没有这把令牌。两种都停，不要重试别的门。

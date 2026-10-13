@@ -6,11 +6,17 @@ import {
   clipText,
   hoursWithin,
   isLoopbackAddress,
+  grantPoints,
   listPosts,
+  muteUser,
   removePost,
+  setEntitlements,
+  setLevel,
   tokensMatch,
+  unmuteUser,
   warnUser,
 } from "./admin.js";
+import { assertCanSpeak, muteState } from "./account.js";
 import { adminRouter } from "./routes/admin.js";
 
 const POST_ID = "23737bf5-537f-441f-bc86-bf230d1cf9ed";
@@ -64,6 +70,311 @@ test("a second remove of the same post stays quiet", async () => {
   const result = await removePost(pool, POST_ID, "含有欺诈内容。");
   assert.equal(result.already, true);
   assert.equal(updates, 1);
+});
+
+test("grant adds the amount once and tells the person", async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("INSERT INTO admin_actions")) return { rows: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }] };
+      if (sql.includes("UPDATE users")) return { rows: [{ points_balance: 150 }] };
+      if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async query(sql) {
+      if (sql.includes("FROM users")) {
+        return {
+          rows: [{ id: USER_ID, email: "a@example.com", display_name: "甲", label: "tester", points_balance: 100 }],
+        };
+      }
+      return { rows: [] };
+    },
+    async connect() {
+      return client;
+    },
+  };
+  const result = await grantPoints(pool, "a@example.com", 50, "补偿一次失败的下载。");
+  assert.equal(result.ok, true);
+  assert.equal(result.amount, 50);
+  assert.equal(result.pointsBalance, 150);
+  assert.equal(result.user.id, USER_ID);
+  const action = calls.find((call) => call.sql.includes("admin_actions"));
+  assert.equal(action.params[0], USER_ID);
+  assert.equal(action.params[1], "到账 50。补偿一次失败的下载。");
+  const ledger = calls.find((call) => call.sql.includes("point_ledger"));
+  assert.deepEqual(ledger.params, [USER_ID, 50, "grant", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]);
+  const note = calls.find((call) => call.sql.includes("notifications"));
+  assert.equal(note.params[1], "points_granted");
+  assert.equal(note.params[2], "积分已到账");
+  assert.equal(note.params[4], "/mine");
+  assert.equal(calls.at(-1).sql, "COMMIT");
+});
+
+test("a grant needs one account, a positive amount, and a reason", async () => {
+  const pool = {
+    async query(sql) {
+      if (sql.includes("FROM users")) {
+        return {
+          rows: [
+            { id: USER_ID, email: "a@example.com", display_name: "甲", label: null, points_balance: 1 },
+            { id: POST_ID, email: "b@example.com", display_name: "甲", label: null, points_balance: 2 },
+          ],
+        };
+      }
+      throw new Error("unexpected query");
+    },
+    async connect() {
+      throw new Error("should not grant");
+    },
+  };
+  await assert.rejects(grantPoints(pool, "甲", 10, "补偿"), (error) => error.code === "ambiguous");
+  const closed = {
+    async query() {
+      throw new Error("should not look up");
+    },
+    async connect() {
+      throw new Error("should not grant");
+    },
+  };
+  await assert.rejects(grantPoints(closed, "a@example.com", 0, "补偿"), (error) => error.code === "bad_amount");
+  await assert.rejects(grantPoints(closed, "a@example.com", -5, "补偿"), (error) => error.code === "bad_amount");
+  await assert.rejects(grantPoints(closed, "a@example.com", 1.5, "补偿"), (error) => error.code === "bad_amount");
+  await assert.rejects(grantPoints(closed, "a@example.com", 100001, "补偿"), (error) => error.code === "bad_amount");
+  await assert.rejects(grantPoints(closed, "a@example.com", 10, "  "), (error) => error.code === "bad_body");
+});
+
+const PERSON = {
+  id: USER_ID,
+  email: "a@example.com",
+  display_name: "甲",
+  label: "",
+  level: 1,
+  entitlements: {},
+  points_balance: 100,
+  muted_until: null,
+};
+
+function accountPool(user, onClient) {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
+      return onClient(sql, params);
+    },
+    release() {},
+  };
+  return {
+    calls,
+    pool: {
+      async query(sql) {
+        if (sql.includes("FROM users")) return { rows: [user] };
+        throw new Error(sql);
+      },
+      async connect() {
+        return client;
+      },
+    },
+  };
+}
+
+test("mute blocks new speech until the deadline", async () => {
+  assert.equal(muteState(null).muted, false);
+  assert.equal(muteState(new Date(Date.now() - 1000)).muted, false);
+  assert.equal(muteState(new Date("9999-12-31T00:00:00.000Z")).mutedUntil, null);
+  assert.equal(muteState(new Date("9999-12-31T00:00:00.000Z")).muted, true);
+
+  const { calls, pool } = accountPool(PERSON, (sql, params) => {
+    if (sql.includes("FOR UPDATE")) return { rows: [PERSON] };
+    if (sql.includes("UPDATE users")) return { rows: [{ ...PERSON, muted_until: params[1] }] };
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  const result = await muteUser(pool, "a@example.com", "forever", "请停止骚扰。");
+  assert.equal(result.user.muted, true);
+  assert.equal(result.user.mutedUntil, null);
+  const note = calls.find((call) => call.sql.includes("notifications"));
+  assert.equal(note.params[1], "muted");
+  assert.equal(note.params[2], "已被禁言");
+  assert.match(note.params[3], /^禁言，直到平台解除。请停止骚扰。/);
+  const action = calls.find((call) => call.sql.includes("admin_actions"));
+  assert.match(action.sql, /'mute'/);
+
+  const timed = accountPool(PERSON, (sql, params) => {
+    if (sql.includes("FOR UPDATE")) return { rows: [PERSON] };
+    if (sql.includes("UPDATE users")) return { rows: [{ ...PERSON, muted_until: params[1] }] };
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  const week = await muteUser(timed.pool, "a@example.com", "7d", "请停止骚扰。");
+  assert.equal(week.user.muted, true);
+  assert.ok(week.user.mutedUntil);
+
+  const closed = {
+    async query() {
+      throw new Error("should not look up");
+    },
+    async connect() {
+      throw new Error("should not mute");
+    },
+  };
+  await assert.rejects(muteUser(closed, "a@example.com", "", "原因"), (error) => error.code === "bad_until");
+  await assert.rejects(muteUser(closed, "a@example.com", "半年", "原因"), (error) => error.code === "bad_until");
+  await assert.rejects(
+    muteUser(
+      {
+        async query() {
+          return { rows: [{ ...PERSON, label: "platform" }] };
+        },
+        async connect() {
+          throw new Error("should not mute");
+        },
+      },
+      "knot",
+      "7d",
+      "原因"
+    ),
+    (error) => error.code === "protected"
+  );
+});
+
+test("unmute is quiet when the account can already speak", async () => {
+  const quiet = {
+    async query() {
+      return { rows: [PERSON] };
+    },
+    async connect() {
+      throw new Error("should not unmute");
+    },
+  };
+  const skipped = await unmuteUser(quiet, "a@example.com", "可以了。");
+  assert.equal(skipped.already, true);
+
+  const muted = { ...PERSON, muted_until: new Date("9999-12-31T00:00:00.000Z") };
+  const { calls, pool } = accountPool(muted, (sql) => {
+    if (sql.includes("FOR UPDATE")) return { rows: [muted] };
+    if (sql.includes("UPDATE users")) return { rows: [{ ...PERSON, muted_until: null }] };
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  const result = await unmuteUser(pool, "a@example.com", "可以了。");
+  assert.equal(result.already, false);
+  assert.equal(result.user.muted, false);
+  assert.equal(calls.find((call) => call.sql.includes("notifications")).params[1], "unmuted");
+});
+
+test("honors are granted and revoked by the names given", async () => {
+  const held = { ...PERSON, entitlements: { honors: ["早期用户"] } };
+  const { calls, pool } = accountPool(held, (sql) => {
+    if (sql.includes("FOR UPDATE")) return { rows: [held] };
+    if (sql.includes("UPDATE users")) return { rows: [{ ...held, entitlements: { honors: ["早期用户", "审稿"] } }] };
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  const result = await setEntitlements(pool, "a@example.com", ["审稿", "早期用户"], [], "感谢长期供稿。");
+  assert.deepEqual(result.granted, ["审稿"]);
+  assert.deepEqual(result.revoked, []);
+  assert.deepEqual(result.user.entitlements, ["早期用户", "审稿"]);
+  const saved = calls.find((call) => call.sql.includes("UPDATE users"));
+  assert.equal(saved.params[1], JSON.stringify(["早期用户", "审稿"]));
+  assert.equal(calls.find((call) => call.sql.includes("notifications")).params[2], "权益已更新");
+
+  const full = { ...PERSON, entitlements: { honors: ["一", "二", "三", "四", "五", "六", "七", "八"] } };
+  await assert.rejects(
+    setEntitlements(
+      accountPool(full, (sql) => {
+        if (sql.includes("FOR UPDATE")) return { rows: [full] };
+        throw new Error(sql);
+      }).pool,
+      "a@example.com",
+      ["九"],
+      [],
+      "太多了。"
+    ),
+    (error) => error.code === "entitlement_full"
+  );
+  const closed = {
+    async query() {
+      throw new Error("should not look up");
+    },
+  };
+  await assert.rejects(setEntitlements(closed, "a@example.com", ["、"], [], "原因"), (error) => error.code === "bad_entitlement");
+  await assert.rejects(setEntitlements(closed, "a@example.com", ["甲"], ["甲"], "原因"), (error) => error.code === "bad_entitlement");
+  await assert.rejects(setEntitlements(closed, "a@example.com", [], [], "原因"), (error) => error.code === "bad_entitlement");
+});
+
+test("level changes once and leaves the platform account alone", async () => {
+  const same = {
+    async query() {
+      return { rows: [{ ...PERSON, level: 2 }] };
+    },
+    async connect() {
+      throw new Error("should not change");
+    },
+  };
+  const skipped = await setLevel(same, "a@example.com", 2, "维持。");
+  assert.equal(skipped.already, true);
+
+  const { calls, pool } = accountPool(PERSON, (sql) => {
+    if (sql.includes("FOR UPDATE")) return { rows: [PERSON] };
+    if (sql.includes("UPDATE users")) return { rows: [{ ...PERSON, level: 3 }] };
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  const result = await setLevel(pool, "a@example.com", 3, "供稿稳定。");
+  assert.equal(result.user.level, 3);
+  assert.equal(calls.find((call) => call.sql.includes("notifications")).params[1], "level_changed");
+  assert.match(calls.find((call) => call.sql.includes("admin_actions")).sql, /'level'/);
+
+  const closed = {
+    async query() {
+      throw new Error("should not look up");
+    },
+  };
+  await assert.rejects(setLevel(closed, "a@example.com", 0, "原因"), (error) => error.code === "bad_level");
+  await assert.rejects(setLevel(closed, "a@example.com", 101, "原因"), (error) => error.code === "bad_level");
+  await assert.rejects(
+    setLevel(
+      {
+        async query() {
+          return { rows: [{ ...PERSON, label: "platform" }] };
+        },
+        async connect() {
+          throw new Error("should not change");
+        },
+      },
+      "knot",
+      2,
+      "原因"
+    ),
+    (error) => error.code === "protected"
+  );
+});
+
+test("speech stops while a mute is in force", async () => {
+  await assert.rejects(
+    assertCanSpeak(
+      {
+        async query() {
+          return { rows: [{ muted_until: new Date(Date.now() + 60_000) }] };
+        },
+      },
+      USER_ID
+    ),
+    (error) => error.code === "muted"
+  );
+  await assertCanSpeak(
+    {
+      async query() {
+        return { rows: [{ muted_until: new Date(Date.now() - 60_000) }] };
+      },
+    },
+    USER_ID
+  );
 });
 
 test("a warning needs one account", async () => {
@@ -164,6 +475,13 @@ test("the admin door checks the token before it acts", async () => {
     });
     assert.equal(ok.status, 200);
     assert.deepEqual(await ok.json(), { posts: [] });
+    const rejected = await fetch(`http://127.0.0.1:${port}/api/admin/points`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ user: "a@example.com", amount: 0, body: "补偿" }),
+    });
+    assert.equal(rejected.status, 400);
+    assert.deepEqual(await rejected.json(), { error: "bad_amount" });
   } finally {
     server2.close();
   }

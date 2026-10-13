@@ -3,12 +3,17 @@ import multer from "multer";
 import {
   bearerToken,
   isLoopbackAddress,
+  grantPoints,
   listPosts,
+  muteUser,
   patrolQueue,
   recordPatrol,
   removePost,
   searchUsers,
+  setEntitlements,
+  setLevel,
   tokensMatch,
+  unmuteUser,
   warnUser,
 } from "../admin.js";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
@@ -19,6 +24,11 @@ function sendAdminError(res, error) {
   if (
     code === "bad_user" ||
     code === "bad_body" ||
+    code === "bad_amount" ||
+    code === "bad_until" ||
+    code === "bad_level" ||
+    code === "bad_entitlement" ||
+    code === "entitlement_full" ||
     code === "bad_within" ||
     code === "bad_href" ||
     code === "bad_image" ||
@@ -32,7 +42,9 @@ function sendAdminError(res, error) {
     return res.status(400).json({ error: code });
   }
   if (code === "not_found") return res.status(404).json({ error: code });
-  if (code === "ambiguous") return res.status(409).json({ error: code, users: error.users || [] });
+  if (code === "ambiguous" || code === "protected") {
+    return res.status(409).json({ error: code, users: error.users || undefined });
+  }
   console.error(error);
   return res.status(500).json({ error: "internal" });
 }
@@ -84,6 +96,46 @@ export function adminRouter({ pool, token, uploadDir }) {
   router.post("/posts/:id/remove", async (req, res) => {
     try {
       res.json(await removePost(pool, req.params.id, req.body?.reason));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/points", async (req, res) => {
+    try {
+      res.json(await grantPoints(pool, req.body?.user, req.body?.amount, req.body?.body));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/mute", async (req, res) => {
+    try {
+      res.json(await muteUser(pool, req.body?.user, req.body?.until, req.body?.body));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/unmute", async (req, res) => {
+    try {
+      res.json(await unmuteUser(pool, req.body?.user, req.body?.body));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/entitlements", async (req, res) => {
+    try {
+      res.json(await setEntitlements(pool, req.body?.user, req.body?.grant, req.body?.revoke, req.body?.body));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/level", async (req, res) => {
+    try {
+      res.json(await setLevel(pool, req.body?.user, req.body?.level, req.body?.body));
     } catch (error) {
       sendAdminError(res, error);
     }

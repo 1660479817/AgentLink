@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import ShareComposer from "../components/ShareComposer.vue";
@@ -10,12 +10,15 @@ import { nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { payeeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
-import { PlusIcon, UserIcon } from "../icons/index.js";
+import { BackIcon, PlusIcon, UserIcon } from "../icons/index.js";
 import { useNotificationStore } from "../stores/notifications";
 import { useSessionStore } from "../stores/session";
 
 const items = ref([]);
 const wishes = ref([]);
+const railViewport = ref(null);
+const railCanPrev = ref(false);
+const railCanNext = ref(false);
 const surface = ref(null);
 const shareFocus = ref({ kind: "text", n: 0 });
 const notifications = useNotificationStore();
@@ -25,8 +28,26 @@ const router = useRouter();
 const searchQ = computed(() => String(route.query.q || "").trim());
 const createMark = computed(() => nameMark(session.user));
 
-onMounted(load);
+let railObserver = null;
+let railDrag = null;
+
+onMounted(() => {
+  load();
+  const el = railViewport.value;
+  if (el && typeof ResizeObserver !== "undefined") {
+    railObserver = new ResizeObserver(() => updateRail());
+    railObserver.observe(el);
+  }
+});
+onBeforeUnmount(() => {
+  railObserver?.disconnect();
+  endRailDrag();
+});
 watch(searchQ, load);
+watch(wishes, async () => {
+  await nextTick();
+  updateRail();
+});
 
 async function load() {
   try {
@@ -49,6 +70,75 @@ function wishText(wish) {
   if (body) return body;
   const file = [...(wish.images || []), ...(wish.audio || []), ...(wish.attachments || [])][0];
   return file?.name || file?.url || t("nav.wish");
+}
+
+function wishTo(wish) {
+  return wish.mine
+    ? { name: "wish", query: { wish: wish.id } }
+    : { name: "wish", query: { respond: wish.id } };
+}
+
+function updateRail() {
+  const el = railViewport.value;
+  if (!el) {
+    railCanPrev.value = false;
+    railCanNext.value = false;
+    return;
+  }
+  railCanPrev.value = el.scrollLeft > 4;
+  railCanNext.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+}
+
+function scrollRail(direction) {
+  const el = railViewport.value;
+  if (!el) return;
+  const distance = Math.max(el.clientWidth * 0.8, 136);
+  el.scrollBy({ left: direction * distance, behavior: "smooth" });
+}
+
+function endRailDrag() {
+  railDrag = null;
+  railViewport.value?.classList.remove("is-dragging");
+  window.removeEventListener("pointermove", onRailPointerMove);
+  window.removeEventListener("pointerup", onRailPointerUp);
+  window.removeEventListener("pointercancel", onRailPointerUp);
+}
+
+function onRailPointerDown(event) {
+  if (event.pointerType !== "mouse" || event.button !== 0) return;
+  const el = railViewport.value;
+  if (!el || el.scrollWidth <= el.clientWidth + 1) return;
+  railDrag = { id: event.pointerId, x: event.clientX, left: el.scrollLeft, moved: false };
+  window.addEventListener("pointermove", onRailPointerMove);
+  window.addEventListener("pointerup", onRailPointerUp);
+  window.addEventListener("pointercancel", onRailPointerUp);
+}
+
+function onRailPointerMove(event) {
+  if (!railDrag || event.pointerId !== railDrag.id) return;
+  const dx = event.clientX - railDrag.x;
+  if (!railDrag.moved && Math.abs(dx) < 8) return;
+  const el = railViewport.value;
+  if (!el) return;
+  if (!railDrag.moved) {
+    railDrag.moved = true;
+    el.classList.add("is-dragging");
+  }
+  el.scrollLeft = railDrag.left - dx;
+}
+
+function onRailPointerUp(event) {
+  if (!railDrag || event.pointerId !== railDrag.id) return;
+  const moved = railDrag.moved;
+  endRailDrag();
+  if (!moved) return;
+  const el = railViewport.value;
+  const stopClick = (clickEvent) => {
+    clickEvent.preventDefault();
+    clickEvent.stopPropagation();
+    el?.removeEventListener("click", stopClick, true);
+  };
+  el?.addEventListener("click", stopClick, true);
 }
 
 function clearSearch() {
@@ -140,7 +230,7 @@ async function downloadItem(item) {
   />
 
   <section class="card intel-rail" :aria-label="t('home.storyRail')">
-    <div class="intel-rail-viewport">
+    <div ref="railViewport" class="intel-rail-viewport" @scroll="updateRail" @pointerdown="onRailPointerDown">
       <button type="button" class="intel-create" :aria-pressed="surface === 'snap'" @click="openSnap">
         <span class="intel-create-photo" aria-hidden="true">
           <img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="" />
@@ -152,21 +242,33 @@ async function downloadItem(item) {
         </span>
         <span class="intel-create-label">{{ t("home.storyCreate") }}</span>
       </button>
-      <component
-        :is="wish.mine ? RouterLink : 'div'"
-        v-for="wish in wishes"
-        :key="wish.id"
-        class="intel-bounty"
-        :to="wish.mine ? { name: 'wish', query: { wish: wish.id } } : undefined"
-      >
+      <RouterLink v-for="wish in wishes" :key="wish.id" class="intel-bounty" :to="wishTo(wish)">
         <span class="intel-bounty-body">
           <span class="intel-bounty-text">{{ wishText(wish) }}</span>
         </span>
         <span class="intel-bounty-reward">
           {{ wish.mine ? t("home.wishReplyCount", { n: wish.responseCount || 0 }) : t("nav.wish") }}
         </span>
-      </component>
+      </RouterLink>
     </div>
+    <button
+      v-if="railCanPrev"
+      type="button"
+      class="intel-rail-arrow intel-rail-arrow-prev"
+      :aria-label="t('home.storyPrev')"
+      @click="scrollRail(-1)"
+    >
+      <BackIcon aria-hidden="true" />
+    </button>
+    <button
+      v-if="railCanNext"
+      type="button"
+      class="intel-rail-arrow intel-rail-arrow-next"
+      :aria-label="t('home.storyNext')"
+      @click="scrollRail(1)"
+    >
+      <BackIcon class="intel-rail-arrow-forward" aria-hidden="true" />
+    </button>
   </section>
 
   <SnapComposer v-if="surface === 'snap'" @close="closeSurface" @done="afterPost" />

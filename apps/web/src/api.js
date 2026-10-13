@@ -76,6 +76,14 @@ export function listMyResponses() {
   return request("/api/web/responses");
 }
 
+export function listLooks() {
+  return request("/api/web/looks");
+}
+
+export function lookRequest(id) {
+  return request(`/api/web/requests/${id}/look`, { method: "POST", body: "{}" });
+}
+
 export function searchInformation(q) {
   return request(`/api/web/search?q=${encodeURIComponent(q)}`);
 }

@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import AppButton from "../components/AppButton.vue";
+import StatusIcon from "../components/StatusIcon.vue";
 import VideoFrame from "../components/VideoFrame.vue";
 import { listSubmissions } from "../api.js";
 import { t } from "../i18n/index.js";
@@ -53,7 +54,10 @@ function pendingOf(item) {
   <p v-if="!session.user" class="muted">{{ t("mine.login") }}</p>
   <p v-else-if="loaded && items.length === 0" class="muted">{{ t("submissions.empty") }}</p>
   <article v-for="item in items" :key="item.id" class="card post">
-    <p class="information-status">{{ t(statusKey(item.kMeta?.verdict)) }}</p>
+    <p class="information-status">
+      <StatusIcon :verdict="item.kMeta?.verdict || 'pending'" />
+      {{ t(statusKey(item.kMeta?.verdict)) }}
+    </p>
     <p class="information-time">
       <span v-if="item.kMeta?.category">{{ item.kMeta.category }} · </span>
       <span>{{ t("submissions.usePrice", { n: item.kMeta?.commerce?.price || 0 }) }}</span>

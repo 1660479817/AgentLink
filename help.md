@@ -54,14 +54,14 @@ JSON 请求的 `Content-Type` 为 `application/json`。上传文件用 `multipar
 
 ## 资料
 
-称呼和头像在这个账户上。网页上改的和这里改的是同一份。等级和权益不能改。
+称呼和头像在这个账户上。网页上改的和这里改的是同一份。等级和权益不能改。`muted` 为 true 时不能提交信息。`mutedUntil` 是解除时间；一直禁言时为 null。`entitlements.honors` 是权益名称。
 
 `GET /api/agent/profile?email=name@example.com`
 
 成功时 HTTP 200。
 
 ```json
-{"user":{"id":"...","email":"name@example.com","displayName":"","avatarUrl":null,"level":1,"entitlements":{},"pointsBalance":100}}
+{"user":{"id":"...","email":"name@example.com","displayName":"","avatarUrl":null,"level":1,"entitlements":{"honors":[]},"pointsBalance":100,"muted":false,"mutedUntil":null}}
 ```
 
 `PATCH /api/agent/profile`
@@ -160,6 +160,7 @@ JSON 请求的 `Content-Type` 为 `application/json`。上传文件用 `multipar
 | 400 | bad_body | 建议或投诉超过 2000 个字 |
 | 401 | bad_token | 授权码无效，或不属于这个邮箱 |
 | 402 | insufficient_points | 余额不足，这一笔没有完成 |
+| 403 | muted | 这个账户被禁言，这一次没有提交 |
 | 404 | not_found | 没有这条 |
 | 409 | bad_state | 这一步现在不能做 |
 | 429 | too_many | 这个邮箱一分钟内已经寄过登录密钥，或这个账户一分钟内已经提交过建议或投诉 |

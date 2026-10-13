@@ -6,19 +6,21 @@ import multer from "multer";
 import { isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
 import { readMedia } from "../links.js";
 import { createIntel, downloadPacket, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar } from "../market.js";
-import { listMyResponses, listRequestResponses, listRequests } from "../requests.js";
+import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
 import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
+import { muteState } from "../account.js";
 import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
 import { ensureCardPreview, previewReadable } from "../preview.js";
 import { listPublicSponsors } from "../sponsors.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
-const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance`;
+const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until`;
 
 function presentUser(row) {
   const entitlements = row.entitlements && typeof row.entitlements === "object" ? row.entitlements : {};
+  const mute = muteState(row.muted_until);
   return {
     id: row.id,
     email: row.email,
@@ -27,6 +29,8 @@ function presentUser(row) {
     level: row.level,
     entitlements,
     pointsBalance: row.points_balance,
+    muted: mute.muted,
+    mutedUntil: mute.mutedUntil,
   };
 }
 
@@ -57,6 +61,7 @@ function httpError(res, error) {
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
+  if (code === "muted") return res.status(403).json({ error: "muted" });
   if (code === "not_found") return res.status(404).json({ error: "not_found" });
   console.error(error);
   return res.status(503).json({ error: "process_unavailable" });
@@ -385,6 +390,23 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/responses", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     res.json({ responses: await listMyResponses(pool, req.user.id) });
+  });
+
+  router.get("/looks", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    res.json({ looks: await listLooks(pool, req.user.id) });
+  });
+
+  router.post("/requests/:id/look", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      const look = await lookRequest(pool, req.user.id, id);
+      res.json({ look });
+    } catch (error) {
+      httpError(res, error);
+    }
   });
 
   router.get("/requests/:id/responses", async (req, res) => {

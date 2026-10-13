@@ -1,11 +1,10 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue";
 import AppButton from "./AppButton.vue";
-import PacketMediaFields from "./PacketMediaFields.vue";
 import { createIntel, uploadAttachment, uploadAudio, uploadImage } from "../api.js";
 import { errorText, nameMark, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
-import { AudioIcon, CloseIcon, ImageIcon, PaperclipIcon, UserIcon, VideoIcon } from "../icons/index.js";
+import { AudioIcon, CloseIcon, CoinIcon, ImageIcon, PaperclipIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
 
 const props = defineProps({
@@ -18,9 +17,11 @@ const emit = defineEmits(["activate", "close", "done"]);
 
 const session = useSessionStore();
 const body = ref("");
-const isPublic = ref(true);
+const isPublic = ref(false);
+const priceFocused = ref(false);
 const busy = ref(false);
-const fields = ref(null);
+const bodyInput = ref(null);
+const videoInput = ref(null);
 const imageInput = ref(null);
 const fileInput = ref(null);
 const audioInput = ref(null);
@@ -43,7 +44,16 @@ const {
   reset: resetMedia,
 } = usePacketMedia();
 const mark = computed(() => nameMark(session.user));
+const priceHint = computed(() =>
+  priceFocused.value
+    ? t("home.priceRange", {
+        min: session.policy.priceMin ?? 0,
+        max: session.policy.priceMax ?? 100,
+      })
+    : t("home.priceEmpty")
+);
 const canSend = computed(() =>
+  isPublic.value &&
   Boolean(
     body.value.trim() ||
       video.value.trim() ||
@@ -55,7 +65,7 @@ const canSend = computed(() =>
 
 function resetAll() {
   body.value = "";
-  isPublic.value = true;
+  isPublic.value = false;
   busy.value = false;
   resetMedia();
 }
@@ -77,10 +87,14 @@ async function applyFocus(kind) {
   if (kind === "video") {
     videoOpen.value = true;
     await nextTick();
-    fields.value?.focusVideo();
+    videoInput.value?.focus();
     return;
   }
-  fields.value?.focusBody();
+  bodyInput.value?.focus();
+}
+
+function onBodyFocus() {
+  if (!props.active) emit("activate", "text");
 }
 
 watch(
@@ -103,9 +117,9 @@ function onMedia(kind) {
   if (kind === "image") imageInput.value?.click();
   else if (kind === "file") fileInput.value?.click();
   else if (kind === "audio") audioInput.value?.click();
-  else if (kind === "video") {
+  else   if (kind === "video") {
     videoOpen.value = true;
-    nextTick(() => fields.value?.focusVideo());
+    nextTick(() => videoInput.value?.focus());
   }
 }
 
@@ -174,84 +188,128 @@ async function submit() {
 </script>
 
 <template>
-  <section class="card share-bar" :aria-label="t('home.sharePrompt')">
-    <form v-if="active" id="share-form" class="share-dialog" @submit.prevent="submit">
-      <div class="share-dialog-head">
-        <p class="share-dialog-title">{{ t("home.shareKindPacket") }}</p>
-        <AppButton variant="icon" plain type="button" :aria-label="t('home.dismiss')" :disabled="busy" @click="emit('close')">
-          <CloseIcon class="share-close-icon" aria-hidden="true" />
-        </AppButton>
+  <section class="card share-bar" :class="{ 'is-open': active }" :aria-label="t('home.sharePrompt')">
+    <form id="share-form" @submit.prevent="submit">
+      <div class="share-prompt">
+        <span class="share-avatar" aria-hidden="true">
+          <img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="" />
+          <span v-else-if="mark">{{ mark }}</span>
+          <UserIcon v-else />
+        </span>
+        <label class="visually-hidden" for="share-body">{{ t("home.shareKindPacket") }}</label>
+        <input
+          id="share-body"
+          ref="bodyInput"
+          v-model="body"
+          type="text"
+          class="share-pill-input"
+          :placeholder="t('home.sharePrompt')"
+          :disabled="busy"
+          @focus="onBodyFocus"
+        />
       </div>
 
-      <PacketMediaFields
-        ref="fields"
-        v-model:body="body"
-        v-model:video="video"
-        v-model:price="price"
-        body-id="share-body"
-        :body-label="t('home.shareKindPacket')"
-        :placeholder="t('home.sharePacketPlaceholder')"
-        :video-open="videoOpen"
-        :previews="previewUrls"
-        :audio-name="audio?.name || ''"
-        :files="files"
-        :show-price="hasUpload"
-        :show-free-note="true"
-        price-id="share-price"
-        :busy="busy"
-        @remove-image="removeImage"
-        @remove-audio="removeAudio"
-        @remove-file="removeFile"
-      >
-        <template #meta>
-          <label class="share-switch-row">
-            <span class="share-switch-copy">
-              <span class="share-switch-title">{{ isPublic ? t("home.publicOn") : t("home.publicOff") }}</span>
-              <span class="share-switch-hint">{{ isPublic ? t("home.sharePublicHint") : t("home.sharePrivateHint") }}</span>
-            </span>
-            <input v-model="isPublic" type="checkbox" :disabled="busy" />
-          </label>
-        </template>
-      </PacketMediaFields>
+      <div class="share-actions">
+        <button type="button" class="share-action" :disabled="busy" @click="onMedia('image')">
+          <ImageIcon class="share-action-icon share-action-image" aria-hidden="true" />
+          <span>{{ t("home.shareImage") }}</span>
+        </button>
+        <button type="button" class="share-action" :disabled="busy" @click="onMedia('video')">
+          <VideoIcon class="share-action-icon share-action-video" aria-hidden="true" />
+          <span>{{ t("home.shareVideo") }}</span>
+        </button>
+        <button type="button" class="share-action" :disabled="busy" @click="onMedia('audio')">
+          <AudioIcon class="share-action-icon share-action-audio" aria-hidden="true" />
+          <span>{{ t("home.shareAudio") }}</span>
+        </button>
+        <button type="button" class="share-action" :disabled="busy" @click="onMedia('file')">
+          <PaperclipIcon class="share-action-icon share-action-file" aria-hidden="true" />
+          <span>{{ t("home.shareFile") }}</span>
+        </button>
+      </div>
+
+      <div v-if="active" class="share-more">
+        <div v-if="previewUrls.length" class="share-photos">
+          <div v-for="(url, index) in previewUrls" :key="url" class="share-photo">
+            <img :src="url" alt="" />
+            <AppButton
+              variant="icon"
+              type="button"
+              class="share-photo-remove"
+              :aria-label="t('home.remove')"
+              :disabled="busy"
+              @click="removeImage(index)"
+            >
+              <CloseIcon aria-hidden="true" />
+            </AppButton>
+          </div>
+        </div>
+        <label v-if="videoOpen || video" class="visually-hidden" for="share-video">{{ t("home.shareVideo") }}</label>
+        <input
+          v-if="videoOpen || video"
+          id="share-video"
+          ref="videoInput"
+          v-model="video"
+          type="text"
+          inputmode="url"
+          class="share-video"
+          :placeholder="t('home.videoPlaceholder')"
+          :disabled="busy"
+        />
+        <ul v-if="audio" class="chat-pending share-files">
+          <li class="chat-pending-item">
+            <span class="chat-file-name share-file-name">{{ audio.name }}</span>
+            <AppButton variant="secondary" type="button" :disabled="busy" @click="removeAudio">
+              {{ t("home.remove") }}
+            </AppButton>
+          </li>
+        </ul>
+        <ul v-if="files.length" class="chat-pending share-files">
+          <li v-for="(item, index) in files" :key="`${item.name}-${index}`" class="chat-pending-item">
+            <span class="chat-file-name share-file-name">{{ item.name }}</span>
+            <AppButton variant="secondary" type="button" :disabled="busy" @click="removeFile(index)">
+              {{ t("home.remove") }}
+            </AppButton>
+          </li>
+        </ul>
+        <div class="share-foot">
+          <div class="share-foot-fields">
+            <label class="wish-consent share-consent">
+              <input v-model="isPublic" type="checkbox" :disabled="busy" />
+              <span>{{ t("home.shareConsent") }}</span>
+            </label>
+            <label class="share-coin">
+              <CoinIcon class="share-coin-icon" aria-hidden="true" />
+              <input
+                id="share-price"
+                v-model="price"
+                type="text"
+                inputmode="numeric"
+                class="share-coin-input"
+                :placeholder="priceHint"
+                :aria-label="t('home.priceField')"
+                :disabled="busy"
+                @focus="priceFocused = true"
+                @blur="priceFocused = false"
+              />
+            </label>
+          </div>
+          <AppButton
+            class="wish-send"
+            variant="icon"
+            type="submit"
+            :aria-label="t('home.send')"
+            :disabled="busy || !canSend"
+          >
+            <SendIcon aria-hidden="true" />
+          </AppButton>
+        </div>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
+      </div>
+
+      <input ref="imageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickImages" />
+      <input ref="fileInput" type="file" multiple class="visually-hidden" @change="pickFiles" />
+      <input ref="audioInput" type="file" accept="audio/*" class="visually-hidden" @change="pickAudio" />
     </form>
-
-    <button v-else type="button" class="share-prompt" @click="emit('activate', 'text')">
-      <span class="share-avatar" aria-hidden="true">
-        <img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="" />
-        <span v-else-if="mark">{{ mark }}</span>
-        <UserIcon v-else />
-      </span>
-      <span class="share-pill">{{ t("home.sharePrompt") }}</span>
-    </button>
-
-    <div class="share-actions">
-      <button type="button" class="share-action" :disabled="busy" @click="onMedia('image')">
-        <ImageIcon class="share-action-icon share-action-image" aria-hidden="true" />
-        <span>{{ t("home.shareImage") }}</span>
-      </button>
-      <button type="button" class="share-action" :disabled="busy" @click="onMedia('video')">
-        <VideoIcon class="share-action-icon share-action-video" aria-hidden="true" />
-        <span>{{ t("home.shareVideo") }}</span>
-      </button>
-      <button type="button" class="share-action" :disabled="busy" @click="onMedia('audio')">
-        <AudioIcon class="share-action-icon share-action-audio" aria-hidden="true" />
-        <span>{{ t("home.shareAudio") }}</span>
-      </button>
-      <button type="button" class="share-action" :disabled="busy" @click="onMedia('file')">
-        <PaperclipIcon class="share-action-icon share-action-file" aria-hidden="true" />
-        <span>{{ t("home.shareFile") }}</span>
-      </button>
-    </div>
-
-    <div v-if="active" class="share-submit">
-      <AppButton type="submit" form="share-form" :disabled="busy || !canSend">
-        {{ t("home.send") }}
-      </AppButton>
-    </div>
-    <p v-if="active && error" class="error" role="alert">{{ error }}</p>
-
-    <input ref="imageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickImages" />
-    <input ref="fileInput" type="file" multiple class="visually-hidden" @change="pickFiles" />
-    <input ref="audioInput" type="file" accept="audio/*" class="visually-hidden" @change="pickAudio" />
   </section>
 </template>

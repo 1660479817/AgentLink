@@ -8,6 +8,7 @@ CREATE TABLE users (
   level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1),
   entitlements JSONB NOT NULL DEFAULT '{}'::jsonb,
   points_balance INTEGER NOT NULL DEFAULT 100 CHECK (points_balance >= 0),
+  muted_until TIMESTAMPTZ,
   label TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -119,6 +120,13 @@ CREATE TABLE request_unlocks (
   PRIMARY KEY (user_id, intel_id)
 );
 
+CREATE TABLE request_looks (
+  user_id UUID NOT NULL REFERENCES users (id),
+  intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, intel_id)
+);
+
 CREATE TABLE notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users (id),
@@ -143,7 +151,7 @@ CREATE TABLE point_ledger (
 
 CREATE TABLE admin_actions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  action TEXT NOT NULL CHECK (action IN ('remove', 'warn', 'patrol')),
+  action TEXT NOT NULL CHECK (action IN ('remove', 'warn', 'patrol', 'grant', 'mute', 'unmute', 'entitle', 'level')),
   user_id UUID REFERENCES users (id),
   intel_id UUID REFERENCES intel (id),
   body TEXT NOT NULL DEFAULT '',

@@ -7,6 +7,7 @@ import { assertReachable, contentHash } from "./links.js";
 import { postersFor } from "./videoPoster.js";
 import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
+import { assertCanSpeak } from "./account.js";
 import { applyPoints, feeConfig, packetPrice, PLATFORM_USER_ID } from "./points.js";
 import { scoreText } from "./search.js";
 import { ensureCardPreview, removeCardPreview } from "./preview.js";
@@ -184,6 +185,7 @@ function resolveKind({ kind, respondsTo }) {
 
 export async function createIntel(pool, input) {
   const { userId, actor, door, body, videos = [], isPublic = true, price } = input;
+  await assertCanSpeak(pool, userId);
   const imageIds = (input.imageIds || []).slice(0, MAX_IMAGES);
   const imageUrls = (input.imageUrls || []).slice(0, Math.max(0, MAX_IMAGES - imageIds.length));
   const audioIds = (input.audioIds || []).slice(0, MAX_AUDIO);

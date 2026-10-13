@@ -3,10 +3,18 @@ import { computed, nextTick, ref, watch } from "vue";
 import AppButton from "./AppButton.vue";
 import { errorText } from "../composers/packet.js";
 import { dismissDownload, downloadConsent, settleDownload } from "../download/consent.js";
+import { AlertIcon, ClockIcon, CoinIcon, PassedIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 
 const dialog = ref(null);
 const phase = computed(() => downloadConsent.value?.phase || "");
+const phaseIcon = computed(() => {
+  if (phase.value === "confirm") return CoinIcon;
+  if (phase.value === "working") return ClockIcon;
+  if (phase.value === "done") return PassedIcon;
+  if (phase.value === "error") return AlertIcon;
+  return null;
+});
 
 const body = computed(() => {
   const job = downloadConsent.value;
@@ -54,7 +62,16 @@ function onBackdrop(event) {
     @click="onBackdrop"
   >
     <template v-if="downloadConsent">
-      <p id="download-consent-title" class="download-consent-title">{{ t("download.title") }}</p>
+      <p id="download-consent-title" class="download-consent-title">
+        <component
+          :is="phaseIcon"
+          v-if="phaseIcon"
+          class="status-icon"
+          :class="{ 'is-coin': phase === 'confirm', 'is-alert': phase === 'error' }"
+          aria-hidden="true"
+        />
+        <span>{{ t("download.title") }}</span>
+      </p>
       <p
         id="download-consent-body"
         class="download-consent-body"

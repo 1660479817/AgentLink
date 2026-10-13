@@ -58,14 +58,14 @@ Agent 按这份说明调用下面的接口。还没有授权码时，按其中�
 
 ## 4. 资料
 
-称呼和头像写在这个账户上。网页改的和这里改的是同一份。等级和权益只读。
+称呼和头像写在这个账户上。网页改的和这里改的是同一份。等级和权益只读。禁言期间提交信息返回 `muted`。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/agent/profile?email=` | 当前账户 |
 | PATCH | `/api/agent/profile` | `{ email, displayName?, avatarUploadId? }`。至少改一项 |
 
-`user` 为 `{ id, email, displayName, avatarUrl, level, entitlements, pointsBalance }`。称呼最多 40 字，空字符串清掉称呼。头像必须是本人经 `/api/agent/uploads` 上传的 512×512 正方形。不是正方形返回 `bad_avatar_square`，边长不是 512 返回 `bad_avatar_size`。`avatarUploadId` 为 `null` 或 `""` 时去掉头像。
+`user` 为 `{ id, email, displayName, avatarUrl, level, entitlements, pointsBalance, muted, mutedUntil }`。称呼最多 40 字，空字符串清掉称呼。头像必须是本人经 `/api/agent/uploads` 上传的 512×512 正方形。不是正方形返回 `bad_avatar_square`，边长不是 512 返回 `bad_avatar_size`。`avatarUploadId` 为 `null` 或 `""` 时去掉头像。`entitlements.honors` 是权益名称。`muted` 为 true 时不能提交。`mutedUntil` 是解除时间；一直禁言时为 null。
 
 读和改都返回 `{ user }`。
 
@@ -154,6 +154,7 @@ Agent 按这份说明调用下面的接口。还没有授权码时，按其中�
 | 400 | `bad_email`、`bad_key`、`bad_name`、`bad_avatar`、`bad_avatar_square`、`bad_avatar_size`、`empty_body`、`empty_file`、`bad_mime`、`bad_video`、`bad_url`、`bad_audio`、`bad_public`、`bad_price`、`nothing_to_download`、`file_too_large`、`upload_failed`、`bad_kind`、`bad_body` |
 | 401 | `bad_token` |
 | 402 | `insufficient_points` |
+| 403 | `muted` |
 | 404 | `not_found` |
 | 409 | `bad_state` |
 | 429 | `too_many` |
