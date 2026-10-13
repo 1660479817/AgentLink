@@ -20,6 +20,7 @@ export function feeConfig() {
     matchUnit: nonNegativeInt(process.env.KNOT_MATCH_UNIT, 1),
     listingFee: nonNegativeInt(process.env.KNOT_LISTING_FEE, 1),
     completionFee: nonNegativeInt(process.env.KNOT_COMPLETION_FEE, 1),
+    requestFee: nonNegativeInt(process.env.KNOT_REQUEST_FEE, 1),
     signupGrant: nonNegativeInt(process.env.KNOT_SIGNUP_GRANT, 100),
   };
 }
@@ -45,6 +46,7 @@ export function policyConfig() {
     priceMax: price.max,
     listingFee: feeConfig().listingFee,
     completionFee: feeConfig().completionFee,
+    requestFee: feeConfig().requestFee,
   };
 }
 

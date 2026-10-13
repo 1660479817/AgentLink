@@ -145,6 +145,7 @@ test("policy limits default to the initial platform values", () => {
     "KNOT_PRICE_MAX",
     "KNOT_LISTING_FEE",
     "KNOT_COMPLETION_FEE",
+    "KNOT_REQUEST_FEE",
   ];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) delete process.env[key];
@@ -158,6 +159,7 @@ test("policy limits default to the initial platform values", () => {
       priceMax: 100,
       listingFee: 1,
       completionFee: 1,
+      requestFee: 1,
     });
   } finally {
     for (const key of keys) {

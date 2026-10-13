@@ -1,12 +1,12 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useSessionStore } from "../stores/session";
 import HomeView from "../views/HomeView.vue";
-import BuyView from "../views/BuyView.vue";
 import MineView from "../views/MineView.vue";
 import NotificationsView from "../views/NotificationsView.vue";
 import SubmissionsView from "../views/SubmissionsView.vue";
 import StarsView from "../views/StarsView.vue";
 import ActivityView from "../views/ActivityView.vue";
+import WishView from "../views/WishView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -16,8 +16,9 @@ const router = createRouter({
     { path: "/stars", name: "stars", component: StarsView },
     { path: "/activity", name: "activity", component: ActivityView },
     { path: "/mine/submissions", name: "submissions", component: SubmissionsView },
-    { path: "/chat", name: "chat", component: BuyView },
-    { path: "/buy", redirect: { name: "chat" } },
+    { path: "/wish", name: "wish", component: WishView },
+    { path: "/chat", redirect: { name: "wish" } },
+    { path: "/buy", redirect: { name: "home" } },
     { path: "/notifications", name: "notifications", component: NotificationsView },
     { path: "/delegate", redirect: { name: "mine" } },
   ],

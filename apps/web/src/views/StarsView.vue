@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import InformationCard from "../components/InformationCard.vue";
 import { dismissInformation, downloadInformation, listStars, unstarInformation } from "../api.js";
+import { acceptDownload } from "../download/consent.js";
 import { t } from "../i18n/index.js";
 import { useSessionStore } from "../stores/session";
 
@@ -13,6 +14,8 @@ const failed = ref(false);
 async function downloadItem(item) {
   if (item.downloading) return;
   item.notice = "";
+  const ok = await acceptDownload({ price: item.price, granted: item.granted !== false });
+  if (!ok) return;
   item.downloading = true;
   try {
     await downloadInformation(item.id);
@@ -77,6 +80,7 @@ onMounted(async () => {
       :category="item.category || ''"
       :price="Number(item.price) || 0"
       :granted="item.granted !== false"
+      :preview-url="item.previewUrl || ''"
       :image-urls="item.imageUrls || item.images?.map((file) => file.url).filter(Boolean) || []"
       :images="item.images || []"
       :audio="item.audio || []"

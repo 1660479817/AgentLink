@@ -7,14 +7,14 @@ import {
   runDemandAgent,
   runIntelAgent,
 } from "./agents/openclaw.js";
-import { tryFinishBounty } from "./bounties.js";
 import { loadBootstrapConfig } from "./config.js";
 import {
+  cardFiles,
+  cardPreviewUrl,
   fileView,
   informationOf,
   isAudioUpload,
   isVideoUpload,
-  listedFiles,
   MAX_AUDIO,
   MAX_FILES,
   MAX_IMAGES,
@@ -26,6 +26,7 @@ import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
 import { applyPoints, feeConfig, getBalance, packetPrice, PLATFORM_USER_ID, policyConfig } from "./points.js";
 import { scoreText } from "./search.js";
+import { ensureCardPreview, removeCardPreview } from "./preview.js";
 import { storagePath } from "./uploads.js";
 
 const POOL_LIMIT = 200;
@@ -77,20 +78,23 @@ async function imageFiles(pool, intelId) {
 
 export function presentIntel(row) {
   if (!row) return null;
+  const source = row.files || [];
   return {
     id: row.id,
     ...informationOf({
       body: row.body,
-      files: listedFiles(row.files || [], row.granted !== false),
+      files: cardFiles(source, row.granted !== false),
       videos: row.videos,
     }),
+    previewUrl: cardPreviewUrl(row.id, source),
     category: row.category || "",
     price: Number(row.price) || 0,
     verdict: row.verdict,
     rejectReason: row.reject_reason,
     granted: row.granted !== false,
     public: row.is_public !== false,
-    ...(row.bounty_id ? { bountyId: row.bounty_id } : {}),
+    kind: row.kind || "share",
+    respondsTo: row.responds_to || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at || row.created_at,
   };
@@ -281,13 +285,15 @@ async function loadDeliveries(pool, ids, userId = null) {
   for (const row of citations) {
     const list = cardsByDelivery.get(row.delivery_id) || [];
     const granted = Boolean(row.granted);
+    const source = files.get(row.id) || [];
     list.push({
       id: row.id,
       ...informationOf({
         body: row.body,
-        files: listedFiles(files.get(row.id) || [], granted),
+        files: cardFiles(source, granted),
         videos: row.videos,
       }),
+      previewUrl: cardPreviewUrl(row.id, source),
       category: row.category || "",
       price: Number(row.price) || 0,
       public: row.is_public !== false,
@@ -314,7 +320,7 @@ async function loadDeliveries(pool, ids, userId = null) {
 
 async function loadIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, body, videos, verdict, detail, bounty_id FROM intel WHERE id = $1`,
+    `SELECT id, user_id, body, videos, verdict, detail, kind, responds_to FROM intel WHERE id = $1`,
     [id]
   );
   return rows[0] || null;
@@ -322,7 +328,7 @@ async function loadIntel(pool, id) {
 
 async function loadPresentedIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, body, videos, verdict, reject_reason, category, price, is_public, created_at, updated_at FROM intel WHERE id = $1`,
+    `SELECT id, user_id, body, videos, verdict, reject_reason, category, price, is_public, kind, responds_to, created_at, updated_at FROM intel WHERE id = $1`,
     [id]
   );
   if (!rows[0]) return null;
@@ -362,25 +368,24 @@ export async function judgeIntel(pool, id) {
       [id, result.category || "", JSON.stringify({ note: result.note || "" })]
     );
     if (rows.length) {
-      const bountyReply = Boolean(intel.bounty_id);
+      const response = intel.kind === "response" && intel.responds_to;
       await recordNotification(pool, {
         userId: intel.user_id,
         kind: "intel_passed",
-        title: bountyReply ? "回应已交给发起人" : "已留下",
+        title: response ? "回应已交给发出 wish 的人" : "已留下",
         body: result.category || "",
         href: "/mine/submissions",
       });
-      if (intel.bounty_id) {
-        await tryFinishBounty(pool, intel.bounty_id, id);
-        const owner = await pool.query(`SELECT user_id FROM bounties WHERE id = $1`, [intel.bounty_id]);
+      if (response) {
+        const owner = await pool.query(`SELECT user_id FROM intel WHERE id = $1 AND kind = 'request'`, [intel.responds_to]);
         const ownerId = owner.rows[0]?.user_id;
         if (ownerId && ownerId !== intel.user_id) {
           await recordNotification(pool, {
             userId: ownerId,
-            kind: "bounty_response",
-            title: "有一条悬赏回应",
+            kind: "request_response",
+            title: "有一条 wish 响应",
             body: "",
-            href: `/?bounty=${intel.bounty_id}`,
+            href: `/wish?wish=${intel.responds_to}`,
           });
         }
       }
@@ -389,31 +394,35 @@ export async function judgeIntel(pool, id) {
   return loadPresentedIntel(pool, id);
 }
 
-async function assertOpenBounty(pool, bountyId) {
-  if (!bountyId) return;
+async function assertRespondsTo(pool, requestId, userId) {
+  if (!requestId) return;
   const { rows } = await pool.query(
-    `SELECT id FROM bounties
-     WHERE id = $1 AND status = 'open' AND hours >= 1
-       AND created_at > now() - make_interval(hours => hours)`,
-    [bountyId]
+    `SELECT user_id FROM intel WHERE id = $1 AND kind = 'request' AND verdict = 'passed'`,
+    [requestId]
   );
-  if (!rows.length) {
+  if (!rows.length || rows[0].user_id === userId) {
     const error = new Error("bad_state");
     error.code = "bad_state";
     throw error;
   }
 }
 
-export async function createIntel(pool, { userId, actor, door, body, imageIds = [], audioIds = [], fileIds = [], videos = [], isPublic = true, price, bountyId = null }) {
-  if (imageIds.length || audioIds.length || fileIds.length) packetPrice(1, price);
+export async function createIntel(pool, { userId, actor, door, body, imageIds = [], audioIds = [], fileIds = [], videos = [], isPublic = true, price, request = false, requestId = null }) {
+  if (request && requestId) {
+    const error = new Error("bad_state");
+    error.code = "bad_state";
+    throw error;
+  }
+  if (!request && (imageIds.length || audioIds.length || fileIds.length)) packetPrice(1, price);
   const links = await postersFor(videosOf(videos));
-  await assertOpenBounty(pool, bountyId);
-  const listed = bountyId ? false : publicOf(isPublic);
+  await assertRespondsTo(pool, requestId, userId);
+  const kind = requestId ? "response" : request ? "request" : "share";
+  const listed = kind === "share" ? publicOf(isPublic) : false;
   const uploadIds = [...new Set([...imageIds.slice(0, MAX_IMAGES), ...audioIds.slice(0, MAX_AUDIO), ...fileIds.slice(0, MAX_FILES)])];
   const inserted = await pool.query(
-    `INSERT INTO intel (user_id, actor, door, body, bounty_id, videos, is_public)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7) RETURNING id`,
-    [userId, actor, door, body, bountyId, JSON.stringify(links), listed]
+    `INSERT INTO intel (user_id, actor, door, body, videos, is_public, kind, responds_to)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8) RETURNING id`,
+    [userId, actor, door, body, JSON.stringify(links), listed, kind, requestId]
   );
   const intelId = inserted.rows[0].id;
   let owned = [];
@@ -432,12 +441,19 @@ export async function createIntel(pool, { userId, actor, door, body, imageIds = 
       ]);
     }
   }
-  await pool.query(`UPDATE intel SET price = $2 WHERE id = $1`, [intelId, packetPrice(owned.length, price)]);
+  const priced = kind === "request" ? 0 : packetPrice(owned.length, price);
+  await pool.query(`UPDATE intel SET price = $2 WHERE id = $1`, [intelId, priced]);
+  try {
+    await ensureCardPreview(pool, intelId);
+  } catch (error) {
+    console.error(error);
+  }
   try {
     return await judgeIntel(pool, intelId);
   } catch (error) {
     try {
       await pool.query(`DELETE FROM intel WHERE id = $1 AND verdict = 'pending'`, [intelId]);
+      await removeCardPreview(intelId);
     } catch (cleanup) {
       console.error(cleanup);
     }
@@ -461,6 +477,7 @@ const PUBLIC_INTEL_SQL = `
   JOIN users u ON u.id = i.user_id
   WHERE i.verdict = 'passed'
     AND i.is_public
+    AND i.kind = 'share'
     AND i.bounty_id IS NULL
     AND ($1::uuid IS NULL OR NOT EXISTS (
       SELECT 1 FROM intel_dismissals d
@@ -754,7 +771,7 @@ async function fulfillDemand(pool, demandId) {
 
 async function loadDownloadIntel(db, intelId, lock) {
   const { rows } = await db.query(
-    `SELECT i.id, i.user_id, i.body, i.videos, i.category, i.price, i.is_public, i.bounty_id, i.created_at, u.display_name
+    `SELECT i.id, i.user_id, i.body, i.videos, i.category, i.price, i.is_public, i.kind, i.responds_to, i.created_at, u.display_name
      FROM intel i
      JOIN users u ON u.id = i.user_id
      WHERE i.id = $1 AND i.verdict = 'passed'
@@ -765,18 +782,45 @@ async function loadDownloadIntel(db, intelId, lock) {
 }
 
 async function assertCanDownload(db, intel, userId) {
-  if (intel.is_public || intel.user_id === userId) return;
-  if (!intel.bounty_id) {
-    const error = new Error("not_found");
-    error.code = "not_found";
-    throw error;
+  if (intel.kind === "request" || intel.is_public || intel.user_id === userId) return;
+  if (intel.kind === "response" && intel.responds_to) {
+    const parent = await db.query(
+      `SELECT 1 FROM intel WHERE id = $1 AND user_id = $2 AND kind = 'request'`,
+      [intel.responds_to, userId]
+    );
+    if (parent.rows.length) return;
   }
-  const bounty = await db.query(`SELECT 1 FROM bounties WHERE id = $1 AND user_id = $2`, [intel.bounty_id, userId]);
-  if (!bounty.rows.length) {
-    const error = new Error("not_found");
-    error.code = "not_found";
-    throw error;
+  const error = new Error("not_found");
+  error.code = "not_found";
+  throw error;
+}
+
+async function chargeRequest(client, intel, userId) {
+  if (intel.user_id === userId) return;
+  const prior = await client.query(
+    `SELECT 1 FROM request_unlocks WHERE user_id = $1 AND intel_id = $2`,
+    [userId, intel.id]
+  );
+  if (prior.rows.length) return;
+  const fee = feeConfig().requestFee;
+  if (fee > 0) {
+    await applyPoints(client, {
+      userId,
+      delta: -fee,
+      reason: "request_detail",
+      refId: intel.id,
+    });
+    await applyPoints(client, {
+      userId: PLATFORM_USER_ID,
+      delta: fee,
+      reason: "request_detail",
+      refId: intel.id,
+    });
   }
+  await client.query(
+    `INSERT INTO request_unlocks (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [userId, intel.id]
+  );
 }
 
 async function chargeDownload(client, intel, userId) {
@@ -859,7 +903,8 @@ export async function downloadPacket(pool, userId, intelId, uploadDir, { zip = f
       throw error;
     }
     await assertCanDownload(client, locked, userId);
-    await chargeDownload(client, locked, userId);
+    if (locked.kind === "request") await chargeRequest(client, locked, userId);
+    else await chargeDownload(client, locked, userId);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

@@ -3,13 +3,14 @@ import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
-import { listBounties, listBountyResponses, openBounty } from "../bounties.js";
-import { informationOf, isAudioUpload, isVideoUpload, listedFiles, videosOf } from "../information.js";
-import { createDemand, createIntel, downloadPacket, listDemands, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar, stopDemand } from "../market.js";
+import { cardFiles, cardPreviewUrl, informationOf, isAudioUpload, isVideoUpload, videosOf } from "../information.js";
+import { createIntel, downloadPacket, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar } from "../market.js";
+import { listMyResponses, listRequestResponses, listRequests } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
 import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
 import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
+import { ensureCardPreview, previewReadable } from "../preview.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
 const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance`;
@@ -58,18 +59,22 @@ function httpError(res, error) {
   return res.status(503).json({ error: "process_unavailable" });
 }
 
+const INTEL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function publicCard(row) {
   const granted = Boolean(row.granted);
+  const source = row.attachments || [];
   const info = informationOf({
     body: row.body,
-    files: listedFiles(row.attachments || [], granted),
+    files: cardFiles(source, granted),
     videos: row.videos,
   });
   return {
     id: row.id,
     role: "intel",
     ...info,
-    imageUrls: granted ? info.images.map((item) => item.url).filter(Boolean) : [],
+    previewUrl: cardPreviewUrl(row.id, source),
+    imageUrls: [],
     category: row.category || "",
     price: Number(row.price) || 0,
     granted,
@@ -278,12 +283,37 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   });
 
   router.get("/uploads/:id", async (req, res) => {
-    const { rows } = await pool.query(`SELECT storage_name, mime FROM uploads WHERE id = $1`, [req.params.id]);
+    const { rows } = await pool.query(
+      `SELECT u.storage_name, u.mime, u.user_id,
+              EXISTS (SELECT 1 FROM users p WHERE p.avatar_upload_id = u.id) AS avatar
+       FROM uploads u
+       WHERE u.id = $1`,
+      [req.params.id]
+    );
     if (!rows.length) return res.status(404).end();
-    const filePath = storagePath(uploadDir, rows[0].storage_name);
+    const row = rows[0];
+    const owner = Boolean(req.user && req.user.id === row.user_id);
+    const image = String(row.mime || "").startsWith("image/");
+    if (image && !row.avatar && !owner) return res.status(404).end();
+    const filePath = storagePath(uploadDir, row.storage_name);
     if (!fs.existsSync(filePath)) return res.status(404).end();
-    res.type(rows[0].mime);
+    res.type(row.mime);
     fs.createReadStream(filePath).pipe(res);
+  });
+
+  router.get("/previews/:id", async (req, res) => {
+    if (!INTEL_ID.test(req.params.id)) return res.status(404).end();
+    const visible = await previewReadable(pool, req.params.id, req.user?.id || null);
+    if (!visible) return res.status(404).end();
+    try {
+      const file = await ensureCardPreview(pool, req.params.id, uploadDir);
+      if (!file) return res.status(404).end();
+      res.type("image/jpeg");
+      res.set("Cache-Control", "public, max-age=86400");
+      fs.createReadStream(file).pipe(res);
+    } catch {
+      res.status(404).end();
+    }
   });
 
   router.post("/intel", async (req, res) => {
@@ -314,7 +344,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         videos,
         isPublic: req.body?.public,
         price: req.body?.price,
-        bountyId: typeof req.body?.bountyId === "string" ? req.body.bountyId : null,
+        request: req.body?.request === true,
+        requestId: typeof req.body?.requestId === "string" ? req.body.requestId : null,
       });
       res.status(201).json({ intel });
     } catch (error) {
@@ -325,7 +356,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/submissions", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT id, body, videos, verdict, reject_reason, category, price, is_public, bounty_id, created_at, updated_at
+      `SELECT id, body, videos, verdict, reject_reason, category, price, is_public, kind, responds_to, created_at, updated_at
        FROM intel
        WHERE user_id = $1 AND door = 'webui'
        ORDER BY created_at DESC`,
@@ -354,34 +385,24 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
-  router.get("/bounties", async (req, res) => {
-    res.json({ bounties: await listBounties(pool, req.user?.id || null) });
+  router.get("/requests", async (req, res) => {
+    res.json({ requests: await listRequests(pool, req.user?.id || null) });
   });
 
-  router.get("/bounties/:id/responses", async (req, res) => {
+  router.get("/responses", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    res.json({ responses: await listMyResponses(pool, req.user.id) });
+  });
+
+  router.get("/requests/:id/responses", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return res.status(404).json({ error: "not_found" });
     }
-    const result = await listBountyResponses(pool, req.user.id, id);
+    const result = await listRequestResponses(pool, req.user.id, id);
     if (result.error) return res.status(result.status).json({ error: result.error });
     res.json(result);
-  });
-
-  router.post("/bounties", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    try {
-      const result = await openBounty(pool, {
-        userId: req.user.id,
-        body: req.body?.body,
-        hours: req.body?.hours,
-      });
-      if (result.error) return res.status(result.status).json({ error: result.error });
-      res.status(201).json(result);
-    } catch (error) {
-      httpError(res, error);
-    }
   });
 
   router.post("/intel/:id/download", async (req, res) => {
@@ -496,45 +517,6 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       [req.user.id]
     );
     res.json({ ok: true });
-  });
-
-  router.post("/demands", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    const brief = typeof req.body?.brief === "string" ? req.body.brief.trim() : "";
-    const fileIds = Array.isArray(req.body?.fileIds) ? req.body.fileIds.filter((id) => typeof id === "string") : [];
-    if (!brief && !fileIds.length) return res.status(400).json({ error: "empty_body" });
-    try {
-      const demand = await createDemand(pool, {
-        userId: req.user.id,
-        actor: "person",
-        door: "webui",
-        brief,
-        citationLimit: req.body?.citationLimit,
-        fileIds,
-      });
-      res.status(201).json({ demand });
-    } catch (error) {
-      httpError(res, error);
-    }
-  });
-
-  router.get("/demands", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    const demands = await listDemands(pool, req.user.id, "webui");
-    res.json({ demands });
-  });
-
-  router.post("/demands/:id/stop", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    try {
-      const demand = await stopDemand(pool, req.params.id, req.user.id);
-      res.json({ demand });
-    } catch (error) {
-      if (error.code === "not_found") return res.status(404).json({ error: "not_found" });
-      if (error.code === "not_open") return res.status(409).json({ error: "not_open" });
-      console.error(error);
-      res.status(500).json({ error: "internal" });
-    }
   });
 
   router.post("/delegation", async (req, res) => {

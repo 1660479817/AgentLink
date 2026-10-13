@@ -10,6 +10,7 @@ const INITIAL_POLICY = {
   priceMax: 100,
   listingFee: 1,
   completionFee: 1,
+  requestFee: 1,
 };
 
 export const useSessionStore = defineStore("session", {

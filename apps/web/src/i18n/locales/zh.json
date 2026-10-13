@@ -8,13 +8,14 @@
     "home": "首页",
     "notifications": "通知",
     "mine": "我的",
+    "wish": "wish",
     "buy": "匹配",
     "search": "搜索",
     "searchPlaceholder": "搜索信息"
   },
   "rail": {
     "sponsored": "赞助内容",
-    "sponsorTitle": "把寻找交给平台",
+    "sponsorTitle": "wish",
     "sponsorMeta": "赞助",
     "shortcuts": "快捷入口",
     "stars": "收藏",
@@ -37,15 +38,14 @@
     "intelCreate": "提供信息",
     "storyRail": "快拍",
     "storyCreate": "创建快拍",
+    "wishReplyCount": "{n} 条响应",
     "sharePrompt": "分享信息，挣积分",
     "shareKind": "信息类型",
     "shareKindPacket": "提供数据",
-    "shareKindBounty": "开办悬赏",
     "sharePacketPlaceholder": "写下这条数据包",
     "sharePublicHint": "进入信息流、搜索和匹配",
     "sharePrivateHint": "只留在你的提交里",
     "shareNoFilePrice": "没有上传文件时，报价为 0",
-    "shareBountyNote": "开办支付 {listing} 积分。回应只给你看，不进入信息流。有上传文件的回应最先通过审查时，再付 {completion} 积分。",
     "shareImage": "图片",
     "shareVideo": "视频",
     "shareAudio": "音频",
@@ -109,7 +109,10 @@
     "body": "下次使用这个浏览器登录时，只需点击头像即可，无需输入密码。",
     "confirm": "确定",
     "later": "以后再说",
-    "close": "关闭"
+    "close": "关闭",
+    "guestTitle": "登录 / 注册",
+    "guestBody": "写下邮箱即可注册或登录。登录密钥会发到这个邮箱。",
+    "guestAction": "登录 / 注册"
   },
   "notifications": {
     "title": "通知",
@@ -127,7 +130,8 @@
     "statusRejected": "未通过",
     "statusRemoved": "已删除",
     "private": "不公开",
-    "bountyReply": "悬赏回应"
+    "request": "wish",
+    "requestReply": "wish 响应"
   },
   "mine": {
     "title": "我的",
@@ -159,10 +163,33 @@
     "agentTipsTitle": "重要提示：",
     "agentTipOnce": "授权码仅在生成时可见，请你复制并记录该重要凭证。",
     "agentTipRotate": "如果忘记授权码，或者怀疑授权码泄露，你可以重新生成一个新的授权码，旧的授权码将失效。",
-    "agentBrief": "你是用户的 Agent。用下面的邮箱和授权码访问 Knot，代替用户发帖、下载、匹配，或开办和提交悬赏。授权码只发往下面的地址。这把码失效后不要再用。\n\n地址：{origin}\n邮箱：{email}\n授权：Authorization: Bearer {token}\n\n如何调用接口，读取 {origin}/help ，按其中的说明执行。",
+    "agentBrief": "你是用户的 Agent。用下面的邮箱和授权码访问 Knot，代替用户分享、发出 wish、响应 wish 和下载。授权码只发往下面的地址。这把码失效后不要再用。\n\n地址：{origin}\n邮箱：{email}\n授权：Authorization: Bearer {token}\n\n如何调用接口，读取 {origin}/help ，按其中的说明执行。",
     "points": "积分",
-    "pointsHint": "下载按使用报价付给作者。匹配和悬赏的服务费付给平台。",
+    "pointsHint": "下载分享或回应，按报价付给作者。下载 wish 全文，费用付给平台。",
     "pointsBalance": "{balance}"
+  },
+  "wish": {
+    "title": "wish",
+    "lead": "写下你要的东西。在下面切换我发出和我响应。",
+    "placeholder": "在这里输入你的需求描述",
+    "consent": "同意公开这些信息。\n平台收取 {fee} 积分，不对内容承担责任。",
+    "send": "发送 wish",
+    "lanes": "我发出和我响应",
+    "posted": "我发出",
+    "replied": "我响应",
+    "empty": "发出之后，会出现在这里。",
+    "repliedEmpty": "响应之后，会出现在这里。",
+    "login": "登录后可以发出，并看到我发出和我响应。",
+    "replyTo": "这条 wish",
+    "replyMissing": "这条 wish 已经不在。",
+    "myReply": "我的响应",
+    "replyPrice": "报价 {n}",
+    "loginAction": "去登录",
+    "responses": "收到的响应",
+    "responsesEmpty": "还没有响应",
+    "responsesWait": "审查通过后，响应会出现在这里。",
+    "download": "下载",
+    "downloadPay": "支付 {n} 下载"
   },
   "buy": {
     "title": "匹配",
@@ -190,6 +217,14 @@
     "systemStopped": "已停止。之后不会再继续。",
     "systemTimeout": "已到 {hours} 小时，自动停止。",
     "systemReview": "这条需求没有留下。"
+  },
+  "download": {
+    "title": "下载确认",
+    "consent": "这次下载将扣除 {n} 积分，付给{payee}。",
+    "author": "作者",
+    "platform": "平台",
+    "confirm": "确认",
+    "cancel": "取消"
   },
   "error": {
     "no_session": "请先登录",

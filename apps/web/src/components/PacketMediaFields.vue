@@ -5,15 +5,18 @@ import { t } from "../i18n/index.js";
 import { CloseIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
 
-defineProps({
+const props = defineProps({
   bodyId: { type: String, required: true },
   bodyLabel: { type: String, required: true },
   placeholder: { type: String, required: true },
+  rows: { type: Number, default: 4 },
+  grow: { type: Boolean, default: false },
   videoOpen: { type: Boolean, default: false },
   previews: { type: Array, default: () => [] },
   audioName: { type: String, default: "" },
   files: { type: Array, default: () => [] },
   showPrice: { type: Boolean, default: false },
+  showFreeNote: { type: Boolean, default: true },
   priceId: { type: String, required: true },
   busy: { type: Boolean, default: false },
 });
@@ -37,6 +40,13 @@ const pricePlaceholder = computed(() =>
   t("home.priceBlank", { fallback: session.policy.defaultPrice ?? 10 })
 );
 
+function growBody(event) {
+  if (!props.grow) return;
+  const el = event.target;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 defineExpose({
   focusBody() {
     bodyInput.value?.focus();
@@ -55,10 +65,12 @@ defineExpose({
       :id="bodyId"
       ref="bodyInput"
       v-model="body"
-      rows="4"
+      :rows="rows"
       class="share-input"
+      :class="{ 'is-growing': grow }"
       :placeholder="placeholder"
       :disabled="busy"
+      @input="growBody"
     />
     <div v-if="previews.length" class="share-photos">
       <div v-for="(url, index) in previews" :key="url" class="share-photo">
@@ -116,7 +128,7 @@ defineExpose({
         :disabled="busy"
       />
     </div>
-    <p v-else class="share-note">{{ t("home.shareNoFilePrice") }}</p>
+    <p v-else-if="showFreeNote" class="share-note">{{ t("home.shareNoFilePrice") }}</p>
     <slot name="after" />
   </div>
 </template>

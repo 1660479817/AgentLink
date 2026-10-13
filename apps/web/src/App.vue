@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted } from "vue";
+import DownloadConsent from "./components/DownloadConsent.vue";
 import AppShell from "./layouts/AppShell.vue";
 import { useSessionStore } from "./stores/session";
 import { t } from "./i18n/index.js";
@@ -12,6 +13,7 @@ onMounted(() => {
 </script>
 
 <template>
+  <DownloadConsent />
   <AppShell v-if="session.ready">
     <RouterView />
   </AppShell>

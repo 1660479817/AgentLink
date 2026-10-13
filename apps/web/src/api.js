@@ -60,12 +60,16 @@ export function unstarInformation(id) {
   return request(`/api/web/intel/${id}/star`, { method: "DELETE" });
 }
 
-export function listBounties() {
-  return request("/api/web/bounties");
+export function listRequests() {
+  return request("/api/web/requests");
 }
 
-export function listBountyResponses(id) {
-  return request(`/api/web/bounties/${id}/responses`);
+export function listRequestResponses(id) {
+  return request(`/api/web/requests/${id}/responses`);
+}
+
+export function listMyResponses() {
+  return request("/api/web/responses");
 }
 
 export function searchInformation(q) {
@@ -118,12 +122,6 @@ export async function downloadInformation(id) {
   URL.revokeObjectURL(url);
 }
 
-export function createBounty(body, hours) {
-  return request("/api/web/bounties", {
-    method: "POST",
-    body: JSON.stringify({ body, hours }),
-  });
-}
 
 export function uploadAudio(file) {
   const form = new FormData();
@@ -135,21 +133,6 @@ export function uploadAttachment(file) {
   const form = new FormData();
   form.append("file", file);
   return request("/api/web/files", { method: "POST", body: form });
-}
-
-export function createDemand(brief, fileIds = []) {
-  return request("/api/web/demands", {
-    method: "POST",
-    body: JSON.stringify({ brief, fileIds }),
-  });
-}
-
-export function listDemands() {
-  return request("/api/web/demands");
-}
-
-export function stopDemand(id) {
-  return request(`/api/web/demands/${id}/stop`, { method: "POST", body: "{}" });
 }
 
 export function listSubmissions() {

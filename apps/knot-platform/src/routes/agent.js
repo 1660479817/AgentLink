@@ -2,7 +2,7 @@ import { Router } from "express";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import multer from "multer";
-import { listBounties, listBountyResponses, openBounty } from "../bounties.js";
+import { listRequestResponses, listRequests } from "../requests.js";
 import { hasInformation, idsOf, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
 import {
   FEEDBACK_MAX,
@@ -12,7 +12,7 @@ import {
   requestLoginKey,
   sendFeedback,
 } from "../login.js";
-import { createDemand, createIntel, downloadPacket } from "../market.js";
+import { createIntel, downloadPacket } from "../market.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -265,7 +265,8 @@ export function agentRouter({ pool, uploadDir }) {
         videos: delivery.videos,
         isPublic: req.body?.public,
         price: req.body?.price,
-        bountyId: typeof req.body?.bountyId === "string" ? req.body.bountyId : null,
+        request: req.body?.request === true,
+        requestId: typeof req.body?.requestId === "string" ? req.body.requestId : null,
       });
       res.status(201).json({ intel });
     } catch (error) {
@@ -285,64 +286,19 @@ export function agentRouter({ pool, uploadDir }) {
     }
   });
 
-  router.get("/bounties", async (req, res) => {
+  router.get("/requests", async (req, res) => {
     const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    res.json({ bounties: await listBounties(pool, access.userId) });
+    res.json({ requests: await listRequests(pool, access.userId) });
   });
 
-  router.post("/bounties", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
-    if (!access.userId) return res.status(access.status).json({ error: access.error });
-    try {
-      const result = await openBounty(pool, {
-        userId: access.userId,
-        body: req.body?.body,
-        hours: req.body?.hours,
-      });
-      if (result.error) return res.status(result.status).json({ error: result.error });
-      res.status(201).json(result);
-    } catch (error) {
-      agentFail(res, error);
-    }
-  });
-
-  router.get("/bounties/:id/responses", async (req, res) => {
+  router.get("/requests/:id/responses", async (req, res) => {
     const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
-    const result = await listBountyResponses(pool, access.userId, req.params.id);
+    const result = await listRequestResponses(pool, access.userId, req.params.id);
     if (result.error) return res.status(result.status).json({ error: result.error });
     res.json(result);
-  });
-
-  router.post("/bounties/:id/submit", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
-    if (!access.userId) return res.status(access.status).json({ error: access.error });
-    if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
-    const delivery = readDelivery(req.body);
-    if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
-    if (!hasInformation({ body: delivery.body, images: delivery.imageIds, audio: delivery.audioIds, videos: delivery.videos, attachments: delivery.fileIds })) {
-      return res.status(400).json({ error: "empty_body" });
-    }
-    try {
-      const intel = await createIntel(pool, {
-        userId: access.userId,
-        actor: "personal_agent",
-        door: "agent_api",
-        body: delivery.body,
-        imageIds: delivery.imageIds,
-        audioIds: delivery.audioIds,
-        fileIds: delivery.fileIds,
-        videos: delivery.videos,
-        isPublic: req.body?.public,
-        price: req.body?.price,
-        bountyId: req.params.id,
-      });
-      res.status(201).json({ intel });
-    } catch (error) {
-      agentFail(res, error);
-    }
   });
 
   router.post("/feedback", async (req, res) => {
@@ -367,31 +323,6 @@ export function agentRouter({ pool, uploadDir }) {
       return res.status(503).json({ error: code });
     }
     res.json({ ok: true });
-  });
-
-  router.post("/demands", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
-    if (!access.userId) return res.status(access.status).json({ error: access.error });
-    const brief = typeof req.body?.brief === "string" ? req.body.brief.trim() : "";
-    const delivery = readDelivery(req.body);
-    if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
-    if (!brief && !hasInformation({ body: "", images: delivery.imageIds, attachments: delivery.fileIds })) {
-      return res.status(400).json({ error: "empty_body" });
-    }
-    try {
-      const demand = await createDemand(pool, {
-        userId: access.userId,
-        actor: "personal_agent",
-        door: "agent_api",
-        brief,
-        citationLimit: req.body?.citationLimit,
-        imageIds: delivery.imageIds,
-        fileIds: delivery.fileIds,
-      });
-      res.status(201).json({ demand });
-    } catch (error) {
-      agentFail(res, error);
-    }
   });
 
   return router;

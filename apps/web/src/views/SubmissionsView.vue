@@ -57,11 +57,13 @@ function pendingOf(item) {
     <p class="information-time">
       <span v-if="item.category">{{ item.category }} · </span>
       <span>{{ t("submissions.usePrice", { n: item.price || 0 }) }}</span>
-      <span v-if="item.bountyId"> · {{ t("submissions.bountyReply") }}</span>
+      <span v-if="item.kind === 'response'"> · {{ t("submissions.requestReply") }}</span>
+      <span v-else-if="item.kind === 'request'"> · {{ t("submissions.request") }}</span>
       <span v-else-if="item.public === false && item.verdict !== 'removed'"> · {{ t("submissions.private") }}</span>
     </p>
     <p v-if="item.body" class="information-body">{{ item.body }}</p>
-    <div v-if="photosOf(item).length" class="information-images" :class="`is-${photosOf(item).length}`">
+    <img v-if="item.previewUrl" :src="item.previewUrl" alt="" class="information-preview" />
+    <div v-else-if="photosOf(item).length" class="information-images" :class="`is-${photosOf(item).length}`">
       <img v-for="url in photosOf(item)" :key="url" :src="url" alt="" class="information-photo" />
     </div>
     <ul v-else-if="pendingOf(item).length" class="information-files">

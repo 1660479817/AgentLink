@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasInformation, informationOf, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, publicOf, videosOf } from "./information.js";
+import { cardFiles, cardPreviewUrl, hasInformation, informationOf, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, publicOf, videosOf } from "./information.js";
 
 test("a packet splits text, images, video links, and files", () => {
   const info = informationOf({
@@ -61,6 +61,16 @@ test("a locked file keeps its name and drops the upload id", () => {
   assert.equal(locked.url, undefined);
   assert.equal(locked.name, "a.png");
   assert.equal(listedFiles([{ id: "secret", url: "/api/web/uploads/secret", name: "a.png" }], true)[0].url, "/api/web/uploads/secret");
+});
+
+test("a card keeps a preview address and drops the original image address", () => {
+  const files = [{ id: "secret", name: "a.png", mime: "image/png", url: "/api/web/uploads/secret", image: true }];
+  const [shown] = cardFiles(files, true);
+  assert.equal(shown.url, undefined);
+  assert.equal(shown.id, undefined);
+  assert.equal(shown.name, "a.png");
+  assert.equal(cardPreviewUrl("11111111-1111-1111-1111-111111111111", files), "/api/web/previews/11111111-1111-1111-1111-111111111111");
+  assert.equal(cardPreviewUrl("11111111-1111-1111-1111-111111111111", []), "");
 });
 
 test("a video file is not an attachment", () => {

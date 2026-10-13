@@ -208,3 +208,23 @@ export function listedFiles(files, granted) {
     };
   });
 }
+
+function isImageFile(file) {
+  return Boolean(file?.image) || String(file?.mime || "").startsWith("image/");
+}
+
+export function cardFiles(files, granted) {
+  return listedFiles(files, granted).map((file) => {
+    if (!isImageFile(file)) return file;
+    return {
+      name: file.name || "",
+      mime: file.mime || "",
+      image: true,
+    };
+  });
+}
+
+export function cardPreviewUrl(id, files) {
+  if (!id || !(files || []).some(isImageFile)) return "";
+  return `/api/web/previews/${id}`;
+}

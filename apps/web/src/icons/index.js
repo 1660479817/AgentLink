@@ -90,7 +90,7 @@ export const ComposeIcon = knotIcon([
   h("path", { d: "M5 7h14M5 12h14M5 17h9" }),
 ]);
 export const SendIcon = knotIcon([
-  h("path", { d: "m5 12 14-7v14l-14-7Zm14-7-5.5 5.5" }),
+  h("path", { d: "M5 12h12M12 6l6 6-6 6" }),
 ]);
 export const CloseIcon = knotIcon([
   h("path", { d: "M7 7 17 17M17 7 7 17" }),

@@ -11,6 +11,7 @@ const props = defineProps({
   category: { type: String, default: "" },
   price: { type: Number, default: 0 },
   granted: { type: Boolean, default: true },
+  previewUrl: { type: String, default: "" },
   imageUrls: { type: Array, default: () => [] },
   images: { type: Array, default: () => [] },
   audio: { type: Array, default: () => [] },
@@ -32,15 +33,10 @@ const pendingImages = computed(() => lockedImages(props.imageUrls, props.images)
 const clips = computed(() => packetAudio(props.audio));
 const links = computed(() => packetVideos(props.videos));
 const files = computed(() => packetFile(props.attachments));
-const hasPacketFiles = computed(() => photos.value.length || pendingImages.value.length || clips.value.length || files.value.length);
-const confirming = ref(false);
+const hasPacketFiles = computed(() => Boolean(props.previewUrl) || photos.value.length || pendingImages.value.length || clips.value.length || files.value.length);
 
 function onDownload() {
   if (props.busy) return;
-  if (props.price > 0 && !props.granted && !confirming.value) {
-    confirming.value = true;
-    return;
-  }
   emit("download");
 }
 
@@ -98,7 +94,8 @@ function postedLabel(value) {
       </AppButton>
     </header>
     <p v-if="body" class="information-body">{{ body }}</p>
-    <div v-if="photos.length" class="information-images" :class="`is-${photos.length}`">
+    <img v-if="previewUrl" :src="previewUrl" alt="" class="information-preview" />
+    <div v-else-if="photos.length" class="information-images" :class="`is-${photos.length}`">
       <img v-for="url in photos" :key="url" :src="url" alt="" class="information-photo" />
     </div>
     <ul v-else-if="pendingImages.length" class="information-files">
@@ -164,7 +161,6 @@ function postedLabel(value) {
         <DownloadIcon aria-hidden="true" />
       </button>
     </div>
-    <p v-if="confirming && !granted" class="muted card-notice">{{ t("home.downloadPay", { n: price }) }}</p>
     <p v-if="notice" class="error card-notice" role="alert">{{ notice }}</p>
   </article>
 </template>

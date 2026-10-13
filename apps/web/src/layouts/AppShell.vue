@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
+import RememberLoginCard from "../components/RememberLoginCard.vue";
 import { ActivityIcon, BackIcon, BookmarkIcon, ChatIcon, HeaderUserIcon, HistoryIcon, SearchIcon, UserIcon, ZapIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { useNotificationStore } from "../stores/notifications";
@@ -90,14 +91,14 @@ onMounted(() => {
           </label>
         </form>
         <div class="header-side header-side-end">
+          <AppButton variant="icon" to="/wish" :aria-label="t('nav.wish')">
+            <ChatIcon class="nav-icon" aria-hidden="true" />
+          </AppButton>
           <AppButton variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
             <ZapIcon class="nav-icon nav-icon-zap" aria-hidden="true" />
             <span v-if="notifications.unread > 0" class="nav-badge">{{
               notifications.unread > 99 ? "99+" : notifications.unread
             }}</span>
-          </AppButton>
-          <AppButton variant="icon" to="/chat" :aria-label="t('nav.buy')">
-            <ChatIcon class="nav-icon nav-icon-solid" aria-hidden="true" />
           </AppButton>
           <AppButton
             variant="icon"
@@ -148,11 +149,12 @@ onMounted(() => {
         </div>
       </nav>
       <main id="main-content" class="layout">
+        <RememberLoginCard />
         <slot />
       </main>
       <aside class="rail rail-sponsor" :aria-label="t('rail.sponsored')">
         <p class="rail-label">{{ t("rail.sponsored") }}</p>
-        <RouterLink :to="{ name: 'chat' }" class="sponsor-card">
+        <RouterLink to="/wish" class="sponsor-card">
           <span class="sponsor-media" aria-hidden="true">
             <span class="brand-mark">{{ mark }}</span>
           </span>

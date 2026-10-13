@@ -4,7 +4,7 @@ PostgreSQL。只由 Knot Backend 读写。
 
 账号在 `users`。记下来的是一个数据包，一次匹配和它交回的数据包，一次下载，以及时限内的悬赏。表结构以 `apps/knot-platform/migrations/` 里的 SQL 为准。库可以整库删除后重建，不保留旧表。迁移脚本若发现还没有 `users`，或仍有 `persons`、`expressions`，会清空 `public` 再执行初始化。
 
-图片字节在 `UPLOAD_DIR`（默认 `data/uploads`）。库只存文件名和类型。
+图片字节在 `UPLOAD_DIR`（默认 `data/uploads`）。库只存文件名和类型。有图片的记录另存一张预览，`previews/{id}.jpg`，宽不超过 960。一张是缩小图，两张、三张、四张拼成这一张。
 
 ---
 
