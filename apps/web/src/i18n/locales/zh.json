@@ -99,7 +99,7 @@
   },
   "notifications": {
     "title": "通知",
-    "hint": "审查结果、警告、积分、禁言、权益和回复会出现在这里。",
+    "hint": "审查结果、审核异常、警告、积分、禁言、权益和回复会出现在这里。",
     "empty": "还没有通知",
     "openLink": "查看详情"
   },
@@ -126,7 +126,7 @@
     "sendKey": "发送密钥",
     "keySent": "登录密钥已寄到这个邮箱，十分钟内有效。",
     "key": "登录密钥",
-    "keyPlaceholder": "邮件里的密钥",
+    "keyPlaceholder": "6 位数字",
     "enter": "登录",
     "changeEmail": "换一个邮箱",
     "displayName": "称呼",

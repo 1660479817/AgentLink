@@ -8,6 +8,7 @@ import { getPool } from "./db.js";
 import { createSessionMiddleware } from "./middleware/session.js";
 import { adminRouter } from "./routes/admin.js";
 import { webRouter } from "./routes/web.js";
+import { resumePendingReviews } from "./market.js";
 import { agentRouter } from "./routes/agent.js";
 
 const bootstrap = loadBootstrapConfig();
@@ -71,4 +72,5 @@ app.use((err, _req, res, _next) => {
 
 app.listen(bootstrap.port, bootstrap.bindHost, () => {
   console.log(`knot-backend listening on ${bootstrap.bindHost}:${bootstrap.port}`);
+  resumePendingReviews(pool).catch((error) => console.error(error));
 });

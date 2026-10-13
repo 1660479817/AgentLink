@@ -274,15 +274,19 @@ async function leave() {
       <label class="auth-label" for="login-key">{{ t("mine.key") }}</label>
       <input
         id="login-key"
-        v-model="loginKey"
+        :value="loginKey"
         type="text"
+        inputmode="numeric"
         autocomplete="one-time-code"
+        maxlength="6"
+        pattern="[0-9]{6}"
         required
         :placeholder="t('mine.keyPlaceholder')"
         :disabled="busy"
+        @input="loginKey = $event.target.value.replace(/\D/g, '').slice(0, 6)"
       />
       <div class="form-actions">
-        <AppButton type="submit" :disabled="busy">{{ t("mine.enter") }}</AppButton>
+        <AppButton type="submit" :disabled="busy || loginKey.length !== 6">{{ t("mine.enter") }}</AppButton>
         <AppButton variant="secondary" type="button" :disabled="busy" @click="changeEmail">
           {{ t("mine.changeEmail") }}
         </AppButton>

@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adminEmail, feedbackMessage } from "./login.js";
+import { adminEmail, feedbackMessage, newLoginKey, normalizeLoginKey } from "./login.js";
+
+test("login key is six digits", () => {
+  for (let i = 0; i < 30; i += 1) {
+    const key = newLoginKey();
+    assert.match(key, /^\d{6}$/);
+    assert.equal(normalizeLoginKey(key), key);
+  }
+  assert.equal(normalizeLoginKey(" 048 291 "), "048291");
+  assert.equal(normalizeLoginKey("4829131"), null);
+  assert.equal(normalizeLoginKey("AB23CD45"), null);
+});
 
 test("admin mailbox defaults to the platform address", () => {
   const previous = process.env.KNOT_ADMIN_EMAIL;

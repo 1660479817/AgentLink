@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdir, rename, unlink } from "node:fs/promises";
+import { access, mkdir, rename } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { loadBootstrapConfig } from "./config.js";
@@ -134,14 +134,6 @@ export async function ensureCardPreview(pool, intelId, uploadDir = loadBootstrap
     return dest;
   } catch {
     return writeCardPreview(sources, dest);
-  }
-}
-
-export async function removeCardPreview(intelId, uploadDir = loadBootstrapConfig().uploadDir) {
-  try {
-    await unlink(previewFilePath(uploadDir, intelId));
-  } catch {
-    /* already gone */
   }
 }
 

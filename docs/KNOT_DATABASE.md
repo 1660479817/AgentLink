@@ -68,7 +68,7 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 | `label` | 运维标记。`tester` 是测试员，`platform` 是平台自己。非空时唯一 |
 | `created_at` / `updated_at` | 建立和最近一次资料变更 |
 
-`sessions.user_id` 对应该用户。Cookie 为 `knot_sid`，30 天。`login_keys` 记下寄出的登录密钥（只存 SHA-256），十分钟有效，用过即废。网页和 Agent 开户用的是同一把密钥。`delegations` 每个用户一行，令牌只存 SHA-256。Agent 用登录密钥自己开户时，写下 `users` 和 `delegations`，不写 `sessions`。
+`sessions.user_id` 对应该用户。Cookie 为 `knot_sid`，30 天。`login_keys` 记下寄出的六位数字登录密钥（只存 SHA-256），十分钟有效，用过即废。网页和 Agent 开户用的是同一把密钥。`delegations` 每个用户一行，令牌只存 SHA-256。Agent 用登录密钥自己开户时，写下 `users` 和 `delegations`，不写 `sessions`。
 
 人和 Personal Agent 是同一用户。`actor` 为 `person`、`personal_agent` 或 `platform`，`door` 为 `webui`、`agent_api` 或 `platform`。平台账号的 `label` 是 `platform`，积分从 0 起，不领开户赠送。
 
@@ -127,7 +127,7 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 
 `packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一条只记一行。有平台文件的记录在第一次下载时打成一份压缩包，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经为一条 wish 付过费用。`request_looks` 记下谁查看过一条 wish，主键同样是 `(user_id, intel_id)`。点开别人的卡片写一行，再点不重复。
 
-`notifications.kind` 为 `intel_rejected`、`intel_passed`、`intel_removed`、`warning`、`request_response`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`request_response` 只发给发出 wish 的人。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。
+`notifications.kind` 为 `intel_rejected`、`intel_passed`、`intel_review_error`、`intel_removed`、`warning`、`request_response`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_review_error` 的标题是「审核异常」。`request_response` 只发给发出 wish 的人。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。
 
 `admin_actions` 只追加。`action` 为 `remove`、`warn`、`patrol`、`grant`、`mute`、`unmute`、`entitle` 或 `level`。巡查记录的 `user_id` 和 `intel_id` 为空，`created_at` 是下一次巡查看新帖的起点。`grant` 记下发给谁、数量和原因。`mute` 和 `unmute` 记下禁言期限和原因。`entitle` 记下获得或收回的名称。`level` 记下新等级。赞助内容的增删改不写这张表。平台账户不能被禁言，也不能改等级和权益。
 

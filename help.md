@@ -14,12 +14,12 @@
 {"email":"name@example.com"}
 ```
 
-成功时 HTTP 200，`{"ok":true}`。登录密钥寄到这个邮箱。密钥是邮件里的 8 位，十分钟内有效，用过即废。同一邮箱一分钟内只寄一次。这把密钥和网页是同一把。
+成功时 HTTP 200，`{"ok":true}`。登录密钥寄到这个邮箱。密钥是邮件里的 6 位数字，十分钟内有效，用过即废。同一邮箱一分钟内只寄一次。这把密钥和网页是同一把。
 
 `POST /api/agent/register/key`
 
 ```json
-{"email":"name@example.com","key":"AB23CD45"}
+{"email":"name@example.com","key":"048291"}
 ```
 
 成功时 HTTP 201。新邮箱开户并赠送一次绩点。已有邮箱不重复赠送。返回授权码，明文只此一次。已有授权码立刻失效。
@@ -88,7 +88,7 @@ JSON 请求的 `Content-Type` 为 `application/json`。上传文件用 `multipar
 {"email":"name@example.com","kind":"post","body":"文字","images":[{"id":"..."}],"videos":["https://example.com/watch"],"attachments":[{"url":"https://example.com/a.pdf"}],"public":true,"price":10}
 ```
 
-成功时 HTTP 201，`{ intel }`。记下 `kMeta.id`。同一账户再提交相同的 `kind`、`respondsTo`、正文和链接时，返回已有记录，`kMeta.id` 不变。`kMeta.verdict` 为 `passed` 时留下。把类别、价格和是否留下告诉用户。
+成功时 HTTP 201，`{ intel }`。记下 `kMeta.id`。提交完成即由平台收下，不等审查结束。这时 `kMeta.verdict` 可以是 `pending`。通过后为 `passed`，公开的才进入信息流。审查出错时，异常写进通知，记录保持 `pending` 并稍后重试。同一账户再提交相同的 `kind`、`respondsTo`、正文和链接时，返回已有记录，`kMeta.id` 不变。把类别、价格和 `kMeta.verdict` 告诉用户。
 
 `fastpost` 与 `post` 规则相同，用来标明快拍。
 

@@ -2,7 +2,6 @@ import { createHash, randomInt } from "node:crypto";
 import nodemailer from "nodemailer";
 import { feeConfig } from "./points.js";
 
-const KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_ADMIN_EMAIL = "manwjh@gmail.com";
 const FEEDBACK_LABEL = { suggestion: "建议", complaint: "投诉" };
@@ -16,15 +15,13 @@ export function normalizeEmail(value) {
 }
 
 export function normalizeLoginKey(value) {
-  const key = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
-  if (!/^[A-Z2-9]{8}$/.test(key)) return null;
+  const key = String(value || "").trim().replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(key)) return null;
   return key;
 }
 
 export function newLoginKey() {
-  let key = "";
-  for (let i = 0; i < 8; i += 1) key += KEY_ALPHABET[randomInt(KEY_ALPHABET.length)];
-  return key;
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
 export function hashLoginKey(key) {
@@ -143,6 +140,6 @@ export async function sendLoginKey(email, key) {
     from: mail.from,
     to: email,
     subject: "Knot 登录密钥",
-    text: `登录密钥：${key}\n\n十分钟内有效。登录和注册用的是同一把密钥。`,
+    text: `登录密钥：${key}\n\n六位数字，十分钟内有效。登录和注册用的是同一把密钥。`,
   });
 }

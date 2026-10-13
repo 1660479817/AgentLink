@@ -14,6 +14,7 @@ const marks = {
   removed: RemovedIcon,
   intel_passed: PassedIcon,
   intel_rejected: RejectedIcon,
+  intel_review_error: AlertIcon,
   intel_removed: RemovedIcon,
   request_response: RespondIcon,
   warning: AlertIcon,

@@ -10,7 +10,7 @@ import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } fro
 import { assertCanSpeak } from "./account.js";
 import { applyPoints, feeConfig, packetPrice, PLATFORM_USER_ID } from "./points.js";
 import { scoreText } from "./search.js";
-import { ensureCardPreview, removeCardPreview } from "./preview.js";
+import { ensureCardPreview } from "./preview.js";
 import { publicUploadUrl, storagePath } from "./uploads.js";
 
 function videoText(videos) {
@@ -83,7 +83,7 @@ async function filesByIntel(pool, ids) {
 
 async function loadIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, body, videos, verdict, detail, kind, responds_to FROM intel WHERE id = $1`,
+    `SELECT id, user_id, body, videos, verdict, kind, responds_to FROM intel WHERE id = $1`,
     [id]
   );
   return rows[0] || null;
@@ -155,6 +155,114 @@ export async function judgeIntel(pool, id) {
     }
   }
   return loadPresentedIntel(pool, id);
+}
+
+const REVIEW_LABELS = {
+  agent_timeout: "数据评审员超时",
+  agent_failed: "数据评审员没有完成审核",
+  agent_bad_json: "数据评审员没有交回可用结果",
+  agent_empty: "数据评审员没有交回内容",
+};
+
+function reviewFailureCode(error) {
+  const code = String(error?.message || "").replace(/\s+/g, " ").trim().slice(0, 120);
+  return code || "review_failed";
+}
+
+export function reviewFailureText(error) {
+  const code = reviewFailureCode(error);
+  const lead = REVIEW_LABELS[code] || "审核没有完成";
+  const detail = String(error?.detail || "").replace(/\s+/g, " ").trim().slice(0, 180);
+  const tail = "这条记录仍在审核，稍后会再试。";
+  return detail ? `${lead}（${code}）。${detail} ${tail}` : `${lead}（${code}）。${tail}`;
+}
+
+export async function noteReviewFailure(pool, id, error) {
+  const code = reviewFailureCode(error);
+  const { rows } = await pool.query(`SELECT user_id, verdict, detail FROM intel WHERE id = $1`, [id]);
+  const intel = rows[0];
+  if (!intel || intel.verdict !== "pending") return false;
+  const previous = intel.detail && typeof intel.detail.reviewError === "string" ? intel.detail.reviewError : "";
+  if (previous === code) return false;
+  const updated = await pool.query(
+    `UPDATE intel SET detail = COALESCE(detail, '{}'::jsonb) || $2::jsonb
+     WHERE id = $1 AND verdict = 'pending'
+     RETURNING user_id`,
+    [id, JSON.stringify({ reviewError: code })]
+  );
+  if (!updated.rows.length) return false;
+  await recordNotification(pool, {
+    userId: updated.rows[0].user_id,
+    kind: "intel_review_error",
+    title: "审核异常",
+    body: reviewFailureText(error),
+    href: "/mine/submissions",
+  });
+  return true;
+}
+
+const reviewQueue = [];
+const reviewing = new Set();
+const reviewAttempts = new Map();
+let reviewPumping = false;
+
+function reviewDelay(attempt) {
+  return Math.min(15 * 60 * 1000, 15_000 * 2 ** Math.min(attempt - 1, 6));
+}
+
+function enqueueReview(pool, id) {
+  if (!id || reviewing.has(id) || reviewQueue.includes(id)) return;
+  reviewQueue.push(id);
+  pumpReviews(pool);
+}
+
+function scheduleReviewRetry(pool, id) {
+  const attempt = (reviewAttempts.get(id) || 0) + 1;
+  reviewAttempts.set(id, attempt);
+  const timer = setTimeout(() => enqueueReview(pool, id), reviewDelay(attempt));
+  timer.unref();
+}
+
+async function holdForRetry(pool, id, error) {
+  console.error(error);
+  try {
+    await noteReviewFailure(pool, id, error);
+  } catch (notifyError) {
+    console.error(notifyError);
+  }
+  scheduleReviewRetry(pool, id);
+}
+
+async function reviewOne(pool, id) {
+  try {
+    await judgeIntel(pool, id);
+    reviewAttempts.delete(id);
+  } catch (error) {
+    await holdForRetry(pool, id, error);
+  }
+}
+
+function pumpReviews(pool) {
+  if (reviewPumping) return;
+  reviewPumping = true;
+  const step = () => {
+    const id = reviewQueue.shift();
+    if (!id) {
+      reviewPumping = false;
+      return;
+    }
+    reviewing.add(id);
+    reviewOne(pool, id).finally(() => {
+      reviewing.delete(id);
+      step();
+    });
+  };
+  step();
+}
+
+export async function resumePendingReviews(pool) {
+  const { rows } = await pool.query(`SELECT id FROM intel WHERE verdict = 'pending' ORDER BY created_at ASC`);
+  for (const row of rows) enqueueReview(pool, row.id);
 }
 
 async function assertRespondsTo(pool, requestId, userId) {
@@ -269,17 +377,16 @@ export async function createIntel(pool, input) {
   } catch (error) {
     console.error(error);
   }
-  try {
-    return await judgeIntel(pool, intelId);
-  } catch (error) {
+  if (!intelAgentId()) {
     try {
-      await pool.query(`DELETE FROM intel WHERE id = $1 AND verdict = 'pending'`, [intelId]);
-      await removeCardPreview(intelId);
-    } catch (cleanup) {
-      console.error(cleanup);
+      return await judgeIntel(pool, intelId);
+    } catch (error) {
+      await holdForRetry(pool, intelId, error);
+      return loadPresentedIntel(pool, intelId);
     }
-    throw error;
   }
+  enqueueReview(pool, intelId);
+  return loadPresentedIntel(pool, intelId);
 }
 
 const PUBLIC_INTEL_SQL = `
