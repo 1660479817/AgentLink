@@ -11,18 +11,21 @@ const loaded = ref(false);
 const failed = ref(false);
 
 async function downloadItem(item) {
+  if (item.downloading) return;
   item.notice = "";
+  item.downloading = true;
   try {
-    const data = await downloadInformation(item.id);
-    const intel = data.intel;
-    item.images = intel.images || [];
-    item.attachments = intel.attachments || [];
-    item.imageUrls = (intel.images || []).map((file) => file.url).filter(Boolean);
-    item.granted = true;
+    await downloadInformation(item.id);
+    const data = await listStars();
+    const next = (data.information || []).find((row) => row.id === item.id);
+    if (next) Object.assign(item, next, { notice: "", downloading: false });
+    else item.granted = true;
     await session.load();
   } catch (error) {
     const key = `error.${error.code}`;
     item.notice = t(key) === key ? t("error.request_failed") : t(key);
+  } finally {
+    item.downloading = false;
   }
 }
 
@@ -76,11 +79,14 @@ onMounted(async () => {
       :granted="item.granted !== false"
       :image-urls="item.imageUrls || item.images?.map((file) => file.url).filter(Boolean) || []"
       :images="item.images || []"
+      :audio="item.audio || []"
+      :videos="item.videos || []"
       :attachments="item.attachments || []"
       :author-name="item.author?.name || ''"
       :avatar-url="item.author?.avatarUrl || ''"
       :created-at="item.createdAt || ''"
       :starred="true"
+      :busy="Boolean(item.downloading)"
       :notice="item.notice || ''"
       @dismiss="dismissItem(item)"
       @star="toggleStar(item)"

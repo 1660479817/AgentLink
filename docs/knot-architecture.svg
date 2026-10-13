@@ -20,12 +20,14 @@
     <text x="725" y="400" text-anchor="middle" font-size="15">Knot Backend</text>
     <rect x="880" y="370" width="140" height="52" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="950" y="400" text-anchor="middle" font-size="15">数据库</text>
-    <rect x="124" y="548" width="220" height="52" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
-    <text x="234" y="578" text-anchor="middle" font-size="15">数据评审员</text>
-    <rect x="424" y="548" width="220" height="52" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
-    <text x="534" y="578" text-anchor="middle" font-size="15">需求评审员</text>
-    <rect x="724" y="548" width="220" height="52" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
-    <text x="834" y="578" text-anchor="middle" font-size="15">数据匹配专家</text>
+    <rect x="100" y="548" width="210" height="52" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="205" y="578" text-anchor="middle" font-size="15">管理员</text>
+    <rect x="326" y="548" width="210" height="52" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="431" y="578" text-anchor="middle" font-size="15">数据评审员</text>
+    <rect x="552" y="548" width="210" height="52" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="657" y="578" text-anchor="middle" font-size="15">需求评审员</text>
+    <rect x="778" y="548" width="210" height="52" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="883" y="578" text-anchor="middle" font-size="15">数据匹配专家</text>
     <rect x="478" y="208" width="124" height="24" fill="#ffffff"/>
     <text x="540" y="226" text-anchor="middle" font-size="16" font-weight="600">AgentLink</text>
     <rect x="478" y="458" width="124" height="24" fill="#ffffff"/>

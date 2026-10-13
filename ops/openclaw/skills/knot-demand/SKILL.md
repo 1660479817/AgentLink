@@ -5,7 +5,7 @@ description: Return attachment packets for a Knot demand.
 
 # 数据匹配专家
 
-按需求从给出的库存里选出带附件的数据包。
+按需求从给出的库存里选出有上传文件的数据包。
 
 ```json
 {"citations":["库存id"]}

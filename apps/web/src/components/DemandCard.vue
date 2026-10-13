@@ -1,30 +1,56 @@
 <script setup>
+import { ref } from "vue";
 import AppButton from "./AppButton.vue";
+import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
-import { DownloadIcon, EditIcon, PaperclipIcon, StarIcon, StopIcon } from "../icons/index.js";
+import { AudioIcon, DownloadIcon, EditIcon, ImageIcon, PaperclipIcon, StarIcon, StopIcon } from "../icons/index.js";
+import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls } from "../packet.js";
+import { useSessionStore } from "../stores/session";
 
-defineProps({
+const props = defineProps({
   demand: { type: Object, required: true },
   stopping: { type: Boolean, default: false },
   notice: { type: String, default: "" },
+  downloadingId: { type: String, default: "" },
 });
 
 const emit = defineEmits(["stop", "edit", "star", "download"]);
-
-function namedFiles(reply) {
-  return [...(reply.images || []), ...(reply.attachments || [])].filter((file) => !file.url);
-}
-
-function linkedFiles(reply) {
-  return (reply.attachments || []).filter((file) => file.url && !file.image);
-}
+const session = useSessionStore();
 
 function shownImages(reply) {
-  return (reply.images || []).filter((file) => file.url);
+  return photoUrls([], reply.images);
 }
 
-function canDownload(reply) {
-  return reply.granted === false && ((reply.images || []).length || (reply.attachments || []).length);
+function pendingImages(reply) {
+  return lockedImages([], reply.images);
+}
+
+function shownAudio(reply) {
+  return packetAudio(reply.audio);
+}
+
+function shownVideos(reply) {
+  return packetVideos(reply.videos);
+}
+
+function shownFile(reply) {
+  return packetFile(reply.attachments);
+}
+
+const confirmingId = ref("");
+
+function hasPacketFiles(reply) {
+  return (reply.images || []).length || (reply.audio || []).length || (reply.attachments || []).length;
+}
+
+function onDownload(reply) {
+  if (props.downloadingId) return;
+  const price = Number(reply.price) || 0;
+  if (price > 0 && reply.granted === false && confirmingId.value !== reply.id) {
+    confirmingId.value = reply.id;
+    return;
+  }
+  emit("download", reply);
 }
 
 function stamp(value) {
@@ -53,7 +79,7 @@ function systemText(reply) {
   if (reply.code === "delivered") return t("buy.systemDelivered", { count: reply.count || 0 });
   if (reply.code === "empty") return t("buy.systemEmpty");
   if (reply.code === "stopped") return t("buy.systemStopped");
-  if (reply.code === "timeout") return t("buy.systemTimeout");
+  if (reply.code === "timeout") return t("buy.systemTimeout", { hours: session.policy.demandTtlHours });
   if (reply.code === "review") return t("buy.systemReview");
   return "";
 }
@@ -97,7 +123,7 @@ function filesOf(item) {
           <EditIcon aria-hidden="true" />
         </AppButton>
       </div>
-      <p v-if="demand.status === 'open'" class="demand-note">{{ t("buy.openHint") }}</p>
+      <p v-if="demand.status === 'open'" class="demand-note">{{ t("buy.openHint", { hours: session.policy.demandTtlHours }) }}</p>
       <p v-if="notice" class="error" role="alert">{{ notice }}</p>
     </header>
 
@@ -116,30 +142,47 @@ function filesOf(item) {
             <span v-if="reply.price != null" :aria-label="t('home.usePrice', { n: reply.price })">{{ reply.price }}</span>
           </p>
           <p v-if="reply.body" class="demand-text">{{ reply.body }}</p>
-          <div v-if="shownImages(reply).length" class="demand-photos">
-            <img v-for="file in shownImages(reply)" :key="file.id" :src="file.url" alt="" class="demand-photo" />
+          <div v-if="shownImages(reply).length" class="information-images" :class="`is-${shownImages(reply).length}`">
+            <img v-for="url in shownImages(reply)" :key="url" :src="url" alt="" class="information-photo" />
           </div>
-          <ul v-if="namedFiles(reply).length || linkedFiles(reply).length" class="demand-files">
-            <li v-for="file in namedFiles(reply)" :key="`name-${file.id}`">
+          <ul v-else-if="pendingImages(reply).length" class="demand-files">
+            <li v-for="(file, index) in pendingImages(reply)" :key="file.id || `${file.name}-${index}`">
               <span class="demand-file">
+                <ImageIcon class="demand-file-icon" aria-hidden="true" />
+                <span>{{ file.name || t("home.image") }}</span>
+              </span>
+            </li>
+          </ul>
+          <div v-if="shownAudio(reply).length" class="information-audio">
+            <template v-for="file in shownAudio(reply)" :key="file.id || file.url || file.name">
+              <audio v-if="file.url" :src="file.url" controls :aria-label="file.name || t('home.audio')" />
+              <span v-else class="demand-file">
+                <AudioIcon class="demand-file-icon" aria-hidden="true" />
+                <span>{{ file.name || t("home.audio") }}</span>
+              </span>
+            </template>
+          </div>
+          <VideoFrame v-if="shownVideos(reply)[0]" :url="shownVideos(reply)[0].url" :poster="shownVideos(reply)[0].poster || ''" />
+          <ul v-if="shownFile(reply).length" class="demand-files">
+            <li v-for="(file, index) in shownFile(reply)" :key="file.id || `${file.name}-${index}`">
+              <a v-if="file.url" class="demand-file" :href="file.url">
+                <PaperclipIcon class="demand-file-icon" aria-hidden="true" />
+                <span>{{ file.name || t("buy.file") }}</span>
+              </a>
+              <span v-else class="demand-file">
                 <PaperclipIcon class="demand-file-icon" aria-hidden="true" />
                 <span>{{ file.name || t("buy.file") }}</span>
               </span>
             </li>
-            <li v-for="file in linkedFiles(reply)" :key="file.id">
-              <a class="demand-file" :href="file.url">
-                <PaperclipIcon class="demand-file-icon" aria-hidden="true" />
-                <span>{{ file.name || t("buy.file") }}</span>
-              </a>
-            </li>
           </ul>
-          <div v-if="reply.starrable || canDownload(reply)" class="post-actions">
+          <div v-if="reply.starrable || hasPacketFiles(reply)" class="post-actions">
             <button
-              v-if="canDownload(reply)"
+              v-if="hasPacketFiles(reply)"
               type="button"
               class="post-action"
+              :disabled="downloadingId === reply.id"
               :aria-label="t('home.download')"
-              @click="emit('download', reply)"
+              @click="onDownload(reply)"
             >
               <DownloadIcon aria-hidden="true" />
               <span>{{ t("home.download") }}</span>
@@ -157,6 +200,7 @@ function filesOf(item) {
               <span>{{ reply.starred ? t("home.starred") : t("home.star") }}</span>
             </button>
           </div>
+          <p v-if="confirmingId === reply.id && reply.granted === false" class="muted card-notice">{{ t("home.downloadPay", { n: reply.price || 0 }) }}</p>
           <p v-if="reply.notice" class="error card-notice" role="alert">{{ reply.notice }}</p>
         </template>
       </div>

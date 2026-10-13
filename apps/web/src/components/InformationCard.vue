@@ -1,8 +1,10 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import AppButton from "./AppButton.vue";
+import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
-import { CloseIcon, DownloadIcon, PaperclipIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { AudioIcon, CloseIcon, DownloadIcon, ImageIcon, LikeIcon, PaperclipIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls } from "../packet.js";
 
 const props = defineProps({
   body: { type: String, default: "" },
@@ -11,30 +13,39 @@ const props = defineProps({
   granted: { type: Boolean, default: true },
   imageUrls: { type: Array, default: () => [] },
   images: { type: Array, default: () => [] },
+  audio: { type: Array, default: () => [] },
+  videos: { type: Array, default: () => [] },
   attachments: { type: Array, default: () => [] },
   authorName: { type: String, default: "" },
   avatarUrl: { type: String, default: "" },
   createdAt: { type: String, default: "" },
   starred: { type: Boolean, default: false },
   canStar: { type: Boolean, default: true },
+  busy: { type: Boolean, default: false },
   notice: { type: String, default: "" },
 });
 
 const emit = defineEmits(["dismiss", "star", "download"]);
 
-const names = computed(() => {
-  const pictures = props.imageUrls.length ? [] : props.images;
-  const files = props.attachments.filter((item) => !item.url || !props.imageUrls.length || !item.image);
-  return [...pictures, ...files.filter((item) => !item.url)];
-});
+const photos = computed(() => photoUrls(props.imageUrls, props.images));
+const pendingImages = computed(() => lockedImages(props.imageUrls, props.images));
+const clips = computed(() => packetAudio(props.audio));
+const links = computed(() => packetVideos(props.videos));
+const files = computed(() => packetFile(props.attachments));
+const hasPacketFiles = computed(() => photos.value.length || pendingImages.value.length || clips.value.length || files.value.length);
+const confirming = ref(false);
 
-const linked = computed(() => props.attachments.filter((item) => item.url && !item.image));
-
-const canDownload = computed(
-  () => props.granted === false && (props.images.length > 0 || props.attachments.length > 0)
-);
+function onDownload() {
+  if (props.busy) return;
+  if (props.price > 0 && !props.granted && !confirming.value) {
+    confirming.value = true;
+    return;
+  }
+  emit("download");
+}
 
 const posted = computed(() => postedLabel(props.createdAt));
+const liked = ref(false);
 
 function postedLabel(value) {
   const then = new Date(value).getTime();
@@ -76,38 +87,60 @@ function postedLabel(value) {
           </p>
         </div>
       </div>
-      <AppButton variant="icon" type="button" :aria-label="t('home.dismiss')" @click="emit('dismiss')">
-        <CloseIcon aria-hidden="true" />
+      <AppButton
+        class="information-dismiss"
+        variant="icon"
+        type="button"
+        :aria-label="t('home.dismiss')"
+        @click="emit('dismiss')"
+      >
+        <CloseIcon class="information-dismiss-icon" aria-hidden="true" />
       </AppButton>
     </header>
     <p v-if="body" class="information-body">{{ body }}</p>
-    <div v-if="imageUrls.length" class="information-images">
-      <img v-for="url in imageUrls" :key="url" :src="url" alt="" class="information-photo" />
+    <div v-if="photos.length" class="information-images" :class="`is-${photos.length}`">
+      <img v-for="url in photos" :key="url" :src="url" alt="" class="information-photo" />
     </div>
-    <ul v-if="names.length || linked.length" class="information-files">
-      <li v-for="file in names" :key="`name-${file.id}`">
+    <ul v-else-if="pendingImages.length" class="information-files">
+      <li v-for="(file, index) in pendingImages" :key="file.id || `${file.name}-${index}`">
         <span class="information-file">
+          <ImageIcon class="information-file-icon" aria-hidden="true" />
+          <span>{{ file.name || t("home.image") }}</span>
+        </span>
+      </li>
+    </ul>
+    <div v-if="clips.length" class="information-audio">
+      <template v-for="file in clips" :key="file.id || file.url || file.name">
+        <audio v-if="file.url" :src="file.url" controls :aria-label="file.name || t('home.audio')" />
+        <span v-else class="information-file">
+          <AudioIcon class="information-file-icon" aria-hidden="true" />
+          <span>{{ file.name || t("home.audio") }}</span>
+        </span>
+      </template>
+    </div>
+    <VideoFrame v-if="links[0]" :url="links[0].url" :poster="links[0].poster || ''" />
+    <ul v-if="files.length" class="information-files">
+      <li v-for="(file, index) in files" :key="file.id || `${file.name}-${index}`">
+        <a v-if="file.url" class="information-file" :href="file.url">
+          <PaperclipIcon class="information-file-icon" aria-hidden="true" />
+          <span>{{ file.name || t("home.file") }}</span>
+        </a>
+        <span v-else class="information-file">
           <PaperclipIcon class="information-file-icon" aria-hidden="true" />
           <span>{{ file.name || t("home.file") }}</span>
         </span>
       </li>
-      <li v-for="file in linked" :key="file.id">
-        <a class="information-file" :href="file.url">
-          <PaperclipIcon class="information-file-icon" aria-hidden="true" />
-          <span>{{ file.name || t("home.file") }}</span>
-        </a>
-      </li>
     </ul>
-    <div v-if="canStar || canDownload" class="post-actions">
+    <div class="post-actions">
       <button
-        v-if="canDownload"
         type="button"
         class="post-action"
-        :aria-label="t('home.download')"
-        @click="emit('download')"
+        :class="{ 'is-on': liked }"
+        :aria-pressed="liked"
+        :aria-label="liked ? t('home.unlike') : t('home.like')"
+        @click="liked = !liked"
       >
-        <DownloadIcon aria-hidden="true" />
-        <span>{{ t("home.download") }}</span>
+        <LikeIcon :filled="liked" aria-hidden="true" />
       </button>
       <button
         v-if="canStar"
@@ -119,9 +152,19 @@ function postedLabel(value) {
         @click="emit('star')"
       >
         <StarIcon :filled="starred" aria-hidden="true" />
-        <span>{{ starred ? t("home.starred") : t("home.star") }}</span>
+      </button>
+      <button
+        v-if="hasPacketFiles"
+        type="button"
+        class="post-action"
+        :disabled="busy"
+        :aria-label="t('home.download')"
+        @click="onDownload"
+      >
+        <DownloadIcon aria-hidden="true" />
       </button>
     </div>
+    <p v-if="confirming && !granted" class="muted card-notice">{{ t("home.downloadPay", { n: price }) }}</p>
     <p v-if="notice" class="error card-notice" role="alert">{{ notice }}</p>
   </article>
 </template>

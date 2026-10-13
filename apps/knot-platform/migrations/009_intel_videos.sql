@@ -1,0 +1,1 @@
+ALTER TABLE intel ADD COLUMN videos JSONB NOT NULL DEFAULT '[]'::jsonb;

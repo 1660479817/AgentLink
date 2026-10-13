@@ -8,6 +8,7 @@ import { expireDemands } from "./market.js";
 import { loadBootstrapConfig } from "./config.js";
 import { getPool } from "./db.js";
 import { createSessionMiddleware } from "./middleware/session.js";
+import { adminRouter } from "./routes/admin.js";
 import { webRouter } from "./routes/web.js";
 import { agentRouter } from "./routes/agent.js";
 
@@ -54,6 +55,7 @@ app.use(
   })
 );
 app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir }));
+app.use("/api/admin", adminRouter({ pool, token: process.env.KNOT_ADMIN_TOKEN || "" }));
 
 if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
   const dir = path.resolve(bootstrap.staticWebDir);

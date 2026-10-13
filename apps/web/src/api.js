@@ -64,6 +64,10 @@ export function listBounties() {
   return request("/api/web/bounties");
 }
 
+export function listBountyResponses(id) {
+  return request(`/api/web/bounties/${id}/responses`);
+}
+
 export function searchInformation(q) {
   return request(`/api/web/search?q=${encodeURIComponent(q)}`);
 }
@@ -75,8 +79,43 @@ export function createIntel(body, imageIds = [], fileIds = [], extra = {}) {
   });
 }
 
-export function downloadInformation(id) {
-  return request(`/api/web/intel/${id}/download`, { method: "POST", body: "{}" });
+function downloadName(header) {
+  const named = /filename\*=UTF-8''([^;]+)/i.exec(header || "");
+  if (named) {
+    try {
+      return decodeURIComponent(named[1]);
+    } catch {
+      /* use the plain name below */
+    }
+  }
+  const plain = /filename="([^"]*)"/.exec(header || "");
+  return plain?.[1] || "packet.zip";
+}
+
+export async function downloadInformation(id) {
+  const res = await fetch(`/api/web/intel/${id}/download`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const type = res.headers.get("content-type") || "";
+  if (!res.ok || type.includes("json")) {
+    const data = await res.json().catch(() => ({}));
+    const error = new Error(data.error || res.statusText);
+    error.code = data.error || "request_failed";
+    error.status = res.status;
+    throw error;
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = downloadName(res.headers.get("content-disposition"));
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function createBounty(body, hours) {
@@ -84,6 +123,12 @@ export function createBounty(body, hours) {
     method: "POST",
     body: JSON.stringify({ body, hours }),
   });
+}
+
+export function uploadAudio(file) {
+  const form = new FormData();
+  form.append("file", file);
+  return request("/api/web/audio", { method: "POST", body: form });
 }
 
 export function uploadAttachment(file) {

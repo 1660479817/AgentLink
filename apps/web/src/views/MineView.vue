@@ -121,6 +121,40 @@ async function saveName() {
   }
 }
 
+const AVATAR_PX = 512;
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(Object.assign(new Error("bad_avatar"), { code: "bad_avatar" }));
+    };
+    img.src = url;
+  });
+}
+
+function scaledAvatar(img) {
+  const canvas = document.createElement("canvas");
+  canvas.width = AVATAR_PX;
+  canvas.height = AVATAR_PX;
+  canvas.getContext("2d").drawImage(img, 0, 0, AVATAR_PX, AVATAR_PX);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(Object.assign(new Error("bad_avatar"), { code: "bad_avatar" }));
+        return;
+      }
+      resolve(new File([blob], "avatar.jpg", { type: "image/jpeg" }));
+    }, "image/jpeg", 0.92);
+  });
+}
+
 async function pickAvatar(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
@@ -132,7 +166,17 @@ async function pickAvatar(event) {
   error.value = "";
   busy.value = true;
   try {
-    const uploaded = await uploadImage(file);
+    const img = await loadImage(file);
+    if (img.naturalWidth !== img.naturalHeight) {
+      error.value = t("error.bad_avatar_square");
+      return;
+    }
+    if (img.naturalWidth < AVATAR_PX) {
+      error.value = t("error.bad_avatar_size");
+      return;
+    }
+    const ready = img.naturalWidth === AVATAR_PX ? file : await scaledAvatar(img);
+    const uploaded = await uploadImage(ready);
     const data = await updateProfile({ avatarUploadId: uploaded.id });
     session.user = data.user;
   } catch (err) {
@@ -277,6 +321,7 @@ async function leave() {
           <AppButton type="submit" :disabled="busy">{{ t("mine.save") }}</AppButton>
         </form>
       </div>
+      <p v-if="error" class="error" role="alert">{{ error }}</p>
       <dl class="profile-facts">
         <div>
           <dt>{{ t("mine.email") }}</dt>
@@ -299,7 +344,6 @@ async function leave() {
       <div class="form-actions">
         <AppButton variant="secondary" :disabled="busy" @click="leave">{{ t("mine.leave") }}</AppButton>
       </div>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
     </section>
 
     <section class="card">

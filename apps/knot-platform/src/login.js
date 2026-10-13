@@ -4,6 +4,10 @@ import { feeConfig } from "./points.js";
 
 const KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DEFAULT_ADMIN_EMAIL = "manwjh@gmail.com";
+const FEEDBACK_LABEL = { suggestion: "建议", complaint: "投诉" };
+
+export const FEEDBACK_MAX = 2000;
 
 export function normalizeEmail(value) {
   const email = String(value || "").trim().toLowerCase();
@@ -94,6 +98,38 @@ export async function redeemLoginKey(pool, email, key) {
     [email, feeConfig().signupGrant]
   );
   return { userId: saved.rows[0].id, pointsBalance: saved.rows[0].points_balance };
+}
+
+export function adminEmail() {
+  const raw = process.env.KNOT_ADMIN_EMAIL;
+  const email = normalizeEmail(raw == null || String(raw).trim() === "" ? DEFAULT_ADMIN_EMAIL : raw);
+  return email;
+}
+
+export function feedbackMessage({ kind, accountEmail, userId, body }) {
+  const label = FEEDBACK_LABEL[kind];
+  return {
+    subject: `Knot ${label}`,
+    text: `类型：${label}\n账户：${accountEmail}\n用户：${userId}\n\n${body}\n`,
+  };
+}
+
+export async function sendFeedback({ kind, accountEmail, userId, body }) {
+  const to = adminEmail();
+  const mail = mailTransport();
+  if (!mail || !to || !FEEDBACK_LABEL[kind]) {
+    const error = new Error("mail_unavailable");
+    error.code = "mail_unavailable";
+    throw error;
+  }
+  const message = feedbackMessage({ kind, accountEmail, userId, body });
+  await mail.transport.sendMail({
+    from: mail.from,
+    to,
+    replyTo: accountEmail,
+    subject: message.subject,
+    text: message.text,
+  });
 }
 
 export async function sendLoginKey(email, key) {

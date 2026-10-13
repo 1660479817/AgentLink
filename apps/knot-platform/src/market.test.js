@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { compareByWeight, pickCitations, presentDemand } from "./market.js";
-import { packetPrice } from "./points.js";
+import { packetPrice, policyConfig } from "./points.js";
 
 const WHEN = "2026-10-12T02:00:00.000Z";
 
@@ -89,6 +89,26 @@ test("a cited card keeps its star", () => {
   assert.equal(card.id, "intel-1");
 });
 
+test("a card with only a video link is still returned", () => {
+  const presented = presentDemand(
+    demand({
+      deliveries: [
+        {
+          id: "delivery-1",
+          body: "",
+          citationCount: 1,
+          cost: 1,
+          createdAt: WHEN,
+          cards: [{ id: "intel-1", body: "", images: [], videos: [{ url: "https://example.com/watch" }], attachments: [] }],
+        },
+      ],
+    })
+  );
+  const card = presented.replies.find((reply) => reply.kind === "delivery");
+  assert.equal(card.id, "intel-1");
+  assert.deepEqual(card.videos, [{ url: "https://example.com/watch" }]);
+});
+
 test("feed order is weight, then newer", () => {
   const rows = [
     { weight: 1, created_at: "2026-10-12T00:00:00.000Z", id: "older" },
@@ -104,10 +124,45 @@ test("text packets are free and a blank attachment price uses the default", () =
   assert.equal(packetPrice(1, null), 10);
   assert.equal(packetPrice(2, 0), 0);
   assert.equal(packetPrice(2, 8), 8);
+  assert.equal(packetPrice(1, 100), 100);
+  assert.throws(() => packetPrice(1, 101), (error) => error.code === "bad_price");
+  assert.throws(() => packetPrice(1, 1.5), (error) => error.code === "bad_price");
 });
 
 test("citation ids match inventory regardless of case", () => {
   const id = "23737bf5-537f-441f-bc86-bf230d1cf9ed";
   const chosen = pickCitations([id.toUpperCase()], [{ id, text: "一条情报" }], 10);
   assert.deepEqual(chosen, [{ id, text: "一条情报" }]);
+});
+
+test("policy limits default to the initial platform values", () => {
+  const keys = [
+    "KNOT_DEMAND_TTL_HOURS",
+    "KNOT_MATCH_LIMIT",
+    "KNOT_BOUNTY_MAX_HOURS",
+    "KNOT_DEFAULT_PRICE",
+    "KNOT_PRICE_MIN",
+    "KNOT_PRICE_MAX",
+    "KNOT_LISTING_FEE",
+    "KNOT_COMPLETION_FEE",
+  ];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  try {
+    assert.deepEqual(policyConfig(), {
+      demandTtlHours: 24,
+      matchLimit: 10,
+      bountyMaxHours: 72,
+      defaultPrice: 10,
+      priceMin: 0,
+      priceMax: 100,
+      listingFee: 1,
+      completionFee: 1,
+    });
+  } finally {
+    for (const key of keys) {
+      if (previous[key] == null) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
 });

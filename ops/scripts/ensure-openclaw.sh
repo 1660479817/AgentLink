@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 按仓库 ops/openclaw 同步 bot01 上的 OpenClaw 员工、提示词和技能名单。
 # OPENCLAW_ENABLE_PROCESS=1 时让 Knot Backend 拉起 knot-intel、knot-brief 与 knot-demand。
+# 管理员 knot-admin 不由 Backend 按数据包拉起。脚本给它写本机令牌，并登记每天 09:00 的巡查。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -76,6 +77,43 @@ fi
 openclaw gateway health --port "$PORT"
 openclaw agents list
 
+ensure_admin_token() {
+  if ! grep -E -q '^KNOT_ADMIN_TOKEN=.+' "$ENV_FILE"; then
+    printf 'KNOT_ADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" >>"$ENV_FILE"
+  fi
+  local token dest
+  token="$(grep '^KNOT_ADMIN_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
+  dest="$STATE_DIR/workspace-knot-admin/.admin-token"
+  printf '%s\n' "$token" >"$dest"
+  chmod 600 "$dest"
+  echo "==> 管理员令牌已写入工作区"
+}
+
+ensure_admin_cron() {
+  local list
+  list="$(openclaw cron list --all 2>/dev/null || openclaw cron list 2>/dev/null || true)"
+  if printf '%s\n' "$list" | grep -q 'knot-admin-patrol'; then
+    echo "==> cron knot-admin-patrol already registered"
+    return 0
+  fi
+  echo "==> add cron knot-admin-patrol"
+  openclaw cron add "0 9 * * *" \
+    "执行每日巡查。读工作区的 AGENTS.md、ORDERS.md 和技能 knot-admin。只处理本机管理接口给出的新帖。违法、欺诈、隐私或骚扰，以及 ORDERS.md 写明的对象，才删除并警告。拿不准的不要动。巡查结束把记录交给管理接口。" \
+    --name "knot-admin-patrol" \
+    --tz "Asia/Shanghai" \
+    --session isolated \
+    --agent knot-admin \
+    --no-deliver \
+    --timeout-seconds 300
+}
+
+if [[ -f "$ENV_FILE" ]]; then
+  ensure_admin_token
+else
+  echo "没有 $ENV_FILE，管理员令牌这次不写。"
+fi
+ensure_admin_cron
+
 if [[ "${OPENCLAW_ENABLE_PROCESS:-}" != 1 ]]; then
   echo "员工已按 ops/openclaw 同步。Knot Backend 尚未切换。"
   echo "确认 Process 能跑通后执行：OPENCLAW_ENABLE_PROCESS=1 ./ops/scripts/ensure-openclaw.sh"
@@ -101,4 +139,4 @@ ensure_line OPENCLAW_PROCESS_TIMEOUT 90
 ensure_line OPENCLAW_AGENT_TIMEOUT 45
 uid="$(id -u)"
 launchctl kickstart -k "gui/$uid/com.knot.platform" 2>/dev/null || true
-echo "OK: Knot Backend 拉起 knot-intel、knot-brief、knot-demand"
+echo "OK: Knot Backend 拉起 knot-intel、knot-brief、knot-demand。管理员 knot-admin 接受指令，并在每天 09:00 巡查。"

@@ -9,7 +9,18 @@ import { useNotificationStore } from "../stores/notifications";
 import { useSessionStore } from "../stores/session";
 
 const MAX_BYTES = 5 * 1024 * 1024;
-const MAX_FILES = 5;
+const MAX_IMAGES = 4;
+const MAX_FILES = 1;
+const VIDEO_FILE = /^video\/|\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg|3gp|wmv|flv|ogv)$/i;
+const AUDIO_FILE = /^audio\/|\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$/i;
+
+function isVideoFile(file) {
+  return VIDEO_FILE.test(`${file?.type || ""} ${file?.name || ""}`);
+}
+
+function isAudioFile(file) {
+  return AUDIO_FILE.test(`${file?.type || ""} ${file?.name || ""}`);
+}
 
 const session = useSessionStore();
 const notifications = useNotificationStore();
@@ -23,6 +34,7 @@ const imageInput = ref(null);
 const fileInput = ref(null);
 const editing = ref(false);
 const stoppingId = ref("");
+const downloadingId = ref("");
 const stopNotice = ref("");
 const stopNoticeId = ref("");
 
@@ -30,17 +42,21 @@ onMounted(load);
 onUnmounted(clearPending);
 
 async function downloadReply(reply) {
+  if (downloadingId.value) return;
   reply.notice = "";
+  downloadingId.value = reply.id;
   try {
-    const data = await downloadInformation(reply.id);
-    const intel = data.intel;
-    reply.images = intel.images || [];
-    reply.attachments = intel.attachments || [];
-    reply.granted = true;
+    await downloadInformation(reply.id);
+    const data = await listDemands();
+    const next = (data.demands || []).flatMap((item) => item.replies || []).find((row) => row.id === reply.id);
+    if (next) Object.assign(reply, next, { notice: "" });
+    else reply.granted = true;
     await session.load();
   } catch (err) {
     const key = `error.${err.code}`;
     reply.notice = t(key) === key ? t("error.request_failed") : t(key);
+  } finally {
+    downloadingId.value = "";
   }
 }
 
@@ -68,12 +84,22 @@ function addFiles(list) {
   error.value = "";
   const next = [...pending.value];
   for (const file of list) {
-    if (next.length >= MAX_FILES) break;
+    if (isVideoFile(file)) {
+      error.value = t("error.bad_video");
+      continue;
+    }
+    if (isAudioFile(file)) {
+      error.value = t("error.bad_audio");
+      continue;
+    }
     if (file.size > MAX_BYTES) {
       error.value = t("error.file_too_large");
       continue;
     }
     const image = String(file.type || "").startsWith("image/");
+    const images = next.filter((item) => item.image).length;
+    const files = next.length - images;
+    if (image ? images >= MAX_IMAGES : files >= MAX_FILES) continue;
     next.push({
       file,
       name: file.name,
@@ -105,6 +131,20 @@ function beginEdit(demand) {
     image: Boolean(file.image || file.mime?.startsWith("image/")),
     preview: file.image || file.mime?.startsWith("image/") ? file.url : "",
   }));
+  const kept = [];
+  let images = 0;
+  let files = 0;
+  for (const item of pending.value) {
+    if (item.image) {
+      if (images >= MAX_IMAGES) continue;
+      images += 1;
+    } else {
+      if (files >= MAX_FILES) continue;
+      files += 1;
+    }
+    kept.push(item);
+  }
+  pending.value = kept;
   editing.value = true;
   error.value = "";
   document.getElementById("chat-text")?.focus();
@@ -226,6 +266,7 @@ async function submit() {
     :demand="item"
     :stopping="stoppingId === item.id"
     :notice="stopNoticeId === item.id ? stopNotice : ''"
+    :downloading-id="downloadingId"
     @stop="stop(item)"
     @edit="beginEdit(item)"
     @star="toggleStar"

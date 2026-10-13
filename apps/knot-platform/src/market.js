@@ -9,24 +9,45 @@ import {
 } from "./agents/openclaw.js";
 import { tryFinishBounty } from "./bounties.js";
 import { loadBootstrapConfig } from "./config.js";
-import { fileView, informationOf, listedFiles } from "./information.js";
+import {
+  fileView,
+  informationOf,
+  isAudioUpload,
+  isVideoUpload,
+  listedFiles,
+  MAX_AUDIO,
+  MAX_FILES,
+  MAX_IMAGES,
+  publicOf,
+  videosOf,
+} from "./information.js";
+import { postersFor } from "./videoPoster.js";
 import { recordNotification } from "./notifications.js";
-import { applyPoints, feeConfig, getBalance, packetPrice, PLATFORM_USER_ID } from "./points.js";
+import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
+import { applyPoints, feeConfig, getBalance, packetPrice, PLATFORM_USER_ID, policyConfig } from "./points.js";
 import { scoreText } from "./search.js";
 import { storagePath } from "./uploads.js";
 
 const POOL_LIMIT = 200;
-const DEFAULT_LIMIT = 10;
 
 function clampLimit(value) {
+  const max = policyConfig().matchLimit;
   const n = Number(value);
-  if (!Number.isInteger(n) || n < 1) return DEFAULT_LIMIT;
-  return Math.min(DEFAULT_LIMIT, n);
+  if (!Number.isInteger(n) || n < 1) return max;
+  return Math.min(max, n);
+}
+
+function videoText(videos) {
+  if (!Array.isArray(videos)) return "";
+  return videos
+    .map((item) => (typeof item === "string" ? item : item?.url))
+    .filter((url) => typeof url === "string" && url)
+    .join(" ");
 }
 
 function intelText(row) {
   const note = row.detail && typeof row.detail.note === "string" ? row.detail.note : "";
-  return `${row.body || ""} ${note}`.trim();
+  return `${row.body || ""} ${note} ${videoText(row.videos)}`.trim();
 }
 
 function composeFile(_brief, items) {
@@ -42,7 +63,7 @@ async function imageFiles(pool, intelId) {
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = $1 AND u.mime LIKE 'image/%'
      ORDER BY f.sort_order ASC, f.upload_id ASC
-     LIMIT 3`,
+     LIMIT 4`,
     [intelId]
   );
   const files = [];
@@ -58,13 +79,20 @@ export function presentIntel(row) {
   if (!row) return null;
   return {
     id: row.id,
-    ...informationOf({ body: row.body, files: listedFiles(row.files || [], row.granted !== false) }),
+    ...informationOf({
+      body: row.body,
+      files: listedFiles(row.files || [], row.granted !== false),
+      videos: row.videos,
+    }),
     category: row.category || "",
     price: Number(row.price) || 0,
     verdict: row.verdict,
     rejectReason: row.reject_reason,
     granted: row.granted !== false,
+    public: row.is_public !== false,
+    ...(row.bounty_id ? { bountyId: row.bounty_id } : {}),
     createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
   };
 }
 
@@ -99,7 +127,9 @@ export function presentDemand(row) {
 function repliesOf(row, deliveries) {
   const replies = [];
   for (const delivery of deliveries) {
-    const cards = (delivery.cards || []).filter((card) => card.body || card.images?.length || card.attachments?.length);
+    const cards = (delivery.cards || []).filter(
+      (card) => card.body || card.images?.length || card.audio?.length || card.videos?.length || card.attachments?.length
+    );
     if (cards.length) {
       for (const card of cards) {
         replies.push({
@@ -111,7 +141,11 @@ function repliesOf(row, deliveries) {
           price: Number(card.price) || 0,
           granted: card.granted !== false,
           images: card.images || [],
+          audio: card.audio || [],
+          videos: card.videos || [],
           attachments: card.attachments || [],
+          public: card.public !== false,
+          updatedAt: card.updatedAt || null,
           starred: Boolean(card.starred),
           starrable: true,
         });
@@ -126,6 +160,8 @@ function repliesOf(row, deliveries) {
         createdAt: delivery.createdAt,
         body: text,
         images: [],
+        audio: [],
+        videos: [],
         attachments: [],
       });
     }
@@ -218,7 +254,7 @@ async function loadDeliveries(pool, ids, userId = null) {
   let citations = [];
   if (deliveryIds.length) {
     const cited = await pool.query(
-      `SELECT c.delivery_id, i.id, i.body, i.price, i.category, i.user_id,
+      `SELECT c.delivery_id, i.id, i.body, i.videos, i.price, i.category, i.user_id, i.is_public, i.updated_at,
          ($2::uuid IS NOT NULL AND (
            i.user_id = $2 OR EXISTS (
              SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $2
@@ -247,9 +283,15 @@ async function loadDeliveries(pool, ids, userId = null) {
     const granted = Boolean(row.granted);
     list.push({
       id: row.id,
-      ...informationOf({ body: row.body, files: listedFiles(files.get(row.id) || [], granted) }),
+      ...informationOf({
+        body: row.body,
+        files: listedFiles(files.get(row.id) || [], granted),
+        videos: row.videos,
+      }),
       category: row.category || "",
       price: Number(row.price) || 0,
+      public: row.is_public !== false,
+      updatedAt: row.updated_at,
       granted,
       starred: starred.has(row.id),
     });
@@ -272,7 +314,7 @@ async function loadDeliveries(pool, ids, userId = null) {
 
 async function loadIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, body, verdict, detail, bounty_id FROM intel WHERE id = $1`,
+    `SELECT id, user_id, body, videos, verdict, detail, bounty_id FROM intel WHERE id = $1`,
     [id]
   );
   return rows[0] || null;
@@ -280,7 +322,7 @@ async function loadIntel(pool, id) {
 
 async function loadPresentedIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, body, verdict, reject_reason, category, price, created_at FROM intel WHERE id = $1`,
+    `SELECT id, user_id, body, videos, verdict, reject_reason, category, price, is_public, created_at, updated_at FROM intel WHERE id = $1`,
     [id]
   );
   if (!rows[0]) return null;
@@ -320,14 +362,28 @@ export async function judgeIntel(pool, id) {
       [id, result.category || "", JSON.stringify({ note: result.note || "" })]
     );
     if (rows.length) {
+      const bountyReply = Boolean(intel.bounty_id);
       await recordNotification(pool, {
         userId: intel.user_id,
         kind: "intel_passed",
-        title: "已留下",
+        title: bountyReply ? "回应已交给发起人" : "已留下",
         body: result.category || "",
         href: "/mine/submissions",
       });
-      if (intel.bounty_id) await tryFinishBounty(pool, intel.bounty_id, id);
+      if (intel.bounty_id) {
+        await tryFinishBounty(pool, intel.bounty_id, id);
+        const owner = await pool.query(`SELECT user_id FROM bounties WHERE id = $1`, [intel.bounty_id]);
+        const ownerId = owner.rows[0]?.user_id;
+        if (ownerId && ownerId !== intel.user_id) {
+          await recordNotification(pool, {
+            userId: ownerId,
+            kind: "bounty_response",
+            title: "有一条悬赏回应",
+            body: "",
+            href: `/?bounty=${intel.bounty_id}`,
+          });
+        }
+      }
     }
   }
   return loadPresentedIntel(pool, id);
@@ -337,7 +393,7 @@ async function assertOpenBounty(pool, bountyId) {
   if (!bountyId) return;
   const { rows } = await pool.query(
     `SELECT id FROM bounties
-     WHERE id = $1 AND status = 'open' AND hours BETWEEN 1 AND 72
+     WHERE id = $1 AND status = 'open' AND hours >= 1
        AND created_at > now() - make_interval(hours => hours)`,
     [bountyId]
   );
@@ -348,12 +404,16 @@ async function assertOpenBounty(pool, bountyId) {
   }
 }
 
-export async function createIntel(pool, { userId, actor, door, body, imageIds = [], fileIds = [], price, bountyId = null }) {
+export async function createIntel(pool, { userId, actor, door, body, imageIds = [], audioIds = [], fileIds = [], videos = [], isPublic = true, price, bountyId = null }) {
+  if (imageIds.length || audioIds.length || fileIds.length) packetPrice(1, price);
+  const links = await postersFor(videosOf(videos));
   await assertOpenBounty(pool, bountyId);
-  const uploadIds = [...new Set([...imageIds, ...fileIds])];
+  const listed = bountyId ? false : publicOf(isPublic);
+  const uploadIds = [...new Set([...imageIds.slice(0, MAX_IMAGES), ...audioIds.slice(0, MAX_AUDIO), ...fileIds.slice(0, MAX_FILES)])];
   const inserted = await pool.query(
-    `INSERT INTO intel (user_id, actor, door, body, bounty_id) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [userId, actor, door, body, bountyId]
+    `INSERT INTO intel (user_id, actor, door, body, bounty_id, videos, is_public)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7) RETURNING id`,
+    [userId, actor, door, body, bountyId, JSON.stringify(links), listed]
   );
   const intelId = inserted.rows[0].id;
   let owned = [];
@@ -386,7 +446,7 @@ export async function createIntel(pool, { userId, actor, door, body, imageIds = 
 }
 
 const PUBLIC_INTEL_SQL = `
-  SELECT i.id, i.body, i.detail, i.weight, i.price, i.category, i.user_id, i.created_at,
+  SELECT i.id, i.body, i.videos, i.detail, i.weight, i.price, i.category, i.user_id, i.is_public, i.created_at, i.updated_at,
     u.display_name, u.avatar_upload_id,
     EXISTS (
       SELECT 1 FROM intel_stars s
@@ -400,6 +460,8 @@ const PUBLIC_INTEL_SQL = `
   FROM intel i
   JOIN users u ON u.id = i.user_id
   WHERE i.verdict = 'passed'
+    AND i.is_public
+    AND i.bounty_id IS NULL
     AND ($1::uuid IS NULL OR NOT EXISTS (
       SELECT 1 FROM intel_dismissals d
       WHERE d.intel_id = i.id AND d.user_id = $1
@@ -437,7 +499,7 @@ export async function setIntelStar(pool, userId, intelId, starred) {
   try {
     await client.query("BEGIN");
     const found = await client.query(
-      `SELECT id FROM intel WHERE id = $1 AND verdict = 'passed' FOR UPDATE`,
+      `SELECT id FROM intel WHERE id = $1 AND verdict = 'passed' AND is_public FOR UPDATE`,
       [intelId]
     );
     if (!found.rows.length) {
@@ -471,9 +533,11 @@ export async function setIntelStar(pool, userId, intelId, starred) {
 
 async function candidates(pool) {
   const { rows } = await pool.query(
-    `SELECT i.id, i.body, i.detail, i.weight
+    `SELECT i.id, i.body, i.videos, i.detail, i.weight
      FROM intel i
      WHERE i.verdict = 'passed'
+       AND i.is_public
+       AND i.bounty_id IS NULL
        AND EXISTS (SELECT 1 FROM intel_files f WHERE f.intel_id = i.id)
      ORDER BY i.weight DESC, i.created_at DESC
      LIMIT $1`,
@@ -533,19 +597,34 @@ async function reviewDemand(pool, demandId, userId, brief) {
 async function attachDemandFiles(pool, demandId, userId, fileIds) {
   if (!fileIds.length) return "";
   const { rows: owned } = await pool.query(
-    `SELECT id, original_name FROM uploads WHERE user_id = $1 AND id = ANY($2::uuid[])`,
+    `SELECT id, original_name, mime FROM uploads WHERE user_id = $1 AND id = ANY($2::uuid[])`,
     [userId, fileIds]
   );
   const order = new Map(fileIds.map((id, index) => [id, index]));
   owned.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-  for (let i = 0; i < owned.length; i += 1) {
+  const kept = [];
+  let images = 0;
+  let files = 0;
+  for (const row of owned) {
+    const upload = { mime: row.mime, originalname: row.original_name };
+    if (isAudioUpload(upload) || isVideoUpload(upload)) continue;
+    if (String(row.mime || "").startsWith("image/")) {
+      if (images >= MAX_IMAGES) continue;
+      images += 1;
+    } else {
+      if (files >= MAX_FILES) continue;
+      files += 1;
+    }
+    kept.push(row);
+  }
+  for (let i = 0; i < kept.length; i += 1) {
     await pool.query(`INSERT INTO demand_files (demand_id, upload_id, sort_order) VALUES ($1, $2, $3)`, [
       demandId,
-      owned[i].id,
+      kept[i].id,
       i,
     ]);
   }
-  return owned
+  return kept
     .map((row) => row.original_name)
     .filter(Boolean)
     .join(" ");
@@ -673,44 +752,114 @@ async function fulfillDemand(pool, demandId) {
   });
 }
 
-export async function downloadPacket(pool, userId, intelId) {
+async function loadDownloadIntel(db, intelId, lock) {
+  const { rows } = await db.query(
+    `SELECT i.id, i.user_id, i.body, i.videos, i.category, i.price, i.is_public, i.bounty_id, i.created_at, u.display_name
+     FROM intel i
+     JOIN users u ON u.id = i.user_id
+     WHERE i.id = $1 AND i.verdict = 'passed'
+     ${lock ? "FOR UPDATE OF i" : ""}`,
+    [intelId]
+  );
+  return rows[0] || null;
+}
+
+async function assertCanDownload(db, intel, userId) {
+  if (intel.is_public || intel.user_id === userId) return;
+  if (!intel.bounty_id) {
+    const error = new Error("not_found");
+    error.code = "not_found";
+    throw error;
+  }
+  const bounty = await db.query(`SELECT 1 FROM bounties WHERE id = $1 AND user_id = $2`, [intel.bounty_id, userId]);
+  if (!bounty.rows.length) {
+    const error = new Error("not_found");
+    error.code = "not_found";
+    throw error;
+  }
+}
+
+async function chargeDownload(client, intel, userId) {
+  if (intel.user_id === userId) return;
+  const prior = await client.query(
+    `SELECT 1 FROM packet_downloads WHERE user_id = $1 AND intel_id = $2`,
+    [userId, intel.id]
+  );
+  if (!prior.rows.length && intel.price > 0) {
+    await applyPoints(client, {
+      userId,
+      delta: -intel.price,
+      reason: "download",
+      refId: intel.id,
+    });
+    await applyPoints(client, {
+      userId: intel.user_id,
+      delta: intel.price,
+      reason: "download",
+      refId: intel.id,
+    });
+  }
+  await client.query(
+    `INSERT INTO packet_downloads (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [userId, intel.id]
+  );
+}
+
+export async function downloadPacket(pool, userId, intelId, uploadDir, { zip = false } = {}) {
+  const intel = await loadDownloadIntel(pool, intelId, false);
+  if (!intel) {
+    const error = new Error("not_found");
+    error.code = "not_found";
+    throw error;
+  }
+  await assertCanDownload(pool, intel, userId);
+  const { rows: fileRows } = await pool.query(
+    `SELECT u.mime, u.original_name, u.storage_name
+     FROM intel_files f
+     JOIN uploads u ON u.id = f.upload_id
+     WHERE f.intel_id = $1
+     ORDER BY f.sort_order ASC, f.upload_id ASC`,
+    [intelId]
+  );
+  const sources = archiveSources(fileRows);
+  if (zip && !sources.length) {
+    const error = new Error("nothing_to_download");
+    error.code = "nothing_to_download";
+    throw error;
+  }
+  let zipPath = "";
+  if (sources.length) {
+    if (!uploadDir) {
+      const error = new Error("packet_unavailable");
+      error.code = "packet_unavailable";
+      throw error;
+    }
+    zipPath = await ensurePacketZip(
+      uploadDir,
+      intel.id,
+      packetReadme({
+        category: intel.category,
+        price: intel.price,
+        author: intel.display_name,
+        createdAt: intel.created_at,
+        videos: intel.videos,
+        body: intel.body,
+        files: sources,
+      }),
+      sources
+    );
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query(
-      `SELECT id, user_id, price FROM intel WHERE id = $1 AND verdict = 'passed' FOR UPDATE`,
-      [intelId]
-    );
-    const intel = rows[0];
-    if (!intel) {
+    const locked = await loadDownloadIntel(client, intelId, true);
+    if (!locked) {
       const error = new Error("not_found");
       error.code = "not_found";
       throw error;
     }
-    if (intel.user_id !== userId) {
-      const prior = await client.query(
-        `SELECT 1 FROM packet_downloads WHERE user_id = $1 AND intel_id = $2`,
-        [userId, intelId]
-      );
-      if (!prior.rows.length && intel.price > 0) {
-        await applyPoints(client, {
-          userId,
-          delta: -intel.price,
-          reason: "download",
-          refId: intelId,
-        });
-        await applyPoints(client, {
-          userId: intel.user_id,
-          delta: intel.price,
-          reason: "download",
-          refId: intelId,
-        });
-      }
-      await client.query(
-        `INSERT INTO packet_downloads (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [userId, intelId]
-      );
-    }
+    await assertCanDownload(client, locked, userId);
+    await chargeDownload(client, locked, userId);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -719,7 +868,11 @@ export async function downloadPacket(pool, userId, intelId) {
   } finally {
     client.release();
   }
-  return loadPresentedIntel(pool, intelId);
+  return {
+    intel: await loadPresentedIntel(pool, intelId),
+    zipPath,
+    downloadName: packetDownloadName(intel.body),
+  };
 }
 
 const DEMAND_SQL = `
@@ -727,14 +880,12 @@ const DEMAND_SQL = `
   FROM demands d
 `;
 
-const DEMAND_TTL = "24 hours";
-
 export async function expireDemands(pool) {
   await pool.query(
     `UPDATE demands
      SET status = 'stopped', stopped_at = now(), stop_reason = 'timeout'
-     WHERE status = 'open' AND created_at <= now() - $1::interval`,
-    [DEMAND_TTL]
+     WHERE status = 'open' AND created_at <= now() - make_interval(hours => $1::int)`,
+    [policyConfig().demandTtlHours]
   );
 }
 

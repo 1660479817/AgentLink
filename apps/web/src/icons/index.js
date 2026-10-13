@@ -26,6 +26,14 @@ export const UserIcon = knotIcon([
   h("circle", { cx: 12, cy: 8, r: 3.5 }),
   h("path", { d: "M5 19c0-3.5 3-6 7-6s7 2.5 7 6" }),
 ]);
+export const HeaderUserIcon = knotIcon([
+  h("circle", { cx: 12, cy: 8.2, r: 3.15, fill: "currentColor", stroke: "none" }),
+  h("path", {
+    d: "M6.4 19.4c.4-3.3 2.6-5.2 5.6-5.2s5.2 1.9 5.6 5.2H6.4Z",
+    fill: "currentColor",
+    stroke: "none",
+  }),
+]);
 export const ChatIcon = knotIcon([
   h("path", { d: "M5 6h14a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2H10l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" }),
 ]);
@@ -64,6 +72,20 @@ export const CameraIcon = knotIcon([
   h("path", { d: "M5 8h2.5l1.2-1.5H15l1.2 1.5H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" }),
   h("circle", { cx: 12, cy: 13, r: 3.25 }),
 ]);
+export const ImageIcon = knotIcon([
+  h("rect", { x: 4, y: 5, width: 16, height: 14, rx: 2 }),
+  h("circle", { cx: 9, cy: 10, r: 1.5 }),
+  h("path", { d: "m4.5 15.5 4.2-3.4 3.6 3 2.2-1.8 5 3.7" }),
+]);
+export const VideoIcon = knotIcon([
+  h("rect", { x: 3.5, y: 6, width: 17, height: 12, rx: 2 }),
+  h("path", { d: "m10 9.5 5 2.5-5 2.5V9.5Z" }),
+]);
+export const AudioIcon = knotIcon([
+  h("path", { d: "M4 10v4h3l4 3V7L7 10H4Z" }),
+  h("path", { d: "M16 9.5a3.5 3.5 0 0 1 0 5" }),
+  h("path", { d: "M18.5 7a7 7 0 0 1 0 10" }),
+]);
 export const ComposeIcon = knotIcon([
   h("path", { d: "M5 7h14M5 12h14M5 17h9" }),
 ]);
@@ -79,6 +101,36 @@ export const RefreshIcon = knotIcon([
   h("path", { d: "M4 12a8 8 0 0 0 8 8 8.7 8.7 0 0 0 6-2.5L20 16" }),
   h("path", { d: "M16 16h4v4" }),
 ]);
+export const LikeIcon = (props, { attrs }) => {
+  const filled = props.filled === true || props.filled === "";
+  const rest = { ...attrs };
+  delete rest.filled;
+  return h(
+    "svg",
+    {
+      xmlns: "http://www.w3.org/2000/svg",
+      viewBox: "0 0 24 24",
+      width: "1em",
+      height: "1em",
+      fill: filled ? "currentColor" : "none",
+      stroke: "currentColor",
+      strokeWidth: 1.75,
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": rest["aria-hidden"] !== false,
+      ...rest,
+      class: rest.class,
+    },
+    [
+      h("path", {
+        d: "M8 10.5v8.2a1 1 0 0 1-1 1H5.6A1.6 1.6 0 0 1 4 18.1v-6a1.6 1.6 0 0 1 1.6-1.6H8Z",
+      }),
+      h("path", {
+        d: "M8 10.6 11.2 4.8a1.7 1.7 0 0 1 3.1 1.1V9.2h4.2a1.8 1.8 0 0 1 1.8 2.1l-1.1 6.4a1.8 1.8 0 0 1-1.8 1.5H8",
+      }),
+    ]
+  );
+};
 export const StarIcon = (props, { attrs }) => {
   const filled = props.filled === true || props.filled === "";
   const rest = { ...attrs };

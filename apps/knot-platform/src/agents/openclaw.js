@@ -9,19 +9,15 @@ function agentId(name) {
 }
 
 export function intelAgentId() {
-  return agentId("OPENCLAW_INTEL_AGENT") || agentId("OPENCLAW_PROCESS_AGENT");
+  return agentId("OPENCLAW_INTEL_AGENT");
 }
 
 export function demandAgentId() {
-  return agentId("OPENCLAW_DEMAND_AGENT") || agentId("OPENCLAW_MATCH_AGENT");
+  return agentId("OPENCLAW_DEMAND_AGENT");
 }
 
 export function briefAgentId() {
   return agentId("OPENCLAW_BRIEF_AGENT");
-}
-
-export function seekAgentId() {
-  return agentId("OPENCLAW_SEEK_AGENT");
 }
 
 function agentTimeout() {
@@ -81,23 +77,7 @@ export function parseDemandReply(text) {
     const clean = cleanText(id);
     if (clean && !citations.includes(clean)) citations.push(clean);
   }
-  return { citations, ask: clip(value.ask, 400) };
-}
-
-export function parseSeekReply(text) {
-  const value = readJsonObject(text);
-  if (value.able !== true) return { able: false, items: [] };
-  const items = [];
-  for (const raw of Array.isArray(value.items) ? value.items : []) {
-    if (!raw || typeof raw !== "object") continue;
-    const body = clip(raw.body, 2000);
-    const note = clip(raw.note, 400);
-    const source = clip(raw.source, 300);
-    if (!body || !source) continue;
-    items.push({ body, note, source });
-  }
-  if (!items.length) return { able: false, items: [] };
-  return { able: true, items };
+  return { citations };
 }
 
 function replyText(envelope) {
@@ -207,7 +187,7 @@ export async function runIntelAgent(intel, imagePaths = []) {
   const bin = process.env.OPENCLAW_BIN || "openclaw";
   const timeoutSec = Number(process.env.OPENCLAW_PROCESS_TIMEOUT || 90);
   const notes = [];
-  for (const file of imagePaths.slice(0, 3)) {
+  for (const file of imagePaths.slice(0, 4)) {
     notes.push(await describeImage(bin, agent, file, 60_000));
   }
   const message = [
@@ -218,6 +198,9 @@ export async function runIntelAgent(intel, imagePaths = []) {
     "note 去掉电话、微信和发布者。不要编造。",
     "body:",
     String(intel.body || ""),
+    ...(Array.isArray(intel.videos) && intel.videos.length
+      ? ["videos:", ...intel.videos.map((item, index) => `链接${index + 1}: ${typeof item === "string" ? item : item?.url || ""}`)]
+      : []),
     ...(notes.length ? ["images:", ...notes.map((note, index) => `图${index + 1}:\n${note}`)] : []),
   ].join("\n");
   const text = await askEmployee(agent, `intel-${intel.id}`, message, timeoutSec);
@@ -228,7 +211,7 @@ function demandMessage(input) {
   const lines = input.items.map((item) => `${item.id} ${item.text}`);
   const inventory = lines.length ? lines : ["（没有库存）"];
   return [
-    "按需求从库存里选出带附件的数据包。只返回一个 JSON 对象。",
+    "按需求从库存里选出有上传文件的数据包。只返回一个 JSON 对象。",
     '{"citations":["库存id"]}',
     `最多引用 ${input.limit} 条。citations 只能使用下面列出的 id，同一条只出现一次。`,
     "对不上的不要选。不要编造。",
@@ -258,25 +241,5 @@ export async function runDemandAgent(input) {
   const agent = demandAgentId();
   if (!agent) throw new Error("demand_agent_unconfigured");
   const text = await askEmployee(agent, `demand-${input.id}`, demandMessage(input), agentTimeout());
-  const reply = parseDemandReply(text);
-  if (input.selectOnly) reply.ask = "";
-  return reply;
-}
-
-export async function runSeekAgent(input) {
-  const agent = seekAgentId();
-  if (!agent) throw new Error("seek_agent_unconfigured");
-  const message = [
-    "判断这段空档能不能从公开来源补上。只返回一个 JSON 对象。",
-    '{"able":false,"items":[]}',
-    '{"able":true,"items":[{"body":"一条可入库的事实","note":"给检索用的一句","source":"公开出处"}]}',
-    `最多 ${input.limit} 条。每条 item 必须有 source。`,
-    "没有公开出处、查不到、或要联系对方才能知道的，able 为 false。不要编造。",
-    "gap:",
-    input.ask,
-  ].join("\n");
-  const text = await askEmployee(agent, `seek-${input.id}`, message, agentTimeout());
-  const reply = parseSeekReply(text);
-  reply.items = reply.items.slice(0, input.limit);
-  return reply;
+  return parseDemandReply(text);
 }

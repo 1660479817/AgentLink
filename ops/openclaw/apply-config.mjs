@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,11 @@ const configPath = path.join(stateDir, "openclaw.json");
 const snapshotPath = path.join(stateDir, "knot-config-snapshot.json");
 const promptFiles = ["IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md"];
 
+export function visibleSkills(manifest, agent) {
+  if (agent.common === false) return [...agent.skills];
+  return [...manifest.commonSkills, ...agent.skills];
+}
+
 export function patchConfig(config, manifest) {
   const next = structuredClone(config);
   next.agents ??= {};
@@ -16,14 +21,10 @@ export function patchConfig(config, manifest) {
   for (const agent of manifest.agents) {
     const entry = next.agents.entries[agent.id];
     if (!entry) continue;
-    entry.skills = [...manifest.commonSkills, ...agent.skills];
+    entry.skills = visibleSkills(manifest, agent);
     entry.subagents = { ...(entry.subagents || {}), allowAgents: [...agent.allowAgents] };
   }
   return next;
-}
-
-export function visibleSkills(manifest, agent) {
-  return [...manifest.commonSkills, ...agent.skills];
 }
 
 async function readManifest() {
@@ -80,6 +81,19 @@ async function sync() {
     for (const name of promptFiles) {
       await copyFile(path.join(root, "agents", agent.id, name), path.join(workspace, name));
     }
+    const ordersSource = path.join(root, "agents", agent.id, "ORDERS.md");
+    const ordersDest = path.join(workspace, "ORDERS.md");
+    try {
+      await access(ordersSource);
+      try {
+        await access(ordersDest);
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        await copyFile(ordersSource, ordersDest);
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
     for (const skill of visibleSkills(manifest, agent)) {
       const source = path.join(root, "skills", skill, "SKILL.md");
       const destDir = path.join(workspace, "skills", skill);
@@ -105,15 +119,20 @@ if (command === "ids") {
 } else if (command === "patch-test") {
   const sample = {
     bindings: [{ agentId: "main" }],
-    agents: { entries: { "knot-process": { name: "knot-process" } } },
+    agents: { entries: { "knot-intel": { name: "knot-intel" }, "knot-admin": { name: "knot-admin" } } },
   };
   const patched = patchConfig(sample, {
     commonSkills: ["knot-employee"],
-    agents: [{ id: "knot-process", skills: ["knot-process"], allowAgents: [] }, { id: "missing", skills: ["x"], allowAgents: [] }],
+    agents: [
+      { id: "knot-intel", skills: ["knot-intel"], allowAgents: [] },
+      { id: "knot-admin", skills: ["knot-admin"], allowAgents: [], common: false },
+      { id: "missing", skills: ["x"], allowAgents: [] },
+    ],
   });
-  const names = patched.agents.entries["knot-process"].skills;
-  if (names[0] !== "knot-employee" || names[1] !== "knot-process") process.exit(1);
-  if (patched.agents.entries["knot-process"].subagents.allowAgents.length !== 0) process.exit(1);
+  const names = patched.agents.entries["knot-intel"].skills;
+  if (names[0] !== "knot-employee" || names[1] !== "knot-intel") process.exit(1);
+  if (patched.agents.entries["knot-intel"].subagents.allowAgents.length !== 0) process.exit(1);
+  if (patched.agents.entries["knot-admin"].skills.join() !== "knot-admin") process.exit(1);
   if (patched.agents.entries.missing) process.exit(1);
   if (patched.bindings[0].agentId !== "main") process.exit(1);
   process.stdout.write("patch ok\n");

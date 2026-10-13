@@ -7,6 +7,13 @@ function nonNegativeInt(raw, fallback) {
   return value;
 }
 
+function positiveInt(raw, fallback) {
+  if (raw == null || String(raw).trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) return fallback;
+  return value;
+}
+
 export function feeConfig() {
   return {
     defaultPrice: nonNegativeInt(process.env.KNOT_DEFAULT_PRICE, 10),
@@ -17,11 +24,40 @@ export function feeConfig() {
   };
 }
 
+export function pricePolicy() {
+  let min = nonNegativeInt(process.env.KNOT_PRICE_MIN, 0);
+  let max = nonNegativeInt(process.env.KNOT_PRICE_MAX, 100);
+  if (max < min) max = min;
+  let defaultPrice = feeConfig().defaultPrice;
+  if (defaultPrice < min) defaultPrice = min;
+  if (defaultPrice > max) defaultPrice = max;
+  return { min, max, defaultPrice };
+}
+
+export function policyConfig() {
+  const price = pricePolicy();
+  return {
+    demandTtlHours: positiveInt(process.env.KNOT_DEMAND_TTL_HOURS, 24),
+    matchLimit: positiveInt(process.env.KNOT_MATCH_LIMIT, 10),
+    bountyMaxHours: positiveInt(process.env.KNOT_BOUNTY_MAX_HOURS, 72),
+    defaultPrice: price.defaultPrice,
+    priceMin: price.min,
+    priceMax: price.max,
+    listingFee: feeConfig().listingFee,
+    completionFee: feeConfig().completionFee,
+  };
+}
+
 export function packetPrice(fileCount, raw) {
   if (!fileCount) return 0;
-  if (raw == null || raw === "") return feeConfig().defaultPrice;
+  const { min, max, defaultPrice } = pricePolicy();
+  if (raw == null || raw === "") return defaultPrice;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) return feeConfig().defaultPrice;
+  if (!Number.isInteger(value) || value < min || value > max) {
+    const error = new Error("bad_price");
+    error.code = "bad_price";
+    throw error;
+  }
   return value;
 }
 

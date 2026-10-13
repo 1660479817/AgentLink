@@ -3,12 +3,14 @@ import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
-import { listBounties, openBounty } from "../bounties.js";
-import { informationOf, listedFiles } from "../information.js";
+import { listBounties, listBountyResponses, openBounty } from "../bounties.js";
+import { informationOf, isAudioUpload, isVideoUpload, listedFiles, videosOf } from "../information.js";
 import { createDemand, createIntel, downloadPacket, listDemands, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar, stopDemand } from "../market.js";
+import { attachmentDisposition } from "../packetZip.js";
 import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
+import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
-import { ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
+import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
 const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance`;
 
@@ -38,12 +40,18 @@ function attachmentOf(row) {
     mime,
     url: publicUploadUrl(row.id),
     image: mime.startsWith("image/"),
+    audio: mime.startsWith("audio/") || isAudioUpload({ mime, originalname: row.original_name }),
   };
 }
 
 function httpError(res, error) {
   const code = error.code || error.message;
+  if (code === "bad_video") return res.status(400).json({ error: "bad_video" });
+  if (code === "bad_price") return res.status(400).json({ error: "bad_price" });
+  if (code === "bad_public") return res.status(400).json({ error: "bad_public" });
+  if (code === "nothing_to_download") return res.status(400).json({ error: "nothing_to_download" });
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
+  if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
   if (code === "not_found") return res.status(404).json({ error: "not_found" });
   console.error(error);
@@ -52,7 +60,11 @@ function httpError(res, error) {
 
 function publicCard(row) {
   const granted = Boolean(row.granted);
-  const info = informationOf({ body: row.body, files: listedFiles(row.attachments || [], granted) });
+  const info = informationOf({
+    body: row.body,
+    files: listedFiles(row.attachments || [], granted),
+    videos: row.videos,
+  });
   return {
     id: row.id,
     role: "intel",
@@ -66,7 +78,9 @@ function publicCard(row) {
       avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
     },
     starred: Boolean(row.starred),
+    public: row.is_public !== false,
     createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
   };
 }
 
@@ -106,6 +120,20 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   const attachment = multer({
     storage,
     limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (isVideoUpload(file)) cb(new Error("bad_video"));
+      else if (isAudioUpload(file)) cb(new Error("bad_audio"));
+      else cb(null, true);
+    },
+  });
+
+  const audioUpload = multer({
+    storage,
+    limits: { fileSize: 8 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (isAudioUpload(file)) cb(null, true);
+      else cb(new Error("bad_audio"));
+    },
   });
 
   const router = Router();
@@ -138,9 +166,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   });
 
   router.get("/session", async (req, res) => {
-    if (!req.user) return res.json({ user: null });
+    const policy = policyConfig();
+    if (!req.user) return res.json({ user: null, policy });
     const user = await loadUser(pool, req.user.id);
-    res.json({ user });
+    res.json({ user, policy });
   });
 
   router.delete("/session", async (req, res) => {
@@ -161,12 +190,9 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       if (raw === null || raw === "") {
         avatarId = null;
       } else {
-        const { rows } = await pool.query(
-          `SELECT id FROM uploads WHERE id = $1 AND user_id = $2 AND mime LIKE 'image/%'`,
-          [raw, req.user.id]
-        );
-        if (!rows.length) return res.status(400).json({ error: "bad_avatar" });
-        avatarId = rows[0].id;
+        const checked = await acceptAvatar(pool, uploadDir, req.user.id, raw);
+        if (checked.error) return res.status(400).json({ error: checked.error });
+        avatarId = checked.id;
       }
     }
     if (!hasName && avatarId === undefined) return res.status(400).json({ error: "empty_body" });
@@ -200,12 +226,39 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.status(201).json({ id: rows[0].id, url: publicUploadUrl(rows[0].id) });
   });
 
+  router.post("/audio", (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    audioUpload.single("file")(req, res, (err) => {
+      if (err) {
+        const tooBig = err.code === "LIMIT_FILE_SIZE";
+        const code = err.message === "bad_audio" ? "bad_audio" : tooBig ? "file_too_large" : "upload_failed";
+        return res.status(400).json({ error: code });
+      }
+      if (!req.file) return res.status(400).json({ error: "empty_file" });
+      next();
+    });
+  }, async (req, res) => {
+    const name = path.basename(req.file.originalname || "").slice(0, 180);
+    const { rows } = await pool.query(
+      `INSERT INTO uploads (user_id, storage_name, mime, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [req.user.id, req.file.filename, req.file.mimetype, name || null]
+    );
+    res.status(201).json({
+      id: rows[0].id,
+      url: publicUploadUrl(rows[0].id),
+      name,
+      mime: req.file.mimetype,
+    });
+  });
+
   router.post("/files", (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     attachment.single("file")(req, res, (err) => {
       if (err) {
         const tooBig = err.code === "LIMIT_FILE_SIZE";
-        return res.status(400).json({ error: tooBig ? "file_too_large" : "upload_failed" });
+        const known = err.message === "bad_video" || err.message === "bad_audio";
+        const code = known ? err.message : tooBig ? "file_too_large" : "upload_failed";
+        return res.status(400).json({ error: code });
       }
       if (!req.file) return res.status(400).json({ error: "empty_file" });
       next();
@@ -237,8 +290,18 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
     const imageIds = Array.isArray(req.body?.imageIds) ? req.body.imageIds.filter((id) => typeof id === "string") : [];
+    const audioIds = Array.isArray(req.body?.audioIds) ? req.body.audioIds.filter((id) => typeof id === "string") : [];
     const fileIds = Array.isArray(req.body?.fileIds) ? req.body.fileIds.filter((id) => typeof id === "string") : [];
-    if (!body && !imageIds.length && !fileIds.length) return res.status(400).json({ error: "empty_body" });
+    let videos = [];
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "videos")) {
+      try {
+        videos = videosOf(req.body.videos);
+      } catch (error) {
+        if (error.code === "bad_video") return res.status(400).json({ error: "bad_video" });
+        throw error;
+      }
+    }
+    if (!body && !imageIds.length && !fileIds.length && !audioIds.length && !videos.length) return res.status(400).json({ error: "empty_body" });
     try {
       const intel = await createIntel(pool, {
         userId: req.user.id,
@@ -246,7 +309,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         door: "webui",
         body,
         imageIds,
+        audioIds,
         fileIds,
+        videos,
+        isPublic: req.body?.public,
         price: req.body?.price,
         bountyId: typeof req.body?.bountyId === "string" ? req.body.bountyId : null,
       });
@@ -259,7 +325,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/submissions", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT id, body, verdict, reject_reason, category, price, created_at
+      `SELECT id, body, videos, verdict, reject_reason, category, price, is_public, bounty_id, created_at, updated_at
        FROM intel
        WHERE user_id = $1 AND door = 'webui'
        ORDER BY created_at DESC`,
@@ -288,8 +354,19 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
-  router.get("/bounties", async (_req, res) => {
-    res.json({ bounties: await listBounties(pool) });
+  router.get("/bounties", async (req, res) => {
+    res.json({ bounties: await listBounties(pool, req.user?.id || null) });
+  });
+
+  router.get("/bounties/:id/responses", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    const result = await listBountyResponses(pool, req.user.id, id);
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    res.json(result);
   });
 
   router.post("/bounties", async (req, res) => {
@@ -314,8 +391,16 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       return res.status(404).json({ error: "not_found" });
     }
     try {
-      const intel = await downloadPacket(pool, req.user.id, id);
-      res.json({ intel: { ...intel, granted: true } });
+      const result = await downloadPacket(pool, req.user.id, id, uploadDir, { zip: true });
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", attachmentDisposition(result.downloadName));
+      res.setHeader("Content-Length", fs.statSync(result.zipPath).size);
+      const stream = fs.createReadStream(result.zipPath);
+      stream.on("error", () => {
+        if (!res.headersSent) res.status(503).json({ error: "packet_unavailable" });
+        else res.destroy();
+      });
+      stream.pipe(res);
     } catch (error) {
       httpError(res, error);
     }
@@ -332,7 +417,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return res.status(404).json({ error: "not_found" });
     }
-    const { rows } = await pool.query(`SELECT id FROM intel WHERE id = $1 AND verdict = 'passed'`, [id]);
+    const { rows } = await pool.query(`SELECT id FROM intel WHERE id = $1 AND verdict = 'passed' AND is_public`, [id]);
     if (!rows.length) return res.status(404).json({ error: "not_found" });
     await pool.query(
       `INSERT INTO intel_dismissals (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -362,7 +447,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/stars", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.price, i.category, i.user_id, i.created_at, u.display_name, u.avatar_upload_id,
+      `SELECT i.id, i.body, i.videos, i.price, i.category, i.user_id, i.is_public, i.created_at, i.updated_at, u.display_name, u.avatar_upload_id,
         TRUE AS starred,
         (i.user_id = $1 OR EXISTS (
           SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
@@ -370,7 +455,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
        FROM intel_stars s
        JOIN intel i ON i.id = s.intel_id
        JOIN users u ON u.id = i.user_id
-       WHERE s.user_id = $1 AND i.verdict = 'passed'
+       WHERE s.user_id = $1 AND i.verdict = 'passed' AND i.is_public
          AND NOT EXISTS (
            SELECT 1 FROM intel_dismissals d
            WHERE d.intel_id = i.id AND d.user_id = s.user_id

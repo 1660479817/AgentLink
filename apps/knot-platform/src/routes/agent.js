@@ -2,17 +2,38 @@ import { Router } from "express";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import multer from "multer";
-import { listBounties, openBounty } from "../bounties.js";
-import { hasInformation, idsOf, MAX_FILES, MAX_IMAGES } from "../information.js";
-import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
+import { listBounties, listBountyResponses, openBounty } from "../bounties.js";
+import { hasInformation, idsOf, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
+import {
+  FEEDBACK_MAX,
+  normalizeEmail,
+  normalizeLoginKey,
+  redeemLoginKey,
+  requestLoginKey,
+  sendFeedback,
+} from "../login.js";
 import { createDemand, createIntel, downloadPacket } from "../market.js";
-import { ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
+import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const FEEDBACK_WAIT_MS = 60_000;
+const feedbackAt = new Map();
+
+function feedbackTooSoon(userId) {
+  const now = Date.now();
+  const last = feedbackAt.get(userId) || 0;
+  if (now - last < FEEDBACK_WAIT_MS) return true;
+  feedbackAt.set(userId, now);
+  return false;
+}
 
 function agentFail(res, error) {
   const code = error.code || error.message;
+  if (code === "bad_video") return res.status(400).json({ error: "bad_video" });
+  if (code === "bad_price") return res.status(400).json({ error: "bad_price" });
+  if (code === "bad_public") return res.status(400).json({ error: "bad_public" });
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
+  if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
   if (code === "not_found") return res.status(404).json({ error: "not_found" });
   console.error(error);
@@ -40,11 +61,21 @@ async function userFromAccess(pool, header, emailRaw) {
   return { userId: rows[0].id };
 }
 
-function readDelivery(body) {
+function readDelivery(body, limits = {}) {
   const text = typeof body?.body === "string" ? body.body.trim() : "";
-  const images = idsOf(body?.images, MAX_IMAGES);
-  const attachments = idsOf(body?.attachments, MAX_FILES);
-  return { body: text, imageIds: images, fileIds: attachments };
+  const images = idsOf(body?.images, limits.images ?? MAX_IMAGES);
+  const audio = idsOf(body?.audio, MAX_AUDIO);
+  const attachments = idsOf(body?.attachments, limits.files ?? MAX_FILES);
+  let videos = [];
+  if (body && Object.prototype.hasOwnProperty.call(body, "videos")) {
+    try {
+      videos = videosOf(body.videos);
+    } catch (error) {
+      if (error.code === "bad_video") return { error: "bad_video", status: 400 };
+      throw error;
+    }
+  }
+  return { body: text, imageIds: images, audioIds: audio, fileIds: attachments, videos };
 }
 
 function presentUser(row) {
@@ -83,16 +114,33 @@ export function agentRouter({ pool, uploadDir }) {
       else cb(new Error("bad_mime"));
     },
   });
-  const fileUpload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+  const fileUpload = multer({
+    storage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (isVideoUpload(file)) cb(new Error("bad_video"));
+      else if (isAudioUpload(file)) cb(new Error("bad_audio"));
+      else cb(null, true);
+    },
+  });
+  const audioUpload = multer({
+    storage,
+    limits: { fileSize: 8 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (isAudioUpload(file)) cb(null, true);
+      else cb(new Error("bad_audio"));
+    },
+  });
   const router = Router();
 
   function acceptFile(kind) {
-    const parser = kind === "image" ? imageUpload : fileUpload;
+    const parser = kind === "image" ? imageUpload : kind === "audio" ? audioUpload : fileUpload;
     return (req, res, next) => {
       parser.single("file")(req, res, (err) => {
         if (err) {
           const tooBig = err.code === "LIMIT_FILE_SIZE";
-          const code = err.message === "bad_mime" ? "bad_mime" : tooBig ? "file_too_large" : "upload_failed";
+          const known = err.message === "bad_mime" || err.message === "bad_video" || err.message === "bad_audio";
+          const code = known ? err.message : tooBig ? "file_too_large" : "upload_failed";
           return res.status(400).json({ error: code });
         }
         if (!req.file) return res.status(400).json({ error: "empty_file" });
@@ -172,12 +220,9 @@ export function agentRouter({ pool, uploadDir }) {
       } else if (!UUID.test(String(raw))) {
         return res.status(400).json({ error: "bad_avatar" });
       } else {
-        const { rows } = await pool.query(
-          `SELECT id FROM uploads WHERE id = $1 AND user_id = $2 AND mime LIKE 'image/%'`,
-          [raw, access.userId]
-        );
-        if (!rows.length) return res.status(400).json({ error: "bad_avatar" });
-        avatarId = rows[0].id;
+        const checked = await acceptAvatar(pool, uploadDir, access.userId, raw);
+        if (checked.error) return res.status(400).json({ error: checked.error });
+        avatarId = checked.id;
       }
     }
     if (!hasName && avatarId === undefined) return res.status(400).json({ error: "empty_body" });
@@ -197,13 +242,15 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.post("/uploads", acceptFile("image"), storeUpload);
+  router.post("/audio", acceptFile("audio"), storeUpload);
   router.post("/files", acceptFile("file"), storeUpload);
 
   router.post("/intel", async (req, res) => {
     const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const delivery = readDelivery(req.body);
-    if (!hasInformation({ body: delivery.body, images: delivery.imageIds, attachments: delivery.fileIds })) {
+    if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
+    if (!hasInformation({ body: delivery.body, images: delivery.imageIds, audio: delivery.audioIds, videos: delivery.videos, attachments: delivery.fileIds })) {
       return res.status(400).json({ error: "empty_body" });
     }
     try {
@@ -213,7 +260,10 @@ export function agentRouter({ pool, uploadDir }) {
         door: "agent_api",
         body: delivery.body,
         imageIds: delivery.imageIds,
+        audioIds: delivery.audioIds,
         fileIds: delivery.fileIds,
+        videos: delivery.videos,
+        isPublic: req.body?.public,
         price: req.body?.price,
         bountyId: typeof req.body?.bountyId === "string" ? req.body.bountyId : null,
       });
@@ -228,8 +278,8 @@ export function agentRouter({ pool, uploadDir }) {
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
     try {
-      const intel = await downloadPacket(pool, access.userId, req.params.id);
-      res.json({ intel: { ...intel, granted: true } });
+      const result = await downloadPacket(pool, access.userId, req.params.id, uploadDir);
+      res.json({ intel: { ...result.intel, granted: true } });
     } catch (error) {
       agentFail(res, error);
     }
@@ -238,7 +288,7 @@ export function agentRouter({ pool, uploadDir }) {
   router.get("/bounties", async (req, res) => {
     const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    res.json({ bounties: await listBounties(pool) });
+    res.json({ bounties: await listBounties(pool, access.userId) });
   });
 
   router.post("/bounties", async (req, res) => {
@@ -257,12 +307,22 @@ export function agentRouter({ pool, uploadDir }) {
     }
   });
 
+  router.get("/bounties/:id/responses", async (req, res) => {
+    const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
+    const result = await listBountyResponses(pool, access.userId, req.params.id);
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    res.json(result);
+  });
+
   router.post("/bounties/:id/submit", async (req, res) => {
     const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
     const delivery = readDelivery(req.body);
-    if (!hasInformation({ body: delivery.body, images: delivery.imageIds, attachments: delivery.fileIds })) {
+    if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
+    if (!hasInformation({ body: delivery.body, images: delivery.imageIds, audio: delivery.audioIds, videos: delivery.videos, attachments: delivery.fileIds })) {
       return res.status(400).json({ error: "empty_body" });
     }
     try {
@@ -272,7 +332,10 @@ export function agentRouter({ pool, uploadDir }) {
         door: "agent_api",
         body: delivery.body,
         imageIds: delivery.imageIds,
+        audioIds: delivery.audioIds,
         fileIds: delivery.fileIds,
+        videos: delivery.videos,
+        isPublic: req.body?.public,
         price: req.body?.price,
         bountyId: req.params.id,
       });
@@ -282,11 +345,36 @@ export function agentRouter({ pool, uploadDir }) {
     }
   });
 
+  router.post("/feedback", async (req, res) => {
+    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const kind = req.body?.kind;
+    if (kind !== "suggestion" && kind !== "complaint") return res.status(400).json({ error: "bad_kind" });
+    const text = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+    if (!text) return res.status(400).json({ error: "empty_body" });
+    if (text.length > FEEDBACK_MAX) return res.status(400).json({ error: "bad_body" });
+    if (feedbackTooSoon(access.userId)) return res.status(429).json({ error: "too_many" });
+    try {
+      await sendFeedback({
+        kind,
+        accountEmail: normalizeEmail(req.body.email),
+        userId: access.userId,
+        body: text,
+      });
+    } catch (error) {
+      feedbackAt.delete(access.userId);
+      const code = error.code === "mail_unavailable" ? "mail_unavailable" : "mail_failed";
+      return res.status(503).json({ error: code });
+    }
+    res.json({ ok: true });
+  });
+
   router.post("/demands", async (req, res) => {
     const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const brief = typeof req.body?.brief === "string" ? req.body.brief.trim() : "";
     const delivery = readDelivery(req.body);
+    if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
     if (!brief && !hasInformation({ body: "", images: delivery.imageIds, attachments: delivery.fileIds })) {
       return res.status(400).json({ error: "empty_body" });
     }

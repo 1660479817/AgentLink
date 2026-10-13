@@ -2,12 +2,14 @@
 import { nextTick, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
-import { ActivityIcon, BackIcon, BookmarkIcon, ChatIcon, HistoryIcon, SearchIcon, UserIcon, ZapIcon } from "../icons/index.js";
+import { ActivityIcon, BackIcon, BookmarkIcon, ChatIcon, HeaderUserIcon, HistoryIcon, SearchIcon, UserIcon, ZapIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { useNotificationStore } from "../stores/notifications";
+import { useSessionStore } from "../stores/session";
 
 const router = useRouter();
 const notifications = useNotificationStore();
+const session = useSessionStore();
 const mark = t("app.name").slice(0, 1);
 const HISTORY_KEY = "knot.search.history";
 const searchOpen = ref(false);
@@ -95,10 +97,17 @@ onMounted(() => {
             }}</span>
           </AppButton>
           <AppButton variant="icon" to="/chat" :aria-label="t('nav.buy')">
-            <ChatIcon class="nav-icon" aria-hidden="true" />
+            <ChatIcon class="nav-icon nav-icon-solid" aria-hidden="true" />
           </AppButton>
-          <AppButton variant="icon" to="/mine" :aria-label="t('nav.mine')">
-            <UserIcon class="nav-icon" aria-hidden="true" />
+          <AppButton
+            variant="icon"
+            to="/mine"
+            class="header-account"
+            :class="{ 'has-photo': Boolean(session.user?.avatarUrl) }"
+            :aria-label="t('nav.mine')"
+          >
+            <img v-if="session.user?.avatarUrl" class="header-avatar" :src="session.user.avatarUrl" alt="" />
+            <HeaderUserIcon v-else class="nav-icon nav-icon-solid" aria-hidden="true" />
           </AppButton>
         </div>
       </div>
