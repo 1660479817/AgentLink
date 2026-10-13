@@ -12,19 +12,6 @@ export function intelAgentId() {
   return agentId("OPENCLAW_INTEL_AGENT");
 }
 
-export function demandAgentId() {
-  return agentId("OPENCLAW_DEMAND_AGENT");
-}
-
-export function briefAgentId() {
-  return agentId("OPENCLAW_BRIEF_AGENT");
-}
-
-function agentTimeout() {
-  const timeout = Number(process.env.OPENCLAW_AGENT_TIMEOUT || 45);
-  return Number.isFinite(timeout) && timeout > 0 ? timeout : 45;
-}
-
 function cleanText(value) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
@@ -58,26 +45,6 @@ export function parseIntelReply(text) {
     if (reason) return { verdict: "reject", reason, note: "", category: "" };
   }
   return { verdict: "pass", reason: "", note, category: categoryOf(value) };
-}
-
-export function parseBriefReply(text) {
-  const value = readJsonObject(text);
-  if (value.verdict === "reject") {
-    const reason = cleanText(value.reason || value.reject?.reason);
-    if (reason) return { verdict: "reject", reason, category: "" };
-  }
-  return { verdict: "pass", reason: "", category: categoryOf(value) };
-}
-
-export function parseDemandReply(text) {
-  const value = readJsonObject(text);
-  if (!Array.isArray(value.citations)) throw new Error("demand_agent_bad_json");
-  const citations = [];
-  for (const id of value.citations) {
-    const clean = cleanText(id);
-    if (clean && !citations.includes(clean)) citations.push(clean);
-  }
-  return { citations };
 }
 
 function replyText(envelope) {
@@ -191,7 +158,7 @@ export async function runIntelAgent(intel, imagePaths = []) {
     notes.push(await describeImage(bin, agent, file, 60_000));
   }
   const message = [
-    "审查这一个数据包。通过则留下，并写入类别。只返回一个 JSON 对象。",
+    "审查这一条记录。通过则留下，并写入类别。只返回一个 JSON 对象。不要判断链接是否打得开。",
     '{"verdict":"pass","reason":"","note":"给检索用的一句事实","category":"类别"}',
     '{"verdict":"reject","reason":"违规原因","note":"","category":""}',
     "只有违法、欺诈、隐私或骚扰才 reject。category 写一个短类别。",
@@ -205,41 +172,4 @@ export async function runIntelAgent(intel, imagePaths = []) {
   ].join("\n");
   const text = await askEmployee(agent, `intel-${intel.id}`, message, timeoutSec);
   return parseIntelReply(text);
-}
-
-function demandMessage(input) {
-  const lines = input.items.map((item) => `${item.id} ${item.text}`);
-  const inventory = lines.length ? lines : ["（没有库存）"];
-  return [
-    "按需求从库存里选出有上传文件的数据包。只返回一个 JSON 对象。",
-    '{"citations":["库存id"]}',
-    `最多引用 ${input.limit} 条。citations 只能使用下面列出的 id，同一条只出现一次。`,
-    "对不上的不要选。不要编造。",
-    "brief:",
-    input.brief,
-    "inventory:",
-    ...inventory,
-  ].join("\n");
-}
-
-export async function runBriefAgent(input) {
-  const agent = briefAgentId();
-  if (!agent) throw new Error("brief_agent_unconfigured");
-  const message = [
-    "审查这一条需求。通过则留下，并写入类别。只返回一个 JSON 对象。",
-    '{"verdict":"pass","reason":"","category":"类别"}',
-    '{"verdict":"reject","reason":"违规原因","category":""}',
-    "只有违法、欺诈、隐私或骚扰才 reject。category 写一个短类别。不要编造。",
-    "brief:",
-    String(input.brief || ""),
-  ].join("\n");
-  const text = await askEmployee(agent, `brief-${input.id}`, message, agentTimeout());
-  return parseBriefReply(text);
-}
-
-export async function runDemandAgent(input) {
-  const agent = demandAgentId();
-  if (!agent) throw new Error("demand_agent_unconfigured");
-  const text = await askEmployee(agent, `demand-${input.id}`, demandMessage(input), agentTimeout());
-  return parseDemandReply(text);
 }

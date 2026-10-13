@@ -160,13 +160,13 @@ export async function previewReadable(pool, intelId, userId) {
   const row = rows[0];
   if (!row || !row.has_image) return false;
   if (userId && row.user_id === userId) return true;
-  if (row.verdict === "passed" && row.is_public && row.kind === "share") return true;
+  if (row.verdict === "passed" && row.is_public && (row.kind === "post" || row.kind === "fastpost")) return true;
   if (!userId) return false;
   const paid = await pool.query(`SELECT 1 FROM packet_downloads WHERE intel_id = $1 AND user_id = $2`, [intelId, userId]);
   if (paid.rows.length) return true;
-  if (row.kind === "response" && row.responds_to) {
+  if (row.kind === "wishRespond" && row.responds_to) {
     const wish = await pool.query(
-      `SELECT 1 FROM intel WHERE id = $1 AND kind = 'request' AND user_id = $2`,
+      `SELECT 1 FROM intel WHERE id = $1 AND kind = 'wish' AND user_id = $2`,
       [row.responds_to, userId]
     );
     if (wish.rows.length) return true;

@@ -3,7 +3,8 @@ import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
-import { cardFiles, cardPreviewUrl, informationOf, isAudioUpload, isVideoUpload, videosOf } from "../information.js";
+import { isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
+import { readMedia } from "../links.js";
 import { createIntel, downloadPacket, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar } from "../market.js";
 import { listMyResponses, listRequestResponses, listRequests } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
@@ -11,6 +12,7 @@ import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } fr
 import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
 import { ensureCardPreview, previewReadable } from "../preview.js";
+import { listPublicSponsors } from "../sponsors.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
 const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance`;
@@ -48,6 +50,7 @@ function attachmentOf(row) {
 function httpError(res, error) {
   const code = error.code || error.message;
   if (code === "bad_video") return res.status(400).json({ error: "bad_video" });
+  if (code === "bad_url") return res.status(400).json({ error: "bad_url" });
   if (code === "bad_price") return res.status(400).json({ error: "bad_price" });
   if (code === "bad_public") return res.status(400).json({ error: "bad_public" });
   if (code === "nothing_to_download") return res.status(400).json({ error: "nothing_to_download" });
@@ -62,30 +65,13 @@ function httpError(res, error) {
 const INTEL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function publicCard(row) {
-  const granted = Boolean(row.granted);
-  const source = row.attachments || [];
-  const info = informationOf({
-    body: row.body,
-    files: cardFiles(source, granted),
-    videos: row.videos,
-  });
   return {
-    id: row.id,
     role: "intel",
-    ...info,
-    previewUrl: cardPreviewUrl(row.id, source),
-    imageUrls: [],
-    category: row.category || "",
-    price: Number(row.price) || 0,
-    granted,
-    author: {
-      name: row.display_name || "",
-      avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
-    },
-    starred: Boolean(row.starred),
-    public: row.is_public !== false,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at || row.created_at,
+    ...presentIntel({
+      ...row,
+      files: row.attachments || [],
+      granted: Boolean(row.granted),
+    }),
   };
 }
 
@@ -285,7 +271,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/uploads/:id", async (req, res) => {
     const { rows } = await pool.query(
       `SELECT u.storage_name, u.mime, u.user_id,
-              EXISTS (SELECT 1 FROM users p WHERE p.avatar_upload_id = u.id) AS avatar
+              EXISTS (SELECT 1 FROM users p WHERE p.avatar_upload_id = u.id) AS avatar,
+              EXISTS (SELECT 1 FROM sponsors s WHERE s.image_upload_id = u.id) AS sponsor
        FROM uploads u
        WHERE u.id = $1`,
       [req.params.id]
@@ -294,7 +281,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     const row = rows[0];
     const owner = Boolean(req.user && req.user.id === row.user_id);
     const image = String(row.mime || "").startsWith("image/");
-    if (image && !row.avatar && !owner) return res.status(404).end();
+    if (image && !row.avatar && !row.sponsor && !owner) return res.status(404).end();
     const filePath = storagePath(uploadDir, row.storage_name);
     if (!fs.existsSync(filePath)) return res.status(404).end();
     res.type(row.mime);
@@ -319,33 +306,39 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.post("/intel", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
-    const imageIds = Array.isArray(req.body?.imageIds) ? req.body.imageIds.filter((id) => typeof id === "string") : [];
-    const audioIds = Array.isArray(req.body?.audioIds) ? req.body.audioIds.filter((id) => typeof id === "string") : [];
-    const fileIds = Array.isArray(req.body?.fileIds) ? req.body.fileIds.filter((id) => typeof id === "string") : [];
+    let images;
+    let audio;
+    let attachments;
     let videos = [];
-    if (Object.prototype.hasOwnProperty.call(req.body || {}, "videos")) {
-      try {
-        videos = videosOf(req.body.videos);
-      } catch (error) {
-        if (error.code === "bad_video") return res.status(400).json({ error: "bad_video" });
-        throw error;
-      }
+    try {
+      images = readMedia([...(Array.isArray(req.body?.images) ? req.body.images : []), ...(Array.isArray(req.body?.imageIds) ? req.body.imageIds : [])], MAX_IMAGES);
+      audio = readMedia([...(Array.isArray(req.body?.audio) ? req.body.audio : []), ...(Array.isArray(req.body?.audioIds) ? req.body.audioIds : [])], MAX_AUDIO);
+      attachments = readMedia([...(Array.isArray(req.body?.attachments) ? req.body.attachments : []), ...(Array.isArray(req.body?.fileIds) ? req.body.fileIds : [])], MAX_FILES);
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, "videos")) videos = videosOf(req.body.videos);
+    } catch (error) {
+      if (error.code === "bad_video" || error.code === "bad_url") return res.status(400).json({ error: error.code });
+      throw error;
     }
-    if (!body && !imageIds.length && !fileIds.length && !audioIds.length && !videos.length) return res.status(400).json({ error: "empty_body" });
+    if (!body && !images.ids.length && !images.urls.length && !audio.ids.length && !audio.urls.length && !attachments.ids.length && !attachments.urls.length && !videos.length) {
+      return res.status(400).json({ error: "empty_body" });
+    }
     try {
       const intel = await createIntel(pool, {
         userId: req.user.id,
         actor: "person",
         door: "webui",
         body,
-        imageIds,
-        audioIds,
-        fileIds,
+        imageIds: images.ids,
+        imageUrls: images.urls,
+        audioIds: audio.ids,
+        audioUrls: audio.urls,
+        fileIds: attachments.ids,
+        fileUrls: attachments.urls,
         videos,
         isPublic: req.body?.public,
         price: req.body?.price,
-        request: req.body?.request === true,
-        requestId: typeof req.body?.requestId === "string" ? req.body.requestId : null,
+        kind: typeof req.body?.kind === "string" ? req.body.kind : "",
+        respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
       });
       res.status(201).json({ intel });
     } catch (error) {
@@ -356,7 +349,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/submissions", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT id, body, videos, verdict, reject_reason, category, price, is_public, kind, responds_to, created_at, updated_at
+      `SELECT id, body, videos, links, content_hash, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at
        FROM intel
        WHERE user_id = $1 AND door = 'webui'
        ORDER BY created_at DESC`,
@@ -427,6 +420,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     }
   });
 
+  router.get("/sponsors", async (_req, res) => {
+    res.json({ sponsors: await listPublicSponsors(pool) });
+  });
+
   router.get("/information", async (req, res) => {
     const rows = await listPublicIntel(pool, 30, req.user?.id || null);
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
@@ -468,7 +465,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/stars", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.price, i.category, i.user_id, i.is_public, i.created_at, i.updated_at, u.display_name, u.avatar_upload_id,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.is_public, i.created_at, i.updated_at, u.display_name, u.avatar_upload_id,
         TRUE AS starred,
         (i.user_id = $1 OR EXISTS (
           SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1

@@ -84,7 +84,7 @@ async function submit() {
       const data = await uploadImage(file);
       imageIds.push(data.id);
     }
-    const extra = { public: isPublic.value };
+    const extra = { kind: "fastpost", public: isPublic.value };
     if (imageIds.length && priced.price !== undefined) extra.price = priced.price;
     await createIntel(body.value.trim(), imageIds, [], extra);
     emit("done");

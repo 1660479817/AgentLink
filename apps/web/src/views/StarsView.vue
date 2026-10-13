@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import InformationCard from "../components/InformationCard.vue";
 import { dismissInformation, downloadInformation, listStars, unstarInformation } from "../api.js";
 import { acceptDownload } from "../download/consent.js";
+import { payeeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { useSessionStore } from "../stores/session";
 
@@ -16,7 +17,8 @@ async function downloadItem(item) {
   item.downloading = true;
   try {
     const ok = await acceptDownload({
-      price: item.price,
+      price: priceOf(item),
+      payee: payeeOf(item),
       granted: item.granted !== false,
       task: () => downloadInformation(item.id),
     });
@@ -80,8 +82,8 @@ onMounted(async () => {
       v-for="item in items"
       :key="item.id"
       :body="item.body || ''"
-      :category="item.category || ''"
-      :price="Number(item.price) || 0"
+      :category="item.kMeta?.category || ''"
+      :price="priceOf(item)"
       :granted="item.granted !== false"
       :preview-url="item.previewUrl || ''"
       :image-urls="item.imageUrls || item.images?.map((file) => file.url).filter(Boolean) || []"
@@ -91,7 +93,7 @@ onMounted(async () => {
       :attachments="item.attachments || []"
       :author-name="item.author?.name || ''"
       :avatar-url="item.author?.avatarUrl || ''"
-      :created-at="item.createdAt || ''"
+      :created-at="item.kMeta?.createdAt || ''"
       :starred="true"
       :busy="Boolean(item.downloading)"
       @dismiss="dismissItem(item)"

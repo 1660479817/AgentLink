@@ -19,7 +19,7 @@ Personal Agent → /api/agent/*
 ./ops/scripts/push-deploy-91.sh
 ```
 
-脚本把仓库同步到 `~/knot/AgentLink`，再在目标机执行 `ops/scripts/deploy-macos.sh`：安装依赖、构建 WebUI、迁移数据库、用 LaunchAgent 启动 Postgres 与 Knot Backend，并按 [ops/openclaw](./openclaw/README.md) 同步数据评审员、需求评审员、数据匹配专家和管理员。
+脚本把仓库同步到 `~/knot/AgentLink`，再在目标机执行 `ops/scripts/deploy-macos.sh`：安装依赖、构建 WebUI、迁移数据库、用 LaunchAgent 启动 Postgres 与 Knot Backend，并按 [ops/openclaw](./openclaw/README.md) 同步数据评审员和管理员。
 
 已在目标机上时：
 

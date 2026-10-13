@@ -17,6 +17,7 @@ import {
 } from "../api.js";
 import { errorText, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
+import { payeeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { AudioIcon, ImageIcon, PaperclipIcon, SendIcon, VideoIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
@@ -83,11 +84,8 @@ function statusKey(verdict) {
 }
 
 function namesOf(item) {
-  if (item.fileNames?.length) {
-    return item.fileNames.map((file) => (typeof file === "string" ? file : file.name)).filter(Boolean);
-  }
   return [...(item.images || []), ...(item.audio || []), ...(item.attachments || [])]
-    .map((file) => file?.name)
+    .map((file) => file?.name || file?.url)
     .filter(Boolean);
 }
 
@@ -106,16 +104,9 @@ async function load() {
     ]);
     const byId = new Map();
     for (const item of submitted.submissions || []) {
-      if (item.kind !== "request") continue;
+      if (item.kMeta?.kind !== "wish") continue;
       byId.set(item.id, {
-        id: item.id,
-        body: item.body || "",
-        videos: item.videos || [],
-        fileNames: namesOf(item),
-        previewUrl: item.previewUrl || "",
-        verdict: item.verdict || "pending",
-        rejectReason: item.rejectReason || "",
-        createdAt: item.createdAt || "",
+        ...item,
         responses: [],
       });
     }
@@ -123,21 +114,15 @@ async function load() {
       if (!item.mine) continue;
       const existing = byId.get(item.id);
       byId.set(item.id, {
-        id: item.id,
-        body: item.body || existing?.body || "",
-        videos: item.videos || existing?.videos || [],
-        fileNames: namesOf(item).length ? namesOf(item) : existing?.fileNames || [],
-        previewUrl: item.previewUrl || existing?.previewUrl || "",
-        verdict: existing?.verdict || "passed",
-        rejectReason: existing?.rejectReason || "",
-        createdAt: item.createdAt || existing?.createdAt || "",
+        ...item,
+        kMeta: { ...(item.kMeta || {}), verdict: existing?.kMeta?.verdict || item.kMeta?.verdict || "passed" },
         responses: [],
       });
     }
-    const rows = [...byId.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const rows = [...byId.values()].sort((a, b) => String(b.kMeta?.createdAt).localeCompare(String(a.kMeta?.createdAt)));
     await Promise.all(
       rows
-        .filter((item) => item.verdict === "passed")
+        .filter((item) => item.kMeta?.verdict === "passed")
         .map(async (item) => {
           try {
             const data = await listRequestResponses(item.id);
@@ -148,13 +133,7 @@ async function load() {
         })
     );
     wishes.value = rows;
-    replies.value = (authored.responses || []).map((item) => ({
-      ...item,
-      fileNames: namesOf(item),
-      wish: item.wish
-        ? { ...item.wish, fileNames: namesOf(item.wish) }
-        : null,
-    }));
+    replies.value = authored.responses || [];
   } catch {
     wishes.value = [];
     replies.value = [];
@@ -218,7 +197,7 @@ async function submit() {
       const uploaded = await uploadAttachment(item.file);
       fileIds.push(uploaded.id);
     }
-    const extra = { request: true };
+    const extra = { kind: "wish" };
     if (audio.value) {
       const uploaded = await uploadAudio(audio.value.file);
       extra.audioIds = [uploaded.id];
@@ -241,7 +220,8 @@ async function downloadReply(item) {
   item.downloading = true;
   try {
     const ok = await acceptDownload({
-      price: item.price,
+      price: priceOf(item),
+      payee: payeeOf(item),
       granted: item.granted !== false,
       code: session.user ? "" : "no_session",
       task: () => downloadInformation(item.id),
@@ -373,14 +353,14 @@ async function downloadReply(item) {
       :class="{ 'is-current': String(route.query.wish || '') === wish.id }"
     >
       <div class="wish-card-head">
-        <p v-if="wish.verdict !== 'passed'" class="information-status">{{ t(statusKey(wish.verdict)) }}</p>
-        <p v-if="when(wish.createdAt)" class="information-time">{{ when(wish.createdAt) }}</p>
+        <p v-if="wish.kMeta?.verdict !== 'passed'" class="information-status">{{ t(statusKey(wish.kMeta?.verdict)) }}</p>
+        <p v-if="when(wish.kMeta?.createdAt)" class="information-time">{{ when(wish.kMeta.createdAt) }}</p>
       </div>
-      <p v-if="wish.verdict === 'rejected' && wish.rejectReason" class="wish-reason">{{ wish.rejectReason }}</p>
+      <p v-if="wish.kMeta?.verdict === 'rejected' && wish.kMeta?.rejectReason" class="wish-reason">{{ wish.kMeta.rejectReason }}</p>
       <p v-if="wish.body" class="information-body">{{ wish.body }}</p>
       <img v-if="wish.previewUrl" :src="wish.previewUrl" alt="" class="information-preview" />
-      <ul v-if="wish.fileNames.length" class="wish-files">
-        <li v-for="(name, index) in wish.fileNames" :key="`${name}-${index}`" class="wish-file">
+      <ul v-if="namesOf(wish).length" class="wish-files">
+        <li v-for="(name, index) in namesOf(wish)" :key="`${name}-${index}`" class="wish-file">
           <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
           <span>{{ name }}</span>
         </li>
@@ -388,24 +368,24 @@ async function downloadReply(item) {
       <VideoFrame v-if="wish.videos?.[0]" :url="wish.videos[0].url" :poster="wish.videos[0].poster || ''" />
       <div class="wish-responses">
         <p class="wish-responses-label">{{ t("wish.responses") }}</p>
-        <p v-if="wish.verdict === 'passed' && !wish.responses.length" class="muted">{{ t("wish.responsesEmpty") }}</p>
-        <p v-else-if="wish.verdict !== 'passed'" class="muted">{{ t("wish.responsesWait") }}</p>
+        <p v-if="wish.kMeta?.verdict === 'passed' && !wish.responses.length" class="muted">{{ t("wish.responsesEmpty") }}</p>
+        <p v-else-if="wish.kMeta?.verdict !== 'passed'" class="muted">{{ t("wish.responsesWait") }}</p>
         <div v-for="item in wish.responses" :key="item.id" class="wish-response">
           <p class="bounty-reply-meta">
             <span>{{ item.author?.name || t("home.author") }}</span>
-            <span v-if="when(item.createdAt)"> · {{ when(item.createdAt) }}</span>
+            <span v-if="when(item.kMeta?.createdAt)"> · {{ when(item.kMeta.createdAt) }}</span>
           </p>
           <p v-if="item.body" class="bounty-reply-body">{{ item.body }}</p>
           <img v-if="item.previewUrl" :src="item.previewUrl" alt="" class="information-preview" />
-          <ul v-if="item.fileNames?.length" class="wish-files">
-            <li v-for="(name, index) in item.fileNames" :key="`${name}-${index}`" class="wish-file">
+          <ul v-if="namesOf(item).length" class="wish-files">
+            <li v-for="(name, index) in namesOf(item)" :key="`${name}-${index}`" class="wish-file">
               <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
               <span>{{ name }}</span>
             </li>
           </ul>
           <VideoFrame v-if="item.videos?.[0]" :url="item.videos[0].url" :poster="item.videos[0].poster || ''" />
           <AppButton
-            v-if="item.fileNames?.length"
+            v-if="namesOf(item).length"
             variant="secondary"
             type="button"
             :disabled="item.downloading"
@@ -432,8 +412,8 @@ async function downloadReply(item) {
           <template v-if="item.wish">
             <p v-if="item.wish.body" class="information-body">{{ item.wish.body }}</p>
             <img v-if="item.wish.previewUrl" :src="item.wish.previewUrl" alt="" class="information-preview" />
-            <ul v-if="item.wish.fileNames.length" class="wish-files">
-              <li v-for="(name, index) in item.wish.fileNames" :key="`${name}-${index}`" class="wish-file">
+            <ul v-if="namesOf(item.wish).length" class="wish-files">
+              <li v-for="(name, index) in namesOf(item.wish)" :key="`${name}-${index}`" class="wish-file">
                 <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
                 <span>{{ name }}</span>
               </li>
@@ -445,17 +425,17 @@ async function downloadReply(item) {
         <div class="wish-responses">
           <div class="wish-card-head">
             <p class="wish-responses-label">{{ t("wish.myReply") }}</p>
-            <p v-if="item.verdict !== 'passed'" class="information-status">{{ t(statusKey(item.verdict)) }}</p>
+            <p v-if="item.kMeta?.verdict !== 'passed'" class="information-status">{{ t(statusKey(item.kMeta?.verdict)) }}</p>
           </div>
           <p class="bounty-reply-meta">
-            <span>{{ t("wish.replyPrice", { n: item.price || 0 }) }}</span>
-            <span v-if="when(item.createdAt)"> · {{ when(item.createdAt) }}</span>
+            <span>{{ t("wish.replyPrice", { n: priceOf(item) }) }}</span>
+            <span v-if="when(item.kMeta?.createdAt)"> · {{ when(item.kMeta.createdAt) }}</span>
           </p>
-          <p v-if="item.verdict === 'rejected' && item.rejectReason" class="wish-reason">{{ item.rejectReason }}</p>
+          <p v-if="item.kMeta?.verdict === 'rejected' && item.kMeta?.rejectReason" class="wish-reason">{{ item.kMeta.rejectReason }}</p>
           <p v-if="item.body" class="bounty-reply-body">{{ item.body }}</p>
           <img v-if="item.previewUrl" :src="item.previewUrl" alt="" class="information-preview" />
-          <ul v-if="item.fileNames.length" class="wish-files">
-            <li v-for="(name, index) in item.fileNames" :key="`${name}-${index}`" class="wish-file">
+          <ul v-if="namesOf(item).length" class="wish-files">
+            <li v-for="(name, index) in namesOf(item)" :key="`${name}-${index}`" class="wish-file">
               <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
               <span>{{ name }}</span>
             </li>

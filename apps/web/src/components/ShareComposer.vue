@@ -156,7 +156,7 @@ async function submit() {
       files.value.map((item) => item.file),
       uploadAttachment
     );
-    const extra = { public: isPublic.value };
+    const extra = { kind: "post", public: isPublic.value };
     if (audio.value) {
       const uploaded = await uploadAudio(audio.value.file);
       extra.audioIds = [uploaded.id];

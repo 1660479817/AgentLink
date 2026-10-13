@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="640" viewBox="0 0 1080 640">
+  <rect width="1080" height="640" fill="#ffffff"/>
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" fill="#111">
+    <rect x="40" y="36" width="1000" height="250" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+    <text x="64" y="72" font-size="18" font-weight="600">kMeta</text>
+    <rect x="64" y="96" width="200" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="164" y="124" text-anchor="middle" font-size="15">kind</text>
+    <rect x="284" y="96" width="220" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="394" y="124" text-anchor="middle" font-size="15">respondsTo</text>
+    <rect x="524" y="96" width="220" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="634" y="124" text-anchor="middle" font-size="15">public</text>
+    <rect x="764" y="96" width="236" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="882" y="124" text-anchor="middle" font-size="15">commerce</text>
+    <rect x="64" y="160" width="300" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="214" y="188" text-anchor="middle" font-size="15">category · verdict</text>
+    <rect x="384" y="160" width="280" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="524" y="188" text-anchor="middle" font-size="15">version = 1</text>
+    <rect x="684" y="160" width="316" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="842" y="188" text-anchor="middle" font-size="15">createdAt · updatedAt</text>
+    <text x="64" y="244" font-size="14" fill="#333">post · fastpost · wish · wishRespond</text>
+    <text x="430" y="244" font-size="14" fill="#333">price · payee</text>
+    <rect x="40" y="320" width="1000" height="250" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+    <text x="64" y="356" font-size="18" font-weight="600">内容</text>
+    <rect x="64" y="384" width="180" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="154" y="422" text-anchor="middle" font-size="15">body</text>
+    <rect x="264" y="384" width="180" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="354" y="414" text-anchor="middle" font-size="15">images</text>
+    <text x="354" y="434" text-anchor="middle" font-size="12" fill="#333">最多 4</text>
+    <rect x="464" y="384" width="160" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="544" y="414" text-anchor="middle" font-size="15">audio</text>
+    <text x="544" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1</text>
+    <rect x="644" y="384" width="160" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="724" y="414" text-anchor="middle" font-size="15">videos</text>
+    <text x="724" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1</text>
+    <rect x="824" y="384" width="176" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+    <text x="912" y="414" text-anchor="middle" font-size="15">attachments</text>
+    <text x="912" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1</text>
+    <text x="64" y="500" font-size="14" fill="#333">每一项都是链接。stored 为 true 的文件在平台上，false 的是外链。</text>
+    <text x="64" y="528" font-size="14" fill="#333">卡片展示预览、文件名和外链。下载取走平台文件。</text>
+  </g>
+</svg>

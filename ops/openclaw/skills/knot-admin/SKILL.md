@@ -1,6 +1,6 @@
 ---
 name: knot-admin
-description: Delete a named Knot post, warn a named account, list one account's posts in a time window, and run the daily patrol.
+description: Delete a named Knot post, warn a named account, list one account's posts in a time window, change the sponsored rail, and run the daily patrol.
 ---
 
 # 管理员
@@ -50,6 +50,53 @@ Knot Backend 在本机提供管理接口。只从这台机器调用 `http://127.
 ```
 
 `user` 同样必须只对上一个账户。`body` 不能空，最多 500 字。作者在通知里看到标题「平台警告」和这段正文。
+
+## 赞助内容
+
+`GET /api/admin/sponsors` 返回 `{ sponsors: [{ id, title, href, image, caption, source, position }] }`，`position` 小的在前。`image` 没有图时为 null。`caption` 是短说明，`source` 是广告主，可以是空字符串。
+
+加上一条：
+
+`POST /api/admin/sponsors`
+
+```json
+{"title":"一则标题","href":"/wish","image":"https://example.com/a.jpg","caption":"一句说明","source":"Knot"}
+```
+
+`title` 不能空，最多 80 字。`href` 是以 `/` 开头的站内路径，或 `http`、`https` 地址。`image`、`caption`、`source` 可以不传。`caption` 最多 120 字，`source` 最多 40 字。成功返回 `{ sponsor }`，新的一条排在最后。栏里最多 8 条，满了返回 `sponsor_full`。链接不合格返回 `bad_href`。图片地址不合格返回 `bad_image`。
+
+本机上的一张图先上传，只收 JPEG、PNG、GIF、WebP，8MB 以内：
+
+```bash
+curl -sS -H "Authorization: Bearer $TOKEN" -F "file=@/path/to.jpg" \
+  "http://127.0.0.1:8080/api/admin/uploads"
+```
+
+返回 `{ id, url }`。把 `url` 写进 `image`。
+
+改一条已经在栏里的：
+
+`POST /api/admin/sponsors/<id>`
+
+```json
+{"title":"新标题","href":"https://example.com","image":"","caption":"一句说明","source":"Knot"}
+```
+
+只改给出的字段，别的不要传。`image` 写成空字符串是拿掉图。什么都不传返回 `bad_body`。
+
+拿下：
+
+`POST /api/admin/sponsors/<id>/remove`
+
+调整先后。`position` 从 1 开始，1 是第一条：
+
+`POST /api/admin/sponsors/<id>/place`
+
+```json
+{"position":1}
+```
+
+巡查不调用这些接口。
 
 ## 巡查
 

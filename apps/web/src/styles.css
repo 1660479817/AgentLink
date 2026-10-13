@@ -395,6 +395,12 @@ a:hover {
   font-weight: 700;
 }
 
+.sponsor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
 .sponsor-card {
   display: block;
   overflow: hidden;
@@ -419,6 +425,17 @@ a:hover {
   background: var(--color-accent-dim);
 }
 
+.sponsor-media:has(.sponsor-photo) {
+  display: block;
+}
+
+.sponsor-photo {
+  display: block;
+  width: 100%;
+  height: 8.5rem;
+  object-fit: cover;
+}
+
 .sponsor-media .brand-mark {
   width: 4.5rem;
   height: 4.5rem;
@@ -436,6 +453,18 @@ a:hover {
   display: block;
   font-weight: 600;
   font-size: 0.95rem;
+}
+
+.sponsor-caption,
+.sponsor-source {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
+.sponsor-source {
+  color: var(--color-muted);
 }
 
 .sponsor-meta {
@@ -507,11 +536,11 @@ a:hover {
 }
 
 @media (min-width: 1280px) {
-  .stage {
+  .stage.has-sponsors {
     grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-width);
   }
 
-  .rail-sponsor {
+  .stage.has-sponsors .rail-sponsor {
     display: block;
     position: sticky;
     top: calc(var(--header-height) + 1rem);

@@ -12,18 +12,6 @@
       "allowAgents": []
     },
     {
-      "id": "knot-brief",
-      "employee": "Brief",
-      "skills": ["knot-brief"],
-      "allowAgents": []
-    },
-    {
-      "id": "knot-demand",
-      "employee": "Demand",
-      "skills": ["knot-demand"],
-      "allowAgents": []
-    },
-    {
       "id": "knot-admin",
       "employee": "Admin",
       "skills": ["knot-admin"],

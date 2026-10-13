@@ -94,10 +94,10 @@ function postedLabel(value) {
     </header>
     <p v-if="body" class="information-body">{{ body }}</p>
     <img v-if="previewUrl" :src="previewUrl" alt="" class="information-preview" />
-    <div v-else-if="photos.length" class="information-images" :class="`is-${photos.length}`">
+    <div v-if="photos.length" class="information-images" :class="`is-${photos.length}`">
       <img v-for="url in photos" :key="url" :src="url" alt="" class="information-photo" />
     </div>
-    <ul v-else-if="pendingImages.length" class="information-files">
+    <ul v-if="!previewUrl && !photos.length && pendingImages.length" class="information-files">
       <li v-for="(file, index) in pendingImages" :key="file.id || `${file.name}-${index}`">
         <span class="information-file">
           <ImageIcon class="information-file-icon" aria-hidden="true" />

@@ -53,13 +53,13 @@ function pendingOf(item) {
   <p v-if="!session.user" class="muted">{{ t("mine.login") }}</p>
   <p v-else-if="loaded && items.length === 0" class="muted">{{ t("submissions.empty") }}</p>
   <article v-for="item in items" :key="item.id" class="card post">
-    <p class="information-status">{{ t(statusKey(item.verdict)) }}</p>
+    <p class="information-status">{{ t(statusKey(item.kMeta?.verdict)) }}</p>
     <p class="information-time">
-      <span v-if="item.category">{{ item.category }} · </span>
-      <span>{{ t("submissions.usePrice", { n: item.price || 0 }) }}</span>
-      <span v-if="item.kind === 'response'"> · {{ t("submissions.requestReply") }}</span>
-      <span v-else-if="item.kind === 'request'"> · {{ t("submissions.request") }}</span>
-      <span v-else-if="item.public === false && item.verdict !== 'removed'"> · {{ t("submissions.private") }}</span>
+      <span v-if="item.kMeta?.category">{{ item.kMeta.category }} · </span>
+      <span>{{ t("submissions.usePrice", { n: item.kMeta?.commerce?.price || 0 }) }}</span>
+      <span v-if="item.kMeta?.kind === 'wishRespond'"> · {{ t("submissions.requestReply") }}</span>
+      <span v-else-if="item.kMeta?.kind === 'wish'"> · {{ t("submissions.request") }}</span>
+      <span v-else-if="item.kMeta?.public === false && item.kMeta?.verdict !== 'removed'"> · {{ t("submissions.private") }}</span>
     </p>
     <p v-if="item.body" class="information-body">{{ item.body }}</p>
     <img v-if="item.previewUrl" :src="item.previewUrl" alt="" class="information-preview" />
@@ -100,7 +100,7 @@ function pendingOf(item) {
         </span>
       </li>
     </ul>
-    <p v-if="item.rejectReason" class="error card-notice" role="alert">{{ item.rejectReason }}</p>
+    <p v-if="item.kMeta?.rejectReason" class="error card-notice" role="alert">{{ item.kMeta.rejectReason }}</p>
   </article>
   <div class="form-actions">
     <AppButton variant="secondary" to="/mine">{{ t("submissions.back") }}</AppButton>

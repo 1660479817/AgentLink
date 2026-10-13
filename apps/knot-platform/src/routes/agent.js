@@ -3,7 +3,8 @@ import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import multer from "multer";
 import { listRequestResponses, listRequests } from "../requests.js";
-import { hasInformation, idsOf, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
+import { hasInformation, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
+import { readMedia } from "../links.js";
 import {
   FEEDBACK_MAX,
   normalizeEmail,
@@ -30,6 +31,8 @@ function feedbackTooSoon(userId) {
 function agentFail(res, error) {
   const code = error.code || error.message;
   if (code === "bad_video") return res.status(400).json({ error: "bad_video" });
+  if (code === "bad_url") return res.status(400).json({ error: "bad_url" });
+  if (code === "nothing_to_download") return res.status(400).json({ error: "nothing_to_download" });
   if (code === "bad_price") return res.status(400).json({ error: "bad_price" });
   if (code === "bad_public") return res.status(400).json({ error: "bad_public" });
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
@@ -63,9 +66,17 @@ async function userFromAccess(pool, header, emailRaw) {
 
 function readDelivery(body, limits = {}) {
   const text = typeof body?.body === "string" ? body.body.trim() : "";
-  const images = idsOf(body?.images, limits.images ?? MAX_IMAGES);
-  const audio = idsOf(body?.audio, MAX_AUDIO);
-  const attachments = idsOf(body?.attachments, limits.files ?? MAX_FILES);
+  let images;
+  let audio;
+  let attachments;
+  try {
+    images = readMedia(body?.images, limits.images ?? MAX_IMAGES);
+    audio = readMedia(body?.audio, MAX_AUDIO);
+    attachments = readMedia(body?.attachments, limits.files ?? MAX_FILES);
+  } catch (error) {
+    if (error.code === "bad_url") return { error: "bad_url", status: 400 };
+    throw error;
+  }
   let videos = [];
   if (body && Object.prototype.hasOwnProperty.call(body, "videos")) {
     try {
@@ -75,7 +86,16 @@ function readDelivery(body, limits = {}) {
       throw error;
     }
   }
-  return { body: text, imageIds: images, audioIds: audio, fileIds: attachments, videos };
+  return {
+    body: text,
+    imageIds: images.ids,
+    imageUrls: images.urls,
+    audioIds: audio.ids,
+    audioUrls: audio.urls,
+    fileIds: attachments.ids,
+    fileUrls: attachments.urls,
+    videos,
+  };
 }
 
 function presentUser(row) {
@@ -250,7 +270,13 @@ export function agentRouter({ pool, uploadDir }) {
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const delivery = readDelivery(req.body);
     if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
-    if (!hasInformation({ body: delivery.body, images: delivery.imageIds, audio: delivery.audioIds, videos: delivery.videos, attachments: delivery.fileIds })) {
+    if (!hasInformation({
+      body: delivery.body,
+      images: [...delivery.imageIds, ...delivery.imageUrls],
+      audio: [...delivery.audioIds, ...delivery.audioUrls],
+      videos: delivery.videos,
+      attachments: [...delivery.fileIds, ...delivery.fileUrls],
+    })) {
       return res.status(400).json({ error: "empty_body" });
     }
     try {
@@ -260,13 +286,16 @@ export function agentRouter({ pool, uploadDir }) {
         door: "agent_api",
         body: delivery.body,
         imageIds: delivery.imageIds,
+        imageUrls: delivery.imageUrls,
         audioIds: delivery.audioIds,
+        audioUrls: delivery.audioUrls,
         fileIds: delivery.fileIds,
+        fileUrls: delivery.fileUrls,
         videos: delivery.videos,
         isPublic: req.body?.public,
         price: req.body?.price,
-        request: req.body?.request === true,
-        requestId: typeof req.body?.requestId === "string" ? req.body.requestId : null,
+        kind: typeof req.body?.kind === "string" ? req.body.kind : "",
+        respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
       });
       res.status(201).json({ intel });
     } catch (error) {

@@ -33,7 +33,6 @@ export function nameMark(user) {
 
 export function errorText(code, policy = {}) {
   const key = `error.${code}`;
-  if (code === "bad_hours") return t(key, { max: policy.bountyMaxHours });
   if (code === "bad_price") {
     return t(key, { min: policy.priceMin ?? 0, max: policy.priceMax ?? 100 });
   }

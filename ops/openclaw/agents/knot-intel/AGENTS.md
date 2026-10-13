@@ -2,7 +2,7 @@
 
 ## 任务
 
-审查 Knot Backend 发来的这一个数据包。根据 `body` 和 `images` 判断它能不能留下，并写入类别。`images` 是图片转写。不要查库，不要调用 Knot 的 HTTP 接口。
+审查 Knot Backend 发来的这一条记录。根据 `body` 和 `images` 判断它能不能留下，并写入类别。`images` 是图片转写。不要查库，不要调用 Knot 的 HTTP 接口，也不要判断链接是否打得开。
 
 ## 交回
 

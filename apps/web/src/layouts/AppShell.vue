@@ -5,6 +5,7 @@ import AppButton from "../components/AppButton.vue";
 import RememberLoginCard from "../components/RememberLoginCard.vue";
 import { ActivityIcon, BackIcon, BookmarkIcon, ChatIcon, HeaderUserIcon, HistoryIcon, SearchIcon, UserIcon, ZapIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
+import { listSponsors } from "../api.js";
 import { useNotificationStore } from "../stores/notifications";
 import { useSessionStore } from "../stores/session";
 
@@ -17,6 +18,7 @@ const searchOpen = ref(false);
 const query = ref("");
 const searchInput = ref(null);
 const history = ref(readHistory());
+const sponsors = ref([]);
 
 function readHistory() {
   try {
@@ -53,8 +55,29 @@ function search(text = query.value) {
   router.push({ name: "home", query: { q } });
 }
 
+function internalHref(href) {
+  return typeof href === "string" && href.startsWith("/") && !href.startsWith("//");
+}
+
+function sponsorMark(title) {
+  const text = String(title || "").trim();
+  return text ? text.slice(0, 1) : mark;
+}
+
+function linkAttrs(href) {
+  if (internalHref(href)) return { to: href };
+  return { href, target: "_blank", rel: "noopener noreferrer" };
+}
+
 onMounted(() => {
   notifications.load();
+  listSponsors()
+    .then((data) => {
+      sponsors.value = Array.isArray(data.sponsors) ? data.sponsors : [];
+    })
+    .catch(() => {
+      sponsors.value = [];
+    });
 });
 </script>
 
@@ -131,7 +154,7 @@ onMounted(() => {
         </div>
       </div>
     </Teleport>
-    <div class="stage">
+    <div class="stage" :class="{ 'has-sponsors': sponsors.length > 0 }">
       <nav class="rail rail-shortcuts" :aria-label="t('rail.shortcuts')">
         <div class="shortcut-list">
           <RouterLink :to="{ name: 'mine' }" class="shortcut">
@@ -152,17 +175,28 @@ onMounted(() => {
         <RememberLoginCard />
         <slot />
       </main>
-      <aside class="rail rail-sponsor" :aria-label="t('rail.sponsored')">
+      <aside v-if="sponsors.length" class="rail rail-sponsor" :aria-label="t('rail.sponsored')">
         <p class="rail-label">{{ t("rail.sponsored") }}</p>
-        <RouterLink to="/wish" class="sponsor-card">
-          <span class="sponsor-media" aria-hidden="true">
-            <span class="brand-mark">{{ mark }}</span>
-          </span>
-          <span class="sponsor-copy">
-            <span class="sponsor-title">{{ t("rail.sponsorTitle") }}</span>
-            <span class="sponsor-meta">{{ t("rail.sponsorMeta") }}</span>
-          </span>
-        </RouterLink>
+        <div class="sponsor-list">
+          <component
+            :is="internalHref(item.href) ? 'RouterLink' : 'a'"
+            v-for="item in sponsors"
+            :key="item.id"
+            class="sponsor-card"
+            v-bind="linkAttrs(item.href)"
+          >
+            <span class="sponsor-media" aria-hidden="true">
+              <img v-if="item.image" class="sponsor-photo" :src="item.image" alt="" />
+              <span v-else class="brand-mark">{{ sponsorMark(item.title) }}</span>
+            </span>
+            <span class="sponsor-copy">
+              <span class="sponsor-title">{{ item.title }}</span>
+              <span v-if="item.caption" class="sponsor-caption">{{ item.caption }}</span>
+              <span v-if="item.source" class="sponsor-source">{{ item.source }}</span>
+              <span class="sponsor-meta">{{ t("rail.sponsorMeta") }}</span>
+            </span>
+          </component>
+        </div>
       </aside>
     </div>
   </div>

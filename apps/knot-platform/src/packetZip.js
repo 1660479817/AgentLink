@@ -113,7 +113,16 @@ function videoUrls(videos) {
   return urls;
 }
 
-export function packetReadme({ category = "", price = 0, author = "", createdAt, videos = [], files = [], body = "" }) {
+function linkLines(links) {
+  const bag = links && typeof links === "object" ? links : {};
+  const lines = [];
+  for (const item of bag.images || []) if (item?.url) lines.push(`图片：${item.url}`);
+  for (const item of bag.audio || []) if (item?.url) lines.push(`音频：${item.url}`);
+  for (const item of bag.attachments || []) if (item?.url) lines.push(`附件：${item.url}`);
+  return lines;
+}
+
+export function packetReadme({ category = "", price = 0, author = "", createdAt, videos = [], links = {}, files = [], body = "" }) {
   const lines = [];
   const kind = String(category || "").trim();
   if (kind) lines.push(`类别：${kind}`);
@@ -123,6 +132,7 @@ export function packetReadme({ category = "", price = 0, author = "", createdAt,
   const when = stamp(createdAt);
   if (when) lines.push(`时间：${when}`);
   for (const url of videoUrls(videos)) lines.push(`视频：${url}`);
+  lines.push(...linkLines(links));
   for (const file of files) lines.push(`${file.label}：${file.name}`);
   lines.push("");
   lines.push(String(body || "").trim());

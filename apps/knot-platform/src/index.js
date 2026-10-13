@@ -53,7 +53,7 @@ app.use(
   })
 );
 app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir }));
-app.use("/api/admin", adminRouter({ pool, token: process.env.KNOT_ADMIN_TOKEN || "" }));
+app.use("/api/admin", adminRouter({ pool, token: process.env.KNOT_ADMIN_TOKEN || "", uploadDir: bootstrap.uploadDir }));
 
 if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
   const dir = path.resolve(bootstrap.staticWebDir);

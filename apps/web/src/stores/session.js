@@ -2,14 +2,9 @@ import { defineStore } from "pinia";
 import { confirmLoginKey, endSession, getSession, requestLoginKey } from "../api.js";
 
 const INITIAL_POLICY = {
-  demandTtlHours: 24,
-  matchLimit: 10,
-  bountyMaxHours: 72,
   defaultPrice: 10,
   priceMin: 0,
   priceMax: 100,
-  listingFee: 1,
-  completionFee: 1,
   requestFee: 1,
 };
 

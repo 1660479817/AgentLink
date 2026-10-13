@@ -21,7 +21,7 @@ function privateAddress(address) {
   return ip === "::1" || ip.startsWith("fe80:") || ip.startsWith("fc") || ip.startsWith("fd");
 }
 
-async function publicUrl(raw) {
+export async function publicUrl(raw) {
   let url;
   try {
     url = new URL(raw);
@@ -40,6 +40,48 @@ async function publicUrl(raw) {
     return null;
   }
   return url;
+}
+
+export async function reachable(raw, hops = 0) {
+  const url = await publicUrl(raw);
+  if (!url || hops > HOP_LIMIT) {
+    const error = new Error("bad_url");
+    error.code = "bad_url";
+    throw error;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
+  try {
+    const response = await fetch(url, {
+      redirect: "manual",
+      signal: controller.signal,
+      headers: { "user-agent": "Knot/1.0" },
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const next = response.headers.get("location");
+      await response.body?.cancel?.();
+      if (!next) {
+        const error = new Error("bad_url");
+        error.code = "bad_url";
+        throw error;
+      }
+      return reachable(new URL(next, url).toString(), hops + 1);
+    }
+    await response.body?.cancel?.();
+    if (!response.ok) {
+      const error = new Error("bad_url");
+      error.code = "bad_url";
+      throw error;
+    }
+    return url.toString();
+  } catch (error) {
+    if (error.code === "bad_url") throw error;
+    const wrapped = new Error("bad_url");
+    wrapped.code = "bad_url";
+    throw wrapped;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function readHtml(raw, hops = 0) {

@@ -44,6 +44,10 @@ export function listInformation() {
   return request("/api/web/information");
 }
 
+export function listSponsors() {
+  return request("/api/web/sponsors");
+}
+
 export function dismissInformation(id) {
   return request(`/api/web/intel/${id}/dismiss`, { method: "POST", body: "{}" });
 }

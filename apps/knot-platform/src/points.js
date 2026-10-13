@@ -7,19 +7,9 @@ function nonNegativeInt(raw, fallback) {
   return value;
 }
 
-function positiveInt(raw, fallback) {
-  if (raw == null || String(raw).trim() === "") return fallback;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1) return fallback;
-  return value;
-}
-
 export function feeConfig() {
   return {
     defaultPrice: nonNegativeInt(process.env.KNOT_DEFAULT_PRICE, 10),
-    matchUnit: nonNegativeInt(process.env.KNOT_MATCH_UNIT, 1),
-    listingFee: nonNegativeInt(process.env.KNOT_LISTING_FEE, 1),
-    completionFee: nonNegativeInt(process.env.KNOT_COMPLETION_FEE, 1),
     requestFee: nonNegativeInt(process.env.KNOT_REQUEST_FEE, 1),
     signupGrant: nonNegativeInt(process.env.KNOT_SIGNUP_GRANT, 100),
   };
@@ -38,14 +28,9 @@ export function pricePolicy() {
 export function policyConfig() {
   const price = pricePolicy();
   return {
-    demandTtlHours: positiveInt(process.env.KNOT_DEMAND_TTL_HOURS, 24),
-    matchLimit: positiveInt(process.env.KNOT_MATCH_LIMIT, 10),
-    bountyMaxHours: positiveInt(process.env.KNOT_BOUNTY_MAX_HOURS, 72),
     defaultPrice: price.defaultPrice,
     priceMin: price.min,
     priceMax: price.max,
-    listingFee: feeConfig().listingFee,
-    completionFee: feeConfig().completionFee,
     requestFee: feeConfig().requestFee,
   };
 }
@@ -61,11 +46,6 @@ export function packetPrice(fileCount, raw) {
     throw error;
   }
   return value;
-}
-
-export async function getBalance(pool, userId) {
-  const { rows } = await pool.query(`SELECT points_balance FROM users WHERE id = $1`, [userId]);
-  return rows[0]?.points_balance ?? 0;
 }
 
 export async function applyPoints(client, { userId, delta, reason, refId = null }) {

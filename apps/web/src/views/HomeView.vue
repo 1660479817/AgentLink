@@ -8,6 +8,7 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 import { dismissInformation, downloadInformation, listInformation, listRequests, searchInformation, starInformation, unstarInformation } from "../api.js";
 import { nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
+import { payeeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { PlusIcon, UserIcon } from "../icons/index.js";
 import { useNotificationStore } from "../stores/notifications";
@@ -46,8 +47,8 @@ async function load() {
 function wishText(wish) {
   const body = String(wish.body || "").trim();
   if (body) return body;
-  const name = wish.fileNames?.[0]?.name;
-  return name || t("nav.wish");
+  const file = [...(wish.images || []), ...(wish.audio || []), ...(wish.attachments || [])][0];
+  return file?.name || file?.url || t("nav.wish");
 }
 
 function clearSearch() {
@@ -100,7 +101,8 @@ async function downloadItem(item) {
   item.downloading = true;
   try {
     const ok = await acceptDownload({
-      price: item.price,
+      price: priceOf(item),
+      payee: payeeOf(item),
       granted: item.granted !== false,
       code: session.user ? "" : "no_session",
       task: () => downloadInformation(item.id),
@@ -173,8 +175,8 @@ async function downloadItem(item) {
     v-for="item in items"
     :key="item.id"
     :body="item.body || ''"
-    :category="item.category || ''"
-    :price="Number(item.price) || 0"
+    :category="item.kMeta?.category || ''"
+    :price="priceOf(item)"
     :granted="item.granted !== false"
     :preview-url="item.previewUrl || ''"
     :image-urls="item.imageUrls || item.images?.map((file) => file.url).filter(Boolean) || []"
@@ -184,7 +186,7 @@ async function downloadItem(item) {
     :attachments="item.attachments || []"
     :author-name="item.author?.name || ''"
     :avatar-url="item.author?.avatarUrl || ''"
-    :created-at="item.createdAt || ''"
+    :created-at="item.kMeta?.createdAt || ''"
     :starred="Boolean(item.starred)"
     :can-star="Boolean(session.user)"
     :busy="Boolean(item.downloading)"
