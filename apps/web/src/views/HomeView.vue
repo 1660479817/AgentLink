@@ -6,7 +6,7 @@ import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { dismissInformation, downloadInformation, listInformation, listRequests, searchInformation, starInformation, unstarInformation } from "../api.js";
-import { errorText, nameMark, requireSession } from "../composers/packet.js";
+import { nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { t } from "../i18n/index.js";
 import { PlusIcon, UserIcon } from "../icons/index.js";
@@ -97,25 +97,24 @@ async function toggleStar(item) {
 
 async function downloadItem(item) {
   if (item.downloading) return;
-  item.notice = "";
-  try {
-    requireSession(session.user);
-  } catch (err) {
-    item.notice = errorText(err.code, session.policy);
-    return;
-  }
-  const ok = await acceptDownload({ price: item.price, granted: item.granted !== false });
-  if (!ok) return;
   item.downloading = true;
   try {
-    await downloadInformation(item.id);
-    const data = searchQ.value ? await searchInformation(searchQ.value) : await listInformation();
-    const next = (data.information || []).find((row) => row.id === item.id);
-    if (next) Object.assign(item, next, { notice: "", downloading: false });
-    else item.granted = true;
-    if (session.user) await session.load();
-  } catch (err) {
-    item.notice = errorText(err.code, session.policy);
+    const ok = await acceptDownload({
+      price: item.price,
+      granted: item.granted !== false,
+      code: session.user ? "" : "no_session",
+      task: () => downloadInformation(item.id),
+    });
+    if (!ok) return;
+    try {
+      const data = searchQ.value ? await searchInformation(searchQ.value) : await listInformation();
+      const next = (data.information || []).find((row) => row.id === item.id);
+      if (next) Object.assign(item, next);
+      else item.granted = true;
+      if (session.user) await session.load();
+    } catch {
+      item.granted = true;
+    }
   } finally {
     item.downloading = false;
   }
@@ -189,7 +188,6 @@ async function downloadItem(item) {
     :starred="Boolean(item.starred)"
     :can-star="Boolean(session.user)"
     :busy="Boolean(item.downloading)"
-    :notice="item.notice || ''"
     @dismiss="dismissItem(item)"
     @star="toggleStar(item)"
     @download="downloadItem(item)"

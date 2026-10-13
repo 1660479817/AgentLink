@@ -219,12 +219,15 @@
     "systemReview": "这条需求没有留下。"
   },
   "download": {
-    "title": "下载确认",
+    "title": "下载",
     "consent": "这次下载将扣除 {n} 积分，付给{payee}。",
     "author": "作者",
     "platform": "平台",
     "confirm": "确认",
-    "cancel": "取消"
+    "cancel": "取消",
+    "working": "正在下载",
+    "done": "下载完成",
+    "close": "关闭"
   },
   "error": {
     "no_session": "请先登录",

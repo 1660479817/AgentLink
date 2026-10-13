@@ -1,10 +1,26 @@
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import AppButton from "./AppButton.vue";
-import { downloadConsent, settleDownload } from "../download/consent.js";
+import { errorText } from "../composers/packet.js";
+import { dismissDownload, downloadConsent, settleDownload } from "../download/consent.js";
 import { t } from "../i18n/index.js";
 
 const dialog = ref(null);
+const phase = computed(() => downloadConsent.value?.phase || "");
+
+const body = computed(() => {
+  const job = downloadConsent.value;
+  if (!job) return "";
+  if (job.phase === "confirm") {
+    return t("download.consent", {
+      n: job.amount || 0,
+      payee: t(job.payee === "platform" ? "download.platform" : "download.author"),
+    });
+  }
+  if (job.phase === "working") return t("download.working");
+  if (job.phase === "done") return t("download.done");
+  return errorText(job.code);
+});
 
 watch(downloadConsent, async (job) => {
   await nextTick();
@@ -16,11 +32,14 @@ watch(downloadConsent, async (job) => {
 
 function onCancel(event) {
   event.preventDefault();
-  settleDownload(false);
+  if (phase.value === "confirm") settleDownload(false);
+  else if (phase.value === "done" || phase.value === "error") dismissDownload();
 }
 
 function onBackdrop(event) {
-  if (event.target === event.currentTarget) settleDownload(false);
+  if (event.target !== event.currentTarget) return;
+  if (phase.value === "confirm") settleDownload(false);
+  else if (phase.value === "done" || phase.value === "error") dismissDownload();
 }
 </script>
 
@@ -30,23 +49,27 @@ function onBackdrop(event) {
     class="download-consent"
     aria-labelledby="download-consent-title"
     aria-describedby="download-consent-body"
+    :aria-busy="phase === 'working'"
     @cancel="onCancel"
     @click="onBackdrop"
   >
     <template v-if="downloadConsent">
-    <p id="download-consent-title" class="download-consent-title">{{ t("download.title") }}</p>
-    <p id="download-consent-body" class="download-consent-body">
-      {{
-        t("download.consent", {
-          n: downloadConsent?.amount || 0,
-          payee: t(downloadConsent?.payee === "platform" ? "download.platform" : "download.author"),
-        })
-      }}
-    </p>
-    <div class="download-consent-actions">
-      <AppButton variant="secondary" type="button" @click="settleDownload(false)">{{ t("download.cancel") }}</AppButton>
-      <AppButton type="button" @click="settleDownload(true)">{{ t("download.confirm") }}</AppButton>
-    </div>
+      <p id="download-consent-title" class="download-consent-title">{{ t("download.title") }}</p>
+      <p
+        id="download-consent-body"
+        class="download-consent-body"
+        :class="{ 'is-error': phase === 'error' }"
+        :role="phase === 'error' ? 'alert' : 'status'"
+      >
+        {{ body }}
+      </p>
+      <div v-if="phase === 'confirm'" class="download-consent-actions">
+        <AppButton variant="secondary" type="button" @click="settleDownload(false)">{{ t("download.cancel") }}</AppButton>
+        <AppButton type="button" @click="settleDownload(true)">{{ t("download.confirm") }}</AppButton>
+      </div>
+      <div v-else-if="phase === 'done' || phase === 'error'" class="download-consent-actions">
+        <AppButton variant="secondary" type="button" @click="dismissDownload">{{ t("download.close") }}</AppButton>
+      </div>
     </template>
   </dialog>
 </template>

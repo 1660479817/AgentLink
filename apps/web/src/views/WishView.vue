@@ -238,22 +238,21 @@ async function submit() {
 
 async function downloadReply(item) {
   if (item.downloading) return;
-  error.value = "";
-  try {
-    requireSession(session.user);
-  } catch (err) {
-    error.value = errorText(err.code, session.policy);
-    return;
-  }
-  const ok = await acceptDownload({ price: item.price, granted: item.granted !== false });
-  if (!ok) return;
   item.downloading = true;
   try {
-    await downloadInformation(item.id);
-    await load();
-    if (session.user) await session.load();
-  } catch (err) {
-    error.value = errorText(err.code, session.policy);
+    const ok = await acceptDownload({
+      price: item.price,
+      granted: item.granted !== false,
+      code: session.user ? "" : "no_session",
+      task: () => downloadInformation(item.id),
+    });
+    if (!ok) return;
+    try {
+      await load();
+      if (session.user) await session.load();
+    } catch {
+      item.granted = true;
+    }
   } finally {
     item.downloading = false;
   }

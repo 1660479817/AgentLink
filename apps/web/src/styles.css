@@ -2780,6 +2780,14 @@ p.error {
   line-height: 1.45;
 }
 
+.download-consent-body:last-child {
+  margin-bottom: 0;
+}
+
+.download-consent-body.is-error {
+  color: var(--color-danger);
+}
+
 .download-consent-actions {
   display: flex;
   justify-content: flex-end;

@@ -23,7 +23,6 @@ const props = defineProps({
   starred: { type: Boolean, default: false },
   canStar: { type: Boolean, default: true },
   busy: { type: Boolean, default: false },
-  notice: { type: String, default: "" },
 });
 
 const emit = defineEmits(["dismiss", "star", "download"]);
@@ -161,6 +160,5 @@ function postedLabel(value) {
         <DownloadIcon aria-hidden="true" />
       </button>
     </div>
-    <p v-if="notice" class="error card-notice" role="alert">{{ notice }}</p>
   </article>
 </template>

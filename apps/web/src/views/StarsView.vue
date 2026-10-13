@@ -13,20 +13,23 @@ const failed = ref(false);
 
 async function downloadItem(item) {
   if (item.downloading) return;
-  item.notice = "";
-  const ok = await acceptDownload({ price: item.price, granted: item.granted !== false });
-  if (!ok) return;
   item.downloading = true;
   try {
-    await downloadInformation(item.id);
-    const data = await listStars();
-    const next = (data.information || []).find((row) => row.id === item.id);
-    if (next) Object.assign(item, next, { notice: "", downloading: false });
-    else item.granted = true;
-    await session.load();
-  } catch (error) {
-    const key = `error.${error.code}`;
-    item.notice = t(key) === key ? t("error.request_failed") : t(key);
+    const ok = await acceptDownload({
+      price: item.price,
+      granted: item.granted !== false,
+      task: () => downloadInformation(item.id),
+    });
+    if (!ok) return;
+    try {
+      const data = await listStars();
+      const next = (data.information || []).find((row) => row.id === item.id);
+      if (next) Object.assign(item, next);
+      else item.granted = true;
+      await session.load();
+    } catch {
+      item.granted = true;
+    }
   } finally {
     item.downloading = false;
   }
@@ -91,7 +94,6 @@ onMounted(async () => {
       :created-at="item.createdAt || ''"
       :starred="true"
       :busy="Boolean(item.downloading)"
-      :notice="item.notice || ''"
       @dismiss="dismissItem(item)"
       @star="toggleStar(item)"
       @download="downloadItem(item)"
