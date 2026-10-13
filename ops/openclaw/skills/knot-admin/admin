@@ -1,0 +1,4 @@
+#!/bin/bash
+export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH:-/usr/bin:/bin}"
+dir="$(cd "$(dirname "$0")" && pwd)"
+exec node "$dir/admin.mjs" "$@"

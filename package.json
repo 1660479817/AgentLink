@@ -11,8 +11,9 @@
     "dev:platform": "npm run dev -w knot-platform",
     "dev:web": "npm run dev -w web",
     "build:web": "npm run build -w web",
-    "smoke:phase0": "node scripts/phase0-smoke.mjs",
+    "smoke:phase0": "node scripts/e2e-knot.mjs",
     "seed:samples": "node scripts/seed-samples.mjs",
-    "e2e:phase0": "node scripts/e2e-phase0.mjs"
+    "e2e": "node scripts/e2e-knot.mjs",
+    "e2e:phase0": "node scripts/e2e-knot.mjs"
   }
 }

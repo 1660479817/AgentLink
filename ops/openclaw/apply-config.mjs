@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,10 @@ const promptFiles = ["IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md"];
 export function visibleSkills(manifest, agent) {
   if (agent.common === false) return [...agent.skills];
   return [...manifest.commonSkills, ...agent.skills];
+}
+
+export function skillSources(names) {
+  return names.filter((name) => name === "SKILL.md" || name === "admin" || (name.endsWith(".mjs") && !name.endsWith(".test.mjs")));
 }
 
 export function patchConfig(config, manifest) {
@@ -95,10 +99,16 @@ async function sync() {
       if (error.code !== "ENOENT") throw error;
     }
     for (const skill of visibleSkills(manifest, agent)) {
-      const source = path.join(root, "skills", skill, "SKILL.md");
+      const sourceDir = path.join(root, "skills", skill);
       const destDir = path.join(workspace, "skills", skill);
       await mkdir(destDir, { recursive: true });
-      await copyFile(source, path.join(destDir, "SKILL.md"));
+      const names = skillSources(await readdir(sourceDir));
+      if (!names.includes("SKILL.md")) throw new Error(`missing SKILL.md for ${skill}`);
+      for (const name of names) {
+        const dest = path.join(destDir, name);
+        await copyFile(path.join(sourceDir, name), dest);
+        if (name === "admin") await chmod(dest, 0o755);
+      }
     }
   }
   let config = await restore(await readConfig());
@@ -108,15 +118,16 @@ async function sync() {
 }
 
 const command = process.argv[2];
-const manifest = command === "patch-test" ? null : await readManifest();
+const isDirect = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const manifest = !isDirect || command === "patch-test" ? null : await readManifest();
 
-if (command === "ids") {
+if (isDirect && command === "ids") {
   process.stdout.write(`${manifest.agents.map((agent) => agent.id).join("\n")}\n`);
-} else if (command === "snapshot") {
+} else if (isDirect && command === "snapshot") {
   await snapshot();
-} else if (command === "sync") {
+} else if (isDirect && command === "sync") {
   await sync();
-} else if (command === "patch-test") {
+} else if (isDirect && command === "patch-test") {
   const sample = {
     bindings: [{ agentId: "main" }],
     agents: { entries: { "knot-intel": { name: "knot-intel" }, "knot-admin": { name: "knot-admin" } } },
@@ -135,8 +146,10 @@ if (command === "ids") {
   if (patched.agents.entries["knot-admin"].skills.join() !== "knot-admin") process.exit(1);
   if (patched.agents.entries.missing) process.exit(1);
   if (patched.bindings[0].agentId !== "main") process.exit(1);
+  const copied = skillSources(["SKILL.md", "admin", "admin.mjs", "admin.test.mjs", "notes.txt"]);
+  if (copied.join() !== "SKILL.md,admin,admin.mjs") process.exit(1);
   process.stdout.write("patch ok\n");
-} else {
+} else if (isDirect) {
   process.stderr.write("usage: apply-config.mjs ids|snapshot|sync|patch-test\n");
   process.exit(2);
 }

@@ -89,22 +89,45 @@ ensure_admin_token() {
   echo "==> 管理员令牌已写入工作区"
 }
 
+PATROL_MESSAGE="执行每日巡查。读工作区的 AGENTS.md、ORDERS.md 和技能 knot-admin。用 skills/knot-admin/admin 取新帖、删除、警告并记下巡查。不要自己发 HTTP。违法、欺诈、隐私或骚扰，以及 ORDERS.md 写明的对象，才删除并警告。拿不准的不要动。"
+
 ensure_admin_cron() {
-  local list
-  list="$(openclaw cron list --all 2>/dev/null || openclaw cron list 2>/dev/null || true)"
-  if printf '%s\n' "$list" | grep -q 'knot-admin-patrol'; then
-    echo "==> cron knot-admin-patrol already registered"
+  local json id message
+  json="$(openclaw cron list --all --json 2>/dev/null || printf '%s\n' '{"jobs":[]}')"
+  id="$(printf '%s' "$json" | node -e '
+    let raw = "";
+    process.stdin.on("data", (chunk) => { raw += chunk; });
+    process.stdin.on("end", () => {
+      const job = (JSON.parse(raw).jobs || []).find((item) => item.name === "knot-admin-patrol");
+      process.stdout.write(job ? job.id : "");
+    });
+  ')"
+  if [[ -z "$id" ]]; then
+    echo "==> add cron knot-admin-patrol"
+    openclaw cron add "0 9 * * *" \
+      "$PATROL_MESSAGE" \
+      --name "knot-admin-patrol" \
+      --tz "Asia/Shanghai" \
+      --session isolated \
+      --agent knot-admin \
+      --no-deliver \
+      --timeout-seconds 300
     return 0
   fi
-  echo "==> add cron knot-admin-patrol"
-  openclaw cron add "0 9 * * *" \
-    "执行每日巡查。读工作区的 AGENTS.md、ORDERS.md 和技能 knot-admin。只处理本机管理接口给出的新帖。违法、欺诈、隐私或骚扰，以及 ORDERS.md 写明的对象，才删除并警告。拿不准的不要动。巡查结束把记录交给管理接口。" \
-    --name "knot-admin-patrol" \
-    --tz "Asia/Shanghai" \
-    --session isolated \
-    --agent knot-admin \
-    --no-deliver \
-    --timeout-seconds 300
+  message="$(printf '%s' "$json" | node -e '
+    let raw = "";
+    process.stdin.on("data", (chunk) => { raw += chunk; });
+    process.stdin.on("end", () => {
+      const job = (JSON.parse(raw).jobs || []).find((item) => item.name === "knot-admin-patrol");
+      process.stdout.write(job?.payload?.message || "");
+    });
+  ')"
+  if [[ "$message" == "$PATROL_MESSAGE" ]]; then
+    echo "==> cron knot-admin-patrol already current"
+    return 0
+  fi
+  echo "==> update cron knot-admin-patrol"
+  openclaw cron edit "$id" --message "$PATROL_MESSAGE"
 }
 
 if [[ -f "$ENV_FILE" ]]; then
