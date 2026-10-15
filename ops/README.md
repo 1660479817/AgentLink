@@ -30,6 +30,14 @@ cd ~/knot/AgentLink
 
 ## 检查
 
+在开发机跑单测。覆盖平台、WebUI 和 `ops/` 下的工具，不需要数据库，不连网。
+
+```bash
+npm test              # 全部
+npm test -w web       # 只跑 WebUI
+npm test -w knot-platform
+```
+
 ```bash
 curl -s http://127.0.0.1:8080/api/health
 ```
