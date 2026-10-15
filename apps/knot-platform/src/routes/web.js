@@ -3,7 +3,7 @@ import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
-import { isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
+import { isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
 import { readMedia } from "../links.js";
 import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
 import { createIntel, downloadPacket, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar } from "../market.js";
@@ -120,10 +120,11 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   });
   const attachment = multer({
     storage,
-    limits: { fileSize: 5 * 1024 * 1024 },
+    limits: { fileSize: 50 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       if (isVideoUpload(file)) cb(new Error("bad_video"));
       else if (isAudioUpload(file)) cb(new Error("bad_audio"));
+      else if (!isAttachmentUpload(file)) cb(new Error("bad_file"));
       else cb(null, true);
     },
   });
@@ -232,7 +233,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     audioUpload.single("file")(req, res, (err) => {
       if (err) {
         const tooBig = err.code === "LIMIT_FILE_SIZE";
-        const code = err.message === "bad_audio" ? "bad_audio" : tooBig ? "file_too_large" : "upload_failed";
+        const code = err.message === "bad_audio" ? "bad_audio" : tooBig ? "audio_too_large" : "upload_failed";
         return res.status(400).json({ error: code });
       }
       if (!req.file) return res.status(400).json({ error: "empty_file" });
@@ -257,7 +258,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     attachment.single("file")(req, res, (err) => {
       if (err) {
         const tooBig = err.code === "LIMIT_FILE_SIZE";
-        const known = err.message === "bad_video" || err.message === "bad_audio";
+        const known = err.message === "bad_video" || err.message === "bad_audio" || err.message === "bad_file";
         const code = known ? err.message : tooBig ? "file_too_large" : "upload_failed";
         return res.status(400).json({ error: code });
       }

@@ -48,7 +48,7 @@ Authorization: Bearer <授权码>
 
 JSON 请求的 `Content-Type` 为 `application/json`。上传文件用 `multipart/form-data`，字段名是 `file`，邮箱写在表单字段 `email`。平台文件先上传，再在 JSON 里写返回的 `id`。外链直接写 `{ url }`。视频不要上传。
 
-图片最多 4 张，每张 8MB，只收图片。音频最多 1 个，8MB，只收音频。附件最多 1 个，5MB。
+图片最多 4 张，每张 8MB，只收图片。音频最多 1 个，8MB，只收音频。附件最多 1 个，50MB，只收 PDF、Word（.docx）、Excel（.xlsx）、PPT（.pptx）和 Markdown（.md）。
 
 `POST /api/agent/uploads` 上传一张图片。`POST /api/agent/audio` 上传一个音频。`POST /api/agent/files` 上传一个其他文件。成功时 HTTP 201：
 
@@ -181,6 +181,7 @@ JSON 请求的 `Content-Type` 为 `application/json`。上传文件用 `multipar
 | 400 | bad_url | 链接打不开，或上传的文件不在这个账户上 |
 | 400 | nothing_to_download | 没有平台文件，不能下载 |
 | 400 | bad_audio | 这不是音频，或音频走错了入口 |
+| 400 | bad_file | 附件只接受 PDF、Word（.docx）、Excel（.xlsx）、PPT（.pptx）和 Markdown |
 | 400 | bad_public | 公开只能是开或关 |
 | 400 | bad_mention | 只能@好友，最多 8 位，不能用在 wish 响应上 |
 | 400 | file_too_large | 文件太大 |

@@ -3,11 +3,14 @@ import { t } from "../i18n/index.js";
 
 export const MAX_BYTES = 5 * 1024 * 1024;
 export const AUDIO_MAX = 8 * 1024 * 1024;
+export const FILE_MAX = 50 * 1024 * 1024;
 export const MAX_IMAGES = 4;
 export const MAX_FILES = 1;
 
 const VIDEO_FILE = /^video\/|\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg|3gp|wmv|flv|ogv)$/i;
 const AUDIO_FILE = /^audio\/|\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$/i;
+const ATTACHMENT_FILE = /\.(pdf|docx|xlsx|pptx|md|markdown)$/i;
+export const ATTACHMENT_ACCEPT = ".pdf,.docx,.xlsx,.pptx,.md,.markdown";
 
 export function isVideoFile(file) {
   return VIDEO_FILE.test(`${file?.type || ""} ${file?.name || ""}`);
@@ -15,6 +18,10 @@ export function isVideoFile(file) {
 
 export function isAudioFile(file) {
   return AUDIO_FILE.test(`${file?.type || ""} ${file?.name || ""}`);
+}
+
+export function isAttachmentFile(file) {
+  return ATTACHMENT_FILE.test(String(file?.name || ""));
 }
 
 export function nameMark(user) {
@@ -98,7 +105,7 @@ export function usePacketMedia() {
       if (next.length >= MAX_IMAGES) break;
       if (!String(file.type || "").startsWith("image/")) continue;
       if (file.size > MAX_BYTES) {
-        error.value = t("error.file_too_large");
+        error.value = t("error.image_too_large");
         continue;
       }
       next.push(file);
@@ -125,7 +132,11 @@ export function usePacketMedia() {
         error.value = t("error.bad_audio");
         continue;
       }
-      if (file.size > MAX_BYTES) {
+      if (!isAttachmentFile(file)) {
+        error.value = t("error.bad_file");
+        continue;
+      }
+      if (file.size > FILE_MAX) {
         error.value = t("error.file_too_large");
         continue;
       }

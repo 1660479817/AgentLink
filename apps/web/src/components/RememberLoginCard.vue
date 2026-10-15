@@ -7,17 +7,12 @@ import { useSessionStore } from "../stores/session";
 
 const CHOICE_KEY = "knot.rememberLogin.choice";
 const LEGACY_KEY = "knot.rememberLogin.hidden";
-const GUEST_KEY = "knot.rememberLogin.guestHidden";
 
 const session = useSessionStore();
 const mark = t("app.name").slice(0, 1);
 const choice = ref(readChoice());
-const guestHidden = ref(readFlag(GUEST_KEY));
 
-const mode = computed(() => {
-  if (session.user) return choice.value ? "" : "member";
-  return guestHidden.value ? "" : "guest";
-});
+const visible = computed(() => Boolean(session.user) && !choice.value);
 
 function readChoice() {
   const stored = readValue(CHOICE_KEY);
@@ -50,19 +45,13 @@ function answer(value) {
   choice.value = value;
 }
 
-function dismissGuest() {
-  write(GUEST_KEY, "1");
-  guestHidden.value = true;
-}
-
 function dismiss() {
-  if (mode.value === "member") answer("closed");
-  else dismissGuest();
+  answer("closed");
 }
 </script>
 
 <template>
-  <section v-if="mode" class="card remember-card" aria-labelledby="remember-login-title">
+  <section v-if="visible" class="card remember-card" aria-labelledby="remember-login-title">
     <div class="remember-head">
       <span class="brand-mark remember-mark" aria-hidden="true">{{ mark }}</span>
       <svg class="remember-art" viewBox="0 0 124 88" aria-hidden="true">
@@ -77,15 +66,14 @@ function dismiss() {
       </svg>
     </div>
     <h2 id="remember-login-title" class="remember-title">
-      {{ t(mode === "member" ? "remember.title" : "remember.guestTitle") }}
+      {{ t("remember.title") }}
     </h2>
-    <p class="remember-copy">{{ t(mode === "member" ? "remember.body" : "remember.guestBody") }}</p>
+    <p class="remember-copy">{{ t("remember.body") }}</p>
     <div class="remember-actions">
-      <AppButton v-if="mode === 'member'" class="remember-confirm" @click="answer('yes')">
+      <AppButton class="remember-confirm" @click="answer('yes')">
         {{ t("remember.confirm") }}
       </AppButton>
-      <AppButton v-else class="remember-confirm" to="/mine">{{ t("remember.guestAction") }}</AppButton>
-      <AppButton variant="secondary" @click="mode === 'member' ? answer('no') : dismissGuest()">
+      <AppButton variant="secondary" @click="answer('no')">
         {{ t("remember.later") }}
       </AppButton>
     </div>

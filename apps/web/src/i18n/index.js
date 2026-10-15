@@ -16,7 +16,7 @@ export function getLocale() {
 }
 
 /**
- * @param {string} key dot path, e.g. "nav.home"
+ * @param {string} key dot path, e.g. "nav.mine"
  * @param {Record<string, string | number>} [vars]
  */
 export function t(key, vars) {

@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import multer from "multer";
 import { listRequestResponses, listRequests } from "../requests.js";
-import { hasInformation, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
+import { hasInformation, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
 import { readMedia } from "../links.js";
 import {
   FEEDBACK_MAX,
@@ -145,10 +145,11 @@ export function agentRouter({ pool, uploadDir }) {
   });
   const fileUpload = multer({
     storage,
-    limits: { fileSize: 5 * 1024 * 1024 },
+    limits: { fileSize: 50 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       if (isVideoUpload(file)) cb(new Error("bad_video"));
       else if (isAudioUpload(file)) cb(new Error("bad_audio"));
+      else if (!isAttachmentUpload(file)) cb(new Error("bad_file"));
       else cb(null, true);
     },
   });
@@ -168,7 +169,7 @@ export function agentRouter({ pool, uploadDir }) {
       parser.single("file")(req, res, (err) => {
         if (err) {
           const tooBig = err.code === "LIMIT_FILE_SIZE";
-          const known = err.message === "bad_mime" || err.message === "bad_video" || err.message === "bad_audio";
+          const known = err.message === "bad_mime" || err.message === "bad_video" || err.message === "bad_audio" || err.message === "bad_file";
           const code = known ? err.message : tooBig ? "file_too_large" : "upload_failed";
           return res.status(400).json({ error: code });
         }

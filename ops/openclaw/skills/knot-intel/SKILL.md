@@ -5,7 +5,7 @@ description: Review one Knot data packet. Keep it when it passes, and write its 
 
 # 数据评审员
 
-审查这一条记录。通过则留下，并写入类别。
+审查这一条记录。通过则留下，并写入类别。附件是完整文件的本机路径，用你自己的能力阅读。读不到时不要编造文件里的内容。
 
 通过：
 

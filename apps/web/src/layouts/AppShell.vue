@@ -3,7 +3,7 @@ import { nextTick, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import RememberLoginCard from "../components/RememberLoginCard.vue";
-import { ActivityIcon, BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { listSponsors } from "../api.js";
 import { useNotificationStore } from "../stores/notifications";
@@ -52,7 +52,7 @@ function search(text = query.value) {
   query.value = q;
   remember(q);
   searchOpen.value = false;
-  router.push({ name: "home", query: { q } });
+  router.push({ name: "discover", query: { q } });
 }
 
 function internalHref(href) {
@@ -64,11 +64,16 @@ function sponsorMark(title) {
   return text ? text.slice(0, 1) : mark;
 }
 
-function refreshHome(event) {
+function brandHref() {
+  return session.user ? "/discover" : "/";
+}
+
+function refreshBrand(event) {
   event.preventDefault();
-  const cleanHome = window.location.pathname === "/" && !window.location.search && !window.location.hash;
-  if (cleanHome) window.location.reload();
-  else window.location.assign("/");
+  const target = brandHref();
+  const clean = window.location.pathname === target && !window.location.search && !window.location.hash;
+  if (clean) window.location.reload();
+  else window.location.assign(target);
 }
 
 function linkAttrs(href) {
@@ -93,7 +98,7 @@ onMounted(() => {
     <a href="#main-content" class="skip-link">{{ t("app.skipToContent") }}</a>
     <header class="site-header">
       <div class="header-bar">
-        <a href="/" class="brand" :aria-label="t('nav.home')" @click="refreshHome">
+        <a :href="brandHref()" class="brand" :aria-label="t('app.name')" @click="refreshBrand">
           <span class="brand-mark" aria-hidden="true">{{ mark }}</span>
         </a>
         <AppButton
@@ -132,10 +137,10 @@ onMounted(() => {
           </AppButton>
           <AppButton
             variant="icon"
-            to="/mine"
+            :to="session.user ? '/mine' : '/'"
             class="header-account"
             :class="{ 'has-photo': Boolean(session.user?.avatarUrl) }"
-            :aria-label="t('nav.mine')"
+            :aria-label="session.user ? t('nav.mine') : t('remember.guestAction')"
           >
             <img v-if="session.user?.avatarUrl" class="header-avatar" :src="session.user.avatarUrl" alt="" />
             <UserIcon v-else filled weight="header" class="nav-icon" aria-hidden="true" />
@@ -164,17 +169,17 @@ onMounted(() => {
     <div class="stage" :class="{ 'has-sponsors': sponsors.length > 0 }">
       <nav class="rail rail-shortcuts" :aria-label="t('rail.shortcuts')">
         <div class="shortcut-list">
-          <RouterLink :to="{ name: 'mine' }" class="shortcut">
+          <RouterLink
+            :to="session.user ? { name: 'mine' } : { name: 'gate' }"
+            class="shortcut"
+            :active-class="session.user ? 'router-link-active' : ''"
+          >
             <UserIcon class="shortcut-icon" aria-hidden="true" />
             <span class="shortcut-label">{{ t("nav.mine") }}</span>
           </RouterLink>
           <RouterLink :to="{ name: 'stars' }" class="shortcut">
             <StarIcon class="shortcut-icon" aria-hidden="true" />
             <span class="shortcut-label">{{ t("rail.stars") }}</span>
-          </RouterLink>
-          <RouterLink :to="{ name: 'activity' }" class="shortcut">
-            <ActivityIcon class="shortcut-icon" aria-hidden="true" />
-            <span class="shortcut-label">{{ t("rail.activity") }}</span>
           </RouterLink>
           <RouterLink :to="{ name: 'friends' }" class="shortcut">
             <FriendsIcon class="shortcut-icon" aria-hidden="true" />

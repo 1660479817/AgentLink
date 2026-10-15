@@ -7,17 +7,11 @@ import { listSubmissions } from "../api.js";
 import { t } from "../i18n/index.js";
 import { AudioIcon, ImageIcon, PaperclipIcon } from "../icons/index.js";
 import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls } from "../packet.js";
-import { useSessionStore } from "../stores/session";
 
-const session = useSessionStore();
 const items = ref([]);
 const loaded = ref(false);
 
 onMounted(async () => {
-  if (!session.user) {
-    loaded.value = true;
-    return;
-  }
   try {
     const data = await listSubmissions();
     items.value = data.submissions;
@@ -51,8 +45,7 @@ function pendingOf(item) {
 
 <template>
   <h1 class="page-title">{{ t("submissions.title") }}</h1>
-  <p v-if="!session.user" class="muted">{{ t("mine.login") }}</p>
-  <p v-else-if="loaded && items.length === 0" class="muted">{{ t("submissions.empty") }}</p>
+  <p v-if="loaded && items.length === 0" class="muted">{{ t("submissions.empty") }}</p>
   <article v-for="item in items" :key="item.id" class="card post">
     <p class="information-status">
       <StatusIcon :verdict="item.kMeta?.verdict || 'pending'" />

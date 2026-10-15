@@ -1,11 +1,13 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import { PencilIcon, RefreshIcon, UserIcon } from "../icons";
 import { t } from "../i18n";
 import { createDelegation, getDelegation, updateProfile, uploadImage } from "../api";
 import { useSessionStore } from "../stores/session";
 
+const router = useRouter();
 const session = useSessionStore();
 const error = ref("");
 const busy = ref(false);
@@ -18,14 +20,18 @@ let agentLoad = 0;
 const name = ref("");
 const editingName = ref(false);
 const nameInput = ref(null);
-const email = ref("");
-const loginKey = ref("");
-const keySent = ref(false);
 const fileInput = ref(null);
 
 onMounted(() => {
   if (session.user) session.load();
 });
+
+watch(
+  () => session.user,
+  (user) => {
+    if (!user) router.replace({ name: "gate" });
+  }
+);
 
 watch(
   () => session.user?.id,
@@ -77,38 +83,6 @@ function showError(err) {
   const key = `error.${err.code}`;
   const message = t(key);
   error.value = message === key ? t("error.request_failed") : message;
-}
-
-async function sendKey() {
-  error.value = "";
-  busy.value = true;
-  try {
-    await session.requestKey(email.value);
-    keySent.value = true;
-    loginKey.value = "";
-  } catch (err) {
-    showError(err);
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function confirmKey() {
-  error.value = "";
-  busy.value = true;
-  try {
-    await session.confirmKey(email.value, loginKey.value);
-  } catch (err) {
-    showError(err);
-  } finally {
-    busy.value = false;
-  }
-}
-
-function changeEmail() {
-  error.value = "";
-  keySent.value = false;
-  loginKey.value = "";
 }
 
 function startEditName() {
@@ -242,54 +216,7 @@ async function leave() {
 <template>
   <h1 class="page-title">{{ t("mine.title") }}</h1>
 
-  <section v-if="!session.user" class="card">
-    <h2 class="page-title">{{ t("mine.authTitle") }}</h2>
-    <p class="post-body">{{ t("mine.authHint") }}</p>
-    <form v-if="!keySent" @submit.prevent="sendKey">
-      <div class="auth-line">
-        <label class="auth-label" for="login-email">{{ t("mine.email") }}</label>
-        <input
-          id="login-email"
-          v-model="email"
-          type="email"
-          autocomplete="email"
-          required
-          :placeholder="t('mine.emailPlaceholder')"
-          :disabled="busy"
-        />
-      </div>
-      <div class="form-actions">
-        <AppButton type="submit" :disabled="busy">{{ t("mine.sendKey") }}</AppButton>
-      </div>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
-    </form>
-    <form v-else @submit.prevent="confirmKey">
-      <p class="post-body">{{ t("mine.keySent") }}</p>
-      <label class="auth-label" for="login-key">{{ t("mine.key") }}</label>
-      <input
-        id="login-key"
-        :value="loginKey"
-        type="text"
-        inputmode="numeric"
-        autocomplete="one-time-code"
-        maxlength="6"
-        pattern="[0-9]{6}"
-        required
-        :placeholder="t('mine.keyPlaceholder')"
-        :disabled="busy"
-        @input="loginKey = $event.target.value.replace(/\D/g, '').slice(0, 6)"
-      />
-      <div class="form-actions">
-        <AppButton type="submit" :disabled="busy || loginKey.length !== 6">{{ t("mine.enter") }}</AppButton>
-        <AppButton variant="secondary" type="button" :disabled="busy" @click="changeEmail">
-          {{ t("mine.changeEmail") }}
-        </AppButton>
-      </div>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
-    </form>
-  </section>
-
-  <template v-else>
+  <template v-if="session.user">
     <section class="card">
       <div class="profile-head">
         <AppButton

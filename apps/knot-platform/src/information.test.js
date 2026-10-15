@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardFiles, cardPreviewUrl, hasInformation, informationOf, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, publicOf, videosOf } from "./information.js";
+import { cardFiles, cardPreviewUrl, hasInformation, informationOf, isAttachmentUpload, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, publicOf, videosOf } from "./information.js";
 
 test("a packet splits text, images, video links, and files", () => {
   const info = informationOf({
@@ -71,6 +71,18 @@ test("a card keeps a preview address and drops the original image address", () =
   assert.equal(shown.name, "a.png");
   assert.equal(cardPreviewUrl("11111111-1111-1111-1111-111111111111", files), "/api/web/previews/11111111-1111-1111-1111-111111111111");
   assert.equal(cardPreviewUrl("11111111-1111-1111-1111-111111111111", []), "");
+});
+
+test("an attachment is pdf, word, excel, ppt, or markdown", () => {
+  assert.equal(isAttachmentUpload({ originalname: "报价.PDF" }), true);
+  assert.equal(isAttachmentUpload({ originalname: "note.docx" }), true);
+  assert.equal(isAttachmentUpload({ originalname: "sheet.xlsx" }), true);
+  assert.equal(isAttachmentUpload({ originalname: "deck.pptx" }), true);
+  assert.equal(isAttachmentUpload({ originalname: "readme.md" }), true);
+  assert.equal(isAttachmentUpload({ originalname: "readme.markdown" }), true);
+  assert.equal(isAttachmentUpload({ mimetype: "application/pdf", originalname: "notes.exe" }), false);
+  assert.equal(isAttachmentUpload({ originalname: "old.doc" }), false);
+  assert.equal(isAttachmentUpload({ originalname: "clip.mp4" }), false);
 });
 
 test("a video file is not an attachment", () => {

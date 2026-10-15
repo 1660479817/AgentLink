@@ -70,10 +70,6 @@ export const SearchIcon = knotIcon([
   h("circle", { cx: 11, cy: 11, r: 5.5 }),
   h("path", { d: "M16 16 20 20" }),
 ]);
-export const ActivityIcon = knotIcon([
-  h("path", { d: "M4 15.5 8.5 11l3 3L20 6.5" }),
-  h("path", { d: "M14.5 6.5H20V12" }),
-]);
 export const PaperclipIcon = knotIcon([
   h("path", { d: "m8.5 12.5 6.2-6.2a2.6 2.6 0 0 1 3.7 3.7l-7.6 7.6a3.6 3.6 0 0 1-5.1-5.1l7-7" }),
 ]);

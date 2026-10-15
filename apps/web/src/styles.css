@@ -3220,68 +3220,6 @@ p.error {
   color: var(--color-text);
 }
 
-.about-card {
-  padding: 2.35rem 1.85rem 1.85rem;
-}
-
-.about-identity {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.about-card .about-mark {
-  width: 2.75rem;
-  height: 2.75rem;
-  min-width: 2.75rem;
-  min-height: 2.75rem;
-  font-size: 1.45rem;
-}
-
-.about-name {
-  margin: 0;
-  color: var(--color-text);
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1;
-}
-
-.about-lead {
-  margin: 1.35rem 0 0;
-  color: var(--color-text);
-  font-size: 1.85rem;
-  font-weight: 700;
-  letter-spacing: -0.035em;
-  line-height: 1.28;
-}
-
-.about-phrase {
-  white-space: nowrap;
-}
-
-.about-detail {
-  margin: 1rem 0 0;
-  max-width: 28rem;
-  color: var(--color-muted);
-  font-size: 1rem;
-  line-height: 1.6;
-}
-
-.about-card .form-actions {
-  margin-top: 1.75rem;
-}
-
-@media (max-width: 720px) {
-  .about-card {
-    padding: 1.85rem 1.15rem 1.5rem;
-  }
-
-  .about-lead {
-    font-size: 1.5rem;
-  }
-}
-
 .auth-label {
   display: block;
   margin-bottom: 0.35rem;
@@ -3385,5 +3323,115 @@ p.error {
 @media (max-width: 720px) {
   .btn:not(.btn-icon) {
     min-height: 44px;
+  }
+}
+
+.gate {
+  animation: gate-rise 280ms ease-out;
+}
+
+@keyframes gate-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.gate-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.gate-mark {
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  font-size: 1.45rem;
+}
+
+.gate-name {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.gate-lead {
+  margin: 1.15rem 0 0;
+  max-width: 11em;
+  font-size: clamp(1.7rem, 5vw, 2.15rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.22;
+}
+
+.gate-phrase {
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.gate-detail {
+  margin: 0.85rem 0 0;
+  max-width: 28rem;
+  color: var(--color-muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.gate-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 1.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gate-step {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  margin: 0;
+  padding: 0.85rem 0.7rem;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  font-weight: 600;
+}
+
+.gate-step-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  color: var(--color-accent);
+}
+
+.gate-auth {
+  margin-top: 1.35rem;
+}
+
+.gate-enter {
+  margin-top: 0.75rem;
+}
+
+.gate-enter .btn {
+  width: 100%;
+}
+
+.guest-prompt .form-actions {
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 1023px) {
+  .gate {
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
 }

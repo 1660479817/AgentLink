@@ -148,7 +148,15 @@ async function askEmployee(agent, sessionKey, message, timeoutSec) {
   }
 }
 
-export async function runIntelAgent(intel, imagePaths = []) {
+function attachmentLinks(links) {
+  const bag = links && typeof links === "object" ? links : {};
+  const list = Array.isArray(bag.attachments) ? bag.attachments : [];
+  return list
+    .map((item) => (typeof item === "string" ? item : item?.url))
+    .filter((url) => typeof url === "string" && url);
+}
+
+export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
   const agent = intelAgentId();
   if (!agent) throw new Error("intel_agent_unconfigured");
   const bin = process.env.OPENCLAW_BIN || "openclaw";
@@ -157,18 +165,25 @@ export async function runIntelAgent(intel, imagePaths = []) {
   for (const file of imagePaths.slice(0, 4)) {
     notes.push(await describeImage(bin, agent, file, 60_000));
   }
+  const stored = attachments.filter((file) => file?.path);
+  const linked = attachmentLinks(intel.links);
   const message = [
     "审查这一条记录。通过则留下，并写入类别。只返回一个 JSON 对象。不要判断链接是否打得开。",
     '{"verdict":"pass","reason":"","note":"给检索用的一句事实","category":"类别"}',
     '{"verdict":"reject","reason":"违规原因","note":"","category":""}',
     "只有违法、欺诈、隐私或骚扰才 reject。category 写一个短类别。",
     "note 去掉电话、微信和发布者。不要编造。",
+    "附件是完整文件的本机路径。用你自己的能力阅读。读不到时不要编造文件里的内容。",
     "body:",
     String(intel.body || ""),
     ...(Array.isArray(intel.videos) && intel.videos.length
       ? ["videos:", ...intel.videos.map((item, index) => `链接${index + 1}: ${typeof item === "string" ? item : item?.url || ""}`)]
       : []),
     ...(notes.length ? ["images:", ...notes.map((note, index) => `图${index + 1}:\n${note}`)] : []),
+    ...(stored.length
+      ? ["attachments:", ...stored.map((file, index) => `附件${index + 1}: ${file.name || ""}\n${file.path}`)]
+      : []),
+    ...(linked.length ? ["attachmentLinks:", ...linked.map((url, index) => `外链${index + 1}: ${url}`)] : []),
   ].join("\n");
   const text = await askEmployee(agent, `intel-${intel.id}`, message, timeoutSec);
   return parseIntelReply(text);

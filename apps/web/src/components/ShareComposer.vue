@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import AppButton from "./AppButton.vue";
 import MentionPicker from "./MentionPicker.vue";
 import { createIntel, uploadAttachment, uploadAudio, uploadImage } from "../api.js";
-import { errorText, nameMark, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
+import { ATTACHMENT_ACCEPT, errorText, nameMark, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
 import { AtIcon, AudioIcon, CloseIcon, CoinIcon, ImageIcon, PaperclipIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
@@ -327,7 +327,7 @@ async function submit() {
       </div>
 
       <input ref="imageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickImages" />
-      <input ref="fileInput" type="file" multiple class="visually-hidden" @change="pickFiles" />
+      <input ref="fileInput" type="file" :accept="ATTACHMENT_ACCEPT" multiple class="visually-hidden" @change="pickFiles" />
       <input ref="audioInput" type="file" accept="audio/*" class="visually-hidden" @change="pickAudio" />
     </form>
   </section>

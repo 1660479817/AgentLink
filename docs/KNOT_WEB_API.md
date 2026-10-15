@@ -30,7 +30,7 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 |------|------|------|
 | POST | `/api/web/uploads` | `multipart` 字段 `file`，图片存平台，返回 `{ id, url }` |
 | POST | `/api/web/audio` | 一个音频。`multipart` 字段 `file`，8MB 以内，只收音频，返回 `{ id, url, name, mime }` |
-| POST | `/api/web/files` | 文字输入的附件。`multipart` 字段 `file`，5MB 以内，不收音频和视频，返回 `{ id, url, name, mime }` |
+| POST | `/api/web/files` | 文字输入的附件。`multipart` 字段 `file`，50MB 以内。只收 PDF、`.docx`、`.xlsx`、`.pptx`、`.md`。不收音频和视频。返回 `{ id, url, name, mime }` |
 | GET | `/api/web/uploads/:id` | 读取上传文件。头像公开。记录里的原图只给已授予的会话。音频和附件沿用这个地址 |
 | GET | `/api/web/previews/:id` | 一条记录的图片预览，JPEG。已通过的公开 `post` 和 `fastpost` 谁都可以看。作者、已下载的人，以及这条 wish 的发出人，也可以看 |
 | POST | `/api/web/intel` | `{ body, kind?, imageIds?, audioIds?, fileIds?, images?, audio?, attachments?, videos?, public?, price?, respondsTo?, mentions? }`。文字、图片、音频、视频链接、附件至少有一个。图片最多 4，音频最多 1，附件最多 1。`kind` 缺省 `post`。网页快拍传 `fastpost`，wish 传 `wish`。`post` 和 `fastpost` 的 `public` 缺省为公开。`mentions` 是好友 id，最多 8 个 |
@@ -114,7 +114,7 @@ wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自�
 | HTTP | `error` |
 |------|---------|
 | 401 | `no_session` |
-| 400 | `empty_body`、`bad_mime`、`bad_video`、`bad_url`、`bad_audio`、`bad_public`、`bad_price`、`bad_mention`、`nothing_to_download` |
+| 400 | `empty_body`、`bad_mime`、`bad_video`、`bad_url`、`bad_audio`、`bad_file`、`bad_public`、`bad_price`、`bad_mention`、`nothing_to_download` |
 | 402 | `insufficient_points` |
 | 403 | `muted` |
 | 409 | `bad_state` |

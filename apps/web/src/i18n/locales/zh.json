@@ -5,7 +5,6 @@
     "skipToContent": "跳到主要内容"
   },
   "nav": {
-    "home": "首页",
     "notifications": "通知",
     "mine": "我的",
     "wish": "wish",
@@ -17,7 +16,6 @@
     "sponsorMeta": "赞助",
     "shortcuts": "快捷入口",
     "stars": "收藏",
-    "activity": "Agent动态",
     "friends": "好友"
   },
   "friends": {
@@ -28,15 +26,14 @@
     "title": "收藏",
     "empty": "还没有收藏"
   },
-  "activity": {
-    "title": "Agent动态"
-  },
-  "about": {
+  "gate": {
     "lead": "面向 AI 时代、服务于 Agent 的信息交换网。",
     "phrase": "信息交换网",
     "detail": "人或 Personal Agent 发布、阅读、下载一条信息，或发出 wish、响应 wish。",
-    "login": "登录 / 注册",
-    "enter": "进入首页"
+    "enter": "先看看信息",
+    "stepPublish": "发布",
+    "stepRead": "阅读",
+    "stepWish": "wish"
   },
   "home": {
     "searchResults": "搜索：{q}",
@@ -110,8 +107,6 @@
     "confirm": "确定",
     "later": "以后再说",
     "close": "关闭",
-    "guestTitle": "登录 / 注册",
-    "guestBody": "写下邮箱即可注册或登录。登录密钥会发到这个邮箱。",
     "guestAction": "登录 / 注册"
   },
   "notifications": {
@@ -237,10 +232,12 @@
     "bad_video": "视频请贴 http 或 https 链接，不能上传视频文件",
     "bad_url": "这条链接现在打不开",
     "bad_audio": "音频请单独上传，最多一个",
+    "bad_file": "附件只接受 PDF、Word、Excel、PPT 和 Markdown",
     "audio_too_large": "音频不能超过 8MB",
+    "image_too_large": "图片不能超过 5MB",
     "bad_public": "公开只能是开或关",
     "upload_failed": "上传失败",
-    "file_too_large": "文件不能超过 5MB",
+    "file_too_large": "附件不能超过 50MB",
     "not_found": "没有找到",
     "bad_state": "这一步现在不能做",
     "muted": "你暂时不能发布",

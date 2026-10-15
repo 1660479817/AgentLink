@@ -151,7 +151,7 @@ function onRailPointerUp(event) {
 }
 
 function clearSearch() {
-  router.push({ name: "home", query: {} });
+  router.push({ name: "discover", query: {} });
 }
 
 function openSnap() {

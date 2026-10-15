@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { intelAgentId, runIntelAgent } from "./agents/openclaw.js";
 import { toRecord } from "./card.js";
 import { loadBootstrapConfig } from "./config.js";
-import { fileView, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, videosOf } from "./information.js";
+import { fileView, isAudioUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, videosOf } from "./information.js";
 import { assertReachable, contentHash } from "./links.js";
 import { postersFor } from "./videoPoster.js";
 import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./friends.js";
@@ -82,9 +82,30 @@ async function filesByIntel(pool, ids) {
   return byId;
 }
 
+async function attachmentFiles(pool, intelId) {
+  const { uploadDir } = loadBootstrapConfig();
+  const { rows } = await pool.query(
+    `SELECT u.storage_name, u.original_name, u.mime
+     FROM intel_files f
+     JOIN uploads u ON u.id = f.upload_id
+     WHERE f.intel_id = $1
+     ORDER BY f.sort_order ASC, f.upload_id ASC`,
+    [intelId]
+  );
+  const files = [];
+  for (const row of rows) {
+    if (String(row.mime || "").startsWith("image/")) continue;
+    if (isAudioUpload({ mime: row.mime, originalname: row.original_name })) continue;
+    const file = storagePath(uploadDir, row.storage_name);
+    await access(file);
+    files.push({ path: file, name: row.original_name || "" });
+  }
+  return files;
+}
+
 async function loadIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, body, videos, verdict, kind, responds_to FROM intel WHERE id = $1`,
+    `SELECT id, user_id, body, videos, links, verdict, kind, responds_to FROM intel WHERE id = $1`,
     [id]
   );
   return rows[0] || null;
@@ -106,7 +127,8 @@ export async function judgeIntel(pool, id) {
   let result = { verdict: "pass", reason: "", note: "", category: "" };
   if (intelAgentId()) {
     const images = await imageFiles(pool, id);
-    result = await runIntelAgent(intel, images);
+    const attachments = await attachmentFiles(pool, id);
+    result = await runIntelAgent(intel, images, attachments);
   }
   if (result.verdict === "reject") {
     const { rows } = await pool.query(

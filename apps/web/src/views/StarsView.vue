@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref, watch } from "vue";
+import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import { StarIcon } from "../icons/index.js";
 import { addCardFriend, dismissInformation, downloadInformation, listStars, removeCardFriend, unstarInformation } from "../api.js";
@@ -102,7 +103,12 @@ onMounted(load);
 
 <template>
   <h1 class="page-title">{{ t("stars.title") }}</h1>
-  <p v-if="!session.user" class="muted">{{ t("mine.login") }}</p>
+  <div v-if="!session.user" class="guest-prompt">
+    <p class="muted">{{ t("mine.login") }}</p>
+    <div class="form-actions">
+      <AppButton to="/">{{ t("remember.guestAction") }}</AppButton>
+    </div>
+  </div>
   <p v-else-if="failed" class="error" role="alert">{{ t("error.request_failed") }}</p>
   <template v-else-if="loaded">
     <InformationCard

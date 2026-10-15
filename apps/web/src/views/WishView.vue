@@ -19,7 +19,7 @@ import {
   uploadAudio,
   uploadImage,
 } from "../api.js";
-import { errorText, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
+import { ATTACHMENT_ACCEPT, errorText, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { payeeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
@@ -531,7 +531,7 @@ async function downloadReply(item) {
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <input ref="imageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickImages" />
-      <input ref="fileInput" type="file" multiple class="visually-hidden" @change="pickFiles" />
+      <input ref="fileInput" type="file" :accept="ATTACHMENT_ACCEPT" multiple class="visually-hidden" @change="pickFiles" />
       <input ref="audioInput" type="file" accept="audio/*" class="visually-hidden" @change="pickAudio" />
     </section>
 
@@ -567,7 +567,7 @@ async function downloadReply(item) {
     <div v-if="lane === 'posted'" id="wish-panel-posted" role="tabpanel" aria-labelledby="wish-tab-posted">
     <section v-if="loaded && !session.user" class="card wish-empty">
       <p>{{ t("wish.login") }}</p>
-      <AppButton variant="secondary" to="/mine">{{ t("wish.loginAction") }}</AppButton>
+      <AppButton variant="secondary" to="/">{{ t("wish.loginAction") }}</AppButton>
     </section>
     <section v-else-if="loaded && wishes.length === 0" class="card wish-empty">
       <p class="empty-line">
@@ -635,7 +635,7 @@ async function downloadReply(item) {
     <div v-else id="wish-panel-replied" role="tabpanel" aria-labelledby="wish-tab-replied">
       <section v-if="loaded && !session.user && !target" class="card wish-empty">
         <p>{{ t("wish.login") }}</p>
-        <AppButton variant="secondary" to="/mine">{{ t("wish.loginAction") }}</AppButton>
+        <AppButton variant="secondary" to="/">{{ t("wish.loginAction") }}</AppButton>
       </section>
       <section v-else-if="targetMissing" class="card wish-empty">
         <p>{{ t("wish.replyMissing") }}</p>
@@ -790,7 +790,7 @@ async function downloadReply(item) {
         </ol>
         <div v-if="!session.user" class="wish-empty">
           <p>{{ t("wish.respondLogin") }}</p>
-          <AppButton variant="secondary" to="/mine">{{ t("wish.loginAction") }}</AppButton>
+          <AppButton variant="secondary" to="/">{{ t("wish.loginAction") }}</AppButton>
         </div>
       </article>
 
@@ -810,7 +810,7 @@ async function downloadReply(item) {
         </div>
       </article>
       <input ref="replyImageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickReplyImages" />
-      <input ref="replyFileInput" type="file" multiple class="visually-hidden" @change="pickReplyFiles" />
+      <input ref="replyFileInput" type="file" :accept="ATTACHMENT_ACCEPT" multiple class="visually-hidden" @change="pickReplyFiles" />
       <input ref="replyAudioInput" type="file" accept="audio/*" class="visually-hidden" @change="pickReplyAudio" />
     </div>
   </div>

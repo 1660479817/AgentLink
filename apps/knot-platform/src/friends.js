@@ -146,7 +146,7 @@ export async function directMentions(pool, { authorId, intelId, kind, body, ment
   if (!MENTION_KINDS.has(kind)) throw fail("bad_mention");
   await assertFriends(pool, authorId, mentions);
   const text = String(body || "").trim().slice(0, MENTION_BODY) || "一条信息";
-  const href = kind === "wish" ? "/wish" : "/";
+  const href = kind === "wish" ? "/wish" : "/discover";
   for (const friendId of mentions) {
     const inserted = await pool.query(
       `INSERT INTO intel_mentions (intel_id, user_id)

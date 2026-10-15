@@ -33,7 +33,12 @@ watch(
 
 <template>
   <h1 class="page-title">{{ t("friends.title") }}</h1>
-  <p v-if="!session.user" class="muted">{{ t("mine.login") }}</p>
+  <div v-if="!session.user" class="guest-prompt">
+    <p class="muted">{{ t("mine.login") }}</p>
+    <div class="form-actions">
+      <AppButton to="/">{{ t("remember.guestAction") }}</AppButton>
+    </div>
+  </div>
   <p v-else-if="friends.error" class="error" role="alert">{{ errorText(friends.error) }}</p>
   <template v-else-if="friends.loaded">
     <ul v-if="friends.items.length" class="card friend-list">

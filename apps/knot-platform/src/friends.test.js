@@ -70,7 +70,7 @@ test("a mention notifies a friend once and leaves the message text", async () =>
   assert.equal(notes[0][1], "mention");
   assert.equal(notes[0][2], "有人@了你");
   assert.equal(notes[0][3], "看一下");
-  assert.equal(notes[0][4], "/");
+  assert.equal(notes[0][4], "/discover");
   assert.equal(notes[0][5], INTEL);
   await directMentions(pool, {
     ...input,

@@ -1,6 +1,7 @@
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VIDEO_EXT = /\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg|3gp|wmv|flv|ogv)$/i;
 const AUDIO_EXT = /\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$/i;
+const ATTACHMENT_EXT = /\.(pdf|docx|xlsx|pptx|md|markdown)$/i;
 
 export const MAX_IMAGES = 4;
 export const MAX_AUDIO = 1;
@@ -85,6 +86,11 @@ export function isVideoUpload(file) {
   if (mime.startsWith("video/")) return true;
   const name = String(file?.originalname || file?.name || "");
   return VIDEO_EXT.test(name);
+}
+
+export function isAttachmentUpload(file) {
+  const name = String(file?.originalname || file?.name || "");
+  return ATTACHMENT_EXT.test(name);
 }
 
 export function fileView(row) {
