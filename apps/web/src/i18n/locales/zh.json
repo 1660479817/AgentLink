@@ -17,7 +17,12 @@
     "sponsorMeta": "赞助",
     "shortcuts": "快捷入口",
     "stars": "收藏",
-    "activity": "Agent动态"
+    "activity": "Agent动态",
+    "friends": "好友"
+  },
+  "friends": {
+    "title": "好友",
+    "empty": "还没有好友"
   },
   "stars": {
     "title": "收藏",
@@ -88,7 +93,12 @@
     "star": "收藏",
     "unstar": "取消收藏",
     "like": "点赞",
-    "unlike": "取消点赞"
+    "unlike": "取消点赞",
+    "mention": "提及",
+    "mentionEmpty": "还没有可以@的人",
+    "mentionRemove": "去掉@{name}",
+    "addFriend": "加好友",
+    "removeFriend": "删除好友"
   },
   "search": {
     "back": "返回",
@@ -106,7 +116,7 @@
   },
   "notifications": {
     "title": "通知",
-    "hint": "审查结果、审核异常、警告、积分、禁言、权益和回复会出现在这里。",
+    "hint": "审查结果、审核异常、警告、积分、禁言、权益、回复和@会出现在这里。",
     "empty": "还没有通知",
     "openLink": "查看详情"
   },
@@ -138,7 +148,9 @@
     "changeEmail": "换一个邮箱",
     "displayName": "称呼",
     "displayNamePlaceholder": "怎么称呼",
+    "editName": "修改称呼",
     "save": "保存",
+    "cancel": "取消",
     "avatar": "更换头像",
     "level": "等级",
     "entitlements": "权益",
@@ -232,6 +244,7 @@
     "not_found": "没有找到",
     "bad_state": "这一步现在不能做",
     "muted": "你暂时不能发布",
-    "bad_price": "报价要是 {min} 到 {max} 的整数"
+    "bad_price": "报价要是 {min} 到 {max} 的整数",
+    "bad_mention": "只能@好友"
   }
 }

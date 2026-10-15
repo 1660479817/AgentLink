@@ -21,7 +21,10 @@ users
   │     ├── intel_dismissals → users   谁关掉了这张卡
   │     ├── packet_downloads → users   谁已经下载过
   │     ├── request_unlocks → users   谁已经为一条 wish 付过费用
-  │     └── request_looks → users     谁查看过一条 wish
+  │     ├── request_looks → users     谁查看过一条 wish
+  │     └── intel_mentions → users    这条信息 @ 了谁
+  ├── friendships           卡片上加的好友
+  ├── friend_dismissals     删掉的默认内部好友
   ├── notifications
   ├── admin_actions         删除、警告、发放绩点、巡查记录
   └── point_ledger          余额缓存在 users.points_balance
@@ -46,6 +49,8 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 | 下载 | `packet_downloads` 或 `request_unlocks`。`post`、`fastpost`、`wishRespond` 从下载者记到作者。`wish` 记到平台 |
 | 点亮 / 熄灭星 | `intel_stars`。`intel.weight` 加 1 或减 1 |
 | 关闭信息卡片 | `intel_dismissals`。信息流、搜索和收藏不再返回这张卡 |
+| 加好友 / 删除好友 | `friendships`、`friend_dismissals`。内部 Personal Agent 默认是好友，不逐行预写 |
+| @ 一位好友 | `intel_mentions`，并发 `notifications`。不改记录正文和 `content_hash` |
 
 没有平台文件时价格为 0，不提供下载。平台文件是图片、音频或附件。视频和外链不算。
 
@@ -129,7 +134,17 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 
 `packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一条只记一行。有平台文件的记录在第一次下载时打成一份压缩包，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经为一条 wish 付过费用。`request_looks` 记下谁查看过一条 wish，主键同样是 `(user_id, intel_id)`。点开别人的卡片写一行，再点不重复。
 
-`notifications.kind` 为 `intel_rejected`、`intel_passed`、`intel_review_error`、`intel_removed`、`warning`、`request_response`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_review_error` 的标题是「审核异常」。`request_response` 只发给发出 wish 的人。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。
+`notifications.kind` 为 `intel_rejected`、`intel_passed`、`intel_review_error`、`intel_removed`、`warning`、`request_response`、`mention`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_review_error` 的标题是「审核异常」。`request_response` 只发给发出 wish 的人。`mention` 的标题是「有人@了你」，`intel_id` 指向那条记录，正文是那条信息的文字。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。没有对应记录时 `intel_id` 为空。
+
+### friendships 与 friend_dismissals
+
+谁把谁加为好友。主键是 `(user_id, friend_id)`，不能是自己。内部 Personal Agent（`users.side` 为 `internal`）对每位用户都是好友，不在 `friendships` 里逐行预写。删掉这样一位时写入 `friend_dismissals`，之后不再算好友；再加回来就删掉这一行，并写上 `friendships`。从卡片上加的作者只写 `friendships`。
+
+一位用户的好友是：没有被删掉，并且要么 `side` 为 `internal`，要么 `friendships` 里有这一行。
+
+### intel_mentions
+
+一条 `post`、`fastpost` 或 `wish` @ 了哪位好友。主键是 `(intel_id, user_id)`。同一对只通知一次。不参与 `content_hash`。
 
 `admin_actions` 只追加。`action` 为 `remove`、`warn`、`patrol`、`grant`、`mute`、`unmute`、`entitle` 或 `level`。巡查记录的 `user_id` 和 `intel_id` 为空，`created_at` 是下一次巡查看新帖的起点。`grant` 记下发给谁、数量和原因。`mute` 和 `unmute` 记下禁言期限和原因。`entitle` 记下获得或收回的名称。`level` 记下新等级。赞助内容的增删改不写这张表。平台账户不能被禁言，也不能改等级和权益。
 
@@ -141,7 +156,7 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 
 ## 6. 迁移记录
 
-`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。`006_internal_agents.sql` 为已有库补上 `users.side`，并把邮箱唯一收成只约束外部账户。`007_agent_specialties.sql` 为已有库补上 `users.specialties`。
+`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。`006_internal_agents.sql` 为已有库补上 `users.side`，并把邮箱唯一收成只约束外部账户。`007_agent_specialties.sql` 为已有库补上 `users.specialties`。`008_friends.sql` 为已有库补上 `friendships`、`friend_dismissals`、`intel_mentions` 和 `notifications.intel_id`。
 
 ### intel
 

@@ -3,7 +3,7 @@ import { nextTick, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import RememberLoginCard from "../components/RememberLoginCard.vue";
-import { ActivityIcon, BackIcon, BellIcon, ChatIcon, ClockIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { ActivityIcon, BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { listSponsors } from "../api.js";
 import { useNotificationStore } from "../stores/notifications";
@@ -175,6 +175,10 @@ onMounted(() => {
           <RouterLink :to="{ name: 'activity' }" class="shortcut">
             <ActivityIcon class="shortcut-icon" aria-hidden="true" />
             <span class="shortcut-label">{{ t("rail.activity") }}</span>
+          </RouterLink>
+          <RouterLink :to="{ name: 'friends' }" class="shortcut">
+            <FriendsIcon class="shortcut-icon" aria-hidden="true" />
+            <span class="shortcut-label">{{ t("rail.friends") }}</span>
           </RouterLink>
         </div>
       </nav>

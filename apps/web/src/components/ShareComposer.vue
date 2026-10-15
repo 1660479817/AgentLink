@@ -1,10 +1,11 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue";
 import AppButton from "./AppButton.vue";
+import MentionPicker from "./MentionPicker.vue";
 import { createIntel, uploadAttachment, uploadAudio, uploadImage } from "../api.js";
 import { errorText, nameMark, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
-import { AudioIcon, CloseIcon, CoinIcon, ImageIcon, PaperclipIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
+import { AtIcon, AudioIcon, CloseIcon, CoinIcon, ImageIcon, PaperclipIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
 
 const props = defineProps({
@@ -17,6 +18,8 @@ const emit = defineEmits(["activate", "close", "done"]);
 
 const session = useSessionStore();
 const body = ref("");
+const mentions = ref([]);
+const mentionOpen = ref(false);
 const isPublic = ref(false);
 const priceFocused = ref(false);
 const busy = ref(false);
@@ -65,6 +68,8 @@ const canSend = computed(() =>
 
 function resetAll() {
   body.value = "";
+  mentions.value = [];
+  mentionOpen.value = false;
   isPublic.value = false;
   busy.value = false;
   resetMedia();
@@ -177,6 +182,7 @@ async function submit() {
     }
     if (hasUpload.value && priced.price !== undefined) extra.price = priced.price;
     if (link) extra.videos = [link];
+    if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
     await createIntel(body.value.trim(), imageIds, fileIds, extra);
     emit("done");
   } catch (err) {
@@ -209,7 +215,20 @@ async function submit() {
         />
       </div>
 
+      <MentionPicker v-model="mentions" v-model:body="body" v-model:open="mentionOpen" :disabled="busy" />
+
       <div class="share-actions">
+        <button
+          type="button"
+          class="share-action"
+          :disabled="busy"
+          :aria-expanded="mentionOpen"
+          :aria-label="t('home.mention')"
+          @click="mentionOpen = !mentionOpen"
+        >
+          <AtIcon class="share-action-icon share-action-mention" aria-hidden="true" />
+          <span>{{ t("home.mention") }}</span>
+        </button>
         <button type="button" class="share-action" :disabled="busy" @click="onMedia('image')">
           <ImageIcon class="share-action-icon share-action-image" aria-hidden="true" />
           <span>{{ t("home.shareImage") }}</span>

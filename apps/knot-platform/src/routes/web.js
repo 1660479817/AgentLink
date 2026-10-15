@@ -5,7 +5,9 @@ import path from "node:path";
 import multer from "multer";
 import { isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
 import { readMedia } from "../links.js";
+import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
 import { createIntel, downloadPacket, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar } from "../market.js";
+import { listNotifications, markNotificationsRead } from "../notifications.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
 import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
@@ -62,6 +64,7 @@ function httpError(res, error) {
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
   if (code === "muted") return res.status(403).json({ error: "muted" });
+  if (code === "bad_mention") return res.status(400).json({ error: "bad_mention" });
   if (code === "not_found") return res.status(404).json({ error: "not_found" });
   console.error(error);
   return res.status(503).json({ error: "process_unavailable" });
@@ -77,6 +80,8 @@ function publicCard(row) {
       files: row.attachments || [],
       granted: Boolean(row.granted),
     }),
+    friend: Boolean(row.friend),
+    canFriend: Boolean(row.can_friend),
   };
 }
 
@@ -344,6 +349,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         price: req.body?.price,
         kind: typeof req.body?.kind === "string" ? req.body.kind : "",
         respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
+        mentions: req.body?.mentions,
       });
       res.status(201).json({ intel });
     } catch (error) {
@@ -491,7 +497,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         TRUE AS starred,
         (i.user_id = $1 OR EXISTS (
           SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
-        )) AS granted
+        )) AS granted,
+${FRIEND_COLUMNS}
        FROM intel_stars s
        JOIN intel i ON i.id = s.intel_id
        JOIN users u ON u.id = i.user_id
@@ -506,36 +513,44 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
+  router.get("/friends", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    res.json({ friends: await listFriends(pool, req.user.id) });
+  });
+
+  router.delete("/friends/:id", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json(await removeFriend(pool, req.user.id, id));
+    } catch (error) {
+      httpError(res, error);
+    }
+  });
+
+  async function writeFriend(req, res, friend) {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json(await setCardFriend(pool, req.user.id, id, friend));
+    } catch (error) {
+      httpError(res, error);
+    }
+  }
+
+  router.post("/intel/:id/friend", (req, res) => writeFriend(req, res, true));
+  router.delete("/intel/:id/friend", (req, res) => writeFriend(req, res, false));
+
   router.get("/notifications", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
-    const { rows } = await pool.query(
-      `SELECT id, kind, title, body, href, read_at, created_at
-       FROM notifications
-       WHERE user_id = $1
-       ORDER BY created_at DESC`,
-      [req.user.id]
-    );
-    res.json({
-      unread: rows.filter((row) => !row.read_at).length,
-      notifications: rows.map((row) => ({
-        id: row.id,
-        kind: row.kind,
-        title: row.title,
-        body: row.body,
-        href: row.href,
-        read: Boolean(row.read_at),
-        createdAt: row.created_at,
-      })),
-    });
+    res.json(await listNotifications(pool, req.user.id));
   });
 
   router.post("/notifications/read", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
-    await pool.query(
-      `UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL`,
-      [req.user.id]
-    );
-    res.json({ ok: true });
+    res.json(await markNotificationsRead(pool, req.user.id));
   });
 
   router.post("/delegation", async (req, res) => {

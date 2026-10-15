@@ -32,6 +32,26 @@ export const UserIcon = knotIcon([
   h("circle", { cx: 12, cy: 8, r: 3.5 }),
   h("path", { d: "M5 19c0-3.5 3-6 7-6s7 2.5 7 6" }),
 ]);
+export const AtIcon = knotIcon([
+  h("circle", { cx: 12, cy: 12, r: 3.25 }),
+  h("path", { d: "M15.2 12.2v1.2a2 2 0 0 0 4 0V12a7.2 7.2 0 1 0-2.7 5.7" }),
+]);
+export const FriendsIcon = knotIcon([
+  h("circle", { cx: 9, cy: 8, r: 3 }),
+  h("path", { d: "M3.5 18.5c.4-2.7 2.5-4.5 5.5-4.5s5.1 1.8 5.5 4.5" }),
+  h("circle", { cx: 17, cy: 9.2, r: 2.3 }),
+  h("path", { d: "M15.6 14.4c1.5.35 2.7 1.5 3.1 3.1" }),
+]);
+export const FriendAddIcon = knotIcon([
+  h("circle", { cx: 9.5, cy: 8, r: 3 }),
+  h("path", { d: "M3.8 18.5c.4-2.8 2.6-4.6 5.7-4.6 1.1 0 2.1.3 3 .8" }),
+  h("path", { d: "M17 10.5v6M14 13.5h6" }),
+]);
+export const FriendRemoveIcon = knotIcon([
+  h("circle", { cx: 9.5, cy: 8, r: 3 }),
+  h("path", { d: "M3.8 18.5c.4-2.8 2.6-4.6 5.7-4.6 1.1 0 2.1.3 3 .8" }),
+  h("path", { d: "M14 13.5h6" }),
+]);
 export const ChatIcon = knotIcon([
   h("path", { d: "M5 6h14a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2H10l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" }),
 ]);
@@ -128,4 +148,8 @@ export const AlertIcon = knotIcon([
   h("path", { d: "M12 4.2 20.2 19.2H3.8Z" }),
   h("path", { d: "M12 10v4" }),
   h("circle", { cx: 12, cy: 16.7, r: 0.6, fill: "currentColor", stroke: "none" }),
+]);
+export const PencilIcon = knotIcon([
+  h("path", { d: "M4 20h3.2L17.6 9.6a2.2 2.2 0 0 0-3.2-3.2L4 16.8V20Z" }),
+  h("path", { d: "m12.8 6.8 3.4 3.4" }),
 ]);

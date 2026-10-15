@@ -5,6 +5,7 @@ import { loadBootstrapConfig } from "./config.js";
 import { fileView, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, videosOf } from "./information.js";
 import { assertReachable, contentHash } from "./links.js";
 import { postersFor } from "./videoPoster.js";
+import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./friends.js";
 import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
 import { assertCanSpeak } from "./account.js";
@@ -301,6 +302,14 @@ export async function createIntel(pool, input) {
   const fileIds = (input.fileIds || []).slice(0, MAX_FILES);
   const fileUrls = (input.fileUrls || []).slice(0, Math.max(0, MAX_FILES - fileIds.length));
   const { kind, respondsTo } = resolveKind(input);
+  const mentions = mentionList(input.mentions);
+  if (mentions.length && kind !== "post" && kind !== "fastpost" && kind !== "wish") {
+    const error = new Error("bad_mention");
+    error.code = "bad_mention";
+    throw error;
+  }
+  if (mentions.length) await assertFriends(pool, userId, mentions);
+  const mention = (intelId) => directMentions(pool, { authorId: userId, intelId, kind, body, mentions });
   const hash = contentHash({
     kind,
     respondsTo,
@@ -317,7 +326,10 @@ export async function createIntel(pool, input) {
     `SELECT id FROM intel WHERE user_id = $1 AND content_hash = $2 AND verdict <> 'pending'`,
     [userId, hash]
   );
-  if (prior.rows[0]) return loadPresentedIntel(pool, prior.rows[0].id);
+  if (prior.rows[0]) {
+    await mention(prior.rows[0].id);
+    return loadPresentedIntel(pool, prior.rows[0].id);
+  }
   const uploadIds = [...new Set([...imageIds.slice(0, MAX_IMAGES), ...audioIds.slice(0, MAX_AUDIO), ...fileIds.slice(0, MAX_FILES)])];
   if (kind !== "wish" && uploadIds.length) packetPrice(1, price);
   let owned = [];
@@ -359,6 +371,7 @@ export async function createIntel(pool, input) {
       [userId, hash]
     );
     if (!again.rows[0]) throw error;
+    await mention(again.rows[0].id);
     return loadPresentedIntel(pool, again.rows[0].id);
   }
   for (let i = 0; i < owned.length; i += 1) {
@@ -377,6 +390,7 @@ export async function createIntel(pool, input) {
   } catch (error) {
     console.error(error);
   }
+  await mention(intelId);
   if (!intelAgentId()) {
     try {
       return await judgeIntel(pool, intelId);
@@ -400,7 +414,8 @@ const PUBLIC_INTEL_SQL = `
       i.user_id = $1 OR EXISTS (
         SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
       )
-    )) AS granted
+    )) AS granted,
+${FRIEND_COLUMNS}
   FROM intel i
   JOIN users u ON u.id = i.user_id
   WHERE i.verdict = 'passed'

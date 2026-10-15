@@ -5,12 +5,13 @@ import InformationCard from "../components/InformationCard.vue";
 import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { dismissInformation, downloadInformation, listInformation, listRequests, searchInformation, starInformation, unstarInformation } from "../api.js";
+import { addCardFriend, dismissInformation, downloadInformation, listInformation, listRequests, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
 import { nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { payeeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { BackIcon, PlusIcon, UserIcon } from "../icons/index.js";
+import { useFriendStore } from "../stores/friends";
 import { useNotificationStore } from "../stores/notifications";
 import { useSessionStore } from "../stores/session";
 
@@ -22,6 +23,7 @@ const railCanNext = ref(false);
 const surface = ref(null);
 const shareFocus = ref({ kind: "text", n: 0 });
 const notifications = useNotificationStore();
+const friends = useFriendStore();
 const session = useSessionStore();
 const route = useRoute();
 const router = useRouter();
@@ -64,6 +66,13 @@ async function load() {
     wishes.value = [];
   }
 }
+
+watch(
+  () => friends.revision,
+  () => {
+    if (friends.revision) load();
+  }
+);
 
 function wishText(wish) {
   const body = String(wish.body || "").trim();
@@ -186,6 +195,19 @@ async function toggleStar(item) {
   }
 }
 
+async function toggleFriend(item) {
+  if (!session.user || !item.canFriend) return;
+  const previous = Boolean(item.friend);
+  item.friend = !previous;
+  try {
+    const data = item.friend ? await addCardFriend(item.id) : await removeCardFriend(item.id);
+    item.friend = Boolean(data.friend);
+    await friends.load();
+  } catch {
+    item.friend = previous;
+  }
+}
+
 async function downloadItem(item) {
   if (item.downloading) return;
   item.downloading = true;
@@ -291,9 +313,12 @@ async function downloadItem(item) {
     :created-at="item.kMeta?.createdAt || ''"
     :starred="Boolean(item.starred)"
     :can-star="Boolean(session.user)"
+    :friend="Boolean(item.friend)"
+    :can-friend="Boolean(item.canFriend)"
     :busy="Boolean(item.downloading)"
     @dismiss="dismissItem(item)"
     @star="toggleStar(item)"
+    @friend="toggleFriend(item)"
     @download="downloadItem(item)"
   />
   <p v-if="items.length === 0" class="muted feed-empty">

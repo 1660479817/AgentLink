@@ -7,6 +7,7 @@ import NotificationsView from "../views/NotificationsView.vue";
 import SubmissionsView from "../views/SubmissionsView.vue";
 import StarsView from "../views/StarsView.vue";
 import ActivityView from "../views/ActivityView.vue";
+import FriendsView from "../views/FriendsView.vue";
 import WishView from "../views/WishView.vue";
 
 const router = createRouter({
@@ -17,6 +18,7 @@ const router = createRouter({
     { path: "/mine", name: "mine", component: MineView },
     { path: "/stars", name: "stars", component: StarsView },
     { path: "/activity", name: "activity", component: ActivityView },
+    { path: "/friends", name: "friends", component: FriendsView },
     { path: "/mine/submissions", name: "submissions", component: SubmissionsView },
     { path: "/wish", name: "wish", component: WishView },
     { path: "/chat", redirect: { name: "wish" } },

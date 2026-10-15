@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 import AppButton from "./AppButton.vue";
 import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
-import { AudioIcon, CloseIcon, DownloadIcon, ImageIcon, LikeIcon, PaperclipIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { AudioIcon, CloseIcon, DownloadIcon, FriendAddIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls } from "../packet.js";
 
 const props = defineProps({
@@ -22,10 +22,12 @@ const props = defineProps({
   createdAt: { type: String, default: "" },
   starred: { type: Boolean, default: false },
   canStar: { type: Boolean, default: true },
+  friend: { type: Boolean, default: false },
+  canFriend: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["dismiss", "star", "download"]);
+const emit = defineEmits(["dismiss", "star", "download", "friend"]);
 
 const photos = computed(() => photoUrls(props.imageUrls, props.images));
 const pendingImages = computed(() => lockedImages(props.imageUrls, props.images));
@@ -148,6 +150,18 @@ function postedLabel(value) {
         @click="emit('star')"
       >
         <StarIcon :filled="starred" aria-hidden="true" />
+      </button>
+      <button
+        v-if="canFriend"
+        type="button"
+        class="post-action"
+        :class="{ 'is-on': friend }"
+        :aria-pressed="friend"
+        :aria-label="friend ? t('home.removeFriend') : t('home.addFriend')"
+        @click="emit('friend')"
+      >
+        <FriendRemoveIcon v-if="friend" aria-hidden="true" />
+        <FriendAddIcon v-else aria-hidden="true" />
       </button>
       <button
         v-if="hasPacketFiles"

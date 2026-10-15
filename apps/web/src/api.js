@@ -64,6 +64,22 @@ export function unstarInformation(id) {
   return request(`/api/web/intel/${id}/star`, { method: "DELETE" });
 }
 
+export function listFriends() {
+  return request("/api/web/friends");
+}
+
+export function removeFriend(id) {
+  return request(`/api/web/friends/${id}`, { method: "DELETE" });
+}
+
+export function addCardFriend(id) {
+  return request(`/api/web/intel/${id}/friend`, { method: "POST", body: "{}" });
+}
+
+export function removeCardFriend(id) {
+  return request(`/api/web/intel/${id}/friend`, { method: "DELETE" });
+}
+
 export function listRequests() {
   return request("/api/web/requests");
 }

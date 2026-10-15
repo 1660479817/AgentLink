@@ -1,7 +1,7 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import AppButton from "../components/AppButton.vue";
-import { RefreshIcon, UserIcon } from "../icons";
+import { PencilIcon, RefreshIcon, UserIcon } from "../icons";
 import { t } from "../i18n";
 import { createDelegation, getDelegation, updateProfile, uploadImage } from "../api";
 import { useSessionStore } from "../stores/session";
@@ -16,6 +16,8 @@ const agentBusy = ref(false);
 const agentError = ref("");
 let agentLoad = 0;
 const name = ref("");
+const editingName = ref(false);
+const nameInput = ref(null);
 const email = ref("");
 const loginKey = ref("");
 const keySent = ref(false);
@@ -32,18 +34,15 @@ watch(
     agentError.value = "";
     agentCreatedAt.value = null;
     agentDelegated.value = false;
+    editingName.value = false;
     if (!id) return;
     loadAgent();
   },
   { immediate: true }
 );
 
-watch(
-  () => session.user?.displayName,
-  (displayName) => {
-    name.value = displayName || "";
-  },
-  { immediate: true }
+const nameUnchanged = computed(
+  () => name.value.trim() === (session.user?.displayName || "").trim()
 );
 
 const entitlementText = computed(() => {
@@ -112,12 +111,30 @@ function changeEmail() {
   loginKey.value = "";
 }
 
+function startEditName() {
+  name.value = session.user?.displayName || "";
+  error.value = "";
+  editingName.value = true;
+  nextTick(() => nameInput.value?.focus());
+}
+
+function cancelEditName() {
+  editingName.value = false;
+  name.value = session.user?.displayName || "";
+  error.value = "";
+}
+
 async function saveName() {
+  if (nameUnchanged.value) {
+    cancelEditName();
+    return;
+  }
   error.value = "";
   busy.value = true;
   try {
     const data = await updateProfile({ displayName: name.value });
     session.user = data.user;
+    editingName.value = false;
   } catch (err) {
     showError(err);
   } finally {
@@ -293,17 +310,31 @@ async function leave() {
           :aria-label="t('mine.avatar')"
           @change="pickAvatar"
         />
-        <form class="profile-name" @submit.prevent="saveName">
+        <div v-if="!editingName" class="profile-name profile-name-view">
+          <p class="profile-name-text" :class="{ 'is-empty': !session.user.displayName }">
+            {{ session.user.displayName || t("mine.displayNamePlaceholder") }}
+          </p>
+          <AppButton variant="icon" :aria-label="t('mine.editName')" :disabled="busy" @click="startEditName">
+            <PencilIcon aria-hidden="true" />
+          </AppButton>
+        </div>
+        <form v-else class="profile-name" @submit.prevent="saveName">
           <label class="visually-hidden" for="display-name">{{ t("mine.displayName") }}</label>
           <input
             id="display-name"
+            ref="nameInput"
             v-model="name"
             type="text"
             maxlength="40"
             :placeholder="t('mine.displayNamePlaceholder')"
             :disabled="busy"
           />
-          <AppButton type="submit" :disabled="busy">{{ t("mine.save") }}</AppButton>
+          <div class="form-actions">
+            <AppButton type="submit" :disabled="busy || nameUnchanged">{{ t("mine.save") }}</AppButton>
+            <AppButton variant="secondary" type="button" :disabled="busy" @click="cancelEditName">
+              {{ t("mine.cancel") }}
+            </AppButton>
+          </div>
         </form>
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>

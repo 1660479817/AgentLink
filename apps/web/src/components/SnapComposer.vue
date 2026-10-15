@@ -1,16 +1,19 @@
 <script setup>
 import { computed, nextTick, onUnmounted, ref } from "vue";
 import AppButton from "./AppButton.vue";
+import MentionPicker from "./MentionPicker.vue";
 import { createIntel, uploadImage } from "../api.js";
 import { errorText, MAX_IMAGES, readOptionalPrice, requireSession } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
-import { CameraIcon, CloseIcon, PlusIcon } from "../icons/index.js";
+import { AtIcon, CameraIcon, CloseIcon, PlusIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
 
 const emit = defineEmits(["close", "done"]);
 
 const session = useSessionStore();
 const body = ref("");
+const mentions = ref([]);
+const mentionOpen = ref(false);
 const images = ref([]);
 const previewUrls = ref([]);
 const photoIndex = ref(0);
@@ -86,6 +89,7 @@ async function submit() {
     }
     const extra = { kind: "fastpost", public: isPublic.value };
     if (imageIds.length && priced.price !== undefined) extra.price = priced.price;
+    if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
     await createIntel(body.value.trim(), imageIds, [], extra);
     emit("done");
   } catch (err) {
@@ -151,6 +155,7 @@ nextTick(openCamera);
           :disabled="busy"
         />
       </div>
+      <MentionPicker v-model="mentions" v-model:body="body" v-model:open="mentionOpen" :disabled="busy" />
       <div class="intel-photo-bar">
         <div v-if="previewUrls.length" class="intel-photo-strip" :aria-label="t('home.intelCapture')">
           <button
@@ -188,6 +193,17 @@ nextTick(openCamera);
             <span>{{ priceLabel }}</span>
             <input id="intel-photo-price" v-model="price" type="text" inputmode="numeric" :placeholder="pricePlaceholder" :disabled="busy" />
           </label>
+          <button
+            type="button"
+            class="mention-trigger"
+            :disabled="busy"
+            :aria-expanded="mentionOpen"
+            :aria-label="t('home.mention')"
+            @click="mentionOpen = !mentionOpen"
+          >
+            <AtIcon aria-hidden="true" />
+            <span>{{ t("home.mention") }}</span>
+          </button>
           <AppButton type="submit" :disabled="busy || !canSend">{{ t("home.send") }}</AppButton>
         </div>
       </div>

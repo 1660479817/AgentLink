@@ -1,14 +1,16 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 import InformationCard from "../components/InformationCard.vue";
 import { StarIcon } from "../icons/index.js";
-import { dismissInformation, downloadInformation, listStars, unstarInformation } from "../api.js";
+import { addCardFriend, dismissInformation, downloadInformation, listStars, removeCardFriend, unstarInformation } from "../api.js";
 import { acceptDownload } from "../download/consent.js";
 import { payeeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
+import { useFriendStore } from "../stores/friends";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
+const friends = useFriendStore();
 const items = ref([]);
 const loaded = ref(false);
 const failed = ref(false);
@@ -48,6 +50,19 @@ async function toggleStar(item) {
   }
 }
 
+async function toggleFriend(item) {
+  if (!item.canFriend) return;
+  const previous = Boolean(item.friend);
+  item.friend = !previous;
+  try {
+    const data = item.friend ? await addCardFriend(item.id) : await removeCardFriend(item.id);
+    item.friend = Boolean(data.friend);
+    await friends.load();
+  } catch {
+    item.friend = previous;
+  }
+}
+
 async function dismissItem(item) {
   const previous = items.value;
   items.value = items.value.filter((row) => row.id !== item.id);
@@ -58,20 +73,31 @@ async function dismissItem(item) {
   }
 }
 
-onMounted(async () => {
+async function load() {
   if (!session.user) {
+    items.value = [];
     loaded.value = true;
     return;
   }
   try {
     const data = await listStars();
     items.value = data.information || [];
+    failed.value = false;
   } catch {
     failed.value = true;
   } finally {
     loaded.value = true;
   }
-});
+}
+
+watch(
+  () => friends.revision,
+  () => {
+    if (friends.revision) load();
+  }
+);
+
+onMounted(load);
 </script>
 
 <template>
@@ -96,7 +122,10 @@ onMounted(async () => {
       :avatar-url="item.author?.avatarUrl || ''"
       :created-at="item.kMeta?.createdAt || ''"
       :starred="true"
+      :friend="Boolean(item.friend)"
+      :can-friend="Boolean(item.canFriend)"
       :busy="Boolean(item.downloading)"
+      @friend="toggleFriend(item)"
       @dismiss="dismissItem(item)"
       @star="toggleStar(item)"
       @download="downloadItem(item)"

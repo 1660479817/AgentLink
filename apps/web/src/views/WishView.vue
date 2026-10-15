@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
+import MentionPicker from "../components/MentionPicker.vue";
 import PacketMediaFields from "../components/PacketMediaFields.vue";
 import VideoFrame from "../components/VideoFrame.vue";
 import WishCopy from "../components/WishCopy.vue";
@@ -23,7 +24,7 @@ import { acceptDownload } from "../download/consent.js";
 import { payeeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import StatusIcon from "../components/StatusIcon.vue";
-import { AudioIcon, ChatIcon, ImageIcon, PaperclipIcon, RespondIcon, SendIcon, VideoIcon } from "../icons/index.js";
+import { AtIcon, AudioIcon, ChatIcon, ImageIcon, PaperclipIcon, RespondIcon, SendIcon, VideoIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
@@ -45,6 +46,8 @@ const replyFileInput = ref(null);
 const replyAudioInput = ref(null);
 const replyError = ref("");
 const body = ref("");
+const mentions = ref([]);
+const mentionOpen = ref(false);
 const replyBody = ref("");
 const agreed = ref(false);
 const {
@@ -342,8 +345,11 @@ async function submit() {
       extra.audioIds = [uploaded.id];
     }
     if (link) extra.videos = [link];
+    if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
     await createIntel(body.value.trim(), imageIds, fileIds, extra);
     body.value = "";
+    mentions.value = [];
+    mentionOpen.value = false;
     agreed.value = false;
     resetMedia();
     await load();
@@ -477,7 +483,19 @@ async function downloadReply(item) {
           @remove-file="removeFile"
         />
       </form>
+      <MentionPicker v-model="mentions" v-model:body="body" v-model:open="mentionOpen" :disabled="busy" />
       <div class="share-actions">
+        <button
+          type="button"
+          class="share-action"
+          :disabled="busy"
+          :aria-expanded="mentionOpen"
+          :aria-label="t('home.mention')"
+          @click="mentionOpen = !mentionOpen"
+        >
+          <AtIcon class="share-action-icon share-action-mention" aria-hidden="true" />
+          <span>{{ t("home.mention") }}</span>
+        </button>
         <button type="button" class="share-action" :disabled="busy" @click="imageInput?.click()">
           <ImageIcon class="share-action-icon share-action-image" aria-hidden="true" />
           <span>{{ t("home.shareImage") }}</span>

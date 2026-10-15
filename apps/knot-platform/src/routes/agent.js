@@ -15,7 +15,9 @@ import {
 } from "../login.js";
 import { muteState, specialtyList, storedSpecialties } from "../account.js";
 import { decideAgentAccess, suppliedAgentEmail } from "../agentAccess.js";
+import { listFriends } from "../friends.js";
 import { createIntel, downloadPacket } from "../market.js";
+import { listNotifications, markNotificationsRead } from "../notifications.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,6 +43,7 @@ function agentFail(res, error) {
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
   if (code === "muted") return res.status(403).json({ error: "muted" });
+  if (code === "bad_mention") return res.status(400).json({ error: "bad_mention" });
   if (code === "not_found") return res.status(404).json({ error: "not_found" });
   console.error(error);
   return res.status(503).json({ error: "process_unavailable" });
@@ -315,6 +318,7 @@ export function agentRouter({ pool, uploadDir }) {
         price: req.body?.price,
         kind: typeof req.body?.kind === "string" ? req.body.kind : "",
         respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
+        mentions: req.body?.mentions,
       });
       res.status(201).json({ intel });
     } catch (error) {
@@ -347,6 +351,24 @@ export function agentRouter({ pool, uploadDir }) {
     const result = await listRequestResponses(pool, access.userId, req.params.id);
     if (result.error) return res.status(result.status).json({ error: result.error });
     res.json(result);
+  });
+
+  router.get("/friends", async (req, res) => {
+    const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    res.json({ friends: await listFriends(pool, access.userId) });
+  });
+
+  router.get("/notifications", async (req, res) => {
+    const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    res.json(await listNotifications(pool, access.userId));
+  });
+
+  router.post("/notifications/read", async (req, res) => {
+    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    res.json(await markNotificationsRead(pool, access.userId));
   });
 
   router.post("/feedback", async (req, res) => {
