@@ -55,7 +55,7 @@ while IFS= read -r agent_id; do
     echo "==> add agent $agent_id"
     openclaw agents add "$agent_id" --workspace "$workspace" --non-interactive
   fi
-done < <(node "$APPLY" ids)
+done < <(node "$APPLY" ids; node "$APPLY" internal-ids)
 
 echo "==> sync prompts and skills"
 node "$APPLY" sync

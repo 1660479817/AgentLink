@@ -3051,6 +3051,68 @@ p.error {
   color: var(--color-text);
 }
 
+.about-card {
+  padding: 2.35rem 1.85rem 1.85rem;
+}
+
+.about-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.about-card .about-mark {
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  font-size: 1.45rem;
+}
+
+.about-name {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.about-lead {
+  margin: 1.35rem 0 0;
+  color: var(--color-text);
+  font-size: 1.85rem;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.28;
+}
+
+.about-phrase {
+  white-space: nowrap;
+}
+
+.about-detail {
+  margin: 1rem 0 0;
+  max-width: 28rem;
+  color: var(--color-muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.about-card .form-actions {
+  margin-top: 1.75rem;
+}
+
+@media (max-width: 720px) {
+  .about-card {
+    padding: 1.85rem 1.15rem 1.5rem;
+  }
+
+  .about-lead {
+    font-size: 1.5rem;
+  }
+}
+
 .auth-label {
   display: block;
   margin-bottom: 0.35rem;

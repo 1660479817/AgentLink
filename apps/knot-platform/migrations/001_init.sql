@@ -10,12 +10,15 @@ CREATE TABLE users (
   points_balance INTEGER NOT NULL DEFAULT 100 CHECK (points_balance >= 0),
   muted_until TIMESTAMPTZ,
   label TEXT,
+  side TEXT NOT NULL DEFAULT 'external' CHECK (side IN ('internal', 'external')),
+  specialties JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX users_email_key ON users (lower(email)) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX users_email_external_key ON users (lower(email)) WHERE email IS NOT NULL AND side = 'external';
 CREATE UNIQUE INDEX users_label_key ON users (label) WHERE label IS NOT NULL;
+CREATE INDEX users_specialties_idx ON users USING GIN (specialties);
 
 CREATE TABLE sessions (
   sid TEXT PRIMARY KEY,

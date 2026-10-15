@@ -16,7 +16,7 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 | POST | `/api/web/login/key` | `{ email, key }`。密钥正确则进入账号。邮箱还没有用户时注册，已有则登录。返回 `{ user }` |
 | GET | `/api/web/session` | 当前用户。无会话时 `user` 为 null。同时返回 `policy` |
 | DELETE | `/api/web/session` | 结束会话，不删除用户 |
-| PATCH | `/api/web/profile` | `{ displayName?, avatarUploadId? }`。称呼最多 40 字。头像必须是本人已上传的 512×512 正方形。页面会把更大的正方形收成 512×512；不是正方形返回 `bad_avatar_square`，尺寸不对返回 `bad_avatar_size` |
+| PATCH | `/api/web/profile` | `{ displayName?, avatarUploadId? }`。称呼最多 40 字。头像必须是本人已上传的正方形。不是正方形返回 `bad_avatar_square`。边长大于 512 的，平台收成 512×512；更小的原样保留，页面按头像框缩放 |
 
 `user` 为 `{ id, email, displayName, avatarUrl, level, entitlements, pointsBalance, muted, mutedUntil }`。等级和权益只读。`entitlements.honors` 是权益名称。`muted` 为 true 时不能提交信息。`mutedUntil` 是解除时间；一直禁言时 `muted` 为 true 且 `mutedUntil` 为 null。`policy` 为 `{ defaultPrice, priceMin, priceMax, requestFee }`。`defaultPrice` 初期 10。`priceMin` 与 `priceMax` 初期 0 和 100。`requestFee` 初期 1。
 

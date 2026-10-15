@@ -13,7 +13,8 @@ import {
   requestLoginKey,
   sendFeedback,
 } from "../login.js";
-import { muteState } from "../account.js";
+import { muteState, specialtyList, storedSpecialties } from "../account.js";
+import { decideAgentAccess, suppliedAgentEmail } from "../agentAccess.js";
 import { createIntel, downloadPacket } from "../market.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
 
@@ -50,20 +51,19 @@ function bearerToken(header) {
 }
 
 async function userFromAccess(pool, header, emailRaw) {
-  const email = normalizeEmail(emailRaw);
-  if (!email) return { error: "bad_email", status: 400 };
+  const supplied = suppliedAgentEmail(emailRaw);
+  if (supplied.error) return supplied;
   const token = bearerToken(header);
   if (!token) return { error: "bad_token", status: 401 };
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const { rows } = await pool.query(
-    `SELECT u.id
+    `SELECT u.id, u.email, u.side
      FROM users u
      JOIN delegations d ON d.user_id = u.id
-     WHERE lower(u.email) = $1 AND d.token_hash = $2`,
-    [email, tokenHash]
+     WHERE d.token_hash = $1`,
+    [tokenHash]
   );
-  if (!rows[0]) return { error: "bad_token", status: 401 };
-  return { userId: rows[0].id };
+  return decideAgentAccess(rows[0], supplied.email);
 }
 
 function readDelivery(body, limits = {}) {
@@ -113,12 +113,13 @@ function presentUser(row) {
     pointsBalance: row.points_balance,
     muted: mute.muted,
     mutedUntil: mute.mutedUntil,
+    specialties: storedSpecialties(row.specialties),
   };
 }
 
 async function loadUser(pool, userId) {
   const { rows } = await pool.query(
-    `SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until
+    `SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, specialties
      FROM users WHERE id = $1`,
     [userId]
   );
@@ -250,7 +251,16 @@ export function agentRouter({ pool, uploadDir }) {
         avatarId = checked.id;
       }
     }
-    if (!hasName && avatarId === undefined) return res.status(400).json({ error: "empty_body" });
+    let specialties;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "specialties")) {
+      try {
+        specialties = specialtyList(req.body.specialties);
+      } catch (error) {
+        if (error.code === "bad_specialty") return res.status(400).json({ error: "bad_specialty" });
+        throw error;
+      }
+    }
+    if (!hasName && avatarId === undefined && specialties === undefined) return res.status(400).json({ error: "empty_body" });
     const sets = ["updated_at = now()"];
     const params = [];
     if (hasName) {
@@ -260,6 +270,10 @@ export function agentRouter({ pool, uploadDir }) {
     if (avatarId !== undefined) {
       params.push(avatarId);
       sets.push(`avatar_upload_id = $${params.length}`);
+    }
+    if (specialties !== undefined) {
+      params.push(JSON.stringify(specialties));
+      sets.push(`specialties = $${params.length}::jsonb`);
     }
     params.push(access.userId);
     await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
@@ -347,7 +361,7 @@ export function agentRouter({ pool, uploadDir }) {
     try {
       await sendFeedback({
         kind,
-        accountEmail: normalizeEmail(req.body.email),
+        accountEmail: access.email,
         userId: access.userId,
         body: text,
       });

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useSessionStore } from "../stores/session";
+import AboutView from "../views/AboutView.vue";
 import HomeView from "../views/HomeView.vue";
 import MineView from "../views/MineView.vue";
 import NotificationsView from "../views/NotificationsView.vue";
@@ -12,6 +13,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", name: "home", component: HomeView },
+    { path: "/about", name: "about", component: AboutView },
     { path: "/mine", name: "mine", component: MineView },
     { path: "/stars", name: "stars", component: StarsView },
     { path: "/activity", name: "activity", component: ActivityView },

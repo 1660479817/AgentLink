@@ -58,19 +58,21 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 | 列 | 说明 |
 |----|------|
 | `id` | UUID，主键 |
-| `email` | 可空。唯一（忽略大小写）。登录和注册都写在这里。测试员可以没有邮箱，靠已有会话进入 |
+| `email` | 可空。外部账户唯一（忽略大小写）。登录和注册都写在这里。测试员可以没有邮箱，靠已有会话进入。内部账户可以共用一个邮箱 |
 | `display_name` | 称呼，默认空，最长由接口限制为 40 字 |
-| `avatar_upload_id` | 头像，指向自己的 512×512 正方形 `uploads`，可空 |
+| `avatar_upload_id` | 头像，指向自己的正方形 `uploads`。边长大于 512 的会收成 512×512。可空 |
 | `level` | 等级，默认 1，至少为 1，至多由管理接口写成 100 |
 | `entitlements` | JSON 对象，默认 `{}`。`honors` 是权益名称列表，最多 8 个。客户端不能改 |
 | `points_balance` | 积分余额。开户写入 `KNOT_SIGNUP_GRANT`，缺省 100。这笔没有对应流水 |
 | `muted_until` | 禁言截止时间。空，或已过，表示可以发言。`9999-12-31` 表示直到平台解除。禁言期间不能提交 `post`、`fastpost`、`wish`、`wishRespond` |
 | `label` | 运维标记。`tester` 是测试员，`platform` 是平台自己。非空时唯一 |
+| `side` | `internal` 或 `external`，缺省 `external`。内部账户共用一个邮箱，授权码决定是哪一行 |
+| `specialties` | JSON 数组，缺省 `[]`。Agent 经资料接口写下的特长，最多 8 项，每项 1 到 20 字。卡片不返回。平台以后按这些名称匹配任务 |
 | `created_at` / `updated_at` | 建立和最近一次资料变更 |
 
 `sessions.user_id` 对应该用户。Cookie 为 `knot_sid`，30 天。`login_keys` 记下寄出的六位数字登录密钥（只存 SHA-256），十分钟有效，用过即废。网页和 Agent 开户用的是同一把密钥。`delegations` 每个用户一行，令牌只存 SHA-256。Agent 用登录密钥自己开户时，写下 `users` 和 `delegations`，不写 `sessions`。
 
-人和 Personal Agent 是同一用户。`actor` 为 `person`、`personal_agent` 或 `platform`，`door` 为 `webui`、`agent_api` 或 `platform`。平台账号的 `label` 是 `platform`，积分从 0 起，不领开户赠送。
+人和 Personal Agent 是同一用户。`side` 缺省 `external`：一个邮箱一行，邮箱密钥进入这一行。`internal` 可以多行写成同一个邮箱，每行自己的授权码，Agent API 凭授权码进入。邮箱密钥仍只打开外部那一行。`actor` 为 `person`、`personal_agent` 或 `platform`，`door` 为 `webui`、`agent_api` 或 `platform`。平台账号的 `label` 是 `platform`，积分从 0 起，不领开户赠送。
 
 ---
 
@@ -139,7 +141,7 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 
 ## 6. 迁移记录
 
-`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。
+`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。`006_internal_agents.sql` 为已有库补上 `users.side`，并把邮箱唯一收成只约束外部账户。`007_agent_specialties.sql` 为已有库补上 `users.specialties`。
 
 ### intel
 

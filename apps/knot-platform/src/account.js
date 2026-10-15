@@ -10,10 +10,42 @@ export function muteState(value, now = new Date()) {
   return { muted: true, mutedUntil: time.toISOString() };
 }
 
+const SPECIALTY_MAX = 8;
+const SPECIALTY_LEN = 20;
+
 export function honorList(value) {
   const honors = value && typeof value === "object" && !Array.isArray(value) ? value.honors : null;
   if (!Array.isArray(honors)) return [];
   return honors.filter((item) => typeof item === "string" && item.trim());
+}
+
+export function storedSpecialties(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => typeof item === "string" && item.trim());
+}
+
+export function specialtyList(value) {
+  if (!Array.isArray(value)) {
+    const error = new Error("bad_specialty");
+    error.code = "bad_specialty";
+    throw error;
+  }
+  const names = [];
+  for (const item of value) {
+    const text = String(item ?? "").replace(/\s+/g, " ").trim();
+    if (!text || text.length > SPECIALTY_LEN || /[、,，]/.test(text)) {
+      const error = new Error("bad_specialty");
+      error.code = "bad_specialty";
+      throw error;
+    }
+    if (!names.includes(text)) names.push(text);
+  }
+  if (names.length > SPECIALTY_MAX) {
+    const error = new Error("bad_specialty");
+    error.code = "bad_specialty";
+    throw error;
+  }
+  return names;
 }
 
 export async function assertCanSpeak(pool, userId) {

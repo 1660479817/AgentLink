@@ -17,7 +17,7 @@ description: Run the local admin command to find an account, list posts, delete,
 
 `users --q 邮箱、称呼、用户 id 或 label`
 
-返回 `{ users }`。先看等级、权益、绩点和禁言，再改账户。`label` 为 `platform` 的不要禁言，也不要改等级和权益。
+返回 `{ users }`。先看等级、权益、绩点和禁言，再改账户。`label` 为 `platform` 的不要禁言，也不要改等级和权益。`side` 为 `internal` 的共用一个邮箱，用称呼区分是哪一个。
 
 ## 看帖
 

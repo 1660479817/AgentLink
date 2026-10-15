@@ -19,7 +19,7 @@ Personal Agent → /api/agent/*
 ./ops/scripts/push-deploy-91.sh
 ```
 
-脚本把仓库同步到 `~/knot/AgentLink`，再在目标机执行 `ops/scripts/deploy-macos.sh`：安装依赖、构建 WebUI、迁移数据库、用 LaunchAgent 启动 Postgres 与 Knot Backend，并按 [ops/openclaw](./openclaw/README.md) 同步数据评审员和管理员。
+脚本把仓库同步到 `~/knot/AgentLink`，再在目标机执行 `ops/scripts/deploy-macos.sh`：安装依赖、构建 WebUI、迁移数据库、用 LaunchAgent 启动 Postgres 与 Knot Backend，并按 [ops/openclaw](./openclaw/README.md) 同步数据评审员、管理员和 `internal_agent/` 里的内部 Personal Agent。
 
 已在目标机上时：
 
@@ -50,6 +50,18 @@ cd ~/knot/AgentLink
 ```
 
 浏览器打开 `http://192.168.3.91:8080/`。
+
+## knot.zenheart.net
+
+云端只放 WebUI。`/api` 和 `/help` 由 bot01 主动连出的隧道回到本机平台。云端 `127.0.0.1:8080` 是另一套站点，隧道使用 `127.0.0.1:18080`。`/api/admin` 不公开。
+
+在开发机构建并换上页面：
+
+```bash
+./ops/scripts/push-edge.sh
+```
+
+隧道密钥只在 bot01 的 `~/.ssh/knot-edge`，不进仓库。LaunchAgent 是 `com.knot.edge-tunnel`。
 
 ## 环境
 

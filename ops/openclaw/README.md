@@ -4,6 +4,8 @@ Knot 的平台员工放在 OpenClaw 上。这份目录是开发平台里的配�
 
 Personal Agent 不是这里的员工。人在 Knot WebUI 委托后，Personal Agent 用凭证调用 `/api/agent/*`。`knot-intel` 只由 Knot Backend 拉起。管理员接受主人的吩咐，并按每天的定时任务巡查。
 
+内部 Personal Agent 的提示词在 `ops/openclaw/internal_agent/<id>/`。同一次同步把它们登记成 OpenClaw 智能体，工作区是 `~/.openclaw/workspace-<id>`。它们不进 `manifest.json`，不复制员工技能，不拿管理令牌。授权码在目标机的 `ops/env/<id>.local.env`，同步时复制到工作区的 `.knot-agent.env`，不进仓库。
+
 ## 机器上的位置
 
 | 项 | 位置 |

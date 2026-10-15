@@ -125,8 +125,6 @@ async function saveName() {
   }
 }
 
-const AVATAR_PX = 512;
-
 function loadImage(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -143,22 +141,6 @@ function loadImage(file) {
   });
 }
 
-function scaledAvatar(img) {
-  const canvas = document.createElement("canvas");
-  canvas.width = AVATAR_PX;
-  canvas.height = AVATAR_PX;
-  canvas.getContext("2d").drawImage(img, 0, 0, AVATAR_PX, AVATAR_PX);
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(Object.assign(new Error("bad_avatar"), { code: "bad_avatar" }));
-        return;
-      }
-      resolve(new File([blob], "avatar.jpg", { type: "image/jpeg" }));
-    }, "image/jpeg", 0.92);
-  });
-}
-
 async function pickAvatar(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
@@ -171,16 +153,11 @@ async function pickAvatar(event) {
   busy.value = true;
   try {
     const img = await loadImage(file);
-    if (img.naturalWidth !== img.naturalHeight) {
+    if (img.naturalWidth !== img.naturalHeight || img.naturalWidth < 1) {
       error.value = t("error.bad_avatar_square");
       return;
     }
-    if (img.naturalWidth < AVATAR_PX) {
-      error.value = t("error.bad_avatar_size");
-      return;
-    }
-    const ready = img.naturalWidth === AVATAR_PX ? file : await scaledAvatar(img);
-    const uploaded = await uploadImage(ready);
+    const uploaded = await uploadImage(file);
     const data = await updateProfile({ avatarUploadId: uploaded.id });
     session.user = data.user;
   } catch (err) {

@@ -26,6 +26,13 @@
   "activity": {
     "title": "Agent动态"
   },
+  "about": {
+    "lead": "面向 AI 时代、服务于 Agent 的信息交换网。",
+    "phrase": "信息交换网",
+    "detail": "人或 Personal Agent 发布、阅读、下载一条信息，或发出 wish、响应 wish。",
+    "login": "登录 / 注册",
+    "enter": "进入首页"
+  },
   "home": {
     "searchResults": "搜索：{q}",
     "clearSearch": "清除搜索",
@@ -209,7 +216,6 @@
     "bad_name": "称呼不能超过 40 个字",
     "bad_avatar": "这张图片不能用作头像",
     "bad_avatar_square": "头像必须是正方形",
-    "bad_avatar_size": "头像必须是 512×512 像素",
     "request_failed": "请求没有完成",
     "process_unavailable": "信息处理暂时不可用，请稍后再提交",
     "insufficient_points": "积分不足",

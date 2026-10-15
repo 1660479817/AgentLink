@@ -31,8 +31,58 @@ export function patchConfig(config, manifest) {
   return next;
 }
 
+const INTERNAL_ID = /^[a-z][a-z0-9-]{0,39}$/;
+
+export function internalAgentIds(names) {
+  return names.filter((name) => INTERNAL_ID.test(name) && !name.startsWith("knot-")).sort();
+}
+
+export function patchInternal(config, ids) {
+  const next = structuredClone(config);
+  next.agents ??= {};
+  next.agents.entries ??= {};
+  for (const id of ids) {
+    const entry = next.agents.entries[id];
+    if (!entry) continue;
+    entry.skills = [];
+    entry.subagents = { ...(entry.subagents || {}), allowAgents: ids.filter((item) => item !== id) };
+  }
+  return next;
+}
+
 async function readManifest() {
   return JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
+}
+
+async function readInternalIds() {
+  const dir = path.join(root, "internal_agent");
+  let names = [];
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    names = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  return internalAgentIds(names);
+}
+
+async function syncInternal(ids) {
+  for (const id of ids) {
+    const source = path.join(root, "internal_agent", id);
+    const workspace = path.join(stateDir, `workspace-${id}`);
+    await mkdir(workspace, { recursive: true });
+    for (const name of promptFiles) {
+      await copyFile(path.join(source, name), path.join(workspace, name));
+    }
+    const envFile = path.join(root, "../env", `${id}.local.env`);
+    const tokenFile = path.join(workspace, ".knot-agent.env");
+    try {
+      await copyFile(envFile, tokenFile);
+      await chmod(tokenFile, 0o600);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
 }
 
 async function readConfig() {
@@ -111,8 +161,11 @@ async function sync() {
       }
     }
   }
+  const internalIds = await readInternalIds();
+  await syncInternal(internalIds);
   let config = await restore(await readConfig());
   config = patchConfig(config, manifest);
+  config = patchInternal(config, internalIds);
   await writeConfig(config);
   await rm(snapshotPath, { force: true });
 }
@@ -123,6 +176,9 @@ const manifest = !isDirect || command === "patch-test" ? null : await readManife
 
 if (isDirect && command === "ids") {
   process.stdout.write(`${manifest.agents.map((agent) => agent.id).join("\n")}\n`);
+} else if (isDirect && command === "internal-ids") {
+  const ids = await readInternalIds();
+  process.stdout.write(ids.length ? `${ids.join("\n")}\n` : "");
 } else if (isDirect && command === "snapshot") {
   await snapshot();
 } else if (isDirect && command === "sync") {
@@ -148,8 +204,18 @@ if (isDirect && command === "ids") {
   if (patched.bindings[0].agentId !== "main") process.exit(1);
   const copied = skillSources(["SKILL.md", "admin", "admin.mjs", "admin.test.mjs", "notes.txt"]);
   if (copied.join() !== "SKILL.md,admin,admin.mjs") process.exit(1);
+  const internalIds = internalAgentIds(["bravesearch", "knot-intel", "Bad Name", ""]);
+  if (internalIds.join() !== "bravesearch") process.exit(1);
+  const withInternal = patchInternal(
+    { agents: { entries: { bravesearch: { name: "bravesearch" }, "knot-intel": { skills: ["knot-intel"] } } } },
+    ["bravesearch", "finder"]
+  );
+  if (withInternal.agents.entries.bravesearch.skills.length !== 0) process.exit(1);
+  if (withInternal.agents.entries.bravesearch.subagents.allowAgents.join() !== "finder") process.exit(1);
+  if (withInternal.agents.entries["knot-intel"].skills.join() !== "knot-intel") process.exit(1);
+  if (withInternal.agents.entries.finder) process.exit(1);
   process.stdout.write("patch ok\n");
 } else if (isDirect) {
-  process.stderr.write("usage: apply-config.mjs ids|snapshot|sync|patch-test\n");
+  process.stderr.write("usage: apply-config.mjs ids|internal-ids|snapshot|sync|patch-test\n");
   process.exit(2);
 }

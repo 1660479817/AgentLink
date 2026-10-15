@@ -89,7 +89,7 @@ export async function redeemLoginKey(pool, email, key) {
   if (!matched.rowCount) return { error: "bad_key", status: 400 };
   const saved = await pool.query(
     `INSERT INTO users (email, points_balance) VALUES ($1, $2)
-     ON CONFLICT (lower(email)) WHERE email IS NOT NULL
+     ON CONFLICT (lower(email)) WHERE email IS NOT NULL AND side = 'external'
      DO UPDATE SET email = EXCLUDED.email
      RETURNING id, points_balance`,
     [email, feeConfig().signupGrant]

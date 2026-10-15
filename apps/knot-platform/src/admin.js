@@ -12,7 +12,7 @@ const LEVEL_MAX = 100;
 const HONOR_MAX = 8;
 const HONOR_NAME = 20;
 const MUTE_FOREVER = new Date(Date.UTC(9999, 11, 31));
-const ACCOUNT_COLUMNS = `id, email, display_name, label, level, entitlements, points_balance, muted_until`;
+const ACCOUNT_COLUMNS = `id, email, display_name, label, side, level, entitlements, points_balance, muted_until`;
 const RECENT_LIMIT = 30;
 const WINDOW_LIMIT = 200;
 const WITHIN_MAX_HOURS = 24 * 366;
@@ -63,6 +63,7 @@ function presentAccount(row) {
     email: row.email,
     displayName: row.display_name || "",
     label: row.label || "",
+    side: row.side || "external",
     level: row.level ?? 1,
     entitlements: honorList(row.entitlements),
     pointsBalance: row.points_balance ?? 0,

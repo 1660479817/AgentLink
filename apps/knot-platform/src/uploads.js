@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import sharp from "sharp";
 
 export const AVATAR_PX = 512;
+const AVATAR_JPEG_QUALITY = 85;
 
 export function ensureUploadDir(uploadDir) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -81,24 +83,58 @@ function webpSize(buffer) {
 
 export function avatarBufferError(buffer) {
   const size = imageSize(buffer);
-  if (!size || size.width !== size.height) return "bad_avatar_square";
-  if (size.width !== AVATAR_PX) return "bad_avatar_size";
+  if (!size || size.width !== size.height || size.width < 1) return "bad_avatar_square";
   return null;
+}
+
+export async function fitAvatar(buffer) {
+  const size = imageSize(buffer);
+  if (!size || size.width <= AVATAR_PX) return null;
+  return sharp(buffer)
+    .rotate()
+    .resize(AVATAR_PX, AVATAR_PX, { fit: "cover" })
+    .jpeg({ quality: AVATAR_JPEG_QUALITY })
+    .toBuffer();
 }
 
 export async function acceptAvatar(pool, uploadDir, userId, uploadId) {
   const { rows } = await pool.query(
-    `SELECT id, storage_name FROM uploads WHERE id = $1 AND user_id = $2 AND mime LIKE 'image/%'`,
+    `SELECT id, storage_name, mime FROM uploads WHERE id = $1 AND user_id = $2 AND mime LIKE 'image/%'`,
     [uploadId, userId]
   );
   if (!rows.length) return { error: "bad_avatar" };
+  const row = rows[0];
   let buffer;
   try {
-    buffer = fs.readFileSync(storagePath(uploadDir, rows[0].storage_name));
+    buffer = fs.readFileSync(storagePath(uploadDir, row.storage_name));
   } catch {
     return { error: "bad_avatar" };
   }
   const error = avatarBufferError(buffer);
   if (error) return { error };
-  return { id: rows[0].id };
+  let fitted;
+  try {
+    fitted = await fitAvatar(buffer);
+  } catch {
+    return { error: "bad_avatar" };
+  }
+  if (!fitted) return { id: row.id };
+  const ext = path.extname(row.storage_name);
+  const nextName =
+    ext.toLowerCase() === ".jpg" || ext.toLowerCase() === ".jpeg"
+      ? row.storage_name
+      : `${path.basename(row.storage_name, ext)}.jpg`;
+  try {
+    fs.writeFileSync(storagePath(uploadDir, nextName), fitted);
+    if (nextName !== row.storage_name || row.mime !== "image/jpeg") {
+      await pool.query(`UPDATE uploads SET storage_name = $1, mime = 'image/jpeg' WHERE id = $2`, [
+        nextName,
+        row.id,
+      ]);
+    }
+    if (nextName !== row.storage_name) fs.rmSync(storagePath(uploadDir, row.storage_name), { force: true });
+  } catch {
+    return { error: "bad_avatar" };
+  }
+  return { id: row.id };
 }

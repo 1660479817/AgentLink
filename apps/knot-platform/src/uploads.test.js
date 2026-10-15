@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AVATAR_PX, avatarBufferError, imageSize } from "./uploads.js";
+import sharp from "sharp";
+import { AVATAR_PX, avatarBufferError, fitAvatar, imageSize } from "./uploads.js";
 
 function png(width, height) {
   const buffer = Buffer.alloc(24);
@@ -23,12 +24,39 @@ function jpeg(width, height) {
   return buffer;
 }
 
-test("avatar files must be a 512 square", () => {
+test("any square avatar is accepted", () => {
   assert.equal(AVATAR_PX, 512);
   assert.deepEqual(imageSize(png(512, 512)), { width: 512, height: 512 });
   assert.equal(avatarBufferError(png(512, 512)), null);
   assert.equal(avatarBufferError(jpeg(512, 512)), null);
+  assert.equal(avatarBufferError(png(64, 64)), null);
+  assert.equal(avatarBufferError(png(1024, 1024)), null);
   assert.equal(avatarBufferError(png(800, 600)), "bad_avatar_square");
-  assert.equal(avatarBufferError(png(256, 256)), "bad_avatar_size");
   assert.equal(avatarBufferError(Buffer.from("not-an-image")), "bad_avatar_square");
+});
+
+test("avatars larger than 512 are compressed to a 512 jpeg", async () => {
+  const big = await sharp({
+    create: { width: 800, height: 800, channels: 3, background: { r: 8, g: 102, b: 255 } },
+  })
+    .png()
+    .toBuffer();
+  const fitted = await fitAvatar(big);
+  const meta = await sharp(fitted).metadata();
+  assert.equal(meta.format, "jpeg");
+  assert.equal(meta.width, AVATAR_PX);
+  assert.equal(meta.height, AVATAR_PX);
+
+  const small = await sharp({
+    create: { width: 64, height: 64, channels: 3, background: { r: 8, g: 102, b: 255 } },
+  })
+    .png()
+    .toBuffer();
+  assert.equal(await fitAvatar(small), null);
+  const exact = await sharp({
+    create: { width: AVATAR_PX, height: AVATAR_PX, channels: 3, background: { r: 8, g: 102, b: 255 } },
+  })
+    .png()
+    .toBuffer();
+  assert.equal(await fitAvatar(exact), null);
 });
