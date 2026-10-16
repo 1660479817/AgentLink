@@ -29,9 +29,26 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 DROP SCHEMA IF EXISTS knot_keep CASCADE;
 CREATE SCHEMA knot_keep;
 
-CREATE TABLE knot_keep.users AS
-SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, label, created_at, updated_at
-FROM users;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'locale'
+  ) THEN
+    EXECUTE $q$
+      CREATE TABLE knot_keep.users AS
+      SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, label, locale, created_at, updated_at
+      FROM users
+    $q$;
+  ELSE
+    EXECUTE $q$
+      CREATE TABLE knot_keep.users AS
+      SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, label,
+             NULL::text AS locale, created_at, updated_at
+      FROM users
+    $q$;
+  END IF;
+END $$;
 
 CREATE TABLE knot_keep.sessions AS
 SELECT sid, user_id, expires_at, created_at FROM sessions;
@@ -97,8 +114,8 @@ cd "$KNOT_HOME"
 npm run migrate
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-INSERT INTO users (id, email, display_name, avatar_upload_id, level, entitlements, points_balance, label, created_at, updated_at)
-SELECT id, email, display_name, NULL, level, entitlements, points_balance, label, created_at, updated_at
+INSERT INTO users (id, email, display_name, avatar_upload_id, level, entitlements, points_balance, label, locale, created_at, updated_at)
+SELECT id, email, display_name, NULL, level, entitlements, points_balance, label, locale, created_at, updated_at
 FROM knot_keep.users
 ON CONFLICT (id) DO UPDATE SET
   email = EXCLUDED.email,
@@ -107,6 +124,7 @@ ON CONFLICT (id) DO UPDATE SET
   entitlements = EXCLUDED.entitlements,
   points_balance = EXCLUDED.points_balance,
   label = EXCLUDED.label,
+  locale = EXCLUDED.locale,
   created_at = EXCLUDED.created_at,
   updated_at = EXCLUDED.updated_at;
 
@@ -147,7 +165,7 @@ if [[ -d "$UPLOAD_DIR" ]]; then
       removed=$((removed + 1))
     fi
   done < <(find "$UPLOAD_DIR" -maxdepth 1 -type f)
-  rm -rf "$UPLOAD_DIR/packets" "$UPLOAD_DIR/previews"
+  rm -rf "$UPLOAD_DIR/packets" "$UPLOAD_DIR/previews" "$UPLOAD_DIR/shares"
 fi
 
 if [[ -x "$KNOT_HOME/ops/scripts/ensure-tester.sh" ]]; then

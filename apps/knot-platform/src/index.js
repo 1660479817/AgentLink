@@ -80,9 +80,17 @@ app.use("/media/previews", (_req, res) => res.status(404).end());
 
 if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
   const dir = path.resolve(bootstrap.staticWebDir);
-  app.use(express.static(dir));
+  app.use("/assets", express.static(path.join(dir, "assets"), { immutable: true, maxAge: "1y" }));
+  app.use(
+    express.static(dir, {
+      setHeaders(res, filePath) {
+        if (path.basename(filePath) === "index.html") res.setHeader("Cache-Control", "no-cache");
+      },
+    })
+  );
   app.get("*", (req, res, next) => {
     if (req.path.startsWith("/api")) return next();
+    res.set("Cache-Control", "no-cache");
     res.sendFile(path.join(dir, "index.html"));
   });
 }

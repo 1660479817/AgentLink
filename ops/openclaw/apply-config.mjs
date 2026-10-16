@@ -8,6 +8,54 @@ const stateDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), ".ope
 const configPath = path.join(stateDir, "openclaw.json");
 const snapshotPath = path.join(stateDir, "knot-config-snapshot.json");
 const promptFiles = ["IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md"];
+const identityLabels = new Set(["name", "creature", "vibe", "emoji", "avatar", "theme"]);
+
+// 去掉标题后还要有正文。可以短，不能只剩标题或空白。
+export function promptBody(text) {
+  return String(text).replace(/^\uFEFF/, "").replace(/^#[^\n]*\n?/, "").trim();
+}
+
+// OpenClaw 只认 `- **Name:**` 这一类行，中文标签会被忽略。
+export function identityFields(text) {
+  const fields = {};
+  for (const line of String(text).split(/\r?\n/)) {
+    const cleaned = line.trim().replace(/^\s*-\s*/, "");
+    const colon = cleaned.indexOf(":");
+    if (colon === -1) continue;
+    const label = cleaned.slice(0, colon).replace(/[*_`]/g, "").trim().toLowerCase();
+    const value = cleaned.slice(colon + 1).replace(/^[*_`\s]+|[*_`\s]+$/g, "").trim();
+    if (!value || !identityLabels.has(label)) continue;
+    fields[label] = value;
+  }
+  return fields;
+}
+
+export function soulReady(text) {
+  return Boolean(promptBody(text)) && ["Core Truths", "Boundaries", "Vibe"].every((heading) => new RegExp(`^##\\s+${heading}\\s*$`, "m").test(text));
+}
+
+export function userReady(text) {
+  const stamp = /<!--\s*observed:\s*\d{4}-\d{2}-\d{2}\s*\|\s*status:\s*(?:active|superseded)\s*-->/;
+  const imperative = /^[-*]\s+(?:Always|Never|Prefer)\b/m;
+  return stamp.test(text) && imperative.test(text);
+}
+
+async function readPrompt(dir, name) {
+  try {
+    return await readFile(path.join(dir, name), "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") throw new Error(`缺少 ${name}：${dir}`);
+    throw error;
+  }
+}
+
+export async function assertPrompts(dir) {
+  const identity = await readPrompt(dir, "IDENTITY.md");
+  const fields = identityFields(identity);
+  if (!fields.name || !fields.vibe) throw new Error(`IDENTITY.md 缺少 Name 或 Vibe：${dir}`);
+  if (!soulReady(await readPrompt(dir, "SOUL.md"))) throw new Error(`SOUL.md 不合格式：${dir}`);
+  if (!userReady(await readPrompt(dir, "USER.md"))) throw new Error(`USER.md 不合格式：${dir}`);
+}
 
 export function visibleSkills(manifest, agent) {
   if (agent.common === false) return [...agent.skills];
@@ -76,14 +124,40 @@ async function readInternalIds() {
   return internalAgentIds(names);
 }
 
+async function agentSource(id) {
+  const manifest = await readManifest();
+  if (manifest.agents.some((agent) => agent.id === id)) return path.join(root, "agents", id);
+  const internal = path.join(root, "internal_agent", id);
+  try {
+    await access(internal);
+    return internal;
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  throw new Error(`unknown agent ${id}`);
+}
+
+async function seedPrompts(id) {
+  const source = await agentSource(id);
+  await assertPrompts(source);
+  const workspace = path.join(stateDir, `workspace-${id}`);
+  await mkdir(workspace, { recursive: true });
+  for (const name of promptFiles) {
+    await copyFile(path.join(source, name), path.join(workspace, name));
+  }
+  await rm(path.join(workspace, "BOOTSTRAP.md"), { force: true });
+}
+
 async function syncInternal(ids) {
   for (const id of ids) {
     const source = path.join(root, "internal_agent", id);
     const workspace = path.join(stateDir, `workspace-${id}`);
     await mkdir(workspace, { recursive: true });
+    await assertPrompts(source);
     for (const name of promptFiles) {
       await copyFile(path.join(source, name), path.join(workspace, name));
     }
+    await rm(path.join(workspace, "BOOTSTRAP.md"), { force: true });
     const envFile = path.join(root, "../env", `${id}.local.env`);
     const tokenFile = path.join(workspace, ".knot-agent.env");
     try {
@@ -159,11 +233,14 @@ async function syncTools(agentId) {
 async function sync() {
   const manifest = await readManifest();
   for (const agent of manifest.agents) {
+    const source = path.join(root, "agents", agent.id);
     const workspace = path.join(stateDir, `workspace-${agent.id}`);
     await mkdir(workspace, { recursive: true });
+    await assertPrompts(source);
     for (const name of promptFiles) {
-      await copyFile(path.join(root, "agents", agent.id, name), path.join(workspace, name));
+      await copyFile(path.join(source, name), path.join(workspace, name));
     }
+    await rm(path.join(workspace, "BOOTSTRAP.md"), { force: true });
     const ordersSource = path.join(root, "agents", agent.id, "ORDERS.md");
     const ordersDest = path.join(workspace, "ORDERS.md");
     try {
@@ -211,6 +288,13 @@ if (isDirect && command === "ids") {
   process.stdout.write(ids.length ? `${ids.join("\n")}\n` : "");
 } else if (isDirect && command === "snapshot") {
   await snapshot();
+} else if (isDirect && command === "seed") {
+  const id = process.argv[3];
+  if (!id) {
+    process.stderr.write("usage: apply-config.mjs seed <id>\n");
+    process.exit(2);
+  }
+  await seedPrompts(id);
 } else if (isDirect && command === "sync") {
   await sync();
 } else if (isDirect && command === "patch-test") {
@@ -248,8 +332,47 @@ if (isDirect && command === "ids") {
   if (withInternal.agents.entries.bravesearch.subagents.allowAgents.join() !== "finder") process.exit(1);
   if (withInternal.agents.entries["knot-intel"].skills.join() !== "knot-intel") process.exit(1);
   if (withInternal.agents.entries.finder) process.exit(1);
+  if (promptBody("# SOUL\n\n只报数字。") !== "只报数字。") process.exit(1);
+  if (promptBody("# USER\n") !== "") process.exit(1);
+  if (promptBody("   ") !== "") process.exit(1);
+  if (promptBody("短。") !== "短。") process.exit(1);
+  const named = identityFields("# IDENTITY.md\n\n- **Name:** 数据评审员\n- 名字：不会被认\n- **Vibe:** 短\n");
+  if (named.name !== "数据评审员" || named.vibe !== "短" || named["名字"]) process.exit(1);
+  if (!soulReady("# SOUL.md\n\n## Core Truths\n\n短。\n\n## Boundaries\n\n- 不猜。\n\n## Vibe\n\n短。\n")) process.exit(1);
+  if (soulReady("# SOUL\n\n你是员工。\n")) process.exit(1);
+  if (!userReady("<!-- observed: 2026-10-16 | status: active -->\n\n- Always 交回 JSON。\n")) process.exit(1);
+  if (userReady("# USER\n\n交回 JSON。\n")) process.exit(1);
+  for (const id of ["knot-intel", "knot-admin", "knot-actuary"]) {
+    await assertPrompts(path.join(root, "agents", id));
+  }
+  await assertPrompts(path.join(root, "internal_agent", "bravesearch"));
+  const emptyDir = path.join(os.tmpdir(), `knot-prompt-${process.pid}`);
+  await mkdir(emptyDir, { recursive: true });
+  try {
+    await writeFile(path.join(emptyDir, "IDENTITY.md"), "# IDENTITY\n\n- 名字：数据评审员\n");
+    await writeFile(path.join(emptyDir, "SOUL.md"), "# SOUL.md\n\n## Core Truths\n\n短。\n\n## Boundaries\n\n- 不猜。\n\n## Vibe\n\n短。\n");
+    await writeFile(path.join(emptyDir, "USER.md"), "<!-- observed: 2026-10-16 | status: active -->\n\n- Always 交回 JSON。\n");
+    let rejected = false;
+    try {
+      await assertPrompts(emptyDir);
+    } catch (error) {
+      rejected = error.message.includes("IDENTITY.md");
+    }
+    if (!rejected) process.exit(1);
+    await writeFile(path.join(emptyDir, "IDENTITY.md"), "# IDENTITY.md\n\n- **Name:** 数据评审员\n- **Vibe:** 短\n");
+    await rm(path.join(emptyDir, "USER.md"));
+    let missing = false;
+    try {
+      await assertPrompts(emptyDir);
+    } catch (error) {
+      missing = error.message.includes("缺少 USER.md");
+    }
+    if (!missing) process.exit(1);
+  } finally {
+    await rm(emptyDir, { recursive: true, force: true });
+  }
   process.stdout.write("patch ok\n");
 } else if (isDirect) {
-  process.stderr.write("usage: apply-config.mjs ids|internal-ids|snapshot|sync|patch-test\n");
+  process.stderr.write("usage: apply-config.mjs ids|internal-ids|seed|snapshot|sync|patch-test\n");
   process.exit(2);
 }

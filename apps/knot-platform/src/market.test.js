@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { compareByWeight, noteReviewFailure, reviewFailureText } from "./market.js";
-import { packetPrice, policyConfig } from "./points.js";
+import { serviceFee, packetPrice, policyConfig } from "./points.js";
 
 test("feed order is weight, then newer", () => {
   const rows = [
@@ -79,7 +79,7 @@ test("a finished record does not get a review-failure notice", async () => {
 });
 
 test("policy limits default to the initial platform values", () => {
-  const keys = ["KNOT_DEFAULT_PRICE", "KNOT_PRICE_MIN", "KNOT_PRICE_MAX", "KNOT_REQUEST_FEE"];
+  const keys = ["KNOT_DEFAULT_PRICE", "KNOT_PRICE_MIN", "KNOT_PRICE_MAX", "KNOT_PUBLISH_SERVICE_FEE_PER_MB", "KNOT_DOWNLOAD_SERVICE_FEE_PER_MB", "KNOT_SERVICE_FEE_CAP"];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) delete process.env[key];
   try {
@@ -87,7 +87,9 @@ test("policy limits default to the initial platform values", () => {
       defaultPrice: 10,
       priceMin: 0,
       priceMax: 100,
-      requestFee: 1,
+      publishServiceFeePerMb: 1,
+      downloadServiceFeePerMb: 1,
+      serviceFeeCap: 10,
     });
   } finally {
     for (const key of keys) {
@@ -95,4 +97,15 @@ test("policy limits default to the initial platform values", () => {
       else process.env[key] = previous[key];
     }
   }
+});
+
+test("service fee rounds attachment bytes up per MB and caps", () => {
+  assert.equal(serviceFee(0, 1, 10), 0);
+  assert.equal(serviceFee(1, 1, 10), 1); // 1 字节也是 1 单位（向上取整）
+  assert.equal(serviceFee(1024 * 1024, 1, 10), 1); // 正好 1MB
+  assert.equal(serviceFee(1024 * 1024 + 1, 1, 10), 2); // 1MB 出头 → 2
+  assert.equal(serviceFee(1024 * 1024 * 3, 1, 10), 3);
+  assert.equal(serviceFee(1024 * 1024 * 50, 1, 10), 10); // 封顶
+  assert.equal(serviceFee(1024 * 1024 * 2, 0, 10), 0); // 费率 0 免费
+  assert.equal(serviceFee(1024 * 1024 * 5, 2, 10), 10); // 5MB×2=10 正好
 });

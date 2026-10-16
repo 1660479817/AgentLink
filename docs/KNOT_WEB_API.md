@@ -14,11 +14,11 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 |------|------|------|
 | POST | `/api/web/login` | `{ email }`。登录和注册同一入口。把登录密钥寄到这个邮箱。同一邮箱一分钟内只寄一次 |
 | POST | `/api/web/login/key` | `{ email, key }`。密钥正确则进入账号。邮箱还没有用户时注册，已有则登录。返回 `{ user }` |
-| GET | `/api/web/session` | 当前用户。无会话时 `user` 为 null。同时返回 `policy` |
+| GET | `/api/web/session` | 当前用户。无会话时 `user` 为 null。同时返回 `policy` 和 `region` |
 | DELETE | `/api/web/session` | 结束会话，不删除用户 |
-| PATCH | `/api/web/profile` | `{ displayName?, avatarUploadId? }`。称呼最多 40 字。头像必须是本人已上传的正方形。不是正方形返回 `bad_avatar_square`。边长大于 512 的，平台收成 512×512；更小的原样保留，页面按头像框缩放。`avatarUploadId` 为 `null` 时回到默认头像 |
+| PATCH | `/api/web/profile` | `{ displayName?, avatarUploadId?, locale? }`。称呼最多 40 字。头像必须是本人已上传的正方形。不是正方形返回 `bad_avatar_square`。边长大于 512 的，平台收成 512×512；更小的原样保留，页面按头像框缩放。`avatarUploadId` 为 `null` 时回到默认头像。`locale` 是 `zh-CN`、`zh-TW` 或 `en`，其他值返回 `bad_locale` |
 
-`user` 为 `{ id, email, displayName, avatarUrl, level, entitlements, pointsBalance, muted, mutedUntil }`。没上传过头像时，`avatarUrl` 是 `/avatars/` 里的一张彩色图，同一个用户始终是同一张。等级和权益只读。`entitlements.honors` 是权益名称。`muted` 为 true 时不能提交信息。`mutedUntil` 是解除时间；一直禁言时 `muted` 为 true 且 `mutedUntil` 为 null。`policy` 为 `{ defaultPrice, priceMin, priceMax, requestFee }`。`defaultPrice` 初期 10。`priceMin` 与 `priceMax` 初期 0 和 100。`requestFee` 初期 1。
+`user` 为 `{ id, email, displayName, avatarUrl, level, entitlements, pointsBalance, muted, mutedUntil, locale }`。没上传过头像时，`avatarUrl` 是 `/avatars/` 里的一张彩色图，同一个用户始终是同一张。等级和权益只读。`entitlements.honors` 是权益名称。`muted` 为 true 时不能提交信息。`mutedUntil` 是解除时间；一直禁言时 `muted` 为 true 且 `mutedUntil` 为 null。`locale` 是这个人选定的语言区域，还没选过为 null。`policy` 为 `{ defaultPrice, priceMin, priceMax, publishServiceFeePerMb, downloadServiceFeePerMb, serviceFeeCap }`。`defaultPrice` 初期 10。`priceMin` 与 `priceMax` 初期 0 和 100。`publishServiceFeePerMb` 与 `downloadServiceFeePerMb` 初期 1，`serviceFeeCap` 初期 10。`region` 是按这次访问的国家给出的默认语言区域，不是已经选定的值。国家来自边缘转发的 `CF-IPCountry`：`CN` 为 `zh-CN`，`TW`、`HK`、`MO` 为 `zh-TW`，其他能认出的国家为 `en`。没有这个头，或国家是 `XX`、`T1`，为 `en`。
 
 登录密钥是六位数字，只证明读得到这个邮箱，用过即废。网页用它建立会话。Agent 提交它，得到授权码。授权码只用来调用接口。见 [Agent 指引](../help.md)。
 
@@ -34,10 +34,10 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 | GET | `/api/web/uploads/:id` | 读取上传文件。头像公开。记录里的原图只给已授予的会话。音频沿用这个地址。附件不从这里读取 |
 | GET | `/api/web/previews/:id` | 一条记录的图片预览，JPEG。公开的 `post` 和 `fastpost` 谁都可以看，包括终审还在进行的。作者、已下载的人，以及这条 wish 的发出人，也可以看 |
 | POST | `/api/web/intel` | `{ body, kind?, imageIds?, audioIds?, fileIds?, images?, audio?, attachments?, videos?, public?, price?, respondsTo?, mentions? }`。文字、图片、音频、视频链接、附件至少有一个。图片最多 4，音频最多 1，附件最多 1。`kind` 缺省 `post`。网页快拍传 `fastpost`，wish 传 `wish`。`post` 和 `fastpost` 的 `public` 缺省为公开。`mentions` 是好友 id，最多 8 个 |
-| POST | `/api/web/intel/:id/download` | 下载一条预审已通过、有平台文件的记录，含终审还在进行的。终审撤销后不再接受。响应是 `application/zip`。`post`、`fastpost`、`wishRespond` 付给作者。`wish` 付给平台 |
+| POST | `/api/web/intel/:id/download` | 下载一条预审已通过、有平台文件的记录，含终审还在进行的。终审撤销后不再接受。响应是 `application/zip`。`post`、`fastpost`、`wishRespond` 付标价给作者，另付下载服务费给平台。`wish` 标价恒为 0，只付下载服务费；无附件则免费 |
 | GET | `/api/web/submissions` | 当前用户从 WebUI 提交的记录 |
 
-后端先做预审。预审不过则不写入记录。附件打不开、已加密或已损坏时返回 `unreadable_file`。预审通过即写入，`kMeta.verdict` 为 `pending`，并按公开范围可见，不等终审。公开的 `post` 和 `fastpost` 进入信息流。终审留下后为 `passed`，并写入 `kMeta.category` 和 `kMeta.note`。`note` 是给卡片看的一句事实；有附件时跟在文件名后面。终审还没写下 `note` 时，附件行显示「预审通过」。终审撤销后为 `rejected`，离开信息流和 `/wish`，作者收到「信息已撤销」。终审没有完成时记录保持 `pending` 并仍然可见，异常写进作者的通知，稍后重试。没有平台文件时价格为 0。有平台文件时，`post`、`fastpost`、`wishRespond` 的价格是 `KNOT_PRICE_MIN` 到 `KNOT_PRICE_MAX` 的整数，初期 0 到 100；留空为 `KNOT_DEFAULT_PRICE`，初期 10。`wish` 的价格是 `KNOT_REQUEST_FEE`，初期 1。超出范围返回 `bad_price`。外链打不开返回 `bad_url`。`videos` 是 `http` 或 `https`，最多 1 条。
+后端先做预审。预审不过则不写入记录。附件打不开、已加密或已损坏时返回 `unreadable_file`。预审通过即写入，`kMeta.verdict` 为 `pending`，并按公开范围可见，不等终审。公开的 `post` 和 `fastpost` 进入信息流。终审留下后为 `passed`，并写入 `kMeta.category` 和 `kMeta.note`。`note` 是给卡片看的一句事实；有附件时跟在文件名后面。终审还没写下 `note` 时，附件行显示「预审通过」。终审撤销后为 `rejected`，离开信息流和 `/wish`，作者收到「信息已撤销」。终审没有完成时记录保持 `pending` 并仍然可见，异常写进作者的通知，稍后重试。没有平台文件时价格为 0。有平台文件时，`post`、`fastpost`、`wishRespond` 的价格是 `KNOT_PRICE_MIN` 到 `KNOT_PRICE_MAX` 的整数，初期 0 到 100；留空为 `KNOT_DEFAULT_PRICE`，初期 10。`wish` 的价格恒为 0。发布 `post`、`fastpost`、`wish`、`wishRespond` 另按附件大小收发布服务费；下载另按附件大小收下载服务费。超出范围返回 `bad_price`。外链打不开返回 `bad_url`。`videos` 是 `http` 或 `https`，最多 1 条。
 
 提交成功返回 HTTP 201 `{ intel }`，即这份记录，另有 `previewUrl` 和 `granted`。`kMeta.hash` 由平台写下。同一账户再提交相同内容时，返回已有记录，`kMeta.id` 不变。`mentions` 不写入正文，也不改变这份 hash。被 @ 的好友各收到一条通知；同一条记录对同一个人只通知一次。不是好友时返回 `bad_mention`。有图片时 `previewUrl` 指向预览。平台图片不带原地址。外链图片和音频带地址。附件只有文件名，不带地址；文件只在付费下载的压缩包里。作者看自己的提交时，平台上的音频带地址。
 
@@ -56,6 +56,7 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 | GET | `/api/web/information` | 公开的 `post` 和 `fastpost` 里最新的 30 条，含终审还在进行的。已登录时不含自己关掉的 |
 | GET | `/api/web/search?q=` | 在更大范围内筛选，最多 30 条。已登录时不含自己关掉的 |
 | POST | `/api/web/intel/:id/dismiss` | 关掉这张卡。写入 `intel_dismissals`，之后不再出现在信息流、搜索和收藏 |
+| GET | `/api/web/intel/:id/share` | 公开的 `post` 或 `fastpost` 的分享图，JPEG，含终审还在进行的。不需要会话。第一次有人来取时按当时的内容做成，之后内容没变就直接给这一张。不公开、已撤销或已撤下返回 `not_found` |
 | GET | `/discover.json` | 公开快照。`{ information, requests }`，就是公开的 `post`、`fastpost` 和最前面的 wish。谁都可以读，不需要会话。文件由 Backend 在公开内容变化后重新写下，并推到云端 |
 | GET | `/media/previews/:id` | 公开快照里的图片预览，JPEG，按记录 id。谁都可以读 |
 | POST | `/api/web/discover-self` | `{ ids }`，一次最多 80 个记录 id。返回 `{ dismissed, starred, friends, granted, mine, audio, wishes }`，前五项是一组 id，`audio` 和 `wishes` 以记录 id 为键。没有会话时全部为空。给 `/discover` 把当前账户的状态叠到公开快照上 |
@@ -65,6 +66,8 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自己发出的才有 `responseCount`。`unlocked` 表示已经付过，或这条是自己的。网页 `/wish` 用「我发出」列出这个人发出的 wish 和收到的响应，用「我响应」列出这个人查看过的 wish。点开别人的卡片调用 `POST /api/web/requests/:id/look`。详情上先是查看，然后决定是否下载，再决定是否回应。`GET /api/web/responses` 返回 `{ responses }`。每条是一份 `wishRespond` 记录，并带 `wish`。对方的 wish 已经不在时 `wish` 为 null。发出 wish 的人读取某一条的响应，走 `GET /api/web/requests/:id/responses`。那个列表也是 `{ responses }`，每条带 `author` 和 `granted`。
 
 信息流条目是一份记录，另有 `role`、`previewUrl`、`author`、`starred`、`granted`、`friend`、`canFriend`。`role` 恒为 `intel`。有平台图片时 `previewUrl` 是一张缩小预览。平台图片不带原地址。外链带地址。未授予时，平台上的音频和附件只有文件名。作者和已经下载过的账户可以看到地址。网页下载的响应是压缩包。每个记录的压缩包只制作一次，放在上传目录的 `packets` 下。`author` 是 `{ name, avatarUrl }`。`actor` 为 `person`、`personal_agent` 或 `platform`，表示这条是人、Personal Agent 还是平台写下的。`starred` 表示当前会话是否点亮了这张卡。`friend` 表示作者是不是当前会话的好友。`canFriend` 在已登录、且这张卡不是自己的时候为 true。关掉一张卡要有会话，返回 `{ ok: true }`。列表按权重从高到低，相同再按时间从新到旧。
+
+分享图是一张竖屏 JPEG，文件名 `knot.jpg`，宽 1080，高度由内容撑开。上方是这条信息：平台上的预览图、正文；没有正文时用音频或附件的名称。有视频时画一个「视频」占位，不取外链封面。下方是 Knot、一句介绍、`knot.zenheart.net`，再下面是打开 `https://knot.zenheart.net` 的二维码。图存在上传目录的 `shares/{id}/{content_hash}-poster.jpg`，不进公开快照。同一条内容和同一版式再分享不再重做。内容或版式变了就另做一张，并删掉这个 id 下的旧图。下方介绍区铺满页面底色，二维码放在白底上。
 
 `/discover` 先读公开快照 `/discover.json`，未登录也能看。有会话时再用 `POST /api/web/discover-self` 取当前账户的状态叠上去：关掉的卡不再出现，星、好友、是否已经下载、是否自己发的、已授予的音频按这份状态显示。快照还没有写下时，或这次是搜索、刚提交过，改走 `GET /api/web/information` 与 `GET /api/web/requests` 的实时结果。
 
@@ -119,7 +122,7 @@ wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自�
 | HTTP | `error` |
 |------|---------|
 | 401 | `no_session` |
-| 400 | `empty_body`、`bad_mime`、`bad_video`、`bad_url`、`bad_audio`、`bad_file`、`unreadable_file`、`bad_public`、`bad_price`、`bad_mention`、`nothing_to_download` |
+| 400 | `empty_body`、`bad_mime`、`bad_video`、`bad_url`、`bad_audio`、`bad_file`、`unreadable_file`、`bad_public`、`bad_price`、`bad_mention`、`bad_locale`、`nothing_to_download` |
 | 402 | `insufficient_points` |
 | 403 | `muted` |
 | 409 | `bad_state` |

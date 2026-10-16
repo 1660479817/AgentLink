@@ -5,11 +5,11 @@ import InformationCard from "../components/InformationCard.vue";
 import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { addCardFriend, discoverSelf, dismissInformation, downloadInformation, listInformation, listRequests, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
+import { addCardFriend, discoverSelf, dismissInformation, downloadInformation, downloadShare, listInformation, listRequests, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
 import { applyDiscoverSelf, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
 import { nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
-import { payeeOf, priceOf } from "../record.js";
+import { feeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { BackIcon, PlusIcon, UserIcon } from "../icons/index.js";
 import { useFriendStore } from "../stores/friends";
@@ -277,6 +277,19 @@ async function toggleFriend(item) {
   }
 }
 
+async function shareItem(item) {
+  if (item.sharing) return;
+  item.sharing = true;
+  item.shareError = "";
+  try {
+    await downloadShare(item.id);
+  } catch {
+    item.shareError = t("error.request_failed");
+  } finally {
+    item.sharing = false;
+  }
+}
+
 async function downloadItem(item) {
   if (item.downloading) return;
   item.downloading = true;
@@ -284,7 +297,7 @@ async function downloadItem(item) {
     if (session.user) await session.load();
     const ok = await acceptDownload({
       price: priceOf(item),
-      payee: payeeOf(item),
+      fee: feeOf(item),
       granted: item.granted === true,
       mine: cardIsMine(item, session.user),
       balance: session.user?.pointsBalance,
@@ -395,10 +408,13 @@ async function downloadItem(item) {
     :friend="Boolean(item.friend)"
     :can-friend="Boolean(item.canFriend)"
     :busy="Boolean(item.downloading) || (Boolean(session.user) && item.personal === false)"
+    :sharing="Boolean(item.sharing)"
+    :notice="item.shareError || ''"
     @dismiss="dismissItem(item)"
     @star="toggleStar(item)"
     @friend="toggleFriend(item)"
     @download="downloadItem(item)"
+    @share="shareItem(item)"
   />
   <p v-if="feedReady && items.length === 0" class="muted feed-empty">
     {{ searchQ ? t("home.searchEmpty") : t("home.empty") }}

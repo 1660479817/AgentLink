@@ -21,7 +21,13 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 
 ## 员工
 
-提示词在 `ops/openclaw/agents/<id>/`：`IDENTITY.md`、`SOUL.md`、`USER.md`、`AGENTS.md`。脚本每次都覆盖工作区里的这四个文件。管理员另有 `ORDERS.md`。工作区里还没有这份文件时，脚本复制一份；已有的不覆盖，常设规则留在机器上。
+提示词在 `ops/openclaw/agents/<id>/`：`IDENTITY.md`、`SOUL.md`、`USER.md`、`AGENTS.md`。写法跟 OpenClaw 的工作区模板一致，可以短，但不能空，也不能换成别的标题。
+
+- `IDENTITY.md` 用它认的字段：`Name`、`Creature`、`Vibe`、`Emoji`。中文标签不会被读进去。
+- `SOUL.md` 只写语气和边界，分节是 `Core Truths`、`Boundaries`、`Vibe`。怎么做放在 `AGENTS.md`。
+- `USER.md` 每条指令前写 `<!-- observed: YYYY-MM-DD | status: active -->`，正文以 `Always`、`Never` 或 `Prefer` 开头。偏好变了，把旧的标成 `superseded`，不要并列两条相反的 `active`。
+
+脚本登记员工之前先把这些文件放进工作区。不合格式就停，不登记。OpenClaw 看到已有文件就不会再写模板，也不会留下首次身份仪式。之后每次同步都覆盖工作区里的这四个文件，并去掉 `BOOTSTRAP.md`。管理员另有 `ORDERS.md`。工作区里还没有这份文件时，脚本复制一份；已有的不覆盖，常设规则留在机器上。
 
 | id | 员工 | 何时工作 | 交回 |
 | --- | --- | --- | --- |

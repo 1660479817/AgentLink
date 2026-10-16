@@ -4,7 +4,7 @@ import ActorMark from "./ActorMark.vue";
 import AppButton from "./AppButton.vue";
 import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
-import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls } from "../packet.js";
 
 const props = defineProps({
@@ -30,9 +30,11 @@ const props = defineProps({
   friend: { type: Boolean, default: false },
   canFriend: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
+  sharing: { type: Boolean, default: false },
+  notice: { type: String, default: "" },
 });
 
-const emit = defineEmits(["dismiss", "star", "download", "friend"]);
+const emit = defineEmits(["dismiss", "star", "download", "friend", "share"]);
 
 const photos = computed(() => photoUrls(props.imageUrls, props.images));
 const pendingImages = computed(() => lockedImages(props.imageUrls, props.images));
@@ -233,6 +235,16 @@ watch(
       >
         <DownloadIcon aria-hidden="true" />
       </button>
+      <button
+        type="button"
+        class="post-action"
+        :disabled="sharing"
+        :aria-label="t('home.share')"
+        @click="emit('share')"
+      >
+        <ShareIcon aria-hidden="true" />
+      </button>
     </div>
+    <p v-if="notice" class="error card-notice" role="alert">{{ notice }}</p>
   </article>
 </template>

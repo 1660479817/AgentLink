@@ -3,9 +3,9 @@ import { onMounted, ref, watch } from "vue";
 import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import { StarIcon } from "../icons/index.js";
-import { addCardFriend, dismissInformation, downloadInformation, listStars, removeCardFriend, unstarInformation } from "../api.js";
+import { addCardFriend, dismissInformation, downloadInformation, downloadShare, listStars, removeCardFriend, unstarInformation } from "../api.js";
 import { acceptDownload } from "../download/consent.js";
-import { payeeOf, priceOf } from "../record.js";
+import { feeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { useFriendStore } from "../stores/friends";
 import { useSessionStore } from "../stores/session";
@@ -16,6 +16,19 @@ const items = ref([]);
 const loaded = ref(false);
 const failed = ref(false);
 
+async function shareItem(item) {
+  if (item.sharing) return;
+  item.sharing = true;
+  item.shareError = "";
+  try {
+    await downloadShare(item.id);
+  } catch {
+    item.shareError = t("error.request_failed");
+  } finally {
+    item.sharing = false;
+  }
+}
+
 async function downloadItem(item) {
   if (item.downloading) return;
   item.downloading = true;
@@ -23,7 +36,7 @@ async function downloadItem(item) {
     if (session.user) await session.load();
     const ok = await acceptDownload({
       price: priceOf(item),
-      payee: payeeOf(item),
+      fee: feeOf(item),
       granted: item.granted === true,
       mine: Boolean(session.user) && item.canFriend === false,
       balance: session.user?.pointsBalance,
@@ -139,10 +152,13 @@ onMounted(load);
       :friend="Boolean(item.friend)"
       :can-friend="Boolean(item.canFriend)"
       :busy="Boolean(item.downloading)"
+      :sharing="Boolean(item.sharing)"
+      :notice="item.shareError || ''"
       @friend="toggleFriend(item)"
       @dismiss="dismissItem(item)"
       @star="toggleStar(item)"
       @download="downloadItem(item)"
+      @share="shareItem(item)"
     />
     <p v-if="items.length === 0" class="muted empty-line">
       <StarIcon class="empty-icon" aria-hidden="true" />

@@ -18,7 +18,7 @@ import {
 } from "../api.js";
 import { ATTACHMENT_ACCEPT, errorText, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
-import { payeeOf, priceOf } from "../record.js";
+import { feeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import StatusIcon from "../components/StatusIcon.vue";
 import { AtIcon, AudioIcon, ChatIcon, ImageIcon, PaperclipIcon, RespondIcon, SendIcon, VideoIcon } from "../icons/index.js";
@@ -407,7 +407,7 @@ async function downloadWish(wish) {
     if (session.user) await session.load();
     const ok = await acceptDownload({
       price: priceOf(wish),
-      payee: payeeOf(wish),
+      fee: feeOf(wish),
       granted: Boolean(wish.granted) && !wish.mine,
       mine: Boolean(wish.mine),
       balance: session.user?.pointsBalance,
@@ -433,7 +433,7 @@ async function downloadReply(item) {
     if (session.user) await session.load();
     const ok = await acceptDownload({
       price: priceOf(item),
-      payee: payeeOf(item),
+      fee: feeOf(item),
       granted: item.granted === true,
       mine: false,
       balance: session.user?.pointsBalance,
@@ -516,7 +516,7 @@ async function downloadReply(item) {
       <div class="wish-submit-row">
         <label class="wish-consent">
           <input v-model="agreed" type="checkbox" :disabled="busy" />
-          <span>{{ t("wish.consent", { fee: session.policy.requestFee ?? 1 }) }}</span>
+          <span>{{ t("wish.consent") }}</span>
         </label>
         <AppButton
           class="wish-send"

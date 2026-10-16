@@ -1,6 +1,6 @@
 import { createHash, randomInt } from "node:crypto";
 import nodemailer from "nodemailer";
-import { feeConfig } from "./points.js";
+import { signupGrant } from "./points.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_ADMIN_EMAIL = "manwjh@gmail.com";
@@ -92,7 +92,7 @@ export async function redeemLoginKey(pool, email, key) {
      ON CONFLICT (lower(email)) WHERE email IS NOT NULL AND side = 'external'
      DO UPDATE SET email = EXCLUDED.email
      RETURNING id, points_balance`,
-    [email, feeConfig().signupGrant]
+    [email, signupGrant()]
   );
   return { userId: saved.rows[0].id, pointsBalance: saved.rows[0].points_balance };
 }

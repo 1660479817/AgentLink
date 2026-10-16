@@ -13,7 +13,7 @@ description: Run the local actuary command to read the point economy: how much t
 
 | 键 | 含义 |
 |----|------|
-| `issued` | 平台一共发出去多少，等于 Σ余额（开户赠送 + 管理员发放）。下载付款和 wish 请求费都零和，不改变总余额 |
+| `issued` | 平台一共发出去多少，等于 Σ余额（开户赠送 + 管理员发放）。发布服务费、下载付款都零和，不改变总余额 |
 | `circulating` | 现在在用户手里的 |
 | `platform` | 平台账户余额。只进不出，等于退出流通的那部分 |
 

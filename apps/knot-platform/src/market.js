@@ -9,7 +9,7 @@ import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./fr
 import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
 import { assertCanSpeak } from "./account.js";
-import { applyPoints, feeConfig, packetPrice, PLATFORM_USER_ID } from "./points.js";
+import { applyPoints, serviceFee, economyConfig, packetPrice, PLATFORM_USER_ID } from "./points.js";
 import { scoreText } from "./search.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { ensureCardPreview } from "./preview.js";
@@ -72,7 +72,7 @@ async function filesByIntel(pool, ids) {
   const byId = new Map();
   if (!ids.length) return byId;
   const { rows } = await pool.query(
-    `SELECT f.intel_id, u.id, u.mime, u.original_name
+    `SELECT f.intel_id, u.id, u.mime, u.original_name, u.size
      FROM intel_files f
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = ANY($1::uuid[])
@@ -394,7 +394,7 @@ export async function createIntel(pool, input) {
   let owned = [];
   if (uploadIds.length) {
     const { rows } = await pool.query(
-      `SELECT id FROM uploads WHERE user_id = $1 AND id = ANY($2::uuid[])`,
+      `SELECT id, size FROM uploads WHERE user_id = $1 AND id = ANY($2::uuid[])`,
       [userId, uploadIds]
     );
     if (rows.length !== uploadIds.length) {
@@ -416,15 +416,30 @@ export async function createIntel(pool, input) {
     attachments: fileUrls.map((url) => ({ url })),
   };
   const listed = kind === "post" || kind === "fastpost" ? publicOf(isPublic) : false;
+  const priced = kind === "wish" ? 0 : packetPrice(owned.length, price);
   let intelId;
+  const client = await pool.connect();
   try {
-    const inserted = await pool.query(
-      `INSERT INTO intel (user_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10) RETURNING id`,
-      [userId, actor, door, body, JSON.stringify(posters), JSON.stringify(external), hash, listed, kind, respondsTo]
+    await client.query("BEGIN");
+    const inserted = await client.query(
+      `INSERT INTO intel (user_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to, price)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11) RETURNING id`,
+      [userId, actor, door, body, JSON.stringify(posters), JSON.stringify(external), hash, listed, kind, respondsTo, priced]
     );
     intelId = inserted.rows[0].id;
+    for (let i = 0; i < owned.length; i += 1) {
+      await client.query(`INSERT INTO intel_files (intel_id, upload_id, sort_order) VALUES ($1, $2, $3)`, [
+        intelId,
+        owned[i].id,
+        i,
+      ]);
+    }
+    // 四种发布（post / fastpost / wish / wishRespond）都按附件大小收发布服务费。
+    await chargePublish(client, { userId, intelId, bytes: owned.reduce((sum, row) => sum + Number(row.size || 0), 0) });
+    await client.query("COMMIT");
   } catch (error) {
+    await client.query("ROLLBACK");
+    if (error.message === "insufficient_points") error.code = "insufficient_points";
     if (error.code !== "23505") throw error;
     const again = await pool.query(
       `SELECT id FROM intel WHERE user_id = $1 AND content_hash = $2`,
@@ -433,18 +448,9 @@ export async function createIntel(pool, input) {
     if (!again.rows[0]) throw error;
     await mention(again.rows[0].id);
     return loadPresentedIntel(pool, again.rows[0].id);
+  } finally {
+    client.release();
   }
-  for (let i = 0; i < owned.length; i += 1) {
-    await pool.query(`INSERT INTO intel_files (intel_id, upload_id, sort_order) VALUES ($1, $2, $3)`, [
-      intelId,
-      owned[i].id,
-      i,
-    ]);
-  }
-  const priced = kind === "wish"
-    ? (owned.length ? feeConfig().requestFee : 0)
-    : packetPrice(owned.length, price);
-  await pool.query(`UPDATE intel SET price = $2 WHERE id = $1`, [intelId, priced]);
   try {
     await ensureCardPreview(pool, intelId);
   } catch (error) {
@@ -579,28 +585,28 @@ async function assertCanDownload(db, intel, userId) {
   throw error;
 }
 
-async function chargeRequest(client, intel, userId) {
-  if (intel.user_id === userId) return;
-  const prior = await client.query(
-    `SELECT 1 FROM request_unlocks WHERE user_id = $1 AND intel_id = $2`,
-    [userId, intel.id]
+async function intelBytes(db, intelId) {
+  const { rows } = await db.query(
+    `SELECT COALESCE(SUM(u.size), 0)::bigint AS bytes
+     FROM intel_files f
+     JOIN uploads u ON u.id = f.upload_id
+     WHERE f.intel_id = $1`,
+    [intelId]
   );
-  if (prior.rows.length) return;
-  const fee = Number(intel.price) || 0;
-  if (fee > 0) {
-    await applyPoints(client, {
-      userId,
-      delta: -fee,
-      reason: "request_detail",
-      refId: intel.id,
-    });
-    await applyPoints(client, {
-      userId: PLATFORM_USER_ID,
-      delta: fee,
-      reason: "request_detail",
-      refId: intel.id,
-    });
-  }
+  return Number(rows[0].bytes);
+}
+
+// 发布服务费：按附件字节收，平台收（存储/传输）。四种发布共用。
+async function chargePublish(client, { userId, intelId, bytes }) {
+  const fee = serviceFee(bytes, economyConfig().publishServiceFeePerMb, economyConfig().serviceFeeCap);
+  if (fee <= 0) return;
+  await applyPoints(client, { userId, delta: -fee, reason: "publish", refId: intelId });
+  await applyPoints(client, { userId: PLATFORM_USER_ID, delta: fee, reason: "publish", refId: intelId });
+}
+
+// wish 下载前先解锁响应列表（免费），服务费由 chargeDownload 收。
+async function unlockRequest(client, intel, userId) {
+  if (intel.user_id === userId) return;
   await client.query(
     `INSERT INTO request_unlocks (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [userId, intel.id]
@@ -613,19 +619,33 @@ async function chargeDownload(client, intel, userId) {
     `SELECT 1 FROM packet_downloads WHERE user_id = $1 AND intel_id = $2`,
     [userId, intel.id]
   );
-  if (!prior.rows.length && intel.price > 0) {
+  if (prior.rows.length) return;
+  const price = Number(intel.price) || 0;
+  const fee = serviceFee(await intelBytes(client, intel.id), economyConfig().downloadServiceFeePerMb, economyConfig().serviceFeeCap);
+  const total = price + fee;
+  if (total > 0) {
     await applyPoints(client, {
       userId,
-      delta: -intel.price,
+      delta: -total,
       reason: "download",
       refId: intel.id,
     });
-    await applyPoints(client, {
-      userId: intel.user_id,
-      delta: intel.price,
-      reason: "download",
-      refId: intel.id,
-    });
+    if (price > 0) {
+      await applyPoints(client, {
+        userId: intel.user_id,
+        delta: price,
+        reason: "download",
+        refId: intel.id,
+      });
+    }
+    if (fee > 0) {
+      await applyPoints(client, {
+        userId: PLATFORM_USER_ID,
+        delta: fee,
+        reason: "download_fee",
+        refId: intel.id,
+      });
+    }
   }
   await client.query(
     `INSERT INTO packet_downloads (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -688,8 +708,9 @@ export async function downloadPacket(pool, userId, intelId, uploadDir, { zip = f
       throw error;
     }
     await assertCanDownload(client, locked, userId);
-    if (locked.kind === "wish") await chargeRequest(client, locked, userId);
-    else await chargeDownload(client, locked, userId);
+    if (locked.kind === "wish") await unlockRequest(client, locked, userId);
+    // wish 标价恒为 0，这里只收下载服务费；无附件时服务费为 0。
+    await chargeDownload(client, locked, userId);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

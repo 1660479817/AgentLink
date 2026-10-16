@@ -1,18 +1,25 @@
 <script setup>
-import { nextTick, onMounted, ref } from "vue";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
+import LocaleSwitch from "../components/LocaleSwitch.vue";
 import OutboxNotice from "../components/OutboxNotice.vue";
 import RememberLoginCard from "../components/RememberLoginCard.vue";
+import { downloadConsent } from "../download/consent.js";
 import { BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { listSponsors } from "../api.js";
+import { hasDraft, runningEntry, startReleaseWatch } from "../release.js";
 import { useNotificationStore } from "../stores/notifications";
+import { useOutboxStore } from "../stores/outbox";
 import { useSessionStore } from "../stores/session";
 
 const router = useRouter();
 const notifications = useNotificationStore();
+const outbox = useOutboxStore();
 const session = useSessionStore();
+const updateReady = ref(false);
+let releaseWatch = null;
 const mark = t("app.name").slice(0, 1);
 const HISTORY_KEY = "knot.search.history";
 const searchOpen = ref(false);
@@ -82,8 +89,37 @@ function linkAttrs(href) {
   return { href, target: "_blank", rel: "noopener noreferrer" };
 }
 
+function pageBlocked() {
+  if (outbox.jobs.length) return true;
+  if (downloadConsent.value) return true;
+  return hasDraft(document);
+}
+
+function reloadPage() {
+  window.location.reload();
+}
+
+watch(
+  () => [outbox.jobs.map((job) => `${job.id}:${job.status}`).join(","), downloadConsent.value?.phase || ""],
+  () => releaseWatch?.poke()
+);
+
 onMounted(() => {
   notifications.load();
+  releaseWatch = startReleaseWatch({
+    current: () => runningEntry(document),
+    fetchText: async () => {
+      const response = await fetch("/index.html", { cache: "no-store" });
+      if (!response.ok) throw new Error("release");
+      return response.text();
+    },
+    blocked: pageBlocked,
+    reload: reloadPage,
+    onPending: (show) => {
+      updateReady.value = show;
+    },
+    document,
+  });
   listSponsors()
     .then((data) => {
       sponsors.value = Array.isArray(data.sponsors) ? data.sponsors : [];
@@ -91,6 +127,11 @@ onMounted(() => {
     .catch(() => {
       sponsors.value = [];
     });
+});
+
+onUnmounted(() => {
+  releaseWatch?.stop();
+  releaseWatch = null;
 });
 </script>
 
@@ -136,6 +177,9 @@ onMounted(() => {
               notifications.unread > 99 ? "99+" : notifications.unread
             }}</span>
           </AppButton>
+          <div class="header-locale">
+            <LocaleSwitch variant="menu" />
+          </div>
           <AppButton
             variant="icon"
             :to="session.user ? '/mine' : '/'"
@@ -149,6 +193,10 @@ onMounted(() => {
         </div>
       </div>
     </header>
+    <div v-if="updateReady" class="release-note" role="status">
+      <p>{{ t("release.ready") }}</p>
+      <AppButton variant="secondary" @click="reloadPage">{{ t("release.reload") }}</AppButton>
+    </div>
     <Teleport to="body">
       <button v-if="searchOpen" type="button" class="search-backdrop" :aria-label="t('search.back')" @click="closeSearch" />
       <div v-if="searchOpen && history.length" class="search-sheet">
@@ -186,6 +234,9 @@ onMounted(() => {
             <FriendsIcon class="shortcut-icon" aria-hidden="true" />
             <span class="shortcut-label">{{ t("rail.friends") }}</span>
           </RouterLink>
+        </div>
+        <div class="rail-locale">
+          <LocaleSwitch variant="field" />
         </div>
       </nav>
       <main id="main-content" class="layout">

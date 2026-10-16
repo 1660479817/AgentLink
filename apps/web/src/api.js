@@ -154,7 +154,7 @@ export function createIntel(body, imageIds = [], fileIds = [], extra = {}) {
   });
 }
 
-function downloadName(header) {
+function downloadName(header, fallback) {
   const named = /filename\*=UTF-8''([^;]+)/i.exec(header || "");
   if (named) {
     try {
@@ -164,7 +164,20 @@ function downloadName(header) {
     }
   }
   const plain = /filename="([^"]*)"/.exec(header || "");
-  return plain?.[1] || "packet.zip";
+  return plain?.[1] || fallback;
+}
+
+function saveResponseFile(res, fallback) {
+  return res.blob().then((blob) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = downloadName(res.headers.get("content-disposition"), fallback);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  });
 }
 
 export async function downloadInformation(id) {
@@ -182,15 +195,20 @@ export async function downloadInformation(id) {
     error.status = res.status;
     throw error;
   }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = downloadName(res.headers.get("content-disposition"));
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  await saveResponseFile(res, "packet.zip");
+}
+
+export async function downloadShare(id) {
+  const res = await fetch(`/api/web/intel/${id}/share`, { credentials: "include" });
+  const type = res.headers.get("content-type") || "";
+  if (!res.ok || type.includes("json")) {
+    const data = await res.json().catch(() => ({}));
+    const error = new Error(data.error || res.statusText);
+    error.code = data.error || "request_failed";
+    error.status = res.status;
+    throw error;
+  }
+  await saveResponseFile(res, "knot.jpg");
 }
 
 

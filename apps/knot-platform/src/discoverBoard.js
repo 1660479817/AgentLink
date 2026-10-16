@@ -94,7 +94,7 @@ async function filesByIntel(pool, ids) {
   const byId = new Map();
   if (!ids.length) return byId;
   const { rows } = await pool.query(
-    `SELECT f.intel_id, u.id, u.mime, u.original_name
+    `SELECT f.intel_id, u.id, u.mime, u.original_name, u.size
      FROM intel_files f
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = ANY($1::uuid[])

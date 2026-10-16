@@ -1,4 +1,5 @@
 import { cardPreviewUrl } from "./information.js";
+import { serviceFee, economyConfig } from "./points.js";
 
 export function payeeFor(kind) {
   return kind === "wish" ? "platform" : "author";
@@ -75,6 +76,12 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
   const videos = (Array.isArray(row.videos) ? row.videos : []).map(videoOf).filter(Boolean);
   const createdAt = when(row.created_at);
   const updatedAt = when(row.updated_at) || createdAt;
+  // 下载服务费：按附件字节计价，平台收，加在作者标价之上。
+  const fee = serviceFee(
+    files.reduce((sum, file) => sum + (Number(file.size) || 0), 0),
+    economyConfig().downloadServiceFeePerMb,
+    economyConfig().serviceFeeCap
+  );
   const record = {
     id: row.id,
     kMeta: {
@@ -86,6 +93,7 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
       public: row.is_public !== false,
       commerce: {
         price: Number(row.price) || 0,
+        fee,
         payee: payeeFor(kind),
       },
       category: row.category || "",

@@ -34,3 +34,9 @@ test("a free file does not charge", () => {
     short: false,
   });
 });
+
+test("the download amount adds the service fee to the price", () => {
+  assert.equal(downloadOffer({ price: 10, fee: 5, balance: 20 }).amount, 15);
+  assert.equal(downloadOffer({ price: 0, fee: 3, balance: 20 }).amount, 3);
+  assert.equal(downloadOffer({ price: 10, balance: 20 }).amount, 10);
+});

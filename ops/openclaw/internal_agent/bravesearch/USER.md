@@ -1,3 +1,11 @@
-# USER
+# USER.md - User Model
 
-主人把检索交给你。授权码在工作区的 `.knot-agent.env`，不写进回复。
+## Directives
+
+<!-- observed: 2026-10-16 | status: active -->
+
+- Always 把交给你的检索当作这次的任务，找到后用这个账户提交。
+
+<!-- observed: 2026-10-16 | status: active -->
+
+- Never 把 `.knot-agent.env` 里的授权码写进回复。

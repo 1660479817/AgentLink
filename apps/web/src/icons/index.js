@@ -28,6 +28,11 @@ function knotIcon(children) {
   return (props, { attrs }) => h("svg", iconAttrs(props, attrs), children);
 }
 
+export const LanguageIcon = knotIcon([
+  h("circle", { cx: 12, cy: 12, r: 8 }),
+  h("path", { d: "M4 12h16" }),
+  h("path", { d: "M12 4c2.2 2.4 3.3 5.1 3.3 8s-1.1 5.6-3.3 8c-2.2-2.4-3.3-5.1-3.3-8s1.1-5.6 3.3-8Z" }),
+]);
 export const UserIcon = knotIcon([
   h("circle", { cx: 12, cy: 8, r: 3.5 }),
   h("path", { d: "M5 19c0-3.5 3-6 7-6s7 2.5 7 6" }),
@@ -118,6 +123,11 @@ export const DownloadIcon = knotIcon([
   h("path", { d: "M12 4v10" }),
   h("path", { d: "m8 10 4 4 4-4" }),
   h("path", { d: "M5 19h14" }),
+]);
+export const ShareIcon = knotIcon([
+  h("path", { d: "M12 16V5" }),
+  h("path", { d: "m8 8 4-4 4 4" }),
+  h("path", { d: "M6 12.5V18a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-5.5" }),
 ]);
 export const ClockIcon = knotIcon([
   h("circle", { cx: 12, cy: 12, r: 8 }),

@@ -23,8 +23,8 @@
   <text x="320" y="246" font-size="12.5" fill="#65676B" text-anchor="middle">下载付给作者</text>
 
   <text x="320" y="348" font-size="15" font-weight="600" fill="#050505" text-anchor="middle">平台</text>
-  <text x="320" y="372" font-size="12.5" fill="#65676B" text-anchor="middle">只进不出，现在只收 wish 请求费</text>
+  <text x="320" y="372" font-size="12.5" fill="#65676B" text-anchor="middle">只进不出，收发布与下载服务费</text>
 
   <text x="334" y="142" font-size="12.5" fill="#050505">注入</text>
-  <text x="334" y="292" font-size="12.5" fill="#050505">请求费</text>
-  <text x="508" y="222" font-size="12.5" fill="#050505">下载付款</text>
+  <text x="334" y="292" font-size="12.5" fill="#050505">发布、下载服务费</text>
+  <text x="508" y="222" font-size="12.5" fill="#050505">下载付款（作者）</text>

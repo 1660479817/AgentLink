@@ -2,8 +2,8 @@ import { reactive, ref } from "vue";
 
 export const downloadConsent = ref(null);
 
-export function downloadOffer({ price = 0, granted = false, mine = false, balance = 0 } = {}) {
-  const amount = Math.max(0, Number(price) || 0);
+export function downloadOffer({ price = 0, fee = 0, granted = false, mine = false, balance = 0 } = {}) {
+  const amount = Math.max(0, Number(price) || 0) + Math.max(0, Number(fee) || 0);
   const points = Number(balance);
   if (mine) return { kind: "own", amount: 0, short: false };
   if (granted) return { kind: "again", amount: 0, short: false };
@@ -55,11 +55,11 @@ async function runTask() {
   }
 }
 
-export function acceptDownload({ price = 0, granted = false, mine = false, balance = 0, payee = "author", task, code } = {}) {
+export function acceptDownload({ price = 0, fee = 0, granted = false, mine = false, balance = 0, task, code } = {}) {
   if (downloadConsent.value?.phase === "confirm") settleDownload(false);
   if (downloadConsent.value) return Promise.resolve(false);
 
-  const offer = code ? { kind: "charge", amount: 0, short: false } : downloadOffer({ price, granted, mine, balance });
+  const offer = code ? { kind: "charge", amount: 0, short: false } : downloadOffer({ price, fee, granted, mine, balance });
   return new Promise((resolve) => {
     downloadConsent.value = reactive({
       phase: code ? "error" : "confirm",
@@ -67,7 +67,8 @@ export function acceptDownload({ price = 0, granted = false, mine = false, balan
       amount: offer.amount,
       short: offer.short,
       balance: Number(balance) || 0,
-      payee: payee === "platform" ? "platform" : "author",
+      price: Math.max(0, Number(price) || 0),
+      fee: Math.max(0, Number(fee) || 0),
       code: code || "",
       task: typeof task === "function" ? task : null,
       resolve,

@@ -17,12 +17,14 @@ import { economyReport } from "../actuary.js";
 import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
 import { ensureCardPreview, previewReadable } from "../preview.js";
+import { ensureSharePoster } from "../sharePoster.js";
 import { listPublicSponsors } from "../sponsors.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
+import { parseLocale, regionForRequest } from "../locale.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
-const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until`;
+const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, locale`;
 
 function presentUser(row) {
   const entitlements = row.entitlements && typeof row.entitlements === "object" ? row.entitlements : {};
@@ -37,6 +39,7 @@ function presentUser(row) {
     pointsBalance: row.points_balance,
     muted: mute.muted,
     mutedUntil: mute.mutedUntil,
+    locale: row.locale || null,
   };
 }
 
@@ -51,6 +54,7 @@ function attachmentOf(row) {
     id: row.id,
     name: uploadName(row.original_name),
     mime,
+    size: Number(row.size) || 0,
     url: publicUploadUrl(row.id),
     image: mime.startsWith("image/"),
     audio: mime.startsWith("audio/") || isAudioUpload({ mime, originalname: row.original_name }),
@@ -93,7 +97,7 @@ function publicCard(row) {
 async function withUploads(pool, rows) {
   if (!rows.length) return rows;
   const { rows: files } = await pool.query(
-    `SELECT f.intel_id, u.id, u.mime, u.original_name
+    `SELECT f.intel_id, u.id, u.mime, u.original_name, u.size
      FROM intel_files f
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = ANY($1::uuid[])
@@ -174,9 +178,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
 
   router.get("/session", async (req, res) => {
     const policy = policyConfig();
-    if (!req.user) return res.json({ user: null, policy });
+    const region = regionForRequest(req);
+    if (!req.user) return res.json({ user: null, policy, region });
     const user = await loadUser(pool, req.user.id);
-    res.json({ user, policy });
+    res.json({ user, policy, region });
   });
 
   router.delete("/session", async (req, res) => {
@@ -202,7 +207,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         avatarId = checked.id;
       }
     }
-    if (!hasName && avatarId === undefined) return res.status(400).json({ error: "empty_body" });
+    const hasLocale = Object.prototype.hasOwnProperty.call(req.body || {}, "locale");
+    const locale = hasLocale ? parseLocale(req.body.locale) : null;
+    if (hasLocale && !locale) return res.status(400).json({ error: "bad_locale" });
+    if (!hasName && avatarId === undefined && !hasLocale) return res.status(400).json({ error: "empty_body" });
     const sets = ["updated_at = now()"];
     const params = [];
     if (hasName) {
@@ -212,6 +220,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (avatarId !== undefined) {
       params.push(avatarId);
       sets.push(`avatar_upload_id = $${params.length}`);
+    }
+    if (hasLocale) {
+      params.push(locale);
+      sets.push(`locale = $${params.length}`);
     }
     params.push(req.user.id);
     await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
@@ -227,8 +239,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     });
   }, async (req, res) => {
     const { rows } = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime) VALUES ($1, $2, $3) RETURNING id`,
-      [req.user.id, req.file.filename, req.file.mimetype]
+      `INSERT INTO uploads (user_id, storage_name, mime, size) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [req.user.id, req.file.filename, req.file.mimetype, req.file.size]
     );
     res.status(201).json({ id: rows[0].id, url: publicUploadUrl(rows[0].id) });
   });
@@ -247,8 +259,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   }, async (req, res) => {
     const name = uploadName(req.file.originalname);
     const { rows } = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [req.user.id, req.file.filename, req.file.mimetype, name || null]
+      `INSERT INTO uploads (user_id, storage_name, mime, original_name, size) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [req.user.id, req.file.filename, req.file.mimetype, name || null, req.file.size]
     );
     res.status(201).json({
       id: rows[0].id,
@@ -283,8 +295,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       return res.status(400).json({ error: "unreadable_file" });
     }
     const { rows } = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [req.user.id, req.file.filename, req.file.mimetype, name || null]
+      `INSERT INTO uploads (user_id, storage_name, mime, original_name, size) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [req.user.id, req.file.filename, req.file.mimetype, name || null, req.file.size]
     );
     res.status(201).json({
       id: rows[0].id,
@@ -386,7 +398,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     const submissions = [];
     for (const row of rows) {
       const files = await pool.query(
-        `SELECT u.id, u.mime, u.original_name
+        `SELECT u.id, u.mime, u.original_name, u.size
          FROM intel_files f
          JOIN uploads u ON u.id = f.upload_id
          WHERE f.intel_id = $1
@@ -462,6 +474,29 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       stream.pipe(res);
     } catch (error) {
       httpError(res, error);
+    }
+  });
+
+  router.get("/intel/:id/share", async (req, res) => {
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      const file = await ensureSharePoster(pool, id, uploadDir);
+      if (!file) return res.status(404).json({ error: "not_found" });
+      res.setHeader("Content-Type", "image/jpeg");
+      res.setHeader("Content-Disposition", attachmentDisposition("knot.jpg"));
+      res.setHeader("Content-Length", fs.statSync(file).size);
+      res.setHeader("Cache-Control", "no-store");
+      const stream = fs.createReadStream(file);
+      stream.on("error", () => {
+        if (!res.headersSent) res.status(503).json({ error: "process_unavailable" });
+        else res.destroy();
+      });
+      stream.pipe(res);
+    } catch (error) {
+      if (error.code === "not_found") return res.status(404).json({ error: "not_found" });
+      console.error(error);
+      if (!res.headersSent) res.status(503).json({ error: "process_unavailable" });
     }
   });
 

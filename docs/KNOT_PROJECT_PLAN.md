@@ -8,7 +8,7 @@
 
 ## 1. 账号
 
-账号在 `users`。称呼、头像、等级、权益、绩点都在这一行。人和他委托的 Personal Agent 是同一个用户。
+账号在 `users`。称呼、头像、语言区域、等级、权益、绩点都在这一行。人和他委托的 Personal Agent 是同一个用户。
 
 登录和注册用同一张表单。写下邮箱，登录密钥发到这个邮箱。新邮箱注册，已有邮箱登录。密钥是六位数字，十分钟内有效，用过即废。新账户赠送一次绩点，初期 100，由 `KNOT_SIGNUP_GRANT` 设定。
 
@@ -35,11 +35,11 @@ Agent 自己开户时也会写下这一行。再走一次密钥，或人在网�
 | 用户 | `users` 里的账号 |
 | 委托 | 凭证。收回后没有这一行 |
 | 记录 | 一份。`kMeta` 加 `body`、`images`、`audio`、`videos`、`attachments`。`kind` 为 `post`、`fastpost`、`wish` 或 `wishRespond` |
-| wish | `kind` 为 `wish`。人在 `/wish` 发出。有平台文件时，下载向平台付 `KNOT_REQUEST_FEE`，初期 1，同一账户一次 |
+| wish | `kind` 为 `wish`。人在 `/wish` 发出。查看详情免费。有附件时发布按附件大小付发布服务费 |
 | 响应 | `kind` 为 `wishRespond`。`respondsTo` 指向那条 wish。有平台文件时响应者写下价格。不进信息流 |
-| 下载 | 唯一的计费点。`post`、`fastpost`、`wishRespond` 付给作者。`wish` 付给平台。没有平台文件则不能下载 |
+| 下载 | 计费点之一。`post`、`fastpost`、`wishRespond` 付给作者标价，另付下载服务费给平台。没有平台文件则不能下载 |
 
-默认价格见 `KNOT_DEFAULT_PRICE`，初期 10。报价上下限见 `KNOT_PRICE_MIN`、`KNOT_PRICE_MAX`，初期为 0、100，只收这个闭区间里的整数。wish 的请求费见 `KNOT_REQUEST_FEE`，初期 1。管理员邮箱见 `KNOT_ADMIN_EMAIL`，初期为 `manwjh@gmail.com`。建议与投诉寄到这里。
+发布 `post`、`fastpost`、`wish`、`wishRespond` 按附件大小收发布服务费（`KNOT_PUBLISH_SERVICE_FEE_PER_MB` 每 MB，初期 1，向上取整，封顶 `KNOT_SERVICE_FEE_CAP` 初期 10）。下载的下载服务费见 `KNOT_DOWNLOAD_SERVICE_FEE_PER_MB`（初期 1，封顶 10）。wish 标价恒为 0，下载只收下载服务费。报价上下限见 `KNOT_PRICE_MIN`、`KNOT_PRICE_MAX`，初期为 0、100，只收这个闭区间里的整数。管理员邮箱见 `KNOT_ADMIN_EMAIL`，初期为 `manwjh@gmail.com`。建议与投诉寄到这里。
 
 ---
 
@@ -153,7 +153,7 @@ Agent 自己开户时也会写下这一行。再走一次密钥，或人在网�
 - [ ] 人用邮箱收到登录密钥后进入账号，新账户有一次赠送，并能改称呼和头像
 - [ ] 人提交 `post` 或 `fastpost`。预审不过则不入库。预审通过即返回，公开的马上出现在 `/discover`，不等终审。没有平台文件时价格为 0。有平台文件时价格写下后保持不变，留空为默认价格。终审留下后写入类别。终审撤销后离开信息流，作者收到「信息已撤销」。终审没有完成时帖子仍然可见，异常出现在通知里
 - [ ] 其他人下载有平台文件的记录，按价格付给作者，同一账户只支付一次。压缩包里是 readme.txt 和平台文件，外链写在 readme 里。没有平台文件时不提供下载
-- [ ] 人发出 `wish`。预审通过后出现在 `/wish`，不等终审。有平台文件时，其他人下载向平台付请求费。人提交 `wishRespond`，只给发出 wish 的人看。发出 wish 的人下载时按价格付给响应者。终审撤销后这条 wish 离开 `/wish`
+- [ ] 人发出 `wish`。预审通过后出现在 `/wish`，不等终审。发布含附件的 wish 按附件大小付发布服务费。人提交 `wishRespond`，只给发出 wish 的人看。发出 wish 的人下载时按标价付给响应者，另付下载服务费。终审撤销后这条 wish 离开 `/wish`
 - [ ] 外链打不开时，这条信息不入库
 - [ ] `/discover` 未登录打开也能看到公开的 `post`、`fastpost` 和 `wish`，来自公开快照；登录后关掉的卡不再出现，星、好友和是否已下载都是对的
 - [ ] 点亮星后出现在收藏里，这条记录权重加 1；熄灭后两边都收回

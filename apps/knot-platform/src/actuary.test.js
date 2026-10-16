@@ -25,7 +25,7 @@ test("issued is the whole balance; platform holdings split off circulation", asy
 });
 
 test("signup and admin grants both count as issuance", async () => {
-  // 200 开户赠送 + 50 管理员发放 = 发行 250；wish 请求费 1 进平台，流通 249。
+  // 200 开户赠送 + 50 管理员发放 = 发行 250；下载服务费 1 进平台，流通 249。
   const snapshot = await economySnapshot(poolReturning({ total: 250, platform: 1 }).pool);
   assert.equal(snapshot.issued, 250);
   assert.equal(snapshot.circulating, 249);

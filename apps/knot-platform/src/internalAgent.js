@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { adminEmail } from "./login.js";
-import { feeConfig } from "./points.js";
+import { signupGrant } from "./points.js";
 
 const NAME = /^[a-z][a-z0-9-]{0,39}$/;
 
@@ -41,7 +41,7 @@ export async function ensureInternalAgent(pool, name) {
       `INSERT INTO users (email, display_name, side, points_balance)
        VALUES ($1, $2, 'internal', $3)
        RETURNING id, points_balance`,
-      [email, displayName, feeConfig().signupGrant]
+      [email, displayName, signupGrant()]
     );
     userId = inserted.rows[0].id;
     pointsBalance = inserted.rows[0].points_balance;

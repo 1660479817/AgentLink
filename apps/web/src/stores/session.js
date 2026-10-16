@@ -5,7 +5,9 @@ const INITIAL_POLICY = {
   defaultPrice: 10,
   priceMin: 0,
   priceMax: 100,
-  requestFee: 1,
+  publishServiceFeePerMb: 1,
+  downloadServiceFeePerMb: 1,
+  serviceFeeCap: 10,
 };
 
 export const useSessionStore = defineStore("session", {
@@ -13,6 +15,7 @@ export const useSessionStore = defineStore("session", {
     user: null,
     policy: { ...INITIAL_POLICY },
     ready: false,
+    region: "zh-CN",
   }),
   actions: {
     async load() {
@@ -20,6 +23,7 @@ export const useSessionStore = defineStore("session", {
         const data = await getSession();
         this.user = data.user;
         if (data.policy) this.policy = data.policy;
+        if (typeof data.region === "string" && data.region) this.region = data.region;
       } catch {
         this.user = null;
       } finally {

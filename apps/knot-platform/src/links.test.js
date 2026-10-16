@@ -60,7 +60,7 @@ test("a card hides a stored original and keeps an external url", () => {
   assert.equal(record.kMeta.hash, "abc");
   assert.equal(record.kMeta.kind, "post");
   assert.equal(record.kMeta.version, 1);
-  assert.deepEqual(record.kMeta.commerce, { price: 10, payee: "author" });
+  assert.deepEqual(record.kMeta.commerce, { price: 10, fee: 0, payee: "author" });
   assert.equal(record.images[0].url, undefined);
   assert.equal(record.images[0].stored, true);
   assert.equal(record.images[1].url, "https://example.com/a.jpg");
@@ -119,4 +119,13 @@ test("a wish pays the platform", () => {
   const record = toRecord({ id: "w1", kind: "wish", price: 1, is_public: false }, { granted: false });
   assert.equal(record.kMeta.commerce.payee, "platform");
   assert.equal(record.kMeta.public, false);
+});
+
+test("a card charges a download service fee from attachment bytes", () => {
+  const record = toRecord(
+    { id: "f1", kind: "post", price: 5, is_public: true },
+    { files: [{ id: "x", name: "a.bin", mime: "application/octet-stream", size: 1024 * 1024 + 1 }] }
+  );
+  assert.equal(record.kMeta.commerce.fee, 2); // 1MB 出头 → 2 积分（向上取整）
+  assert.equal(record.kMeta.commerce.price, 5);
 });

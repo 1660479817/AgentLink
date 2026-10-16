@@ -13,7 +13,7 @@ async function filesByIntel(pool, ids) {
   const unique = [...new Set(ids.filter(Boolean))];
   if (!unique.length) return names;
   const found = await pool.query(
-    `SELECT f.intel_id, u.id, u.original_name, u.mime
+    `SELECT f.intel_id, u.id, u.original_name, u.mime, u.size
      FROM intel_files f
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = ANY($1::uuid[])

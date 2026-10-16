@@ -22,13 +22,16 @@ const body = computed(() => {
   const job = downloadConsent.value;
   if (!job) return "";
   if (job.phase === "confirm") {
-    const payee = t(job.payee === "platform" ? "download.platform" : "download.author");
     if (job.kind === "own") return t("download.own");
     if (job.kind === "again") return t("download.again");
     if (job.kind === "free") return t("download.free");
+    const parts = [];
+    if (job.price > 0) parts.push(t("download.partPrice", { price: job.price }));
+    if (job.fee > 0) parts.push(t("download.partFee", { fee: job.fee }));
+    const detail = parts.length ? `（${parts.join(" + ")}）` : "";
     return t(job.short ? "download.short" : "download.consent", {
       n: job.amount || 0,
-      payee,
+      detail,
       balance: job.balance || 0,
     });
   }

@@ -4,6 +4,10 @@
     "loading": "正在进入",
     "skipToContent": "跳到主要内容"
   },
+  "release": {
+    "ready": "页面有更新",
+    "reload": "刷新"
+  },
   "nav": {
     "notifications": "通知",
     "mine": "我的",
@@ -133,7 +137,8 @@
     "addFriend": "加好友",
     "removeFriend": "删除好友",
     "more": "更多",
-    "less": "收起"
+    "less": "收起",
+    "share": "分享"
   },
   "search": {
     "back": "返回",
@@ -203,14 +208,14 @@
     "agentTipRotate": "如果忘记授权码，或者怀疑授权码泄露，你可以重新生成一个新的授权码，旧的授权码将失效。",
     "agentBrief": "你是用户的 Agent。用下面的邮箱和授权码访问 Knot，代替用户分享、发出 wish、响应 wish 和下载。授权码只发往下面的地址。这把码失效后不要再用。\n\n地址：{origin}\n邮箱：{email}\n授权：Authorization: Bearer {token}\n\n如何调用接口，读取 {origin}/help ，按其中的说明执行。",
     "points": "积分",
-    "pointsHint": "下载有平台文件的信息，按价格付给作者。下载 wish，费用付给平台。",
+    "pointsHint": "下载有平台文件的信息，按价格付给作者。下载 wish，服务费付给平台。",
     "pointsBalance": "{balance}"
   },
   "wish": {
     "title": "wish",
     "lead": "写下你要的东西。在下面切换我发出和我响应。",
     "placeholder": "在这里输入你的需求描述",
-    "consent": "同意公开这些信息。\n平台收取 {fee} 积分，不对内容承担责任。",
+    "consent": "同意公开这些信息。发布含附件的 wish 会按附件大小收取发布服务费，平台不对内容承担责任。",
     "send": "发送 wish",
     "respondTitle": "回应这条 wish",
     "respondPlaceholder": "写下你的回应",
@@ -242,18 +247,25 @@
   },
   "download": {
     "title": "下载",
-    "consent": "这次下载将扣除 {n} 积分，付给{payee}。当前积分 {balance}。",
-    "short": "这次下载需要 {n} 积分，付给{payee}。当前积分 {balance}，不够。",
+    "consent": "这次下载将扣除 {n} 积分{detail}。当前积分 {balance}。",
+    "short": "这次下载需要 {n} 积分{detail}。当前积分 {balance}，不够。",
+    "partPrice": "标价 {price}",
+    "partFee": "服务费 {fee}",
     "own": "这是你发出的，不扣积分。",
     "again": "已经下载过，不再扣分。",
     "free": "这次不扣积分。",
-    "author": "作者",
-    "platform": "平台",
     "confirm": "确认",
     "cancel": "取消",
     "working": "正在下载",
     "done": "下载完成",
     "close": "关闭"
+  },
+  "locale": {
+    "label": "语言区域",
+    "current": "语言区域，{name}",
+    "zh-CN": "简体中文",
+    "zh-TW": "繁體中文",
+    "en": "English"
   },
   "error": {
     "no_session": "请先登录",
@@ -285,6 +297,7 @@
     "bad_state": "这一步现在不能做",
     "muted": "你暂时不能发布",
     "bad_price": "报价要是 {min} 到 {max} 的整数",
-    "bad_mention": "只能@好友"
+    "bad_mention": "只能@好友",
+    "bad_locale": "这个语言区域不能用"
   }
 }

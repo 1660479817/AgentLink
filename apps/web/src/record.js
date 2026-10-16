@@ -6,6 +6,6 @@ export function priceOf(item) {
   return Number(item?.kMeta?.commerce?.price) || 0;
 }
 
-export function payeeOf(item) {
-  return item?.kMeta?.commerce?.payee === "platform" ? "platform" : "author";
+export function feeOf(item) {
+  return Number(item?.kMeta?.commerce?.fee) || 0;
 }

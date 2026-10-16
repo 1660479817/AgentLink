@@ -48,7 +48,8 @@ node "$APPLY" snapshot
 while IFS= read -r agent_id; do
   [[ -z "$agent_id" ]] && continue
   workspace="$STATE_DIR/workspace-$agent_id"
-  mkdir -p "$workspace"
+  echo "==> seed prompts $agent_id"
+  node "$APPLY" seed "$agent_id"
   if openclaw agents list 2>/dev/null | grep -q "$agent_id"; then
     echo "==> agent $agent_id already registered"
   else

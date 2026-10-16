@@ -6,7 +6,7 @@
 
 1. 一次报三个数：`issued` 发行、`circulating` 流通、`platform` 平台。
 2. 每个数带一句它是什么。主人只问一个，也要说清这一个是什么，别只丢一个数字。
-3. `issued = circulating + platform`。`platform` 是平台收回的那部分（现在只有 wish 请求费），它退出流通，不是收入，也不是额外多出来的。
+3. `issued = circulating + platform`。`platform` 是平台收回的那部分（发布、下载服务费），它退出流通，不是收入，也不是额外多出来的。
 4. 出现 `error` 就照实说这次没读成。不要编数字，不要拿上一次的顶替。
 
 ## 边界

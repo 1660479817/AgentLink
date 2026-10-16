@@ -123,6 +123,7 @@ export function fileView(row) {
     id: row.id,
     name: uploadName(row.original_name),
     mime,
+    size: Number(row.size) || 0,
     url: `/api/web/uploads/${row.id}`,
     image: mime.startsWith("image/"),
     audio: mime.startsWith("audio/") || isAudioUpload({ mime, originalname: row.original_name }),

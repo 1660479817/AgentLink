@@ -19,9 +19,14 @@ export function economyConfig() {
     defaultPrice,
     priceMin,
     priceMax,
-    requestFee: nonNegativeInt(process.env.KNOT_REQUEST_FEE, 1),
     signupGrant: nonNegativeInt(process.env.KNOT_SIGNUP_GRANT, 100),
     grantMax: nonNegativeInt(process.env.KNOT_GRANT_MAX, 100000),
+    // 发布服务费：post/fastpost/wish/wishRespond 发布时按附件字节收，平台收（存储/传输）。每 MB x 积分，向上取整，封顶 serviceFeeCap。
+    publishServiceFeePerMb: nonNegativeInt(process.env.KNOT_PUBLISH_SERVICE_FEE_PER_MB, 1),
+    // 下载服务费：下载时按附件字节收，平台收（存储/传输），加在作者标价之上。每 MB y 积分，向上取整，封顶 serviceFeeCap。
+    downloadServiceFeePerMb: nonNegativeInt(process.env.KNOT_DOWNLOAD_SERVICE_FEE_PER_MB, 1),
+    // 服务费单次上限，避免大附件天价。
+    serviceFeeCap: nonNegativeInt(process.env.KNOT_SERVICE_FEE_CAP, 10),
     // 第二期：只充值、不兑出。汇率是平台定价，盈亏平衡看现金流。
     // 每积分的美元价，用「美分」表示（1 = 0.01 美元），避免小数。
     pointUsdCents: nonNegativeInt(process.env.KNOT_POINT_USD_CENTS, 1),
@@ -41,24 +46,39 @@ export function economyConfig() {
   };
 }
 
-export function feeConfig() {
-  const { defaultPrice, requestFee, signupGrant } = economyConfig();
-  return { defaultPrice, requestFee, signupGrant };
-}
-
 export function pricePolicy() {
   const { priceMin, priceMax, defaultPrice } = economyConfig();
   return { min: priceMin, max: priceMax, defaultPrice };
 }
 
+export function signupGrant() {
+  return economyConfig().signupGrant;
+}
+
 export function policyConfig() {
   const price = pricePolicy();
+  const { publishServiceFeePerMb, downloadServiceFeePerMb, serviceFeeCap } = economyConfig();
   return {
     defaultPrice: price.defaultPrice,
     priceMin: price.min,
     priceMax: price.max,
-    requestFee: feeConfig().requestFee,
+    publishServiceFeePerMb,
+    downloadServiceFeePerMb,
+    serviceFeeCap,
   };
+}
+
+const MB = 1024 * 1024;
+
+// 服务费：平台为存储/传输收取，按附件字节计价，每 MB 收 rate 积分，向上取整，封顶 cap。没有附件或费率为 0 时免费。
+export function serviceFee(totalBytes, ratePerMb, cap) {
+  const bytes = Number(totalBytes) || 0;
+  const rate = Number(ratePerMb) || 0;
+  const max = Number(cap) || 0;
+  if (bytes <= 0 || rate <= 0) return 0;
+  const units = Math.ceil(bytes / MB);
+  const fee = units * rate;
+  return max > 0 ? Math.min(fee, max) : fee;
 }
 
 export function packetPrice(fileCount, raw) {
