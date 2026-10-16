@@ -17,6 +17,13 @@
       "skills": ["knot-admin"],
       "allowAgents": [],
       "common": false
+    },
+    {
+      "id": "knot-actuary",
+      "employee": "Actuary",
+      "skills": ["knot-actuary"],
+      "allowAgents": [],
+      "common": false
     }
   ]
 }

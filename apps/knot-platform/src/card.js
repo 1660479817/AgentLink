@@ -4,6 +4,11 @@ export function payeeFor(kind) {
   return kind === "wish" ? "platform" : "author";
 }
 
+function recordText(detail, key) {
+  if (!detail || typeof detail !== "object") return "";
+  return typeof detail[key] === "string" ? detail[key].trim() : "";
+}
+
 function bag(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -24,8 +29,14 @@ function storedOf(file, granted) {
     mime: file.mime || "",
     stored: true,
   };
-  if (!file.image && granted && file.url) link.url = file.url;
+  if (file.audio && !file.image && granted && file.url) link.url = file.url;
   return link;
+}
+
+function namedAttachment(item) {
+  const link = externalOf(item);
+  if (!link) return null;
+  return { name: link.name, mime: link.mime, stored: false };
 }
 
 function videoOf(item) {
@@ -42,6 +53,8 @@ function when(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+const ACTORS = new Set(["person", "personal_agent", "platform"]);
+
 export function toRecord(row, { files = [], granted = false, author, starred = false } = {}) {
   if (!row) return null;
   const links = bag(row.links);
@@ -57,7 +70,7 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
   ];
   const attachments = [
     ...files.filter((file) => !file.image && !file.audio).map((file) => storedOf(file, visible)),
-    ...(Array.isArray(links.attachments) ? links.attachments : []).map(externalOf).filter(Boolean),
+    ...(Array.isArray(links.attachments) ? links.attachments : []).map(namedAttachment).filter(Boolean),
   ];
   const videos = (Array.isArray(row.videos) ? row.videos : []).map(videoOf).filter(Boolean);
   const createdAt = when(row.created_at);
@@ -76,6 +89,8 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
         payee: payeeFor(kind),
       },
       category: row.category || "",
+      note: recordText(row.detail, "note"),
+      language: recordText(row.detail, "language"),
       verdict: row.verdict || "pending",
       rejectReason: row.reject_reason || null,
       weight: Number(row.weight) || 0,
@@ -91,6 +106,7 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
     granted: visible,
     starred: Boolean(starred),
   };
+  if (ACTORS.has(row.actor)) record.actor = row.actor;
   if (author) record.author = author;
   return record;
 }

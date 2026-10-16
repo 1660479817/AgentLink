@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { isAudioUpload } from "./information.js";
+import { isAudioUpload, uploadName } from "./information.js";
 import { storagePath } from "./uploads.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -79,7 +79,7 @@ export function archiveSources(rows) {
     for (const row of groups[kind]) {
       files.push({
         label: LABEL[kind],
-        name: uniqueName(safeName(row.original_name, fallbackName(kind, row.mime)), used),
+        name: uniqueName(safeName(uploadName(row.original_name), fallbackName(kind, row.mime)), used),
         storageName: row.storage_name,
       });
     }

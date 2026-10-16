@@ -20,10 +20,14 @@ async function downloadItem(item) {
   if (item.downloading) return;
   item.downloading = true;
   try {
+    if (session.user) await session.load();
     const ok = await acceptDownload({
       price: priceOf(item),
       payee: payeeOf(item),
-      granted: item.granted !== false,
+      granted: item.granted === true,
+      mine: Boolean(session.user) && item.canFriend === false,
+      balance: session.user?.pointsBalance,
+      code: session.user ? "" : "no_session",
       task: () => downloadInformation(item.id),
     });
     if (!ok) return;
@@ -116,6 +120,7 @@ onMounted(load);
       :key="item.id"
       :body="item.body || ''"
       :category="item.kMeta?.category || ''"
+      :language="item.kMeta?.language || ''"
       :price="priceOf(item)"
       :granted="item.granted !== false"
       :preview-url="item.previewUrl || ''"
@@ -124,8 +129,11 @@ onMounted(load);
       :audio="item.audio || []"
       :videos="item.videos || []"
       :attachments="item.attachments || []"
+      :note="item.kMeta?.note || ''"
+      :verdict="item.kMeta?.verdict || ''"
       :author-name="item.author?.name || ''"
       :avatar-url="item.author?.avatarUrl || ''"
+      :actor="item.actor || ''"
       :created-at="item.kMeta?.createdAt || ''"
       :starred="true"
       :friend="Boolean(item.friend)"

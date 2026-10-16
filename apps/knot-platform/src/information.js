@@ -3,6 +3,30 @@ const VIDEO_EXT = /\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg|3gp|wmv|flv|ogv)$/i;
 const AUDIO_EXT = /\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$/i;
 const ATTACHMENT_EXT = /\.(pdf|docx|xlsx|pptx|md|markdown)$/i;
 
+export function visibleVerdict(column = "verdict") {
+  return `${column} IN ('pending', 'passed')`;
+}
+
+export function uploadName(raw) {
+  const value = String(raw || "");
+  if (!value) return "";
+  let text = value;
+  let bytes = true;
+  for (let i = 0; i < value.length; i += 1) {
+    if (value.charCodeAt(i) > 255) {
+      bytes = false;
+      break;
+    }
+  }
+  if (bytes) {
+    const encoded = Buffer.from(value, "latin1");
+    const decoded = encoded.toString("utf8");
+    if (!decoded.includes("\uFFFD") && Buffer.from(decoded, "utf8").equals(encoded)) text = decoded;
+  }
+  const base = text.split(/[/\\]/).pop() || text;
+  return [...base].slice(0, 180).join("");
+}
+
 export const MAX_IMAGES = 4;
 export const MAX_AUDIO = 1;
 export const MAX_FILES = 1;
@@ -97,7 +121,7 @@ export function fileView(row) {
   const mime = row.mime || "";
   return {
     id: row.id,
-    name: row.original_name || "",
+    name: uploadName(row.original_name),
     mime,
     url: `/api/web/uploads/${row.id}`,
     image: mime.startsWith("image/"),

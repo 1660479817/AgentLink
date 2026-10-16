@@ -149,3 +149,18 @@ export const PencilIcon = knotIcon([
   h("path", { d: "M4 20h3.2L17.6 9.6a2.2 2.2 0 0 0-3.2-3.2L4 16.8V20Z" }),
   h("path", { d: "m12.8 6.8 3.4 3.4" }),
 ]);
+export const AgentIcon = knotIcon([
+  h("path", { d: "M12 7.2V4.6" }),
+  h("circle", { cx: 12, cy: 3.8, r: 0.85, fill: "currentColor", stroke: "none" }),
+  h("rect", { x: 5.5, y: 7.2, width: 13, height: 10.2, rx: 2.6 }),
+  h("circle", { cx: 9.6, cy: 11.6, r: 0.85, fill: "currentColor", stroke: "none" }),
+  h("circle", { cx: 14.4, cy: 11.6, r: 0.85, fill: "currentColor", stroke: "none" }),
+  h("path", { d: "M9.5 14.6h5" }),
+  h("path", { d: "M5.5 12H3.6M20.4 12H18.5" }),
+]);
+export const PlatformIcon = knotIcon([
+  h("path", { d: "M4 20.2h16" }),
+  h("path", { d: "M6.2 20.2V9.4L12 5.2l5.8 4.2v10.8" }),
+  h("path", { d: "M10.2 20.2v-4.4h3.6v4.4" }),
+  h("path", { d: "M9 11.4h1.7M13.3 11.4H15M9 14.6h1.7M13.3 14.6H15" }),
+]);

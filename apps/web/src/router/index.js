@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useSessionStore } from "../stores/session";
 import DiscoverView from "../views/DiscoverView.vue";
+import EconomyView from "../views/EconomyView.vue";
 import FriendsView from "../views/FriendsView.vue";
 import LandingView from "../views/LandingView.vue";
 import MineView from "../views/MineView.vue";
@@ -14,6 +15,8 @@ const router = createRouter({
   routes: [
     { path: "/", name: "gate", component: LandingView },
     { path: "/discover", name: "discover", component: DiscoverView },
+    // 第二期经济看板：暂不挂导航入口，仅直接访问 /economy。
+    { path: "/economy", name: "economy", component: EconomyView },
     { path: "/mine", name: "mine", component: MineView },
     { path: "/stars", name: "stars", component: StarsView },
     { path: "/friends", name: "friends", component: FriendsView },

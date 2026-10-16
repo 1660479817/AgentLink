@@ -1,5 +1,6 @@
+import { visibleVerdict } from "./information.js";
 import { recordNotification } from "./notifications.js";
-import { publicUploadUrl } from "./uploads.js";
+import { avatarUrlFor } from "./avatars.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MENTION_KINDS = new Set(["post", "fastpost", "wish"]);
@@ -35,7 +36,7 @@ function presentFriend(row) {
   return {
     id: row.id,
     displayName: row.display_name || "",
-    avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
+    avatarUrl: avatarUrlFor(row),
   };
 }
 
@@ -133,7 +134,7 @@ export async function removeFriend(pool, userId, friendId) {
 export async function setCardFriend(pool, userId, intelId, friend) {
   const { rows } = await pool.query(
     `SELECT user_id FROM intel
-     WHERE id = $1 AND verdict = 'passed' AND is_public AND kind IN ('post', 'fastpost')`,
+     WHERE id = $1 AND ${visibleVerdict("verdict")} AND is_public AND kind IN ('post', 'fastpost')`,
     [intelId]
   );
   if (!rows[0]) throw fail("not_found");

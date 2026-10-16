@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { createHash, randomBytes } from "node:crypto";
-import path from "node:path";
+import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
 import { listRequestResponses, listRequests } from "../requests.js";
-import { hasInformation, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
+import { hasInformation, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videosOf } from "../information.js";
 import { readMedia } from "../links.js";
 import {
   FEEDBACK_MAX,
@@ -18,6 +18,8 @@ import { decideAgentAccess, suppliedAgentEmail } from "../agentAccess.js";
 import { listFriends } from "../friends.js";
 import { createIntel, downloadPacket } from "../market.js";
 import { listNotifications, markNotificationsRead } from "../notifications.js";
+import { attachmentOpens } from "../readable.js";
+import { avatarUrlFor } from "../avatars.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -44,6 +46,7 @@ function agentFail(res, error) {
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
   if (code === "muted") return res.status(403).json({ error: "muted" });
   if (code === "bad_mention") return res.status(400).json({ error: "bad_mention" });
+  if (code === "unreadable_file") return res.status(400).json({ error: "unreadable_file" });
   if (code === "not_found") return res.status(404).json({ error: "not_found" });
   console.error(error);
   return res.status(503).json({ error: "process_unavailable" });
@@ -110,7 +113,7 @@ function presentUser(row) {
     id: row.id,
     email: row.email,
     displayName: row.display_name || "",
-    avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
+    avatarUrl: avatarUrlFor(row),
     level: row.level,
     entitlements,
     pointsBalance: row.points_balance,
@@ -182,7 +185,19 @@ export function agentRouter({ pool, uploadDir }) {
   async function storeUpload(req, res) {
     const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    const name = path.basename(req.file.originalname || "").slice(0, 180);
+    const name = uploadName(req.file.originalname);
+    if (isAttachmentUpload(req.file)) {
+      try {
+        const buffer = await readFile(req.file.path);
+        if (!attachmentOpens(name, buffer)) {
+          await rm(req.file.path, { force: true });
+          return res.status(400).json({ error: "unreadable_file" });
+        }
+      } catch {
+        await rm(req.file.path, { force: true });
+        return res.status(400).json({ error: "unreadable_file" });
+      }
+    }
     const { rows } = await pool.query(
       `INSERT INTO uploads (user_id, storage_name, mime, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
       [access.userId, req.file.filename, req.file.mimetype, name || null]

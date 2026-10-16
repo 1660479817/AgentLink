@@ -37,14 +37,27 @@ function categoryOf(value) {
   return clip(value.category, 40);
 }
 
+const BCP47 = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
+
+function languageOf(value) {
+  const raw = cleanText(value.language).replace(/_/g, "-");
+  if (!BCP47.test(raw)) return "";
+  return raw.split("-").map((part, index) => {
+    if (index === 0) return part.toLowerCase();
+    if (part.length === 2) return part.toUpperCase();
+    if (part.length === 4) return part[0].toUpperCase() + part.slice(1).toLowerCase();
+    return part.toLowerCase();
+  }).join("-");
+}
+
 export function parseIntelReply(text) {
   const value = readJsonObject(text);
   const note = clip(value.note, 400);
-  if (value.verdict === "reject") {
+  if (value.verdict === "revoke" || value.verdict === "reject") {
     const reason = cleanText(value.reason || value.reject?.reason);
-    if (reason) return { verdict: "reject", reason, note: "", category: "" };
+    if (reason) return { verdict: "revoke", reason, note: "", category: "", language: "" };
   }
-  return { verdict: "pass", reason: "", note, category: categoryOf(value) };
+  return { verdict: "pass", reason: "", note, category: categoryOf(value), language: languageOf(value) };
 }
 
 function replyText(envelope) {
@@ -168,12 +181,14 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
   const stored = attachments.filter((file) => file?.path);
   const linked = attachmentLinks(intel.links);
   const message = [
-    "审查这一条记录。通过则留下，并写入类别。只返回一个 JSON 对象。不要判断链接是否打得开。",
-    '{"verdict":"pass","reason":"","note":"给检索用的一句事实","category":"类别"}',
-    '{"verdict":"reject","reason":"违规原因","note":"","category":""}',
-    "只有违法、欺诈、隐私或骚扰才 reject。category 写一个短类别。",
-    "note 去掉电话、微信和发布者。不要编造。",
-    "附件是完整文件的本机路径。用你自己的能力阅读。读不到时不要编造文件里的内容。",
+    "审查这一条已经可见的记录。留下则写入类别。有问题则撤销。只返回一个 JSON 对象。",
+    '{"verdict":"pass","reason":"","note":"这件东西是什么","category":"类别","language":"zh"}',
+    '{"verdict":"revoke","reason":"违规原因","note":"","category":"","language":""}',
+    "只有违法、欺诈、隐私或骚扰才 revoke。拿不准就 pass。",
+    "不要判断链接或附件打不打得开。category 写一个短类别。",
+    "language 用 BCP 47 语言标签，只写一个主语言，例如 zh、en、ja、zh-Hans、zh-Hant。不要写中文或英文。看不准写 und。post、fastpost、wish、wishRespond 都要写。",
+    "note 写卡片上跟在文件名后面的一句事实。有附件时，根据读到的文字写这件东西是什么。去掉电话、微信和发布者。不要编造。",
+    "附件是完整文件的本机路径。对每个路径运行 tools/read --file <路径>。只根据返回 JSON 的 text 判断。ok 为 false、text 为空或读不到时不要编造，也不要因此撤销。",
     "body:",
     String(intel.body || ""),
     ...(Array.isArray(intel.videos) && intel.videos.length

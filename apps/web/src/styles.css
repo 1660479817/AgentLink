@@ -608,6 +608,31 @@ a:hover {
   margin-bottom: 1rem;
 }
 
+.outbox-title {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.outbox-progress {
+  display: block;
+  width: 100%;
+  height: 0.35rem;
+  margin-top: 0.65rem;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  accent-color: var(--color-accent);
+}
+
+.outbox-job .error {
+  margin: 0.55rem 0 0;
+}
+
+.outbox-job .btn {
+  margin-top: 0.65rem;
+}
+
 .remember-card {
   position: relative;
   padding-bottom: 1rem;
@@ -701,6 +726,24 @@ a:hover {
 .feed-empty {
   text-align: center;
   padding: 1.5rem 0.5rem 0;
+}
+
+.feed-skeleton {
+  min-height: 7.5rem;
+  background: linear-gradient(90deg, var(--color-surface) 0%, #f0f2f5 45%, var(--color-surface) 90%);
+  background-size: 200% 100%;
+  animation: feed-skeleton 1.2s ease-in-out infinite;
+}
+
+@keyframes feed-skeleton {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-skeleton {
+    animation: none;
+  }
 }
 
 @media (max-width: 1023px) {
@@ -2288,6 +2331,14 @@ a.intel-bounty:hover {
   margin-bottom: 0.85rem;
 }
 
+.wish-target > .actor-mark {
+  margin-bottom: 0.35rem;
+}
+
+.bounty-reply-meta .actor-mark {
+  margin-right: 0.2rem;
+}
+
 .wish-target .muted {
   margin: 0;
 }
@@ -2375,11 +2426,10 @@ a.intel-bounty:hover {
   font-size: 0.9rem;
 }
 
-.wish-file span {
+.wish-file .information-file-copy {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  word-break: break-all;
 }
 
 .wish-file-icon {
@@ -2693,6 +2743,11 @@ a.intel-bounty:hover {
 .information-body + .information-audio,
 .information-body + .information-video,
 .information-body + .information-files,
+.information-body-wrap + .information-preview,
+.information-body-wrap + .information-images,
+.information-body-wrap + .information-audio,
+.information-body-wrap + .information-video,
+.information-body-wrap + .information-files,
 .information-preview + .information-audio,
 .information-preview + .information-video,
 .information-preview + .information-files,
@@ -2743,13 +2798,9 @@ a.intel-bounty:hover {
 }
 
 .information-images.is-4 {
-  grid-template-columns: 1.4fr 1fr;
-  grid-template-rows: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
   aspect-ratio: 1;
-}
-
-.information-images.is-4 .information-photo:first-child {
-  grid-row: span 3;
 }
 
 .information-photo {
@@ -2758,7 +2809,8 @@ a.intel-bounty:hover {
   height: 100%;
   min-height: 0;
   border-radius: 0;
-  object-fit: cover;
+  object-fit: contain;
+  background: #f0f2f5;
 }
 
 .information-audio {
@@ -2861,12 +2913,14 @@ a.intel-bounty:hover {
   min-width: 36px;
   min-height: 36px;
   max-height: 36px;
-  background: #e4e6eb;
+  background: #fff;
+  border: 0;
   color: #050505;
 }
 
 .information-dismiss.btn-icon:hover:not(:disabled) {
-  background: #d8dadf;
+  background: #fff;
+  border: 0;
 }
 
 .information-dismiss-icon {
@@ -2908,13 +2962,45 @@ a.intel-bounty:hover {
 }
 
 .information-name {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
   margin: 0;
-  overflow: hidden;
+  min-width: 0;
   font-size: 0.95rem;
   font-weight: 700;
   line-height: 1.2;
+}
+
+.information-name-text {
+  overflow: hidden;
+  min-width: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.actor-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.05rem;
+  height: 1.05rem;
+  color: #65676b;
+  vertical-align: -0.15em;
+}
+
+.actor-mark svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.actor-mark.is-agent {
+  color: #0866ff;
+}
+
+.actor-mark.is-platform {
+  color: #050505;
 }
 
 .information-time {
@@ -2924,8 +3010,67 @@ a.intel-bounty:hover {
   line-height: 1.2;
 }
 
-.information-card .information-body {
+.information-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex: 0 0 auto;
+  padding: 0.28rem 0.55rem 0.28rem 0.42rem;
+  border-radius: 999px;
+  background: #f0f2f5;
+  color: #050505;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.information-price svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  color: #0866ff;
+}
+
+.information-card .information-body-wrap {
+  position: relative;
   margin: 0.65rem 0.85rem 0;
+}
+
+.information-card .information-body {
+  margin: 0;
+}
+
+.information-body.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.information-more {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 0 0 0 0.4rem;
+  border: 0;
+  background: #fff;
+  color: #65676b;
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.information-more:hover {
+  text-decoration: underline;
+}
+
+.information-more.is-expanded {
+  position: static;
+  display: block;
+  margin-top: 0.3rem;
+  padding: 0;
+  background: transparent;
+  color: #65676b;
 }
 
 .information-preview {
@@ -2959,6 +3104,7 @@ a.intel-bounty:hover {
 }
 
 .information-card .information-file {
+  align-items: flex-start;
   min-height: 0;
   padding: 0.15rem 0;
   background: transparent;
@@ -3057,6 +3203,21 @@ a.intel-bounty:hover {
 .information-file:hover {
   background: #e4e6eb;
   text-decoration: none;
+}
+
+.information-file-copy {
+  min-width: 0;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.information-file-name {
+  color: #0866ff;
+  font-weight: 600;
+}
+
+.information-file-note {
+  color: var(--color-muted);
 }
 
 .information-file-icon {
@@ -3394,9 +3555,14 @@ p.error {
   list-style: none;
 }
 
+.gate-step-item {
+  display: flex;
+}
+
 .gate-step {
   display: flex;
   align-items: center;
+  flex: 1;
   gap: 0.45rem;
   min-height: 44px;
   margin: 0;
@@ -3404,7 +3570,14 @@ p.error {
   background: var(--color-surface);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
+  color: var(--color-text);
   font-weight: 600;
+  text-decoration: none;
+}
+
+.gate-step:hover {
+  background: #e4e6eb;
+  text-decoration: none;
 }
 
 .gate-step-icon {
@@ -3434,4 +3607,138 @@ p.error {
     padding-left: 1rem;
     padding-right: 1rem;
   }
+}
+
+.rate-head {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.rate-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.rate-coin {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.rate-copy {
+  min-width: 0;
+}
+
+.rate-label {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.rate-value {
+  margin: 0.15rem 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.rate-number {
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+}
+
+.rate-unit {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.rate-unpriced {
+  margin: 0.2rem 0 0;
+}
+
+.rate-hint {
+  margin: 0.85rem 0 0;
+  font-size: 0.85rem;
+}
+
+.economy-facts {
+  margin-top: 0;
+}
+
+.breakeven-line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.35rem 0 0.75rem;
+}
+
+.stage-pill {
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: var(--color-border-dim);
+  color: var(--color-text);
+}
+
+.stage-seeding {
+  background: #f0f2f5;
+  color: var(--color-muted);
+}
+
+.stage-growing {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.stage-breakeven {
+  background: #e6f4ea;
+  color: #18794e;
+}
+
+.breakeven-state {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-danger);
+}
+
+.breakeven-state.is-balanced {
+  color: #18794e;
+}
+
+.progress-track {
+  display: block;
+  width: 100%;
+  height: 0.5rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-border-dim);
+}
+
+.progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-accent);
+  transition: width 0.25s ease;
+}
+
+.progress-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+}
+
+.stage-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
 }

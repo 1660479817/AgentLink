@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -210,7 +211,7 @@ export function buildRequest(command, flags) {
 export function tokenCandidates(cwd, scriptFile) {
   const candidates = [path.resolve(cwd, ".admin-token")];
   const skillDir = path.dirname(scriptFile);
-  if (path.basename(skillDir) === "knot-admin" && path.basename(path.dirname(skillDir)) === "skills") {
+  if (path.basename(path.dirname(skillDir)) === "skills") {
     candidates.push(path.resolve(skillDir, "..", "..", ".admin-token"));
   }
   return [...new Set(candidates)];
@@ -297,8 +298,19 @@ export async function execute(argv, options = {}) {
   });
 }
 
-const entry = process.argv[1] ? path.resolve(process.argv[1]) : "";
-if (entry && entry === fileURLToPath(import.meta.url)) {
+// 路径里可能有软链（macOS 的 /tmp 就是），两边都取真实路径再比，
+// 否则命令会一声不响地什么都不做。
+export function isEntry(moduleFile, argv = process.argv) {
+  const arg = argv[1];
+  if (!arg) return false;
+  try {
+    return realpathSync(arg) === realpathSync(moduleFile);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntry(fileURLToPath(import.meta.url))) {
   const result = await execute(process.argv.slice(2));
   process.stdout.write(`${JSON.stringify(result.body, null, 2)}\n`);
   process.exit(result.code);

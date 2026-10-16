@@ -16,13 +16,20 @@ const phaseIcon = computed(() => {
   return null;
 });
 
+const short = computed(() => Boolean(downloadConsent.value?.short));
+
 const body = computed(() => {
   const job = downloadConsent.value;
   if (!job) return "";
   if (job.phase === "confirm") {
-    return t("download.consent", {
+    const payee = t(job.payee === "platform" ? "download.platform" : "download.author");
+    if (job.kind === "own") return t("download.own");
+    if (job.kind === "again") return t("download.again");
+    if (job.kind === "free") return t("download.free");
+    return t(job.short ? "download.short" : "download.consent", {
       n: job.amount || 0,
-      payee: t(job.payee === "platform" ? "download.platform" : "download.author"),
+      payee,
+      balance: job.balance || 0,
     });
   }
   if (job.phase === "working") return t("download.working");
@@ -82,7 +89,7 @@ function onBackdrop(event) {
       </p>
       <div v-if="phase === 'confirm'" class="download-consent-actions">
         <AppButton variant="secondary" type="button" @click="settleDownload(false)">{{ t("download.cancel") }}</AppButton>
-        <AppButton type="button" @click="settleDownload(true)">{{ t("download.confirm") }}</AppButton>
+        <AppButton type="button" :disabled="short" @click="settleDownload(true)">{{ t("download.confirm") }}</AppButton>
       </div>
       <div v-else-if="phase === 'done' || phase === 'error'" class="download-consent-actions">
         <AppButton variant="secondary" type="button" @click="dismissDownload">{{ t("download.close") }}</AppButton>

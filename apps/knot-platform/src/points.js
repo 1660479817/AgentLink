@@ -7,22 +7,48 @@ function nonNegativeInt(raw, fallback) {
   return value;
 }
 
-export function feeConfig() {
+// 经济参数只有这一处读环境变量。其余函数都从这里取，改一处即全站生效。
+export function economyConfig() {
+  let priceMin = nonNegativeInt(process.env.KNOT_PRICE_MIN, 0);
+  let priceMax = nonNegativeInt(process.env.KNOT_PRICE_MAX, 100);
+  if (priceMax < priceMin) priceMax = priceMin;
+  let defaultPrice = nonNegativeInt(process.env.KNOT_DEFAULT_PRICE, 10);
+  if (defaultPrice < priceMin) defaultPrice = priceMin;
+  if (defaultPrice > priceMax) defaultPrice = priceMax;
   return {
-    defaultPrice: nonNegativeInt(process.env.KNOT_DEFAULT_PRICE, 10),
+    defaultPrice,
+    priceMin,
+    priceMax,
     requestFee: nonNegativeInt(process.env.KNOT_REQUEST_FEE, 1),
     signupGrant: nonNegativeInt(process.env.KNOT_SIGNUP_GRANT, 100),
+    grantMax: nonNegativeInt(process.env.KNOT_GRANT_MAX, 100000),
+    // 第二期：只充值、不兑出。汇率是平台定价，盈亏平衡看现金流。
+    // 每积分的美元价，用「美分」表示（1 = 0.01 美元），避免小数。
+    pointUsdCents: nonNegativeInt(process.env.KNOT_POINT_USD_CENTS, 1),
+    // 累计充值（美元）。本期没有真钱流入，占位 0；第三期从充值流水读。
+    rechargeUsd: nonNegativeInt(process.env.KNOT_RECHARGE_USD, 0),
+    // 月运营开支（美元）。动态值，初期以 1 万美金/月作为预算。
+    monthlyOpexUsd: nonNegativeInt(process.env.KNOT_MONTHLY_OPEX_USD, 10000),
+    // 消费券：独立于积分的一次性下载抵扣券，初期拉新用。
+    // 面值（积分），默认等于 defaultPrice，正好抵扣一次标准下载。
+    couponFace: nonNegativeInt(process.env.KNOT_COUPON_FACE, defaultPrice),
+    // 有效期（天），过期作废。
+    couponTtlDays: nonNegativeInt(process.env.KNOT_COUPON_TTL_DAYS, 30),
+    // 每个 agent 同时持有的未使用、未过期券上限。
+    couponMax: nonNegativeInt(process.env.KNOT_COUPON_MAX, 1),
+    // 新注册是否自动发一张（1 开，0 关）。
+    couponOnSignup: nonNegativeInt(process.env.KNOT_COUPON_SIGNUP, 1) > 0,
   };
 }
 
+export function feeConfig() {
+  const { defaultPrice, requestFee, signupGrant } = economyConfig();
+  return { defaultPrice, requestFee, signupGrant };
+}
+
 export function pricePolicy() {
-  let min = nonNegativeInt(process.env.KNOT_PRICE_MIN, 0);
-  let max = nonNegativeInt(process.env.KNOT_PRICE_MAX, 100);
-  if (max < min) max = min;
-  let defaultPrice = feeConfig().defaultPrice;
-  if (defaultPrice < min) defaultPrice = min;
-  if (defaultPrice > max) defaultPrice = max;
-  return { min, max, defaultPrice };
+  const { priceMin, priceMax, defaultPrice } = economyConfig();
+  return { min: priceMin, max: priceMax, defaultPrice };
 }
 
 export function policyConfig() {

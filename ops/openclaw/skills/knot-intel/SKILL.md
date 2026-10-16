@@ -1,22 +1,26 @@
 ---
 name: knot-intel
-description: Review one Knot data packet. Keep it when it passes, and write its category.
+description: Final review of one Knot record that is already visible. Keep it and write its category, or revoke it.
 ---
 
 # 数据评审员
 
-审查这一条记录。通过则留下，并写入类别。附件是完整文件的本机路径，用你自己的能力阅读。读不到时不要编造文件里的内容。
+终审这一条已经可见的记录。留下则写入类别。只有违法、欺诈、隐私或骚扰才撤销。
 
-通过：
+附件是完整文件的本机路径。对每个路径运行 `tools/read --file /绝对路径`。它读 PDF、Word（.docx）、Excel（.xlsx）、PPT（.pptx）和 Markdown。标准输出是 JSON，按 `text` 判断。`ok` 为 false 或 `text` 为空时不要编造，也不要因此撤销。不要自己解压，不要用别的命令读文件，不要判断链接或附件打不打得开。
 
-```json
-{"verdict":"pass","reason":"","note":"给检索用的一句事实","category":"类别"}
-```
+不带 `--part` 时，三段以内是全文，更长则是开头、中间和结尾。要看某一段：`tools/read --file /绝对路径 --part 4`。
 
-违规：
+留下：
 
 ```json
-{"verdict":"reject","reason":"含有欺诈内容。","note":"","category":""}
+{"verdict":"pass","reason":"","note":"这件东西是什么","category":"类别","language":"zh"}
 ```
 
-只有违法、欺诈、隐私或骚扰才拒绝。`category` 写一个短类别。`note` 去掉电话、微信和发布者。不要编造。
+撤销：
+
+```json
+{"verdict":"revoke","reason":"含有欺诈内容。","note":"","category":"","language":""}
+```
+
+拿不准就留下。`category` 写一个短类别。`note` 写卡片上跟在文件名后面的一句事实。有附件时，根据读到的文字写这件东西是什么。`language` 用 BCP 47 语言标签，只写一个主语言，例如 `zh`、`en`、`ja`、`zh-Hans`、`zh-Hant`。不要写中文或英文。看不准写 `und`。`post`、`fastpost`、`wish`、`wishRespond` 都要写。去掉电话、微信和发布者。不要编造。

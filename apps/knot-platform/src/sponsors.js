@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import path from "node:path";
+import { uploadName } from "./information.js";
 import { imageSize, publicUploadUrl, storagePath } from "./uploads.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -128,7 +128,7 @@ export async function storeSponsorImage(pool, uploadDir, file) {
     fs.unlink(full, () => {});
     throw fail("bad_mime");
   }
-  const name = path.basename(file.originalname || "").slice(0, 180);
+  const name = uploadName(file.originalname);
   const { rows } = await pool.query(
     `INSERT INTO uploads (user_id, storage_name, mime, original_name)
      VALUES ($1, $2, $3, $4)

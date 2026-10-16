@@ -34,18 +34,61 @@ export function updateProfile(profile) {
   return request("/api/web/profile", { method: "PATCH", body: JSON.stringify(profile) });
 }
 
-export function uploadImage(file) {
-  const form = new FormData();
-  form.append("file", file);
-  return request("/api/web/uploads", { method: "POST", body: form });
+function uploadForm(path, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const form = new FormData();
+    form.append("file", file);
+    xhr.open("POST", path);
+    xhr.withCredentials = true;
+    if (onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(event.loaded / event.total);
+      };
+    }
+    xhr.onerror = () => {
+      const error = new Error("upload_failed");
+      error.code = "upload_failed";
+      reject(error);
+    };
+    xhr.onload = () => {
+      let data = {};
+      try {
+        data = JSON.parse(xhr.responseText || "{}");
+      } catch {
+        data = {};
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const error = new Error(data.error || "upload_failed");
+        error.code = data.error || "upload_failed";
+        error.status = xhr.status;
+        reject(error);
+        return;
+      }
+      resolve(data);
+    };
+    xhr.send(form);
+  });
+}
+
+export function uploadImage(file, onProgress) {
+  return uploadForm("/api/web/uploads", file, onProgress);
 }
 
 export function listInformation() {
   return request("/api/web/information");
 }
 
+export function discoverSelf(ids) {
+  return request("/api/web/discover-self", { method: "POST", body: JSON.stringify({ ids }) });
+}
+
 export function listSponsors() {
   return request("/api/web/sponsors");
+}
+
+export function getEconomy() {
+  return request("/api/web/economy");
 }
 
 export function dismissInformation(id) {
@@ -151,16 +194,12 @@ export async function downloadInformation(id) {
 }
 
 
-export function uploadAudio(file) {
-  const form = new FormData();
-  form.append("file", file);
-  return request("/api/web/audio", { method: "POST", body: form });
+export function uploadAudio(file, onProgress) {
+  return uploadForm("/api/web/audio", file, onProgress);
 }
 
-export function uploadAttachment(file) {
-  const form = new FormData();
-  form.append("file", file);
-  return request("/api/web/files", { method: "POST", body: form });
+export function uploadAttachment(file, onProgress) {
+  return uploadForm("/api/web/files", file, onProgress);
 }
 
 export function listSubmissions() {

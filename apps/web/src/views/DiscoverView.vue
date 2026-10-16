@@ -5,18 +5,26 @@ import InformationCard from "../components/InformationCard.vue";
 import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { addCardFriend, dismissInformation, downloadInformation, listInformation, listRequests, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
+import { addCardFriend, discoverSelf, dismissInformation, downloadInformation, listInformation, listRequests, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
+import { applyDiscoverSelf, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
 import { nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { payeeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { BackIcon, PlusIcon, UserIcon } from "../icons/index.js";
 import { useFriendStore } from "../stores/friends";
+import { useOutboxStore } from "../stores/outbox";
 import { useNotificationStore } from "../stores/notifications";
 import { useSessionStore } from "../stores/session";
 
-const items = ref([]);
-const wishes = ref([]);
+const session = useSessionStore();
+const pending = readAhead();
+const opening = pending
+  ? { information: pending.information || [], requests: pending.requests || [] }
+  : paintDiscover(readDiscoverMemory(), session.user?.id);
+const items = ref(opening.information);
+const wishes = ref(opening.requests);
+const feedReady = ref(opening.information.length > 0 || opening.requests.length > 0);
 const railViewport = ref(null);
 const railCanPrev = ref(false);
 const railCanNext = ref(false);
@@ -24,7 +32,7 @@ const surface = ref(null);
 const shareFocus = ref({ kind: "text", n: 0 });
 const notifications = useNotificationStore();
 const friends = useFriendStore();
-const session = useSessionStore();
+const outbox = useOutboxStore();
 const route = useRoute();
 const router = useRouter();
 const searchQ = computed(() => String(route.query.q || "").trim());
@@ -51,19 +59,70 @@ watch(wishes, async () => {
   updateRail();
 });
 
-async function load() {
+function showPainted(painted) {
+  items.value = painted.information;
+  wishes.value = painted.requests;
+  feedReady.value = true;
+}
+
+async function patchSelf(painted) {
+  if (!session.user) return painted;
+  const ids = [...painted.information, ...painted.requests].map((item) => item.id);
   try {
-    const q = searchQ.value;
-    const data = q ? await searchInformation(q) : await listInformation();
-    items.value = data.information;
+    return applyDiscoverSelf(painted, await discoverSelf(ids));
   } catch {
-    items.value = [];
+    return painted;
   }
+}
+
+async function loadLive(options = {}) {
+  const q = searchQ.value;
+  const [info, wish] = await Promise.all([
+    q ? searchInformation(q) : listInformation(),
+    listRequests(),
+  ]);
+  const painted = { information: info.information || [], requests: wish.requests || [] };
+  if (options.ahead) rememberAhead(painted);
+  showPainted(painted);
+}
+
+async function loadBoard() {
+  const board = await fetchDiscoverBoard();
+  if (readAhead() && !coveredBy(board)) {
+    showPainted(await patchSelf(revealDiscover(readAhead())));
+    return;
+  }
+  if (readAhead()) rememberAhead(null);
+  const painted = await patchSelf(paintDiscover(board, session.user?.id));
+  showPainted(painted);
+}
+
+async function load(options = {}) {
+  const live = options.live === true || Boolean(searchQ.value);
   try {
-    const data = await listRequests();
-    wishes.value = data.requests || [];
+    if (live) await loadLive({ ahead: options.live === true && !searchQ.value });
+    else await loadBoard();
   } catch {
-    wishes.value = [];
+    if (searchQ.value) {
+      items.value = [];
+      wishes.value = [];
+      feedReady.value = true;
+      return;
+    }
+    if (!live && (readAhead() || readDiscoverMemory())) return;
+    if (!live) {
+      try {
+        await loadLive();
+        return;
+      } catch {
+        /* the feed stays empty below */
+      }
+    }
+    if (!items.value.length) {
+      items.value = [];
+      wishes.value = [];
+    }
+    feedReady.value = true;
   }
 }
 
@@ -71,6 +130,14 @@ watch(
   () => friends.revision,
   () => {
     if (friends.revision) load();
+  }
+);
+watch(
+  () => outbox.revision,
+  (revision) => {
+    if (!revision) return;
+    load({ live: true });
+    notifications.load();
   }
 );
 
@@ -167,19 +234,21 @@ function closeSurface() {
   surface.value = null;
 }
 
-async function afterPost() {
+function afterPost() {
   closeSurface();
-  await load();
-  await notifications.load();
 }
 
 async function dismissItem(item) {
   const previous = items.value;
+  hideDiscoverItem(item.id);
   items.value = items.value.filter((row) => row.id !== item.id);
   try {
     await dismissInformation(item.id);
   } catch (error) {
-    if (error.status !== 401) items.value = previous;
+    if (error.status !== 401) {
+      showDiscoverItem(item.id);
+      items.value = previous;
+    }
   }
 }
 
@@ -212,10 +281,13 @@ async function downloadItem(item) {
   if (item.downloading) return;
   item.downloading = true;
   try {
+    if (session.user) await session.load();
     const ok = await acceptDownload({
       price: priceOf(item),
       payee: payeeOf(item),
-      granted: item.granted !== false,
+      granted: item.granted === true,
+      mine: cardIsMine(item, session.user),
+      balance: session.user?.pointsBalance,
       code: session.user ? "" : "no_session",
       task: () => downloadInformation(item.id),
     });
@@ -269,7 +341,7 @@ async function downloadItem(item) {
           <span class="intel-bounty-text">{{ wishText(wish) }}</span>
         </span>
         <span class="intel-bounty-reward">
-          {{ wish.mine ? t("home.wishReplyCount", { n: wish.responseCount || 0 }) : t("nav.wish") }}
+          {{ wish.mine && wish.responseCount != null ? t("home.wishReplyCount", { n: wish.responseCount || 0 }) : t("nav.wish") }}
         </span>
       </RouterLink>
     </div>
@@ -295,11 +367,15 @@ async function downloadItem(item) {
 
   <SnapComposer v-if="surface === 'snap'" @close="closeSurface" @done="afterPost" />
 
+  <div v-if="!feedReady" class="card feed-skeleton" role="status" :aria-label="t('app.loading')" />
+  <div v-if="!feedReady" class="card feed-skeleton" aria-hidden="true" />
+
   <InformationCard
     v-for="item in items"
     :key="item.id"
     :body="item.body || ''"
     :category="item.kMeta?.category || ''"
+    :language="item.kMeta?.language || ''"
     :price="priceOf(item)"
     :granted="item.granted !== false"
     :preview-url="item.previewUrl || ''"
@@ -308,20 +384,23 @@ async function downloadItem(item) {
     :audio="item.audio || []"
     :videos="item.videos || []"
     :attachments="item.attachments || []"
+    :note="item.kMeta?.note || ''"
+    :verdict="item.kMeta?.verdict || ''"
     :author-name="item.author?.name || ''"
     :avatar-url="item.author?.avatarUrl || ''"
+    :actor="item.actor || ''"
     :created-at="item.kMeta?.createdAt || ''"
     :starred="Boolean(item.starred)"
     :can-star="Boolean(session.user)"
     :friend="Boolean(item.friend)"
     :can-friend="Boolean(item.canFriend)"
-    :busy="Boolean(item.downloading)"
+    :busy="Boolean(item.downloading) || (Boolean(session.user) && item.personal === false)"
     @dismiss="dismissItem(item)"
     @star="toggleStar(item)"
     @friend="toggleFriend(item)"
     @download="downloadItem(item)"
   />
-  <p v-if="items.length === 0" class="muted feed-empty">
+  <p v-if="feedReady && items.length === 0" class="muted feed-empty">
     {{ searchQ ? t("home.searchEmpty") : t("home.empty") }}
   </p>
 </template>

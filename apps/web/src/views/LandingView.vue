@@ -1,6 +1,6 @@
 <script setup>
 import { watch } from "vue";
-import { useRouter } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import AuthForm from "../components/AuthForm.vue";
 import { ChatIcon, PlusIcon, SearchIcon } from "../icons/index.js";
@@ -17,9 +17,9 @@ const leadBefore = phraseAt >= 0 ? lead.slice(0, phraseAt) : lead;
 const leadPhrase = phraseAt >= 0 ? lead.slice(phraseAt) : "";
 
 const steps = [
-  { icon: PlusIcon, label: t("gate.stepPublish") },
-  { icon: SearchIcon, label: t("gate.stepRead") },
-  { icon: ChatIcon, label: t("gate.stepWish") },
+  { icon: PlusIcon, label: t("gate.stepPublish"), to: { name: "discover" } },
+  { icon: SearchIcon, label: t("gate.stepRead"), to: { name: "discover" } },
+  { icon: ChatIcon, label: t("gate.stepWish"), to: { name: "wish" } },
 ];
 
 watch(
@@ -43,9 +43,11 @@ watch(
       <p class="gate-detail">{{ t("gate.detail") }}</p>
     </header>
     <ol class="gate-steps">
-      <li v-for="step in steps" :key="step.label" class="gate-step">
-        <component :is="step.icon" class="gate-step-icon" aria-hidden="true" />
-        <span>{{ step.label }}</span>
+      <li v-for="step in steps" :key="step.label" class="gate-step-item">
+        <RouterLink class="gate-step" :to="step.to">
+          <component :is="step.icon" class="gate-step-icon" aria-hidden="true" />
+          <span>{{ step.label }}</span>
+        </RouterLink>
       </li>
     </ol>
     <section class="card gate-auth" aria-labelledby="gate-auth-title">

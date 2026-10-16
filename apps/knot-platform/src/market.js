@@ -1,8 +1,8 @@
-import { access } from "node:fs/promises";
+import { access, readFile, rm } from "node:fs/promises";
 import { intelAgentId, runIntelAgent } from "./agents/openclaw.js";
 import { toRecord } from "./card.js";
 import { loadBootstrapConfig } from "./config.js";
-import { fileView, isAudioUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, videosOf } from "./information.js";
+import { fileView, isAttachmentUpload, isAudioUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, uploadName, videosOf, visibleVerdict } from "./information.js";
 import { assertReachable, contentHash } from "./links.js";
 import { postersFor } from "./videoPoster.js";
 import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./friends.js";
@@ -11,8 +11,11 @@ import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } fro
 import { assertCanSpeak } from "./account.js";
 import { applyPoints, feeConfig, packetPrice, PLATFORM_USER_ID } from "./points.js";
 import { scoreText } from "./search.js";
+import { touchDiscoverBoard } from "./discoverPublish.js";
 import { ensureCardPreview } from "./preview.js";
-import { publicUploadUrl, storagePath } from "./uploads.js";
+import { attachmentOpens } from "./readable.js";
+import { avatarUrlFor } from "./avatars.js";
+import { storagePath } from "./uploads.js";
 
 function videoText(videos) {
   if (!Array.isArray(videos)) return "";
@@ -23,8 +26,10 @@ function videoText(videos) {
 }
 
 function intelText(row) {
-  const note = row.detail && typeof row.detail.note === "string" ? row.detail.note : "";
-  return `${row.body || ""} ${note} ${videoText(row.videos)}`.trim();
+  const detail = row.detail && typeof row.detail === "object" ? row.detail : {};
+  const note = typeof detail.note === "string" ? detail.note : "";
+  const language = typeof detail.language === "string" ? detail.language : "";
+  return `${row.body || ""} ${note} ${language} ${videoText(row.videos)}`.trim();
 }
 
 async function imageFiles(pool, intelId) {
@@ -52,7 +57,7 @@ export function presentIntel(row) {
   const author = row.display_name !== undefined
     ? {
         name: row.display_name || "",
-        avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
+        avatarUrl: avatarUrlFor(row),
       }
     : undefined;
   return toRecord(row, {
@@ -98,7 +103,7 @@ async function attachmentFiles(pool, intelId) {
     if (isAudioUpload({ mime: row.mime, originalname: row.original_name })) continue;
     const file = storagePath(uploadDir, row.storage_name);
     await access(file);
-    files.push({ path: file, name: row.original_name || "" });
+    files.push({ path: file, name: uploadName(row.original_name) });
   }
   return files;
 }
@@ -113,7 +118,7 @@ async function loadIntel(pool, id) {
 
 async function loadPresentedIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, body, videos, links, content_hash, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at FROM intel WHERE id = $1`,
+    `SELECT id, user_id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at FROM intel WHERE id = $1`,
     [id]
   );
   if (!rows[0]) return null;
@@ -121,16 +126,71 @@ async function loadPresentedIntel(pool, id) {
   return presentIntel({ ...rows[0], files: files.get(id) || [] });
 }
 
+async function assertAttachmentsOpen(pool, uploadIds) {
+  if (!uploadIds.length) return;
+  const { uploadDir } = loadBootstrapConfig();
+  const { rows } = await pool.query(
+    `SELECT id, storage_name, original_name, mime FROM uploads WHERE id = ANY($1::uuid[])`,
+    [uploadIds]
+  );
+  for (const row of rows) {
+    if (String(row.mime || "").startsWith("image/")) continue;
+    if (isAudioUpload({ mime: row.mime, originalname: row.original_name })) continue;
+    const name = uploadName(row.original_name || row.storage_name);
+    if (!isAttachmentUpload({ originalname: name })) continue;
+    const file = storagePath(uploadDir, row.storage_name);
+    let buffer;
+    try {
+      buffer = await readFile(file);
+    } catch {
+      const error = new Error("unreadable_file");
+      error.code = "unreadable_file";
+      throw error;
+    }
+    if (attachmentOpens(name, buffer)) continue;
+    const used = await pool.query(
+      `SELECT 1 FROM intel_files WHERE upload_id = $1
+       UNION ALL SELECT 1 FROM users WHERE avatar_upload_id = $1
+       UNION ALL SELECT 1 FROM sponsors WHERE image_upload_id = $1
+       LIMIT 1`,
+      [row.id]
+    );
+    if (!used.rows.length) {
+      await pool.query(`DELETE FROM uploads WHERE id = $1`, [row.id]);
+      await rm(file, { force: true });
+    }
+    const error = new Error("unreadable_file");
+    error.code = "unreadable_file";
+    throw error;
+  }
+}
+
+async function notifyWishResponse(pool, { wishId, authorId }) {
+  const owner = await pool.query(
+    `SELECT user_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")}`,
+    [wishId]
+  );
+  const ownerId = owner.rows[0]?.user_id;
+  if (!ownerId || ownerId === authorId) return;
+  await recordNotification(pool, {
+    userId: ownerId,
+    kind: "request_response",
+    title: "有一条 wish 响应",
+    body: "",
+    href: `/wish?wish=${wishId}`,
+  });
+}
+
 export async function judgeIntel(pool, id) {
   const intel = await loadIntel(pool, id);
   if (!intel || intel.verdict !== "pending") return presentIntel(intel);
-  let result = { verdict: "pass", reason: "", note: "", category: "" };
+  let result = { verdict: "pass", reason: "", note: "", category: "", language: "" };
   if (intelAgentId()) {
     const images = await imageFiles(pool, id);
     const attachments = await attachmentFiles(pool, id);
     result = await runIntelAgent(intel, images, attachments);
   }
-  if (result.verdict === "reject") {
+  if (result.verdict === "revoke") {
     const { rows } = await pool.query(
       `UPDATE intel SET verdict = 'rejected', reject_reason = $2, detail = NULL, category = ''
        WHERE id = $1 AND verdict = 'pending'
@@ -141,42 +201,19 @@ export async function judgeIntel(pool, id) {
       await recordNotification(pool, {
         userId: intel.user_id,
         kind: "intel_rejected",
-        title: "信息未通过",
+        title: "信息已撤销",
         body: result.reason,
         href: "/mine/submissions",
       });
     }
   } else {
-    const { rows } = await pool.query(
+    await pool.query(
       `UPDATE intel SET verdict = 'passed', reject_reason = NULL, category = $2, detail = $3::jsonb
-       WHERE id = $1 AND verdict = 'pending'
-       RETURNING id`,
-      [id, result.category || "", JSON.stringify({ note: result.note || "" })]
+       WHERE id = $1 AND verdict = 'pending'`,
+      [id, result.category || "", JSON.stringify({ note: result.note || "", language: result.language || "" })]
     );
-    if (rows.length) {
-      const response = intel.kind === "wishRespond" && intel.responds_to;
-      await recordNotification(pool, {
-        userId: intel.user_id,
-        kind: "intel_passed",
-        title: response ? "回应已交给发出 wish 的人" : "已留下",
-        body: result.category || "",
-        href: "/mine/submissions",
-      });
-      if (response) {
-        const owner = await pool.query(`SELECT user_id FROM intel WHERE id = $1 AND kind = 'wish'`, [intel.responds_to]);
-        const ownerId = owner.rows[0]?.user_id;
-        if (ownerId && ownerId !== intel.user_id) {
-          await recordNotification(pool, {
-            userId: ownerId,
-            kind: "request_response",
-            title: "有一条 wish 响应",
-            body: "",
-            href: `/wish?wish=${intel.responds_to}`,
-          });
-        }
-      }
-    }
   }
+  if (intel.kind === "post" || intel.kind === "fastpost" || intel.kind === "wish") touchDiscoverBoard();
   return loadPresentedIntel(pool, id);
 }
 
@@ -196,7 +233,7 @@ export function reviewFailureText(error) {
   const code = reviewFailureCode(error);
   const lead = REVIEW_LABELS[code] || "审核没有完成";
   const detail = String(error?.detail || "").replace(/\s+/g, " ").trim().slice(0, 180);
-  const tail = "这条记录仍在审核，稍后会再试。";
+  const tail = "这条记录仍然可见，稍后会再试。";
   return detail ? `${lead}（${code}）。${detail} ${tail}` : `${lead}（${code}）。${tail}`;
 }
 
@@ -291,7 +328,7 @@ export async function resumePendingReviews(pool) {
 async function assertRespondsTo(pool, requestId, userId) {
   if (!requestId) return;
   const { rows } = await pool.query(
-    `SELECT user_id FROM intel WHERE id = $1 AND kind = 'wish' AND verdict = 'passed'`,
+    `SELECT user_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")}`,
     [requestId]
   );
   if (!rows.length || rows[0].user_id === userId) {
@@ -369,6 +406,7 @@ export async function createIntel(pool, input) {
     owned = rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   }
   const videoLinks = videosOf(videos);
+  await assertAttachmentsOpen(pool, fileIds);
   await assertReachable([...imageUrls, ...audioUrls, ...fileUrls, ...videoLinks]);
   await assertRespondsTo(pool, respondsTo, userId);
   const posters = await postersFor(videoLinks);
@@ -413,6 +451,8 @@ export async function createIntel(pool, input) {
     console.error(error);
   }
   await mention(intelId);
+  if (kind === "wishRespond" && respondsTo) await notifyWishResponse(pool, { wishId: respondsTo, authorId: userId });
+  if (kind === "post" || kind === "fastpost" || kind === "wish") touchDiscoverBoard();
   if (!intelAgentId()) {
     try {
       return await judgeIntel(pool, intelId);
@@ -426,7 +466,7 @@ export async function createIntel(pool, input) {
 }
 
 const PUBLIC_INTEL_SQL = `
-  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.user_id, i.is_public, i.created_at, i.updated_at,
+  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at,
     u.display_name, u.avatar_upload_id,
     EXISTS (
       SELECT 1 FROM intel_stars s
@@ -440,7 +480,7 @@ const PUBLIC_INTEL_SQL = `
 ${FRIEND_COLUMNS}
   FROM intel i
   JOIN users u ON u.id = i.user_id
-  WHERE i.verdict = 'passed'
+  WHERE ${visibleVerdict("i.verdict")}
     AND i.is_public
     AND i.kind IN ('post', 'fastpost')
     AND ($1::uuid IS NULL OR NOT EXISTS (
@@ -480,7 +520,7 @@ export async function setIntelStar(pool, userId, intelId, starred) {
   try {
     await client.query("BEGIN");
     const found = await client.query(
-      `SELECT id FROM intel WHERE id = $1 AND verdict = 'passed' AND is_public FOR UPDATE`,
+      `SELECT id FROM intel WHERE id = $1 AND ${visibleVerdict("verdict")} AND is_public FOR UPDATE`,
       [intelId]
     );
     if (!found.rows.length) {
@@ -503,6 +543,7 @@ export async function setIntelStar(pool, userId, intelId, starred) {
       [intelId]
     );
     await client.query("COMMIT");
+    touchDiscoverBoard();
     return { starred: Boolean(starred) };
   } catch (error) {
     await client.query("ROLLBACK");
@@ -517,7 +558,7 @@ async function loadDownloadIntel(db, intelId, lock) {
     `SELECT i.id, i.user_id, i.body, i.videos, i.links, i.category, i.price, i.is_public, i.kind, i.responds_to, i.created_at, u.display_name
      FROM intel i
      JOIN users u ON u.id = i.user_id
-     WHERE i.id = $1 AND i.verdict = 'passed'
+     WHERE i.id = $1 AND ${visibleVerdict("i.verdict")}
      ${lock ? "FOR UPDATE OF i" : ""}`,
     [intelId]
   );

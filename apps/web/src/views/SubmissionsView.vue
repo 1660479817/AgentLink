@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref } from "vue";
+import ActorMark from "../components/ActorMark.vue";
 import AppButton from "../components/AppButton.vue";
 import StatusIcon from "../components/StatusIcon.vue";
 import VideoFrame from "../components/VideoFrame.vue";
@@ -21,6 +22,13 @@ onMounted(async () => {
     loaded.value = true;
   }
 });
+
+function fileNote(item) {
+  const note = String(item.kMeta?.note || "").trim();
+  if (note) return note;
+  if ((item.kMeta?.verdict || "pending") === "pending") return t("home.filePrechecked");
+  return "";
+}
 
 function statusKey(status) {
   if (status === "passed") return "submissions.statusPublished";
@@ -48,11 +56,13 @@ function pendingOf(item) {
   <p v-if="loaded && items.length === 0" class="muted">{{ t("submissions.empty") }}</p>
   <article v-for="item in items" :key="item.id" class="card post">
     <p class="information-status">
+      <ActorMark :actor="item.actor" />
       <StatusIcon :verdict="item.kMeta?.verdict || 'pending'" />
       {{ t(statusKey(item.kMeta?.verdict)) }}
     </p>
     <p class="information-time">
       <span v-if="item.kMeta?.category">{{ item.kMeta.category }} · </span>
+      <span v-if="item.kMeta?.language">{{ item.kMeta.language }} · </span>
       <span>{{ t("submissions.usePrice", { n: item.kMeta?.commerce?.price || 0 }) }}</span>
       <span v-if="item.kMeta?.kind === 'wishRespond'"> · {{ t("submissions.requestReply") }}</span>
       <span v-else-if="item.kMeta?.kind === 'wish'"> · {{ t("submissions.request") }}</span>
@@ -87,13 +97,11 @@ function pendingOf(item) {
     />
     <ul v-if="packetFile(item.attachments).length" class="information-files">
       <li v-for="file in packetFile(item.attachments)" :key="file.id">
-        <a v-if="file.url" class="information-file" :href="file.url">
+        <span class="information-file">
           <PaperclipIcon class="information-file-icon" aria-hidden="true" />
-          <span>{{ file.name || t("home.file") }}</span>
-        </a>
-        <span v-else class="information-file">
-          <PaperclipIcon class="information-file-icon" aria-hidden="true" />
-          <span>{{ file.name || t("home.file") }}</span>
+          <span class="information-file-copy">
+            <span class="information-file-name">{{ file.name || t("home.file") }}</span><span v-if="fileNote(item)" class="information-file-note">{{ t("home.fileNoteJoin", { note: fileNote(item) }) }}</span>
+          </span>
         </span>
       </li>
     </ul>

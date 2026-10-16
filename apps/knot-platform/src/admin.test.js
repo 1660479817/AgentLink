@@ -486,3 +486,30 @@ test("the admin door checks the token before it acts", async () => {
     server2.close();
   }
 });
+
+test("the economy door hands back the three numbers", async () => {
+  const app = express();
+  app.use(express.json());
+  app.use(
+    "/api/admin",
+    adminRouter({
+      pool: {
+        query: async () => ({
+          rows: [{ total: "205", platform: "5" }],
+        }),
+      },
+      token: "secret",
+    })
+  );
+  const server = await listen(app);
+  try {
+    const port = server.address().port;
+    const response = await fetch(`http://127.0.0.1:${port}/api/admin/economy`, {
+      headers: { Authorization: "Bearer secret" },
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { issued: 205, circulating: 200, platform: 5 });
+  } finally {
+    server.close();
+  }
+});

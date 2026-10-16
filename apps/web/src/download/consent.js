@@ -2,10 +2,19 @@ import { reactive, ref } from "vue";
 
 export const downloadConsent = ref(null);
 
-export function downloadCharge({ price = 0, granted = false } = {}) {
-  const amount = Number(price) || 0;
-  if (granted || amount <= 0) return 0;
-  return amount;
+export function downloadOffer({ price = 0, granted = false, mine = false, balance = 0 } = {}) {
+  const amount = Math.max(0, Number(price) || 0);
+  const points = Number(balance);
+  if (mine) return { kind: "own", amount: 0, short: false };
+  if (granted) return { kind: "again", amount: 0, short: false };
+  if (amount > 0) {
+    return { kind: "charge", amount, short: Number.isFinite(points) && points < amount };
+  }
+  return { kind: "free", amount: 0, short: false };
+}
+
+export function downloadCharge(input) {
+  return downloadOffer(input).amount;
 }
 
 function finish(result) {
@@ -18,8 +27,8 @@ function finish(result) {
 export function settleDownload(accepted) {
   const job = downloadConsent.value;
   if (!job || job.phase !== "confirm") return;
-  if (!accepted) {
-    finish(false);
+  if (!accepted || job.short) {
+    if (!accepted) finish(false);
     return;
   }
   void runTask();
@@ -46,22 +55,22 @@ async function runTask() {
   }
 }
 
-export function acceptDownload({ price = 0, granted = false, payee = "author", task, code } = {}) {
+export function acceptDownload({ price = 0, granted = false, mine = false, balance = 0, payee = "author", task, code } = {}) {
   if (downloadConsent.value?.phase === "confirm") settleDownload(false);
   if (downloadConsent.value) return Promise.resolve(false);
 
-  const amount = code ? 0 : downloadCharge({ price, granted });
-  const phase = code ? "error" : amount ? "confirm" : "working";
+  const offer = code ? { kind: "charge", amount: 0, short: false } : downloadOffer({ price, granted, mine, balance });
   return new Promise((resolve) => {
-    const job = reactive({
-      phase,
-      amount,
+    downloadConsent.value = reactive({
+      phase: code ? "error" : "confirm",
+      kind: offer.kind,
+      amount: offer.amount,
+      short: offer.short,
+      balance: Number(balance) || 0,
       payee: payee === "platform" ? "platform" : "author",
       code: code || "",
       task: typeof task === "function" ? task : null,
       resolve,
     });
-    downloadConsent.value = job;
-    if (phase === "working") void runTask();
   });
 }

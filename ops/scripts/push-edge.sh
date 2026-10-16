@@ -18,6 +18,6 @@ rsync -az --delete \
 scp "${SSH_OPTS[@]}" "$ROOT/ops/edge/knot.zenheart.net.conf" "$EDGE:/tmp/knot.zenheart.net.conf"
 
 echo "==> install site"
-ssh "${SSH_OPTS[@]}" "$EDGE" "sudo mkdir -p /var/www/knot && sudo rsync -a --delete --exclude .well-known /tmp/knot-web/ /var/www/knot/ && sudo chown -R nginx:nginx /var/www/knot && sudo cp /tmp/knot.zenheart.net.conf /etc/nginx/conf.d/knot.zenheart.net.conf && sudo nginx -t && sudo systemctl reload nginx"
+ssh "${SSH_OPTS[@]}" "$EDGE" "sudo mkdir -p /var/www/knot && sudo rsync -a --delete --exclude .well-known --exclude /discover.json --exclude /media/ /tmp/knot-web/ /var/www/knot/ && sudo chown -R nginx:nginx /var/www/knot && sudo cp /tmp/knot.zenheart.net.conf /etc/nginx/conf.d/knot.zenheart.net.conf && sudo nginx -t && sudo systemctl reload nginx"
 
 echo "OK: https://knot.zenheart.net/"

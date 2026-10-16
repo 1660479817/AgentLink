@@ -81,12 +81,16 @@ ensure_admin_token() {
   if ! grep -E -q '^KNOT_ADMIN_TOKEN=.+' "$ENV_FILE"; then
     printf 'KNOT_ADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" >>"$ENV_FILE"
   fi
-  local token dest
+  local token dest agent_id
   token="$(grep '^KNOT_ADMIN_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
-  dest="$STATE_DIR/workspace-knot-admin/.admin-token"
-  printf '%s\n' "$token" >"$dest"
-  chmod 600 "$dest"
-  echo "==> 管理员令牌已写入工作区"
+  # 管理员和精算师共用这把本机令牌，各自读自己工作区的那一份。
+  for agent_id in knot-admin knot-actuary; do
+    dest="$STATE_DIR/workspace-$agent_id/.admin-token"
+    mkdir -p "$(dirname "$dest")"
+    printf '%s\n' "$token" >"$dest"
+    chmod 600 "$dest"
+  done
+  echo "==> 管理令牌已写入管理员和精算师的工作区"
 }
 
 PATROL_MESSAGE="执行每日巡查。读工作区的 AGENTS.md、ORDERS.md 和技能 knot-admin。用 skills/knot-admin/admin 取新帖、删除、警告并记下巡查。不要自己发 HTTP。违法、欺诈、隐私或骚扰，以及 ORDERS.md 写明的对象，才删除并警告。拿不准的不要动。"

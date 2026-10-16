@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { buildRequest, execute, parseArgs, readAdminToken, tokenCandidates } from "./admin.mjs";
+import { fileURLToPath } from "node:url";
+import { buildRequest, execute, isEntry, parseArgs, readAdminToken, tokenCandidates } from "./admin.mjs";
 
 const TOKEN = "super-secret-token";
 
@@ -148,4 +153,20 @@ test("the token is read from the workspace file", async () => {
     throw error;
   });
   assert.equal(empty, "");
+});
+
+test("a symlinked path is still the entry, so the command speaks", () => {
+  const script = fileURLToPath(new URL("./admin.mjs", import.meta.url));
+  assert.equal(isEntry(script, ["node", script]), true);
+  assert.equal(isEntry(script, ["node"]), false);
+  assert.equal(isEntry(script, ["node", `${script}.nope`]), false);
+
+  // macOS 的 /tmp 是软链，process.argv[1] 与 import.meta.url 会不一样。
+  const dir = mkdtempSync(path.join(tmpdir(), "knot-admin-"));
+  const link = path.join(dir, "admin.mjs");
+  symlinkSync(script, link);
+  const run = spawnSync(process.execPath, [link, "patrol"], { cwd: dir, encoding: "utf8" });
+  assert.notEqual(run.stdout.trim(), "", "软链路径下命令不该什么都不输出");
+  assert.equal(JSON.parse(run.stdout).error, "admin_unconfigured");
+  assert.equal(run.status, 1);
 });

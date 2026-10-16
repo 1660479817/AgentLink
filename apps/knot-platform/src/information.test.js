@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardFiles, cardPreviewUrl, hasInformation, informationOf, isAttachmentUpload, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, publicOf, videosOf } from "./information.js";
+import { cardFiles, cardPreviewUrl, fileView, hasInformation, informationOf, isAttachmentUpload, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, publicOf, uploadName, videosOf } from "./information.js";
+
+test("a latin1 upload name is shown as chinese", () => {
+  const garbled = Buffer.from("今日简史.pdf", "utf8").toString("latin1");
+  assert.equal(uploadName(garbled), "今日简史.pdf");
+  assert.equal(uploadName("今日简史.pdf"), "今日简史.pdf");
+  assert.equal(uploadName("notes.pdf"), "notes.pdf");
+  assert.equal(fileView({ id: "1", mime: "application/pdf", original_name: garbled }).name, "今日简史.pdf");
+});
 
 test("a packet splits text, images, video links, and files", () => {
   const info = informationOf({

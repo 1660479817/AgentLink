@@ -17,6 +17,7 @@ import {
   warnUser,
 } from "../admin.js";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
+import { economySnapshot } from "../actuary.js";
 import { ensureUploadDir, newStorageName } from "../uploads.js";
 
 function sendAdminError(res, error) {
@@ -152,6 +153,14 @@ export function adminRouter({ pool, token, uploadDir }) {
   router.get("/patrol", async (_req, res) => {
     try {
       res.json(await patrolQueue(pool));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.get("/economy", async (_req, res) => {
+    try {
+      res.json(await economySnapshot(pool));
     } catch (error) {
       sendAdminError(res, error);
     }

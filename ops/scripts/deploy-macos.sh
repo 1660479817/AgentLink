@@ -66,6 +66,12 @@ fi
 if ! grep -q '^STATIC_WEB_DIR=' "$ENV_FILE"; then
   echo "STATIC_WEB_DIR=$KNOT_HOME/apps/web/dist" >>"$ENV_FILE"
 fi
+if ! grep -q '^KNOT_DISCOVER_PUSH_CMD=' "$ENV_FILE"; then
+  echo "KNOT_DISCOVER_PUSH_CMD=$KNOT_HOME/ops/scripts/push-discover.sh" >>"$ENV_FILE"
+fi
+if ! grep -q '^KNOT_EDGE_SSH_KEY=' "$ENV_FILE"; then
+  echo "KNOT_EDGE_SSH_KEY=$HOME/.ssh/knot-edge-publish" >>"$ENV_FILE"
+fi
 
 LAUNCH_DIR="$HOME/Library/LaunchAgents"
 mkdir -p "$LAUNCH_DIR"

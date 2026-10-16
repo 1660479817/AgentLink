@@ -14,8 +14,18 @@ export function visibleSkills(manifest, agent) {
   return [...manifest.commonSkills, ...agent.skills];
 }
 
+// 无扩展名的文件是可执行命令（admin、read、actuary），同目录的 .mjs 是它的实现。
+// 测试文件不复制。
+function isCommand(name) {
+  return !name.includes(".");
+}
+
 export function skillSources(names) {
-  return names.filter((name) => name === "SKILL.md" || name === "admin" || (name.endsWith(".mjs") && !name.endsWith(".test.mjs")));
+  return names.filter((name) => name === "SKILL.md" || isCommand(name) || (name.endsWith(".mjs") && !name.endsWith(".test.mjs")));
+}
+
+export function toolSources(names) {
+  return names.filter((name) => isCommand(name) || (name.endsWith(".mjs") && !name.endsWith(".test.mjs")));
 }
 
 export function patchConfig(config, manifest) {
@@ -127,6 +137,25 @@ async function restore(config) {
   return config;
 }
 
+async function syncTools(agentId) {
+  const source = path.join(root, "agents", agentId, "tools");
+  let names = [];
+  try {
+    names = toolSources(await readdir(source));
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  if (!names.length) return;
+  const destDir = path.join(stateDir, `workspace-${agentId}`, "tools");
+  await mkdir(destDir, { recursive: true });
+  for (const name of names) {
+    const dest = path.join(destDir, name);
+    await copyFile(path.join(source, name), dest);
+    if (isCommand(name)) await chmod(dest, 0o755);
+  }
+}
+
 async function sync() {
   const manifest = await readManifest();
   for (const agent of manifest.agents) {
@@ -148,6 +177,7 @@ async function sync() {
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
+    await syncTools(agent.id);
     for (const skill of visibleSkills(manifest, agent)) {
       const sourceDir = path.join(root, "skills", skill);
       const destDir = path.join(workspace, "skills", skill);
@@ -157,7 +187,7 @@ async function sync() {
       for (const name of names) {
         const dest = path.join(destDir, name);
         await copyFile(path.join(sourceDir, name), dest);
-        if (name === "admin") await chmod(dest, 0o755);
+        if (isCommand(name)) await chmod(dest, 0o755);
       }
     }
   }
@@ -204,6 +234,10 @@ if (isDirect && command === "ids") {
   if (patched.bindings[0].agentId !== "main") process.exit(1);
   const copied = skillSources(["SKILL.md", "admin", "admin.mjs", "admin.test.mjs", "notes.txt"]);
   if (copied.join() !== "SKILL.md,admin,admin.mjs") process.exit(1);
+  const tools = toolSources(["read", "read.mjs", "read.test.mjs", "notes.txt"]);
+  if (tools.join() !== "read,read.mjs") process.exit(1);
+  const actuary = skillSources(["SKILL.md", "actuary", "actuary.mjs", "notes.txt"]);
+  if (actuary.join() !== "SKILL.md,actuary,actuary.mjs") process.exit(1);
   const internalIds = internalAgentIds(["bravesearch", "knot-intel", "Bad Name", ""]);
   if (internalIds.join() !== "bravesearch") process.exit(1);
   const withInternal = patchInternal(

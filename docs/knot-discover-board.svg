@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="520" viewBox="0 0 1080 520">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 1.2 L 10 5 L 0 8.8 Z" fill="#222"/>
+    </marker>
+  </defs>
+  <rect width="1080" height="520" fill="#ffffff"/>
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.6">
+    <rect x="24" y="36" width="236" height="76" rx="8"/>
+    <rect x="300" y="36" width="236" height="76" rx="8"/>
+    <rect x="576" y="36" width="264" height="76" rx="8"/>
+    <rect x="880" y="36" width="176" height="76" rx="8"/>
+    <rect x="24" y="188" width="272" height="90" rx="8"/>
+    <rect x="344" y="188" width="280" height="90" rx="8"/>
+    <rect x="664" y="188" width="392" height="90" rx="8"/>
+    <rect x="24" y="352" width="560" height="92" rx="8"/>
+  </g>
+  <g fill="none" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)">
+    <line x1="260" y1="74" x2="296" y2="74"/>
+    <line x1="536" y1="74" x2="572" y2="74"/>
+    <line x1="840" y1="74" x2="876" y2="74"/>
+    <path d="M 968 112 V 152 H 484 V 184"/>
+    <line x1="296" y1="233" x2="340" y2="233"/>
+    <line x1="624" y1="233" x2="660" y2="233"/>
+    <path d="M 860 278 V 300 H 140 V 282"/>
+    <line x1="200" y1="278" x2="200" y2="348"/>
+  </g>
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
+    <text x="142" y="64" font-size="15" font-weight="600" fill="#111">公开内容变化</text>
+    <text x="142" y="86" font-size="12" fill="#333">提交 · 终审留下或撤销</text>
+    <text x="142" y="103" font-size="12" fill="#333">点星 · 管理员撤下</text>
+    <text x="418" y="64" font-size="15" font-weight="600" fill="#111">Backend 组装快照</text>
+    <text x="418" y="86" font-size="12" fill="#333">公开的 post、fastpost</text>
+    <text x="418" y="103" font-size="12" fill="#333">以及全部 wish</text>
+    <text x="708" y="64" font-size="15" font-weight="600" fill="#111">board 目录</text>
+    <text x="708" y="86" font-size="12" fill="#333">discover.json</text>
+    <text x="708" y="103" font-size="12" fill="#333">media/previews/</text>
+    <text x="968" y="64" font-size="15" font-weight="600" fill="#111">push-discover.sh</text>
+    <text x="968" y="86" font-size="12" fill="#333">推到云端</text>
+    <text x="968" y="103" font-size="12" fill="#333">/var/www/knot</text>
+    <text x="278" y="64" font-size="12" fill="#333">变化</text>
+    <text x="554" y="64" font-size="12" fill="#333">写入</text>
+    <text x="858" y="64" font-size="12" fill="#333">推送</text>
+    <text x="726" y="146" font-size="12" fill="#333">推上去</text>
+    <text x="318" y="223" font-size="12" fill="#333">读</text>
+    <text x="642" y="223" font-size="12" fill="#333">没有快照时</text>
+    <text x="500" y="294" font-size="12" fill="#333">实时结果</text>
+    <text x="232" y="330" font-size="12" fill="#333">有会话时</text>
+    <text x="160" y="218" font-size="15" font-weight="600" fill="#111">/discover 浏览器</text>
+    <text x="160" y="242" font-size="12" fill="#333">未登录也读这份快照</text>
+    <text x="160" y="262" font-size="12" fill="#333">同源读 /discover.json</text>
+    <text x="484" y="218" font-size="15" font-weight="600" fill="#111">云端 nginx</text>
+    <text x="484" y="242" font-size="12" fill="#333">有快照就给这一份</text>
+    <text x="484" y="262" font-size="12" fill="#333">/var/www/knot/discover.json</text>
+    <text x="860" y="218" font-size="15" font-weight="600" fill="#111">回落：经隧道到 Backend</text>
+    <text x="860" y="242" font-size="12" fill="#333">GET /api/web/information</text>
+    <text x="860" y="262" font-size="12" fill="#333">GET /api/web/requests</text>
+    <text x="304" y="386" font-size="15" font-weight="600" fill="#111">登录后叠加当前账户的状态</text>
+    <text x="304" y="410" font-size="12" fill="#333">POST /api/web/discover-self</text>
+    <text x="304" y="430" font-size="12" fill="#333">关掉的 · 星 · 好友 · 已下载 · 自己发的 · 已授予的音频</text>
+  </g>
+</svg>

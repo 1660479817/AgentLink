@@ -1,21 +1,25 @@
 import { Router } from "express";
 import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
+import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
-import { isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, videosOf } from "../information.js";
+import { isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videosOf, visibleVerdict } from "../information.js";
 import { readMedia } from "../links.js";
 import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
+import { loadDiscoverSelf, emptyDiscoverSelf } from "../discoverBoard.js";
 import { createIntel, downloadPacket, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar } from "../market.js";
 import { listNotifications, markNotificationsRead } from "../notifications.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
 import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
 import { muteState } from "../account.js";
+import { economyReport } from "../actuary.js";
 import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
 import { ensureCardPreview, previewReadable } from "../preview.js";
 import { listPublicSponsors } from "../sponsors.js";
+import { attachmentOpens } from "../readable.js";
+import { avatarUrlFor } from "../avatars.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
 const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until`;
@@ -27,7 +31,7 @@ function presentUser(row) {
     id: row.id,
     email: row.email,
     displayName: row.display_name || "",
-    avatarUrl: row.avatar_upload_id ? publicUploadUrl(row.avatar_upload_id) : null,
+    avatarUrl: avatarUrlFor(row),
     level: row.level,
     entitlements,
     pointsBalance: row.points_balance,
@@ -45,7 +49,7 @@ function attachmentOf(row) {
   const mime = row.mime || "";
   return {
     id: row.id,
-    name: row.original_name || "",
+    name: uploadName(row.original_name),
     mime,
     url: publicUploadUrl(row.id),
     image: mime.startsWith("image/"),
@@ -65,6 +69,7 @@ function httpError(res, error) {
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
   if (code === "muted") return res.status(403).json({ error: "muted" });
   if (code === "bad_mention") return res.status(400).json({ error: "bad_mention" });
+  if (code === "unreadable_file") return res.status(400).json({ error: "unreadable_file" });
   if (code === "not_found") return res.status(404).json({ error: "not_found" });
   console.error(error);
   return res.status(503).json({ error: "process_unavailable" });
@@ -240,7 +245,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       next();
     });
   }, async (req, res) => {
-    const name = path.basename(req.file.originalname || "").slice(0, 180);
+    const name = uploadName(req.file.originalname);
     const { rows } = await pool.query(
       `INSERT INTO uploads (user_id, storage_name, mime, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
       [req.user.id, req.file.filename, req.file.mimetype, name || null]
@@ -266,7 +271,17 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       next();
     });
   }, async (req, res) => {
-    const name = path.basename(req.file.originalname || "").slice(0, 180);
+    const name = uploadName(req.file.originalname);
+    try {
+      const buffer = await readFile(req.file.path);
+      if (!attachmentOpens(name, buffer)) {
+        await rm(req.file.path, { force: true });
+        return res.status(400).json({ error: "unreadable_file" });
+      }
+    } catch {
+      await rm(req.file.path, { force: true });
+      return res.status(400).json({ error: "unreadable_file" });
+    }
     const { rows } = await pool.query(
       `INSERT INTO uploads (user_id, storage_name, mime, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
       [req.user.id, req.file.filename, req.file.mimetype, name || null]
@@ -281,7 +296,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
 
   router.get("/uploads/:id", async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT u.storage_name, u.mime, u.user_id,
+      `SELECT u.storage_name, u.mime, u.original_name, u.user_id,
               EXISTS (SELECT 1 FROM users p WHERE p.avatar_upload_id = u.id) AS avatar,
               EXISTS (SELECT 1 FROM sponsors s WHERE s.image_upload_id = u.id) AS sponsor
        FROM uploads u
@@ -292,6 +307,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     const row = rows[0];
     const owner = Boolean(req.user && req.user.id === row.user_id);
     const image = String(row.mime || "").startsWith("image/");
+    if (isAttachmentUpload({ originalname: row.original_name || row.storage_name })) return res.status(404).end();
     if (image && !row.avatar && !row.sponsor && !owner) return res.status(404).end();
     const filePath = storagePath(uploadDir, row.storage_name);
     if (!fs.existsSync(filePath)) return res.status(404).end();
@@ -361,7 +377,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/submissions", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT id, body, videos, links, content_hash, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at
+      `SELECT id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at
        FROM intel
        WHERE user_id = $1 AND door = 'webui'
        ORDER BY created_at DESC`,
@@ -453,9 +469,27 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.json({ sponsors: await listPublicSponsors(pool) });
   });
 
+  // 第二期：现实汇率与经济运行（聚合数据，无个人隐私，公开可读）。
+  router.get("/economy", async (_req, res) => {
+    try {
+      res.json(await economyReport(pool));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "internal" });
+    }
+  });
+
   router.get("/information", async (req, res) => {
     const rows = await listPublicIntel(pool, 30, req.user?.id || null);
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
+  });
+
+  router.post("/discover-self", async (req, res) => {
+    if (!req.user) return res.json(emptyDiscoverSelf());
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))]
+      .filter((id) => INTEL_ID.test(id))
+      .slice(0, 80);
+    res.json(await loadDiscoverSelf(pool, req.user.id, ids));
   });
 
   router.post("/intel/:id/dismiss", async (req, res) => {
@@ -464,7 +498,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return res.status(404).json({ error: "not_found" });
     }
-    const { rows } = await pool.query(`SELECT id FROM intel WHERE id = $1 AND verdict = 'passed' AND is_public`, [id]);
+    const { rows } = await pool.query(`SELECT id FROM intel WHERE id = $1 AND ${visibleVerdict("verdict")} AND is_public`, [id]);
     if (!rows.length) return res.status(404).json({ error: "not_found" });
     await pool.query(
       `INSERT INTO intel_dismissals (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -494,7 +528,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/stars", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.is_public, i.created_at, i.updated_at, u.display_name, u.avatar_upload_id,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, u.display_name, u.avatar_upload_id,
         TRUE AS starred,
         (i.user_id = $1 OR EXISTS (
           SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
@@ -503,7 +537,7 @@ ${FRIEND_COLUMNS}
        FROM intel_stars s
        JOIN intel i ON i.id = s.intel_id
        JOIN users u ON u.id = i.user_id
-       WHERE s.user_id = $1 AND i.verdict = 'passed' AND i.is_public
+       WHERE s.user_id = $1 AND ${visibleVerdict("i.verdict")} AND i.is_public
          AND NOT EXISTS (
            SELECT 1 FROM intel_dismissals d
            WHERE d.intel_id = i.id AND d.user_id = s.user_id

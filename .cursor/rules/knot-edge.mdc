@@ -1,16 +1,17 @@
 ---
-description: knot.zenheart.net 只部署 WebUI，API 经隧道回 bot01
+description: knot.zenheart.net 只部署 WebUI 和公开快照，API 经隧道回 bot01
 alwaysApply: true
 ---
 
 # 云端边缘
 
-`knot.zenheart.net` 只放 WebUI。平台、数据库、OpenClaw 仍在 bot01。用户明确要求更新云端页面时，在开发机执行 `./ops/scripts/push-edge.sh`。不要在云端起 Knot Backend 或 Postgres。
+`knot.zenheart.net` 只放 WebUI 和发现页的公开快照。平台、数据库、OpenClaw 仍在 bot01。用户明确要求更新云端页面时，在开发机执行 `./ops/scripts/push-edge.sh`（它用 `--exclude /discover.json --exclude /media/` 跳过快照，不会把快照删掉）。不要在云端起 Knot Backend 或 Postgres。
 
 - 实例：`ap-east-1` 的 `i-0efad2ed59a4d023c`，`ec2-user@16.162.24.182`。登录用 `~/.ssh/id_rsa`，不要用 `id_ed25519`。
 - AWS 密钥在开发机 `~/.zshenv`（`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_DEFAULT_REGION=ap-east-1`）。不进仓库，不作废，除非用户明确要求。
 - 域名经 Cloudflare 指到这台 nginx。证书由 Certbot 管，不要改 `ssl_certificate` 那几行。
 - 同一台机器上的 ZenHeart 占用 `127.0.0.1:8080`。不要改 `aiugc.conf`，不要把 Knot 隧道绑到 8080。
 - WebUI 目录是 `/var/www/knot`。配置在 `ops/edge/knot.zenheart.net.conf`。`/api/` 和 `/help` 反代到 `127.0.0.1:18080`。`/api/admin` 在边缘返回 404。
+- `/discover.json` 和 `/media/previews/` 也在 `/var/www/knot`，由 bot01 的 `ops/scripts/push-discover.sh` 推上来（Backend 走 `KNOT_DISCOVER_PUSH_CMD`）。云端有就先给这一份，缺了用 `try_files` 回落隧道。要改快照逻辑，改推送脚本或 Backend 的组装，不要在云端手改文件。
 - bot01 的 LaunchAgent `com.knot.edge-tunnel` 执行 `ops/scripts/run-edge-tunnel.sh`：用 `~/.ssh/knot-edge` 以 `knot-tunnel` 连出，把云端 `127.0.0.1:18080` 转到本机 `127.0.0.1:8080`。私钥不进仓库。
 - 端到端：`E2E_BASE=https://knot.zenheart.net E2E_COOKIE='knot_sid=…' npm run e2e`。Cookie 用测试员规则里的那一条。

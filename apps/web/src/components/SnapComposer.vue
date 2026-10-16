@@ -2,15 +2,16 @@
 import { computed, nextTick, onUnmounted, ref } from "vue";
 import AppButton from "./AppButton.vue";
 import MentionPicker from "./MentionPicker.vue";
-import { createIntel, uploadImage } from "../api.js";
 import { errorText, MAX_IMAGES, readOptionalPrice, requireSession } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
 import { AtIcon, CameraIcon, CloseIcon, PlusIcon } from "../icons/index.js";
+import { packetDraft, useOutboxStore } from "../stores/outbox";
 import { useSessionStore } from "../stores/session";
 
 const emit = defineEmits(["close", "done"]);
 
 const session = useSessionStore();
+const outbox = useOutboxStore();
 const body = ref("");
 const mentions = ref([]);
 const mentionOpen = ref(false);
@@ -71,7 +72,7 @@ function removePhoto(index) {
 
 onUnmounted(clearPreviews);
 
-async function submit() {
+function submit() {
   if (!canSend.value || busy.value) return;
   error.value = "";
   const priced = images.value.length ? readOptionalPrice(price.value, session.policy) : { ok: true, price: undefined };
@@ -79,24 +80,23 @@ async function submit() {
     error.value = errorText("bad_price", session.policy);
     return;
   }
-  busy.value = true;
   try {
     requireSession(session.user);
-    const imageIds = [];
-    for (const file of images.value) {
-      const data = await uploadImage(file);
-      imageIds.push(data.id);
-    }
-    const extra = { kind: "fastpost", public: isPublic.value };
-    if (imageIds.length && priced.price !== undefined) extra.price = priced.price;
-    if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
-    await createIntel(body.value.trim(), imageIds, [], extra);
-    emit("done");
   } catch (err) {
     error.value = errorText(err.code, session.policy);
-  } finally {
-    busy.value = false;
+    return;
   }
+  const extra = { kind: "fastpost", public: isPublic.value };
+  if (images.value.length && priced.price !== undefined) extra.price = priced.price;
+  if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
+  busy.value = true;
+  outbox.enqueue(packetDraft({
+    body: body.value.trim(),
+    images: images.value,
+    extra,
+    policy: session.policy,
+  }));
+  emit("done");
 }
 
 nextTick(openCamera);

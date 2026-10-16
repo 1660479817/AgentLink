@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="720" viewBox="0 0 1120 720">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 1.2 L 10 5 L 0 8.8 Z" fill="#222"/>
+    </marker>
+  </defs>
+  <rect width="1120" height="720" fill="#ffffff"/>
+
+  <!-- 第一行：提交 → 预审 → 入库 → 终审；预审不过往下到不入库 -->
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.6">
+    <rect x="24" y="40" width="180" height="64" rx="8"/>
+    <rect x="248" y="40" width="240" height="64" rx="8"/>
+    <rect x="248" y="176" width="240" height="64" rx="8"/>
+    <rect x="532" y="40" width="232" height="64" rx="8"/>
+    <rect x="808" y="40" width="224" height="64" rx="8"/>
+  </g>
+
+  <!-- 第二行：终审交回的三种结果 -->
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.6">
+    <rect x="32" y="300" width="328" height="100" rx="8"/>
+    <rect x="396" y="300" width="328" height="100" rx="8"/>
+    <rect x="760" y="300" width="328" height="100" rx="8"/>
+  </g>
+
+  <!-- 公开范围 -->
+  <rect x="32" y="440" width="1056" height="248" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.6">
+    <rect x="64" y="524" width="328" height="124" rx="8"/>
+    <rect x="396" y="524" width="328" height="124" rx="8"/>
+    <rect x="728" y="524" width="328" height="124" rx="8"/>
+  </g>
+
+  <!-- 箭头 -->
+  <g fill="none" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)">
+    <line x1="204" y1="72" x2="244" y2="72"/>
+    <line x1="488" y1="72" x2="528" y2="72"/>
+    <line x1="764" y1="72" x2="804" y2="72"/>
+    <line x1="368" y1="104" x2="368" y2="172"/>
+    <path d="M 920 104 V 250"/>
+    <path d="M 196 250 H 924"/>
+    <path d="M 196 250 V 296"/>
+    <path d="M 560 250 V 296"/>
+    <path d="M 924 250 V 296"/>
+  </g>
+
+  <!-- 第一行的字 -->
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
+    <text x="114" y="68" font-size="16" font-weight="600" fill="#111">提交</text>
+    <text x="114" y="90" font-size="12" fill="#333">post · fastpost · wish</text>
+    <text x="368" y="68" font-size="16" font-weight="600" fill="#111">预审</text>
+    <text x="368" y="90" font-size="12" fill="#333">写入之前由 Backend 完成</text>
+    <text x="368" y="204" font-size="16" font-weight="600" fill="#111">不入库</text>
+    <text x="368" y="226" font-size="12" fill="#333">预审没有通过，不写记录</text>
+    <text x="648" y="68" font-size="16" font-weight="600" fill="#111">入库</text>
+    <text x="648" y="90" font-size="12" fill="#333">终审进行中，暂时可见</text>
+    <text x="920" y="68" font-size="16" font-weight="600" fill="#111">终审</text>
+    <text x="920" y="90" font-size="12" fill="#333">数据评审员</text>
+  </g>
+
+  <!-- 箭头上的字 -->
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="12" fill="#333">
+    <text x="506" y="62" text-anchor="middle">通过</text>
+    <text x="380" y="146">不通过</text>
+  </g>
+
+  <!-- 终审交回 -->
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
+    <text x="196" y="338" font-size="16" font-weight="600" fill="#111">留下</text>
+    <text x="196" y="364" font-size="13" fill="#333">写入类别，保持可见</text>
+    <text x="196" y="386" font-size="12" fill="#333">verdict = passed</text>
+    <text x="560" y="338" font-size="16" font-weight="600" fill="#111">评审未完成</text>
+    <text x="560" y="364" font-size="13" fill="#333">仍然可见，稍后重试</text>
+    <text x="560" y="386" font-size="12" fill="#333">verdict 保持 pending</text>
+    <text x="924" y="338" font-size="16" font-weight="600" fill="#111">撤销</text>
+    <text x="924" y="364" font-size="13" fill="#333">离开可见范围，通知作者</text>
+    <text x="924" y="386" font-size="12" fill="#333">verdict = rejected</text>
+  </g>
+
+  <!-- 公开范围的字 -->
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="64" y="478" font-size="18" font-weight="600" fill="#111">公开范围</text>
+    <text x="64" y="504" font-size="13" fill="#333">预审通过后就按这里可见。终审进行中（pending）和终审留下（passed）都算。</text>
+  </g>
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
+    <text x="228" y="562" font-size="15" font-weight="600" fill="#111">post、fastpost 公开</text>
+    <text x="228" y="590" font-size="13" fill="#333">出现在信息流和搜索</text>
+    <text x="228" y="616" font-size="12" fill="#333">公开由作者设定，缺省为开</text>
+    <text x="560" y="562" font-size="15" font-weight="600" fill="#111">post、fastpost 不公开</text>
+    <text x="560" y="590" font-size="13" fill="#333">只有作者的提交</text>
+    <text x="560" y="616" font-size="12" fill="#333">别人看不到这一条</text>
+    <text x="892" y="562" font-size="15" font-weight="600" fill="#111">wish</text>
+    <text x="892" y="590" font-size="13" fill="#333">出现在 /wish，不进信息流</text>
+    <text x="892" y="616" font-size="12" fill="#333">wishRespond 只给发出那条 wish 的人看</text>
+  </g>
+  <text x="64" y="676" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="13" fill="#333">终审撤销后离开上面的范围，不再接受新的查看、下载和响应。已经完成的不追回。</text>
+</svg>

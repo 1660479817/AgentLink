@@ -3,11 +3,18 @@
 目标机：`ssh zenwang_bot01@192.168.3.91`（macOS + Homebrew）。
 
 ```text
-浏览器 → http://192.168.3.91:8080/
+浏览器 → https://knot.zenheart.net/                 （云端边缘）
+            ├── /                 Knot WebUI（/var/www/knot）
+            ├── /discover.json    公开快照，文件在云端，缺失时回落隧道
+            ├── /media/previews/  公开快照的预览图，同上
+            ├── /api/*            ──隧道──→ bot01
+            └── /help             ──隧道──→ bot01
+浏览器 → http://192.168.3.91:8080/                  （bot01，局域网直连）
             ├── /       Knot WebUI（apps/web/dist）
             └── /api/*  Knot Backend
 Knot Backend → 127.0.0.1:5433 (PostgreSQL)
 Knot Backend → 127.0.0.1:18789 (OpenClaw Gateway，只监听本机)
+Knot Backend → 公开快照 → 云端 /var/www/knot
 Personal Agent → /api/agent/*
 ```
 
@@ -19,7 +26,7 @@ Personal Agent → /api/agent/*
 ./ops/scripts/push-deploy-91.sh
 ```
 
-脚本把仓库同步到 `~/knot/AgentLink`，再在目标机执行 `ops/scripts/deploy-macos.sh`：安装依赖、构建 WebUI、迁移数据库、用 LaunchAgent 启动 Postgres 与 Knot Backend，并按 [ops/openclaw](./openclaw/README.md) 同步数据评审员、管理员和 `internal_agent/` 里的内部 Personal Agent。
+脚本把仓库同步到 `~/knot/AgentLink`，再在目标机执行 `ops/scripts/deploy-macos.sh`：安装依赖、构建 WebUI、迁移数据库、用 LaunchAgent 启动 Postgres 与 Knot Backend，把 `KNOT_DISCOVER_PUSH_CMD` 和 `KNOT_EDGE_SSH_KEY` 补进环境文件，并按 [ops/openclaw](./openclaw/README.md) 同步数据评审员、管理员、精算师和 `internal_agent/` 里的内部 Personal Agent。
 
 已在目标机上时：
 
@@ -61,7 +68,9 @@ cd ~/knot/AgentLink
 
 ## knot.zenheart.net
 
-云端只放 WebUI。`/api` 和 `/help` 由 bot01 主动连出的隧道回到本机平台。云端 `127.0.0.1:8080` 是另一套站点，隧道使用 `127.0.0.1:18080`。`/api/admin` 不公开。
+云端放 WebUI 和发现页的公开快照。`/api` 和 `/help` 由 bot01 主动连出的隧道回到本机平台。云端 `127.0.0.1:8080` 是另一套站点，隧道使用 `127.0.0.1:18080`。`/api/admin` 不公开。
+
+`/discover.json` 和 `/media/previews/` 是 `root /var/www/knot` 下的文件。云端有就先给这一份，缺失时 `try_files` 回落到隧道。这样隧道断开时 `/discover` 仍能看到公开信息。配置在 `ops/edge/knot.zenheart.net.conf`。
 
 在开发机构建并换上页面：
 
@@ -69,7 +78,15 @@ cd ~/knot/AgentLink
 ./ops/scripts/push-edge.sh
 ```
 
-隧道密钥只在 bot01 的 `~/.ssh/knot-edge`，不进仓库。LaunchAgent 是 `com.knot.edge-tunnel`。
+它同步 `apps/web/dist`、安装 nginx 配置，并用 `--exclude /discover.json --exclude /media/` 跳过快照，不会把快照删掉。
+
+快照由平台自动推送：公开内容变化后 Backend 写下 `DISCOVER_BOARD_DIR`，再执行 `KNOT_DISCOVER_PUSH_CMD`，缺省是 `ops/scripts/push-discover.sh`。脚本 `rsync` 到云端 `/tmp`，再 `sudo cp` 进 `/var/www/knot` 并 `chown nginx:nginx`。也可以手动补推：
+
+```bash
+./ops/scripts/push-discover.sh <board 目录>
+```
+
+隧道密钥只在 bot01 的 `~/.ssh/knot-edge`，不进仓库。LaunchAgent 是 `com.knot.edge-tunnel`。推页面和推快照用另一把密钥，bot01 上由 `deploy-macos.sh` 写进环境文件的 `KNOT_EDGE_SSH_KEY`（缺省 `~/.ssh/knot-edge-publish`）。
 
 ## 环境
 

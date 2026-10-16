@@ -2,10 +2,10 @@
 import { computed, nextTick, ref, watch } from "vue";
 import AppButton from "./AppButton.vue";
 import MentionPicker from "./MentionPicker.vue";
-import { createIntel, uploadAttachment, uploadAudio, uploadImage } from "../api.js";
 import { ATTACHMENT_ACCEPT, errorText, nameMark, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
 import { AtIcon, AudioIcon, CloseIcon, CoinIcon, ImageIcon, PaperclipIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
+import { packetDraft, useOutboxStore } from "../stores/outbox";
 import { useSessionStore } from "../stores/session";
 
 const props = defineProps({
@@ -17,6 +17,7 @@ const props = defineProps({
 const emit = defineEmits(["activate", "close", "done"]);
 
 const session = useSessionStore();
+const outbox = useOutboxStore();
 const body = ref("");
 const mentions = ref([]);
 const mentionOpen = ref(false);
@@ -144,16 +145,7 @@ function pickAudio(event) {
   if (file) setAudio(file);
 }
 
-async function uploadIds(list, upload) {
-  const ids = [];
-  for (const file of list) {
-    const data = await upload(file);
-    ids.push(data.id);
-  }
-  return ids;
-}
-
-async function submit() {
+function submit() {
   if (!canSend.value || busy.value) return;
   error.value = "";
   const link = readVideoLink(video.value);
@@ -161,35 +153,31 @@ async function submit() {
     error.value = t("home.badVideo");
     return;
   }
-  if (hasUpload.value && !readOptionalPrice(price.value, session.policy).ok) {
+  const priced = readOptionalPrice(price.value, session.policy);
+  if (hasUpload.value && !priced.ok) {
     error.value = errorText("bad_price", session.policy);
     return;
   }
-  busy.value = true;
   try {
     requireSession(session.user);
-    const link = readVideoLink(video.value);
-    const priced = readOptionalPrice(price.value, session.policy);
-    const imageIds = await uploadIds(images.value, uploadImage);
-    const fileIds = await uploadIds(
-      files.value.map((item) => item.file),
-      uploadAttachment
-    );
-    const extra = { kind: "post", public: isPublic.value };
-    if (audio.value) {
-      const uploaded = await uploadAudio(audio.value.file);
-      extra.audioIds = [uploaded.id];
-    }
-    if (hasUpload.value && priced.price !== undefined) extra.price = priced.price;
-    if (link) extra.videos = [link];
-    if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
-    await createIntel(body.value.trim(), imageIds, fileIds, extra);
-    emit("done");
   } catch (err) {
     error.value = errorText(err.code, session.policy);
-  } finally {
-    busy.value = false;
+    return;
   }
+  const extra = { kind: "post", public: isPublic.value };
+  if (hasUpload.value && priced.price !== undefined) extra.price = priced.price;
+  if (link) extra.videos = [link];
+  if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
+  busy.value = true;
+  outbox.enqueue(packetDraft({
+    body: body.value.trim(),
+    images: images.value,
+    files: files.value.map((item) => item.file),
+    audio: audio.value?.file || null,
+    extra,
+    policy: session.policy,
+  }));
+  emit("done");
 }
 </script>
 

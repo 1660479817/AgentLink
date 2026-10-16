@@ -42,18 +42,18 @@ export function previewFrame(count, width = PREVIEW_WIDTH) {
     };
   }
   const height = width;
-  const left = Math.round(((width - GAP) * 1.4) / 2.4);
-  const right = width - GAP - left;
-  const row = Math.floor((height - GAP * 2) / 3);
-  const last = height - (row + GAP) * 2;
+  const cellW = Math.floor((width - GAP) / 2);
+  const cellH = Math.floor((height - GAP) / 2);
+  const right = width - GAP - cellW;
+  const bottom = height - GAP - cellH;
   return {
     width,
     height,
     cells: [
-      { x: 0, y: 0, w: left, h: height },
-      { x: left + GAP, y: 0, w: right, h: row },
-      { x: left + GAP, y: row + GAP, w: right, h: row },
-      { x: left + GAP, y: (row + GAP) * 2, w: right, h: last },
+      { x: 0, y: 0, w: cellW, h: cellH },
+      { x: cellW + GAP, y: 0, w: right, h: cellH },
+      { x: 0, y: cellH + GAP, w: cellW, h: bottom },
+      { x: cellW + GAP, y: cellH + GAP, w: right, h: bottom },
     ],
   };
 }
@@ -79,7 +79,10 @@ export async function writeCardPreview(sources, dest) {
       frame.cells.map(async (cell, index) => ({
         input: await sharp(images[index])
           .rotate()
-          .resize(cell.w, cell.h, { fit: "cover", position: "centre" })
+          .resize(cell.w, cell.h, {
+            fit: "contain",
+            background: { r: 255, g: 255, b: 255 },
+          })
           .jpeg({ quality: JPEG_QUALITY })
           .toBuffer(),
         left: cell.x,
@@ -152,7 +155,7 @@ export async function previewReadable(pool, intelId, userId) {
   const row = rows[0];
   if (!row || !row.has_image) return false;
   if (userId && row.user_id === userId) return true;
-  if (row.verdict === "passed" && row.is_public && (row.kind === "post" || row.kind === "fastpost")) return true;
+  if ((row.verdict === "pending" || row.verdict === "passed") && row.is_public && (row.kind === "post" || row.kind === "fastpost")) return true;
   if (!userId) return false;
   const paid = await pool.query(`SELECT 1 FROM packet_downloads WHERE intel_id = $1 AND user_id = $2`, [intelId, userId]);
   if (paid.rows.length) return true;

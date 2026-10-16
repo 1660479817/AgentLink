@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
+import OutboxNotice from "../components/OutboxNotice.vue";
 import RememberLoginCard from "../components/RememberLoginCard.vue";
 import { BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
@@ -189,6 +190,7 @@ onMounted(() => {
       </nav>
       <main id="main-content" class="layout">
         <RememberLoginCard />
+        <OutboxNotice />
         <slot />
       </main>
       <aside v-if="sponsors.length" class="rail rail-sponsor" :aria-label="t('rail.sponsored')">

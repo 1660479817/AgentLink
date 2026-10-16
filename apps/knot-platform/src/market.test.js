@@ -23,14 +23,14 @@ test("text is free and a blank file price uses the default", () => {
   assert.throws(() => packetPrice(1, 1.5), (error) => error.code === "bad_price");
 });
 
-test("a review failure names the exception and says the record stays pending", () => {
+test("a review failure names the exception and says the record stays visible", () => {
   const error = new Error("agent_timeout");
   error.detail = "openclaw timed out";
   const text = reviewFailureText(error);
   assert.match(text, /数据评审员超时/);
   assert.match(text, /agent_timeout/);
   assert.match(text, /openclaw timed out/);
-  assert.match(text, /仍在审核/);
+  assert.match(text, /仍然可见/);
 });
 
 test("the same review failure is told once, and a new one is told again", async () => {

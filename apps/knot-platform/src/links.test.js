@@ -66,6 +66,53 @@ test("a card hides a stored original and keeps an external url", () => {
   assert.equal(record.images[1].url, "https://example.com/a.jpg");
   assert.equal(record.images[1].stored, false);
   assert.equal(record.previewUrl, "/api/web/previews/a1");
+  assert.equal(record.kMeta.note, "");
+});
+
+test("a card keeps the reviewer note and ignores a review error", () => {
+  const record = toRecord({
+    id: "a2",
+    kind: "post",
+    verdict: "passed",
+    detail: { note: "  曾国藩传记  ", language: " zh ", reviewError: "agent_timeout" },
+  });
+  assert.equal(record.kMeta.note, "曾国藩传记");
+  assert.equal(record.kMeta.language, "zh");
+});
+
+test("a card shows an attachment name and keeps the file address off it", () => {
+  const record = toRecord(
+    {
+      id: "a2",
+      kind: "post",
+      body: "原文",
+      price: 10,
+      is_public: true,
+      verdict: "passed",
+      links: { attachments: [{ url: "https://example.com/a.pdf", name: "外链.pdf" }] },
+    },
+    {
+      files: [{ id: ID, name: "书.pdf", mime: "application/pdf", url: `/api/web/uploads/${ID}` }],
+      granted: true,
+    }
+  );
+  assert.equal(record.attachments[0].name, "书.pdf");
+  assert.equal(record.attachments[0].url, undefined);
+  assert.equal(record.attachments[1].name, "外链.pdf");
+  assert.equal(record.attachments[1].url, undefined);
+  const audio = toRecord(
+    { id: "a3", kind: "post", body: "", links: {} },
+    { files: [{ name: "一段.mp3", mime: "audio/mpeg", url: "/api/web/uploads/audio", audio: true }], granted: true }
+  );
+  assert.equal(audio.audio[0].url, "/api/web/uploads/audio");
+});
+
+test("a card keeps who wrote it", () => {
+  assert.equal(toRecord({ id: "p", actor: "person" }).actor, "person");
+  assert.equal(toRecord({ id: "a", actor: "personal_agent" }).actor, "personal_agent");
+  assert.equal(toRecord({ id: "f", actor: "platform" }).actor, "platform");
+  assert.equal(toRecord({ id: "x" }).actor, undefined);
+  assert.equal(toRecord({ id: "y", actor: "other" }).actor, undefined);
 });
 
 test("a wish pays the platform", () => {

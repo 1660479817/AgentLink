@@ -1,13 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import { honorList, muteState } from "./account.js";
+import { touchDiscoverBoard } from "./discoverPublish.js";
 import { recordNotification } from "./notifications.js";
-import { applyPoints } from "./points.js";
+import { applyPoints, economyConfig } from "./points.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WITHIN = /^(\d+)(h|d|w)$/;
 const REASON_MAX = 500;
 const REPORT_MAX = 2000;
-const GRANT_MAX = 100_000;
 const LEVEL_MAX = 100;
 const HONOR_MAX = 8;
 const HONOR_NAME = 20;
@@ -196,6 +196,7 @@ export async function removePost(pool, id, reason) {
     href: "/mine/submissions",
   });
   await writeAction(pool, { action: "remove", userId: rows[0].user_id, intelId: id, body: text });
+  touchDiscoverBoard();
   return { ok: true, already: false, id, userId: rows[0].user_id };
 }
 
@@ -203,7 +204,7 @@ export function grantAmount(value) {
   const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
   if (!/^[1-9]\d*$/.test(text)) throw fail("bad_amount");
   const amount = Number(text);
-  if (!Number.isSafeInteger(amount) || amount > GRANT_MAX) throw fail("bad_amount");
+  if (!Number.isSafeInteger(amount) || amount > economyConfig().grantMax) throw fail("bad_amount");
   return amount;
 }
 

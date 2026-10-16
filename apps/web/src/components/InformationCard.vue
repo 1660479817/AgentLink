@@ -1,14 +1,16 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import ActorMark from "./ActorMark.vue";
 import AppButton from "./AppButton.vue";
 import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
-import { AudioIcon, CloseIcon, DownloadIcon, FriendAddIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls } from "../packet.js";
 
 const props = defineProps({
   body: { type: String, default: "" },
   category: { type: String, default: "" },
+  language: { type: String, default: "" },
   price: { type: Number, default: 0 },
   granted: { type: Boolean, default: true },
   previewUrl: { type: String, default: "" },
@@ -17,8 +19,11 @@ const props = defineProps({
   audio: { type: Array, default: () => [] },
   videos: { type: Array, default: () => [] },
   attachments: { type: Array, default: () => [] },
+  note: { type: String, default: "" },
+  verdict: { type: String, default: "" },
   authorName: { type: String, default: "" },
   avatarUrl: { type: String, default: "" },
+  actor: { type: String, default: "" },
   createdAt: { type: String, default: "" },
   starred: { type: Boolean, default: false },
   canStar: { type: Boolean, default: true },
@@ -34,6 +39,12 @@ const pendingImages = computed(() => lockedImages(props.imageUrls, props.images)
 const clips = computed(() => packetAudio(props.audio));
 const links = computed(() => packetVideos(props.videos));
 const files = computed(() => packetFile(props.attachments));
+const fileNote = computed(() => {
+  const note = String(props.note || "").trim();
+  if (note) return note;
+  if (props.verdict === "pending") return t("home.filePrechecked");
+  return "";
+});
 const hasPacketFiles = computed(() => Boolean(props.previewUrl) || photos.value.length || pendingImages.value.length || clips.value.length || files.value.length);
 
 function onDownload() {
@@ -63,6 +74,38 @@ function postedLabel(value) {
   const day = parts.find((part) => part.type === "day")?.value || "";
   return t("home.postedOn", { month, day });
 }
+
+const bodyRef = ref(null);
+const bodyOpen = ref(false);
+const bodyClipped = ref(false);
+
+function measureBody() {
+  const el = bodyRef.value;
+  if (!el || bodyOpen.value) return;
+  bodyClipped.value = el.scrollHeight > el.clientHeight + 1;
+}
+
+function toggleBody() {
+  bodyOpen.value = !bodyOpen.value;
+  nextTick(measureBody);
+}
+
+onMounted(() => {
+  measureBody();
+  window.addEventListener("resize", measureBody);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", measureBody);
+});
+
+watch(
+  () => props.body,
+  () => {
+    bodyOpen.value = false;
+    nextTick(measureBody);
+  },
+);
 </script>
 
 <template>
@@ -74,16 +117,23 @@ function postedLabel(value) {
           <UserIcon v-else />
         </span>
         <div class="information-who">
-          <p class="information-name">{{ authorName || t("home.author") }}</p>
-          <p class="information-time">
+          <p class="information-name">
+            <span class="information-name-text">{{ authorName || t("home.author") }}</span>
+            <ActorMark :actor="actor" />
+          </p>
+          <p v-if="posted || category || language" class="information-time">
             <span v-if="posted">{{ posted }}</span>
-            <span v-if="posted && category"> · </span>
+            <span v-if="posted && (category || language)"> · </span>
             <span v-if="category">{{ category }}</span>
-            <span v-if="posted || category"> · </span>
-            <span :aria-label="t('home.usePrice', { n: price })">{{ price }}</span>
+            <span v-if="category && language"> · </span>
+            <span v-if="language">{{ language }}</span>
           </p>
         </div>
       </div>
+      <span class="information-price" :aria-label="t('home.usePrice', { n: price })">
+        <CoinIcon aria-hidden="true" />
+        <span>{{ price }}</span>
+      </span>
       <AppButton
         class="information-dismiss"
         variant="icon"
@@ -94,7 +144,19 @@ function postedLabel(value) {
         <CloseIcon class="information-dismiss-icon" aria-hidden="true" />
       </AppButton>
     </header>
-    <p v-if="body" class="information-body">{{ body }}</p>
+    <div v-if="body" class="information-body-wrap">
+      <p ref="bodyRef" class="information-body" :class="{ 'is-clamped': !bodyOpen }">{{ body }}</p>
+      <button
+        v-if="bodyClipped || bodyOpen"
+        type="button"
+        class="information-more"
+        :class="{ 'is-expanded': bodyOpen }"
+        :aria-expanded="bodyOpen"
+        @click="toggleBody"
+      >
+        {{ t(bodyOpen ? "home.less" : "home.more") }}
+      </button>
+    </div>
     <img v-if="previewUrl" :src="previewUrl" alt="" class="information-preview" />
     <div v-if="photos.length" class="information-images" :class="`is-${photos.length}`">
       <img v-for="url in photos" :key="url" :src="url" alt="" class="information-photo" />
@@ -119,13 +181,11 @@ function postedLabel(value) {
     <VideoFrame v-if="links[0]" :url="links[0].url" :poster="links[0].poster || ''" />
     <ul v-if="files.length" class="information-files">
       <li v-for="(file, index) in files" :key="file.id || `${file.name}-${index}`">
-        <a v-if="file.url" class="information-file" :href="file.url">
+        <span class="information-file">
           <PaperclipIcon class="information-file-icon" aria-hidden="true" />
-          <span>{{ file.name || t("home.file") }}</span>
-        </a>
-        <span v-else class="information-file">
-          <PaperclipIcon class="information-file-icon" aria-hidden="true" />
-          <span>{{ file.name || t("home.file") }}</span>
+          <span class="information-file-copy">
+            <span class="information-file-name">{{ file.name || t("home.file") }}</span><span v-if="fileNote" class="information-file-note">{{ t("home.fileNoteJoin", { note: fileNote }) }}</span>
+          </span>
         </span>
       </li>
     </ul>

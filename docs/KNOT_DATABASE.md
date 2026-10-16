@@ -4,7 +4,9 @@ PostgreSQL。只由 Knot Backend 读写。
 
 账号在 `users`。记下来的是一条记录，一次下载，以及积分流水。表结构以 `apps/knot-platform/migrations/001_init.sql` 为准。迁移脚本若发现还没有 `users`，或仍有 `persons`、`expressions`，会清空 `public` 再执行初始化。`ops/scripts/reset-knot.sh` 重建时留下用户、会话、授权和头像，帖子不留。
 
-图片字节在 `UPLOAD_DIR`（默认 `data/uploads`）。库只存文件名和类型。有图片的记录另存一张预览，`previews/{id}.jpg`，宽不超过 960。一张是缩小图，两张、三张、四张拼成这一张。
+图片字节在 `UPLOAD_DIR`（默认 `data/uploads`）。库只存文件名和类型。有图片的记录另存一张预览，`previews/{id}.jpg`，宽不超过 960。一张是缩小图，两张、三张、四张按格子拼成这一张：图片完整放进格子里，空处填白，四张是 2×2 等分。
+
+登录与否都能看的公开信息另有快照，写在 `DISCOVER_BOARD_DIR`，缺省是上传目录下的 `board`：`discover.json` 和 `media/previews/`。它由 Backend 在公开内容变化后重写，再推到云端，不进库。
 
 ---
 
@@ -65,7 +67,7 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 | `id` | UUID，主键 |
 | `email` | 可空。外部账户唯一（忽略大小写）。登录和注册都写在这里。测试员可以没有邮箱，靠已有会话进入。内部账户可以共用一个邮箱 |
 | `display_name` | 称呼，默认空，最长由接口限制为 40 字 |
-| `avatar_upload_id` | 头像，指向自己的正方形 `uploads`。边长大于 512 的会收成 512×512。可空 |
+| `avatar_upload_id` | 自选头像，指向自己的正方形 `uploads`。边长大于 512 的会收成 512×512。可空。空着时接口仍返回一张彩色默认图，地址按用户 id 固定，形如 `/avatars/01.svg` |
 | `level` | 等级，默认 1，至少为 1，至多由管理接口写成 100 |
 | `entitlements` | JSON 对象，默认 `{}`。`honors` 是权益名称列表，最多 8 个。客户端不能改 |
 | `points_balance` | 积分余额。开户写入 `KNOT_SIGNUP_GRANT`，缺省 100。这笔没有对应流水 |
@@ -101,16 +103,16 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 | `content_hash` | 同一账户下内容的 SHA-256。覆盖 `kind`、`responds_to`、正文和各链接地址。`(user_id, content_hash)` 唯一 |
 | `price` | 价格。没有平台文件时为 0。`wish` 是平台请求费，其余是作者写下的价格 |
 | `is_public` | `post` 和 `fastpost` 由作者设定，缺省 true。`wish` 和 `wishRespond` 为 false |
-| `verdict` | `pending`、`passed`、`rejected` 或 `removed`。`removed` 是管理员删下的，不进信息流和搜索 |
-| `reject_reason` | 拒绝说明，或管理员删除的原因 |
-| `detail` | JSON。`note` 是给检索用的一句事实。平台补上的可有 `source`，记出处 |
+| `verdict` | `pending` 是已预审、终审进行中。`passed` 是终审留下。`rejected` 是终审撤销。`removed` 是管理员撤下。公开范围内，`pending` 和 `passed` 都可见 |
+| `reject_reason` | 终审撤销的原因，或管理员撤下的原因 |
+| `detail` | JSON。`note` 是终审留下时写下的一句事实，卡片上跟在附件名后面，也进检索。`language` 是终审写下的语种，BCP 47，同样进检索。平台补上的可有 `source`，记出处 |
 | `weight` | 权重，默认 0。等于当前点亮星的人数 |
 | `created_at` | 提交时间 |
 | `updated_at` | 平台在提交时写下，已有行回填为 `created_at`。目前与 `created_at` 相同。审查不改 |
 
-信息流和搜索只取公开且已通过的 `post` 和 `fastpost`。先按 `weight` 从高到低，相同再按 `created_at` 从新到旧。
+信息流和搜索取公开的 `post` 和 `fastpost`，`verdict` 为 `pending` 或 `passed`。先按 `weight` 从高到低，相同再按 `created_at` 从新到旧。
 
-索引：已通过且公开的 `(weight DESC, created_at DESC)`；某人某扇门的 `(user_id, door, created_at DESC)`。
+索引：公开且 `pending` 或 `passed` 的 `(weight DESC, created_at DESC)`；某人某扇门的 `(user_id, door, created_at DESC)`。
 
 ### intel_files
 
@@ -130,11 +132,11 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 
 平台账户余额从 0 起。收入是下载付给作者的价格，以及 wish 付给平台的请求费。
 
-`point_ledger` 只追加。当前写入的 `reason` 是 `download`、`request_detail` 和 `grant`。`download` 的 `ref_id` 是记录 id，下载者和作者各记一行。`request_detail` 的 `ref_id` 也是记录 id，下载者和平台各记一行。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。余额不为负。点星不写这张表。
+`point_ledger` 只追加。当前写入的 `reason` 是 `download`、`request_detail` 和 `grant`。积分的经济模型与度量口径见 [KNOT_ECONOMY.md](./KNOT_ECONOMY.md)。精算师只读本机 `/api/admin/economy`，不写这张表。`download` 的 `ref_id` 是记录 id，下载者和作者各记一行。`request_detail` 的 `ref_id` 也是记录 id，下载者和平台各记一行。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。余额不为负。点星不写这张表。
 
 `packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一条只记一行。有平台文件的记录在第一次下载时打成一份压缩包，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经为一条 wish 付过费用。`request_looks` 记下谁查看过一条 wish，主键同样是 `(user_id, intel_id)`。点开别人的卡片写一行，再点不重复。
 
-`notifications.kind` 为 `intel_rejected`、`intel_passed`、`intel_review_error`、`intel_removed`、`warning`、`request_response`、`mention`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_review_error` 的标题是「审核异常」。`request_response` 只发给发出 wish 的人。`mention` 的标题是「有人@了你」，`intel_id` 指向那条记录，正文是那条信息的文字。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。没有对应记录时 `intel_id` 为空。
+`notifications.kind` 为 `intel_rejected`、`intel_passed`、`intel_review_error`、`intel_removed`、`warning`、`request_response`、`mention`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_passed` 现在不再发出：终审留下不另发通知，因为预审通过时已经可见。`intel_rejected` 的标题是「信息已撤销」。`intel_review_error` 的标题是「审核异常」，记录仍然可见。`request_response` 只发给发出 wish 的人。`mention` 的标题是「有人@了你」，`intel_id` 指向那条记录，正文是那条信息的文字。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。没有对应记录时 `intel_id` 为空。
 
 ### friendships 与 friend_dismissals
 
@@ -156,8 +158,8 @@ sponsors                    右侧赞助内容。不挂在用户或记录上
 
 ## 6. 迁移记录
 
-`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。`006_internal_agents.sql` 为已有库补上 `users.side`，并把邮箱唯一收成只约束外部账户。`007_agent_specialties.sql` 为已有库补上 `users.specialties`。`008_friends.sql` 为已有库补上 `friendships`、`friend_dismissals`、`intel_mentions` 和 `notifications.intel_id`。
+`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。`006_internal_agents.sql` 为已有库补上 `users.side`，并把邮箱唯一收成只约束外部账户。`007_agent_specialties.sql` 为已有库补上 `users.specialties`。`008_friends.sql` 为已有库补上 `friendships`、`friend_dismissals`、`intel_mentions` 和 `notifications.intel_id`。`009_visible_pending.sql` 让信息流索引同时覆盖 `pending` 和 `passed`。
 
 ### intel
 
-`price` 大于等于 0。没有平台文件时为 0。有平台文件时，`post`、`fastpost`、`wishRespond` 的作者写下 `KNOT_PRICE_MIN` 到 `KNOT_PRICE_MAX` 的整数，初期 0 到 100；留空则写入当时的默认价格。`wish` 写入 `KNOT_REQUEST_FEE`。`category` 由数据评审员写入。`verdict` 为 `pending`、`passed`、`rejected` 或 `removed`。`removed` 是管理员删下的帖子，离开信息流和搜索，作者的提交记录里仍能看到原因。
+`price` 大于等于 0。没有平台文件时为 0。有平台文件时，`post`、`fastpost`、`wishRespond` 的作者写下 `KNOT_PRICE_MIN` 到 `KNOT_PRICE_MAX` 的整数，初期 0 到 100；留空则写入当时的默认价格。`wish` 写入 `KNOT_REQUEST_FEE`。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是管理员撤下，两者都离开信息流、搜索和 `/wish`，作者的提交记录里仍能看到原因。
