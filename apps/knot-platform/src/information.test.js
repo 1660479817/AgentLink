@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardFiles, cardPreviewUrl, fileView, hasInformation, informationOf, isAttachmentUpload, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, publicOf, uploadName, videosOf } from "./information.js";
+import { fileView, hasInformation, informationOf, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, publicOf, uploadName, videosOf } from "./information.js";
 
 test("a latin1 upload name is shown as chinese", () => {
   const garbled = Buffer.from("今日简史.pdf", "utf8").toString("latin1");
@@ -8,6 +8,8 @@ test("a latin1 upload name is shown as chinese", () => {
   assert.equal(uploadName("今日简史.pdf"), "今日简史.pdf");
   assert.equal(uploadName("notes.pdf"), "notes.pdf");
   assert.equal(fileView({ id: "1", mime: "application/pdf", original_name: garbled }).name, "今日简史.pdf");
+  assert.equal(fileView({ id: "1", mime: "image/jpeg", original_name: "a.jpg" }).url, "/api/web/uploads/1/display");
+  assert.equal(fileView({ id: "1", mime: "audio/mpeg", original_name: "a.mp3" }).url, "/api/web/uploads/1");
 });
 
 test("a packet splits text, images, video links, and files", () => {
@@ -60,34 +62,36 @@ test("audio is its own file and not an attachment", () => {
   assert.equal(isAudioUpload({ mimetype: "application/pdf", originalname: "notes.pdf" }), false);
 });
 
-test("a locked file keeps its name and drops the upload id", () => {
+test("a locked attachment keeps its name and drops the address", () => {
   const [locked] = listedFiles(
-    [{ id: "secret", name: "a.png", mime: "image/png", url: "/api/web/uploads/secret", image: true }],
+    [{ id: "secret", name: "a.pdf", mime: "application/pdf", url: "/api/web/uploads/secret" }],
     false
   );
   assert.equal(locked.id, undefined);
   assert.equal(locked.url, undefined);
-  assert.equal(locked.name, "a.png");
-  assert.equal(listedFiles([{ id: "secret", url: "/api/web/uploads/secret", name: "a.png" }], true)[0].url, "/api/web/uploads/secret");
+  assert.equal(locked.name, "a.pdf");
+  assert.equal(listedFiles([{ id: "secret", url: "/api/web/uploads/secret", name: "a.pdf" }], true)[0].url, "/api/web/uploads/secret");
 });
 
-test("a card keeps a preview address and drops the original image address", () => {
+test("a card keeps the original image address", () => {
   const files = [{ id: "secret", name: "a.png", mime: "image/png", url: "/api/web/uploads/secret", image: true }];
-  const [shown] = cardFiles(files, true);
-  assert.equal(shown.url, undefined);
-  assert.equal(shown.id, undefined);
+  const [shown] = listedFiles(files, false);
+  assert.equal(shown.url, "/api/web/uploads/secret");
   assert.equal(shown.name, "a.png");
-  assert.equal(cardPreviewUrl("11111111-1111-1111-1111-111111111111", files), "/api/web/previews/11111111-1111-1111-1111-111111111111");
-  assert.equal(cardPreviewUrl("11111111-1111-1111-1111-111111111111", []), "");
 });
 
-test("an attachment is pdf, word, excel, ppt, or markdown", () => {
+test("an attachment is pdf, word, excel, ppt, markdown, or an archive", () => {
   assert.equal(isAttachmentUpload({ originalname: "报价.PDF" }), true);
   assert.equal(isAttachmentUpload({ originalname: "note.docx" }), true);
   assert.equal(isAttachmentUpload({ originalname: "sheet.xlsx" }), true);
   assert.equal(isAttachmentUpload({ originalname: "deck.pptx" }), true);
   assert.equal(isAttachmentUpload({ originalname: "readme.md" }), true);
   assert.equal(isAttachmentUpload({ originalname: "readme.markdown" }), true);
+  assert.equal(isAttachmentUpload({ originalname: "包.zip" }), true);
+  assert.equal(isArchiveUpload({ originalname: "包.ZIP" }), true);
+  assert.equal(isArchiveUpload({ originalname: "包.rar" }), true);
+  assert.equal(isArchiveUpload({ originalname: "包.7z" }), true);
+  assert.equal(isArchiveUpload({ originalname: "notes.pdf" }), false);
   assert.equal(isAttachmentUpload({ mimetype: "application/pdf", originalname: "notes.exe" }), false);
   assert.equal(isAttachmentUpload({ originalname: "old.doc" }), false);
   assert.equal(isAttachmentUpload({ originalname: "clip.mp4" }), false);

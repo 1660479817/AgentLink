@@ -144,7 +144,6 @@ onMounted(load);
       :language="item.kMeta?.language || ''"
       :price="priceOf(item)"
       :granted="item.granted !== false"
-      :preview-url="item.previewUrl || ''"
       :image-urls="item.imageUrls || item.images?.map((file) => file.url).filter(Boolean) || []"
       :images="item.images || []"
       :audio="item.audio || []"

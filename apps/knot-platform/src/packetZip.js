@@ -71,18 +71,15 @@ function uniqueName(wanted, used) {
 }
 
 export function archiveSources(rows) {
-  const groups = { image: [], audio: [], attachment: [] };
-  for (const row of rows || []) groups[kindOf(row)].push(row);
   const used = new Set();
   const files = [];
-  for (const kind of ["image", "audio", "attachment"]) {
-    for (const row of groups[kind]) {
-      files.push({
-        label: LABEL[kind],
-        name: uniqueName(safeName(uploadName(row.original_name), fallbackName(kind, row.mime)), used),
-        storageName: row.storage_name,
-      });
-    }
+  for (const row of rows || []) {
+    if (kindOf(row) !== "attachment") continue;
+    files.push({
+      label: LABEL.attachment,
+      name: uniqueName(safeName(uploadName(row.original_name), fallbackName("attachment", row.mime)), used),
+      storageName: row.storage_name,
+    });
   }
   return files;
 }

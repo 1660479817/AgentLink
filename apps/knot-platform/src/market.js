@@ -2,7 +2,7 @@ import { access, readFile, rm } from "node:fs/promises";
 import { intelAgentId, runIntelAgent } from "./agents/openclaw.js";
 import { toRecord } from "./card.js";
 import { loadBootstrapConfig } from "./config.js";
-import { fileView, isAttachmentUpload, isAudioUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, uploadName, videosOf, visibleVerdict } from "./information.js";
+import { fileView, isArchiveUpload, isAttachmentUpload, isAudioUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, uploadName, videosOf, visibleVerdict } from "./information.js";
 import { assertReachable, contentHash } from "./links.js";
 import { postersFor } from "./videoPoster.js";
 import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./friends.js";
@@ -12,10 +12,10 @@ import { assertCanSpeak } from "./account.js";
 import { applyPoints, serviceFee, economyConfig, packetPrice, PLATFORM_USER_ID } from "./points.js";
 import { scoreText } from "./search.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
-import { ensureCardPreview } from "./preview.js";
 import { attachmentOpens } from "./readable.js";
 import { avatarUrlFor } from "./avatars.js";
 import { storagePath } from "./uploads.js";
+import { discardExtract, extractsFor } from "./extracts.js";
 
 function videoText(videos) {
   if (!Array.isArray(videos)) return "";
@@ -35,19 +35,19 @@ function intelText(row) {
 async function imageFiles(pool, intelId) {
   const { uploadDir } = loadBootstrapConfig();
   const { rows } = await pool.query(
-    `SELECT u.storage_name
+    `SELECT u.storage_name, u.original_name
      FROM intel_files f
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = $1 AND u.mime LIKE 'image/%'
      ORDER BY f.sort_order ASC, f.upload_id ASC
-     LIMIT 4`,
+     LIMIT ${MAX_IMAGES}`,
     [intelId]
   );
   const files = [];
   for (const row of rows) {
     const file = storagePath(uploadDir, row.storage_name);
     await access(file);
-    files.push(file);
+    files.push({ path: file, name: uploadName(row.original_name) });
   }
   return files;
 }
@@ -102,6 +102,7 @@ async function attachmentFiles(pool, intelId) {
   for (const row of rows) {
     if (String(row.mime || "").startsWith("image/")) continue;
     if (isAudioUpload({ mime: row.mime, originalname: row.original_name })) continue;
+    if (isArchiveUpload({ originalname: row.original_name })) continue;
     const file = storagePath(uploadDir, row.storage_name);
     await access(file);
     files.push({ path: file, name: uploadName(row.original_name) });
@@ -138,7 +139,7 @@ async function assertAttachmentsOpen(pool, uploadIds) {
     if (String(row.mime || "").startsWith("image/")) continue;
     if (isAudioUpload({ mime: row.mime, originalname: row.original_name })) continue;
     const name = uploadName(row.original_name || row.storage_name);
-    if (!isAttachmentUpload({ originalname: name })) continue;
+    if (!isAttachmentUpload({ originalname: name }) || isArchiveUpload({ originalname: name })) continue;
     const file = storagePath(uploadDir, row.storage_name);
     let buffer;
     try {
@@ -199,6 +200,7 @@ export async function judgeIntel(pool, id) {
       [id, result.reason]
     );
     if (rows.length) {
+      await discardExtract(id);
       await recordNotification(pool, {
         userId: intel.user_id,
         kind: "intel_rejected",
@@ -391,11 +393,11 @@ export async function createIntel(pool, input) {
     return loadPresentedIntel(pool, prior.rows[0].id);
   }
   const uploadIds = [...new Set([...imageIds.slice(0, MAX_IMAGES), ...audioIds.slice(0, MAX_AUDIO), ...fileIds.slice(0, MAX_FILES)])];
-  if (kind !== "wish" && uploadIds.length) packetPrice(1, price);
+  if (kind !== "wish" && fileIds.length) packetPrice(1, price);
   let owned = [];
   if (uploadIds.length) {
     const { rows } = await pool.query(
-      `SELECT id, size FROM uploads WHERE user_id = $1 AND id = ANY($2::uuid[])`,
+      `SELECT id, size, mime, original_name FROM uploads WHERE user_id = $1 AND id = ANY($2::uuid[])`,
       [userId, uploadIds]
     );
     if (rows.length !== uploadIds.length) {
@@ -417,7 +419,8 @@ export async function createIntel(pool, input) {
     attachments: fileUrls.map((url) => ({ url })),
   };
   const listed = kind === "post" || kind === "fastpost" ? publicOf(isPublic) : false;
-  const priced = kind === "wish" ? 0 : packetPrice(owned.length, price);
+  const billable = owned.filter((row) => isAttachmentUpload({ originalname: row.original_name }));
+  const priced = kind === "wish" ? 0 : packetPrice(billable.length, price);
   let intelId;
   const client = await pool.connect();
   try {
@@ -435,8 +438,8 @@ export async function createIntel(pool, input) {
         i,
       ]);
     }
-    // 四种发布（post / fastpost / wish / wishRespond）都按附件大小收发布服务费。
-    await chargePublish(client, { userId, intelId, bytes: owned.reduce((sum, row) => sum + Number(row.size || 0), 0) });
+    // 四种发布都按附件字节收发布服务费。图片和音频直接显示，不计入。
+    await chargePublish(client, { userId, intelId, bytes: billable.reduce((sum, row) => sum + Number(row.size || 0), 0) });
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -451,11 +454,6 @@ export async function createIntel(pool, input) {
     return loadPresentedIntel(pool, again.rows[0].id);
   } finally {
     client.release();
-  }
-  try {
-    await ensureCardPreview(pool, intelId);
-  } catch (error) {
-    console.error(error);
   }
   await mention(intelId);
   if (kind === "wishRespond" && respondsTo) await notifyWishResponse(pool, { wishId: respondsTo, authorId: userId });
@@ -502,15 +500,23 @@ export function compareByWeight(a, b) {
   return new Date(b.created_at) - new Date(a.created_at);
 }
 
-export async function listPublicIntel(pool, limit = 30, userId = null, authorId = null) {
+export async function listPublicIntel(pool, limit = 30, userId = null, authorId = null, before = null) {
   const params = [userId];
   let sql = PUBLIC_INTEL_SQL;
   if (authorId) {
     params.push(authorId);
     sql += ` AND i.user_id = $${params.length}`;
   }
+  if (before) {
+    // 键集分页：只取排在锚点（上一页最后一条）之后的内容，避免偏移翻页的重复与漏条。
+    params.push(before);
+    sql += `
+    AND (i.created_at, i.weight, i.id) < (
+      SELECT created_at, weight, id FROM intel WHERE id = $${params.length}::uuid
+    )`;
+  }
   params.push(limit);
-  sql += ` ORDER BY i.created_at DESC, i.weight DESC LIMIT $${params.length}`;
+  sql += ` ORDER BY i.created_at DESC, i.weight DESC, i.id DESC LIMIT $${params.length}`;
   const { rows } = await pool.query(sql, params);
   return rows;
 }
@@ -543,8 +549,9 @@ export async function searchPublicIntel(pool, query, userId = null) {
     `${PUBLIC_INTEL_SQL} ORDER BY i.weight DESC, i.created_at DESC LIMIT 500`,
     [userId]
   );
+  const extracts = await extractsFor(rows.map((row) => row.id));
   return rows
-    .map((row) => ({ ...row, score: scoreText(query, intelText(row)) }))
+    .map((row, index) => ({ ...row, score: scoreText(query, `${intelText(row)} ${extracts[index] || ""}`) }))
     .filter((row) => row.score > 0)
     .sort(compareByWeight)
     .slice(0, 30);
@@ -616,13 +623,15 @@ async function assertCanDownload(db, intel, userId) {
 
 async function intelBytes(db, intelId) {
   const { rows } = await db.query(
-    `SELECT COALESCE(SUM(u.size), 0)::bigint AS bytes
+    `SELECT u.size, u.original_name
      FROM intel_files f
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = $1`,
     [intelId]
   );
-  return Number(rows[0].bytes);
+  return rows
+    .filter((row) => isAttachmentUpload({ originalname: row.original_name }))
+    .reduce((sum, row) => sum + Number(row.size || 0), 0);
 }
 
 // 发布服务费：按附件字节收，平台收（存储/传输）。四种发布共用。

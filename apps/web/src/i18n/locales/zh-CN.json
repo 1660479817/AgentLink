@@ -24,7 +24,9 @@
   },
   "friends": {
     "title": "好友",
-    "empty": "还没有好友"
+    "empty": "还没有好友",
+    "level": "等级 {level}",
+    "pointsBalance": "{balance} 积分"
   },
   "stars": {
     "title": "收藏",
@@ -141,7 +143,10 @@
     "removeFriend": "删除好友",
     "more": "更多",
     "less": "收起",
-    "share": "分享"
+    "share": "分享",
+    "loadMore": "加载更多",
+    "loadingMore": "正在加载",
+    "noMore": "没有更多了"
   },
   "search": {
     "back": "返回",
@@ -289,7 +294,7 @@
     "bad_video": "视频请贴 http 或 https 链接，不能上传视频文件",
     "bad_url": "这条链接现在打不开",
     "bad_audio": "音频请单独上传，最多一个",
-    "bad_file": "附件只接受 PDF、Word、Excel、PPT 和 Markdown",
+    "bad_file": "附件只接受 PDF、Word、Excel、PPT、Markdown 和压缩包",
     "unreadable_file": "这个附件打不开，这条没有留下",
     "audio_too_large": "音频不能超过 8MB",
     "image_too_large": "图片不能超过 5MB",

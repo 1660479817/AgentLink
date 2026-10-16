@@ -1,4 +1,3 @@
-import { cardPreviewUrl } from "./information.js";
 import { serviceFee, economyConfig } from "./points.js";
 
 export function payeeFor(kind) {
@@ -24,14 +23,21 @@ function externalOf(item) {
   };
 }
 
-function storedOf(file, granted) {
+function storedOf(file) {
   const link = {
     name: file.name || "",
     mime: file.mime || "",
     stored: true,
   };
-  if (file.audio && !file.image && granted && file.url) link.url = file.url;
+  const direct = Boolean(file.image) || (Boolean(file.audio) && !file.image);
+  if (direct && file.url) link.url = file.url;
   return link;
+}
+
+function attachmentBytes(files) {
+  return files
+    .filter((file) => !file.image && !(file.audio && !file.image))
+    .reduce((sum, file) => sum + (Number(file.size) || 0), 0);
 }
 
 function namedAttachment(item) {
@@ -62,15 +68,15 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
   const kind = row.kind || "post";
   const visible = Boolean(granted);
   const images = [
-    ...files.filter((file) => file.image).map((file) => storedOf(file, visible)),
+    ...files.filter((file) => file.image).map((file) => storedOf(file)),
     ...(Array.isArray(links.images) ? links.images : []).map(externalOf).filter(Boolean),
   ];
   const audio = [
-    ...files.filter((file) => file.audio && !file.image).map((file) => storedOf(file, visible)),
+    ...files.filter((file) => file.audio && !file.image).map((file) => storedOf(file)),
     ...(Array.isArray(links.audio) ? links.audio : []).map(externalOf).filter(Boolean),
   ];
   const attachments = [
-    ...files.filter((file) => !file.image && !file.audio).map((file) => storedOf(file, visible)),
+    ...files.filter((file) => !file.image && !file.audio).map((file) => storedOf(file)),
     ...(Array.isArray(links.attachments) ? links.attachments : []).map(namedAttachment).filter(Boolean),
   ];
   const videos = (Array.isArray(row.videos) ? row.videos : []).map(videoOf).filter(Boolean);
@@ -78,7 +84,7 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
   const updatedAt = when(row.updated_at) || createdAt;
   // 下载服务费：按附件字节计价，平台收，加在作者标价之上。
   const fee = serviceFee(
-    files.reduce((sum, file) => sum + (Number(file.size) || 0), 0),
+    attachmentBytes(files),
     economyConfig().downloadServiceFeePerMb,
     economyConfig().serviceFeeCap
   );
@@ -110,7 +116,7 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
     audio,
     videos,
     attachments,
-    previewUrl: cardPreviewUrl(row.id, files) || "",
+    previewUrl: "",
     granted: visible,
     starred: Boolean(starred),
   };

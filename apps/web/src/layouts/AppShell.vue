@@ -215,7 +215,7 @@ onUnmounted(() => {
         </div>
       </div>
     </Teleport>
-    <div class="stage" :class="{ 'has-sponsors': sponsors.length > 0 }">
+    <div class="stage">
       <nav class="rail rail-shortcuts" :aria-label="t('rail.shortcuts')">
         <div class="shortcut-list">
           <RouterLink

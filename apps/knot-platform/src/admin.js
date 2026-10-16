@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { honorList, muteState, specialtyList, storedSpecialties } from "./account.js";
 import { ensureInternalAgent, internalAgentName, writeAgentEnvFile } from "./internalAgent.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
+import { discardExtract } from "./extracts.js";
 import { recordNotification } from "./notifications.js";
 import { applyPoints, economyConfig } from "./points.js";
 
@@ -240,6 +241,7 @@ export async function removePost(pool, id, reason) {
     if (!existing.rows.length) throw fail("not_found");
     return { ok: true, already: true, id };
   }
+  await discardExtract(id);
   await recordNotification(pool, {
     userId: rows[0].user_id,
     kind: "intel_removed",

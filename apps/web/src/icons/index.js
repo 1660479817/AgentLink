@@ -57,6 +57,11 @@ export const FriendRemoveIcon = knotIcon([
   h("path", { d: "M3.8 18.5c.4-2.8 2.6-4.6 5.7-4.6 1.1 0 2.1.3 3 .8" }),
   h("path", { d: "M14 13.5h6" }),
 ]);
+export const FriendCheckIcon = knotIcon([
+  h("circle", { cx: 9.5, cy: 8, r: 3 }),
+  h("path", { d: "M3.8 18.5c.4-2.8 2.6-4.6 5.7-4.6 1.1 0 2.1.3 3 .8" }),
+  h("path", { d: "m14 13.5 2 2 4-4" }),
+]);
 export const ChatIcon = knotIcon([
   h("path", { d: "M5 6h14a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2H10l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" }),
 ]);

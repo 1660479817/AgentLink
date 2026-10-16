@@ -153,8 +153,8 @@ function submit() {
     error.value = t("home.badVideo");
     return;
   }
-  const priced = readOptionalPrice(price.value, session.policy);
-  if (hasUpload.value && !priced.ok) {
+  const priced = files.value.length ? readOptionalPrice(price.value, session.policy) : { ok: true, price: undefined };
+  if (files.value.length && !priced.ok) {
     error.value = errorText("bad_price", session.policy);
     return;
   }
@@ -165,7 +165,7 @@ function submit() {
     return;
   }
   const extra = { kind: "post", public: isPublic.value };
-  if (hasUpload.value && priced.price !== undefined) extra.price = priced.price;
+  if (files.value.length && priced.price !== undefined) extra.price = priced.price;
   if (link) extra.videos = [link];
   if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
   busy.value = true;
@@ -285,7 +285,7 @@ function submit() {
               <input v-model="isPublic" type="checkbox" :disabled="busy" />
               <span>{{ t("home.shareConsent") }}</span>
             </label>
-            <label class="share-coin">
+            <label v-if="files.length" class="share-coin">
               <CoinIcon class="share-coin-icon" aria-hidden="true" />
               <input
                 id="share-price"

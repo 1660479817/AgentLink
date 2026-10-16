@@ -1,5 +1,5 @@
 export const PACKET_LIMITS = {
-  images: 4,
+  images: 9,
   audio: 1,
   videos: 1,
   files: 1,

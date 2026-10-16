@@ -2,12 +2,13 @@
 import { onMounted, ref } from "vue";
 import ActorMark from "../components/ActorMark.vue";
 import AppButton from "../components/AppButton.vue";
+import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
 import VideoFrame from "../components/VideoFrame.vue";
 import { listSubmissions } from "../api.js";
 import { t } from "../i18n/index.js";
-import { AudioIcon, ImageIcon, PaperclipIcon } from "../icons/index.js";
-import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls } from "../packet.js";
+import { PaperclipIcon } from "../icons/index.js";
+import { packetFile, packetVideos } from "../packet.js";
 
 const items = ref([]);
 const loaded = ref(false);
@@ -37,18 +38,6 @@ function statusKey(status) {
   return "submissions.statusPending";
 }
 
-function imagesOf(item) {
-  return item.images?.length ? item.images : (item.attachments || []).filter((file) => file.image);
-}
-
-function photosOf(item) {
-  return photoUrls([], imagesOf(item));
-}
-
-function pendingOf(item) {
-  return lockedImages([], imagesOf(item));
-}
-
 </script>
 
 <template>
@@ -69,27 +58,7 @@ function pendingOf(item) {
       <span v-else-if="item.kMeta?.public === false && item.kMeta?.verdict !== 'removed'"> · {{ t("submissions.private") }}</span>
     </p>
     <p v-if="item.body" class="information-body">{{ item.body }}</p>
-    <img v-if="item.previewUrl" :src="item.previewUrl" alt="" class="information-preview" />
-    <div v-else-if="photosOf(item).length" class="information-images" :class="`is-${photosOf(item).length}`">
-      <img v-for="url in photosOf(item)" :key="url" :src="url" alt="" class="information-photo" />
-    </div>
-    <ul v-else-if="pendingOf(item).length" class="information-files">
-      <li v-for="file in pendingOf(item)" :key="file.id">
-        <span class="information-file">
-          <ImageIcon class="information-file-icon" aria-hidden="true" />
-          <span>{{ file.name || t("home.image") }}</span>
-        </span>
-      </li>
-    </ul>
-    <div v-if="packetAudio(item.audio).length" class="information-audio">
-      <template v-for="file in packetAudio(item.audio)" :key="file.id || file.name">
-        <audio v-if="file.url" :src="file.url" controls :aria-label="file.name || t('home.audio')" />
-        <span v-else class="information-file">
-          <AudioIcon class="information-file-icon" aria-hidden="true" />
-          <span>{{ file.name || t("home.audio") }}</span>
-        </span>
-      </template>
-    </div>
+    <RecordMedia :images="item.images" :audio="item.audio" />
     <VideoFrame
       v-if="packetVideos(item.videos)[0]"
       :url="packetVideos(item.videos)[0].url"

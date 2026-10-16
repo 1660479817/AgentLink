@@ -24,7 +24,9 @@
   },
   "friends": {
     "title": "Friends",
-    "empty": "No friends yet"
+    "empty": "No friends yet",
+    "level": "Level {level}",
+    "pointsBalance": "{balance} points"
   },
   "stars": {
     "title": "Saved",
@@ -141,7 +143,10 @@
     "removeFriend": "Remove friend",
     "more": "More",
     "less": "Less",
-    "share": "Share"
+    "share": "Share",
+    "loadMore": "Load more",
+    "loadingMore": "Loading",
+    "noMore": "No more"
   },
   "search": {
     "back": "Back",
@@ -289,7 +294,7 @@
     "bad_video": "Paste an http or https video link. Video files can't be uploaded",
     "bad_url": "This link can't be opened right now",
     "bad_audio": "Upload one audio file on its own",
-    "bad_file": "Files can be PDF, Word, Excel, PowerPoint, or Markdown",
+    "bad_file": "Files can be PDF, Word, Excel, PowerPoint, Markdown, or an archive",
     "unreadable_file": "This file can't be opened, so nothing was kept",
     "audio_too_large": "Audio can't be larger than 8MB",
     "image_too_large": "A picture can't be larger than 5MB",

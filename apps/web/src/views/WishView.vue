@@ -20,6 +20,7 @@ import { ATTACHMENT_ACCEPT, errorText, readOptionalPrice, readVideoLink, require
 import { acceptDownload } from "../download/consent.js";
 import { feeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
+import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
 import { AtIcon, AudioIcon, ChatIcon, ImageIcon, PaperclipIcon, RespondIcon, SendIcon, VideoIcon } from "../icons/index.js";
 import { packetDraft, useOutboxStore } from "../stores/outbox";
@@ -74,7 +75,6 @@ const {
   video: replyVideo,
   videoOpen: replyVideoOpen,
   price: replyPrice,
-  hasUpload: replyHasUpload,
   addImages: addReplyImages,
   removeImage: removeReplyImage,
   addFiles: addReplyFiles,
@@ -145,12 +145,8 @@ function statusKey(verdict) {
 function fileRows(item) {
   const written = String(item?.kMeta?.note || "").trim();
   const pending = (item?.kMeta?.verdict || "pending") === "pending";
-  const rows = [];
-  for (const file of [...(item?.images || []), ...(item?.audio || [])]) {
-    const name = file?.name || file?.url;
-    if (name) rows.push({ name, note: "" });
-  }
   const note = written || (pending ? t("home.filePrechecked") : "");
+  const rows = [];
   for (const file of item?.attachments || []) {
     const name = file?.name || file?.url;
     if (name) rows.push({ name, note });
@@ -240,7 +236,7 @@ function selectLane(next) {
 }
 
 function hasStored(item) {
-  return [...(item?.images || []), ...(item?.audio || []), ...(item?.attachments || [])].some((file) => file?.stored);
+  return (item?.attachments || []).some((file) => file?.stored);
 }
 
 function downloadStage(item) {
@@ -373,8 +369,8 @@ async function submitReply() {
     replyError.value = t("home.badVideo");
     return;
   }
-  const priced = replyHasUpload.value ? readOptionalPrice(replyPrice.value, session.policy) : { ok: true, price: undefined };
-  if (!priced.ok) {
+  const priced = replyFiles.value.length ? readOptionalPrice(replyPrice.value, session.policy) : { ok: true, price: undefined };
+  if (replyFiles.value.length && !priced.ok) {
     replyError.value = errorText("bad_price", session.policy);
     return;
   }
@@ -597,7 +593,7 @@ async function downloadReply(item) {
       </div>
       <p v-if="wish.kMeta?.verdict === 'rejected' && wish.kMeta?.rejectReason" class="wish-reason">{{ wish.kMeta.rejectReason }}</p>
       <WishCopy v-if="wish.body" :body="wish.body" />
-      <img v-if="wish.previewUrl" :src="wish.previewUrl" alt="" class="information-preview" />
+      <RecordMedia :images="wish.images" :audio="wish.audio" />
       <ul v-if="fileRows(wish).length" class="wish-files">
         <li v-for="(file, index) in fileRows(wish)" :key="`${file.name}-${index}`" class="wish-file">
           <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
@@ -619,7 +615,7 @@ async function downloadReply(item) {
             <span v-if="item.kMeta?.language"> · {{ item.kMeta.language }}</span>
           </p>
           <p v-if="item.body" class="bounty-reply-body">{{ item.body }}</p>
-          <img v-if="item.previewUrl" :src="item.previewUrl" alt="" class="information-preview" />
+          <RecordMedia :images="item.images" :audio="item.audio" />
           <ul v-if="fileRows(item).length" class="wish-files">
             <li v-for="(file, index) in fileRows(item)" :key="`${file.name}-${index}`" class="wish-file">
               <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
@@ -668,7 +664,7 @@ async function downloadReply(item) {
         <div class="wish-target">
           <ActorMark :actor="item.wish.actor" />
           <WishCopy v-if="item.wish.body" :body="item.wish.body" />
-          <img v-if="item.wish.previewUrl" :src="item.wish.previewUrl" alt="" class="information-preview" />
+          <RecordMedia :images="item.wish.images" :audio="item.wish.audio" />
           <ul v-if="fileRows(item.wish).length" class="wish-files">
             <li v-for="(file, index) in fileRows(item.wish)" :key="`${file.name}-${index}`" class="wish-file">
               <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
@@ -727,7 +723,7 @@ async function downloadReply(item) {
                 </p>
                 <p v-if="reply.kMeta?.verdict === 'rejected' && reply.kMeta?.rejectReason" class="wish-reason">{{ reply.kMeta.rejectReason }}</p>
                 <p v-if="reply.body" class="bounty-reply-body">{{ reply.body }}</p>
-                <img v-if="reply.previewUrl" :src="reply.previewUrl" alt="" class="information-preview" />
+                <RecordMedia :images="reply.images" :audio="reply.audio" />
                 <ul v-if="fileRows(reply).length" class="wish-files">
                   <li v-for="(file, index) in fileRows(reply)" :key="`${file.name}-${index}`" class="wish-file">
                     <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
@@ -753,7 +749,7 @@ async function downloadReply(item) {
                     :previews="replyPreviewUrls"
                     :audio-name="replyAudio?.name || ''"
                     :files="replyFiles"
-                    :show-price="replyHasUpload"
+                    :show-price="replyFiles.length > 0"
                     :show-free-note="false"
                     price-id="wish-reply-price"
                     :busy="busy"

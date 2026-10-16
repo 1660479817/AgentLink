@@ -4,8 +4,8 @@ import path from "node:path";
 import QRCode from "qrcode";
 import sharp from "sharp";
 import { isAudioUpload, uploadName, visibleVerdict } from "./information.js";
-import { ensureCardPreview } from "./preview.js";
 import { loadBootstrapConfig } from "./config.js";
+import { storagePath } from "./uploads.js";
 
 export const SHARE_PAGE = "https://knot.zenheart.net";
 export const SHARE_HOST = "knot.zenheart.net";
@@ -27,6 +27,17 @@ const PREVIEW_MAX = 900;
 const QR_PIXEL = 10;
 const QR_QUIET = 4;
 const FONT = "Hiragino Sans GB, Heiti SC, PingFang SC, Songti SC, sans-serif";
+const MONO = "Menlo, Consolas, Monaco, monospace";
+const H1_SIZE = 52;
+const H1_LEADING = 74;
+const H2_SIZE = 44;
+const H2_LEADING = 62;
+const H3_SIZE = 40;
+const H3_LEADING = 58;
+const CODE_SIZE = 30;
+const CODE_LEADING = 46;
+const LIST_INDENT = 36;
+const QUOTE_INDENT = 24;
 const LABEL = { video: "视频", image: "图片" };
 const ACTOR_LABEL = { person: "人", personal_agent: "Agent", platform: "平台" };
 const HEAD_AVATAR = 88;
@@ -109,6 +120,231 @@ export function wrapText(text, width, size, maxLines = MAX_BODY_LINES) {
   else if (line) cut = true;
   if (cut && lines.length) lines[lines.length - 1] = ellipsize(lines[lines.length - 1], width, size);
   return lines.length ? lines : [""];
+}
+
+export function isMarkdown(body) {
+  const text = clean(body);
+  if (!text) return false;
+  return (
+    /(^|\n)\s{0,3}#{1,6}\s+\S/.test(text) ||
+    /(^|\n)\s*[-*+]\s+\S/.test(text) ||
+    /(^|\n)\s*\d+[.)]\s+\S/.test(text) ||
+    /`{3,}/.test(text) ||
+    /(^|\n)\s*>\s+\S/.test(text) ||
+    /\*\*[^*\s][^*]*\*\*/.test(text) ||
+    /`[^`]+`/.test(text) ||
+    /\[[^\]]+\]\([^)\s]+\)/.test(text)
+  );
+}
+
+function plainRun(text) {
+  return { text, bold: false, italic: false, code: false, link: null };
+}
+
+function parseInline(text) {
+  const src = String(text || "");
+  const segments = [];
+  const pattern = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
+  let last = 0;
+  let match;
+  while ((match = pattern.exec(src))) {
+    if (match.index > last) segments.push(plainRun(src.slice(last, match.index)));
+    const token = match[0];
+    if (token.startsWith("**") && token.endsWith("**") && token.length > 4) {
+      segments.push({ text: token.slice(2, -2), bold: true, italic: false, code: false, link: null });
+    } else if (token.startsWith("`") && token.endsWith("`") && token.length > 2) {
+      segments.push({ text: token.slice(1, -1), bold: false, italic: false, code: true, link: null });
+    } else if (token.startsWith("[")) {
+      const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token);
+      segments.push({ text: link ? link[1] : token, bold: false, italic: false, code: false, link: link ? link[2] : null });
+    } else if (token.startsWith("*") && token.endsWith("*") && token.length > 2) {
+      segments.push({ text: token.slice(1, -1), bold: false, italic: true, code: false, link: null });
+    }
+    last = match.index + token.length;
+  }
+  if (last < src.length) segments.push(plainRun(src.slice(last)));
+  return segments.filter((segment) => segment.text !== "");
+}
+
+function charWidth(chars, size) {
+  let used = 0;
+  for (const ch of chars) used += charUnits(ch.ch) * size;
+  return used;
+}
+
+function compressSegments(chars) {
+  const segments = [];
+  let current = null;
+  for (const ch of chars) {
+    const key = `${ch.bold ? 1 : 0}${ch.italic ? 1 : 0}${ch.code ? 1 : 0}${ch.link || ""}`;
+    if (!current || current.key !== key) {
+      current = { key, text: ch.ch, bold: ch.bold, italic: ch.italic, code: ch.code, link: ch.link };
+      segments.push(current);
+    } else {
+      current.text += ch.ch;
+    }
+  }
+  for (const segment of segments) delete segment.key;
+  return segments;
+}
+
+function wrapInline(segments, width, size, maxLines = MAX_BODY_LINES) {
+  const chars = [];
+  for (const segment of segments) {
+    for (const ch of segment.text) chars.push({ ch, bold: segment.bold, italic: segment.italic, code: segment.code, link: segment.link });
+  }
+  const lines = [];
+  let line = [];
+  let used = 0;
+  let overflow = false;
+  for (let index = 0; index < chars.length; index += 1) {
+    const ch = chars[index];
+    const next = charUnits(ch.ch) * size;
+    if (line.length && used + next > width) {
+      lines.push(line);
+      line = [];
+      used = 0;
+      if (lines.length === maxLines) {
+        overflow = index < chars.length;
+        break;
+      }
+    }
+    line.push(ch);
+    used += next;
+  }
+  if (lines.length < maxLines && line.length) lines.push(line);
+  else if (line.length) overflow = true;
+  if (overflow) {
+    const last = lines[lines.length - 1];
+    const ell = charUnits("…") * size;
+    while (last.length && charWidth(last, size) + ell > width) last.pop();
+    last.push({ ch: "…", bold: false, italic: false, code: false, link: null });
+  }
+  if (!lines.length) return [[{ text: "", bold: false, italic: false, code: false, link: null }]];
+  return lines.map(compressSegments);
+}
+
+export function markdownTexts(body, width = INNER, maxLines = MAX_BODY_LINES) {
+  const items = [];
+  const lines = clean(body).split("\n");
+  const add = (item) => {
+    if (items.length >= maxLines) return false;
+    items.push(item);
+    return true;
+  };
+  const ellipsizeLast = () => {
+    const last = items[items.length - 1];
+    const segments = last?.segments;
+    if (!segments || !segments.length) return;
+    const tail = segments[segments.length - 1];
+    tail.text = `${tail.text.replace(/…$/, "")}…`;
+  };
+
+  let i = 0;
+  while (i < lines.length && items.length < maxLines) {
+    const line = lines[i];
+
+    if (/^\s*(```|~~~)/.test(line)) {
+      i += 1;
+      while (i < lines.length && !/^\s*(```|~~~)/.test(lines[i])) {
+        const code = lines[i].replace(/\t/g, "  ");
+        if (!add({ segments: [{ text: code || " ", bold: false, italic: false, code: true, link: null }], size: CODE_SIZE, leading: CODE_LEADING, fill: "#050505", code: true })) break;
+        i += 1;
+      }
+      if (i < lines.length) i += 1;
+      continue;
+    }
+
+    const heading = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      const size = level === 1 ? H1_SIZE : level === 2 ? H2_SIZE : H3_SIZE;
+      const leading = level === 1 ? H1_LEADING : level === 2 ? H2_LEADING : H3_LEADING;
+      for (const runLine of wrapInline(parseInline(heading[2].trim()), width, size, 2)) {
+        if (!add({ segments: runLine, size, leading, fill: "#050505", weight: "600" })) break;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line) && line.trim().length >= 3) {
+      add({ rule: true, leading: GAP });
+      i += 1;
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      const quoted = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+        quoted.push(lines[i].replace(/^\s*>\s?/, ""));
+        i += 1;
+      }
+      for (const runLine of wrapInline(parseInline(quoted.join(" ")), width - QUOTE_INDENT, BODY_SIZE)) {
+        if (!add({ segments: runLine, size: BODY_SIZE, leading: BODY_LEADING, fill: "#65676B", quote: true, indent: QUOTE_INDENT })) break;
+      }
+      continue;
+    }
+
+    const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
+    const ordered = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
+    if (bullet || ordered) {
+      const prefix = bullet ? "•" : `${ordered[1]}.`;
+      const text = (bullet ? bullet[1] : ordered[2]).trim();
+      const runLines = wrapInline(parseInline(text), width - LIST_INDENT, BODY_SIZE);
+      for (let li = 0; li < runLines.length; li += 1) {
+        const item = { segments: runLines[li], size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505", indent: LIST_INDENT };
+        if (li === 0) item.prefix = prefix;
+        if (!add(item)) break;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (!line.trim()) {
+      i += 1;
+      continue;
+    }
+
+    const para = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !/^\s*(```|~~~)/.test(lines[i]) &&
+      !/^(#{1,3})\s+/.test(lines[i]) &&
+      !/^\s*>/.test(lines[i]) &&
+      !/^\s*[-*+]\s+/.test(lines[i]) &&
+      !/^\s*\d+[.)]\s+/.test(lines[i]) &&
+      !/^\s*([-*_])\s*(\1\s*){2,}$/.test(lines[i])
+    ) {
+      para.push(lines[i].trim());
+      i += 1;
+    }
+    for (const runLine of wrapInline(parseInline(para.join(" ")), width, BODY_SIZE)) {
+      if (!add({ segments: runLine, size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505" })) break;
+    }
+  }
+
+  if (items.length >= maxLines) ellipsizeLast();
+  return items;
+}
+
+function renderRichLine(line, x, baseline) {
+  if (!line.segments) {
+    const weight = line.weight ? ` font-weight="${line.weight}"` : "";
+    return `<text x="${x}" y="${baseline}" font-family="${FONT}" font-size="${line.size}" fill="${line.fill || "#050505"}"${weight}>${xml(line.text)}</text>`;
+  }
+  const weight = line.weight ? ` font-weight="${line.weight}"` : "";
+  const spans = line.segments
+    .map((segment) => {
+      let attrs = "";
+      if (segment.bold || line.weight) attrs += ' font-weight="600"';
+      if (segment.italic) attrs += ' font-style="italic"';
+      if (segment.code) attrs += ` font-family="${MONO}"`;
+      const fill = segment.link ? "#0866FF" : segment.code ? "#65676B" : line.fill || "#050505";
+      return `<tspan${attrs} fill="${fill}">${xml(segment.text)}</tspan>`;
+    })
+    .join("");
+  return `<text x="${x}" y="${baseline}" font-family="${FONT}" font-size="${line.size}" fill="${line.fill || "#050505"}"${weight}>${spans}</text>`;
 }
 
 function linkName(list) {
@@ -324,8 +560,12 @@ export async function buildSharePoster(content) {
   const fileName = clean(content.fileName);
   const texts = [];
   if (body) {
-    for (const line of wrapText(body, INNER, BODY_SIZE, MAX_BODY_LINES)) {
-      texts.push({ text: line, size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505" });
+    if (isMarkdown(body)) {
+      texts.push(...markdownTexts(body, INNER));
+    } else {
+      for (const line of wrapText(body, INNER, BODY_SIZE, MAX_BODY_LINES)) {
+        texts.push({ text: line, size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505" });
+      }
     }
     if (audioName) texts.push({ text: fitLine(audioName, INNER, NAME_SIZE), size: NAME_SIZE, leading: NAME_LEADING, fill: "#65676B" });
     if (fileName) texts.push({ text: fitLine(fileName, INNER, NAME_SIZE), size: NAME_SIZE, leading: NAME_LEADING, fill: "#65676B" });
@@ -359,11 +599,21 @@ export async function buildSharePoster(content) {
     y += HOLD + GAP;
   }
   for (const line of texts) {
-    if (!line.text) {
+    if (line.rule) {
+      parts.push(`<line x1="${PAD}" y1="${y + Math.round(line.leading / 2)}" x2="${WIDTH - PAD}" y2="${y + Math.round(line.leading / 2)}" stroke="#E4E6EB" stroke-width="2"/>`);
       y += line.leading;
       continue;
     }
-    parts.push(textLine(line.text, PAD, y + line.size, line.size, line.fill));
+    const hasText = Boolean(line.text) || Boolean(line.segments && line.segments.some((segment) => segment.text));
+    if (!hasText) {
+      y += line.leading;
+      continue;
+    }
+    if (line.quote) parts.push(`<rect x="${PAD}" y="${y + 4}" width="4" height="${line.size + 6}" rx="2" fill="#E4E6EB"/>`);
+    if (line.code) parts.push(`<rect x="${PAD - 10}" y="${y + 2}" width="${INNER + 20}" height="${line.leading - 4}" rx="6" fill="#F0F2F5"/>`);
+    if (line.prefix) parts.push(textLine(line.prefix, PAD + 8, y + line.size, line.size, line.fill, "start", "600"));
+    const textX = line.indent ? PAD + line.indent : PAD;
+    parts.push(renderRichLine(line, textX, y + line.size));
     y += line.leading;
   }
   const contentBottom = y;
@@ -508,19 +758,15 @@ export async function loadShareCard(pool, intelId, uploadDir) {
   const row = rows[0];
   if (!shareable(row)) return null;
   const { rows: files } = await pool.query(
-    `SELECT u.mime, u.original_name
+    `SELECT u.mime, u.original_name, u.storage_name
      FROM intel_files f
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = $1
      ORDER BY f.sort_order ASC, f.upload_id ASC`,
     [row.id]
   );
-  let preview = "";
-  try {
-    preview = (await ensureCardPreview(pool, row.id, uploadDir)) || "";
-  } catch {
-    preview = "";
-  }
+  const image = files.find((file) => String(file.mime || "").startsWith("image/"));
+  let preview = image ? storagePath(uploadDir, image.storage_name) : "";
   if (preview && !(await fileExists(preview))) preview = "";
   return {
     id: String(row.id).toLowerCase(),

@@ -34,7 +34,7 @@ description: Read the point economy, and propose or apply the platform price sch
 | `serviceFeeCap` | 一次服务费的上限。0 是不封顶 | 0 到 100000 |
 | `pointUsdCents` | 每积分多少美分 | 0 到 100000 |
 
-单条记录的标价由作者在上下限里自定。没有平台文件时为 0，`wish` 恒为 0。这两项不在这张表里。
+单条记录的标价由作者在上下限里自定。没有附件时为 0，`wish` 恒为 0。图片和音频不计价。这两项不在这张表里。
 
 ## propose
 

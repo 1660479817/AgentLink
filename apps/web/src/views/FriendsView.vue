@@ -48,7 +48,13 @@ watch(
             <img v-if="friend.avatarUrl" :src="friend.avatarUrl" alt="" />
             <UserIcon v-else />
           </span>
-          <span class="friend-name">{{ friendName(friend) }}</span>
+          <span class="friend-id">
+            <span class="friend-name">{{ friendName(friend) }}</span>
+            <span class="friend-meta">
+              <span class="friend-level">{{ t("friends.level", { level: friend.level }) }}</span>
+              <span class="friend-points">{{ t("friends.pointsBalance", { balance: friend.pointsBalance }) }}</span>
+            </span>
+          </span>
         </span>
         <AppButton
           variant="icon"

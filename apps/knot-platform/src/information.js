@@ -1,7 +1,10 @@
+import { cardImageUrl } from "./uploads.js";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VIDEO_EXT = /\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg|3gp|wmv|flv|ogv)$/i;
 const AUDIO_EXT = /\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$/i;
-const ATTACHMENT_EXT = /\.(pdf|docx|xlsx|pptx|md|markdown)$/i;
+const ARCHIVE_EXT = /\.(zip|rar|7z|tar|gz|tgz|bz2|xz)$/i;
+const ATTACHMENT_EXT = /\.(pdf|docx|xlsx|pptx|md|markdown|zip|rar|7z|tar|gz|tgz|bz2|xz)$/i;
 
 export function visibleVerdict(column = "verdict") {
   return `${column} IN ('pending', 'passed')`;
@@ -27,7 +30,7 @@ export function uploadName(raw) {
   return [...base].slice(0, 180).join("");
 }
 
-export const MAX_IMAGES = 4;
+export const MAX_IMAGES = 9;
 export const MAX_AUDIO = 1;
 export const MAX_FILES = 1;
 export const MAX_VIDEOS = 1;
@@ -112,6 +115,11 @@ export function isVideoUpload(file) {
   return VIDEO_EXT.test(name);
 }
 
+export function isArchiveUpload(file) {
+  const name = String(file?.originalname || file?.name || "");
+  return ARCHIVE_EXT.test(name);
+}
+
 export function isAttachmentUpload(file) {
   const name = String(file?.originalname || file?.name || "");
   return ATTACHMENT_EXT.test(name);
@@ -119,13 +127,14 @@ export function isAttachmentUpload(file) {
 
 export function fileView(row) {
   const mime = row.mime || "";
+  const image = mime.startsWith("image/");
   return {
     id: row.id,
     name: uploadName(row.original_name),
     mime,
     size: Number(row.size) || 0,
-    url: `/api/web/uploads/${row.id}`,
-    image: mime.startsWith("image/"),
+    url: image ? cardImageUrl(row.id) : `/api/web/uploads/${row.id}`,
+    image,
     audio: mime.startsWith("audio/") || isAudioUpload({ mime, originalname: row.original_name }),
   };
 }
@@ -228,9 +237,13 @@ export function hasInformation(info) {
   return Boolean(info.body || info.images?.length || info.audio?.length || info.videos?.length || info.attachments?.length);
 }
 
+function directMedia(file) {
+  return Boolean(file?.image) || Boolean(file?.audio) || isImageFile(file) || isAudioUpload(file);
+}
+
 export function listedFiles(files, granted) {
   return (files || []).map((file) => {
-    if (granted) return file;
+    if (granted || directMedia(file)) return file;
     return {
       name: file.name || "",
       mime: file.mime || "",
@@ -244,18 +257,3 @@ function isImageFile(file) {
   return Boolean(file?.image) || String(file?.mime || "").startsWith("image/");
 }
 
-export function cardFiles(files, granted) {
-  return listedFiles(files, granted).map((file) => {
-    if (!isImageFile(file)) return file;
-    return {
-      name: file.name || "",
-      mime: file.mime || "",
-      image: true,
-    };
-  });
-}
-
-export function cardPreviewUrl(id, files) {
-  if (!id || !(files || []).some(isImageFile)) return "";
-  return `/api/web/previews/${id}`;
-}

@@ -15,6 +15,7 @@ test("a platform upload url counts as a stored id", () => {
   const media = readMedia([`https://knot.example/api/web/uploads/${ID}`], 4);
   assert.deepEqual(media.ids, [ID]);
   assert.deepEqual(media.urls, []);
+  assert.deepEqual(readMedia([`/api/web/uploads/${ID}/display`], 4).ids, [ID]);
 });
 
 test("the same content keeps one hash", () => {
@@ -38,7 +39,7 @@ test("the same content keeps one hash", () => {
   assert.notEqual(first, contentHash({ kind: "post", body: "原文", respondsTo: null, imageIds: [ID], videos: ["https://example.com/other"] }));
 });
 
-test("a card hides a stored original and keeps an external url", () => {
+test("a card shows a stored image and keeps an external url", () => {
   const record = toRecord(
     {
       id: "a1",
@@ -53,7 +54,7 @@ test("a card hides a stored original and keeps an external url", () => {
       created_at: "2026-10-13T00:00:00.000Z",
     },
     {
-      files: [{ id: ID, name: "a.jpg", mime: "image/jpeg", url: `/api/web/uploads/${ID}`, image: true }],
+      files: [{ id: ID, name: "a.jpg", mime: "image/jpeg", url: `/api/web/uploads/${ID}`, image: true, size: 3 * 1024 * 1024 }],
       granted: false,
     }
   );
@@ -61,11 +62,11 @@ test("a card hides a stored original and keeps an external url", () => {
   assert.equal(record.kMeta.kind, "post");
   assert.equal(record.kMeta.version, 1);
   assert.deepEqual(record.kMeta.commerce, { price: 10, fee: 0, payee: "author" });
-  assert.equal(record.images[0].url, undefined);
+  assert.equal(record.images[0].url, `/api/web/uploads/${ID}`);
   assert.equal(record.images[0].stored, true);
   assert.equal(record.images[1].url, "https://example.com/a.jpg");
   assert.equal(record.images[1].stored, false);
-  assert.equal(record.previewUrl, "/api/web/previews/a1");
+  assert.equal(record.previewUrl, "");
   assert.equal(record.kMeta.note, "");
 });
 

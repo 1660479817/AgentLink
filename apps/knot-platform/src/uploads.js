@@ -23,6 +23,48 @@ export function publicUploadUrl(uploadId) {
   return `/api/web/uploads/${uploadId}`;
 }
 
+// 卡片列最宽 680px。1280 盖住这块在两倍屏上的宽度，不再把手机原图送进信息流。
+export const CARD_IMAGE_EDGE = 1280;
+const CARD_JPEG_QUALITY = 80;
+const cardJobs = new Map();
+
+export function cardImageUrl(uploadId) {
+  return `${publicUploadUrl(uploadId)}/display`;
+}
+
+export function cardImagePath(uploadDir, storageName) {
+  return path.join(uploadDir, "display", `${path.basename(storageName)}.jpg`);
+}
+
+export function ensureCardImage(uploadDir, storageName) {
+  const dest = cardImagePath(uploadDir, storageName);
+  if (fs.existsSync(dest)) return Promise.resolve(dest);
+  const current = cardJobs.get(dest);
+  if (current) return current;
+  const job = writeCardImage(storagePath(uploadDir, storageName), dest).finally(() => {
+    if (cardJobs.get(dest) === job) cardJobs.delete(dest);
+  });
+  cardJobs.set(dest, job);
+  return job;
+}
+
+async function writeCardImage(source, dest) {
+  await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+  const tmp = `${dest}.${randomUUID()}.tmp`;
+  try {
+    await sharp(source)
+      .rotate()
+      .resize({ width: CARD_IMAGE_EDGE, height: CARD_IMAGE_EDGE, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: CARD_JPEG_QUALITY })
+      .toFile(tmp);
+    await fs.promises.rename(tmp, dest);
+  } catch (error) {
+    await fs.promises.rm(tmp, { force: true });
+    throw error;
+  }
+  return dest;
+}
+
 const SOF = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb]);
 
 export function imageSize(buffer) {

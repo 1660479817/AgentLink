@@ -4,7 +4,8 @@ import ActorMark from "./ActorMark.vue";
 import AppButton from "./AppButton.vue";
 import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
-import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { isMarkdown, plainMarkdown, renderMarkdown } from "../markdown.js";
 import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls } from "../packet.js";
 
 const props = defineProps({
@@ -13,7 +14,6 @@ const props = defineProps({
   language: { type: String, default: "" },
   price: { type: Number, default: 0 },
   granted: { type: Boolean, default: true },
-  previewUrl: { type: String, default: "" },
   imageUrls: { type: Array, default: () => [] },
   images: { type: Array, default: () => [] },
   audio: { type: Array, default: () => [] },
@@ -48,13 +48,16 @@ const pendingImages = computed(() => lockedImages(props.imageUrls, props.images)
 const clips = computed(() => packetAudio(props.audio));
 const links = computed(() => packetVideos(props.videos));
 const files = computed(() => packetFile(props.attachments));
+const markdown = computed(() => isMarkdown(props.body));
+const bodyPlain = computed(() => (markdown.value ? plainMarkdown(props.body) : props.body));
+const bodyHtml = computed(() => (markdown.value ? renderMarkdown(props.body) : ""));
 const fileNote = computed(() => {
   const note = String(props.note || "").trim();
   if (note) return note;
   if (props.verdict === "pending") return t("home.filePrechecked");
   return "";
 });
-const hasPacketFiles = computed(() => Boolean(props.previewUrl) || photos.value.length || pendingImages.value.length || clips.value.length || files.value.length);
+const hasDownload = computed(() => files.value.length > 0);
 
 function onDownload() {
   if (props.busy) return;
@@ -145,6 +148,21 @@ watch(
           </p>
         </div>
       </div>
+      <AppButton
+        v-if="canFriend"
+        class="information-friend"
+        :class="{ 'is-friend': friend }"
+        variant="secondary"
+        type="button"
+        :aria-label="friend ? t('home.removeFriend') : t('home.addFriend')"
+        @click="emit('friend')"
+      >
+        <FriendAddIcon v-if="!friend" aria-hidden="true" />
+        <template v-else>
+          <FriendCheckIcon class="information-friend-on" aria-hidden="true" />
+          <FriendRemoveIcon class="information-friend-off" aria-hidden="true" />
+        </template>
+      </AppButton>
       <span class="information-price" :aria-label="t('home.usePrice', { n: price })">
         <CoinIcon aria-hidden="true" />
         <span>{{ price }}</span>
@@ -160,9 +178,11 @@ watch(
       </AppButton>
     </header>
     <div v-if="body" class="information-body-wrap">
-      <p ref="bodyRef" class="information-body" :class="{ 'is-clamped': !bodyOpen }">{{ body }}</p>
+      <p v-if="!markdown" ref="bodyRef" class="information-body" :class="{ 'is-clamped': !bodyOpen }">{{ body }}</p>
+      <p v-else-if="!bodyOpen" ref="bodyRef" class="information-body" :class="{ 'is-clamped': true }">{{ bodyPlain }}</p>
+      <div v-else class="information-body information-md" v-html="bodyHtml"></div>
       <button
-        v-if="bodyClipped || bodyOpen"
+        v-if="bodyClipped || bodyOpen || markdown"
         type="button"
         class="information-more"
         :class="{ 'is-expanded': bodyOpen }"
@@ -172,11 +192,10 @@ watch(
         {{ t(bodyOpen ? "home.less" : "home.more") }}
       </button>
     </div>
-    <img v-if="previewUrl" :src="previewUrl" alt="" class="information-preview" />
     <div v-if="photos.length" class="information-images" :class="`is-${photos.length}`">
-      <img v-for="url in photos" :key="url" :src="url" alt="" class="information-photo" />
+      <img v-for="url in photos" :key="url" :src="url" alt="" class="information-photo" loading="lazy" decoding="async" />
     </div>
-    <ul v-if="!previewUrl && !photos.length && pendingImages.length" class="information-files">
+    <ul v-if="!photos.length && pendingImages.length" class="information-files">
       <li v-for="(file, index) in pendingImages" :key="file.id || `${file.name}-${index}`">
         <span class="information-file">
           <ImageIcon class="information-file-icon" aria-hidden="true" />
@@ -227,19 +246,7 @@ watch(
         <StarIcon :filled="starred" aria-hidden="true" />
       </button>
       <button
-        v-if="canFriend"
-        type="button"
-        class="post-action"
-        :class="{ 'is-on': friend }"
-        :aria-pressed="friend"
-        :aria-label="friend ? t('home.removeFriend') : t('home.addFriend')"
-        @click="emit('friend')"
-      >
-        <FriendRemoveIcon v-if="friend" aria-hidden="true" />
-        <FriendAddIcon v-else aria-hidden="true" />
-      </button>
-      <button
-        v-if="hasPacketFiles"
+        v-if="hasDownload"
         type="button"
         class="post-action"
         :disabled="busy"

@@ -6,7 +6,7 @@
 浏览器 → https://knot.zenheart.net/                 （云端边缘）
             ├── /                 Knot WebUI（/var/www/knot）
             ├── /discover.json    公开快照，文件在云端，缺失时回落隧道
-            ├── /media/previews/  公开快照的预览图，同上
+            ├── /media/previews/  旧拼图目录，现在清空，不再写入
             ├── /api/*            ──隧道──→ bot01
             └── /help             ──隧道──→ bot01
 浏览器 → http://192.168.3.91:8080/                  （bot01，局域网直连）
@@ -70,7 +70,7 @@ cd ~/knot/AgentLink
 
 云端放 WebUI 和发现页的公开快照。`/api` 和 `/help` 由 bot01 主动连出的隧道回到本机平台。云端 `127.0.0.1:8080` 是另一套站点，隧道使用 `127.0.0.1:18080`。`/api/admin` 不公开。
 
-`/discover.json` 和 `/media/previews/` 是 `root /var/www/knot` 下的文件。云端有就先给这一份，缺失时 `try_files` 回落到隧道。这样隧道断开时 `/discover` 仍能看到公开信息。配置在 `ops/edge/knot.zenheart.net.conf`。
+`/discover.json` 在 `root /var/www/knot`。云端有就先给这一份，缺失时 `try_files` 回落到隧道。这样隧道断开时 `/discover` 仍能看到公开信息。图片地址指向平台上的展示图。`/media/previews/` 不再写入，推送时清掉旧拼图。配置在 `ops/edge/knot.zenheart.net.conf`。
 
 在开发机构建并换上页面：
 

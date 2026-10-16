@@ -75,10 +75,14 @@ export function uploadImage(file, onProgress) {
   return uploadForm("/api/web/uploads", file, onProgress);
 }
 
-export function listInformation(author) {
+export function listInformation(author, before) {
   const id = String(author || "").trim();
-  const query = id ? `?author=${encodeURIComponent(id)}` : "";
-  return request(`/api/web/information${query}`);
+  const cursor = String(before || "").trim();
+  const query = new URLSearchParams();
+  if (id) query.set("author", id);
+  if (cursor) query.set("before", cursor);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request(`/api/web/information${suffix}`);
 }
 
 export function discoverSelf(ids) {

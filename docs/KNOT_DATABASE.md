@@ -4,9 +4,9 @@ PostgreSQL。只由 Knot Backend 读写。
 
 账号在 `users`。记下来的是一条记录，一次下载，以及积分流水。表结构以 `apps/knot-platform/migrations/001_init.sql` 为准。迁移脚本若发现还没有 `users`，或仍有 `persons`、`expressions`，会清空 `public` 再执行初始化。`ops/scripts/reset-knot.sh` 重建时留下用户、会话、授权和头像，帖子不留。
 
-图片字节在 `UPLOAD_DIR`（默认 `data/uploads`）。库只存文件名和类型。有图片的记录另存一张预览，`previews/{id}.jpg`，宽不超过 960。一张是缩小图，两张、三张、四张按格子拼成这一张：图片完整放进格子里，空处填白，四张是 2×2 等分。分享图在 `shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是介绍。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
+文件字节在 `UPLOAD_DIR`（默认 `data/uploads`）。库只存文件名和类型。卡片使用 `display/{storage}.jpg`，最长边 1280，不再把多张图片拼成 `previews/{id}.jpg`。原图仍留在上传目录。分享图在 `shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是介绍。有图片时分享图用第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
 
-登录与否都能看的公开信息另有快照，写在 `DISCOVER_BOARD_DIR`，缺省是上传目录下的 `board`：`discover.json` 和 `media/previews/`。它由 Backend 在公开内容变化后重写，再推到云端，不进库。
+登录与否都能看的公开信息另有快照，写在 `DISCOVER_BOARD_DIR`，缺省是上传目录下的 `board`：`discover.json`。图片地址指向原文件。它由 Backend 在公开内容变化后重写，再推到云端，不进库。
 
 ---
 
@@ -57,7 +57,7 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 | 加好友 / 删除好友 | `friendships`、`friend_dismissals`。内部 Personal Agent 默认是好友，不逐行预写 |
 | @ 一位好友 | `intel_mentions`，并发 `notifications`。不改记录正文和 `content_hash` |
 
-没有平台文件时价格为 0，不提供下载。平台文件是图片、音频或附件。视频和外链不算。
+没有附件时价格为 0，不提供下载。附件是 PDF、Word、Excel、PPT、Markdown 或压缩包。图片、音频、视频和外链不算附件，也不进下载包。
 
 ---
 
@@ -105,11 +105,13 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 | `videos` | JSON 数组。视频链接。一项是 `{ url, poster? }`。不存视频文件 |
 | `links` | JSON。外链的 `images`、`audio`、`attachments`。平台文件在 `intel_files` |
 | `content_hash` | 同一账户下内容的 SHA-256。覆盖 `kind`、`responds_to`、正文和各链接地址。`(user_id, content_hash)` 唯一 |
-| `price` | 价格。没有平台文件时为 0。`wish` 恒为 0，其余是作者写下的价格 |
+| `price` | 价格。没有附件时为 0。`wish` 恒为 0，其余是作者写下的价格 |
 | `is_public` | `post` 和 `fastpost` 由作者设定，缺省 true。`wish` 和 `wishRespond` 为 false |
 | `verdict` | `pending` 是已预审、终审进行中。`passed` 是终审留下。`rejected` 是终审撤销。`removed` 是管理员撤下。公开范围内，`pending` 和 `passed` 都可见 |
 | `reject_reason` | 终审撤销的原因，或管理员撤下的原因 |
 | `detail` | JSON。`note` 是终审留下时写下的一句事实，卡片上跟在附件名后面，也进检索。`language` 是终审写下的语种，BCP 47，同样进检索。平台补上的可有 `source`，记出处 |
+
+终审读过图片和文档之后，把转写和读到的文字写入上传目录的 `extracts/{id}.md`。一份记录一个文件，按「图片」「附件」分节。公开搜索会读这份文字。终审撤销或管理员撤下时删掉。它不进下载包，也不从上传接口给出。
 | `weight` | 权重，默认 0。等于当前点亮星的人数 |
 | `created_at` | 提交时间 |
 | `updated_at` | 平台在提交时写下，已有行回填为 `created_at`。目前与 `created_at` 相同。审查不改 |
@@ -138,9 +140,11 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 
 `point_ledger` 只追加。当前写入的 `reason` 是 `download`、`download_fee`、`publish` 和 `grant`。积分的经济模型与度量口径见 [KNOT_ECONOMY.md](./KNOT_ECONOMY.md)。精算师读本机 `/api/admin/economy` 报三个数，不写这张表。价格表写在 `price_proposals` 和 `economy_policy`。`download` 的 `ref_id` 是记录 id，下载者和作者各记一行（作者标价）。`download_fee` 的 `ref_id` 也是记录 id，下载者和平台各记一行（下载服务费）。`publish` 的 `ref_id` 是记录 id，发布者和平台各记一行（发布服务费）。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。余额不为负。点星不写这张表。
 
-`packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一条只记一行。有平台文件的记录在第一次下载时打成一份压缩包，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经查看过一条 wish（查看免费）。`request_looks` 记下谁查看过一条 wish，主键同样是 `(user_id, intel_id)`。点开别人的卡片写一行，再点不重复。
+`packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一条只记一行。有附件的记录在第一次下载时打成一份压缩包，包里是附件，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经查看过一条 wish（查看免费）。`request_looks` 记下谁查看过一条 wish，主键同样是 `(user_id, intel_id)`。点开别人的卡片写一行，再点不重复。
 
 `notifications.kind` 为 `intel_rejected`、`intel_passed`、`intel_review_error`、`intel_removed`、`warning`、`request_response`、`mention`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_passed` 现在不再发出：终审留下不另发通知，因为预审通过时已经可见。`intel_rejected` 的标题是「信息已撤销」。`intel_review_error` 的标题是「审核异常」，记录仍然可见。`request_response` 只发给发出 wish 的人。`mention` 的标题是「有人@了你」，`intel_id` 指向那条记录，正文是那条信息的文字。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。没有对应记录时 `intel_id` 为空。
+
+`kind` 另按来源分成 `system`（平台对账户和内容的动作）和 `social`（`mention`、`request_response`）。分组由 `kind` 推出，不存列。Agent 每个响应里捎带的 `notices` 就是按这两组计数的未读摘要，`latest` 只带最近几条，完整一封仍走 `GET /api/agent/notifications`。
 
 ### friendships 与 friend_dismissals
 
@@ -170,4 +174,4 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 
 ### intel
 
-`price` 大于等于 0。没有平台文件时为 0。有平台文件时，`post`、`fastpost`、`wishRespond` 的作者写下当时价格表上下限里的整数，初期 0 到 100；留空则写入当时的默认价格。价格表见 `economy_policy`；还没有这一行时用环境变量。已写下的 `price` 不随后来的价格表改写。`wish` 的 `price` 恒为 0（查看详情免费）。发布 `post`、`fastpost`、`wish`、`wishRespond` 时另按附件大小（`uploads.size`）收发布服务费；下载附件时另按附件大小收下载服务费（wish 标价 0，只收服务费）。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是管理员撤下，两者都离开信息流、搜索和 `/wish`，作者的提交记录里仍能看到原因。
+`price` 大于等于 0。没有附件时为 0。有附件时，`post`、`fastpost`、`wishRespond` 的作者写下当时价格表上下限里的整数，初期 0 到 100；留空则写入当时的默认价格。价格表见 `economy_policy`；还没有这一行时用环境变量。已写下的 `price` 不随后来的价格表改写。`wish` 的 `price` 恒为 0（查看详情免费）。发布 `post`、`fastpost`、`wish`、`wishRespond` 时另按附件大小（`uploads.size`，不含图片和音频）收发布服务费；下载附件时另按附件大小收下载服务费（wish 标价 0，只收服务费）。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是管理员撤下，两者都离开信息流、搜索和 `/wish`，作者的提交记录里仍能看到原因。

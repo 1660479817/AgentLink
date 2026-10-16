@@ -12,6 +12,8 @@ import {
   buildSharePoster,
   ensureSharePoster,
   formatPosted,
+  isMarkdown,
+  markdownTexts,
   renderSharePoster,
   shareContent,
   shareHead,
@@ -40,6 +42,57 @@ test("long text wraps onto more than one line", () => {
   assert.equal(lines[3].endsWith("…"), true);
   const sentence = wrapText("这是一条分享到 Knot 的信息。人或 Agent 都能读，下载按报价结算。", 936, 40, 8);
   assert.equal(sentence.some((line) => line.startsWith("，")), false);
+});
+
+test("markdown is detected and plain text is left alone", () => {
+  assert.equal(isMarkdown("# 标题"), true);
+  assert.equal(isMarkdown("前面 **加粗** 后面"), true);
+  assert.equal(isMarkdown("- 列表项"), true);
+  assert.equal(isMarkdown("1. 有序项"), true);
+  assert.equal(isMarkdown("> 引用"), true);
+  assert.equal(isMarkdown("```\ncode\n```"), true);
+  assert.equal(isMarkdown("这条没有标记的信息"), false);
+  assert.equal(isMarkdown(""), false);
+});
+
+test("markdown blocks keep their structure", () => {
+  const items = markdownTexts(
+    "# 标题\n\n段落有 **加粗** 与 `代码`。\n\n- 甲\n- 乙\n\n1. 丙\n2. 丁\n\n> 引用\n\n```\nconst x = 1;\n```"
+  );
+  const heading = items[0];
+  assert.equal(heading.segments[0].text, "标题");
+  assert.equal(heading.size, 52);
+  assert.equal(heading.weight, "600");
+  const para = items.find((item) => item.segments?.some((segment) => segment.bold));
+  assert.ok(para);
+  assert.ok(para.segments.some((segment) => segment.text === "加粗" && segment.bold));
+  assert.ok(para.segments.some((segment) => segment.text === "代码" && segment.code));
+  const bullets = items.filter((item) => item.prefix === "•");
+  assert.equal(bullets.length, 2);
+  assert.equal(bullets[0].segments[0].text, "甲");
+  const ordered = items.filter((item) => item.prefix === "1." || item.prefix === "2.");
+  assert.equal(ordered.length, 2);
+  assert.equal(ordered[0].segments[0].text, "丙");
+  const quote = items.find((item) => item.quote);
+  assert.equal(quote.fill, "#65676B");
+  const code = items.find((item) => item.code);
+  assert.equal(code.segments[0].code, true);
+  assert.equal(code.segments[0].text, "const x = 1;");
+});
+
+test("a markdown post is drawn with formatted runs", async () => {
+  const layout = await buildSharePoster({
+    body: "# 标题\n\n这是 **加粗** 和 `代码`，还有 [链接](https://knot.zenheart.net)。",
+    video: false,
+    audioName: "",
+    fileName: "",
+    image: false,
+    preview: "",
+  });
+  assert.match(layout.svg, /font-size="52"[^>]*font-weight="600"/);
+  assert.match(layout.svg, /<tspan/);
+  assert.match(layout.svg, /加粗/);
+  assert.match(layout.svg, /fill="#0866FF"/);
 });
 
 test("the picture shows the post, the introduction, and a code for the site", async () => {
@@ -256,8 +309,7 @@ test("a public post is drawn once and then reused", async () => {
   };
   const pool = {
     async query(sql) {
-      if (sql.includes("storage_name")) return { rows: [] };
-      if (sql.includes("original_name")) return { rows: [{ mime: "audio/mpeg", original_name: "voice.mp3" }] };
+      if (sql.includes("original_name")) return { rows: [{ mime: "audio/mpeg", original_name: "voice.mp3", storage_name: "voice.bin" }] };
       if (sql.includes("FROM intel")) return { rows: [row] };
       throw new Error(sql);
     },

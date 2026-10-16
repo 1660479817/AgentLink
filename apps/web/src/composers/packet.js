@@ -4,13 +4,13 @@ import { t } from "../i18n/index.js";
 export const MAX_BYTES = 5 * 1024 * 1024;
 export const AUDIO_MAX = 8 * 1024 * 1024;
 export const FILE_MAX = 50 * 1024 * 1024;
-export const MAX_IMAGES = 4;
+export const MAX_IMAGES = 9;
 export const MAX_FILES = 1;
 
 const VIDEO_FILE = /^video\/|\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg|3gp|wmv|flv|ogv)$/i;
 const AUDIO_FILE = /^audio\/|\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$/i;
-const ATTACHMENT_FILE = /\.(pdf|docx|xlsx|pptx|md|markdown)$/i;
-export const ATTACHMENT_ACCEPT = ".pdf,.docx,.xlsx,.pptx,.md,.markdown";
+const ATTACHMENT_FILE = /\.(pdf|docx|xlsx|pptx|md|markdown|zip|rar|7z|tar|gz|tgz|bz2|xz)$/i;
+export const ATTACHMENT_ACCEPT = ".pdf,.docx,.xlsx,.pptx,.md,.markdown,.zip,.rar,.7z,.tar,.gz,.tgz,.bz2,.xz";
 
 export function isVideoFile(file) {
   return VIDEO_FILE.test(`${file?.type || ""} ${file?.name || ""}`);

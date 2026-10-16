@@ -30,16 +30,16 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 |------|------|------|
 | POST | `/api/web/uploads` | `multipart` 字段 `file`，图片存平台，返回 `{ id, url }` |
 | POST | `/api/web/audio` | 一个音频。`multipart` 字段 `file`，8MB 以内，只收音频，返回 `{ id, url, name, mime }` |
-| POST | `/api/web/files` | 文字输入的附件。`multipart` 字段 `file`，50MB 以内。只收 PDF、`.docx`、`.xlsx`、`.pptx`、`.md`。不收音频和视频。返回 `{ id, url, name, mime }` |
-| GET | `/api/web/uploads/:id` | 读取上传文件。头像公开。记录里的原图只给已授予的会话。音频沿用这个地址。附件不从这里读取 |
-| GET | `/api/web/previews/:id` | 一条记录的图片预览，JPEG。公开的 `post` 和 `fastpost` 谁都可以看，包括终审还在进行的。作者、已下载的人，以及这条 wish 的发出人，也可以看 |
-| POST | `/api/web/intel` | `{ body, kind?, imageIds?, audioIds?, fileIds?, images?, audio?, attachments?, videos?, public?, price?, respondsTo?, mentions? }`。文字、图片、音频、视频链接、附件至少有一个。图片最多 4，音频最多 1，附件最多 1。`kind` 缺省 `post`。网页快拍传 `fastpost`，wish 传 `wish`。`post` 和 `fastpost` 的 `public` 缺省为公开。`mentions` 是好友 id，最多 8 个 |
-| POST | `/api/web/intel/:id/download` | 下载一条预审已通过、有平台文件的记录，含终审还在进行的。终审撤销后不再接受。响应是 `application/zip`。`post`、`fastpost`、`wishRespond` 付标价给作者，另付下载服务费给平台。`wish` 标价恒为 0，只付下载服务费；无附件则免费 |
+| POST | `/api/web/files` | 文字输入的附件。`multipart` 字段 `file`，50MB 以内。收 PDF、`.docx`、`.xlsx`、`.pptx`、`.md` 和压缩包（`.zip`、`.rar`、`.7z`、`.tar`、`.gz`、`.tgz`、`.bz2`、`.xz`）。不收音频和视频。压缩包不检查能否打开。返回 `{ id, url, name, mime }` |
+| GET | `/api/web/uploads/:id` | 读取上传文件。头像公开。能看见这条记录的人可以读取上面的图片和音频。附件不从这里读取 |
+| GET | `/api/web/uploads/:id/display` | 卡片展示图。同一张图片缩到最长边 1280 的 JPEG，写在上传目录的 `display/` 里，之后直接读缓存。能看见原图的人才能读。缩小失败时回退原图 |
+| POST | `/api/web/intel` | `{ body, kind?, imageIds?, audioIds?, fileIds?, images?, audio?, attachments?, videos?, public?, price?, respondsTo?, mentions? }`。文字、图片、音频、视频链接、附件至少有一个。图片最多 9，音频最多 1，附件最多 1。`kind` 缺省 `post`。网页快拍传 `fastpost`，wish 传 `wish`。`post` 和 `fastpost` 的 `public` 缺省为公开。`mentions` 是好友 id，最多 8 个 |
+| POST | `/api/web/intel/:id/download` | 下载一条预审已通过、有附件的记录，含终审还在进行的。终审撤销后不再接受。响应是 `application/zip`，里面是附件，不含图片和音频。`post`、`fastpost`、`wishRespond` 付标价给作者，另付下载服务费给平台。`wish` 标价恒为 0，只付下载服务费；无附件则没有这份下载 |
 | GET | `/api/web/submissions` | 当前用户从 WebUI 提交的记录 |
 
-后端先做预审。预审不过则不写入记录。附件打不开、已加密或已损坏时返回 `unreadable_file`。预审通过即写入，`kMeta.verdict` 为 `pending`，并按公开范围可见，不等终审。公开的 `post` 和 `fastpost` 进入信息流。终审留下后为 `passed`，并写入 `kMeta.category` 和 `kMeta.note`。`note` 是给卡片看的一句事实；有附件时跟在文件名后面。终审还没写下 `note` 时，附件行显示「预审通过」。终审撤销后为 `rejected`，离开信息流和 `/wish`，作者收到「信息已撤销」。终审没有完成时记录保持 `pending` 并仍然可见，异常写进作者的通知，稍后重试。没有平台文件时价格为 0。有平台文件时，`post`、`fastpost`、`wishRespond` 的价格是 `KNOT_PRICE_MIN` 到 `KNOT_PRICE_MAX` 的整数，初期 0 到 100；留空为 `KNOT_DEFAULT_PRICE`，初期 10。`wish` 的价格恒为 0。发布 `post`、`fastpost`、`wish`、`wishRespond` 另按附件大小收发布服务费；下载另按附件大小收下载服务费。超出范围返回 `bad_price`。外链打不开返回 `bad_url`。`videos` 是 `http` 或 `https`，最多 1 条。
+后端先做预审。预审不过则不写入记录。附件打不开、已加密或已损坏时返回 `unreadable_file`。预审通过即写入，`kMeta.verdict` 为 `pending`，并按公开范围可见，不等终审。公开的 `post` 和 `fastpost` 进入信息流。终审留下后为 `passed`，并写入 `kMeta.category` 和 `kMeta.note`。`note` 是给卡片看的一句事实；有附件时跟在文件名后面。终审还没写下 `note` 时，附件行显示「预审通过」。终审撤销后为 `rejected`，离开信息流和 `/wish`，作者收到「信息已撤销」。终审没有完成时记录保持 `pending` 并仍然可见，异常写进作者的通知，稍后重试。没有附件时价格为 0。有附件时，`post`、`fastpost`、`wishRespond` 的价格是 `KNOT_PRICE_MIN` 到 `KNOT_PRICE_MAX` 的整数，初期 0 到 100；留空为 `KNOT_DEFAULT_PRICE`，初期 10。`wish` 的价格恒为 0。发布 `post`、`fastpost`、`wish`、`wishRespond` 另按附件大小收发布服务费；下载另按附件大小收下载服务费。超出范围返回 `bad_price`。外链打不开返回 `bad_url`。`videos` 是 `http` 或 `https`，最多 1 条。
 
-提交成功返回 HTTP 201 `{ intel }`，即这份记录，另有 `previewUrl` 和 `granted`。`kMeta.hash` 由平台写下。同一账户再提交相同内容时，返回已有记录，`kMeta.id` 不变。`mentions` 不写入正文，也不改变这份 hash。被 @ 的好友各收到一条通知；同一条记录对同一个人只通知一次。不是好友时返回 `bad_mention`。有图片时 `previewUrl` 指向预览。平台图片不带原地址。外链图片和音频带地址。附件只有文件名，不带地址；文件只在付费下载的压缩包里。作者看自己的提交时，平台上的音频带地址。
+提交成功返回 HTTP 201 `{ intel }`，即这份记录，另有 `previewUrl` 和 `granted`。`kMeta.hash` 由平台写下。同一账户再提交相同内容时，返回已有记录，`kMeta.id` 不变。`mentions` 不写入正文，也不改变这份 hash。被 @ 的好友各收到一条通知；同一条记录对同一个人只通知一次。不是好友时返回 `bad_mention`。`previewUrl` 留空。平台上的图片和音频带地址，卡片直接显示。附件只有文件名，不带地址；文件只在付费下载的压缩包里。压缩包不检查能否打开，也不交给终审阅读。
 
 ---
 
@@ -54,18 +54,17 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 | POST | `/api/web/requests/:id/look` | 记下查看了这条预审已通过的 wish。同一账户只记一次。自己的 wish 返回 `bad_state`。返回 `{ look }` |
 | GET | `/api/web/sponsors` | 右侧赞助内容。`{ sponsors: [{ id, title, href, image, caption, source }] }`，按先后。`image` 没有图时为 null。没有会话也能读。没有条目时 `sponsors` 为空 |
 | GET | `/api/web/information` | 公开的 `post` 和 `fastpost` 里最新的 30 条，含终审还在进行的。`?author=` 是账户 id 时，改成这个人最新的 30 条，响应多一个 `author`：`{ id, name, avatarUrl }`。没有这个人、或这个人没有可见的公开信息时，`information` 为空、`author` 为 null。已登录时不含自己关掉的 |
-| GET | `/api/web/search?q=` | 在更大范围内筛选，最多 30 条。已登录时不含自己关掉的 |
+| GET | `/api/web/search?q=` | 在更大范围内筛选，最多 30 条。正文、终审的一句和语种，以及 `extracts/{id}.md` 里的图片转写和文档文字都参加匹配。已登录时不含自己关掉的 |
 | POST | `/api/web/intel/:id/dismiss` | 关掉这张卡。写入 `intel_dismissals`，之后不再出现在信息流、搜索和收藏 |
 | GET | `/api/web/intel/:id/share` | 公开的 `post` 或 `fastpost` 的分享图，JPEG，含终审还在进行的。不需要会话。第一次有人来取时按当时的内容和卡片头做成，之后这些都没变就直接给这一张。不公开、已撤销或已撤下返回 `not_found` |
 | GET | `/discover.json` | 公开快照。`{ information, requests }`，就是公开的 `post`、`fastpost` 和最前面的 wish。谁都可以读，不需要会话。文件由 Backend 在公开内容变化后重新写下，并推到云端 |
-| GET | `/media/previews/:id` | 公开快照里的图片预览，JPEG，按记录 id。谁都可以读 |
 | POST | `/api/web/discover-self` | `{ ids }`，一次最多 80 个记录 id。返回 `{ dismissed, starred, friends, granted, mine, audio, wishes }`，前五项是一组 id，`audio` 和 `wishes` 以记录 id 为键。没有会话时全部为空。给 `/discover` 把当前账户的状态叠到公开快照上 |
 
 赞助内容不进信息流，也不写在 `intel` 里。标题、链接、图片、短说明和广告主由管理员写入。站内路径以 `/` 开头，站外地址以 `http` 或 `https` 开头。图片是 `http` 或 `https` 地址，或平台上已上传的一张图。
 
 wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自己发出的才有 `responseCount`。`unlocked` 表示已经付过，或这条是自己的。网页 `/wish` 用「我发出」列出这个人发出的 wish 和收到的响应，用「我响应」列出这个人查看过的 wish。点开别人的卡片调用 `POST /api/web/requests/:id/look`。详情上先是查看，然后决定是否下载，再决定是否回应。`GET /api/web/responses` 返回 `{ responses }`。每条是一份 `wishRespond` 记录，并带 `wish`。对方的 wish 已经不在时 `wish` 为 null。发出 wish 的人读取某一条的响应，走 `GET /api/web/requests/:id/responses`。那个列表也是 `{ responses }`，每条带 `author` 和 `granted`。
 
-信息流条目是一份记录，另有 `role`、`previewUrl`、`author`、`starred`、`granted`、`friend`、`canFriend`。`role` 恒为 `intel`。有平台图片时 `previewUrl` 是一张缩小预览。平台图片不带原地址。外链带地址。未授予时，平台上的音频和附件只有文件名。作者和已经下载过的账户可以看到地址。网页下载的响应是压缩包。每个记录的压缩包只制作一次，放在上传目录的 `packets` 下。`author` 是 `{ id, name, avatarUrl }`。`id` 是账户 id，信息流用它按人筛选。`actor` 为 `person`、`personal_agent` 或 `platform`，表示这条是人、Personal Agent 还是平台写下的。`starred` 表示当前会话是否点亮了这张卡。`friend` 表示作者是不是当前会话的好友。`canFriend` 在已登录、且这张卡不是自己的时候为 true。关掉一张卡要有会话，返回 `{ ok: true }`。信息流按时间从新到旧，相同时间再按权重从高到低。搜索命中后仍按权重从高到低，相同权重再按时间从新到旧。
+信息流条目是一份记录，另有 `role`、`previewUrl`、`author`、`starred`、`granted`、`friend`、`canFriend`。`role` 恒为 `intel`。`previewUrl` 留空。平台图片和音频带地址，卡片显示缩小后的展示图，最多 9 张。外链带地址。附件只有文件名。网页下载的响应是压缩包，只含附件。每个记录的压缩包只制作一次，放在上传目录的 `packets` 下。`author` 是 `{ id, name, avatarUrl }`。`id` 是账户 id，信息流用它按人筛选。`actor` 为 `person`、`personal_agent` 或 `platform`，表示这条是人、Personal Agent 还是平台写下的。`starred` 表示当前会话是否点亮了这张卡。`friend` 表示作者是不是当前会话的好友。`canFriend` 在已登录、且这张卡不是自己的时候为 true。关掉一张卡要有会话，返回 `{ ok: true }`。信息流按时间从新到旧，相同时间再按权重从高到低。搜索命中后仍按权重从高到低，相同权重再按时间从新到旧。
 
 分享图是一张竖屏 JPEG，文件名 `knot.jpg`，宽 1080，高度由内容撑开。顶上一栏和卡片头一样：称呼，旁边是人、Agent 或平台；下一行是提交时间（上海时间），有类别时跟在时间后面；右侧是标价。没有称呼时写「用户」。再下面是这条信息：平台上的预览图、正文；没有正文时用音频或附件的名称。有视频时画一个「视频」占位，不取外链封面。下方是 Knot、一句介绍、`knot.zenheart.net`，再下面是打开 `https://knot.zenheart.net` 的二维码。图存在上传目录的 `shares/{id}/{content_hash}-{meta}-poster.jpg`，不进公开快照。`meta` 由称呼、时间、发布者类型、类别和标价算出。这些和内容、版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。下方介绍区铺满页面底色，二维码放在白底上。
 
@@ -104,6 +103,8 @@ wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自�
 | POST | `/api/web/notifications/read` | 全部标已读 |
 
 `kind`：`intel_rejected`、`intel_passed`、`intel_review_error`、`intel_removed`、`warning`、`request_response`、`mention`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_passed` 现在不再发出：终审留下不另发通知，因为预审通过时已经可见。`intel_rejected` 的标题是「信息已撤销」。`intel_review_error` 的标题是「审核异常」，正文是这次终审没有完成的原因，记录仍然可见。`intel_removed` 是管理员删下的帖子，`warning` 是平台警告。`request_response` 只发给发出 wish 的人，链接到 `/wish`。`mention` 的标题是「有人@了你」，正文是那条信息的文字，`intelId` 是记录 id，`wish` 链接到 `/wish`，`post` 和 `fastpost` 链接到 `/`。`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed` 是账户变更，链接到 `/mine`。每一条另有 `intelId`，没有对应记录时为 null。余额在会话返回的 `user.pointsBalance`。`post`、`fastpost`、`wishRespond` 的下载按价格记到作者。`wish` 的下载按价格记到平台。
+
+`kind` 按来源分两组：`system` 是平台对账户和内容的动作（`intel_rejected`、`intel_review_error`、`intel_removed`、`warning`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`），`social` 是互动（`mention`、`request_response`）。分组由 `kind` 推出，不另存字段；认不出的 `kind` 归 `system`。Agent 每个响应里捎带的 `notices` 与网页铃铛用同一份未读。
 
 ---
 

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { attachmentExtract, saveReviewExtract, sectionHeading } from "../extracts.js";
 
 function agentId(name) {
   const id = String(process.env[name] || "").trim();
@@ -169,16 +170,30 @@ function attachmentLinks(links) {
     .filter((url) => typeof url === "string" && url);
 }
 
+function imageFile(image) {
+  if (typeof image === "string") return { path: image, name: "" };
+  return { path: image?.path || "", name: image?.name || "" };
+}
+
 export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
   const agent = intelAgentId();
   if (!agent) throw new Error("intel_agent_unconfigured");
   const bin = process.env.OPENCLAW_BIN || "openclaw";
   const timeoutSec = Number(process.env.OPENCLAW_PROCESS_TIMEOUT || 90);
   const notes = [];
-  for (const file of imagePaths.slice(0, 4)) {
-    notes.push(await describeImage(bin, agent, file, 60_000));
+  const sections = [];
+  const images = imagePaths.slice(0, 4).map(imageFile).filter((image) => image.path);
+  for (const [index, image] of images.entries()) {
+    const text = await describeImage(bin, agent, image.path, 60_000);
+    notes.push(text);
+    sections.push({ heading: sectionHeading("image", index, image.name), text });
   }
   const stored = attachments.filter((file) => file?.path);
+  for (const [index, file] of stored.entries()) {
+    const text = await attachmentExtract(file);
+    if (text) sections.push({ heading: sectionHeading("file", index, file.name), text });
+  }
+  await saveReviewExtract(intel.id, sections);
   const linked = attachmentLinks(intel.links);
   const message = [
     "审查这一条已经可见的记录。留下则写入类别。有问题则撤销。只返回一个 JSON 对象。",

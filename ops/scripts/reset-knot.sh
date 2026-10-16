@@ -165,7 +165,7 @@ if [[ -d "$UPLOAD_DIR" ]]; then
       removed=$((removed + 1))
     fi
   done < <(find "$UPLOAD_DIR" -maxdepth 1 -type f)
-  rm -rf "$UPLOAD_DIR/packets" "$UPLOAD_DIR/previews" "$UPLOAD_DIR/shares"
+  rm -rf "$UPLOAD_DIR/packets" "$UPLOAD_DIR/previews" "$UPLOAD_DIR/shares" "$UPLOAD_DIR/extracts"
 fi
 
 if [[ -x "$KNOT_HOME/ops/scripts/ensure-tester.sh" ]]; then

@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
 import { listRequestResponses, listRequests } from "../requests.js";
-import { hasInformation, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videosOf } from "../information.js";
+import { hasInformation, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videosOf } from "../information.js";
 import { readMedia } from "../links.js";
 import {
   FEEDBACK_MAX,
@@ -17,7 +17,7 @@ import { muteState, specialtyList, storedSpecialties } from "../account.js";
 import { decideAgentAccess, suppliedAgentEmail } from "../agentAccess.js";
 import { listFriends } from "../friends.js";
 import { createIntel, downloadPacket } from "../market.js";
-import { listNotifications, markNotificationsRead } from "../notifications.js";
+import { listNotifications, markNotificationsRead, noticeSummary } from "../notifications.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
@@ -166,6 +166,31 @@ export function agentRouter({ pool, uploadDir }) {
   });
   const router = Router();
 
+  // 每次带着授权码的响应都捎上未读信箱。账户由 accessFor 记下，这里只负责挂上。
+  router.use((_req, res, next) => {
+    const send = res.json.bind(res);
+    res.json = (payload) => {
+      const userId = res.locals.noticeUserId;
+      const plain = payload && typeof payload === "object" && !Array.isArray(payload);
+      if (!userId || !plain || payload.notices) return send(payload);
+      // 失败处理只挂在摘要查询上，不裹住 send，免得序列化出错时再发一次。
+      return noticeSummary(pool, userId).then(
+        (notices) => send({ ...payload, notices }),
+        (error) => {
+          console.error(error);
+          return send(payload);
+        }
+      );
+    };
+    next();
+  });
+
+  async function accessFor(req, res, emailRaw) {
+    const access = await userFromAccess(pool, req.headers.authorization, emailRaw);
+    if (access.userId) res.locals.noticeUserId = access.userId;
+    return access;
+  }
+
   function acceptFile(kind) {
     const parser = kind === "image" ? imageUpload : kind === "audio" ? audioUpload : fileUpload;
     return (req, res, next) => {
@@ -183,10 +208,10 @@ export function agentRouter({ pool, uploadDir }) {
   }
 
   async function storeUpload(req, res) {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    const access = await accessFor(req, res, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const name = uploadName(req.file.originalname);
-    if (isAttachmentUpload(req.file)) {
+    if (isAttachmentUpload(req.file) && !isArchiveUpload(req.file)) {
       try {
         const buffer = await readFile(req.file.path);
         if (!attachmentOpens(name, buffer)) {
@@ -199,8 +224,8 @@ export function agentRouter({ pool, uploadDir }) {
       }
     }
     const { rows } = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [access.userId, req.file.filename, req.file.mimetype, name || null]
+      `INSERT INTO uploads (user_id, storage_name, mime, original_name, size) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [access.userId, req.file.filename, req.file.mimetype, name || null, req.file.size]
     );
     const mime = req.file.mimetype || "";
     res.status(201).json({
@@ -235,6 +260,8 @@ export function agentRouter({ pool, uploadDir }) {
        RETURNING created_at`,
       [redeemed.userId, tokenHash]
     );
+    // 让包装器去捎信箱，摘要失败时 token 照常返回，不被拖垮。
+    res.locals.noticeUserId = redeemed.userId;
     res.status(201).json({
       token,
       email,
@@ -244,7 +271,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.get("/profile", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
+    const access = await accessFor(req, res, req.query.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const user = await loadUser(pool, access.userId);
     if (!user) return res.status(401).json({ error: "bad_token" });
@@ -252,7 +279,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.patch("/profile", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    const access = await accessFor(req, res, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const hasName = typeof req.body?.displayName === "string";
     const name = hasName ? req.body.displayName.trim() : null;
@@ -304,7 +331,7 @@ export function agentRouter({ pool, uploadDir }) {
   router.post("/files", acceptFile("file"), storeUpload);
 
   router.post("/intel", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    const access = await accessFor(req, res, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const delivery = readDelivery(req.body);
     if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
@@ -343,7 +370,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.post("/intel/:id/download", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    const access = await accessFor(req, res, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
     try {
@@ -355,13 +382,13 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.get("/requests", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
+    const access = await accessFor(req, res, req.query.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     res.json({ requests: await listRequests(pool, access.userId) });
   });
 
   router.get("/requests/:id/responses", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
+    const access = await accessFor(req, res, req.query.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
     const result = await listRequestResponses(pool, access.userId, req.params.id);
@@ -370,25 +397,25 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.get("/friends", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
+    const access = await accessFor(req, res, req.query.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     res.json({ friends: await listFriends(pool, access.userId) });
   });
 
   router.get("/notifications", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.query.email);
+    const access = await accessFor(req, res, req.query.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     res.json(await listNotifications(pool, access.userId));
   });
 
   router.post("/notifications/read", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    const access = await accessFor(req, res, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     res.json(await markNotificationsRead(pool, access.userId));
   });
 
   router.post("/feedback", async (req, res) => {
-    const access = await userFromAccess(pool, req.headers.authorization, req.body?.email);
+    const access = await accessFor(req, res, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const kind = req.body?.kind;
     if (kind !== "suggestion" && kind !== "complaint") return res.status(400).json({ error: "bad_kind" });

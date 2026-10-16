@@ -2,7 +2,7 @@
 import { computed, nextTick, onUnmounted, ref } from "vue";
 import AppButton from "./AppButton.vue";
 import MentionPicker from "./MentionPicker.vue";
-import { errorText, MAX_IMAGES, readOptionalPrice, requireSession } from "../composers/packet.js";
+import { errorText, MAX_IMAGES, requireSession } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
 import { AtIcon, CameraIcon, CloseIcon, PlusIcon } from "../icons/index.js";
 import { packetDraft, useOutboxStore } from "../stores/outbox";
@@ -18,7 +18,6 @@ const mentionOpen = ref(false);
 const images = ref([]);
 const previewUrls = ref([]);
 const photoIndex = ref(0);
-const price = ref("");
 const isPublic = ref(true);
 const error = ref("");
 const busy = ref(false);
@@ -29,15 +28,6 @@ const photoActive = computed(() => {
   return Math.min(photoIndex.value, last);
 });
 const canSend = computed(() => images.value.length > 0 || Boolean(body.value.trim()));
-const priceLabel = computed(() =>
-  t("home.priceLabelRange", {
-    min: session.policy.priceMin ?? 0,
-    max: session.policy.priceMax ?? 100,
-  })
-);
-const pricePlaceholder = computed(() =>
-  t("home.priceBlank", { fallback: session.policy.defaultPrice ?? 10 })
-);
 
 function clearPreviews() {
   for (const url of previewUrls.value) URL.revokeObjectURL(url);
@@ -75,11 +65,6 @@ onUnmounted(clearPreviews);
 function submit() {
   if (!canSend.value || busy.value) return;
   error.value = "";
-  const priced = images.value.length ? readOptionalPrice(price.value, session.policy) : { ok: true, price: undefined };
-  if (!priced.ok) {
-    error.value = errorText("bad_price", session.policy);
-    return;
-  }
   try {
     requireSession(session.user);
   } catch (err) {
@@ -87,7 +72,6 @@ function submit() {
     return;
   }
   const extra = { kind: "fastpost", public: isPublic.value };
-  if (images.value.length && priced.price !== undefined) extra.price = priced.price;
   if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
   busy.value = true;
   outbox.enqueue(packetDraft({
@@ -183,15 +167,10 @@ nextTick(openCamera);
           </AppButton>
           <span class="intel-photo-count">{{ t("home.storyPhotoCount", { n: previewUrls.length, max: MAX_IMAGES }) }}</span>
         </div>
-        <p v-else class="share-note">{{ t("home.shareNoFilePrice") }}</p>
         <div class="intel-photo-actions">
           <label class="share-public">
             <input v-model="isPublic" type="checkbox" :disabled="busy" />
             <span>{{ isPublic ? t("home.publicOn") : t("home.publicOff") }}</span>
-          </label>
-          <label v-if="images.length" class="intel-photo-price" for="intel-photo-price">
-            <span>{{ priceLabel }}</span>
-            <input id="intel-photo-price" v-model="price" type="text" inputmode="numeric" :placeholder="pricePlaceholder" :disabled="busy" />
           </label>
           <button
             type="button"

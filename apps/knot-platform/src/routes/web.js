@@ -3,7 +3,7 @@ import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
-import { isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videosOf, visibleVerdict } from "../information.js";
+import { fileView, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videosOf, visibleVerdict } from "../information.js";
 import { readMedia } from "../links.js";
 import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
 import { loadDiscoverSelf, emptyDiscoverSelf } from "../discoverBoard.js";
@@ -16,13 +16,13 @@ import { muteState } from "../account.js";
 import { economyReport } from "../actuary.js";
 import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
-import { ensureCardPreview, previewReadable } from "../preview.js";
+import { directMediaReadable } from "../preview.js";
 import { ensureSharePoster } from "../sharePoster.js";
 import { listPublicSponsors } from "../sponsors.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
 import { parseLocale, regionForRequest } from "../locale.js";
-import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
+import { acceptAvatar, ensureCardImage, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
 const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, locale`;
 
@@ -46,19 +46,6 @@ function presentUser(row) {
 async function loadUser(pool, id) {
   const { rows } = await pool.query(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]);
   return rows[0] ? presentUser(rows[0]) : null;
-}
-
-function attachmentOf(row) {
-  const mime = row.mime || "";
-  return {
-    id: row.id,
-    name: uploadName(row.original_name),
-    mime,
-    size: Number(row.size) || 0,
-    url: publicUploadUrl(row.id),
-    image: mime.startsWith("image/"),
-    audio: mime.startsWith("audio/") || isAudioUpload({ mime, originalname: row.original_name }),
-  };
 }
 
 function httpError(res, error) {
@@ -107,7 +94,7 @@ async function withUploads(pool, rows) {
   const byId = new Map();
   for (const file of files) {
     const list = byId.get(file.intel_id) || [];
-    list.push(attachmentOf(file));
+    list.push(fileView(file));
     byId.set(file.intel_id, list);
   }
   return rows.map((row) => ({ ...row, attachments: byId.get(row.id) || [] }));
@@ -284,15 +271,17 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     });
   }, async (req, res) => {
     const name = uploadName(req.file.originalname);
-    try {
-      const buffer = await readFile(req.file.path);
-      if (!attachmentOpens(name, buffer)) {
+    if (!isArchiveUpload({ originalname: name })) {
+      try {
+        const buffer = await readFile(req.file.path);
+        if (!attachmentOpens(name, buffer)) {
+          await rm(req.file.path, { force: true });
+          return res.status(400).json({ error: "unreadable_file" });
+        }
+      } catch {
         await rm(req.file.path, { force: true });
         return res.status(400).json({ error: "unreadable_file" });
       }
-    } catch {
-      await rm(req.file.path, { force: true });
-      return res.status(400).json({ error: "unreadable_file" });
     }
     const { rows } = await pool.query(
       `INSERT INTO uploads (user_id, storage_name, mime, original_name, size) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
@@ -306,7 +295,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     });
   });
 
-  router.get("/uploads/:id", async (req, res) => {
+  async function readableUpload(req) {
     const { rows } = await pool.query(
       `SELECT u.storage_name, u.mime, u.original_name, u.user_id,
               EXISTS (SELECT 1 FROM users p WHERE p.avatar_upload_id = u.id) AS avatar,
@@ -315,31 +304,41 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
        WHERE u.id = $1`,
       [req.params.id]
     );
-    if (!rows.length) return res.status(404).end();
+    if (!rows.length) return null;
     const row = rows[0];
     const owner = Boolean(req.user && req.user.id === row.user_id);
     const image = String(row.mime || "").startsWith("image/");
-    if (isAttachmentUpload({ originalname: row.original_name || row.storage_name })) return res.status(404).end();
-    if (image && !row.avatar && !row.sponsor && !owner) return res.status(404).end();
+    const audio = isAudioUpload({ mime: row.mime, originalname: row.original_name });
+    if (isAttachmentUpload({ originalname: row.original_name || row.storage_name })) return null;
+    if ((image || audio) && !row.avatar && !row.sponsor && !owner) {
+      const visible = await directMediaReadable(pool, req.params.id, req.user?.id || null);
+      if (!visible) return null;
+    }
     const filePath = storagePath(uploadDir, row.storage_name);
-    if (!fs.existsSync(filePath)) return res.status(404).end();
-    res.type(row.mime);
-    fs.createReadStream(filePath).pipe(res);
+    if (!fs.existsSync(filePath)) return null;
+    return { row, filePath, image };
+  }
+
+  router.get("/uploads/:id/display", async (req, res) => {
+    const opened = await readableUpload(req);
+    if (!opened?.image) return res.status(404).end();
+    try {
+      const display = await ensureCardImage(uploadDir, opened.row.storage_name);
+      res.set("Cache-Control", "public, max-age=604800");
+      res.type("image/jpeg");
+      fs.createReadStream(display).pipe(res);
+    } catch {
+      res.set("Cache-Control", "no-store");
+      res.type(opened.row.mime);
+      fs.createReadStream(opened.filePath).pipe(res);
+    }
   });
 
-  router.get("/previews/:id", async (req, res) => {
-    if (!INTEL_ID.test(req.params.id)) return res.status(404).end();
-    const visible = await previewReadable(pool, req.params.id, req.user?.id || null);
-    if (!visible) return res.status(404).end();
-    try {
-      const file = await ensureCardPreview(pool, req.params.id, uploadDir);
-      if (!file) return res.status(404).end();
-      res.type("image/jpeg");
-      res.set("Cache-Control", "public, max-age=86400");
-      fs.createReadStream(file).pipe(res);
-    } catch {
-      res.status(404).end();
-    }
+  router.get("/uploads/:id", async (req, res) => {
+    const opened = await readableUpload(req);
+    if (!opened) return res.status(404).end();
+    res.type(opened.row.mime);
+    fs.createReadStream(opened.filePath).pipe(res);
   });
 
   router.post("/intel", async (req, res) => {
@@ -405,7 +404,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
          ORDER BY f.sort_order`,
         [row.id]
       );
-      const attachments = files.rows.map(attachmentOf);
+      const attachments = files.rows.map(fileView);
       submissions.push(presentIntel({ ...row, files: attachments }));
     }
     res.json({ submissions });
@@ -517,7 +516,9 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/information", async (req, res) => {
     const author = String(req.query.author || "").trim();
     if (author && !INTEL_ID.test(author)) return res.json({ information: [], author: null });
-    const rows = await listPublicIntel(pool, 30, req.user?.id || null, author || null);
+    const before = String(req.query.before || "").trim();
+    const anchor = before && INTEL_ID.test(before) ? before : null;
+    const rows = await listPublicIntel(pool, 30, req.user?.id || null, author || null, anchor);
     const information = (await withUploads(pool, rows)).map(publicCard);
     if (!author) return res.json({ information });
     res.json({ information, author: await publicAuthor(pool, author) });

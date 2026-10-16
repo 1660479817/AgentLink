@@ -8,6 +8,7 @@ import { inflateRawSync } from "node:zlib";
 const MAX_BYTES = 50 * 1024 * 1024;
 const WINDOW = 8000;
 const SAMPLE_CAP = 12000;
+const EXTRACT_CAP = 200_000;
 
 export function decodeXml(value) {
   return String(value || "")
@@ -315,6 +316,17 @@ async function unitsOf(name, bytes) {
   }
   if (ext === ".md" || ext === ".markdown") return { kind: "markdown", units: markdownUnits(bytes) };
   throw new Error("bad_file");
+}
+
+export async function extractDocumentText(name, bytes) {
+  try {
+    const found = await unitsOf(name, bytes);
+    const text = pack(found.units).join("\n\n").trim();
+    if (!text) return "";
+    return text.length > EXTRACT_CAP ? text.slice(0, EXTRACT_CAP) : text;
+  } catch {
+    return "";
+  }
 }
 
 export async function readDocument(name, bytes, range = {}) {

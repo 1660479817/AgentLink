@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { compareByWeight, listPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reviewFailureText } from "./market.js";
+import { saveReviewExtract } from "./extracts.js";
+import { compareByWeight, listPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reviewFailureText, searchPublicIntel } from "./market.js";
 import { serviceFee, packetPrice, policyConfig } from "./points.js";
 
 const AUTHOR = "33333333-3333-4333-8333-333333333333";
@@ -36,8 +40,24 @@ test("an author filter narrows the public feed by account, then time", async () 
   };
   await listPublicIntel(pool, 30, null, AUTHOR);
   assert.match(calls[0].sql, /AND i\.user_id = \$2/);
-  assert.match(calls[0].sql, /ORDER BY i\.created_at DESC, i\.weight DESC LIMIT \$3/);
+  assert.match(calls[0].sql, /ORDER BY i\.created_at DESC, i\.weight DESC, i\.id DESC LIMIT \$3/);
   assert.deepEqual(calls[0].params, [null, AUTHOR, 30]);
+});
+
+test("a before cursor pages strictly after the anchor, then time and weight", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+  const anchor = "11111111-1111-4111-8111-111111111111";
+  await listPublicIntel(pool, 30, null, null, anchor);
+  assert.match(calls[0].sql, /\(i\.created_at, i\.weight, i\.id\) < \(/);
+  assert.match(calls[0].sql, /SELECT created_at, weight, id FROM intel WHERE id = \$2::uuid/);
+  assert.match(calls[0].sql, /ORDER BY i\.created_at DESC, i\.weight DESC, i\.id DESC LIMIT \$3/);
+  assert.deepEqual(calls[0].params, [null, anchor, 30]);
 });
 
 test("a public author is only someone with a visible post", async () => {
@@ -68,6 +88,39 @@ test("search order is weight, then newer", () => {
     { weight: 1, created_at: "2026-10-12T03:00:00.000Z", id: "newer" },
   ];
   assert.deepEqual(rows.sort(compareByWeight).map((row) => row.id), ["heavier", "newer", "older"]);
+});
+
+test("search matches text saved from a picture or a file", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-search-extract-"));
+  const previous = process.env.UPLOAD_DIR;
+  process.env.UPLOAD_DIR = dir;
+  const id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const pool = {
+    async query() {
+      return {
+        rows: [{
+          id,
+          body: "只有原文",
+          detail: {},
+          videos: [],
+          weight: 1,
+          created_at: "2026-10-16T00:00:00.000Z",
+        }],
+      };
+    },
+  };
+  try {
+    await saveReviewExtract(id, [{ heading: "图片 1", text: "传感器规格表" }]);
+    const found = await searchPublicIntel(pool, "传感器", null);
+    assert.equal(found.length, 1);
+    assert.equal(found[0].id, id);
+    const missed = await searchPublicIntel(pool, "量子织布机", null);
+    assert.equal(missed.length, 0);
+  } finally {
+    if (previous === undefined) delete process.env.UPLOAD_DIR;
+    else process.env.UPLOAD_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("text is free and a blank file price uses the default", () => {

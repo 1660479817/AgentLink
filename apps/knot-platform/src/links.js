@@ -3,7 +3,7 @@ import { publicUploadUrl } from "./uploads.js";
 import { reachable } from "./videoPoster.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const UPLOAD = /\/api\/web\/uploads\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:$|[?#])/i;
+const UPLOAD = /\/api\/web\/uploads\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/display)?(?:$|[?#])/i;
 
 function fail(code) {
   const error = new Error(code);

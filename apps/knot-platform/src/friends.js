@@ -37,6 +37,8 @@ function presentFriend(row) {
     id: row.id,
     displayName: row.display_name || "",
     avatarUrl: avatarUrlFor(row),
+    level: row.level ?? 1,
+    pointsBalance: row.points_balance ?? 0,
   };
 }
 
@@ -58,7 +60,7 @@ export function mentionList(value) {
 
 export async function listFriends(pool, userId) {
   const { rows } = await pool.query(
-    `SELECT u.id, u.display_name, u.avatar_upload_id
+    `SELECT u.id, u.display_name, u.avatar_upload_id, u.level, u.points_balance
      FROM users u
      WHERE u.id <> $1
        AND NOT EXISTS (

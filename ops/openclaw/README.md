@@ -31,7 +31,7 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 
 | id | 员工 | 何时工作 | 交回 |
 | --- | --- | --- | --- |
-| `knot-intel` | 数据评审员 | 预审通过、记录已经可见之后。附带图片时，Backend 先转写图片，再把转写放进消息。附件是完整文件的本机路径，用工作区的 `tools/read` 阅读 PDF、Word、Excel、PPT 和 Markdown。打不开的附件在预审时就被拒绝，不会交到这里 | `pass` 与 `category`，或 `revoke` 与原因。没有可用结果时记录保持 `pending`，仍然可见，稍后重试 |
+| `knot-intel` | 数据评审员 | 预审通过、记录已经可见之后。附带图片时，Backend 先转写图片，再把转写放进消息。附件是完整文件的本机路径，用工作区的 `tools/read` 阅读 PDF、Word、Excel、PPT 和 Markdown。压缩包不交到这里，预审也不打开。打不开的文档在预审时就被拒绝，不会交到这里 | `pass` 与 `category`，或 `revoke` 与原因。没有可用结果时记录保持 `pending`，仍然可见，稍后重试 |
 | `knot-admin` | 管理员 | 主人在 OpenClaw 里吩咐；每天 09:00（上海）巡查新留下的帖子 | 运行 `admin`，由它调用本机 `/api/admin`。Backend 删除帖子、写入警告、管理账户、签发内部账户和巡查记录，并写入赞助内容 |
 | `knot-actuary` | 精算师 | 主人问积分时；主人要定价格时 | 运行 `actuary economy` 读取发行、流通、平台三个数。运行 `prices`、`propose`、`apply` 读写价格表。提议经主人同意后才写入。不动账 |
 

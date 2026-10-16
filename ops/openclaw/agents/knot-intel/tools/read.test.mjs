@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deflateRawSync } from "node:zlib";
-import { execute, readDocument } from "./read.mjs";
+import { execute, extractDocumentText, readDocument } from "./read.mjs";
 
 function zip(entries) {
   const locals = [];
@@ -113,6 +113,14 @@ test("a pdf page is read through the local engine", async () => {
   assert.equal(result.ok, true);
   assert.equal(result.kind, "pdf");
   assert.match(result.text, /Hello Knot/);
+});
+
+test("stored document text keeps the whole readable file", async () => {
+  const body = `传感器${"甲".repeat(13000)}结尾`;
+  const text = await extractDocumentText("手册.md", Buffer.from(body));
+  assert.equal(text.startsWith("传感器"), true);
+  assert.equal(text.endsWith("结尾"), true);
+  assert.equal(await extractDocumentText("空.bin", Buffer.from([0, 1, 2])), "");
 });
 
 test("a locked path and a foreign file are refused", async () => {

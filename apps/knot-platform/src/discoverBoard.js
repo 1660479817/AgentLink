@@ -1,13 +1,12 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import { access, copyFile, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { toRecord } from "./card.js";
 import { setDiscoverPublisher } from "./discoverPublish.js";
 import { fileView, visibleVerdict } from "./information.js";
 import { listPublicIntel, presentIntel } from "./market.js";
-import { ensureCardPreview } from "./preview.js";
 
 const WISH_SQL = `
   SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.user_id, i.actor, i.created_at, i.updated_at
@@ -56,12 +55,8 @@ const SELF_SQL = `
     )
 `;
 
-export function mediaPreviewUrl(id) {
-  return `/media/previews/${id}.jpg`;
-}
-
 export function emptyDiscoverSelf() {
-  return { dismissed: [], starred: [], friends: [], granted: [], mine: [], audio: {}, wishes: {} };
+  return { dismissed: [], starred: [], friends: [], granted: [], mine: [], wishes: {} };
 }
 
 function publicPost(row, files) {
@@ -119,7 +114,7 @@ export async function assembleDiscoverBoard(pool) {
   };
 }
 
-export function presentDiscoverSelf(rows, filesById = new Map()) {
+export function presentDiscoverSelf(rows) {
   const self = emptyDiscoverSelf();
   for (const row of rows) {
     if (row.dismissed) self.dismissed.push(row.id);
@@ -128,9 +123,6 @@ export function presentDiscoverSelf(rows, filesById = new Map()) {
     if (row.granted) self.granted.push(row.id);
     if (row.mine) self.mine.push(row.id);
     if (row.kind === "wish" && row.mine) self.wishes[row.id] = { responseCount: Number(row.response_count) || 0 };
-    if (!row.granted || row.kind === "wish") continue;
-    const record = toRecord(row, { files: filesById.get(row.id) || [], granted: true });
-    if (record.audio?.length) self.audio[row.id] = record.audio;
   }
   return self;
 }
@@ -139,9 +131,7 @@ export async function loadDiscoverSelf(pool, userId, ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
   if (!userId || !unique.length) return emptyDiscoverSelf();
   const { rows } = await pool.query(SELF_SQL, [userId, unique]);
-  const granted = rows.filter((row) => row.granted && row.kind !== "wish").map((row) => row.id);
-  const files = await filesByIntel(pool, granted);
-  return presentDiscoverSelf(rows, files);
+  return presentDiscoverSelf(rows);
 }
 
 function jsonPath(boardDir) {
@@ -153,27 +143,10 @@ export function previewDir(boardDir) {
 }
 
 export async function writeDiscoverBoard(env, deps = {}) {
-  const loadPreview = deps.loadPreview || ((pool, id, uploadDir) => ensureCardPreview(pool, id, uploadDir));
   const board = await assembleDiscoverBoard(env.pool);
   const dir = previewDir(env.boardDir);
-  await mkdir(dir, { recursive: true });
-  const keep = new Set();
-  for (const item of board.information) {
-    if (!item.previewUrl) continue;
-    const src = await loadPreview(env.pool, item.id, env.uploadDir);
-    if (!src) {
-      item.previewUrl = "";
-      continue;
-    }
-    const name = `${item.id}.jpg`;
-    keep.add(name);
-    await copyFile(src, path.join(dir, name));
-    item.previewUrl = mediaPreviewUrl(item.id);
-  }
   const existing = await readdir(dir).catch(() => []);
-  for (const name of existing) {
-    if (!keep.has(name)) await rm(path.join(dir, name), { force: true });
-  }
+  for (const name of existing) await rm(path.join(dir, name), { force: true });
   const dest = jsonPath(env.boardDir);
   const tmp = `${dest}.${randomUUID()}.tmp`;
   await mkdir(env.boardDir, { recursive: true });

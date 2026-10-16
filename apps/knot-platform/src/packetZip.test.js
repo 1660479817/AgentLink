@@ -66,16 +66,17 @@ test("an empty structure line is left out", () => {
   assert.equal(text, "报价：0\n\n\n");
 });
 
-test("archive names stay in packet order and do not replace readme.txt", () => {
+test("a download packet keeps attachments and leaves images and audio out", () => {
   const files = archiveSources([
     { mime: "application/pdf", original_name: "报价.pdf", storage_name: "c" },
     { mime: "image/png", original_name: "readme.txt", storage_name: "a" },
     { mime: "image/png", original_name: "1.jpg", storage_name: "b" },
     { mime: "audio/mpeg", original_name: "说明.m4a", storage_name: "d" },
+    { mime: "application/zip", original_name: "材料.zip", storage_name: "e" },
   ]);
   assert.deepEqual(
     files.map((file) => `${file.label}:${file.name}`),
-    ["图片:readme-2.txt", "图片:1.jpg", "音频:说明.m4a", "附件:报价.pdf"]
+    ["附件:报价.pdf", "附件:材料.zip"]
   );
 });
 
@@ -89,8 +90,8 @@ test("the first download builds one zip and the next one reuses it", async () =>
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "knot-zip-"));
   const upload = path.join(root, "uploads");
   fs.mkdirSync(upload);
-  fs.writeFileSync(path.join(upload, "pic.bin"), "image-bytes");
-  const sources = archiveSources([{ mime: "image/png", original_name: "图.png", storage_name: "pic.bin" }]);
+  fs.writeFileSync(path.join(upload, "pic.bin"), "file-bytes");
+  const sources = archiveSources([{ mime: "application/pdf", original_name: "报价.pdf", storage_name: "pic.bin" }]);
   const readme = packetReadme({
     price: 10,
     author: "林",
@@ -104,7 +105,7 @@ test("the first download builds one zip and the next one reuses it", async () =>
   assert.equal(first, second);
   const packed = unzip(fs.readFileSync(first));
   assert.equal(packed.find((file) => file.name === "readme.txt").data.toString("utf8"), readme);
-  assert.equal(packed.find((file) => file.name === "图.png").data.toString("utf8"), "image-bytes");
+  assert.equal(packed.find((file) => file.name === "报价.pdf").data.toString("utf8"), "file-bytes");
   fs.rmSync(root, { recursive: true, force: true });
 });
 

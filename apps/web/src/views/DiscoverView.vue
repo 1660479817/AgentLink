@@ -25,6 +25,11 @@ const opening = pending
 const items = ref(opening.information);
 const wishes = ref(opening.requests);
 const feedReady = ref(opening.information.length > 0 || opening.requests.length > 0);
+const cursor = ref(null);
+const loadingMore = ref(false);
+const moreAvailable = ref(false);
+const feedEnd = ref(null);
+let feedObserver = null;
 const railViewport = ref(null);
 const railCanPrev = ref(false);
 const railCanNext = ref(false);
@@ -51,15 +56,31 @@ onMounted(() => {
     railObserver = new ResizeObserver(() => updateRail());
     railObserver.observe(el);
   }
+  if (typeof IntersectionObserver !== "undefined") {
+    feedObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadMore();
+      },
+      { rootMargin: "400px 0px" }
+    );
+  }
 });
 onBeforeUnmount(() => {
   railObserver?.disconnect();
+  feedObserver?.disconnect();
+  feedObserver = null;
   endRailDrag();
 });
 watch([searchQ, authorQ], () => {
   if (authorQ.value && filterAuthor.value?.id !== authorQ.value) filterAuthor.value = null;
   if (!authorQ.value) filterAuthor.value = null;
   load();
+});
+watch([feedReady, () => items.value.length], async () => {
+  await nextTick();
+  if (!feedObserver) return;
+  feedObserver.disconnect();
+  if (feedEnd.value && !searchQ.value) feedObserver.observe(feedEnd.value);
 });
 watch(wishes, async () => {
   await nextTick();
@@ -70,6 +91,28 @@ function showPainted(painted) {
   items.value = painted.information;
   wishes.value = painted.requests;
   feedReady.value = true;
+  cursor.value = painted.information.length ? painted.information[painted.information.length - 1].id : null;
+  moreAvailable.value = painted.information.length > 0;
+}
+
+async function loadMore() {
+  if (loadingMore.value || !moreAvailable.value || searchQ.value) return;
+  loadingMore.value = true;
+  try {
+    const data = await listInformation(authorQ.value || null, cursor.value || null);
+    const incoming = Array.isArray(data.information) ? data.information : [];
+    const seen = new Set(items.value.map((item) => item.id));
+    const fresh = incoming.filter((row) => row?.id && !seen.has(row.id));
+    if (fresh.length) {
+      items.value = [...items.value, ...fresh];
+      cursor.value = fresh[fresh.length - 1].id;
+    }
+    moreAvailable.value = incoming.length > 0;
+  } catch {
+    /* keep the button so the user can retry */
+  } finally {
+    loadingMore.value = false;
+  }
 }
 
 async function patchSelf(painted) {
@@ -116,11 +159,15 @@ async function load(options = {}) {
       items.value = [];
       wishes.value = [];
       feedReady.value = true;
+      cursor.value = null;
+      moreAvailable.value = false;
       return;
     }
     if (authorQ.value) {
       items.value = [];
       feedReady.value = true;
+      cursor.value = null;
+      moreAvailable.value = false;
       return;
     }
     if (!live && (readAhead() || readDiscoverMemory())) return;
@@ -135,6 +182,8 @@ async function load(options = {}) {
     if (!items.value.length) {
       items.value = [];
       wishes.value = [];
+      cursor.value = null;
+      moreAvailable.value = false;
     }
     feedReady.value = true;
   }
@@ -436,7 +485,6 @@ async function downloadItem(item) {
     :language="item.kMeta?.language || ''"
     :price="priceOf(item)"
     :granted="item.granted !== false"
-    :preview-url="item.previewUrl || ''"
     :image-urls="item.imageUrls || item.images?.map((file) => file.url).filter(Boolean) || []"
     :images="item.images || []"
     :audio="item.audio || []"
@@ -467,4 +515,16 @@ async function downloadItem(item) {
   <p v-if="feedReady && items.length === 0" class="muted feed-empty">
     {{ searchQ ? t("home.searchEmpty") : authorQ ? t("home.filterEmpty") : t("home.empty") }}
   </p>
+  <div v-else-if="feedReady && !searchQ" class="feed-more">
+    <div ref="feedEnd" class="feed-end" aria-hidden="true"></div>
+    <AppButton
+      v-if="moreAvailable"
+      variant="secondary"
+      :disabled="loadingMore"
+      @click="loadMore"
+    >
+      {{ loadingMore ? t("home.loadingMore") : t("home.loadMore") }}
+    </AppButton>
+    <p v-else class="muted feed-end-note">{{ t("home.noMore") }}</p>
+  </div>
 </template>

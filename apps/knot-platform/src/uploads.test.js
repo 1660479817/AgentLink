@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import sharp from "sharp";
-import { AVATAR_PX, avatarBufferError, fitAvatar, imageSize } from "./uploads.js";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { AVATAR_PX, CARD_IMAGE_EDGE, avatarBufferError, ensureCardImage, fitAvatar, imageSize } from "./uploads.js";
 
 function png(width, height) {
   const buffer = Buffer.alloc(24);
@@ -59,4 +62,35 @@ test("avatars larger than 512 are compressed to a 512 jpeg", async () => {
     .png()
     .toBuffer();
   assert.equal(await fitAvatar(exact), null);
+});
+
+test("a card image is a jpeg that fits the column", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-card-"));
+  try {
+    const wide = await sharp({
+      create: { width: 2400, height: 1200, channels: 3, background: { r: 20, g: 40, b: 80 } },
+    })
+      .png()
+      .toBuffer();
+    await writeFile(path.join(dir, "wide.png"), wide);
+    const display = await ensureCardImage(dir, "wide.png");
+    const again = await ensureCardImage(dir, "wide.png");
+    assert.equal(again, display);
+    const meta = await sharp(display).metadata();
+    assert.equal(meta.format, "jpeg");
+    assert.equal(meta.width, CARD_IMAGE_EDGE);
+    assert.equal(meta.height, 640);
+
+    const small = await sharp({
+      create: { width: 400, height: 200, channels: 3, background: { r: 20, g: 40, b: 80 } },
+    })
+      .png()
+      .toBuffer();
+    await writeFile(path.join(dir, "small.png"), small);
+    const fitted = await sharp(await ensureCardImage(dir, "small.png")).metadata();
+    assert.equal(fitted.width, 400);
+    assert.equal(fitted.height, 200);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -10,7 +10,7 @@ test("a card keeps each part inside its capacity", () => {
     { id: "d", url: "/d" },
     { id: "e", url: "/e" },
   ];
-  assert.deepEqual(photoUrls([], images), ["/a", "/b", "/c", "/d"]);
+  assert.deepEqual(photoUrls([], images), ["/a", "/b", "/c", "/d", "/e"]);
   assert.deepEqual(photoUrls(["/x"], images), ["/x"]);
   assert.deepEqual(lockedImages([], [{ id: "a", name: "a.png" }]).map((file) => file.id), ["a"]);
   assert.deepEqual(lockedImages([], [{ id: "a", name: "a.png" }, { id: "b", url: "/b" }]), []);
