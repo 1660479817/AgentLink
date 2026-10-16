@@ -10,6 +10,7 @@ import { BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, SearchIcon, StarI
 import { t } from "../i18n/index.js";
 import { listSponsors } from "../api.js";
 import { hasDraft, runningEntry, startReleaseWatch } from "../release.js";
+import { startPolling } from "../polling.js";
 import { useNotificationStore } from "../stores/notifications";
 import { useOutboxStore } from "../stores/outbox";
 import { useSessionStore } from "../stores/session";
@@ -20,6 +21,8 @@ const outbox = useOutboxStore();
 const session = useSessionStore();
 const updateReady = ref(false);
 let releaseWatch = null;
+let notificationsPoll = null;
+const NOTIFICATIONS_POLL_MS = 30 * 1000;
 const mark = t("app.name").slice(0, 1);
 const HISTORY_KEY = "knot.search.history";
 const searchOpen = ref(false);
@@ -106,6 +109,11 @@ watch(
 
 onMounted(() => {
   notifications.load();
+  notificationsPoll = startPolling({
+    fn: () => notifications.load(),
+    intervalMs: NOTIFICATIONS_POLL_MS,
+    when: () => Boolean(session.user),
+  });
   releaseWatch = startReleaseWatch({
     current: () => runningEntry(document),
     fetchText: async () => {
@@ -132,6 +140,8 @@ onMounted(() => {
 onUnmounted(() => {
   releaseWatch?.stop();
   releaseWatch = null;
+  notificationsPoll?.stop();
+  notificationsPoll = null;
 });
 </script>
 

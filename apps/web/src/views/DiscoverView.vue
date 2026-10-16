@@ -10,6 +10,7 @@ import { applyDiscoverSelf, cardIsMine, coveredBy, fetchDiscoverBoard, hideDisco
 import { nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { feeOf, priceOf } from "../record.js";
+import { startPolling } from "../polling.js";
 import { t } from "../i18n/index.js";
 import { BackIcon, PlusIcon, UserIcon } from "../icons/index.js";
 import { useFriendStore } from "../stores/friends";
@@ -48,9 +49,17 @@ const createMark = computed(() => nameMark(session.user));
 
 let railObserver = null;
 let railDrag = null;
+let feedPoll = null;
+let refreshing = false;
+const FEED_POLL_MS = 60 * 1000;
 
 onMounted(() => {
   load();
+  feedPoll = startPolling({
+    fn: refreshFeed,
+    intervalMs: FEED_POLL_MS,
+    when: () => !searchQ.value,
+  });
   const el = railViewport.value;
   if (el && typeof ResizeObserver !== "undefined") {
     railObserver = new ResizeObserver(() => updateRail());
@@ -69,6 +78,8 @@ onBeforeUnmount(() => {
   railObserver?.disconnect();
   feedObserver?.disconnect();
   feedObserver = null;
+  feedPoll?.stop();
+  feedPoll = null;
   endRailDrag();
 });
 watch([searchQ, authorQ], () => {
@@ -186,6 +197,35 @@ async function load(options = {}) {
       moreAvailable.value = false;
     }
     feedReady.value = true;
+  }
+}
+
+async function refreshFeed() {
+  if (refreshing || !feedReady.value || loadingMore.value || searchQ.value) return;
+  refreshing = true;
+  try {
+    const [info, wish] = await Promise.all([
+      listInformation(authorQ.value || null),
+      listRequests(),
+    ]);
+    const incoming = Array.isArray(info.information) ? info.information : [];
+    const byId = new Map(items.value.map((item) => [item.id, item]));
+    const fresh = [];
+    for (const row of incoming) {
+      if (!row?.id) continue;
+      const existing = byId.get(row.id);
+      if (existing) Object.assign(existing, row);
+      else fresh.push(row);
+    }
+    wishes.value = wish.requests || [];
+    filterAuthor.value = authorQ.value ? info.author || null : null;
+    if (fresh.length && window.scrollY < 200) {
+      items.value = [...fresh, ...items.value];
+    }
+  } catch {
+    /* keep the current feed; the next round retries */
+  } finally {
+    refreshing = false;
   }
 }
 
