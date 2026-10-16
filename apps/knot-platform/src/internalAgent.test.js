@@ -46,10 +46,10 @@ test("a duplicate internal name keeps the first account", async () => {
   let selects = 0;
   const pool = {
     async query(sql) {
-      if (sql.includes("side = 'internal'")) {
+      if (sql.includes("display_name = $1")) {
         selects += 1;
         if (selects === 1) return { rows: [], rowCount: 0 };
-        return { rows: [{ id: "11111111-1111-4111-8111-111111111111", points_balance: 40 }], rowCount: 1 };
+        return { rows: [{ id: "11111111-1111-4111-8111-111111111111", points_balance: 40, side: "internal" }], rowCount: 1 };
       }
       if (sql.includes("INSERT INTO users")) {
         const error = new Error("duplicate");
@@ -65,6 +65,18 @@ test("a duplicate internal name keeps the first account", async () => {
   assert.equal(issued.token, null);
   assert.equal(issued.userId, "11111111-1111-4111-8111-111111111111");
   assert.equal(issued.pointsBalance, 40);
+});
+
+test("a name held by an external account blocks the internal agent", async () => {
+  const pool = {
+    async query(sql) {
+      if (sql.includes("display_name = $1")) {
+        return { rows: [{ id: "22222222-2222-4222-8222-222222222222", points_balance: 12, side: "external" }], rowCount: 1 };
+      }
+      throw new Error(sql);
+    },
+  };
+  await assert.rejects(() => ensureInternalAgent(pool, "豆包"), (error) => error.code === "name_taken");
 });
 
 test("internal agents share the admin mailbox", () => {

@@ -22,9 +22,9 @@ function fail(code) {
   return error;
 }
 
-const EXISTING_AGENT = `SELECT id, points_balance
+const EXISTING_AGENT = `SELECT id, points_balance, side
      FROM users
-     WHERE side = 'internal' AND display_name = $1
+     WHERE display_name = $1
      ORDER BY created_at ASC`;
 
 export function agentEnvText(issued) {
@@ -57,8 +57,10 @@ export async function ensureInternalAgent(pool, name) {
   if (!email) throw fail("bad_email");
   const existing = await pool.query(EXISTING_AGENT, [displayName]);
   if (existing.rowCount > 1) throw fail("ambiguous");
-  let userId = existing.rows[0]?.id || null;
-  let pointsBalance = existing.rows[0]?.points_balance ?? null;
+  const taken = existing.rows[0];
+  if (taken && taken.side !== "internal") throw fail("name_taken");
+  let userId = taken?.id || null;
+  let pointsBalance = taken?.points_balance ?? null;
   let created = false;
   if (!userId) {
     try {
@@ -75,8 +77,10 @@ export async function ensureInternalAgent(pool, name) {
       if (error.code !== "23505") throw error;
       const again = await pool.query(EXISTING_AGENT, [displayName]);
       if (again.rowCount !== 1) throw fail("ambiguous");
-      userId = again.rows[0].id;
-      pointsBalance = again.rows[0].points_balance;
+      const winner = again.rows[0];
+      if (winner.side !== "internal") throw fail("name_taken");
+      userId = winner.id;
+      pointsBalance = winner.points_balance;
     }
   }
   const delegation = await pool.query(

@@ -737,6 +737,10 @@ body:has(.release-note) .search-sheet {
   object-fit: cover;
 }
 
+.friend-avatar:has(img) {
+  background: transparent;
+}
+
 .friend-id {
   display: flex;
   flex-direction: column;
@@ -1020,6 +1024,10 @@ body:has(.release-note) .search-sheet {
   object-fit: cover;
 }
 
+.share-avatar:has(img) {
+  background: transparent;
+}
+
 .share-pill {
   flex: 1 1 auto;
   min-width: 0;
@@ -1222,6 +1230,10 @@ body:has(.release-note) .search-sheet {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.mention-avatar:has(img) {
+  background: transparent;
 }
 
 .share-form-bar {
@@ -1732,6 +1744,10 @@ button.intel-create:hover:not(:disabled) {
   object-position: center;
 }
 
+.intel-create-photo:has(img) {
+  background: transparent;
+}
+
 .intel-create-plus {
   position: absolute;
   left: 50%;
@@ -1934,6 +1950,11 @@ a.intel-bounty:hover {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.profile-avatar.btn-icon:has(img),
+.profile-avatar.btn-icon:has(img):hover:not(:disabled) {
+  background: transparent;
 }
 
 .profile-name {
@@ -3393,6 +3414,10 @@ button.information-avatar[aria-pressed="true"] {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.information-avatar:has(img) {
+  background: transparent;
 }
 
 .information-who {

@@ -22,8 +22,6 @@ const BODY_SIZE = 40;
 const BODY_LEADING = 64;
 const NAME_SIZE = 32;
 const NAME_LEADING = 48;
-const MAX_BODY_LINES = 24;
-const PREVIEW_MAX = 900;
 const QR_PIXEL = 10;
 const QR_QUIET = 4;
 const FONT = "Hiragino Sans GB, Heiti SC, PingFang SC, Songti SC, sans-serif";
@@ -80,7 +78,7 @@ function ellipsize(line, width, size) {
   return `${value}…`;
 }
 
-export function wrapText(text, width, size, maxLines = MAX_BODY_LINES) {
+export function wrapText(text, width, size, maxLines = Infinity) {
   const chars = [...clean(text)];
   const lines = [];
   let line = "";
@@ -188,7 +186,7 @@ function compressSegments(chars) {
   return segments;
 }
 
-function wrapInline(segments, width, size, maxLines = MAX_BODY_LINES) {
+function wrapInline(segments, width, size, maxLines = Infinity) {
   const chars = [];
   for (const segment of segments) {
     for (const ch of segment.text) chars.push({ ch, bold: segment.bold, italic: segment.italic, code: segment.code, link: segment.link });
@@ -224,7 +222,7 @@ function wrapInline(segments, width, size, maxLines = MAX_BODY_LINES) {
   return lines.map(compressSegments);
 }
 
-export function markdownTexts(body, width = INNER, maxLines = MAX_BODY_LINES) {
+export function markdownTexts(body, width = INNER, maxLines = Infinity) {
   const items = [];
   const lines = clean(body).split("\n");
   const add = (item) => {
@@ -260,7 +258,7 @@ export function markdownTexts(body, width = INNER, maxLines = MAX_BODY_LINES) {
       const level = heading[1].length;
       const size = level === 1 ? H1_SIZE : level === 2 ? H2_SIZE : H3_SIZE;
       const leading = level === 1 ? H1_LEADING : level === 2 ? H2_LEADING : H3_LEADING;
-      for (const runLine of wrapInline(parseInline(heading[2].trim()), width, size, 2)) {
+      for (const runLine of wrapInline(parseInline(heading[2].trim()), width, size)) {
         if (!add({ segments: runLine, size, leading, fill: "#050505", weight: "600" })) break;
       }
       i += 1;
@@ -527,15 +525,14 @@ function fitLine(text, width, size) {
   return textWidth(text, size) > width ? ellipsize(text, width, size) : text;
 }
 
-async function fittedPreview(preview, y, maxHeight) {
+async function fittedPreview(preview, y) {
   if (!preview) return null;
   try {
     const meta = await sharp(preview).rotate().metadata();
     const srcW = meta.width || 0;
     const srcH = meta.height || 0;
     if (!srcW || !srcH) return null;
-    let height = Math.round((srcH / srcW) * INNER);
-    if (height > maxHeight) height = maxHeight;
+    const height = Math.round((srcH / srcW) * INNER);
     if (height < 1) return null;
     return { x: PAD, y, width: INNER, height };
   } catch {
@@ -563,7 +560,7 @@ export async function buildSharePoster(content) {
     if (isMarkdown(body)) {
       texts.push(...markdownTexts(body, INNER));
     } else {
-      for (const line of wrapText(body, INNER, BODY_SIZE, MAX_BODY_LINES)) {
+      for (const line of wrapText(body, INNER, BODY_SIZE)) {
         texts.push({ text: line, size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505" });
       }
     }
@@ -576,7 +573,7 @@ export async function buildSharePoster(content) {
 
   const pr = posterPr();
   const head = await layoutHead(content.head);
-  const previewBox = await fittedPreview(content.preview, head.contentTop, PREVIEW_MAX);
+  const previewBox = await fittedPreview(content.preview, head.contentTop);
   const imageHold = Boolean(content.image) && !previewBox;
 
   let y = head.contentTop;

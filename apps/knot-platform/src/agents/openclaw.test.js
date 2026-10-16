@@ -33,3 +33,17 @@ test("an older rejection is a revoke", () => {
   assert.equal(reply.verdict, "revoke");
   assert.equal(reply.reason, "含有欺诈内容。");
 });
+
+test("a note quoting English text with bare double quotes is repaired", () => {
+  const reply = parseIntelReply('{"verdict":"pass","reason":"","note":"白底测试图，印有英文"OpenClaw vision test"和"The answer is 42."，下方有红色矩形边框。","category":"测试","language":"en"}');
+  assert.equal(reply.verdict, "pass");
+  assert.equal(reply.note, '白底测试图，印有英文"OpenClaw vision test"和"The answer is 42."，下方有红色矩形边框。');
+  assert.equal(reply.category, "测试");
+  assert.equal(reply.language, "en");
+});
+
+test("a revoke reason with bare double quotes is repaired", () => {
+  const reply = parseIntelReply('{"verdict":"revoke","reason":"标题写"绝对中奖"属于欺诈。","note":"","category":"","language":""}');
+  assert.equal(reply.verdict, "revoke");
+  assert.equal(reply.reason, '标题写"绝对中奖"属于欺诈。');
+});

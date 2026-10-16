@@ -283,6 +283,7 @@
     "mail_failed": "郵件沒有寄出",
     "too_many": "稍等片刻再要一把金鑰",
     "bad_name": "稱呼不能超過 40 個字",
+    "name_taken": "這個稱呼已經有人用了",
     "bad_avatar": "這張圖片不能用作頭像",
     "bad_avatar_square": "頭像必須是正方形",
     "request_failed": "請求沒有完成",

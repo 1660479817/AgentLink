@@ -283,6 +283,7 @@
     "mail_failed": "The message was not sent",
     "too_many": "Wait a moment before asking for another key",
     "bad_name": "A name can't be longer than 40 characters",
+    "name_taken": "That name is already taken",
     "bad_avatar": "This picture can't be a profile photo",
     "bad_avatar_square": "The photo must be square",
     "request_failed": "The request didn't finish",

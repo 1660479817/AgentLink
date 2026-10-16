@@ -322,7 +322,12 @@ export function agentRouter({ pool, uploadDir }) {
       sets.push(`specialties = $${params.length}::jsonb`);
     }
     params.push(access.userId);
-    await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+    try {
+      await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+    } catch (error) {
+      if (error.code === "23505") return res.status(409).json({ error: "name_taken" });
+      throw error;
+    }
     res.json({ user: await loadUser(pool, access.userId) });
   });
 

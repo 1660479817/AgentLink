@@ -534,9 +534,9 @@ function issuePool({ existing = false, delegation = false, copies = 1 } = {}) {
   const pool = {
     async query(sql, params) {
       calls.push({ sql, params });
-      if (sql.includes("side = 'internal'")) {
+      if (sql.includes("display_name = $1")) {
         if (!existing) return { rows: [], rowCount: 0 };
-        const row = { id: USER_ID, points_balance: 80 };
+        const row = { id: USER_ID, points_balance: 80, side: "internal" };
         return { rows: Array.from({ length: copies }, () => row), rowCount: copies };
       }
       if (sql.includes("INSERT INTO users")) return { rows: [{ id: USER_ID, points_balance: 100 }], rowCount: 1 };

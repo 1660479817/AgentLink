@@ -29,9 +29,62 @@ function readJsonObject(text) {
   const start = body.indexOf("{");
   const end = body.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("agent_bad_json");
-  const value = JSON.parse(body.slice(start, end + 1));
+  const value = parseJsonLenient(body.slice(start, end + 1));
   if (!value || typeof value !== "object") throw new Error("agent_bad_json");
   return value;
+}
+
+// 先标准解析；失败后把字符串值内部的未转义双引号转义再解析一次，
+// 容忍评审员在 note/reason 里引用英文文字时写出裸引号。
+function parseJsonLenient(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return JSON.parse(escapeBareQuotes(text));
+  }
+}
+
+function escapeBareQuotes(text) {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (!inString) {
+      out += ch;
+      if (ch === '"') inString = true;
+      continue;
+    }
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      const next = nextNonSpace(text, i + 1);
+      if (next === ":" || next === "," || next === "}" || next === "]" || next === "") {
+        inString = false;
+        out += ch;
+      } else {
+        out += `\\${ch}`;
+      }
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function nextNonSpace(text, from) {
+  for (let i = from; i < text.length; i += 1) {
+    if (!/\s/.test(text[i])) return text[i];
+  }
+  return "";
 }
 
 function categoryOf(value) {
@@ -203,6 +256,7 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
     "不要判断链接或附件打不打得开。category 写一个短类别。",
     "language 用 BCP 47 语言标签，只写一个主语言，例如 zh、en、ja、zh-Hans、zh-Hant。不要写中文或英文。看不准写 und。post、fastpost、wish、wishRespond 都要写。",
     "note 写卡片上跟在文件名后面的一句事实。有附件时，根据读到的文字写这件东西是什么。去掉电话、微信和发布者。不要编造。",
+    "note、reason 里引用文字不要用英文双引号，改用中文引号「」或单引号，避免破坏 JSON。",
     "附件是完整文件的本机路径。对每个路径运行 tools/read --file <路径>。只根据返回 JSON 的 text 判断。ok 为 false、text 为空或读不到时不要编造，也不要因此撤销。",
     "body:",
     String(intel.body || ""),

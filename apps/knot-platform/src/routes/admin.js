@@ -52,6 +52,7 @@ function sendAdminError(res, error) {
   }
   if (code === "not_found") return res.status(404).json({ error: code });
   if (code === "not_pending") return res.status(409).json({ error: code });
+  if (code === "name_taken") return res.status(409).json({ error: code });
   if (code === "ambiguous" || code === "protected") {
     return res.status(409).json({ error: code, users: error.users || undefined });
   }

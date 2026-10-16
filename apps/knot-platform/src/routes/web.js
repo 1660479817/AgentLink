@@ -213,7 +213,12 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       sets.push(`locale = $${params.length}`);
     }
     params.push(req.user.id);
-    await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+    try {
+      await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+    } catch (error) {
+      if (error.code === "23505") return res.status(409).json({ error: "name_taken" });
+      throw error;
+    }
     res.json({ user: await loadUser(pool, req.user.id) });
   });
 
