@@ -9,6 +9,7 @@ import { getPool } from "./db.js";
 import { createSessionMiddleware } from "./middleware/session.js";
 import { adminRouter } from "./routes/admin.js";
 import { webRouter } from "./routes/web.js";
+import { loadEconomyPolicy } from "./actuary.js";
 import { resumePendingReviews } from "./market.js";
 import { agentRouter } from "./routes/agent.js";
 import { renderHelp } from "./helpPage.js";
@@ -60,7 +61,15 @@ app.use(
   })
 );
 app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir }));
-app.use("/api/admin", adminRouter({ pool, token: process.env.KNOT_ADMIN_TOKEN || "", uploadDir: bootstrap.uploadDir }));
+app.use(
+  "/api/admin",
+  adminRouter({
+    pool,
+    token: process.env.KNOT_ADMIN_TOKEN || "",
+    uploadDir: bootstrap.uploadDir,
+    agentEnvDir: bootstrap.agentEnvDir,
+  })
+);
 
 const discoverBoard = bindDiscoverBoard({ pool, uploadDir: bootstrap.uploadDir });
 
@@ -99,6 +108,8 @@ app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(500).json({ error: "internal" });
 });
+
+await loadEconomyPolicy(pool);
 
 app.listen(bootstrap.port, bootstrap.bindHost, () => {
   console.log(`knot-backend listening on ${bootstrap.bindHost}:${bootstrap.port}`);

@@ -7,7 +7,7 @@ import { isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES,
 import { readMedia } from "../links.js";
 import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
 import { loadDiscoverSelf, emptyDiscoverSelf } from "../discoverBoard.js";
-import { createIntel, downloadPacket, listPublicIntel, presentIntel, searchPublicIntel, setIntelStar } from "../market.js";
+import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, searchPublicIntel, setIntelStar } from "../market.js";
 import { listNotifications, markNotificationsRead } from "../notifications.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
@@ -515,8 +515,12 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   });
 
   router.get("/information", async (req, res) => {
-    const rows = await listPublicIntel(pool, 30, req.user?.id || null);
-    res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
+    const author = String(req.query.author || "").trim();
+    if (author && !INTEL_ID.test(author)) return res.json({ information: [], author: null });
+    const rows = await listPublicIntel(pool, 30, req.user?.id || null, author || null);
+    const information = (await withUploads(pool, rows)).map(publicCard);
+    if (!author) return res.json({ information });
+    res.json({ information, author: await publicAuthor(pool, author) });
   });
 
   router.post("/discover-self", async (req, res) => {

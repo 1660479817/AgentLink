@@ -11,8 +11,11 @@ import {
   SHARE_PAGE,
   buildSharePoster,
   ensureSharePoster,
+  formatPosted,
   renderSharePoster,
   shareContent,
+  shareHead,
+  shareMetaKey,
   sharePosterPath,
   storeSharePoster,
   wrapText,
@@ -66,6 +69,8 @@ test("the picture shows the post, the introduction, and a code for the site", as
   assert.equal(layout.qr.dark, darkModules());
   assert.equal(layout.width, 1080);
   assert.equal(layout.footerTop, layout.contentBottom + 32);
+  assert.ok(layout.contentTop > 56);
+  assert.match(layout.svg, /用户/);
   assert.ok(layout.height > layout.footerTop);
   assert.ok(layout.qr.y > layout.prTextBottom);
   assert.match(layout.svg, new RegExp(`<rect x="0" y="${layout.footerTop}" width="1080"`));
@@ -81,6 +86,48 @@ test("the picture shows the post, the introduction, and a code for the site", as
   const longer = await buildSharePoster({ body: "内容".repeat(80), video: false, audioName: "", fileName: "", image: false, preview: "" });
   assert.ok(longer.height > brief.height);
   assert.ok(brief.height < 1920);
+});
+
+test("the top bar names who posted, when, the type, and the price", async () => {
+  const head = shareHead({
+    display_name: "甲",
+    created_at: "2026-10-16T02:42:00.000Z",
+    actor: "personal_agent",
+    category: "新闻",
+    price: 12,
+  });
+  assert.equal(formatPosted(head.posted), "2026年10月16日 10:42");
+  assert.equal(head.actor, "personal_agent");
+  assert.equal(head.price, 12);
+  const layout = await buildSharePoster({
+    body: "只有一句话。",
+    video: false,
+    audioName: "",
+    fileName: "",
+    image: false,
+    preview: "",
+    head,
+  });
+  assert.match(layout.svg, /甲/);
+  assert.match(layout.svg, /Agent/);
+  assert.match(layout.svg, /2026年10月16日 10:42/);
+  assert.match(layout.svg, /新闻/);
+  assert.match(layout.svg, />12</);
+  assert.ok(layout.contentTop < layout.contentBottom);
+  const plain = shareHead({ display_name: "乙", created_at: "2026-10-16T02:42:00.000Z", actor: "person", price: 0 });
+  assert.equal(plain.category, "");
+  const pending = await buildSharePoster({
+    body: "还没分类。",
+    video: false,
+    audioName: "",
+    fileName: "",
+    image: false,
+    preview: "",
+    head: plain,
+  });
+  assert.match(pending.svg, /乙/);
+  assert.match(pending.svg, />人</);
+  assert.equal(pending.svg.includes("新闻"), false);
 });
 
 test("a stored preview is drawn and an external cover is not", async () => {
@@ -151,7 +198,12 @@ test("the first share writes the picture and the next share reads it", async () 
     assert.equal(slow, 1);
     await storeSharePoster(dir, card, render);
     const names = await readdir(path.join(dir, "shares", POST));
-    assert.deepEqual(names, [path.basename(sharePosterPath(dir, POST, HASH))]);
+    assert.deepEqual(names, [path.basename(sharePosterPath(dir, POST, HASH, shareMetaKey(card)))]);
+    const titled = { ...card, head: shareHead({ display_name: "甲", created_at: "2026-10-16T02:42:00.000Z", actor: "person", category: "新闻", price: 8 }) };
+    await storeSharePoster(dir, titled, render);
+    const titledNames = await readdir(path.join(dir, "shares", POST));
+    assert.deepEqual(titledNames, [path.basename(sharePosterPath(dir, POST, HASH, shareMetaKey(titled)))]);
+    assert.equal(drawn, 3);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -196,6 +248,11 @@ test("a public post is drawn once and then reused", async () => {
     kind: "fastpost",
     is_public: true,
     verdict: "pending",
+    actor: "person",
+    category: "",
+    price: 8,
+    created_at: "2026-10-16T02:42:00.000Z",
+    display_name: "甲",
   };
   const pool = {
     async query(sql) {
@@ -209,6 +266,8 @@ test("a public post is drawn once and then reused", async () => {
   const render = async (card) => {
     drawn += 1;
     assert.equal(card.audioName, "voice.mp3");
+    assert.equal(card.head.author, "甲");
+    assert.equal(card.head.price, 8);
     return renderSharePoster(card);
   };
   try {

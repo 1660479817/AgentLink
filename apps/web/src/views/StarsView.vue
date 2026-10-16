@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import { StarIcon } from "../icons/index.js";
@@ -11,10 +12,17 @@ import { useFriendStore } from "../stores/friends";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
+const router = useRouter();
 const friends = useFriendStore();
 const items = ref([]);
 const loaded = ref(false);
 const failed = ref(false);
+
+function filterByAuthor(item) {
+  const id = item?.author?.id;
+  if (!id) return;
+  router.push({ name: "discover", query: { author: id } });
+}
 
 async function shareItem(item) {
   if (item.sharing) return;
@@ -144,6 +152,7 @@ onMounted(load);
       :attachments="item.attachments || []"
       :note="item.kMeta?.note || ''"
       :verdict="item.kMeta?.verdict || ''"
+      :author-id="item.author?.id || ''"
       :author-name="item.author?.name || ''"
       :avatar-url="item.author?.avatarUrl || ''"
       :actor="item.actor || ''"
@@ -154,6 +163,7 @@ onMounted(load);
       :busy="Boolean(item.downloading)"
       :sharing="Boolean(item.sharing)"
       :notice="item.shareError || ''"
+      @author="filterByAuthor(item)"
       @friend="toggleFriend(item)"
       @dismiss="dismissItem(item)"
       @star="toggleStar(item)"

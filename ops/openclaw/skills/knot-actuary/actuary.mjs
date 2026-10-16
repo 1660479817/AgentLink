@@ -8,7 +8,11 @@ const BASE = "http://127.0.0.1:8080";
 const HINTS = {
   bad_token: "正在跑的 Backend 握着另一把令牌，等它重新读入 KNOT_ADMIN_TOKEN 后再调。",
   admin_unconfigured: "Backend 进程里还没有这把令牌。等它读入 KNOT_ADMIN_TOKEN 后再调。",
+  bad_price: "价格要是范围内的整数。默认价落在上下限之间，上下限和封顶、每积分美分数不超过 100000，每 MB 服务费不超过 1000。",
+  not_pending: "这份提议已经写入或已经收回。先重新提议。",
+  not_found: "没有这份提议。",
 };
+const PRICE_FLAGS = ["default", "min", "max", "publish-fee", "download-fee", "cap", "usd-cents"];
 
 function withHint(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
@@ -38,12 +42,112 @@ export async function readAdminToken(files, read = readFile) {
   return "";
 }
 
+function fail(error, hint) {
+  return { error: { error, hint } };
+}
+
+function need(flags, names) {
+  for (const name of names) {
+    if (flags[name] == null || flags[name] === "") return fail("bad_args", `缺少 --${name}`);
+  }
+  return null;
+}
+
+function only(flags, names) {
+  for (const name of Object.keys(flags)) {
+    if (!names.includes(name)) return fail("bad_args", `没有 --${name}`);
+  }
+  return null;
+}
+
+function whole(value) {
+  if (typeof value === "string" && /^(0|[1-9]\d*)$/.test(value)) {
+    const number = Number(value);
+    if (Number.isSafeInteger(number)) return number;
+  }
+  return value;
+}
+
+function parseFlags(argv) {
+  const flags = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const item = argv[i];
+    if (!item.startsWith("--") || item === "--") return fail("bad_args", `无法识别 ${item}`);
+    const eq = item.indexOf("=");
+    let key;
+    let value;
+    if (eq >= 0) {
+      key = item.slice(2, eq);
+      value = item.slice(eq + 1);
+    } else {
+      key = item.slice(2);
+      value = argv[i + 1];
+      if (value == null || value.startsWith("--")) return fail("bad_args", `缺少 --${key}`);
+      i += 1;
+    }
+    if (!key) return fail("bad_args", "参数名是空的");
+    if (Object.hasOwn(flags, key)) return fail("bad_args", `--${key} 写了多次`);
+    flags[key] = value;
+  }
+  return { flags };
+}
+
+export function buildRequest(argv) {
+  const [command, ...rest] = argv;
+  if (!command) return fail("bad_args", "缺少命令。命令是 economy、prices、propose 或 apply。");
+  if (command === "economy") {
+    if (rest.length) return fail("bad_args", "economy 不带参数。");
+    return { method: "GET", path: "/api/admin/economy" };
+  }
+  if (command === "prices") {
+    if (rest.length) return fail("bad_args", "prices 不带参数。");
+    return { method: "GET", path: "/api/admin/prices" };
+  }
+  if (command === "propose" || command === "apply") {
+    const parsed = parseFlags(rest);
+    if (parsed.error) return parsed;
+    if (command === "apply") {
+      return (
+        need(parsed.flags, ["id"]) ||
+        only(parsed.flags, ["id"]) || {
+          method: "POST",
+          path: `/api/admin/prices/proposals/${encodeURIComponent(parsed.flags.id)}/apply`,
+        }
+      );
+    }
+    return (
+      need(parsed.flags, PRICE_FLAGS) ||
+      only(parsed.flags, PRICE_FLAGS) || {
+        method: "POST",
+        path: "/api/admin/prices/proposals",
+        json: {
+          defaultPrice: whole(parsed.flags.default),
+          priceMin: whole(parsed.flags.min),
+          priceMax: whole(parsed.flags.max),
+          publishServiceFeePerMb: whole(parsed.flags["publish-fee"]),
+          downloadServiceFeePerMb: whole(parsed.flags["download-fee"]),
+          serviceFeeCap: whole(parsed.flags.cap),
+          pointUsdCents: whole(parsed.flags["usd-cents"]),
+        },
+      }
+    );
+  }
+  return fail("bad_args", "命令是 economy、prices、propose 或 apply。");
+}
+
 async function request(spec, { token, fetchImpl, baseUrl }) {
+  const headers = { Authorization: `Bearer ${token}` };
+  let body;
+  if (spec.json) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(spec.json);
+  }
   let response;
   try {
     response = await fetchImpl(new URL(spec.path, baseUrl), {
       method: spec.method,
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
+      body,
       signal: AbortSignal.timeout(20_000),
     });
   } catch {
@@ -61,13 +165,8 @@ async function request(spec, { token, fetchImpl, baseUrl }) {
 }
 
 export async function execute(argv, options = {}) {
-  const [command, ...rest] = argv;
-  if (command !== "economy") {
-    return { code: 1, body: { error: "bad_args", hint: "只有 economy 这一条命令。" } };
-  }
-  if (rest.length) {
-    return { code: 1, body: { error: "bad_args", hint: "economy 不带参数。" } };
-  }
+  const spec = buildRequest(argv);
+  if (spec.error) return { code: 1, body: spec.error };
   const token =
     options.token != null
       ? String(options.token).trim()
@@ -76,10 +175,7 @@ export async function execute(argv, options = {}) {
           options.readFile,
         );
   if (!token) return { code: 1, body: { error: "admin_unconfigured", hint: "管理接口还没配好。" } };
-  return request(
-    { method: "GET", path: "/api/admin/economy" },
-    { token, fetchImpl: options.fetch || globalThis.fetch, baseUrl: options.baseUrl || BASE }
-  );
+  return request(spec, { token, fetchImpl: options.fetch || globalThis.fetch, baseUrl: options.baseUrl || BASE });
 }
 
 // 路径里可能有软链（macOS 的 /tmp 就是），两边都取真实路径再比，

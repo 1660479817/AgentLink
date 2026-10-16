@@ -1,9 +1,67 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compareByWeight, noteReviewFailure, reviewFailureText } from "./market.js";
+import { compareByWeight, listPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reviewFailureText } from "./market.js";
 import { serviceFee, packetPrice, policyConfig } from "./points.js";
 
-test("feed order is weight, then newer", () => {
+const AUTHOR = "33333333-3333-4333-8333-333333333333";
+
+test("a public card keeps the author account id", () => {
+  const card = presentIntel({
+    id: "post",
+    user_id: AUTHOR,
+    display_name: "甲",
+    avatar_upload_id: null,
+    body: "原文",
+    videos: [],
+    links: {},
+    kind: "post",
+    price: 0,
+    is_public: true,
+    verdict: "passed",
+    created_at: "2026-10-16T00:00:00.000Z",
+    updated_at: "2026-10-16T00:00:00.000Z",
+  });
+  assert.equal(card.author.id, AUTHOR);
+  assert.equal(card.author.name, "甲");
+  assert.equal(card.user_id, undefined);
+});
+
+test("an author filter narrows the public feed by account, then time", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+  await listPublicIntel(pool, 30, null, AUTHOR);
+  assert.match(calls[0].sql, /AND i\.user_id = \$2/);
+  assert.match(calls[0].sql, /ORDER BY i\.created_at DESC, i\.weight DESC LIMIT \$3/);
+  assert.deepEqual(calls[0].params, [null, AUTHOR, 30]);
+});
+
+test("a public author is only someone with a visible post", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [{ id: AUTHOR, display_name: "甲", avatar_upload_id: null }] };
+    },
+  };
+  const author = await publicAuthor(pool, AUTHOR);
+  assert.equal(author.id, AUTHOR);
+  assert.equal(author.name, "甲");
+  assert.match(calls[0].sql, /i\.kind IN \('post', 'fastpost'\)/);
+  assert.deepEqual(calls[0].params, [AUTHOR]);
+  const empty = {
+    async query() {
+      return { rows: [] };
+    },
+  };
+  assert.equal(await publicAuthor(empty, AUTHOR), null);
+});
+
+test("search order is weight, then newer", () => {
   const rows = [
     { weight: 1, created_at: "2026-10-12T00:00:00.000Z", id: "older" },
     { weight: 2, created_at: "2026-10-01T00:00:00.000Z", id: "heavier" },

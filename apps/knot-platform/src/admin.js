@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
-import { honorList, muteState } from "./account.js";
+import { honorList, muteState, specialtyList, storedSpecialties } from "./account.js";
+import { ensureInternalAgent, internalAgentName, writeAgentEnvFile } from "./internalAgent.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { recordNotification } from "./notifications.js";
 import { applyPoints, economyConfig } from "./points.js";
@@ -108,6 +109,57 @@ async function oneUser(pool, query) {
   if (!rows.length) throw fail("not_found");
   if (rows.length > 1) throw fail("ambiguous", { users: rows.map(presentAccount) });
   return rows[0];
+}
+
+function presentIssued(row) {
+  return { ...presentAccount(row), specialties: storedSpecialties(row.specialties) };
+}
+
+export async function issueInternalAgent(pool, name, options = {}) {
+  if (!internalAgentName(name)) throw fail("bad_name");
+  const specialties = Object.hasOwn(options, "specialties") ? specialtyList(options.specialties) : null;
+  const envDir = String(options.envDir || "").trim();
+  if (!envDir) throw fail("env_unconfigured");
+  const writeEnv = options.writeEnv || writeAgentEnvFile;
+  const issued = await ensureInternalAgent(pool, name);
+  if (issued.created && specialties) {
+    await pool.query(
+      `UPDATE users SET specialties = $2::jsonb, updated_at = now() WHERE id = $1`,
+      [issued.userId, JSON.stringify(specialties)]
+    );
+  }
+  let envFile = null;
+  if (issued.token) {
+    try {
+      envFile = await writeEnv(envDir, issued);
+    } catch {
+      try {
+        await pool.query(`DELETE FROM delegations WHERE user_id = $1`, [issued.userId]);
+        if (issued.created) await pool.query(`DELETE FROM users WHERE id = $1`, [issued.userId]);
+      } catch (rollbackError) {
+        console.error(rollbackError);
+      }
+      throw fail("env_failed");
+    }
+    const note = specialties?.length ? `签发 ${issued.displayName}。特长 ${specialties.join("、")}` : `签发 ${issued.displayName}`;
+    await pool.query(
+      `INSERT INTO admin_actions (action, user_id, body) VALUES ('issue', $1, $2)`,
+      [issued.userId, note]
+    );
+  }
+  const { rows } = await pool.query(
+    `SELECT ${ACCOUNT_COLUMNS}, specialties FROM users WHERE id = $1`,
+    [issued.userId]
+  );
+  if (!rows.length) throw fail("not_found");
+  return {
+    ok: true,
+    created: issued.created,
+    issued: Boolean(issued.token),
+    already: !issued.token,
+    envFile,
+    user: presentIssued(rows[0]),
+  };
 }
 
 export async function searchUsers(pool, query) {

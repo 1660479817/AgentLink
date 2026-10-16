@@ -76,7 +76,9 @@ test("the public board drops personal fields and keeps the wish author", async (
   assert.equal(card.canFriend, false);
   assert.equal(card.granted, false);
   assert.equal(card.mine, false);
+  assert.equal(card.author.id, AUTHOR);
   assert.equal(card.author.name, "甲");
+  assert.equal(card.user_id, undefined);
   assert.equal(card.previewUrl, `/api/web/previews/${POST}`);
   assert.equal(card.audio[0].url, undefined);
   assert.equal(board.requests[0].authorId, AUTHOR);

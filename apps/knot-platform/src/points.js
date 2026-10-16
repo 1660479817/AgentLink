@@ -7,8 +7,29 @@ function nonNegativeInt(raw, fallback) {
   return value;
 }
 
-// 经济参数只有这一处读环境变量。其余函数都从这里取，改一处即全站生效。
-export function economyConfig() {
+// 环境变量是还没有价格表时的初值。精算师写入 economy_policy 后，
+// 下面这七个键盖过环境变量，其余键仍只读环境变量。
+const PRICE_KEYS = [
+  "defaultPrice",
+  "priceMin",
+  "priceMax",
+  "publishServiceFeePerMb",
+  "downloadServiceFeePerMb",
+  "serviceFeeCap",
+  "pointUsdCents",
+];
+
+let priceOverride = null;
+
+export function installPriceOverride(schedule) {
+  priceOverride = schedule ? Object.fromEntries(PRICE_KEYS.map((key) => [key, schedule[key]])) : null;
+}
+
+export function clearPriceOverride() {
+  priceOverride = null;
+}
+
+function economyFromEnv() {
   let priceMin = nonNegativeInt(process.env.KNOT_PRICE_MIN, 0);
   let priceMax = nonNegativeInt(process.env.KNOT_PRICE_MAX, 100);
   if (priceMax < priceMin) priceMax = priceMin;
@@ -25,7 +46,7 @@ export function economyConfig() {
     publishServiceFeePerMb: nonNegativeInt(process.env.KNOT_PUBLISH_SERVICE_FEE_PER_MB, 1),
     // 下载服务费：下载时按附件字节收，平台收（存储/传输），加在作者标价之上。每 MB y 积分，向上取整，封顶 serviceFeeCap。
     downloadServiceFeePerMb: nonNegativeInt(process.env.KNOT_DOWNLOAD_SERVICE_FEE_PER_MB, 1),
-    // 服务费单次上限，避免大附件天价。
+    // 服务费单次上限，避免大附件天价。0 表示不封顶。
     serviceFeeCap: nonNegativeInt(process.env.KNOT_SERVICE_FEE_CAP, 10),
     // 第二期：只充值、不兑出。汇率是平台定价，盈亏平衡看现金流。
     // 每积分的美元价，用「美分」表示（1 = 0.01 美元），避免小数。
@@ -44,6 +65,16 @@ export function economyConfig() {
     // 新注册是否自动发一张（1 开，0 关）。
     couponOnSignup: nonNegativeInt(process.env.KNOT_COUPON_SIGNUP, 1) > 0,
   };
+}
+
+export function economyConfig() {
+  const config = economyFromEnv();
+  if (!priceOverride) return config;
+  const next = { ...config, ...priceOverride };
+  if (process.env.KNOT_COUPON_FACE == null || String(process.env.KNOT_COUPON_FACE).trim() === "") {
+    next.couponFace = next.defaultPrice;
+  }
+  return next;
 }
 
 export function pricePolicy() {

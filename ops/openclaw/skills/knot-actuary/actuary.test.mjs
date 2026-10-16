@@ -33,7 +33,70 @@ test("economy reads the three numbers and never echoes the token", async () => {
   assert.equal(JSON.stringify(result.body).includes(TOKEN), false);
 });
 
-test("only economy is a command, and it takes no arguments", async () => {
+test("propose posts the whole schedule and apply posts only the id", async () => {
+  const seen = [];
+  const fetch = async (url, init) => {
+    seen.push({ url: String(url), init });
+    return jsonResponse(201, { proposal: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1" } });
+  };
+  const proposed = await execute(
+    ["propose", "--default", "0", "--min", "0", "--max", "20", "--publish-fee", "1", "--download-fee", "2", "--cap", "10", "--usd-cents", "1"],
+    { token: TOKEN, fetch }
+  );
+  assert.equal(proposed.code, 0);
+  assert.equal(seen[0].init.method, "POST");
+  assert.equal(new URL(seen[0].url).pathname, "/api/admin/prices/proposals");
+  assert.equal(seen[0].init.headers["Content-Type"], "application/json");
+  assert.deepEqual(JSON.parse(seen[0].init.body), {
+    defaultPrice: 0,
+    priceMin: 0,
+    priceMax: 20,
+    publishServiceFeePerMb: 1,
+    downloadServiceFeePerMb: 2,
+    serviceFeeCap: 10,
+    pointUsdCents: 1,
+  });
+  assert.equal(seen[0].init.headers.Authorization, `Bearer ${TOKEN}`);
+  assert.equal(seen[0].init.body.includes(TOKEN), false);
+
+  const applied = await execute(["apply", "--id", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"], { token: TOKEN, fetch });
+  assert.equal(applied.code, 0);
+  assert.equal(seen[1].init.method, "POST");
+  assert.equal(seen[1].init.body, undefined);
+  assert.equal(new URL(seen[1].url).pathname, "/api/admin/prices/proposals/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1/apply");
+
+  let called = false;
+  const missing = await execute(["propose", "--default", "10"], {
+    token: TOKEN,
+    fetch: async () => {
+      called = true;
+      return jsonResponse(200, {});
+    },
+  });
+  assert.equal(missing.body.error, "bad_args");
+  assert.equal(called, false);
+});
+
+test("prices reads the current schedule and takes no arguments", async () => {
+  let seen;
+  const result = await execute(["prices"], {
+    token: TOKEN,
+    fetch: async (url, init) => {
+      seen = { url: String(url), init };
+      return jsonResponse(200, { source: "env", prices: {}, pending: null });
+    },
+  });
+  assert.equal(result.code, 0);
+  assert.equal(seen.init.method, "GET");
+  assert.equal(new URL(seen.url).pathname, "/api/admin/prices");
+  const extra = await execute(["prices", "--default", "10"], {
+    token: TOKEN,
+    fetch: async () => jsonResponse(200, {}),
+  });
+  assert.equal(extra.body.error, "bad_args");
+});
+
+test("economy takes no arguments, and an unknown command is refused", async () => {
   let called = false;
   const fetch = async () => {
     called = true;

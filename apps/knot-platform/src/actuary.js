@@ -1,4 +1,4 @@
-import { economyConfig, PLATFORM_USER_ID } from "./points.js";
+import { clearPriceOverride, economyConfig, installPriceOverride, PLATFORM_USER_ID } from "./points.js";
 
 // 第一期只要三个数：发行、流通、平台。
 //
@@ -62,4 +62,140 @@ export async function economyReport(pool) {
     breakeven,
     stage,
   };
+}
+
+// 精算师负责的价格表。单条记录的标价仍由作者写。
+// 提议先落在 price_proposals，主人同意后才写入 economy_policy，并盖过环境变量。
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const SCHEDULE_FIELDS = [
+  { key: "defaultPrice", column: "default_price", max: 100_000 },
+  { key: "priceMin", column: "price_min", max: 100_000 },
+  { key: "priceMax", column: "price_max", max: 100_000 },
+  { key: "publishServiceFeePerMb", column: "publish_service_fee_per_mb", max: 1_000 },
+  { key: "downloadServiceFeePerMb", column: "download_service_fee_per_mb", max: 1_000 },
+  { key: "serviceFeeCap", column: "service_fee_cap", max: 100_000 },
+  { key: "pointUsdCents", column: "point_usd_cents", max: 100_000 },
+];
+
+const SCHEDULE_COLUMNS = SCHEDULE_FIELDS.map((field) => field.column).join(", ");
+
+function fail(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
+export function parsePriceSchedule(body) {
+  const source = body && typeof body === "object" ? body : {};
+  const schedule = {};
+  for (const field of SCHEDULE_FIELDS) {
+    const raw = source[field.key];
+    const text = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+    if (!/^(0|[1-9]\d*)$/.test(text)) throw fail("bad_price");
+    const value = Number(text);
+    if (!Number.isSafeInteger(value) || value > field.max) throw fail("bad_price");
+    schedule[field.key] = value;
+  }
+  if (schedule.priceMax < schedule.priceMin) throw fail("bad_price");
+  if (schedule.defaultPrice < schedule.priceMin || schedule.defaultPrice > schedule.priceMax) throw fail("bad_price");
+  return schedule;
+}
+
+function scheduleFromRow(row) {
+  return Object.fromEntries(SCHEDULE_FIELDS.map((field) => [field.key, Number(row[field.column])]));
+}
+
+export function envPriceSchedule() {
+  const config = economyConfig();
+  return Object.fromEntries(SCHEDULE_FIELDS.map((field) => [field.key, config[field.key]]));
+}
+
+function proposalView(row) {
+  return { id: row.id, ...scheduleFromRow(row), createdAt: row.created_at };
+}
+
+async function withClient(pool, fn) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // 已经回滚过时再回滚会失败，原错误仍然抛出。
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function loadEconomyPolicy(pool) {
+  const { rows } = await pool.query(`SELECT ${SCHEDULE_COLUMNS} FROM economy_policy WHERE id = 1`);
+  if (!rows.length) {
+    clearPriceOverride();
+    return null;
+  }
+  const schedule = scheduleFromRow(rows[0]);
+  installPriceOverride(schedule);
+  return schedule;
+}
+
+export async function priceSchedule(pool) {
+  const { rows } = await pool.query(`SELECT ${SCHEDULE_COLUMNS} FROM economy_policy WHERE id = 1`);
+  const pending = await pool.query(
+    `SELECT id, ${SCHEDULE_COLUMNS}, created_at FROM price_proposals WHERE status = 'pending'`
+  );
+  if (!rows.length) {
+    clearPriceOverride();
+    return { source: "env", prices: envPriceSchedule(), pending: pending.rows[0] ? proposalView(pending.rows[0]) : null };
+  }
+  const prices = scheduleFromRow(rows[0]);
+  installPriceOverride(prices);
+  return { source: "policy", prices, pending: pending.rows[0] ? proposalView(pending.rows[0]) : null };
+}
+
+export async function proposePrices(pool, body) {
+  const schedule = parsePriceSchedule(body);
+  const values = SCHEDULE_FIELDS.map((field) => schedule[field.key]);
+  const row = await withClient(pool, async (client) => {
+    await client.query(`UPDATE price_proposals SET status = 'withdrawn' WHERE status = 'pending'`);
+    const inserted = await client.query(
+      `INSERT INTO price_proposals (${SCHEDULE_COLUMNS}, status)
+       VALUES (${SCHEDULE_FIELDS.map((_, index) => `$${index + 1}`).join(", ")}, 'pending')
+       RETURNING id, created_at`,
+      values
+    );
+    return inserted.rows[0];
+  });
+  return { proposal: { id: row.id, ...schedule, createdAt: row.created_at } };
+}
+
+export async function applyPriceProposal(pool, id) {
+  if (!UUID.test(String(id || ""))) throw fail("not_found");
+  const schedule = await withClient(pool, async (client) => {
+    const { rows } = await client.query(
+      `SELECT status, ${SCHEDULE_COLUMNS} FROM price_proposals WHERE id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (!rows.length) throw fail("not_found");
+    if (rows[0].status !== "pending") throw fail("not_pending");
+    const next = scheduleFromRow(rows[0]);
+    const params = [...SCHEDULE_FIELDS.map((field) => next[field.key]), id];
+    const assignments = SCHEDULE_FIELDS.map((field, index) => `${field.column} = $${index + 1}`).join(", ");
+    await client.query(
+      `INSERT INTO economy_policy (id, ${SCHEDULE_COLUMNS}, proposal_id, updated_at)
+       VALUES (1, ${SCHEDULE_FIELDS.map((_, index) => `$${index + 1}`).join(", ")}, $${SCHEDULE_FIELDS.length + 1}, now())
+       ON CONFLICT (id) DO UPDATE SET ${assignments}, proposal_id = $${SCHEDULE_FIELDS.length + 1}, updated_at = now()`,
+      params
+    );
+    await client.query(`UPDATE price_proposals SET status = 'applied', applied_at = now() WHERE id = $1`, [id]);
+    return next;
+  });
+  installPriceOverride(schedule);
+  return { source: "policy", prices: schedule, proposalId: id };
 }

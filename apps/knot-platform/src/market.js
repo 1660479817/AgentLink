@@ -56,6 +56,7 @@ export function presentIntel(row) {
   if (!row) return null;
   const author = row.display_name !== undefined
     ? {
+        id: row.user_id || "",
         name: row.display_name || "",
         avatarUrl: avatarUrlFor(row),
       }
@@ -501,12 +502,40 @@ export function compareByWeight(a, b) {
   return new Date(b.created_at) - new Date(a.created_at);
 }
 
-export async function listPublicIntel(pool, limit = 30, userId = null) {
-  const { rows } = await pool.query(
-    `${PUBLIC_INTEL_SQL} ORDER BY i.weight DESC, i.created_at DESC LIMIT $2`,
-    [userId, limit]
-  );
+export async function listPublicIntel(pool, limit = 30, userId = null, authorId = null) {
+  const params = [userId];
+  let sql = PUBLIC_INTEL_SQL;
+  if (authorId) {
+    params.push(authorId);
+    sql += ` AND i.user_id = $${params.length}`;
+  }
+  params.push(limit);
+  sql += ` ORDER BY i.created_at DESC, i.weight DESC LIMIT $${params.length}`;
+  const { rows } = await pool.query(sql, params);
   return rows;
+}
+
+export async function publicAuthor(pool, authorId) {
+  const { rows } = await pool.query(
+    `SELECT u.id, u.display_name, u.avatar_upload_id
+     FROM users u
+     WHERE u.id = $1
+       AND EXISTS (
+         SELECT 1 FROM intel i
+         WHERE i.user_id = u.id
+           AND i.is_public
+           AND i.kind IN ('post', 'fastpost')
+           AND ${visibleVerdict("i.verdict")}
+       )`,
+    [authorId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.display_name || "",
+    avatarUrl: avatarUrlFor(row),
+  };
 }
 
 export async function searchPublicIntel(pool, query, userId = null) {

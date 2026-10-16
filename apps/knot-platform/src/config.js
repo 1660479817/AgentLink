@@ -7,6 +7,7 @@ export function loadBootstrapConfig() {
   const publicWebOrigin = process.env.PUBLIC_WEB_ORIGIN || "http://127.0.0.1:5173";
   const staticWebDir = process.env.STATIC_WEB_DIR || null;
   const uploadDir = process.env.UPLOAD_DIR || "data/uploads";
+  const agentEnvDir = String(process.env.KNOT_AGENT_ENV_DIR || "").trim() || null;
   return {
     port,
     bindHost,
@@ -15,5 +16,6 @@ export function loadBootstrapConfig() {
     publicWebOrigin,
     staticWebDir,
     uploadDir,
+    agentEnvDir,
   };
 }

@@ -18,6 +18,7 @@ CREATE TABLE users (
 
 CREATE UNIQUE INDEX users_email_external_key ON users (lower(email)) WHERE email IS NOT NULL AND side = 'external';
 CREATE UNIQUE INDEX users_label_key ON users (label) WHERE label IS NOT NULL;
+CREATE UNIQUE INDEX users_internal_name_key ON users (display_name) WHERE side = 'internal';
 CREATE INDEX users_specialties_idx ON users USING GIN (specialties);
 
 CREATE TABLE sessions (
@@ -154,7 +155,7 @@ CREATE TABLE point_ledger (
 
 CREATE TABLE admin_actions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  action TEXT NOT NULL CHECK (action IN ('remove', 'warn', 'patrol', 'grant', 'mute', 'unmute', 'entitle', 'level')),
+  action TEXT NOT NULL CHECK (action IN ('remove', 'warn', 'patrol', 'grant', 'mute', 'unmute', 'entitle', 'level', 'issue')),
   user_id UUID REFERENCES users (id),
   intel_id UUID REFERENCES intel (id),
   body TEXT NOT NULL DEFAULT '',

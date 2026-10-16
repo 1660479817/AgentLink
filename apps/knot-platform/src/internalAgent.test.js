@@ -1,12 +1,70 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { internalAgentEmail, internalAgentName } from "./internalAgent.js";
+import { agentEnvText, ensureInternalAgent, internalAgentEmail, internalAgentName, writeAgentEnvFile } from "./internalAgent.js";
 
-test("an internal agent name is a short slug", () => {
+test("an internal agent name is a short label", () => {
   assert.equal(internalAgentName("bravesearch"), "bravesearch");
-  assert.equal(internalAgentName(" BraveSearch "), null);
+  assert.equal(internalAgentName(" 豆包 "), "豆包");
+  assert.equal(internalAgentName(" BraveSearch "), "BraveSearch");
   assert.equal(internalAgentName(""), null);
   assert.equal(internalAgentName("a".repeat(41)), null);
+  assert.equal(internalAgentName("豆 包"), null);
+  assert.equal(internalAgentName("../豆包"), null);
+});
+
+test("an internal agent code file stays private", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-agent-"));
+  try {
+    const token = "issued-token-value";
+    const file = await writeAgentEnvFile(dir, {
+      displayName: "豆包",
+      email: "manwjh@gmail.com",
+      userId: "11111111-1111-4111-8111-111111111111",
+      token,
+    });
+    assert.equal(file, path.join(dir, "豆包.local.env"));
+    assert.equal((await stat(file)).mode & 0o777, 0o600);
+    assert.equal(
+      await readFile(file, "utf8"),
+      agentEnvText({
+        displayName: "豆包",
+        email: "manwjh@gmail.com",
+        userId: "11111111-1111-4111-8111-111111111111",
+        token,
+      })
+    );
+    assert.equal((await readdir(dir)).some((name) => name.endsWith(".tmp")), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a duplicate internal name keeps the first account", async () => {
+  let selects = 0;
+  const pool = {
+    async query(sql) {
+      if (sql.includes("side = 'internal'")) {
+        selects += 1;
+        if (selects === 1) return { rows: [], rowCount: 0 };
+        return { rows: [{ id: "11111111-1111-4111-8111-111111111111", points_balance: 40 }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO users")) {
+        const error = new Error("duplicate");
+        error.code = "23505";
+        throw error;
+      }
+      if (sql.includes("FROM delegations")) return { rows: [{ ok: 1 }], rowCount: 1 };
+      throw new Error(sql);
+    },
+  };
+  const issued = await ensureInternalAgent(pool, "豆包");
+  assert.equal(issued.created, false);
+  assert.equal(issued.token, null);
+  assert.equal(issued.userId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(issued.pointsBalance, 40);
 });
 
 test("internal agents share the admin mailbox", () => {

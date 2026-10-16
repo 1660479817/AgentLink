@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const BASE = "http://127.0.0.1:8080";
-const REPEAT = new Set(["grant", "revoke"]);
+const REPEAT = new Set(["grant", "revoke", "specialty"]);
 const IMAGE_TYPES = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -16,6 +16,10 @@ const IMAGE_TYPES = {
 const HINTS = {
   bad_token: "正在跑的 Backend 握着另一把令牌，等它重新读入 KNOT_ADMIN_TOKEN 后再调。",
   admin_unconfigured: "Backend 进程里还没有这把令牌。等它读入 KNOT_ADMIN_TOKEN 后再调。",
+  bad_name: "称呼用 1 到 40 个字，字母或数字开头，中间可以有连字符，不要空格和斜线。",
+  bad_specialty: "特长最多 8 个，每个最多 20 字，不要用逗号或顿号。",
+  env_unconfigured: "这台机器还没有放授权码的目录。",
+  env_failed: "授权码没有写成文件，这次没有留下账户。可以再签发一次。",
 };
 
 function fail(error, hint) {
@@ -152,6 +156,13 @@ export function buildRequest(command, flags) {
         json: { user: flags.user, grant: flags.grant || [], revoke: flags.revoke || [], body: flags.body },
       }
     );
+  }
+  if (command === "issue") {
+    const missing = need(flags, ["name"]) || only(flags, ["name", "specialty"]);
+    if (missing) return missing;
+    const json = { name: flags.name };
+    if (flags.specialty) json.specialties = flags.specialty;
+    return { method: "POST", path: "/api/admin/internal-agents", json };
   }
   if (command === "level") {
     return (

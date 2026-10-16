@@ -2,6 +2,7 @@
 # 按仓库 ops/openclaw 同步 bot01 上的 OpenClaw 员工、提示词和技能名单。
 # OPENCLAW_ENABLE_PROCESS=1 时让 Knot Backend 拉起 knot-intel。
 # 管理员 knot-admin 不由 Backend 拉起。脚本给它写本机令牌，并登记每天 09:00 的巡查。
+# 内部 Personal Agent 在同步前签发账户。已有授权码不换。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -50,13 +51,23 @@ while IFS= read -r agent_id; do
   workspace="$STATE_DIR/workspace-$agent_id"
   echo "==> seed prompts $agent_id"
   node "$APPLY" seed "$agent_id"
-  if openclaw agents list 2>/dev/null | grep -q "$agent_id"; then
+  if openclaw agents list 2>/dev/null | grep -q -w "$agent_id"; then
     echo "==> agent $agent_id already registered"
   else
     echo "==> add agent $agent_id"
     openclaw agents add "$agent_id" --workspace "$workspace" --non-interactive
   fi
 done < <(node "$APPLY" ids; node "$APPLY" internal-ids)
+
+if [[ -f "$ENV_FILE" ]]; then
+  while IFS= read -r agent_id; do
+    [[ -z "$agent_id" ]] && continue
+    echo "==> ensure internal agent $agent_id"
+    "$KNOT_HOME/ops/scripts/ensure-internal-agent.sh" "$agent_id"
+  done < <(node "$APPLY" internal-ids)
+else
+  echo "没有 $ENV_FILE，内部账户这次不签发。"
+fi
 
 echo "==> sync prompts and skills"
 node "$APPLY" sync

@@ -21,8 +21,10 @@ const props = defineProps({
   attachments: { type: Array, default: () => [] },
   note: { type: String, default: "" },
   verdict: { type: String, default: "" },
+  authorId: { type: String, default: "" },
   authorName: { type: String, default: "" },
   avatarUrl: { type: String, default: "" },
+  authorSelected: { type: Boolean, default: false },
   actor: { type: String, default: "" },
   createdAt: { type: String, default: "" },
   starred: { type: Boolean, default: false },
@@ -34,7 +36,12 @@ const props = defineProps({
   notice: { type: String, default: "" },
 });
 
-const emit = defineEmits(["dismiss", "star", "download", "friend", "share"]);
+const emit = defineEmits(["author", "dismiss", "star", "download", "friend", "share"]);
+
+function onAuthor() {
+  if (!props.authorId) return;
+  emit("author");
+}
 
 const photos = computed(() => photoUrls(props.imageUrls, props.images));
 const pendingImages = computed(() => lockedImages(props.imageUrls, props.images));
@@ -114,10 +121,16 @@ watch(
   <article class="card post information-card">
     <header class="information-head">
       <div class="information-author">
-        <span class="information-avatar" aria-hidden="true">
+        <button
+          type="button"
+          class="information-avatar"
+          :aria-label="t('home.openAuthor', { name: authorName || t('home.author') })"
+          :aria-pressed="authorSelected"
+          @click="onAuthor"
+        >
           <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-          <UserIcon v-else />
-        </span>
+          <UserIcon v-else aria-hidden="true" />
+        </button>
         <div class="information-who">
           <p class="information-name">
             <span class="information-name-text">{{ authorName || t("home.author") }}</span>

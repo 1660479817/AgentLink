@@ -10,6 +10,7 @@ import {
   recordPatrol,
   removePost,
   searchUsers,
+  issueInternalAgent,
   setEntitlements,
   setLevel,
   tokensMatch,
@@ -17,13 +18,16 @@ import {
   warnUser,
 } from "../admin.js";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
-import { economySnapshot } from "../actuary.js";
+import { applyPriceProposal, economySnapshot, priceSchedule, proposePrices } from "../actuary.js";
 import { ensureUploadDir, newStorageName } from "../uploads.js";
 
 function sendAdminError(res, error) {
   const code = error.code || "internal";
   if (
     code === "bad_user" ||
+    code === "bad_name" ||
+    code === "bad_email" ||
+    code === "bad_specialty" ||
     code === "bad_body" ||
     code === "bad_amount" ||
     code === "bad_until" ||
@@ -35,6 +39,7 @@ function sendAdminError(res, error) {
     code === "bad_image" ||
     code === "bad_mime" ||
     code === "bad_position" ||
+    code === "bad_price" ||
     code === "empty_file" ||
     code === "file_too_large" ||
     code === "upload_failed" ||
@@ -42,7 +47,11 @@ function sendAdminError(res, error) {
   ) {
     return res.status(400).json({ error: code });
   }
+  if (code === "env_unconfigured" || code === "env_failed") {
+    return res.status(503).json({ error: code });
+  }
   if (code === "not_found") return res.status(404).json({ error: code });
+  if (code === "not_pending") return res.status(409).json({ error: code });
   if (code === "ambiguous" || code === "protected") {
     return res.status(409).json({ error: code, users: error.users || undefined });
   }
@@ -50,7 +59,7 @@ function sendAdminError(res, error) {
   return res.status(500).json({ error: "internal" });
 }
 
-export function adminRouter({ pool, token, uploadDir }) {
+export function adminRouter({ pool, token, uploadDir, agentEnvDir = null }) {
   const router = Router();
   if (uploadDir) ensureUploadDir(uploadDir);
   const sponsorUpload = multer({
@@ -142,6 +151,17 @@ export function adminRouter({ pool, token, uploadDir }) {
     }
   });
 
+  router.post("/internal-agents", async (req, res) => {
+    try {
+      const body = req.body || {};
+      const options = { envDir: agentEnvDir };
+      if (Object.hasOwn(body, "specialties")) options.specialties = body.specialties;
+      res.json(await issueInternalAgent(pool, body.name, options));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
   router.post("/warnings", async (req, res) => {
     try {
       res.json(await warnUser(pool, req.body?.user, req.body?.body));
@@ -161,6 +181,30 @@ export function adminRouter({ pool, token, uploadDir }) {
   router.get("/economy", async (_req, res) => {
     try {
       res.json(await economySnapshot(pool));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.get("/prices", async (_req, res) => {
+    try {
+      res.json(await priceSchedule(pool));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/prices/proposals", async (req, res) => {
+    try {
+      res.status(201).json(await proposePrices(pool, req.body));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/prices/proposals/:id/apply", async (req, res) => {
+    try {
+      res.json(await applyPriceProposal(pool, req.params.id));
     } catch (error) {
       sendAdminError(res, error);
     }

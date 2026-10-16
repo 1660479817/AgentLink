@@ -48,6 +48,14 @@ test("commands map onto the admin API", () => {
       { method: "POST", path: "/api/admin/sponsors", json: { title: "一则标题", href: "/wish" } },
     ],
     [["patrol-record", "--body", "无"], { method: "POST", path: "/api/admin/patrol", json: { body: "无" } }],
+    [
+      ["issue", "--name", "豆包", "--specialty", "网页搜索", "--specialty", "资料整理"],
+      {
+        method: "POST",
+        path: "/api/admin/internal-agents",
+        json: { name: "豆包", specialties: ["网页搜索", "资料整理"] },
+      },
+    ],
   ];
   for (const [argv, expected] of cases) {
     const parsed = parseArgs(argv);
@@ -86,6 +94,23 @@ test("an empty token never calls the API", async () => {
   assert.equal(called, false);
   assert.equal(result.body.error, "admin_unconfigured");
   assert.match(result.body.hint, /还没配好/);
+});
+
+test("issue needs a name", () => {
+  const parsed = parseArgs(["issue", "--specialty", "网页搜索"]);
+  const built = buildRequest(parsed.command, parsed.flags);
+  assert.equal(built.error.error, "bad_args");
+});
+
+test("a rejected name explains the rule without echoing a code", async () => {
+  const result = await execute(["issue", "--name", "豆 包"], {
+    token: TOKEN,
+    fetch: async () => jsonResponse(400, { error: "bad_name" }),
+  });
+  assert.equal(result.code, 1);
+  assert.equal(result.body.error, "bad_name");
+  assert.match(result.body.hint, /连字符/);
+  assert.equal(JSON.stringify(result.body).includes(TOKEN), false);
 });
 
 test("a rejected token explains the mismatch without echoing the secret", async () => {

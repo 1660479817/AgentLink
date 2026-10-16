@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import express from "express";
 import {
@@ -7,6 +8,7 @@ import {
   hoursWithin,
   isLoopbackAddress,
   grantPoints,
+  issueInternalAgent,
   listPosts,
   muteUser,
   removePost,
@@ -511,5 +513,198 @@ test("the economy door hands back the three numbers", async () => {
     assert.deepEqual(await response.json(), { issued: 205, circulating: 200, platform: 5 });
   } finally {
     server.close();
+  }
+});
+
+const ISSUED_USER = {
+  id: USER_ID,
+  email: "manwjh@gmail.com",
+  display_name: "豆包",
+  label: "",
+  side: "internal",
+  level: 1,
+  entitlements: {},
+  points_balance: 100,
+  muted_until: null,
+  specialties: ["网页搜索", "资料整理"],
+};
+
+function issuePool({ existing = false, delegation = false, copies = 1 } = {}) {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("side = 'internal'")) {
+        if (!existing) return { rows: [], rowCount: 0 };
+        const row = { id: USER_ID, points_balance: 80 };
+        return { rows: Array.from({ length: copies }, () => row), rowCount: copies };
+      }
+      if (sql.includes("INSERT INTO users")) return { rows: [{ id: USER_ID, points_balance: 100 }], rowCount: 1 };
+      if (sql.includes("FROM delegations")) {
+        return delegation ? { rows: [{ ok: 1 }], rowCount: 1 } : { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("INSERT INTO delegations") || sql.includes("UPDATE users SET specialties") || sql.includes("DELETE FROM") || sql.includes("admin_actions")) {
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes("specialties FROM users")) return { rows: [ISSUED_USER], rowCount: 1 };
+      throw new Error(`unexpected ${sql}`);
+    },
+  };
+  return { pool, calls };
+}
+
+test("issuing an internal agent writes the code once and leaves it out of the reply", async () => {
+  const { pool, calls } = issuePool();
+  let written;
+  const result = await issueInternalAgent(pool, " 豆包 ", {
+    envDir: "/tmp/knot-agents",
+    specialties: [" 网页搜索 ", "网页搜索", "资料整理"],
+    writeEnv: async (dir, issued) => {
+      written = { dir, issued };
+      return `${dir}/豆包.local.env`;
+    },
+  });
+  assert.equal(written.dir, "/tmp/knot-agents");
+  assert.equal(written.issued.displayName, "豆包");
+  assert.match(written.issued.token, /^[A-Za-z0-9_-]+$/);
+  const digest = createHash("sha256").update(written.issued.token).digest("hex");
+  const delegation = calls.find((call) => call.sql.includes("INSERT INTO delegations"));
+  assert.deepEqual(delegation.params, [USER_ID, digest]);
+  const specialties = calls.find((call) => call.sql.includes("UPDATE users SET specialties"));
+  assert.equal(specialties.params[1], JSON.stringify(["网页搜索", "资料整理"]));
+  const action = calls.find((call) => call.sql.includes("admin_actions"));
+  assert.equal(action.params[0], USER_ID);
+  assert.equal(action.params[1], "签发 豆包。特长 网页搜索、资料整理");
+  assert.equal(result.created, true);
+  assert.equal(result.issued, true);
+  assert.equal(result.already, false);
+  assert.equal(result.envFile, "/tmp/knot-agents/豆包.local.env");
+  assert.deepEqual(result.user.specialties, ["网页搜索", "资料整理"]);
+  assert.equal(JSON.stringify(result).includes(written.issued.token), false);
+  assert.equal(action.params[1].includes(written.issued.token), false);
+});
+
+test("an existing internal agent keeps its code and specialties", async () => {
+  const { pool, calls } = issuePool({ existing: true, delegation: true });
+  let written = false;
+  const result = await issueInternalAgent(pool, "豆包", {
+    envDir: "/tmp/knot-agents",
+    specialties: ["网页搜索"],
+    writeEnv: async () => {
+      written = true;
+      return "/tmp/should-not";
+    },
+  });
+  assert.equal(written, false);
+  assert.equal(result.created, false);
+  assert.equal(result.issued, false);
+  assert.equal(result.already, true);
+  assert.equal(result.envFile, null);
+  assert.equal(calls.some((call) => call.sql.includes("admin_actions")), false);
+  assert.equal(calls.some((call) => call.sql.includes("UPDATE users")), false);
+});
+
+test("a missing code is written again without creating a second account", async () => {
+  const { pool, calls } = issuePool({ existing: true, delegation: false });
+  const result = await issueInternalAgent(pool, "豆包", {
+    envDir: "/tmp/knot-agents",
+    writeEnv: async () => "/tmp/knot-agents/豆包.local.env",
+  });
+  assert.equal(result.created, false);
+  assert.equal(result.issued, true);
+  assert.equal(calls.some((call) => call.sql.includes("INSERT INTO users")), false);
+  assert.equal(calls.some((call) => call.sql.includes("admin_actions")), true);
+  assert.equal(calls.find((call) => call.sql.includes("admin_actions")).params[1], "签发 豆包");
+});
+
+test("a failed code file removes the new account", async () => {
+  const { pool, calls } = issuePool();
+  await assert.rejects(
+    issueInternalAgent(pool, "豆包", {
+      envDir: "/tmp/knot-agents",
+      writeEnv: async () => {
+        throw new Error("disk full");
+      },
+    }),
+    (error) => error.code === "env_failed"
+  );
+  assert.equal(calls.some((call) => call.sql.includes("DELETE FROM delegations")), true);
+  assert.equal(calls.some((call) => call.sql.includes("DELETE FROM users")), true);
+  assert.equal(calls.some((call) => call.sql.includes("admin_actions")), false);
+});
+
+test("issuing needs one unused name and a directory for the code", async () => {
+  const closed = {
+    async query() {
+      throw new Error("should not look up");
+    },
+  };
+  await assert.rejects(issueInternalAgent(closed, "豆 包", { envDir: "/tmp" }), (error) => error.code === "bad_name");
+  await assert.rejects(issueInternalAgent(closed, "豆包", {}), (error) => error.code === "env_unconfigured");
+  await assert.rejects(
+    issueInternalAgent(closed, "豆包", { envDir: "/tmp", specialties: ["搜索，下载"] }),
+    (error) => error.code === "bad_specialty"
+  );
+  const { pool } = issuePool({ existing: true, copies: 2 });
+  await assert.rejects(issueInternalAgent(pool, "豆包", { envDir: "/tmp" }), (error) => error.code === "ambiguous");
+});
+
+test("the issue door refuses a blank name and a missing directory", async () => {
+  let queried = false;
+  const app = express();
+  app.use(express.json());
+  app.use(
+    "/api/admin",
+    adminRouter({
+      pool: {
+        async query() {
+          queried = true;
+          return { rows: [], rowCount: 0 };
+        },
+      },
+      token: "secret",
+      agentEnvDir: "/tmp/knot-agents",
+    })
+  );
+  const server = await listen(app);
+  try {
+    const port = server.address().port;
+    const blank = await fetch(`http://127.0.0.1:${port}/api/admin/internal-agents`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ name: " " }),
+    });
+    assert.equal(blank.status, 400);
+    assert.deepEqual(await blank.json(), { error: "bad_name" });
+    assert.equal(queried, false);
+  } finally {
+    server.close();
+  }
+
+  const unconfigured = express();
+  unconfigured.use(express.json());
+  unconfigured.use(
+    "/api/admin",
+    adminRouter({
+      pool: {
+        async query() {
+          throw new Error("should not look up");
+        },
+      },
+      token: "secret",
+    })
+  );
+  const server2 = await listen(unconfigured);
+  try {
+    const port = server2.address().port;
+    const response = await fetch(`http://127.0.0.1:${port}/api/admin/internal-agents`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "豆包" }),
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "env_unconfigured" });
+  } finally {
+    server2.close();
   }
 });

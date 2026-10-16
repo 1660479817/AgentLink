@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import AppButton from "./AppButton.vue";
-import { LanguageIcon } from "../icons/index.js";
+import { CheckIcon, ChevronDownIcon, LanguageIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { LOCALES } from "../locale.js";
 import { updateProfile } from "../api.js";
@@ -37,7 +37,6 @@ function onKey(event) {
 }
 
 onMounted(() => {
-  if (props.variant !== "menu") return;
   document.addEventListener("pointerdown", onDoc);
   document.addEventListener("keydown", onKey);
 });
@@ -80,24 +79,9 @@ async function choose(id) {
 </script>
 
 <template>
-  <div v-if="variant === 'field'" class="locale-field">
-    <label class="locale-label" for="locale-region">
-      <LanguageIcon class="locale-label-icon" aria-hidden="true" />
-      {{ t("locale.label") }}
-    </label>
-    <select
-      id="locale-region"
-      class="locale-select"
-      :value="locale.current"
-      :disabled="busy"
-      @change="choose($event.target.value)"
-    >
-      <option v-for="item in LOCALES" :key="item.id" :value="item.id">{{ t(item.nameKey) }}</option>
-    </select>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
-  </div>
-  <div v-else ref="root" class="locale-menu">
+  <div ref="root" class="locale" :class="`locale-${variant}`">
     <AppButton
+      v-if="variant === 'menu'"
       variant="icon"
       :aria-label="t('locale.current', { name: currentName })"
       :aria-expanded="open"
@@ -107,6 +91,21 @@ async function choose(id) {
     >
       <LanguageIcon class="nav-icon" weight="header" aria-hidden="true" />
     </AppButton>
+    <button
+      v-else
+      type="button"
+      class="locale-trigger"
+      :aria-label="t('locale.current', { name: currentName })"
+      :aria-expanded="open"
+      aria-haspopup="listbox"
+      :disabled="busy"
+      @click="open = !open"
+    >
+      <LanguageIcon class="locale-trigger-icon" aria-hidden="true" />
+      <span class="locale-trigger-name">{{ currentName }}</span>
+      <ChevronDownIcon class="locale-trigger-chevron" aria-hidden="true" />
+    </button>
+
     <div v-if="open || error" class="locale-popover">
       <p class="locale-popover-title">{{ t("locale.label") }}</p>
       <ul v-if="open" class="locale-options" role="listbox" :aria-label="t('locale.label')">
@@ -119,7 +118,12 @@ async function choose(id) {
             :disabled="busy"
             @click="choose(item.id)"
           >
-            {{ t(item.nameKey) }}
+            <span class="locale-option-name">{{ t(item.nameKey) }}</span>
+            <CheckIcon
+              v-if="item.id === locale.current"
+              class="locale-option-check"
+              aria-hidden="true"
+            />
           </button>
         </li>
       </ul>

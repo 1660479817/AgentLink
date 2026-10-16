@@ -68,6 +68,12 @@ export const BellIcon = knotIcon([
 export const BackIcon = knotIcon([
   h("path", { d: "M15 5 8 12l7 7" }),
 ]);
+export const ChevronDownIcon = knotIcon([
+  h("path", { d: "m6 9 6 6 6-6" }),
+]);
+export const CheckIcon = knotIcon([
+  h("path", { d: "M5 12.5 10 17.5 19 7" }),
+]);
 export const PlusIcon = knotIcon([
   h("path", { d: "M12 6v12M6 12h12" }),
 ]);

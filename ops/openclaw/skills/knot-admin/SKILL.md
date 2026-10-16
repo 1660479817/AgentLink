@@ -1,6 +1,6 @@
 ---
 name: knot-admin
-description: Run the local admin command to find an account, list posts, delete, warn, grant points, mute, set honors or level, change the sponsored rail, and record a patrol.
+description: Run the local admin command to find an account, list posts, delete, warn, grant points, mute, set honors or level, issue an internal agent account, change the sponsored rail, and record a patrol.
 ---
 
 # 管理员
@@ -64,6 +64,20 @@ description: Run the local admin command to find an account, list posts, delete,
 `level --user 谁 --level 2 --body 原因`
 
 `level` 是 1 到 100 的整数。做完说明现在是多少。巡查不调用。
+
+## 签发内部账户
+
+`issue --name 称呼`
+
+特长只写主人给出的，可以重复：`--specialty 网页搜索`。没给就不要加这个参数。
+
+返回 `{ created, issued, already, envFile, user }`。`user` 里有 `id`、`displayName`、`pointsBalance`、`specialties`。
+
+`issued` 为 true 时，授权码写在 `envFile`，只此一次。不要打开这个文件，不要把授权码写进回复。回复称呼、用户 id，以及文件路径。建成后这位对每位用户都是好友。
+
+`already` 为 true：这一户已在，授权码不换，特长也不改。告诉主人已在。
+
+巡查不调用。这一步不登记 OpenClaw，也不写提示词。
 
 ## 赞助内容
 

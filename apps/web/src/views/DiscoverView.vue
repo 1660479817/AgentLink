@@ -36,6 +36,9 @@ const outbox = useOutboxStore();
 const route = useRoute();
 const router = useRouter();
 const searchQ = computed(() => String(route.query.q || "").trim());
+const authorQ = computed(() => String(route.query.author || "").trim());
+const filterAuthor = ref(null);
+const filterLabel = computed(() => filterAuthor.value?.name || t("home.author"));
 const createMark = computed(() => nameMark(session.user));
 
 let railObserver = null;
@@ -53,7 +56,11 @@ onBeforeUnmount(() => {
   railObserver?.disconnect();
   endRailDrag();
 });
-watch(searchQ, load);
+watch([searchQ, authorQ], () => {
+  if (authorQ.value && filterAuthor.value?.id !== authorQ.value) filterAuthor.value = null;
+  if (!authorQ.value) filterAuthor.value = null;
+  load();
+});
 watch(wishes, async () => {
   await nextTick();
   updateRail();
@@ -77,10 +84,12 @@ async function patchSelf(painted) {
 
 async function loadLive(options = {}) {
   const q = searchQ.value;
+  const author = authorQ.value;
   const [info, wish] = await Promise.all([
-    q ? searchInformation(q) : listInformation(),
+    q ? searchInformation(q) : listInformation(author),
     listRequests(),
   ]);
+  filterAuthor.value = author ? info.author || null : null;
   const painted = { information: info.information || [], requests: wish.requests || [] };
   if (options.ahead) rememberAhead(painted);
   showPainted(painted);
@@ -98,14 +107,19 @@ async function loadBoard() {
 }
 
 async function load(options = {}) {
-  const live = options.live === true || Boolean(searchQ.value);
+  const live = options.live === true || Boolean(searchQ.value) || Boolean(authorQ.value);
   try {
-    if (live) await loadLive({ ahead: options.live === true && !searchQ.value });
+    if (live) await loadLive({ ahead: options.live === true && !searchQ.value && !authorQ.value });
     else await loadBoard();
   } catch {
     if (searchQ.value) {
       items.value = [];
       wishes.value = [];
+      feedReady.value = true;
+      return;
+    }
+    if (authorQ.value) {
+      items.value = [];
       feedReady.value = true;
       return;
     }
@@ -221,6 +235,26 @@ function clearSearch() {
   router.push({ name: "discover", query: {} });
 }
 
+function clearAuthor() {
+  filterAuthor.value = null;
+  router.push({ name: "discover", query: {} });
+}
+
+function filterByAuthor(item) {
+  const id = item?.author?.id;
+  if (!id) return;
+  if (authorQ.value === id) {
+    clearAuthor();
+    return;
+  }
+  filterAuthor.value = {
+    id,
+    name: item.author?.name || "",
+    avatarUrl: item.author?.avatarUrl || "",
+  };
+  router.push({ name: "discover", query: { author: id } });
+}
+
 function openSnap() {
   surface.value = surface.value === "snap" ? null : "snap";
 }
@@ -306,7 +340,7 @@ async function downloadItem(item) {
     });
     if (!ok) return;
     try {
-      const data = searchQ.value ? await searchInformation(searchQ.value) : await listInformation();
+      const data = searchQ.value ? await searchInformation(searchQ.value) : await listInformation(authorQ.value);
       const next = (data.information || []).find((row) => row.id === item.id);
       if (next) Object.assign(item, next);
       else item.granted = true;
@@ -380,6 +414,17 @@ async function downloadItem(item) {
 
   <SnapComposer v-if="surface === 'snap'" @close="closeSurface" @done="afterPost" />
 
+  <section v-if="authorQ" class="card feed-filter">
+    <div class="feed-filter-who">
+      <span class="information-avatar" aria-hidden="true">
+        <img v-if="filterAuthor?.avatarUrl" :src="filterAuthor.avatarUrl" alt="" />
+        <UserIcon v-else />
+      </span>
+      <p class="feed-filter-name">{{ filterLabel }}</p>
+    </div>
+    <AppButton variant="secondary" @click="clearAuthor">{{ t("home.showAll") }}</AppButton>
+  </section>
+
   <div v-if="!feedReady" class="card feed-skeleton" role="status" :aria-label="t('app.loading')" />
   <div v-if="!feedReady" class="card feed-skeleton" aria-hidden="true" />
 
@@ -399,8 +444,10 @@ async function downloadItem(item) {
     :attachments="item.attachments || []"
     :note="item.kMeta?.note || ''"
     :verdict="item.kMeta?.verdict || ''"
+    :author-id="item.author?.id || ''"
     :author-name="item.author?.name || ''"
     :avatar-url="item.author?.avatarUrl || ''"
+    :author-selected="authorQ === item.author?.id"
     :actor="item.actor || ''"
     :created-at="item.kMeta?.createdAt || ''"
     :starred="Boolean(item.starred)"
@@ -410,6 +457,7 @@ async function downloadItem(item) {
     :busy="Boolean(item.downloading) || (Boolean(session.user) && item.personal === false)"
     :sharing="Boolean(item.sharing)"
     :notice="item.shareError || ''"
+    @author="filterByAuthor(item)"
     @dismiss="dismissItem(item)"
     @star="toggleStar(item)"
     @friend="toggleFriend(item)"
@@ -417,6 +465,6 @@ async function downloadItem(item) {
     @share="shareItem(item)"
   />
   <p v-if="feedReady && items.length === 0" class="muted feed-empty">
-    {{ searchQ ? t("home.searchEmpty") : t("home.empty") }}
+    {{ searchQ ? t("home.searchEmpty") : authorQ ? t("home.filterEmpty") : t("home.empty") }}
   </p>
 </template>
