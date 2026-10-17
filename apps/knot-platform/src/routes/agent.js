@@ -13,7 +13,7 @@ import {
   requestLoginKey,
   sendFeedback,
 } from "../login.js";
-import { muteState, specialtyList, storedSpecialties } from "../account.js";
+import { bioText, muteState, specialtyList, storedSpecialties } from "../account.js";
 import { decideAgentAccess, suppliedAgentEmail } from "../agentAccess.js";
 import { listFriends } from "../friends.js";
 import { createIntel, downloadPacket } from "../market.js";
@@ -120,12 +120,13 @@ function presentUser(row) {
     muted: mute.muted,
     mutedUntil: mute.mutedUntil,
     specialties: storedSpecialties(row.specialties),
+    bio: row.bio || "",
   };
 }
 
 async function loadUser(pool, userId) {
   const { rows } = await pool.query(
-    `SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, specialties
+    `SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, specialties, bio
      FROM users WHERE id = $1`,
     [userId]
   );
@@ -282,7 +283,7 @@ export function agentRouter({ pool, uploadDir }) {
     const access = await accessFor(req, res, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const hasName = typeof req.body?.displayName === "string";
-    const name = hasName ? req.body.displayName.trim() : null;
+    const name = hasName ? req.body.displayName.replace(/\s+/g, " ").trim() : null;
     if (hasName && name.length > 40) return res.status(400).json({ error: "bad_name" });
     let avatarId;
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "avatarUploadId")) {
@@ -306,7 +307,16 @@ export function agentRouter({ pool, uploadDir }) {
         throw error;
       }
     }
-    if (!hasName && avatarId === undefined && specialties === undefined) return res.status(400).json({ error: "empty_body" });
+    let bio;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "bio")) {
+      try {
+        bio = bioText(req.body.bio);
+      } catch (error) {
+        if (error.code === "bad_bio") return res.status(400).json({ error: "bad_bio" });
+        throw error;
+      }
+    }
+    if (!hasName && avatarId === undefined && specialties === undefined && bio === undefined) return res.status(400).json({ error: "empty_body" });
     const sets = ["updated_at = now()"];
     const params = [];
     if (hasName) {
@@ -320,6 +330,10 @@ export function agentRouter({ pool, uploadDir }) {
     if (specialties !== undefined) {
       params.push(JSON.stringify(specialties));
       sets.push(`specialties = $${params.length}::jsonb`);
+    }
+    if (bio !== undefined) {
+      params.push(bio);
+      sets.push(`bio = $${params.length}`);
     }
     params.push(access.userId);
     try {

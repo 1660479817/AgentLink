@@ -12,7 +12,7 @@ import { listNotifications, markNotificationsRead } from "../notifications.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
 import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
-import { muteState } from "../account.js";
+import { bioText, muteState } from "../account.js";
 import { economyReport } from "../actuary.js";
 import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
@@ -24,7 +24,7 @@ import { avatarUrlFor } from "../avatars.js";
 import { parseLocale, regionForRequest } from "../locale.js";
 import { acceptAvatar, ensureCardImage, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
 
-const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, locale`;
+const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, locale, bio`;
 
 function presentUser(row) {
   const entitlements = row.entitlements && typeof row.entitlements === "object" ? row.entitlements : {};
@@ -40,6 +40,7 @@ function presentUser(row) {
     muted: mute.muted,
     mutedUntil: mute.mutedUntil,
     locale: row.locale || null,
+    bio: row.bio || "",
   };
 }
 
@@ -181,7 +182,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.patch("/profile", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const hasName = typeof req.body?.displayName === "string";
-    const name = hasName ? req.body.displayName.trim() : null;
+    const name = hasName ? req.body.displayName.replace(/\s+/g, " ").trim() : null;
     if (hasName && name.length > 40) return res.status(400).json({ error: "bad_name" });
     let avatarId;
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "avatarUploadId")) {
@@ -197,7 +198,16 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     const hasLocale = Object.prototype.hasOwnProperty.call(req.body || {}, "locale");
     const locale = hasLocale ? parseLocale(req.body.locale) : null;
     if (hasLocale && !locale) return res.status(400).json({ error: "bad_locale" });
-    if (!hasName && avatarId === undefined && !hasLocale) return res.status(400).json({ error: "empty_body" });
+    let bio;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "bio")) {
+      try {
+        bio = bioText(req.body.bio);
+      } catch (error) {
+        if (error.code === "bad_bio") return res.status(400).json({ error: "bad_bio" });
+        throw error;
+      }
+    }
+    if (!hasName && avatarId === undefined && !hasLocale && bio === undefined) return res.status(400).json({ error: "empty_body" });
     const sets = ["updated_at = now()"];
     const params = [];
     if (hasName) {
@@ -211,6 +221,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (hasLocale) {
       params.push(locale);
       sets.push(`locale = $${params.length}`);
+    }
+    if (bio !== undefined) {
+      params.push(bio);
+      sets.push(`bio = $${params.length}`);
     }
     params.push(req.user.id);
     try {

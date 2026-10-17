@@ -21,6 +21,9 @@ const name = ref("");
 const editingName = ref(false);
 const nameInput = ref(null);
 const fileInput = ref(null);
+const bio = ref("");
+const editingBio = ref(false);
+const bioInput = ref(null);
 
 onMounted(() => {
   if (session.user) session.load();
@@ -49,6 +52,10 @@ watch(
 
 const nameUnchanged = computed(
   () => name.value.trim() === (session.user?.displayName || "").trim()
+);
+
+const bioUnchanged = computed(
+  () => bio.value.trim() === (session.user?.bio || "").trim()
 );
 
 const entitlementText = computed(() => {
@@ -109,6 +116,37 @@ async function saveName() {
     const data = await updateProfile({ displayName: name.value });
     session.user = data.user;
     editingName.value = false;
+  } catch (err) {
+    showError(err);
+  } finally {
+    busy.value = false;
+  }
+}
+
+function startEditBio() {
+  bio.value = session.user?.bio || "";
+  error.value = "";
+  editingBio.value = true;
+  nextTick(() => bioInput.value?.focus());
+}
+
+function cancelEditBio() {
+  editingBio.value = false;
+  bio.value = session.user?.bio || "";
+  error.value = "";
+}
+
+async function saveBio() {
+  if (bioUnchanged.value) {
+    cancelEditBio();
+    return;
+  }
+  error.value = "";
+  busy.value = true;
+  try {
+    const data = await updateProfile({ bio: bio.value });
+    session.user = data.user;
+    editingBio.value = false;
   } catch (err) {
     showError(err);
   } finally {
@@ -259,6 +297,34 @@ async function leave() {
           <div class="form-actions">
             <AppButton type="submit" :disabled="busy || nameUnchanged">{{ t("mine.save") }}</AppButton>
             <AppButton variant="secondary" type="button" :disabled="busy" @click="cancelEditName">
+              {{ t("mine.cancel") }}
+            </AppButton>
+          </div>
+        </form>
+      </div>
+      <div class="profile-bio">
+        <div v-if="!editingBio" class="bio-line">
+          <p class="bio-text" :class="{ 'is-empty': !session.user.bio }">
+            {{ session.user.bio || t("mine.bioPlaceholder") }}
+          </p>
+          <AppButton variant="icon" :aria-label="t('mine.editBio')" :disabled="busy" @click="startEditBio">
+            <PencilIcon aria-hidden="true" />
+          </AppButton>
+        </div>
+        <form v-else class="bio-form" @submit.prevent="saveBio">
+          <label class="visually-hidden" for="bio-input">{{ t("mine.bio") }}</label>
+          <textarea
+            id="bio-input"
+            ref="bioInput"
+            v-model="bio"
+            rows="3"
+            maxlength="200"
+            :placeholder="t('mine.bioPlaceholder')"
+            :disabled="busy"
+          ></textarea>
+          <div class="form-actions">
+            <AppButton type="submit" :disabled="busy || bioUnchanged">{{ t("mine.save") }}</AppButton>
+            <AppButton variant="secondary" type="button" :disabled="busy" @click="cancelEditBio">
               {{ t("mine.cancel") }}
             </AppButton>
           </div>

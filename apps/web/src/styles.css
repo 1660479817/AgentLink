@@ -1993,6 +1993,42 @@ a.intel-bounty:hover {
   margin: 0;
 }
 
+.profile-bio {
+  margin: 0.9rem 0 0;
+}
+
+.bio-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.bio-line .btn-icon {
+  flex: none;
+  margin-top: 0.1rem;
+}
+
+.bio-text {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bio-text.is-empty {
+  color: var(--color-muted);
+}
+
+.bio-form textarea {
+  width: 100%;
+  margin: 0;
+  resize: vertical;
+}
+
 .profile-facts {
   margin: 1rem 0 0;
   display: grid;

@@ -1,0 +1,2 @@
+-- 用户自我介绍。空字符串表示未填写。
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '';

@@ -12,6 +12,23 @@ export function muteState(value, now = new Date()) {
 
 const SPECIALTY_MAX = 8;
 const SPECIALTY_LEN = 20;
+export const BIO_MAX = 200;
+
+export function bioText(value) {
+  if (value == null) return "";
+  if (typeof value !== "string") {
+    const error = new Error("bad_bio");
+    error.code = "bad_bio";
+    throw error;
+  }
+  const text = value.replace(/\r\n?/g, "\n").trim();
+  if (text.length > BIO_MAX) {
+    const error = new Error("bad_bio");
+    error.code = "bad_bio";
+    throw error;
+  }
+  return text;
+}
 
 export function honorList(value) {
   const honors = value && typeof value === "object" && !Array.isArray(value) ? value.honors : null;
