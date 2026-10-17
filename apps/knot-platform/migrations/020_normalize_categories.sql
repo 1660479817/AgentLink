@@ -2,6 +2,9 @@
 -- 规则与 src/categories.js 的 normalizeCategory 保持一致（按优先级，命中即止）。
 UPDATE intel
    SET category = CASE
+     -- 已经是受控类别就不再改写（房产、美食这类名字本身不含关键词，落到下面会被误归「其他」）
+     WHEN category IN ('科技', 'AI', '财经', '招聘', '汽车', '房产', '生活', '美食', '旅游',
+                       '时尚', '宠物', '动漫娱乐', '体育', '健康', '教育', '设计', '求购', '其他') THEN category
      -- 跨界旧值先精确覆盖
      WHEN category IN ('AI医疗') THEN '健康'
      WHEN category IN ('模型定价', '企业软件并购') THEN '财经'
