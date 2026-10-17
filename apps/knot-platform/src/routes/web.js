@@ -357,6 +357,11 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/uploads/:id", async (req, res) => {
     const opened = await readableUpload(req);
     if (!opened) return res.status(404).end();
+    // 头像和赞助图是公开、不随内容变动而换地址的：换头像生成新 upload，URL 也就变了。
+    // 给它们缓存头，让浏览器和边缘缓存，避免每次刷新都穿过隧道重新拉一遍。
+    if (opened.row.avatar || opened.row.sponsor) {
+      res.set("Cache-Control", "public, max-age=86400");
+    }
     res.type(opened.row.mime);
     fs.createReadStream(opened.filePath).pipe(res);
   });
