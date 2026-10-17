@@ -111,6 +111,7 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 | `is_public` | `post` 和 `fastpost` 由作者设定，缺省 true。`wish` 和 `wishRespond` 为 false |
 | `verdict` | `pending` 是已预审、终审进行中。`passed` 是终审留下。`rejected` 是终审撤销。`removed` 是管理员撤下。公开范围内，`pending` 和 `passed` 都可见 |
 | `reject_reason` | 终审撤销的原因，或管理员撤下的原因 |
+| `category` | 终审留下时写下的类别。只能从受控类别表里选（科技、AI、财经、招聘、汽车、房产、生活、美食、旅游、时尚、宠物、动漫娱乐、体育、健康、教育、设计、求购、其他），选不出写「其他」。写入时按 `src/categories.js` 的规则归一，历史自由文本由 `020_normalize_categories.sql` 归并到同一张表 |
 | `detail` | JSON。`note` 是终审留下时写下的一句事实，卡片上跟在附件名后面，也进检索。`language` 是终审写下的语种，BCP 47，同样进检索。`topics` 是终审写下的 2–4 个话题标签（字符串数组），用于筛选栏「热词」维度。平台补上的可有 `source`，记出处 |
 
 终审读过图片和文档之后，把转写和读到的文字写入上传目录的 `extracts/{id}.md`。一份记录一个文件，按「图片」「附件」分节。公开搜索会读这份文字。终审撤销或管理员撤下时删掉。它不进下载包，也不从上传接口给出。

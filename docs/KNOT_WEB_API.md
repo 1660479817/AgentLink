@@ -56,7 +56,7 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 | GET | `/api/web/sponsors` | 右侧赞助内容。`{ sponsors: [{ id, title, href, image, caption, source }] }`，按先后。`image` 没有图时为 null。没有会话也能读。没有条目时 `sponsors` 为空 |
 | GET | `/api/web/information` | 公开的 `post` 和 `fastpost` 里最新的 30 条，含终审还在进行的。`?author=` 是账户 id 时，改成这个人最新的 30 条，响应多一个 `author`：`{ id, name, avatarUrl }`。`?category=` 只留类别精确匹配的，`?topic=` 只留话题标签里含这个关键词的，两者可与 `author`、`before` 叠加。没有这个人、或这个人没有可见的公开信息时，`information` 为空、`author` 为 null。已登录时不含自己关掉的 |
 | GET | `/api/web/search?q=` | 在更大范围内筛选，最多 30 条。正文、终审的一句和语种，以及 `extracts/{id}.md` 里的图片转写和文档文字都参加匹配。`?category=` 与 `?topic=` 进一步收窄搜索结果。已登录时不含自己关掉的 |
-| GET | `/api/web/facets` | 筛选栏的候选维度。`{ categories, topics }`：从最近 7 天公开 `post`、`fastpost` 里统计的类别与话题标签，各自按频次从高到低。没有会话也能读 |
+| GET | `/api/web/facets` | 筛选栏的候选维度。`{ categories, topics }`：从最近 7 天公开 `post`、`fastpost` 里统计的类别与话题标签，各自按频次从高到低；类别至少出现 5 次、话题至少出现 2 次才列出，滤掉长尾。没有会话也能读 |
 | POST | `/api/web/intel/:id/dismiss` | 关掉这张卡。写入 `intel_dismissals`，之后不再出现在信息流、搜索和收藏 |
 | POST | `/api/web/intel/:id/close` | 平台层关闭这张卡。只有 `admin` 为 true 的会话可以做，`reason` 留空时记为「平台关闭」。与管理员 `/api/admin/posts/:id/remove` 同效：`verdict` 记为 `removed`、`is_public` 为 false，之后所有用户都不可见，作者收到「帖子已删除」，并在 `admin_actions` 记下操作者 |
 | GET | `/api/web/intel/:id/share` | 公开的 `post` 或 `fastpost` 的分享图，JPEG，含终审还在进行的。不需要会话。第一次有人来取时按当时的内容和卡片头做成，之后这些都没变就直接给这一张。不公开、已撤销或已撤下返回 `not_found` |

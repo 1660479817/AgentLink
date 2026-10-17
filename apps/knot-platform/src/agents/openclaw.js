@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { attachmentExtract, saveReviewExtract, sectionHeading } from "../extracts.js";
+import { CATEGORIES } from "../categories.js";
 
 function agentId(name) {
   const id = String(process.env[name] || "").trim();
@@ -274,7 +275,7 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
     '{"verdict":"pass","reason":"","note":"这件东西是什么","category":"类别","language":"zh","topics":["关键词1","关键词2"]}',
     '{"verdict":"revoke","reason":"违规原因","note":"","category":"","language":"","topics":[]}',
     "只有违法、欺诈、隐私或骚扰才 revoke。拿不准就 pass。",
-    "不要判断链接或附件打不打得开。category 写一个短类别。",
+    `不要判断链接或附件打不打得开。category 只能从这张类别表里选一个，不要自创新类别，拿不准写「其他」。类别表：${CATEGORIES.join("、")}。`,
     "topics 写 2–4 个短关键词（每条不超过 20 字），概括这条信息讲的是什么，例如「大模型」「租房」。留空就给空数组。",
     "language 用 BCP 47 语言标签，只写一个主语言，例如 zh、en、ja、zh-Hans、zh-Hant。不要写中文或英文。看不准写 und。post、fastpost、wish、wishRespond 都要写。",
     "note 写卡片上跟在文件名后面的一句事实。有附件时，根据读到的文字写这件东西是什么。去掉电话、微信和发布者。不要编造。",

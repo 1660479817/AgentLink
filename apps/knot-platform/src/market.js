@@ -16,6 +16,7 @@ import { attachmentOpens } from "./readable.js";
 import { avatarUrlFor } from "./avatars.js";
 import { cardImageUrl, storagePath } from "./uploads.js";
 import { discardExtract, extractsFor } from "./extracts.js";
+import { normalizeCategory } from "./categories.js";
 import { wishExpiresAt, wishHours, wishLive } from "./wish.js";
 
 function videoText(videos) {
@@ -211,10 +212,11 @@ export async function judgeIntel(pool, id) {
       });
     }
   } else {
+    const category = normalizeCategory(result.category);
     await pool.query(
       `UPDATE intel SET verdict = 'passed', reject_reason = NULL, category = $2, detail = $3::jsonb
        WHERE id = $1 AND verdict = 'pending'`,
-      [id, result.category || "", JSON.stringify({ note: result.note || "", language: result.language || "", topics: result.topics || [] })]
+      [id, category, JSON.stringify({ note: result.note || "", language: result.language || "", topics: result.topics || [] })]
     );
   }
   if (intel.kind === "post" || intel.kind === "fastpost" || intel.kind === "wish") touchDiscoverBoard();

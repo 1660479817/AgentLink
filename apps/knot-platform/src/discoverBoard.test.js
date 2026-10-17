@@ -64,6 +64,7 @@ function pool() {
         return { rows: [{ id: AUTHOR, display_name: "甲", avatar_upload_id: null, last_at: "2026-10-15T03:00:00.000Z" }] };
       }
       if (sql.includes("i.kind = 'wish'")) return { rows: [wish] };
+      if (sql.includes("now() - interval '7 days'")) return { rows: [post, post, post, post, post] };
       if (sql.includes("kind IN ('post', 'fastpost')")) return { rows: [post] };
       return { rows: [] };
     },
