@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { randomBytes, createHash } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
 import { fileView, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videosOf, visibleVerdict } from "../information.js";
@@ -501,10 +502,13 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     try {
       const file = await ensureSharePoster(pool, id, uploadDir);
       if (!file) return res.status(404).json({ error: "not_found" });
+      const etag = `"${path.basename(file)}"`;
+      if (req.headers["if-none-match"] === etag) return res.status(304).end();
       res.setHeader("Content-Type", "image/jpeg");
       res.setHeader("Content-Disposition", attachmentDisposition("knot.jpg"));
       res.setHeader("Content-Length", fs.statSync(file).size);
-      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("ETag", etag);
+      res.setHeader("Cache-Control", "no-cache");
       const stream = fs.createReadStream(file);
       stream.on("error", () => {
         if (!res.headersSent) res.status(503).json({ error: "process_unavailable" });
@@ -541,6 +545,23 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     const information = (await withUploads(pool, rows)).map(publicCard);
     if (!author) return res.json({ information });
     res.json({ information, author: await publicAuthor(pool, author) });
+  });
+
+  // 分享海报二维码深链：按帖子 id 取一条公开信息。
+  router.get("/intel/:id", async (req, res) => {
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    const { rows } = await pool.query(
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at,
+              u.display_name, u.avatar_upload_id
+       FROM intel i
+       JOIN users u ON u.id = i.user_id
+       WHERE i.id = $1 AND i.kind IN ('post', 'fastpost') AND i.is_public AND ${visibleVerdict("i.verdict")}`,
+      [id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "not_found" });
+    const [withFiles] = await withUploads(pool, rows);
+    res.json(publicCard({ ...withFiles, granted: false }));
   });
 
   router.post("/discover-self", async (req, res) => {

@@ -19,6 +19,7 @@ import {
   shareHead,
   shareMetaKey,
   sharePosterPath,
+  shareUrl,
   storeSharePoster,
   wrapText,
 } from "./sharePoster.js";
@@ -332,4 +333,24 @@ test("a public post is drawn once and then reused", async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("the QR points at the post's discover deep link", async () => {
+  assert.equal(shareUrl("11111111-1111-4111-8111-111111111111"), "https://knot.zenheart.net/discover?post=11111111-1111-4111-8111-111111111111");
+  assert.equal(shareUrl(""), SHARE_PAGE);
+  const withId = await buildSharePoster({ id: "22222222-2222-4222-8222-222222222222", body: "短", video: false, audioName: "", fileName: "", image: false, preview: "" });
+  const withoutId = await buildSharePoster({ body: "短", video: false, audioName: "", fileName: "", image: false, preview: "" });
+  assert.notEqual(withId.qr.dark, withoutId.qr.dark);
+});
+
+test("the head composites the author's avatar over the letter fallback", async () => {
+  const avatar = await sharp({ create: { width: 40, height: 40, channels: 3, background: { r: 200, g: 30, b: 30 } } }).png().toBuffer();
+  const head = shareHead({ display_name: "甲", created_at: "2026-10-16T02:42:00.000Z", actor: "person", price: 0 });
+  const layout = await buildSharePoster({ body: "头像测试", video: false, audioName: "", fileName: "", image: false, preview: "", head });
+  assert.ok(layout.avatarBox);
+  const jpeg = await renderSharePoster({ body: "头像测试", video: false, audioName: "", fileName: "", image: false, preview: "", avatarPath: avatar, head });
+  const { data, info } = await sharp(jpeg).raw().toBuffer({ resolveWithObject: true });
+  const box = layout.avatarBox;
+  const offset = (Math.floor(box.y + box.size / 2) * info.width + Math.floor(box.x + box.size / 2)) * info.channels;
+  assert.ok(data[offset] > 150 && data[offset + 1] < 90 && data[offset + 2] < 90);
 });

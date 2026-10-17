@@ -5,7 +5,7 @@ import InformationCard from "../components/InformationCard.vue";
 import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { addCardFriend, discoverSelf, dismissInformation, downloadInformation, downloadShare, listInformation, listRequests, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
+import { addCardFriend, discoverSelf, dismissInformation, downloadInformation, downloadShare, getInformation, listInformation, listRequests, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
 import { applyDiscoverSelf, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
 import { nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
@@ -43,6 +43,7 @@ const route = useRoute();
 const router = useRouter();
 const searchQ = computed(() => String(route.query.q || "").trim());
 const authorQ = computed(() => String(route.query.author || "").trim());
+const postQ = computed(() => String(route.query.post || "").trim());
 const filterAuthor = ref(null);
 const filterLabel = computed(() => filterAuthor.value?.name || t("home.author"));
 const createMark = computed(() => nameMark(session.user));
@@ -54,7 +55,7 @@ let refreshing = false;
 const FEED_POLL_MS = 60 * 1000;
 
 onMounted(() => {
-  load();
+  load().then(() => focusPost());
   feedPoll = startPolling({
     fn: refreshFeed,
     intervalMs: FEED_POLL_MS,
@@ -104,6 +105,24 @@ function showPainted(painted) {
   feedReady.value = true;
   cursor.value = painted.information.length ? painted.information[painted.information.length - 1].id : null;
   moreAvailable.value = painted.information.length > 0;
+}
+
+async function focusPost() {
+  const id = postQ.value;
+  if (!id) return;
+  if (!items.value.some((item) => item.id === id)) {
+    try {
+      const info = await getInformation(id);
+      if (info && info.id === id) {
+        items.value = [info, ...items.value.filter((row) => row.id !== id)];
+        feedReady.value = true;
+      }
+    } catch {
+      /* 帖子可能已下架，保留当前信息流 */
+    }
+  }
+  await nextTick();
+  document.getElementById(`intel-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 async function loadMore() {
@@ -520,6 +539,7 @@ async function downloadItem(item) {
   <InformationCard
     v-for="item in items"
     :key="item.id"
+    :id="`intel-${item.id}`"
     :body="item.body || ''"
     :category="item.kMeta?.category || ''"
     :language="item.kMeta?.language || ''"

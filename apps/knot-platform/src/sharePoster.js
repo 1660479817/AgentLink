@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { isAudioUpload, uploadName, visibleVerdict } from "./information.js";
 import { loadBootstrapConfig } from "./config.js";
 import { storagePath } from "./uploads.js";
+import { defaultAvatarIndex } from "./avatars.js";
 
 export const SHARE_PAGE = "https://knot.zenheart.net";
 export const SHARE_HOST = "knot.zenheart.net";
@@ -42,6 +43,16 @@ const HEAD_AVATAR = 88;
 const HEAD_NAME = 40;
 const HEAD_META = 28;
 const META_KEY = /^[0-9a-f]{16}$/;
+const AVATAR_DIR = path.resolve(import.meta.dirname, "../../web/public/avatars");
+
+function defaultAvatarPath(index) {
+  return path.join(AVATAR_DIR, `${String(index + 1).padStart(2, "0")}.svg`);
+}
+
+export function shareUrl(intelId) {
+  const base = SHARE_PAGE.replace(/\/$/, "");
+  return intelId ? `${base}/discover?post=${intelId}` : SHARE_PAGE;
+}
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HASH = /^[0-9a-f]{64}$/i;
@@ -384,8 +395,8 @@ export function shareContent(row, files = []) {
   };
 }
 
-function qrRects() {
-  const qr = QRCode.create(SHARE_PAGE, { errorCorrectionLevel: "M" });
+function qrRects(url) {
+  const qr = QRCode.create(url, { errorCorrectionLevel: "M" });
   const n = qr.modules.size;
   const parts = [];
   let dark = 0;
@@ -453,7 +464,7 @@ export function shareHead(row) {
 
 export function shareMetaKey(card) {
   const head = card?.head || {};
-  const payload = ["2", head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0)].join("\u0001");
+  const payload = ["2", head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0), head.avatarKey || ""].join("\u0001");
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
 
@@ -467,12 +478,22 @@ async function inkWidth(text, size, weight = "") {
   return info.width || 0;
 }
 
-function priceBox(label) {
+const widthCache = new Map();
+async function measureWidth(text, size, weight = "") {
+  const key = `${size}\u0000${weight}\u0000${text}`;
+  const cached = widthCache.get(key);
+  if (cached !== undefined) return cached;
+  const value = await inkWidth(text, size, weight);
+  widthCache.set(key, value);
+  return value;
+}
+
+async function priceBox(label) {
   const size = 36;
   const coin = 34;
   const gap = 12;
   const padX = 22;
-  const textW = Math.ceil(textWidth(label, size));
+  const textW = Math.ceil(await measureWidth(label, size, "600"));
   return { size, coin, gap, padX, width: padX + coin + gap + textW + padX, height: 72, label };
 }
 
@@ -491,13 +512,13 @@ async function layoutHead(head) {
   const posted = formatPosted(head?.posted);
   const category = clean(head?.category);
   const price = Number.isFinite(Number(head?.price)) ? Math.max(0, Math.trunc(Number(head.price))) : 0;
-  const box = priceBox(String(price));
+  const box = await priceBox(String(price));
   const textX = PAD + HEAD_AVATAR + 28;
   const textMax = Math.max(160, WIDTH - PAD - box.width - 24 - textX);
-  const actorWidth = actor ? await inkWidth(actor, HEAD_META) : 0;
+  const actorWidth = actor ? await measureWidth(actor, HEAD_META) : 0;
   const actorGap = actor ? 20 : 0;
-  const name = fitLine(author, Math.max(80, textMax - actorWidth - actorGap), HEAD_NAME);
-  const meta = fitLine([posted, category].filter(Boolean).join(" · "), textMax, HEAD_META);
+  const name = await fitLine(author, Math.max(80, textMax - actorWidth - actorGap), HEAD_NAME, "600");
+  const meta = await fitLine([posted, category].filter(Boolean).join(" · "), textMax, HEAD_META);
   const textBlock = HEAD_NAME + (meta ? 14 + HEAD_META : 0);
   const block = Math.max(HEAD_AVATAR, textBlock);
   const top = 56;
@@ -513,16 +534,23 @@ async function layoutHead(head) {
     `<text x="${PAD + HEAD_AVATAR / 2}" y="${avatarCy}" text-anchor="middle" dominant-baseline="central" font-family="${FONT}" font-size="40" font-weight="600" fill="#050505">${xml(letter)}</text>`,
     textLine(name, textX, nameY, HEAD_NAME, "#050505", "start", "600"),
   ];
-  if (actor) parts.push(textLine(actor, textX + (await inkWidth(name, HEAD_NAME, "600")) + actorGap, nameY - 4, HEAD_META, "#65676B"));
+  if (actor) parts.push(textLine(actor, textX + (await measureWidth(name, HEAD_NAME, "600")) + actorGap, nameY - 4, HEAD_META, "#65676B"));
   if (meta) parts.push(textLine(meta, textX, metaY, HEAD_META, "#65676B"));
   parts.push(drawPrice(box, WIDTH - PAD - box.width, pillY));
   const bottom = top + block + 28;
   parts.push(`<line x1="${PAD}" y1="${bottom}" x2="${WIDTH - PAD}" y2="${bottom}" stroke="#E4E6EB" stroke-width="2"/>`);
-  return { svg: parts.join("\n  "), contentTop: bottom + GAP };
+  return { svg: parts.join("\n  "), contentTop: bottom + GAP, avatarBox: { x: PAD, y: avatarY, size: HEAD_AVATAR } };
 }
 
-function fitLine(text, width, size) {
-  return textWidth(text, size) > width ? ellipsize(text, width, size) : text;
+async function fitLine(text, width, size, weight = "") {
+  const value = clean(text);
+  if (!value) return value;
+  if ((await measureWidth(value, size, weight)) <= width) return value;
+  let trimmed = value;
+  while (trimmed && (await measureWidth(`${trimmed}…`, size, weight)) > width) {
+    trimmed = [...trimmed].slice(0, -1).join("");
+  }
+  return `${trimmed}…`;
 }
 
 async function fittedPreview(preview, y) {
@@ -540,8 +568,8 @@ async function fittedPreview(preview, y) {
   }
 }
 
-function posterPr() {
-  const qr = qrRects();
+function posterPr(content) {
+  const qr = qrRects(shareUrl(content?.id));
   const nameSize = 56;
   const lineSize = 32;
   const hostSize = 26;
@@ -564,14 +592,14 @@ export async function buildSharePoster(content) {
         texts.push({ text: line, size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505" });
       }
     }
-    if (audioName) texts.push({ text: fitLine(audioName, INNER, NAME_SIZE), size: NAME_SIZE, leading: NAME_LEADING, fill: "#65676B" });
-    if (fileName) texts.push({ text: fitLine(fileName, INNER, NAME_SIZE), size: NAME_SIZE, leading: NAME_LEADING, fill: "#65676B" });
+    if (audioName) texts.push({ text: await fitLine(audioName, INNER, NAME_SIZE), size: NAME_SIZE, leading: NAME_LEADING, fill: "#65676B" });
+    if (fileName) texts.push({ text: await fitLine(fileName, INNER, NAME_SIZE), size: NAME_SIZE, leading: NAME_LEADING, fill: "#65676B" });
   } else {
     const stand = audioName || fileName;
-    if (stand) texts.push({ text: fitLine(stand, INNER, BODY_SIZE), size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505" });
+    if (stand) texts.push({ text: await fitLine(stand, INNER, BODY_SIZE), size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505" });
   }
 
-  const pr = posterPr();
+  const pr = posterPr(content);
   const head = await layoutHead(content.head);
   const previewBox = await fittedPreview(content.preview, head.contentTop);
   const imageHold = Boolean(content.image) && !previewBox;
@@ -648,6 +676,7 @@ export async function buildSharePoster(content) {
     height,
     svg,
     previewBox: placedPreview,
+    avatarBox: head.avatarBox,
     qr: { x: qrX, y: qrY, size: pr.qr.size, dark: pr.qr.dark, pixel: QR_PIXEL },
     footerTop,
     contentTop: head.contentTop,
@@ -658,15 +687,37 @@ export async function buildSharePoster(content) {
   };
 }
 
+async function roundAvatar(input, size) {
+  const mask = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#FFFFFF"/></svg>`
+  );
+  return sharp(input)
+    .rotate()
+    .resize(size, size, { fit: "cover" })
+    .composite([{ input: mask, blend: "dest-in" }])
+    .png()
+    .toBuffer();
+}
+
 export async function renderSharePoster(content) {
   const layout = await buildSharePoster(content);
-  if (!layout.previewBox) return sharp(Buffer.from(layout.svg)).jpeg({ quality: 90 }).toBuffer();
-  const box = layout.previewBox;
-  const layer = await sharp(content.preview).rotate().resize(box.width, box.height, { fit: "cover" }).png().toBuffer();
-  return sharp(Buffer.from(layout.svg))
-    .composite([{ input: layer, left: box.x, top: box.y }])
-    .jpeg({ quality: 90 })
-    .toBuffer();
+  const composites = [];
+  if (layout.previewBox && content.preview) {
+    const box = layout.previewBox;
+    const layer = await sharp(content.preview).rotate().resize(box.width, box.height, { fit: "cover" }).png().toBuffer();
+    composites.push({ input: layer, left: box.x, top: box.y });
+  }
+  if (layout.avatarBox && content.avatarPath) {
+    try {
+      const layer = await roundAvatar(content.avatarPath, layout.avatarBox.size);
+      composites.push({ input: layer, left: layout.avatarBox.x, top: layout.avatarBox.y });
+    } catch {
+      /* keep the letter fallback already drawn in the SVG */
+    }
+  }
+  let image = sharp(Buffer.from(layout.svg));
+  if (composites.length) image = image.composite(composites);
+  return image.jpeg({ quality: 90, mozjpeg: true }).toBuffer();
 }
 
 export function sharePosterPath(uploadDir, intelId, contentHash, metaKey) {
@@ -746,7 +797,7 @@ export async function loadShareCard(pool, intelId, uploadDir) {
   if (!ID.test(String(intelId || ""))) return null;
   const { rows } = await pool.query(
     `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.kind, i.is_public, i.verdict,
-            i.actor, i.category, i.price, i.created_at, u.display_name
+            i.actor, i.category, i.price, i.created_at, i.user_id, u.display_name, u.avatar_upload_id
      FROM intel i
      LEFT JOIN users u ON u.id = i.user_id
      WHERE i.id = $1 AND i.kind IN ('post', 'fastpost') AND i.is_public AND ${visibleVerdict("i.verdict")}`,
@@ -765,11 +816,31 @@ export async function loadShareCard(pool, intelId, uploadDir) {
   const image = files.find((file) => String(file.mime || "").startsWith("image/"));
   let preview = image ? storagePath(uploadDir, image.storage_name) : "";
   if (preview && !(await fileExists(preview))) preview = "";
+  const head = shareHead(row);
+  let avatarPath = "";
+  let avatarKey = "";
+  if (row.avatar_upload_id) {
+    const { rows: avatars } = await pool.query(
+      `SELECT storage_name FROM uploads WHERE id = $1`,
+      [row.avatar_upload_id]
+    );
+    const storage = avatars[0]?.storage_name;
+    if (storage) {
+      avatarPath = storagePath(uploadDir, storage);
+      avatarKey = `upload:${String(row.avatar_upload_id).toLowerCase()}`;
+    }
+  } else if (row.user_id) {
+    const index = defaultAvatarIndex(row.user_id);
+    avatarPath = defaultAvatarPath(index);
+    avatarKey = `default:${index}`;
+  }
+  head.avatarKey = avatarKey;
   return {
     id: String(row.id).toLowerCase(),
     contentHash: String(row.content_hash).toLowerCase(),
     preview,
-    head: shareHead(row),
+    avatarPath,
+    head,
     ...shareContent(row, files),
   };
 }

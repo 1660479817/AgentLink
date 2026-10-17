@@ -85,6 +85,10 @@ export function listInformation(author, before) {
   return request(`/api/web/information${suffix}`);
 }
 
+export function getInformation(id) {
+  return request(`/api/web/intel/${encodeURIComponent(String(id || "").trim())}`);
+}
+
 export function discoverSelf(ids) {
   return request("/api/web/discover-self", { method: "POST", body: JSON.stringify({ ids }) });
 }
