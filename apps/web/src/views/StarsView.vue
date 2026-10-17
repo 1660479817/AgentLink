@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import { StarIcon } from "../icons/index.js";
-import { addCardFriend, dismissInformation, downloadInformation, downloadShare, listStars, removeCardFriend, unstarInformation } from "../api.js";
+import { addCardFriend, dismissInformation, downloadInformation, downloadShare, likeInformation, listStars, removeCardFriend, unlikeInformation, unstarInformation } from "../api.js";
 import { acceptDownload } from "../download/consent.js";
 import { feeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
@@ -76,6 +76,17 @@ async function toggleStar(item) {
   }
 }
 
+async function toggleLike(item) {
+  const previous = Boolean(item.liked);
+  item.liked = !previous;
+  try {
+    if (item.liked) await likeInformation(item.id);
+    else await unlikeInformation(item.id);
+  } catch {
+    item.liked = previous;
+  }
+}
+
 async function toggleFriend(item) {
   if (!item.canFriend) return;
   const previous = Boolean(item.friend);
@@ -144,7 +155,6 @@ onMounted(load);
       :language="item.kMeta?.language || ''"
       :price="priceOf(item)"
       :granted="item.granted !== false"
-      :image-urls="item.imageUrls || item.images?.map((file) => file.url).filter(Boolean) || []"
       :images="item.images || []"
       :audio="item.audio || []"
       :videos="item.videos || []"
@@ -157,6 +167,7 @@ onMounted(load);
       :actor="item.actor || ''"
       :created-at="item.kMeta?.createdAt || ''"
       :starred="true"
+      :liked="Boolean(item.liked)"
       :friend="Boolean(item.friend)"
       :can-friend="Boolean(item.canFriend)"
       :busy="Boolean(item.downloading)"
@@ -166,6 +177,7 @@ onMounted(load);
       @friend="toggleFriend(item)"
       @dismiss="dismissItem(item)"
       @star="toggleStar(item)"
+      @like="toggleLike(item)"
       @download="downloadItem(item)"
       @share="shareItem(item)"
     />

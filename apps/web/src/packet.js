@@ -5,14 +5,12 @@ export const PACKET_LIMITS = {
   files: 1,
 };
 
-export function photoUrls(imageUrls = [], images = []) {
-  const listed = (imageUrls || []).filter((url) => typeof url === "string" && url);
-  const urls = listed.length ? listed : (images || []).map((file) => file?.url).filter((url) => typeof url === "string" && url);
-  return urls.slice(0, PACKET_LIMITS.images);
+export function photoUrls(images = []) {
+  return (images || []).map((file) => file?.url).filter((url) => typeof url === "string" && url).slice(0, PACKET_LIMITS.images);
 }
 
-export function lockedImages(imageUrls = [], images = []) {
-  if (photoUrls(imageUrls, images).length) return [];
+export function lockedImages(images = []) {
+  if (photoUrls(images).length) return [];
   return (images || []).filter((file) => file && !file.url).slice(0, PACKET_LIMITS.images);
 }
 
@@ -35,10 +33,9 @@ export function packetVideos(videos = []) {
     .slice(0, PACKET_LIMITS.videos);
 }
 
-// 卡片形态：视频优先，其次图文，其余是文字。与 kind 无关，纯由内容推导。
-export function packetForm({ images = [], imageUrls = [], videos = [] } = {}) {
+export function packetForm({ images = [], videos = [] } = {}) {
   if (packetVideos(videos).length) return "video";
-  if (photoUrls(imageUrls, images).length) return "image";
+  if (photoUrls(images).length) return "image";
   return "text";
 }
 

@@ -73,15 +73,12 @@ function when(value) {
 
 const ACTORS = new Set(["person", "personal_agent", "platform"]);
 
-export function toRecord(row, { files = [], granted = false, author, starred = false } = {}) {
+export function toRecord(row, { files = [], granted = false, author, starred = false, liked = false } = {}) {
   if (!row) return null;
   const links = bag(row.links);
   const kind = row.kind || "post";
   const visible = Boolean(granted);
-  const images = [
-    ...files.filter((file) => file.image).map((file) => storedOf(file)),
-    ...(Array.isArray(links.images) ? links.images : []).map(externalOf).filter(Boolean),
-  ];
+  const images = files.filter((file) => file.image).map((file) => storedOf(file));
   const audio = [
     ...files.filter((file) => file.audio && !file.image).map((file) => storedOf(file)),
     ...(Array.isArray(links.audio) ? links.audio : []).map(externalOf).filter(Boolean),
@@ -132,6 +129,7 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
     previewUrl: "",
     granted: visible,
     starred: Boolean(starred),
+    liked: Boolean(liked),
   };
   if (ACTORS.has(row.actor)) record.actor = row.actor;
   if (author) record.author = author;

@@ -9,7 +9,7 @@ import { readImageMedia, readMedia } from "../links.js";
 import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
 import { loadDiscoverSelf, emptyDiscoverSelf, listActivePeople } from "../discoverBoard.js";
 import { listFacets } from "../facets.js";
-import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, searchPublicIntel, setIntelStar } from "../market.js";
+import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, searchPublicIntel, setIntelLike, setIntelStar } from "../market.js";
 import { listNotifications, markNotificationsRead } from "../notifications.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
@@ -405,7 +405,6 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         door: "webui",
         body,
         imageIds: images,
-        imageUrls: [],
         audioIds: audio.ids,
         audioUrls: audio.urls,
         fileIds: attachments.ids,
@@ -648,11 +647,32 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.post("/intel/:id/star", (req, res) => writeStar(req, res, true));
   router.delete("/intel/:id/star", (req, res) => writeStar(req, res, false));
 
+  async function writeLike(req, res, liked) {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    try {
+      res.json(await setIntelLike(pool, req.user.id, id, liked));
+    } catch (error) {
+      if (error.code === "not_found") return res.status(404).json({ error: "not_found" });
+      console.error(error);
+      res.status(500).json({ error: "internal" });
+    }
+  }
+
+  router.post("/intel/:id/like", (req, res) => writeLike(req, res, true));
+  router.delete("/intel/:id/like", (req, res) => writeLike(req, res, false));
+
   router.get("/stars", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
       `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, u.display_name, u.avatar_upload_id,
         TRUE AS starred,
+        EXISTS (
+          SELECT 1 FROM intel_likes l WHERE l.intel_id = i.id AND l.user_id = $1
+        ) AS liked,
         (i.user_id = $1 OR EXISTS (
           SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
         )) AS granted,

@@ -68,6 +68,7 @@ export function presentIntel(row) {
     granted: row.granted !== false,
     author,
     starred: row.starred,
+    liked: row.liked,
   });
 }
 
@@ -361,7 +362,6 @@ export async function createIntel(pool, input) {
   const { userId, actor, door, body, videos = [], isPublic = true, price } = input;
   await assertCanSpeak(pool, userId);
   const imageIds = (input.imageIds || []).slice(0, MAX_IMAGES);
-  const imageUrls = (input.imageUrls || []).slice(0, Math.max(0, MAX_IMAGES - imageIds.length));
   const audioIds = (input.audioIds || []).slice(0, MAX_AUDIO);
   const audioUrls = (input.audioUrls || []).slice(0, Math.max(0, MAX_AUDIO - audioIds.length));
   const fileIds = (input.fileIds || []).slice(0, MAX_FILES);
@@ -382,7 +382,6 @@ export async function createIntel(pool, input) {
     respondsTo,
     body,
     imageIds,
-    imageUrls,
     audioIds,
     audioUrls,
     fileIds,
@@ -441,10 +440,9 @@ export async function createIntel(pool, input) {
     return record;
   });
   await assertAttachmentsOpen(pool, fileIds);
-  await assertReachable([...imageUrls, ...audioUrls, ...fileUrls, ...videoLinks]);
+  await assertReachable([...audioUrls, ...fileUrls, ...videoLinks]);
   await assertRespondsTo(pool, respondsTo, userId);
   const external = {
-    images: imageUrls.map((url) => ({ url })),
     audio: audioUrls.map((url) => ({ url })),
     attachments: fileUrls.map((url) => ({ url })),
   };
@@ -507,6 +505,10 @@ const PUBLIC_INTEL_SQL = `
       SELECT 1 FROM intel_stars s
       WHERE s.intel_id = i.id AND s.user_id = $1
     ) AS starred,
+    EXISTS (
+      SELECT 1 FROM intel_likes l
+      WHERE l.intel_id = i.id AND l.user_id = $1
+    ) AS liked,
     ($1::uuid IS NOT NULL AND (
       i.user_id = $1 OR EXISTS (
         SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
@@ -639,6 +641,37 @@ export async function setIntelStar(pool, userId, intelId, starred) {
     await client.query("COMMIT");
     touchDiscoverBoard();
     return { starred: Boolean(starred) };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function setIntelLike(pool, userId, intelId, liked) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const found = await client.query(
+      `SELECT id FROM intel WHERE id = $1 AND ${visibleVerdict("verdict")} AND is_public FOR UPDATE`,
+      [intelId]
+    );
+    if (!found.rows.length) {
+      const error = new Error("not_found");
+      error.code = "not_found";
+      throw error;
+    }
+    if (liked) {
+      await client.query(
+        `INSERT INTO intel_likes (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [userId, intelId]
+      );
+    } else {
+      await client.query(`DELETE FROM intel_likes WHERE user_id = $1 AND intel_id = $2`, [userId, intelId]);
+    }
+    await client.query("COMMIT");
+    return { liked: Boolean(liked) };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

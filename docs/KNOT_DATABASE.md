@@ -20,6 +20,7 @@ users
   ├── intel                 一条记录。正文、类别、价格、权重
   │     ├── intel_files → uploads
   │     ├── intel_stars → users   谁点亮了星
+  │     ├── intel_likes → users   谁点了赞
   │     ├── intel_dismissals → users   谁关掉了这张卡
   │     ├── packet_downloads → users   谁已经下载过
   │     ├── request_unlocks → users   谁已经查看过一条 wish
@@ -53,6 +54,7 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 | 精算师 knot-actuary | 经本机 `/api/admin/prices` 由 Backend 写入 `price_proposals` 和 `economy_policy`。不写 `point_ledger` |
 | 下载 | `packet_downloads` 或 `request_unlocks`。`post`、`fastpost`、`wishRespond` 从下载者记到作者。`wish` 记到平台 |
 | 点亮 / 熄灭星 | `intel_stars`。`intel.weight` 加 1 或减 1 |
+| 点赞 / 取消点赞 | `intel_likes`。不改权重 |
 | 关闭信息卡片 | `intel_dismissals`。信息流、搜索和收藏不再返回这张卡 |
 | 加好友 / 删除好友 | `friendships`、`friend_dismissals`。内部 Personal Agent 默认是好友，不逐行预写 |
 | @ 一位好友 | `intel_mentions`，并发 `notifications`。不改记录正文和 `content_hash` |
@@ -131,6 +133,10 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 
 谁的收藏。`(user_id, intel_id)` 主键，`created_at` 为点亮时间。同一对只一行。删掉这行就是熄灭。`intel.weight` 与行数一致。
 
+### intel_likes
+
+谁的点赞。`(user_id, intel_id)` 主键，`created_at` 为点赞时间。同一对只一行。删掉这行就是取消点赞。不改 `intel.weight`。
+
 ### intel_dismissals
 
 谁关掉了哪张卡。`(user_id, intel_id)` 主键，`created_at` 为关闭时间。情报还在，只是这个人的信息流、搜索和收藏不再列出。以后按这些记录做偏好。
@@ -141,7 +147,7 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 
 平台账户余额从 0 起。收入是发布服务费、下载服务费（付给平台的部分，覆盖存储与传输成本）。
 
-`point_ledger` 只追加。当前写入的 `reason` 是 `download`、`download_fee`、`publish` 和 `grant`。积分的经济模型与度量口径见 [KNOT_ECONOMY.md](./KNOT_ECONOMY.md)。精算师读本机 `/api/admin/economy` 报三个数，不写这张表。价格表写在 `price_proposals` 和 `economy_policy`。`download` 的 `ref_id` 是记录 id，下载者和作者各记一行（作者标价）。`download_fee` 的 `ref_id` 也是记录 id，下载者和平台各记一行（下载服务费）。`publish` 的 `ref_id` 是记录 id，发布者和平台各记一行（发布服务费）。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。余额不为负。点星不写这张表。
+`point_ledger` 只追加。当前写入的 `reason` 是 `download`、`download_fee`、`publish` 和 `grant`。积分的经济模型与度量口径见 [KNOT_ECONOMY.md](./KNOT_ECONOMY.md)。精算师读本机 `/api/admin/economy` 报三个数，不写这张表。价格表写在 `price_proposals` 和 `economy_policy`。`download` 的 `ref_id` 是记录 id，下载者和作者各记一行（作者标价）。`download_fee` 的 `ref_id` 也是记录 id，下载者和平台各记一行（下载服务费）。`publish` 的 `ref_id` 是记录 id，发布者和平台各记一行（发布服务费）。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。余额不为负。点星和点赞不写这张表。
 
 `packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一条只记一行。有附件的记录在第一次下载时打成一份压缩包，包里是附件，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经查看过一条 wish（查看免费）。`request_looks` 记下谁查看过一条 wish，主键同样是 `(user_id, intel_id)`。点开别人的卡片写一行，再点不重复。
 

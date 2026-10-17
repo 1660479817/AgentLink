@@ -10,10 +10,9 @@ test("a card keeps each part inside its capacity", () => {
     { id: "d", url: "/d" },
     { id: "e", url: "/e" },
   ];
-  assert.deepEqual(photoUrls([], images), ["/a", "/b", "/c", "/d", "/e"]);
-  assert.deepEqual(photoUrls(["/x"], images), ["/x"]);
-  assert.deepEqual(lockedImages([], [{ id: "a", name: "a.png" }]).map((file) => file.id), ["a"]);
-  assert.deepEqual(lockedImages([], [{ id: "a", name: "a.png" }, { id: "b", url: "/b" }]), []);
+  assert.deepEqual(photoUrls(images), ["/a", "/b", "/c", "/d", "/e"]);
+  assert.deepEqual(lockedImages([{ id: "a", name: "a.png" }]).map((file) => file.id), ["a"]);
+  assert.deepEqual(lockedImages([{ id: "a", name: "a.png" }, { id: "b", url: "/b" }]), []);
   assert.equal(packetAudio([{ id: "1" }, { id: "2" }]).length, 1);
   assert.equal(packetVideos([{ url: "https://a" }, { url: "https://b" }]).length, 1);
   assert.deepEqual(
@@ -59,6 +58,5 @@ test("packetVideos keeps a resolved play url", () => {
 test("a card form is video, then photo, then text", () => {
   assert.equal(packetForm({ videos: [{ url: "https://example.com/v", poster: "https://cdn.example.com/c.jpg" }] }), "video");
   assert.equal(packetForm({ images: [{ id: "a", url: "/a" }] }), "image");
-  assert.equal(packetForm({ imageUrls: ["https://example.com/a.jpg"] }), "image");
-  assert.equal(packetForm({ body: "只有文字" }), "text");
+  assert.equal(packetForm({}), "text");
 });

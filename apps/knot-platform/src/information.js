@@ -35,20 +35,6 @@ export const MAX_AUDIO = 1;
 export const MAX_FILES = 1;
 export const MAX_VIDEOS = 1;
 
-export function idsOf(value, limit) {
-  if (!Array.isArray(value)) return [];
-  const ids = [];
-  const seen = new Set();
-  for (const item of value) {
-    const id = typeof item === "string" ? item : item?.id;
-    if (typeof id !== "string" || !UUID.test(id) || seen.has(id)) continue;
-    seen.add(id);
-    ids.push(id);
-    if (ids.length >= limit) break;
-  }
-  return ids;
-}
-
 function videoError() {
   const error = new Error("bad_video");
   error.code = "bad_video";
@@ -156,53 +142,9 @@ export function fileView(row) {
   };
 }
 
-function partOf(file) {
-  return {
-    id: file.id,
-    url: file.url,
-    name: file.name || "",
-    mime: file.mime || "",
-  };
-}
-
-export function knownPoster(url) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return "";
-  }
-  const host = parsed.hostname.replace(/^www\./, "");
-  let id = "";
-  if (host === "youtu.be") id = parsed.pathname.split("/").filter(Boolean)[0] || "";
-  if (host === "youtube.com" || host === "m.youtube.com") {
-    const fromPath = parsed.pathname.match(/\/(?:shorts|embed)\/([^/?]+)/);
-    id = parsed.searchParams.get("v") || fromPath?.[1] || "";
-  }
-  if (!id || !/^[\w-]{6,}$/.test(id)) return "";
-  return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-}
-
 function metaContent(tag, name) {
   const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
   return match ? match[1] || match[2] || match[3] || "" : "";
-}
-
-export function previewImage(html, base) {
-  const tags = String(html || "").match(/<meta\b[^>]*>/gi) || [];
-  for (const tag of tags) {
-    const key = (metaContent(tag, "property") || metaContent(tag, "name")).toLowerCase();
-    if (key !== "og:image" && key !== "og:image:url" && key !== "twitter:image") continue;
-    const content = metaContent(tag, "content");
-    if (!content) continue;
-    try {
-      const url = new URL(content, base);
-      if ((url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password) return url.toString();
-    } catch {
-      /* skip a broken preview address */
-    }
-  }
-  return "";
 }
 
 const VIDEO_META_KEYS = new Set(["og:video", "og:video:url", "og:video:secure_url", "twitter:player:stream"]);
@@ -236,72 +178,7 @@ export function previewVideo(html, base) {
   return "";
 }
 
-function posterOf(item) {
-  if (!item || typeof item !== "object" || typeof item.poster !== "string") return "";
-  try {
-    const url = new URL(item.poster);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
-    if (url.username || url.password) return "";
-    return url.toString();
-  } catch {
-    return "";
-  }
-}
-
-function videoParts(videos) {
-  const list = Array.isArray(videos) ? videos : [];
-  const parts = [];
-  const seen = new Set();
-  for (const item of list) {
-    const url = typeof item === "string" ? item : item?.url;
-    if (typeof url !== "string" || !url || seen.has(url)) continue;
-    seen.add(url);
-    const poster = posterOf(item) || knownPoster(url);
-    parts.push(poster ? { url, poster } : { url });
-  }
-  return parts;
-}
-
-export function informationOf({ body = "", files = [], videos = [] }) {
-  const images = [];
-  const audio = [];
-  const attachments = [];
-  for (const file of files) {
-    const part = partOf(file);
-    if (file.image) images.push(part);
-    else if (file.audio) audio.push(part);
-    else attachments.push(part);
-  }
-  return {
-    body: typeof body === "string" ? body.trim() : "",
-    images,
-    audio,
-    videos: videoParts(videos),
-    attachments,
-  };
-}
-
 export function hasInformation(info) {
   return Boolean(info.body || info.images?.length || info.audio?.length || info.videos?.length || info.attachments?.length);
-}
-
-function directMedia(file) {
-  return Boolean(file?.image) || Boolean(file?.audio) || isImageFile(file) || isAudioUpload(file);
-}
-
-export function listedFiles(files, granted) {
-  return (files || []).map((file) => {
-    if (granted || directMedia(file)) return file;
-    return {
-      name: file.name || "",
-      mime: file.mime || "",
-      image: Boolean(file.image),
-      audio: Boolean(file.audio),
-    };
-  });
-}
-
-function isImageFile(file) {
-  return Boolean(file?.image) || String(file?.mime || "").startsWith("image/");
 }
 

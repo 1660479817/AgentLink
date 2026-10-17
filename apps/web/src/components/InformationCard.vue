@@ -17,7 +17,6 @@ const props = defineProps({
   language: { type: String, default: "" },
   price: { type: Number, default: 0 },
   granted: { type: Boolean, default: true },
-  imageUrls: { type: Array, default: () => [] },
   images: { type: Array, default: () => [] },
   audio: { type: Array, default: () => [] },
   videos: { type: Array, default: () => [] },
@@ -32,6 +31,8 @@ const props = defineProps({
   createdAt: { type: String, default: "" },
   starred: { type: Boolean, default: false },
   canStar: { type: Boolean, default: true },
+  liked: { type: Boolean, default: false },
+  canLike: { type: Boolean, default: true },
   friend: { type: Boolean, default: false },
   canFriend: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
@@ -41,7 +42,7 @@ const props = defineProps({
   closing: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["author", "category", "topic", "dismiss", "star", "download", "friend", "share", "close"]);
+const emit = defineEmits(["author", "category", "topic", "dismiss", "star", "like", "download", "friend", "share", "close"]);
 
 function onAuthor() {
   if (!props.authorId) return;
@@ -58,12 +59,12 @@ function onTopic(topic) {
   emit("topic", topic);
 }
 
-const photos = computed(() => photoUrls(props.imageUrls, props.images));
-const pendingImages = computed(() => lockedImages(props.imageUrls, props.images));
+const photos = computed(() => photoUrls(props.images));
+const pendingImages = computed(() => lockedImages(props.images));
 const clips = computed(() => packetAudio(props.audio));
 const links = computed(() => packetVideos(props.videos));
 const files = computed(() => packetFile(props.attachments));
-const form = computed(() => packetForm({ images: props.images, imageUrls: props.imageUrls, videos: props.videos }));
+const form = computed(() => packetForm({ images: props.images, videos: props.videos }));
 const formLabel = computed(() => ({ text: "home.formText", image: "home.formImage", video: "home.formVideo" }[form.value]));
 const markdown = computed(() => isMarkdown(props.body));
 const bodyPlain = computed(() => (markdown.value ? plainMarkdown(props.body) : props.body));
@@ -82,7 +83,6 @@ function onDownload() {
 }
 
 const posted = computed(() => postedLabel(props.createdAt));
-const liked = ref(false);
 
 function postedLabel(value) {
   const then = new Date(value).getTime();
@@ -138,7 +138,7 @@ watch(
 </script>
 
 <template>
-  <article class="card post information-card" :class="`is-${form}`">
+  <article class="card post information-card">
     <header class="information-head">
       <div class="information-author">
         <button
@@ -277,12 +277,13 @@ watch(
     </ul>
     <div class="post-actions">
       <button
+        v-if="canLike"
         type="button"
         class="post-action"
         :class="{ 'is-on': liked }"
         :aria-pressed="liked"
         :aria-label="liked ? t('home.unlike') : t('home.like')"
-        @click="liked = !liked"
+        @click="emit('like')"
       >
         <LikeIcon :filled="liked" aria-hidden="true" />
       </button>

@@ -5,7 +5,7 @@ import InformationCard from "../components/InformationCard.vue";
 import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { addCardFriend, closeInformation, discoverSelf, dismissInformation, downloadInformation, downloadShare, fetchFacets, getInformation, listInformation, listPeople, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
+import { addCardFriend, closeInformation, discoverSelf, dismissInformation, downloadInformation, downloadShare, fetchFacets, getInformation, likeInformation, listInformation, listPeople, removeCardFriend, searchInformation, starInformation, unlikeInformation, unstarInformation } from "../api.js";
 import FilterBar from "../components/FilterBar.vue";
 import { applyDiscoverSelf, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
 import { errorText, nameMark } from "../composers/packet.js";
@@ -450,6 +450,18 @@ async function toggleStar(item) {
   }
 }
 
+async function toggleLike(item) {
+  if (!session.user) return;
+  const previous = Boolean(item.liked);
+  item.liked = !previous;
+  try {
+    if (item.liked) await likeInformation(item.id);
+    else await unlikeInformation(item.id);
+  } catch {
+    item.liked = previous;
+  }
+}
+
 async function toggleFriend(item) {
   if (!session.user || !item.canFriend) return;
   const previous = Boolean(item.friend);
@@ -594,7 +606,6 @@ async function downloadItem(item) {
     :language="item.kMeta?.language || ''"
     :price="priceOf(item)"
     :granted="item.granted !== false"
-    :image-urls="item.imageUrls || item.images?.map((file) => file.url).filter(Boolean) || []"
     :images="item.images || []"
     :audio="item.audio || []"
     :videos="item.videos || []"
@@ -609,6 +620,8 @@ async function downloadItem(item) {
     :created-at="item.kMeta?.createdAt || ''"
     :starred="Boolean(item.starred)"
     :can-star="Boolean(session.user)"
+    :liked="Boolean(item.liked)"
+    :can-like="Boolean(session.user)"
     :friend="Boolean(item.friend)"
     :can-friend="Boolean(item.canFriend)"
     :busy="Boolean(item.downloading) || (Boolean(session.user) && item.personal === false)"
@@ -621,6 +634,7 @@ async function downloadItem(item) {
     @topic="filterByTopic"
     @dismiss="dismissItem(item)"
     @star="toggleStar(item)"
+    @like="toggleLike(item)"
     @friend="toggleFriend(item)"
     @download="downloadItem(item)"
     @share="shareItem(item)"

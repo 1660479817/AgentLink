@@ -185,3 +185,11 @@ export const PlatformIcon = knotIcon([
   h("path", { d: "M10.2 20.2v-4.4h3.6v4.4" }),
   h("path", { d: "M9 11.4h1.7M13.3 11.4H15M9 14.6h1.7M13.3 14.6H15" }),
 ]);
+export const QuoteIcon = knotIcon([
+  h("path", { d: "M10.5 12.5H6.6a2 2 0 0 1-2-2V8.6a2 2 0 0 1 2-2h1.9a2 2 0 0 1 2 2v6a4.4 4.4 0 0 1-4.4 4.4" }),
+  h("path", { d: "M20.5 12.5h-3.9a2 2 0 0 1-2-2V8.6a2 2 0 0 1 2-2h1.9a2 2 0 0 1 2 2v6a4.4 4.4 0 0 1-4.4 4.4" }),
+]);
+export const CopyIcon = knotIcon([
+  h("rect", { x: 9, y: 9, width: 11, height: 11, rx: 2 }),
+  h("path", { d: "M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" }),
+]);

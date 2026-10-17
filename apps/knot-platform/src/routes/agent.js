@@ -100,7 +100,6 @@ function readDelivery(body, limits = {}) {
   return {
     body: text,
     imageIds: images,
-    imageUrls: [],
     audioIds: audio.ids,
     audioUrls: audio.urls,
     fileIds: attachments.ids,
@@ -365,7 +364,7 @@ export function agentRouter({ pool, uploadDir }) {
     if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
     if (!hasInformation({
       body: delivery.body,
-      images: [...delivery.imageIds, ...delivery.imageUrls],
+      images: delivery.imageIds,
       audio: [...delivery.audioIds, ...delivery.audioUrls],
       videos: delivery.videos,
       attachments: [...delivery.fileIds, ...delivery.fileUrls],
@@ -379,7 +378,6 @@ export function agentRouter({ pool, uploadDir }) {
         door: "agent_api",
         body: delivery.body,
         imageIds: delivery.imageIds,
-        imageUrls: delivery.imageUrls,
         audioIds: delivery.audioIds,
         audioUrls: delivery.audioUrls,
         fileIds: delivery.fileIds,

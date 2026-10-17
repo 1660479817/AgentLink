@@ -42,6 +42,9 @@ const SELF_SQL = `
     EXISTS (
       SELECT 1 FROM intel_stars s WHERE s.user_id = $1 AND s.intel_id = i.id
     ) AS starred,
+    EXISTS (
+      SELECT 1 FROM intel_likes l WHERE l.user_id = $1 AND l.intel_id = i.id
+    ) AS liked,
     (
       i.user_id = $1 OR EXISTS (
         SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
@@ -74,7 +77,7 @@ const SELF_SQL = `
 `;
 
 export function emptyDiscoverSelf() {
-  return { dismissed: [], starred: [], friends: [], granted: [], mine: [], wishes: {} };
+  return { dismissed: [], starred: [], liked: [], friends: [], granted: [], mine: [], wishes: {} };
 }
 
 function publicPost(row, files) {
@@ -156,6 +159,7 @@ export function presentDiscoverSelf(rows) {
   for (const row of rows) {
     if (row.dismissed) self.dismissed.push(row.id);
     if (row.starred) self.starred.push(row.id);
+    if (row.liked) self.liked.push(row.id);
     if (row.friend) self.friends.push(row.id);
     if (row.granted) self.granted.push(row.id);
     if (row.mine) self.mine.push(row.id);

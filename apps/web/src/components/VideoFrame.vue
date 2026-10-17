@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { t } from "../i18n/index.js";
 import { VideoIcon } from "../icons/index.js";
 import { videoFrame } from "../packet.js";
@@ -26,6 +26,13 @@ async function start() {
 function hidePoster() {
   posterOk.value = false;
 }
+
+watch(
+  () => frame.value?.poster || "",
+  () => {
+    posterOk.value = true;
+  },
+);
 </script>
 
 <template>

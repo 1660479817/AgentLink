@@ -9,7 +9,7 @@ const props = defineProps({
   audio: { type: Array, default: () => [] },
 });
 
-const photos = computed(() => photoUrls([], props.images));
+const photos = computed(() => photoUrls(props.images));
 const clips = computed(() => packetAudio(props.audio));
 </script>
 

@@ -87,10 +87,10 @@ export function paintDiscover(board, userId) {
 export function applyDiscoverSelf(painted, self) {
   const dismissed = new Set(self?.dismissed || []);
   const starred = new Set(self?.starred || []);
+  const liked = new Set(self?.liked || []);
   const friends = new Set(self?.friends || []);
   const granted = new Set(self?.granted || []);
   const mine = new Set(self?.mine || []);
-  const audio = self?.audio || {};
   return {
     information: (painted?.information || [])
       .filter((item) => !dismissed.has(item.id))
@@ -98,11 +98,11 @@ export function applyDiscoverSelf(painted, self) {
         ...item,
         personal: true,
         starred: starred.has(item.id),
+        liked: liked.has(item.id),
         friend: friends.has(item.id),
         mine: mine.has(item.id),
         canFriend: !mine.has(item.id),
         granted: granted.has(item.id) || mine.has(item.id),
-        audio: audio[item.id] || item.audio,
       })),
     requests: (painted?.requests || [])
       .filter((wish) => !dismissed.has(wish.id))

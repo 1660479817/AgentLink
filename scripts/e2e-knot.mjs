@@ -76,6 +76,28 @@ async function main() {
   const mine = (submissions.submissions || []).find((item) => item.kMeta?.id === id);
   if (!mine || mine.kMeta.verdict !== "removed") fail("作者的提交列表没有记下删除");
 
+  // 点赞：需要公开记录（setIntelLike 只对 is_public 且可见的记录生效）。
+  const likeMarker = `端到端点赞测试 ${Date.now()}`;
+  const likedPost = await send("/api/web/intel", {
+    method: "POST",
+    body: { body: likeMarker, public: true },
+  });
+  const likeId = likedPost.intel?.kMeta?.id;
+  if (!likeId) fail("点赞测试提交没有返回记录 id");
+
+  const likedOn = await send(`/api/web/intel/${likeId}/like`, { method: "POST", body: {} });
+  if (likedOn.liked !== true) fail("点赞没有返回 liked true");
+
+  const feed = await send("/api/web/information");
+  const inFeed = (feed.information || []).find((item) => item.kMeta?.id === likeId);
+  if (!inFeed || inFeed.liked !== true) fail("信息流没有记下这条点赞");
+
+  const likedOff = await send(`/api/web/intel/${likeId}/like`, { method: "DELETE" });
+  if (likedOff.liked !== false) fail("取消点赞没有返回 liked false");
+
+  const removedLike = await admin(["remove", "--id", likeId, "--reason", "端到端点赞测试，用完即删。"]);
+  if (!removedLike.ok || removedLike.already) fail("点赞测试记录删除没有做成");
+
   console.log("e2e ok");
 }
 

@@ -63,6 +63,7 @@ function statusKey(status) {
       v-if="packetVideos(item.videos)[0]"
       :url="packetVideos(item.videos)[0].url"
       :poster="packetVideos(item.videos)[0].poster || ''"
+      :play-url="packetVideos(item.videos)[0].playUrl || ''"
     />
     <ul v-if="packetFile(item.attachments).length" class="information-files">
       <li v-for="file in packetFile(item.attachments)" :key="file.id">

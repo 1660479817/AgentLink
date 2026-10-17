@@ -385,7 +385,7 @@ export function shareContent(row, files = []) {
   const stored = files.map(fileKind);
   const audioName = stored.find((file) => file.kind === "audio")?.name || linkName(links.audio);
   const fileName = stored.find((file) => file.kind === "file")?.name || linkName(links.attachments);
-  const image = stored.some((file) => file.kind === "image") || linkName(links.images) !== "" || (Array.isArray(links.images) && links.images.some((item) => item?.url));
+  const image = stored.some((file) => file.kind === "image");
   return {
     body: clean(row?.body),
     video: hasVideo(row?.videos),

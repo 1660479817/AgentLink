@@ -1,30 +1,101 @@
 <script setup>
-import { computed, watch } from "vue";
-import { RouterLink, useRouter } from "vue-router";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import AuthForm from "../components/AuthForm.vue";
-import { ChatIcon, PlusIcon, SearchIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
+import { CheckIcon, CopyIcon, QuoteIcon, SendIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
 
 const router = useRouter();
 const session = useSessionStore();
 const mark = computed(() => t("app.name").slice(0, 1));
-const leadParts = computed(() => {
-  const phrase = t("gate.phrase");
-  const lead = t("gate.lead");
-  const phraseAt = lead.indexOf(phrase);
-  return {
-    before: phraseAt >= 0 ? lead.slice(0, phraseAt) : lead,
-    phrase: phraseAt >= 0 ? lead.slice(phraseAt) : "",
-  };
-});
+const active = ref(0);
+const copied = ref(false);
 
-const steps = computed(() => [
-  { icon: PlusIcon, label: t("gate.stepPublish"), to: { name: "discover" } },
-  { icon: SearchIcon, label: t("gate.stepRead"), to: { name: "discover" } },
-  { icon: ChatIcon, label: t("gate.stepWish"), to: { name: "wish" } },
+const shots = computed(() => [
+  { src: "/discover-preview.jpg", label: t("gate.shotDiscover") },
+  { src: "/agent-register.jpg", label: t("gate.shotRegister") },
+  { src: "/agent-delegate.jpg", label: t("gate.shotDelegate") },
 ]);
+
+let drag = null;
+let suppressClick = false;
+
+function offsetOf(i) {
+  const n = shots.value.length;
+  return ((i - active.value) % n + n) % n;
+}
+
+function itemClass(i) {
+  const o = offsetOf(i);
+  return o === 0 ? "is-center" : o === 1 ? "is-right" : "is-left";
+}
+
+function goTo(i) {
+  active.value = i;
+}
+
+function next() {
+  active.value = (active.value + 1) % shots.value.length;
+}
+
+function prev() {
+  active.value = (active.value - 1 + shots.value.length) % shots.value.length;
+}
+
+async function copyDelegate() {
+  try {
+    await navigator.clipboard.writeText(t("gate.delegateQuote"));
+    copied.value = true;
+    setTimeout(() => (copied.value = false), 1600);
+  } catch {
+    /* 剪贴板不可用时保持原样 */
+  }
+}
+
+function onShotClick(i) {
+  if (suppressClick || offsetOf(i) === 0) return;
+  goTo(i);
+}
+
+function onCarouselPointerDown(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  drag = { x: event.clientX, moved: false };
+  window.addEventListener("pointermove", onCarouselMove);
+  window.addEventListener("pointerup", onCarouselUp);
+  window.addEventListener("pointercancel", onCarouselUp);
+}
+
+function onCarouselMove(event) {
+  if (!drag) return;
+  if (Math.abs(event.clientX - drag.x) > 10) drag.moved = true;
+}
+
+function onCarouselUp(event) {
+  if (!drag) return;
+  const dx = event.clientX - drag.x;
+  const moved = drag.moved;
+  drag = null;
+  stopDrag();
+  if (moved) {
+    if (dx > 24) prev();
+    else if (dx < -24) next();
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false), 0);
+  }
+}
+
+function stopDrag() {
+  window.removeEventListener("pointermove", onCarouselMove);
+  window.removeEventListener("pointerup", onCarouselUp);
+  window.removeEventListener("pointercancel", onCarouselUp);
+}
+
+onBeforeUnmount(() => {
+  stopDrag();
+  drag = null;
+});
 
 watch(
   () => session.user,
@@ -41,26 +112,68 @@ watch(
         <p class="brand-mark gate-mark" aria-hidden="true">{{ mark }}</p>
         <p class="gate-name">{{ t("app.name") }}</p>
       </div>
-      <h1 class="gate-lead">
-        {{ leadParts.before }}<span v-if="leadParts.phrase" class="gate-phrase">{{ leadParts.phrase }}</span>
-      </h1>
+      <h1 class="gate-lead">{{ t("gate.lead") }}</h1>
       <p class="gate-detail">{{ t("gate.detail") }}</p>
     </header>
-    <ol class="gate-steps">
-      <li v-for="step in steps" :key="step.label" class="gate-step-item">
-        <RouterLink class="gate-step" :to="step.to">
-          <component :is="step.icon" class="gate-step-icon" aria-hidden="true" />
-          <span>{{ step.label }}</span>
-        </RouterLink>
-      </li>
-    </ol>
+
+    <div class="gate-carousel" role="group" :aria-label="t('gate.shots')" @pointerdown="onCarouselPointerDown">
+      <div
+        v-for="(shot, i) in shots"
+        :key="shot.src"
+        class="carousel-item"
+        :class="itemClass(i)"
+        :aria-hidden="offsetOf(i) !== 0"
+        @click="onShotClick(i)"
+      >
+        <img :src="shot.src" :alt="shot.label" loading="eager" draggable="false" />
+      </div>
+    </div>
+
+    <Transition name="gate-fade" mode="out-in">
+      <p class="gate-shot-label" :key="active">{{ shots[active].label }}</p>
+    </Transition>
+
+    <div class="carousel-dots" role="tablist">
+      <button
+        v-for="(shot, i) in shots"
+        :key="i"
+        type="button"
+        class="carousel-dot"
+        :class="{ 'is-active': i === active }"
+        role="tab"
+        :aria-selected="i === active"
+        :aria-label="shot.label"
+        @click="goTo(i)"
+      ></button>
+    </div>
+
+    <div class="gate-delegate">
+      <p class="gate-delegate-title">{{ t("gate.delegateTitle") }}</p>
+      <p class="gate-delegate-lead">{{ t("gate.delegateLead") }}</p>
+      <blockquote class="gate-delegate-quote">
+        <QuoteIcon class="gate-delegate-mark" aria-hidden="true" />
+        <p class="gate-delegate-text">{{ t("gate.delegateQuote") }}</p>
+      </blockquote>
+      <div class="gate-delegate-actions">
+        <AppButton variant="secondary" @click="copyDelegate">
+          <CheckIcon v-if="copied" class="gate-delegate-copy-icon" aria-hidden="true" />
+          <CopyIcon v-else class="gate-delegate-copy-icon" aria-hidden="true" />
+          <span>{{ copied ? t("gate.delegateCopied") : t("gate.delegateCopy") }}</span>
+        </AppButton>
+      </div>
+    </div>
+
+    <div class="gate-enter">
+      <AppButton to="/discover" class="gate-cta">
+        <span>{{ t("gate.enter") }}</span>
+        <SendIcon class="gate-cta-arrow" aria-hidden="true" />
+      </AppButton>
+    </div>
+
     <section class="card gate-auth" aria-labelledby="gate-auth-title">
       <h2 id="gate-auth-title" class="page-title">{{ t("mine.authTitle") }}</h2>
       <p class="post-body">{{ t("mine.authHint") }}</p>
       <AuthForm />
     </section>
-    <div class="gate-enter">
-      <AppButton variant="secondary" to="/discover">{{ t("gate.enter") }}</AppButton>
-    </div>
   </section>
 </template>

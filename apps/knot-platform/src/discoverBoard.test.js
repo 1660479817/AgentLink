@@ -105,13 +105,14 @@ test("a person row without a timestamp or avatar still comes back whole", () => 
   assert.ok(person.avatarUrl);
 });
 
-test("a personal patch lists dismissals, stars, and friends", () => {
+test("a personal patch lists dismissals, stars, likes, and friends", () => {
   const self = presentDiscoverSelf([
-    { id: POST, kind: "post", dismissed: true, starred: true, friend: false, granted: true, mine: false, links: {}, videos: [] },
-    { id: WISH, kind: "wish", dismissed: false, starred: false, friend: true, granted: false, mine: true, response_count: 2, links: {}, videos: [] },
+    { id: POST, kind: "post", dismissed: true, starred: true, liked: true, friend: false, granted: true, mine: false, links: {}, videos: [] },
+    { id: WISH, kind: "wish", dismissed: false, starred: false, liked: false, friend: true, granted: false, mine: true, response_count: 2, links: {}, videos: [] },
   ]);
   assert.deepEqual(self.dismissed, [POST]);
   assert.deepEqual(self.starred, [POST]);
+  assert.deepEqual(self.liked, [POST]);
   assert.deepEqual(self.friends, [WISH]);
   assert.deepEqual(self.granted, [POST]);
   assert.deepEqual(self.mine, [WISH]);

@@ -27,11 +27,11 @@ test("a wish is mine when the author is the current user", () => {
   assert.equal(cardIsMine(painted.information[0], { id: ME }), false);
 });
 
-test("the personal patch hides, stars, and unlocks only after it arrives", () => {
+test("the personal patch hides, stars, likes, and friends only after it arrives", () => {
   const painted = paintDiscover(
     {
       information: [
-        { id: POST, personal: false, audio: [{ name: "a.mp3", stored: true }] },
+        { id: POST, personal: false },
         { id: FRESH, personal: false },
       ],
       requests: [{ id: WISH, authorId: ME, mine: true, responseCount: null }],
@@ -41,18 +41,18 @@ test("the personal patch hides, stars, and unlocks only after it arrives", () =>
   const next = applyDiscoverSelf(painted, {
     dismissed: [FRESH],
     starred: [POST],
+    liked: [POST],
     friends: [POST],
     granted: [],
     mine: [],
-    audio: { [POST]: [{ name: "a.mp3", stored: true, url: "/api/web/uploads/sound" }] },
     wishes: { [WISH]: { responseCount: 3 } },
   });
   assert.deepEqual(next.information.map((item) => item.id), [POST]);
   assert.equal(next.information[0].personal, true);
   assert.equal(next.information[0].starred, true);
+  assert.equal(next.information[0].liked, true);
   assert.equal(next.information[0].friend, true);
   assert.equal(next.information[0].canFriend, true);
-  assert.equal(next.information[0].audio[0].url, "/api/web/uploads/sound");
   assert.equal(cardIsMine(next.information[0], { id: ME }), false);
   assert.equal(next.requests[0].responseCount, 3);
 });

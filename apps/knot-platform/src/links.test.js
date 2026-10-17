@@ -34,14 +34,12 @@ test("the same content keeps one hash", () => {
     kind: "post",
     body: "原文",
     imageIds: [ID],
-    imageUrls: ["https://example.com/a.jpg"],
     videos: [video],
   });
   const again = contentHash({
     kind: "post",
     body: "原文",
     imageIds: [ID.toUpperCase()],
-    imageUrls: ["https://example.com/a.jpg"],
     videos: [video],
   });
   assert.equal(first, again);
@@ -51,7 +49,7 @@ test("the same content keeps one hash", () => {
   assert.notEqual(first, contentHash({ kind: "post", body: "原文", imageIds: [ID], videos: [{ url: video.url, poster: { url: "https://cdn.example.com/other.jpg" } }] }));
 });
 
-test("a card shows a stored image and keeps an external url", () => {
+test("a card shows a stored image", () => {
   const record = toRecord(
     {
       id: "a1",
@@ -61,7 +59,6 @@ test("a card shows a stored image and keeps an external url", () => {
       is_public: true,
       verdict: "passed",
       content_hash: "abc",
-      links: { images: [{ url: "https://example.com/a.jpg" }] },
       videos: [{ url: "https://example.com/v" }],
       created_at: "2026-10-13T00:00:00.000Z",
     },
@@ -76,8 +73,6 @@ test("a card shows a stored image and keeps an external url", () => {
   assert.deepEqual(record.kMeta.commerce, { price: 10, fee: 0, payee: "author" });
   assert.equal(record.images[0].url, `/api/web/uploads/${ID}`);
   assert.equal(record.images[0].stored, true);
-  assert.equal(record.images[1].url, "https://example.com/a.jpg");
-  assert.equal(record.images[1].stored, false);
   assert.equal(record.previewUrl, "");
   assert.equal(record.kMeta.note, "");
 });

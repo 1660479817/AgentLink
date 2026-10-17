@@ -125,6 +125,14 @@ export function unstarInformation(id) {
   return request(`/api/web/intel/${id}/star`, { method: "DELETE" });
 }
 
+export function likeInformation(id) {
+  return request(`/api/web/intel/${id}/like`, { method: "POST", body: "{}" });
+}
+
+export function unlikeInformation(id) {
+  return request(`/api/web/intel/${id}/like`, { method: "DELETE" });
+}
+
 export function listFriends() {
   return request("/api/web/friends");
 }
