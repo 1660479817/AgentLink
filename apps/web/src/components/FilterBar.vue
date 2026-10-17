@@ -13,16 +13,21 @@ const props = defineProps({
 
 const emit = defineEmits(["clear", "clear-key", "select"]);
 
-// 热词可能长得很长，候选区先铺前 N 个，其余收进「更多」，点了原地追加。
-const TOPIC_LIMIT = 8;
-const showAllTopics = ref(false);
+// 类别和热词都可能很长（库里有上百个类别），候选区先各铺前 N 个，其余收进「更多」，点了原地追加。
+const CANDIDATE_LIMIT = 8;
+const showAll = ref(false);
 
 const isAll = computed(() => !props.query && !props.author && !props.category && !props.topic);
 // 已选中的值在状态胶囊里展示，候选区不再重复出现。
 const activeCategories = computed(() => props.categories.filter((value) => value !== props.category));
 const activeTopics = computed(() => props.topics.filter((value) => value !== props.topic));
-const topicOverflow = computed(() => activeTopics.value.length > TOPIC_LIMIT);
-const shownTopics = computed(() => (showAllTopics.value ? activeTopics.value : activeTopics.value.slice(0, TOPIC_LIMIT)));
+const shownCategories = computed(() => (showAll.value ? activeCategories.value : activeCategories.value.slice(0, CANDIDATE_LIMIT)));
+const shownTopics = computed(() => (showAll.value ? activeTopics.value : activeTopics.value.slice(0, CANDIDATE_LIMIT)));
+const hiddenCount = computed(
+  () =>
+    Math.max(0, activeCategories.value.length - CANDIDATE_LIMIT) +
+    Math.max(0, activeTopics.value.length - CANDIDATE_LIMIT)
+);
 
 function clearKey(key) {
   emit("clear-key", key);
@@ -30,12 +35,12 @@ function clearKey(key) {
 
 function selectCategory(value) {
   if (props.category === value) emit("clear-key", "category");
-  else emit("select", { key: "category", value });
+  else emit("select", "category", value);
 }
 
 function selectTopic(value) {
   if (props.topic === value) emit("clear-key", "topic");
-  else emit("select", { key: "topic", value });
+  else emit("select", "topic", value);
 }
 </script>
 
@@ -99,7 +104,7 @@ function selectTopic(value) {
         :aria-label="t('home.filter')"
       >
         <button
-          v-for="value in activeCategories"
+          v-for="value in shownCategories"
           :key="value"
           type="button"
           class="filter-pill"
@@ -119,10 +124,11 @@ function selectTopic(value) {
           <span class="filter-topic-hash" aria-hidden="true">#</span><span>{{ value }}</span>
         </button>
         <button
-          v-if="topicOverflow && !showAllTopics"
+          v-if="hiddenCount > 0"
           type="button"
           class="filter-pill filter-pill-more"
-          @click="showAllTopics = true"
+          :aria-label="t('home.filterMore')"
+          @click="showAll = true"
         >
           {{ t("home.filterMore") }}
         </button>
