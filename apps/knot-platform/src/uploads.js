@@ -5,6 +5,7 @@ import sharp from "sharp";
 
 export const AVATAR_PX = 512;
 const AVATAR_JPEG_QUALITY = 85;
+const AVATAR_FLATTEN_BACKGROUND = "#ffffff";
 
 export function ensureUploadDir(uploadDir) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -132,9 +133,11 @@ export function avatarBufferError(buffer) {
 export async function fitAvatar(buffer) {
   const size = imageSize(buffer);
   if (!size || size.width <= AVATAR_PX) return null;
+  // 透明头像转成 JPEG 会把透明区域压成纯黑，先垫白底。
   return sharp(buffer)
     .rotate()
     .resize(AVATAR_PX, AVATAR_PX, { fit: "cover" })
+    .flatten({ background: AVATAR_FLATTEN_BACKGROUND })
     .jpeg({ quality: AVATAR_JPEG_QUALITY })
     .toBuffer();
 }

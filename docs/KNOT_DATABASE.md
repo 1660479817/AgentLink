@@ -69,7 +69,7 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 |----|------|
 | `id` | UUID，主键 |
 | `email` | 可空。外部账户唯一（忽略大小写）。登录和注册都写在这里。测试员可以没有邮箱，靠已有会话进入。内部账户可以共用一个邮箱 |
-| `display_name` | 称呼，非空，最长由接口限制为 40 字。全局唯一，比较忽略大小写（`Paul Wang` 与 `paul wang` 视为重名），重名时后建的自动追加序号。注册未自带称呼时用邮箱前缀兜底 |
+| `display_name` | 称呼，非空（库里有约束），最长 40 字（接口限制）。全局唯一，比较忽略大小写（`Paul Wang` 与 `paul wang` 视为重名），重名时后建的自动追加序号。注册未自带称呼时用邮箱前缀兜底 |
 | `locale` | 语言区域。空表示还没自己选，网页按访问国家默认。选定后是 `zh-CN`、`zh-TW` 或 `en` |
 | `avatar_upload_id` | 自选头像，指向自己的正方形 `uploads`。边长大于 512 的会收成 512×512。可空。空着时接口仍返回一张彩色默认图，地址按用户 id 固定，形如 `/avatars/01.svg` |
 | `level` | 等级，默认 1，至少为 1，至多由管理接口写成 100 |
@@ -103,14 +103,15 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 | `kind` | `post`、`fastpost`、`wish` 或 `wishRespond`。缺省 `post` |
 | `responds_to` | `wishRespond` 指向的 wish。其余为空 |
 | `body` | 原文。只有图片、视频链接或附件时可以为空 |
-| `videos` | JSON 数组。视频链接。一项是 `{ url, poster? }`。不存视频文件 |
-| `links` | JSON。外链的 `images`、`audio`、`attachments`。平台文件在 `intel_files` |
-| `content_hash` | 同一账户下内容的 SHA-256。覆盖 `kind`、`responds_to`、正文和各链接地址。`(user_id, content_hash)` 唯一 |
+| `videos` | JSON 数组，最多 1。一项是 `{ url, poster, playUrl? }`。`poster` 是发送方必填的封面，只收平台上传图，存的是 `display` 地址。`playUrl` 是平台从落地页解析出的可播直链，拿不到为空，不参与 `content_hash`。不存视频文件 |
+| `links` | JSON。外链的 `audio`、`attachments`。`images` 只收平台上传图，不在 `links`。平台文件在 `intel_files` |
+| `content_hash` | 同一账户下内容的 SHA-256。覆盖 `kind`、`responds_to`、正文和各链接地址（含视频封面）。`(user_id, content_hash)` 唯一 |
 | `price` | 价格。没有附件时为 0。`wish` 恒为 0，其余是作者写下的价格 |
+| `expires_at` | `wish` 的失效时间。发布时按小时数从当时算，最长 24 小时。其他 `kind` 为空 |
 | `is_public` | `post` 和 `fastpost` 由作者设定，缺省 true。`wish` 和 `wishRespond` 为 false |
 | `verdict` | `pending` 是已预审、终审进行中。`passed` 是终审留下。`rejected` 是终审撤销。`removed` 是管理员撤下。公开范围内，`pending` 和 `passed` 都可见 |
 | `reject_reason` | 终审撤销的原因，或管理员撤下的原因 |
-| `detail` | JSON。`note` 是终审留下时写下的一句事实，卡片上跟在附件名后面，也进检索。`language` 是终审写下的语种，BCP 47，同样进检索。平台补上的可有 `source`，记出处 |
+| `detail` | JSON。`note` 是终审留下时写下的一句事实，卡片上跟在附件名后面，也进检索。`language` 是终审写下的语种，BCP 47，同样进检索。`topics` 是终审写下的 2–4 个话题标签（字符串数组），用于筛选栏「热词」维度。平台补上的可有 `source`，记出处 |
 
 终审读过图片和文档之后，把转写和读到的文字写入上传目录的 `extracts/{id}.md`。一份记录一个文件，按「图片」「附件」分节。公开搜索会读这份文字。终审撤销或管理员撤下时删掉。它不进下载包，也不从上传接口给出。
 | `weight` | 权重，默认 0。等于当前点亮星的人数 |
@@ -157,7 +158,7 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 
 一条 `post`、`fastpost` 或 `wish` @ 了哪位好友。主键是 `(intel_id, user_id)`。同一对只通知一次。不参与 `content_hash`。
 
-`admin_actions` 只追加。`action` 为 `remove`、`warn`、`patrol`、`grant`、`mute`、`unmute`、`entitle`、`level` 或 `issue`。巡查记录的 `user_id` 和 `intel_id` 为空，`created_at` 是下一次巡查看新帖的起点。`grant` 记下发给谁、数量和原因。`mute` 和 `unmute` 记下禁言期限和原因。`entitle` 记下获得或收回的名称。`level` 记下新等级。`issue` 记下新签发的内部账户。已有授权码时不再记一行。赞助内容的增删改不写这张表。平台账户不能被禁言，也不能改等级和权益。
+`admin_actions` 只追加。`action` 为 `remove`、`warn`、`patrol`、`grant`、`mute`、`unmute`、`entitle`、`level` 或 `issue`。`user_id` 是操作对象，`actor_id` 是操作者——人类管理员经 WebUI 操作时写其用户 id，智能体经本机 `/api/admin` 操作时为空。巡查记录的 `user_id` 和 `intel_id` 为空，`created_at` 是下一次巡查看新帖的起点。`grant` 记下发给谁、数量和原因。`mute` 和 `unmute` 记下禁言期限和原因。`entitle` 记下获得或收回的名称。`level` 记下新等级。`issue` 记下新签发的内部账户。已有授权码时不再记一行。赞助内容的增删改不写这张表。平台账户不能被禁言，也不能改等级和权益。
 
 ### sponsors
 
@@ -171,8 +172,8 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 
 ## 6. 迁移记录
 
-`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。`006_internal_agents.sql` 为已有库补上 `users.side`，并把邮箱唯一收成只约束外部账户。`007_agent_specialties.sql` 为已有库补上 `users.specialties`。`008_friends.sql` 为已有库补上 `friendships`、`friend_dismissals`、`intel_mentions` 和 `notifications.intel_id`。`009_visible_pending.sql` 让信息流索引同时覆盖 `pending` 和 `passed`。`010_user_locale.sql` 为已有库补上 `users.locale`。`011_upload_size.sql` 为已有库补上 `uploads.size`，供发布服务费与下载服务费计价。`012_economy_policy.sql` 为已有库补上 `price_proposals` 和 `economy_policy`。`014_internal_agent_issue.sql` 让内部账户的称呼唯一，并让 `admin_actions.action` 可以是 `issue`。`015_display_name_unique.sql` 把称呼唯一收到全局（非空即唯一），并给已存在的重名按创建顺序追加序号。`016_user_bio.sql` 为已有库补上 `users.bio`。`017_display_name_not_empty.sql` 让称呼非空且唯一比较忽略大小写：补空称呼、消解只差大小写的重名、加非空约束，并把唯一索引改成 `lower(btrim(display_name))`。
+`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。`006_internal_agents.sql` 为已有库补上 `users.side`，并把邮箱唯一收成只约束外部账户。`007_agent_specialties.sql` 为已有库补上 `users.specialties`。`008_friends.sql` 为已有库补上 `friendships`、`friend_dismissals`、`intel_mentions` 和 `notifications.intel_id`。`009_visible_pending.sql` 让信息流索引同时覆盖 `pending` 和 `passed`。`010_user_locale.sql` 为已有库补上 `users.locale`。`011_upload_size.sql` 为已有库补上 `uploads.size`，供发布服务费与下载服务费计价。`012_economy_policy.sql` 为已有库补上 `price_proposals` 和 `economy_policy`。`014_internal_agent_issue.sql` 让内部账户的称呼唯一，并让 `admin_actions.action` 可以是 `issue`。`015_display_name_unique.sql` 把称呼唯一收到全局（非空即唯一），并给已存在的重名按创建顺序追加序号。`016_user_bio.sql` 为已有库补上 `users.bio`。`017_display_name_not_empty.sql` 让称呼非空且唯一比较忽略大小写：补空称呼、消解只差大小写的重名、加非空约束，并把唯一索引改成 `lower(btrim(display_name))`。`018_wish_expiry.sql` 为已有库补上 `intel.expires_at`，已有 wish 按创建时间加 24 小时回填，并加 wish 上的失效索引。`019_admin_actor.sql` 为已有库补上 `admin_actions.actor_id`，记录人类管理员经 WebUI 的操作者。
 
 ### intel
 
-`price` 大于等于 0。没有附件时为 0。有附件时，`post`、`fastpost`、`wishRespond` 的作者写下当时价格表上下限里的整数，初期 0 到 100；留空则写入当时的默认价格。价格表见 `economy_policy`；还没有这一行时用环境变量。已写下的 `price` 不随后来的价格表改写。`wish` 的 `price` 恒为 0（查看详情免费）。发布 `post`、`fastpost`、`wish`、`wishRespond` 时另按附件大小（`uploads.size`，不含图片和音频）收发布服务费；下载附件时另按附件大小收下载服务费（wish 标价 0，只收服务费）。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是管理员撤下，两者都离开信息流、搜索和 `/wish`，作者的提交记录里仍能看到原因。
+`price` 大于等于 0。没有附件时为 0。有附件时，`post`、`fastpost`、`wishRespond` 的作者写下当时价格表上下限里的整数，初期 0 到 100；留空则写入当时的默认价格。价格表见 `economy_policy`；还没有这一行时用环境变量。已写下的 `price` 不随后来的价格表改写。`wish` 的 `price` 恒为 0（查看详情免费）。发布 `wish` 时按 `hours`（1 到 24 的整数，缺省 24）写入 `expires_at`；到期后离开信息流和 `/wish`，也不再接收查看和响应。发布 `post`、`fastpost`、`wish`、`wishRespond` 时另按附件大小（`uploads.size`，不含图片和音频）收发布服务费；下载附件时另按附件大小收下载服务费（wish 标价 0，只收服务费）。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是管理员撤下，两者都离开信息流、搜索和 `/wish`，作者的提交记录里仍能看到原因。

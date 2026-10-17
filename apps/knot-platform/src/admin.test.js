@@ -57,6 +57,25 @@ test("remove records the reason and tells the author", async () => {
   assert.equal(calls[2].params[0], "remove");
 });
 
+test("a web close records which human admin did it", async () => {
+  const ADMIN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("UPDATE intel")) return { rows: [{ id: params[0], user_id: USER_ID }] };
+      if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
+      return { rows: [] };
+    },
+  };
+  await removePost(pool, POST_ID, "平台关闭", ADMIN_ID);
+  const action = calls.find((call) => call.sql.includes("admin_actions"));
+  assert.match(action.sql, /actor_id/);
+  assert.equal(action.params[0], "remove");
+  assert.equal(action.params[1], USER_ID);
+  assert.equal(action.params[4], ADMIN_ID);
+});
+
 test("a second remove of the same post stays quiet", async () => {
   let updates = 0;
   const pool = {

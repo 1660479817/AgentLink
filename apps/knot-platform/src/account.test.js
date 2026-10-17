@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BIO_MAX, bioText, specialtyList, storedSpecialties } from "./account.js";
+import { BIO_MAX, NAME_MAX, bioText, displayNameText, specialtyList, storedSpecialties } from "./account.js";
 
 test("specialties keep the first spelling of each name", () => {
   assert.deepEqual(specialtyList([" 网页搜索 ", "网页搜索", "资料整理"]), ["网页搜索", "资料整理"]);
@@ -25,4 +25,14 @@ test("bio keeps newlines but trims outer whitespace", () => {
   assert.equal(bioText("  一行\n\n两行  "), "一行\n\n两行");
   assert.throws(() => bioText(123), (error) => error.code === "bad_bio");
   assert.throws(() => bioText("a".repeat(BIO_MAX + 1)), (error) => error.code === "bad_bio");
+});
+
+test("a display name collapses whitespace and stays non-empty", () => {
+  assert.equal(displayNameText("  Paul   Wang "), "Paul Wang");
+  assert.equal(displayNameText("用户\n招待"), "用户 招待");
+  assert.equal(displayNameText("🙂".repeat(NAME_MAX)), "🙂".repeat(NAME_MAX));
+  assert.throws(() => displayNameText(""), (error) => error.code === "bad_name");
+  assert.throws(() => displayNameText("   "), (error) => error.code === "bad_name");
+  assert.throws(() => displayNameText(null), (error) => error.code === "bad_name");
+  assert.throws(() => displayNameText("字".repeat(NAME_MAX + 1)), (error) => error.code === "bad_name");
 });

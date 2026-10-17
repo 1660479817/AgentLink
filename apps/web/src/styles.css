@@ -412,6 +412,7 @@ body:has(.release-note) .search-sheet {
 }
 
 .rail-label {
+  flex: 0 0 auto;
   margin: 0 0.35rem 0.55rem;
   color: var(--color-muted);
   font-size: 1.05rem;
@@ -421,11 +422,32 @@ body:has(.release-note) .search-sheet {
 .sponsor-list {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: 0.75rem;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+  padding-right: 0.2rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sponsor-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sponsor-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.sponsor-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .sponsor-card {
   display: block;
+  flex: 0 0 auto;
   overflow: hidden;
   background: var(--color-surface);
   border: 1px solid #dddfe2;
@@ -797,7 +819,8 @@ body:has(.release-note) .search-sheet {
   }
 
   .rail-sponsor {
-    display: block;
+    display: flex;
+    flex-direction: column;
     grid-column: 3;
     position: sticky;
     top: calc(var(--header-height) + 1rem);
@@ -805,6 +828,10 @@ body:has(.release-note) .search-sheet {
     width: 100%;
     box-sizing: border-box;
     padding-right: max(0.75rem, env(safe-area-inset-right));
+    /* 给容器一个确定的高度，flex-shrink 才会生效，赞助列表才能在栏内滚动，
+       而不是把下半截顶出视口。 */
+    height: calc(100vh - var(--header-height) - 1.5rem);
+    height: calc(100dvh - var(--header-height) - 1.5rem);
   }
 }
 
@@ -1253,6 +1280,49 @@ body:has(.release-note) .search-sheet {
   resize: none;
 }
 
+.wish-duration {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.wish-duration-label {
+  color: var(--color-text);
+}
+
+.wish-duration-input {
+  width: 4.5rem;
+  min-height: 2.25rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: center;
+}
+
+.wish-duration-input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.wish-duration-hint {
+  flex: 1 1 100%;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .wish-duration-input {
+    min-height: 2.75rem;
+  }
+}
+
 .wish-submit-row {
   display: flex;
   align-items: center;
@@ -1458,6 +1528,34 @@ textarea.share-input:focus {
 
 .share-video {
   margin-bottom: 0.75rem;
+}
+
+.share-poster {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.share-poster .share-video {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.share-poster-thumb {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.share-poster-thumb img {
+  display: block;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--color-bg);
 }
 
 .share-files {
@@ -1881,6 +1979,112 @@ a.intel-bounty:hover {
   line-height: 1;
 }
 
+/* 最近活跃用户：与情报横滑条同一套尺寸 */
+.intel-person {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex: 0 0 var(--story-width);
+  width: var(--story-width);
+  height: var(--story-height);
+  padding: 0.75rem 0.5rem;
+  border-radius: 12px;
+  overflow: hidden;
+  scroll-snap-align: start;
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+  box-sizing: border-box;
+  color: inherit;
+  text-align: center;
+}
+
+a.intel-person,
+a.intel-person:hover {
+  color: inherit;
+  text-decoration: none;
+}
+
+.intel-person-avatar {
+  display: grid;
+  place-items: center;
+  width: 4.25rem;
+  height: 4.25rem;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--color-border-dim);
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px var(--color-accent);
+  color: var(--color-muted);
+  font-size: 1.5rem;
+}
+
+.intel-person-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.intel-person-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
+  word-break: break-word;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.intel-person-time {
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+/* /wish 顶部：正在征集的 wish */
+.wish-rail-title {
+  margin: 0 0 0.5rem;
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* /wish 底部：「写一个」打开发布表单 */
+.wish-compose-prompt {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.wish-compose-icon {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--color-muted);
+}
+
+.wish-tile {
+  position: relative;
+}
+
+.wish-tile-count {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 
 .visually-hidden {
   position: absolute;
@@ -1930,6 +2134,128 @@ a.intel-bounty:hover {
   white-space: nowrap;
 }
 
+.filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.filter-bar-active {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter-bar-candidates {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.filter-bar-legend {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.filter-bar-scroller {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 3px 2px;
+}
+
+.filter-bar-empty {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.filter-bar-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--color-border-dim);
+  border-radius: 999px;
+  background: var(--color-border-dim);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.filter-pill:hover {
+  background: #d8dadf;
+}
+
+.filter-pill:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.filter-pill.is-on {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.filter-pill-label {
+  font-weight: 500;
+}
+
+.filter-pill-value {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-pill-x {
+  font-weight: 700;
+  line-height: 1;
+}
+
+.filter-pill-topic .filter-topic-hash {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.filter-pill-more {
+  background: transparent;
+  border-style: dashed;
+  color: var(--color-muted);
+}
+
+.filter-pill-more:hover {
+  background: var(--color-border-dim);
+  color: var(--color-text);
+}
+
+@media (max-width: 480px) {
+  .filter-pill {
+    min-height: 44px;
+  }
+  .filter-pill-value {
+    max-width: 8rem;
+  }
+}
+
 .profile-head {
   display: flex;
   align-items: flex-start;
@@ -1955,6 +2281,10 @@ a.intel-bounty:hover {
 .profile-avatar.btn-icon:has(img),
 .profile-avatar.btn-icon:has(img):hover:not(:disabled) {
   background: transparent;
+}
+
+.profile-avatar.btn-icon:has(img):hover:not(:disabled) {
+  filter: brightness(0.94);
 }
 
 .profile-name {
@@ -3313,6 +3643,19 @@ a.intel-bounty:hover {
   text-decoration: none;
 }
 
+.information-video-open.is-external {
+  flex-direction: column;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.information-video-external {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
 .information-video-mark {
   width: 4.5rem;
   height: 4.5rem;
@@ -3362,6 +3705,29 @@ a.intel-bounty:hover {
 }
 
 .information-dismiss-icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.5;
+}
+
+.information-close.btn-icon {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  background: #fff;
+  border: 0;
+  color: #050505;
+}
+
+.information-close.btn-icon:hover:not(:disabled) {
+  background: #fff;
+  border: 0;
+  color: #0866ff;
+}
+
+.information-close-icon {
   width: 20px;
   height: 20px;
   stroke-width: 2.5;
@@ -3446,6 +3812,10 @@ button.information-avatar[aria-pressed="true"] {
   box-shadow: 0 0 0 2px var(--color-accent);
 }
 
+button.information-avatar:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
 .information-avatar img {
   width: 100%;
   height: 100%;
@@ -3507,6 +3877,78 @@ button.information-avatar[aria-pressed="true"] {
   color: var(--color-muted);
   font-size: 0.82rem;
   line-height: 1.2;
+}
+
+.information-form {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.information-category {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  vertical-align: baseline;
+  transition: color 150ms ease;
+}
+
+.information-category:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.information-category.is-on {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.information-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0.85rem 0;
+}
+
+.information-topic {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--color-border-dim);
+  border-radius: 999px;
+  background: #f0f2f5;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.information-topic:hover {
+  background: var(--color-border-dim);
+}
+
+.information-topic:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.information-topic.is-on {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+@media (max-width: 480px) {
+  .information-topic {
+    min-height: 44px;
+  }
 }
 
 .information-price {

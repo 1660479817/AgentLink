@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls, videoFrame } from "./packet.js";
+import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoUrls, videoFrame } from "./packet.js";
 
 test("a card keeps each part inside its capacity", () => {
   const images = [
@@ -34,4 +34,31 @@ test("a video link becomes one preview frame", () => {
   assert.match(videoFrame("https://www.bilibili.com/video/BV1xx411c7mD").src, /bvid=BV1xx411c7mD/);
   assert.equal(videoFrame("https://cdn.example.com/a.mp4").kind, "file");
   assert.equal(videoFrame("https://example.com/watch").kind, "open");
+});
+
+test("a landing page plays its resolved direct stream", () => {
+  const frame = videoFrame("https://example.com/news/watch", "https://cdn.example.com/cover.jpg", "https://cdn.example.com/v/clip.mp4");
+  assert.equal(frame.kind, "file");
+  assert.equal(frame.src, "https://cdn.example.com/v/clip.mp4");
+  assert.equal(frame.poster, "https://cdn.example.com/cover.jpg");
+});
+
+test("a non-file playUrl is ignored and the landing page opens", () => {
+  const frame = videoFrame("https://example.com/news/watch", "", "https://cdn.example.com/v/clip.m3u8");
+  assert.equal(frame.kind, "open");
+  assert.equal(frame.src, "https://example.com/news/watch");
+});
+
+test("packetVideos keeps a resolved play url", () => {
+  const [video] = packetVideos([{ url: "https://example.com/watch", poster: "https://cdn.example.com/c.jpg", playUrl: "https://cdn.example.com/v/clip.mp4" }]);
+  assert.equal(video.url, "https://example.com/watch");
+  assert.equal(video.poster, "https://cdn.example.com/c.jpg");
+  assert.equal(video.playUrl, "https://cdn.example.com/v/clip.mp4");
+});
+
+test("a card form is video, then photo, then text", () => {
+  assert.equal(packetForm({ videos: [{ url: "https://example.com/v", poster: "https://cdn.example.com/c.jpg" }] }), "video");
+  assert.equal(packetForm({ images: [{ id: "a", url: "/a" }] }), "image");
+  assert.equal(packetForm({ imageUrls: ["https://example.com/a.jpg"] }), "image");
+  assert.equal(packetForm({ body: "只有文字" }), "text");
 });

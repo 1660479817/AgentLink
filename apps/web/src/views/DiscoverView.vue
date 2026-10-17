@@ -5,9 +5,10 @@ import InformationCard from "../components/InformationCard.vue";
 import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { addCardFriend, discoverSelf, dismissInformation, downloadInformation, downloadShare, getInformation, listInformation, listRequests, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
+import { addCardFriend, closeInformation, discoverSelf, dismissInformation, downloadInformation, downloadShare, fetchFacets, getInformation, listInformation, listPeople, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
+import FilterBar from "../components/FilterBar.vue";
 import { applyDiscoverSelf, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
-import { nameMark } from "../composers/packet.js";
+import { errorText, nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { feeOf, priceOf } from "../record.js";
 import { startPolling } from "../polling.js";
@@ -21,11 +22,12 @@ import { useSessionStore } from "../stores/session";
 const session = useSessionStore();
 const pending = readAhead();
 const opening = pending
-  ? { information: pending.information || [], requests: pending.requests || [] }
+  ? { information: pending.information || [], requests: pending.requests || [], people: pending.people || [], facets: pending.facets || { categories: [], topics: [] } }
   : paintDiscover(readDiscoverMemory(), session.user?.id);
 const items = ref(opening.information);
-const wishes = ref(opening.requests);
-const feedReady = ref(opening.information.length > 0 || opening.requests.length > 0);
+const people = ref(opening.people || []);
+const facets = ref(opening.facets || { categories: [], topics: [] });
+const feedReady = ref(opening.information.length > 0 || (opening.people || []).length > 0);
 const cursor = ref(null);
 const loadingMore = ref(false);
 const moreAvailable = ref(false);
@@ -43,9 +45,12 @@ const route = useRoute();
 const router = useRouter();
 const searchQ = computed(() => String(route.query.q || "").trim());
 const authorQ = computed(() => String(route.query.author || "").trim());
+const categoryQ = computed(() => String(route.query.category || "").trim());
+const topicQ = computed(() => String(route.query.topic || "").trim());
 const postQ = computed(() => String(route.query.post || "").trim());
 const filterAuthor = ref(null);
-const filterLabel = computed(() => filterAuthor.value?.name || t("home.author"));
+const activeFilters = computed(() => ({ category: categoryQ.value, topic: topicQ.value }));
+const hasFilter = computed(() => Boolean(searchQ.value || authorQ.value || categoryQ.value || topicQ.value));
 const createMark = computed(() => nameMark(session.user));
 
 let railObserver = null;
@@ -56,6 +61,13 @@ const FEED_POLL_MS = 60 * 1000;
 
 onMounted(() => {
   load().then(() => focusPost());
+  fetchFacets()
+    .then((next) => {
+      facets.value = next || { categories: [], topics: [] };
+    })
+    .catch(() => {
+      /* 隧道断时沿用快照里的 facets，或空选项 */
+    });
   feedPoll = startPolling({
     fn: refreshFeed,
     intervalMs: FEED_POLL_MS,
@@ -83,7 +95,7 @@ onBeforeUnmount(() => {
   feedPoll = null;
   endRailDrag();
 });
-watch([searchQ, authorQ], () => {
+watch([searchQ, authorQ, categoryQ, topicQ], () => {
   if (authorQ.value && filterAuthor.value?.id !== authorQ.value) filterAuthor.value = null;
   if (!authorQ.value) filterAuthor.value = null;
   load();
@@ -94,14 +106,15 @@ watch([feedReady, () => items.value.length], async () => {
   feedObserver.disconnect();
   if (feedEnd.value && !searchQ.value) feedObserver.observe(feedEnd.value);
 });
-watch(wishes, async () => {
+watch(people, async () => {
   await nextTick();
   updateRail();
 });
 
 function showPainted(painted) {
   items.value = painted.information;
-  wishes.value = painted.requests;
+  if (Array.isArray(painted.people)) people.value = painted.people;
+  facets.value = painted.facets || { categories: [], topics: [] };
   feedReady.value = true;
   cursor.value = painted.information.length ? painted.information[painted.information.length - 1].id : null;
   moreAvailable.value = painted.information.length > 0;
@@ -129,7 +142,7 @@ async function loadMore() {
   if (loadingMore.value || !moreAvailable.value || searchQ.value) return;
   loadingMore.value = true;
   try {
-    const data = await listInformation(authorQ.value || null, cursor.value || null);
+    const data = await listInformation(authorQ.value || null, cursor.value || null, activeFilters.value);
     const incoming = Array.isArray(data.information) ? data.information : [];
     const seen = new Set(items.value.map((item) => item.id));
     const fresh = incoming.filter((row) => row?.id && !seen.has(row.id));
@@ -147,7 +160,7 @@ async function loadMore() {
 
 async function patchSelf(painted) {
   if (!session.user) return painted;
-  const ids = [...painted.information, ...painted.requests].map((item) => item.id);
+  const ids = (painted.information || []).map((item) => item.id);
   try {
     return applyDiscoverSelf(painted, await discoverSelf(ids));
   } catch {
@@ -158,12 +171,9 @@ async function patchSelf(painted) {
 async function loadLive(options = {}) {
   const q = searchQ.value;
   const author = authorQ.value;
-  const [info, wish] = await Promise.all([
-    q ? searchInformation(q) : listInformation(author),
-    listRequests(),
-  ]);
+  const info = q ? await searchInformation(q, activeFilters.value) : await listInformation(author, null, activeFilters.value);
   filterAuthor.value = author ? info.author || null : null;
-  const painted = { information: info.information || [], requests: wish.requests || [] };
+  const painted = { information: info.information || [], requests: [], people: people.value, facets: facets.value };
   if (options.ahead) rememberAhead(painted);
   showPainted(painted);
 }
@@ -180,20 +190,12 @@ async function loadBoard() {
 }
 
 async function load(options = {}) {
-  const live = options.live === true || Boolean(searchQ.value) || Boolean(authorQ.value);
+  const live = options.live === true || hasFilter.value;
   try {
-    if (live) await loadLive({ ahead: options.live === true && !searchQ.value && !authorQ.value });
+    if (live) await loadLive({ ahead: options.live === true && !hasFilter.value });
     else await loadBoard();
   } catch {
-    if (searchQ.value) {
-      items.value = [];
-      wishes.value = [];
-      feedReady.value = true;
-      cursor.value = null;
-      moreAvailable.value = false;
-      return;
-    }
-    if (authorQ.value) {
+    if (hasFilter.value) {
       items.value = [];
       feedReady.value = true;
       cursor.value = null;
@@ -211,7 +213,6 @@ async function load(options = {}) {
     }
     if (!items.value.length) {
       items.value = [];
-      wishes.value = [];
       cursor.value = null;
       moreAvailable.value = false;
     }
@@ -223,9 +224,9 @@ async function refreshFeed() {
   if (refreshing || !feedReady.value || loadingMore.value || searchQ.value) return;
   refreshing = true;
   try {
-    const [info, wish] = await Promise.all([
-      listInformation(authorQ.value || null),
-      listRequests(),
+    const [info, roster] = await Promise.all([
+      listInformation(authorQ.value || null, null, activeFilters.value),
+      listPeople(),
     ]);
     const incoming = Array.isArray(info.information) ? info.information : [];
     const byId = new Map(items.value.map((item) => [item.id, item]));
@@ -236,7 +237,7 @@ async function refreshFeed() {
       if (existing) Object.assign(existing, row);
       else fresh.push(row);
     }
-    wishes.value = wish.requests || [];
+    if (Array.isArray(roster.people)) people.value = roster.people;
     filterAuthor.value = authorQ.value ? info.author || null : null;
     if (fresh.length && window.scrollY < 200) {
       items.value = [...fresh, ...items.value];
@@ -263,17 +264,15 @@ watch(
   }
 );
 
-function wishText(wish) {
-  const body = String(wish.body || "").trim();
-  if (body) return body;
-  const file = [...(wish.images || []), ...(wish.audio || []), ...(wish.attachments || [])][0];
-  return file?.name || file?.url || t("nav.wish");
-}
-
-function wishTo(wish) {
-  return wish.mine
-    ? { name: "wish", query: { wish: wish.id } }
-    : { name: "wish", query: { respond: wish.id } };
+function lastSeen(value) {
+  const then = Date.parse(value || "");
+  if (!Number.isFinite(then)) return "";
+  const minutes = Math.max(0, Math.floor((Date.now() - then) / 60000));
+  if (minutes < 1) return t("home.justNow");
+  if (minutes < 60) return t("home.minutesAgo", { n: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("home.hoursAgo", { n: hours });
+  return t("home.daysAgo", { n: Math.floor(hours / 24) });
 }
 
 function updateRail() {
@@ -339,20 +338,29 @@ function onRailPointerUp(event) {
   el?.addEventListener("click", stopClick, true);
 }
 
-function clearSearch() {
+function clearAllFilters() {
+  filterAuthor.value = null;
   router.push({ name: "discover", query: {} });
 }
 
-function clearAuthor() {
-  filterAuthor.value = null;
-  router.push({ name: "discover", query: {} });
+function clearFilterKey(key) {
+  if (key === "author") filterAuthor.value = null;
+  const query = { ...route.query };
+  delete query[key];
+  router.push({ name: "discover", query });
+}
+
+function selectFilter(key, value) {
+  const query = { ...route.query };
+  query[key] = value;
+  router.push({ name: "discover", query });
 }
 
 function filterByAuthor(item) {
   const id = item?.author?.id;
   if (!id) return;
   if (authorQ.value === id) {
-    clearAuthor();
+    clearFilterKey("author");
     return;
   }
   filterAuthor.value = {
@@ -360,7 +368,27 @@ function filterByAuthor(item) {
     name: item.author?.name || "",
     avatarUrl: item.author?.avatarUrl || "",
   };
-  router.push({ name: "discover", query: { author: id } });
+  selectFilter("author", id);
+}
+
+function filterByCategory(item) {
+  const category = String(item?.kMeta?.category || "").trim();
+  if (!category) return;
+  if (categoryQ.value === category) {
+    clearFilterKey("category");
+    return;
+  }
+  selectFilter("category", category);
+}
+
+function filterByTopic(topic) {
+  const value = String(topic || "").trim();
+  if (!value) return;
+  if (topicQ.value === value) {
+    clearFilterKey("topic");
+    return;
+  }
+  selectFilter("topic", value);
 }
 
 function openSnap() {
@@ -391,6 +419,22 @@ async function dismissItem(item) {
       showDiscoverItem(item.id);
       items.value = previous;
     }
+  }
+}
+
+async function closeItem(item) {
+  if (!session.user?.admin || item.closing) return;
+  item.closing = true;
+  item.closeError = "";
+  const previous = items.value;
+  try {
+    await closeInformation(item.id);
+    hideDiscoverItem(item.id);
+    items.value = items.value.filter((row) => row.id !== item.id);
+  } catch (error) {
+    item.closeError = errorText(error.code, session.policy);
+  } finally {
+    item.closing = false;
   }
 }
 
@@ -448,7 +492,7 @@ async function downloadItem(item) {
     });
     if (!ok) return;
     try {
-      const data = searchQ.value ? await searchInformation(searchQ.value) : await listInformation(authorQ.value);
+      const data = searchQ.value ? await searchInformation(searchQ.value, activeFilters.value) : await listInformation(authorQ.value, null, activeFilters.value);
       const next = (data.information || []).find((row) => row.id === item.id);
       if (next) Object.assign(item, next);
       else item.granted = true;
@@ -463,11 +507,6 @@ async function downloadItem(item) {
 </script>
 
 <template>
-  <section v-if="searchQ" class="card search-context">
-    <p class="search-context-label">{{ t("home.searchResults", { q: searchQ }) }}</p>
-    <AppButton variant="secondary" @click="clearSearch">{{ t("home.clearSearch") }}</AppButton>
-  </section>
-
   <ShareComposer
     v-if="!searchQ"
     :active="surface === 'share'"
@@ -491,13 +530,19 @@ async function downloadItem(item) {
         </span>
         <span class="intel-create-label">{{ t("home.storyCreate") }}</span>
       </button>
-      <RouterLink v-for="wish in wishes" :key="wish.id" class="intel-bounty" :to="wishTo(wish)">
-        <span class="intel-bounty-body">
-          <span class="intel-bounty-text">{{ wishText(wish) }}</span>
+      <RouterLink
+        v-for="person in people"
+        :key="person.id"
+        class="intel-person"
+        :to="{ name: 'discover', query: { author: person.id } }"
+        :aria-label="t('home.personCard', { name: person.name || t('home.author') })"
+      >
+        <span class="intel-person-avatar" aria-hidden="true">
+          <img v-if="person.avatarUrl" :src="person.avatarUrl" alt="" />
+          <UserIcon v-else />
         </span>
-        <span class="intel-bounty-reward">
-          {{ wish.mine && wish.responseCount != null ? t("home.wishReplyCount", { n: wish.responseCount || 0 }) : t("nav.wish") }}
-        </span>
+        <span class="intel-person-name">{{ person.name || t("home.author") }}</span>
+        <span v-if="lastSeen(person.lastAt)" class="intel-person-time">{{ lastSeen(person.lastAt) }}</span>
       </RouterLink>
     </div>
     <button
@@ -522,16 +567,17 @@ async function downloadItem(item) {
 
   <SnapComposer v-if="surface === 'snap'" @close="closeSurface" @done="afterPost" />
 
-  <section v-if="authorQ" class="card feed-filter">
-    <div class="feed-filter-who">
-      <span class="information-avatar" aria-hidden="true">
-        <img v-if="filterAuthor?.avatarUrl" :src="filterAuthor.avatarUrl" alt="" />
-        <UserIcon v-else />
-      </span>
-      <p class="feed-filter-name">{{ filterLabel }}</p>
-    </div>
-    <AppButton variant="secondary" @click="clearAuthor">{{ t("home.showAll") }}</AppButton>
-  </section>
+  <FilterBar
+    :query="searchQ"
+    :author="filterAuthor"
+    :category="categoryQ"
+    :topic="topicQ"
+    :categories="facets.categories"
+    :topics="facets.topics"
+    @clear="clearAllFilters"
+    @clear-key="clearFilterKey"
+    @select="selectFilter"
+  />
 
   <div v-if="!feedReady" class="card feed-skeleton" role="status" :aria-label="t('app.loading')" />
   <div v-if="!feedReady" class="card feed-skeleton" aria-hidden="true" />
@@ -542,6 +588,9 @@ async function downloadItem(item) {
     :id="`intel-${item.id}`"
     :body="item.body || ''"
     :category="item.kMeta?.category || ''"
+    :topics="item.kMeta?.topics || []"
+    :category-selected="categoryQ === (item.kMeta?.category || '')"
+    :active-topic="topicQ"
     :language="item.kMeta?.language || ''"
     :price="priceOf(item)"
     :granted="item.granted !== false"
@@ -564,16 +613,21 @@ async function downloadItem(item) {
     :can-friend="Boolean(item.canFriend)"
     :busy="Boolean(item.downloading) || (Boolean(session.user) && item.personal === false)"
     :sharing="Boolean(item.sharing)"
-    :notice="item.shareError || ''"
+    :notice="item.closeError || item.shareError || ''"
+    :can-close="Boolean(session.user?.admin)"
+    :closing="Boolean(item.closing)"
     @author="filterByAuthor(item)"
+    @category="filterByCategory(item)"
+    @topic="filterByTopic"
     @dismiss="dismissItem(item)"
     @star="toggleStar(item)"
     @friend="toggleFriend(item)"
     @download="downloadItem(item)"
     @share="shareItem(item)"
+    @close="closeItem(item)"
   />
   <p v-if="feedReady && items.length === 0" class="muted feed-empty">
-    {{ searchQ ? t("home.searchEmpty") : authorQ ? t("home.filterEmpty") : t("home.empty") }}
+    {{ searchQ ? t("home.searchEmpty") : hasFilter ? t("home.filterEmpty") : t("home.empty") }}
   </p>
   <div v-else-if="feedReady && !searchQ" class="feed-more">
     <div ref="feedEnd" class="feed-end" aria-hidden="true"></div>

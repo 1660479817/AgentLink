@@ -60,6 +60,33 @@ test("a before cursor pages strictly after the anchor, then time and weight", as
   assert.deepEqual(calls[0].params, [null, anchor, 30]);
 });
 
+test("a category and a topic narrow the public feed together", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+  await listPublicIntel(pool, 30, null, null, null, { category: "招聘", topic: "大模型" });
+  assert.match(calls[0].sql, /AND i\.category = \$2/);
+  assert.match(calls[0].sql, /AND \(i\.detail -> 'topics'\) \? \$3/);
+  assert.deepEqual(calls[0].params, [null, "招聘", "大模型", 30]);
+});
+
+test("search applies the same category and topic filters", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+  await searchPublicIntel(pool, "住房", null, { category: "房产" });
+  assert.match(calls[0].sql, /AND i\.category = \$2/);
+  assert.deepEqual(calls[0].params, [null, "房产"]);
+});
+
 test("a public author is only someone with a visible post", async () => {
   const calls = [];
   const pool = {

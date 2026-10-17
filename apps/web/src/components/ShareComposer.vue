@@ -29,6 +29,7 @@ const videoInput = ref(null);
 const imageInput = ref(null);
 const fileInput = ref(null);
 const audioInput = ref(null);
+const posterInput = ref(null);
 const {
   images,
   previewUrls,
@@ -36,6 +37,8 @@ const {
   audio,
   video,
   videoOpen,
+  posterFile,
+  posterPreview,
   price,
   error,
   hasUpload,
@@ -45,6 +48,8 @@ const {
   removeFile,
   setAudio,
   removeAudio,
+  setPosterFile,
+  removePoster,
   reset: resetMedia,
 } = usePacketMedia();
 const mark = computed(() => nameMark(session.user));
@@ -145,6 +150,12 @@ function pickAudio(event) {
   if (file) setAudio(file);
 }
 
+function pickPoster(event) {
+  const file = Array.from(event.target.files || [])[0];
+  event.target.value = "";
+  if (file) setPosterFile(file);
+}
+
 function submit() {
   if (!canSend.value || busy.value) return;
   error.value = "";
@@ -152,6 +163,14 @@ function submit() {
   if (link === null) {
     error.value = t("home.badVideo");
     return;
+  }
+  let videoPayload = null;
+  if (link) {
+    if (!posterFile.value) {
+      error.value = t("home.badPoster");
+      return;
+    }
+    videoPayload = { url: link, posterFile: posterFile.value };
   }
   const priced = files.value.length ? readOptionalPrice(price.value, session.policy) : { ok: true, price: undefined };
   if (files.value.length && !priced.ok) {
@@ -166,7 +185,6 @@ function submit() {
   }
   const extra = { kind: "post", public: isPublic.value };
   if (files.value.length && priced.price !== undefined) extra.price = priced.price;
-  if (link) extra.videos = [link];
   if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
   busy.value = true;
   outbox.enqueue(packetDraft({
@@ -174,6 +192,7 @@ function submit() {
     images: images.value,
     files: files.value.map((item) => item.file),
     audio: audio.value?.file || null,
+    video: videoPayload,
     extra,
     policy: session.policy,
   }));
@@ -263,6 +282,23 @@ function submit() {
           :placeholder="t('home.videoPlaceholder')"
           :disabled="busy"
         />
+        <div v-if="videoOpen || video" class="share-poster">
+          <AppButton variant="secondary" type="button" :disabled="busy" @click="posterInput?.click()">
+            {{ t("home.posterPick") }}
+          </AppButton>
+          <span v-if="posterPreview" class="share-poster-thumb">
+            <img :src="posterPreview" alt="" />
+            <AppButton
+              variant="icon"
+              type="button"
+              :aria-label="t('home.remove')"
+              :disabled="busy"
+              @click="removePoster"
+            >
+              <CloseIcon aria-hidden="true" />
+            </AppButton>
+          </span>
+        </div>
         <ul v-if="audio" class="chat-pending share-files">
           <li class="chat-pending-item">
             <span class="chat-file-name share-file-name">{{ audio.name }}</span>
@@ -317,6 +353,7 @@ function submit() {
       <input ref="imageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickImages" />
       <input ref="fileInput" type="file" :accept="ATTACHMENT_ACCEPT" multiple class="visually-hidden" @change="pickFiles" />
       <input ref="audioInput" type="file" accept="audio/*" class="visually-hidden" @change="pickAudio" />
+      <input ref="posterInput" type="file" accept="image/*" class="visually-hidden" @change="pickPoster" />
     </form>
   </section>
 </template>

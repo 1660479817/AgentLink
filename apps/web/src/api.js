@@ -75,12 +75,16 @@ export function uploadImage(file, onProgress) {
   return uploadForm("/api/web/uploads", file, onProgress);
 }
 
-export function listInformation(author, before) {
+export function listInformation(author, before, filters = {}) {
   const id = String(author || "").trim();
   const cursor = String(before || "").trim();
   const query = new URLSearchParams();
   if (id) query.set("author", id);
   if (cursor) query.set("before", cursor);
+  const category = String(filters.category || "").trim();
+  if (category) query.set("category", category);
+  const topic = String(filters.topic || "").trim();
+  if (topic) query.set("topic", topic);
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return request(`/api/web/information${suffix}`);
 }
@@ -103,6 +107,10 @@ export function getEconomy() {
 
 export function dismissInformation(id) {
   return request(`/api/web/intel/${id}/dismiss`, { method: "POST", body: "{}" });
+}
+
+export function closeInformation(id, reason = "") {
+  return request(`/api/web/intel/${id}/close`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
 export function listStars() {
@@ -137,6 +145,10 @@ export function listRequests() {
   return request("/api/web/requests");
 }
 
+export function listPeople() {
+  return request("/api/web/people");
+}
+
 export function listRequestResponses(id) {
   return request(`/api/web/requests/${id}/responses`);
 }
@@ -153,8 +165,17 @@ export function lookRequest(id) {
   return request(`/api/web/requests/${id}/look`, { method: "POST", body: "{}" });
 }
 
-export function searchInformation(q) {
-  return request(`/api/web/search?q=${encodeURIComponent(q)}`);
+export function searchInformation(q, filters = {}) {
+  const query = new URLSearchParams({ q: String(q || "") });
+  const category = String(filters.category || "").trim();
+  if (category) query.set("category", category);
+  const topic = String(filters.topic || "").trim();
+  if (topic) query.set("topic", topic);
+  return request(`/api/web/search?${query.toString()}`);
+}
+
+export function fetchFacets() {
+  return request("/api/web/facets");
 }
 
 export function createIntel(body, imageIds = [], fileIds = [], extra = {}) {

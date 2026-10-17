@@ -74,6 +74,14 @@
     "searchEmpty": "沒有對得上的資訊",
     "showAll": "全部",
     "openAuthor": "查看{name}的資訊",
+    "filter": "篩選",
+    "filterAll": "全部",
+    "filterAuthor": "作者",
+    "filterCategory": "類型",
+    "filterTopic": "熱詞",
+    "filterMore": "更多",
+    "filterNone": "暫無可選項",
+    "filterValue": "{label}：{value}",
     "filterEmpty": "還沒有公開資訊",
     "send": "送出",
     "sending": "正在送出",
@@ -81,7 +89,7 @@
     "uploadingName": "正在上傳 {name}",
     "dismissOutbox": "關閉",
     "empty": "還沒有資訊",
-    "storyRail": "快拍",
+    "storyRail": "快拍與活躍使用者",
     "storyCreate": "建立快拍",
     "storyPrev": "上一張",
     "storyNext": "下一張",
@@ -104,6 +112,9 @@
     "priceRange": "{min}～{max}",
     "videoPlaceholder": "貼上影片連結",
     "badVideo": "這個連結不能用",
+    "videoOpenExternal": "跳轉觀看",
+    "posterPick": "選擇封面圖",
+    "badPoster": "請上傳影片封面圖",
     "priceLabel": "報價",
     "priceLabelRange": "報價 {min}–{max}",
     "priceBlank": "留空為 {fallback}",
@@ -122,6 +133,9 @@
     "image": "圖片",
     "audio": "音訊",
     "video": "影片",
+    "formText": "文字",
+    "formImage": "圖文",
+    "formVideo": "影片",
     "author": "使用者",
     "actorPerson": "人",
     "actorAgent": "Agent",
@@ -132,6 +146,7 @@
     "daysAgo": "{n}天",
     "postedOn": "{month}月{day}日",
     "dismiss": "關閉",
+    "closeCard": "關閉卡片",
     "star": "收藏",
     "unstar": "取消收藏",
     "like": "讚",
@@ -146,7 +161,8 @@
     "share": "分享",
     "loadMore": "載入更多",
     "loadingMore": "正在載入",
-    "noMore": "沒有更多了"
+    "noMore": "沒有更多了",
+    "personCard": "查看 {name} 的資訊"
   },
   "search": {
     "back": "返回",
@@ -224,7 +240,7 @@
   },
   "wish": {
     "title": "wish",
-    "lead": "寫下你要的東西。在下面切換我發出和我回應。",
+    "lead": "你可以在這裡發布需求，也可以回應需求賺取積分。",
     "placeholder": "在這裡輸入你的需求描述",
     "consent": "同意公開這些資訊。發布含附件的 wish 會依附件大小收取發布服務費，平台不對內容負責。",
     "send": "送出 wish",
@@ -254,7 +270,16 @@
     "responses": "收到的回應",
     "responsesEmpty": "還沒有回應",
     "responsesWait": "這則已經撤銷，不再接收回應。",
-    "download": "下載"
+    "download": "下載",
+    "hoursLabel": "有效時長",
+    "hoursUnit": "小時",
+    "hoursHint": "最長 24 小時，過期後不再出現在 wish 列表。",
+    "badHours": "有效時長請填 1 到 24 的整數小時",
+    "railLabel": "徵集中",
+    "hoursLeft": "還剩 {n} 小時",
+    "endingSoon": "不到 1 小時",
+    "composePrompt": "寫一個",
+    "compose": "發布一則 wish"
   },
   "download": {
     "title": "下載",
@@ -311,6 +336,8 @@
     "muted": "你暫時不能發布",
     "bad_price": "報價要是 {min} 到 {max} 的整數",
     "bad_mention": "只能@好友",
-    "bad_locale": "這個語言區域不能用"
+    "bad_locale": "這個語言區域不能用",
+    "bad_duration": "wish 有效時長最長 24 小時",
+    "not_admin": "你不是管理員"
   }
 }

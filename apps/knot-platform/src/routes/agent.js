@@ -3,8 +3,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
 import { listRequestResponses, listRequests } from "../requests.js";
-import { hasInformation, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videosOf } from "../information.js";
-import { readMedia } from "../links.js";
+import { hasInformation, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videoItemsOf } from "../information.js";
+import { readImageMedia, readMedia } from "../links.js";
 import {
   FEEDBACK_MAX,
   normalizeEmail,
@@ -13,7 +13,7 @@ import {
   requestLoginKey,
   sendFeedback,
 } from "../login.js";
-import { bioText, muteState, specialtyList, storedSpecialties } from "../account.js";
+import { bioText, displayNameText, muteState, specialtyList, storedSpecialties } from "../account.js";
 import { decideAgentAccess, suppliedAgentEmail } from "../agentAccess.js";
 import { listFriends } from "../friends.js";
 import { createIntel, downloadPacket } from "../market.js";
@@ -37,9 +37,12 @@ function feedbackTooSoon(userId) {
 function agentFail(res, error) {
   const code = error.code || error.message;
   if (code === "bad_video") return res.status(400).json({ error: "bad_video" });
+  if (code === "bad_poster") return res.status(400).json({ error: "bad_poster" });
+  if (code === "bad_image") return res.status(400).json({ error: "bad_image" });
   if (code === "bad_url") return res.status(400).json({ error: "bad_url" });
   if (code === "nothing_to_download") return res.status(400).json({ error: "nothing_to_download" });
   if (code === "bad_price") return res.status(400).json({ error: "bad_price" });
+  if (code === "bad_duration") return res.status(400).json({ error: "bad_duration" });
   if (code === "bad_public") return res.status(400).json({ error: "bad_public" });
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
@@ -74,30 +77,30 @@ async function userFromAccess(pool, header, emailRaw) {
 
 function readDelivery(body, limits = {}) {
   const text = typeof body?.body === "string" ? body.body.trim() : "";
-  let images;
+  let images = [];
   let audio;
   let attachments;
   try {
-    images = readMedia(body?.images, limits.images ?? MAX_IMAGES);
+    images = readImageMedia(body?.images, limits.images ?? MAX_IMAGES);
     audio = readMedia(body?.audio, MAX_AUDIO);
     attachments = readMedia(body?.attachments, limits.files ?? MAX_FILES);
   } catch (error) {
-    if (error.code === "bad_url") return { error: "bad_url", status: 400 };
+    if (error.code === "bad_url" || error.code === "bad_image") return { error: error.code, status: 400 };
     throw error;
   }
   let videos = [];
   if (body && Object.prototype.hasOwnProperty.call(body, "videos")) {
     try {
-      videos = videosOf(body.videos);
+      videos = videoItemsOf(body.videos);
     } catch (error) {
-      if (error.code === "bad_video") return { error: "bad_video", status: 400 };
+      if (error.code === "bad_video" || error.code === "bad_poster") return { error: error.code, status: 400 };
       throw error;
     }
   }
   return {
     body: text,
-    imageIds: images.ids,
-    imageUrls: images.urls,
+    imageIds: images,
+    imageUrls: [],
     audioIds: audio.ids,
     audioUrls: audio.urls,
     fileIds: attachments.ids,
@@ -283,8 +286,14 @@ export function agentRouter({ pool, uploadDir }) {
     const access = await accessFor(req, res, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const hasName = typeof req.body?.displayName === "string";
-    const name = hasName ? req.body.displayName.replace(/\s+/g, " ").trim() : null;
-    if (hasName && (!name || name.length > 40)) return res.status(400).json({ error: "bad_name" });
+    let name;
+    if (hasName) {
+      try {
+        name = displayNameText(req.body.displayName);
+      } catch {
+        return res.status(400).json({ error: "bad_name" });
+      }
+    }
     let avatarId;
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "avatarUploadId")) {
       const raw = req.body.avatarUploadId;
@@ -378,6 +387,7 @@ export function agentRouter({ pool, uploadDir }) {
         videos: delivery.videos,
         isPublic: req.body?.public,
         price: req.body?.price,
+        hours: req.body?.hours,
         kind: typeof req.body?.kind === "string" ? req.body.kind : "",
         respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
         mentions: req.body?.mentions,

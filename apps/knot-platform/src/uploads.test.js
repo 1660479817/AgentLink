@@ -64,6 +64,28 @@ test("avatars larger than 512 are compressed to a 512 jpeg", async () => {
   assert.equal(await fitAvatar(exact), null);
 });
 
+test("a transparent avatar is flattened onto white, not black", async () => {
+  const mark = await sharp({
+    create: { width: 800, height: 800, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .png()
+    .toBuffer();
+  const fitted = await fitAvatar(mark);
+  const { data, info } = await sharp(fitted).raw().toBuffer({ resolveWithObject: true });
+  assert.equal(info.channels, 3);
+  // 四角原本是透明，压平后必须是白，不能是 sharp 默认的纯黑。
+  for (const [x, y] of [
+    [0, 0],
+    [info.width - 1, 0],
+    [0, info.height - 1],
+    [info.width - 1, info.height - 1],
+  ]) {
+    const at = (y * info.width + x) * info.channels;
+    const [r, g, b] = [data[at], data[at + 1], data[at + 2]];
+    assert.ok(r > 200 && g > 200 && b > 200, `corner ${x},${y} is ${r},${g},${b}`);
+  }
+});
+
 test("a card image is a jpeg that fits the column", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "knot-card-"));
   try {

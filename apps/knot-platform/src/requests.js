@@ -1,6 +1,7 @@
 import { toRecord } from "./card.js";
 import { fileView, visibleVerdict } from "./information.js";
 import { avatarUrlFor } from "./avatars.js";
+import { wishLive } from "./wish.js";
 
 function iso(value) {
   if (!value) return null;
@@ -30,7 +31,7 @@ async function filesByIntel(pool, ids) {
 
 export async function listRequests(pool, viewerId = null) {
   const { rows } = await pool.query(
-    `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.user_id, i.actor, i.created_at, i.updated_at,
+    `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.user_id, i.actor, i.created_at, i.updated_at, i.expires_at,
             (SELECT count(*)::int FROM intel r
              WHERE r.responds_to = i.id AND r.kind = 'wishRespond' AND ${visibleVerdict("r.verdict")}) AS response_count,
             EXISTS (
@@ -38,7 +39,7 @@ export async function listRequests(pool, viewerId = null) {
               WHERE u.intel_id = i.id AND u.user_id = $1
             ) AS unlocked
      FROM intel i
-     WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")}
+     WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
      ORDER BY i.created_at DESC`,
     [viewerId]
   );
@@ -60,7 +61,7 @@ export async function listMyResponses(pool, userId) {
     `SELECT r.id, r.actor, r.body, r.videos, r.links, r.content_hash, r.detail, r.verdict, r.reject_reason, r.price, r.category, r.kind, r.is_public,
             r.created_at, r.updated_at, r.responds_to,
             q.actor AS wish_actor, q.body AS wish_body, q.videos AS wish_videos, q.links AS wish_links, q.content_hash AS wish_content_hash, q.price AS wish_price,
-            q.detail AS wish_detail, q.category AS wish_category, q.verdict AS wish_verdict, q.created_at AS wish_created_at
+            q.detail AS wish_detail, q.category AS wish_category, q.verdict AS wish_verdict, q.created_at AS wish_created_at, q.expires_at AS wish_expires_at
      FROM intel r
      LEFT JOIN intel q ON q.id = r.responds_to AND q.kind = 'wish'
      WHERE r.user_id = $1 AND r.kind = 'wishRespond'
@@ -86,6 +87,7 @@ export async function listMyResponses(pool, userId) {
             is_public: false,
             verdict: row.wish_verdict || "pending",
             created_at: row.wish_created_at,
+            expires_at: row.wish_expires_at,
           },
           { files: files.get(row.responds_to) || [], granted: false }
         )
@@ -95,14 +97,14 @@ export async function listMyResponses(pool, userId) {
 
 export async function listLooks(pool, userId) {
   const { rows } = await pool.query(
-    `SELECT i.id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.created_at, i.updated_at,
+    `SELECT i.id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.created_at, i.updated_at, i.expires_at,
             l.created_at AS looked_at,
             EXISTS (
               SELECT 1 FROM request_unlocks u
               WHERE u.intel_id = i.id AND u.user_id = $1
             ) AS unlocked
      FROM request_looks l
-     JOIN intel i ON i.id = l.intel_id AND i.kind = 'wish' AND ${visibleVerdict("i.verdict")}
+     JOIN intel i ON i.id = l.intel_id AND i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
      WHERE l.user_id = $1
      ORDER BY l.created_at DESC`,
     [userId]
@@ -119,7 +121,7 @@ export async function listLooks(pool, userId) {
 
 export async function lookRequest(pool, userId, requestId) {
   const { rows } = await pool.query(
-    `SELECT id, user_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")}`,
+    `SELECT id, user_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")} AND ${wishLive("intel")}`,
     [requestId]
   );
   if (!rows.length) {

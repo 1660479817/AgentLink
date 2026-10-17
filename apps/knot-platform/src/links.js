@@ -40,6 +40,13 @@ export function readMedia(value, limit) {
   return { ids, urls };
 }
 
+// 图片只收平台上传 id，不收外链。收到外链时报 bad_image。
+export function readImageMedia(value, limit) {
+  const { ids, urls } = readMedia(value, limit);
+  if (urls.length) throw fail("bad_image");
+  return ids;
+}
+
 function storedAddress(id) {
   return publicUploadUrl(String(id).toLowerCase());
 }

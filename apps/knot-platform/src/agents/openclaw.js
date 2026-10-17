@@ -91,6 +91,27 @@ function categoryOf(value) {
   return clip(value.category, 40);
 }
 
+const MAX_TOPICS = 4;
+
+// 话题标签：评审员交回 2–4 个短关键词。收数组，也容忍逗号/顿号分隔的字符串。
+function topicsOf(value) {
+  const raw = Array.isArray(value.topics)
+    ? value.topics
+    : typeof value.topics === "string"
+      ? value.topics.split(/[,，、;；]/)
+      : [];
+  const seen = new Set();
+  const topics = [];
+  for (const item of raw) {
+    const topic = clip(item, 20);
+    if (!topic || seen.has(topic)) continue;
+    seen.add(topic);
+    topics.push(topic);
+    if (topics.length >= MAX_TOPICS) break;
+  }
+  return topics;
+}
+
 const BCP47 = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
 
 function languageOf(value) {
@@ -109,9 +130,9 @@ export function parseIntelReply(text) {
   const note = clip(value.note, 400);
   if (value.verdict === "revoke" || value.verdict === "reject") {
     const reason = cleanText(value.reason || value.reject?.reason);
-    if (reason) return { verdict: "revoke", reason, note: "", category: "", language: "" };
+    if (reason) return { verdict: "revoke", reason, note: "", category: "", language: "", topics: [] };
   }
-  return { verdict: "pass", reason: "", note, category: categoryOf(value), language: languageOf(value) };
+  return { verdict: "pass", reason: "", note, category: categoryOf(value), language: languageOf(value), topics: topicsOf(value) };
 }
 
 function replyText(envelope) {
@@ -250,10 +271,11 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
   const linked = attachmentLinks(intel.links);
   const message = [
     "审查这一条已经可见的记录。留下则写入类别。有问题则撤销。只返回一个 JSON 对象。",
-    '{"verdict":"pass","reason":"","note":"这件东西是什么","category":"类别","language":"zh"}',
-    '{"verdict":"revoke","reason":"违规原因","note":"","category":"","language":""}',
+    '{"verdict":"pass","reason":"","note":"这件东西是什么","category":"类别","language":"zh","topics":["关键词1","关键词2"]}',
+    '{"verdict":"revoke","reason":"违规原因","note":"","category":"","language":"","topics":[]}',
     "只有违法、欺诈、隐私或骚扰才 revoke。拿不准就 pass。",
     "不要判断链接或附件打不打得开。category 写一个短类别。",
+    "topics 写 2–4 个短关键词（每条不超过 20 字），概括这条信息讲的是什么，例如「大模型」「租房」。留空就给空数组。",
     "language 用 BCP 47 语言标签，只写一个主语言，例如 zh、en、ja、zh-Hans、zh-Hant。不要写中文或英文。看不准写 und。post、fastpost、wish、wishRespond 都要写。",
     "note 写卡片上跟在文件名后面的一句事实。有附件时，根据读到的文字写这件东西是什么。去掉电话、微信和发布者。不要编造。",
     "note、reason 里引用文字不要用英文双引号，改用中文引号「」或单引号，避免破坏 JSON。",

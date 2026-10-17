@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fileView, hasInformation, informationOf, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, publicOf, uploadName, videosOf } from "./information.js";
+import { fileView, hasInformation, informationOf, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, knownPoster, listedFiles, previewImage, previewVideo, publicOf, uploadName, videoItemsOf } from "./information.js";
 
 test("a latin1 upload name is shown as chinese", () => {
   const garbled = Buffer.from("今日简史.pdf", "utf8").toString("latin1");
@@ -30,11 +30,29 @@ test("a packet splits text, images, video links, and files", () => {
   assert.equal(hasInformation({ body: "", images: [], videos: info.videos, attachments: [] }), true);
 });
 
-test("video links are http or https, and only the first one is kept", () => {
-  assert.deepEqual(videosOf(["https://example.com/a", { url: "http://example.com/b" }]), ["https://example.com/a"]);
-  assert.equal(videosOf(["https://example.com/1", "https://example.com/2", "https://example.com/3"]).length, 1);
-  assert.throws(() => videosOf(["ftp://example.com/a"]), /bad_video/);
-  assert.throws(() => videosOf("https://example.com/a"), /bad_video/);
+test("a video item carries a required poster as an upload id", () => {
+  const ID = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(
+    videoItemsOf([{ url: "https://example.com/a.mp4", poster: { id: ID.toUpperCase() } }]),
+    [{ url: "https://example.com/a.mp4", poster: { id: ID } }]
+  );
+});
+
+test("a video item needs an uploaded poster", () => {
+  assert.throws(() => videoItemsOf([{ url: "https://example.com/a.mp4" }]), (e) => e.code === "bad_poster");
+  assert.throws(() => videoItemsOf(["https://example.com/a.mp4"]), (e) => e.code === "bad_poster");
+  assert.throws(() => videoItemsOf([{ url: "https://example.com/a.mp4", poster: { url: "https://cdn.example.com/a.jpg" } }]), (e) => e.code === "bad_poster");
+  assert.throws(() => videoItemsOf([{ url: "https://example.com/a.mp4", poster: { id: "nope" } }]), (e) => e.code === "bad_poster");
+  assert.throws(() => videoItemsOf([{ url: "ftp://x", poster: { id: "11111111-1111-4111-8111-111111111111" } }]), (e) => e.code === "bad_video");
+  assert.throws(() => videoItemsOf("https://example.com/a.mp4"), (e) => e.code === "bad_video");
+});
+
+test("only the first video is kept", () => {
+  const poster = { id: "11111111-1111-4111-8111-111111111111" };
+  assert.equal(
+    videoItemsOf([{ url: "https://example.com/1", poster }, { url: "https://example.com/2", poster }]).length,
+    1
+  );
 });
 
 test("a video link can carry a preview image", () => {
@@ -46,6 +64,28 @@ test("a video link can carry a preview image", () => {
     informationOf({ videos: [{ url: "https://example.com/watch", poster: "https://cdn.example.com/cover.jpg" }] }).videos[0].poster,
     "https://cdn.example.com/cover.jpg"
   );
+});
+
+test("a landing page resolves its playable video stream", () => {
+  const base = "https://example.com/news/watch";
+  assert.equal(
+    previewVideo(`<meta property="og:video" content="/v/clip.mp4">`, base),
+    "https://example.com/v/clip.mp4"
+  );
+  assert.equal(
+    previewVideo(`<meta property="og:video:url" content="https://cdn.example.com/c.mp4">`, base),
+    "https://cdn.example.com/c.mp4"
+  );
+  assert.equal(
+    previewVideo(`<meta name="twitter:player:stream" content="https://cdn.example.com/s.mp4">`, base),
+    "https://cdn.example.com/s.mp4"
+  );
+  assert.equal(
+    previewVideo(`<video src="https://cdn.example.com/inline.webm"></video>`, base),
+    "https://cdn.example.com/inline.webm"
+  );
+  assert.equal(previewVideo(`<meta property="og:video" content="ftp://bad">`, base), "");
+  assert.equal(previewVideo(`<p>no stream here</p>`, base), "");
 });
 
 test("public defaults to on", () => {

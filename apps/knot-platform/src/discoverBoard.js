@@ -6,12 +6,30 @@ import path from "node:path";
 import { toRecord } from "./card.js";
 import { setDiscoverPublisher } from "./discoverPublish.js";
 import { fileView, visibleVerdict } from "./information.js";
+import { listFacets } from "./facets.js";
 import { listPublicIntel, presentIntel } from "./market.js";
+import { avatarUrlFor } from "./avatars.js";
+import { wishLive } from "./wish.js";
+
+// 最近发过公开信息的人。内部 Agent 也算；平台自己的系统账号不算。
+const PEOPLE_SQL = `
+  SELECT i.user_id AS id, u.display_name, u.avatar_upload_id, max(i.created_at) AS last_at
+  FROM intel i
+  JOIN users u ON u.id = i.user_id
+  WHERE i.kind IN ('post', 'fastpost')
+    AND i.is_public
+    AND ${visibleVerdict("i.verdict")}
+    AND COALESCE(u.label, '') <> 'platform'
+    AND i.created_at > now() - interval '7 days'
+  GROUP BY i.user_id, u.display_name, u.avatar_upload_id
+  ORDER BY last_at DESC
+  LIMIT $1
+`;
 
 const WISH_SQL = `
-  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.user_id, i.actor, i.created_at, i.updated_at
+  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.user_id, i.actor, i.created_at, i.updated_at, i.expires_at
   FROM intel i
-  WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")}
+  WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
   ORDER BY i.created_at DESC
 `;
 
@@ -85,6 +103,21 @@ function publicWish(row, files) {
   };
 }
 
+export function publicPerson(row) {
+  const lastAt = row.last_at ? new Date(row.last_at) : null;
+  return {
+    id: row.id,
+    name: row.display_name || "",
+    avatarUrl: avatarUrlFor({ user_id: row.id, avatar_upload_id: row.avatar_upload_id }),
+    lastAt: lastAt && !Number.isNaN(lastAt.getTime()) ? lastAt.toISOString() : null,
+  };
+}
+
+export async function listActivePeople(pool, limit = 20) {
+  const { rows } = await pool.query(PEOPLE_SQL, [limit]);
+  return rows.map(publicPerson);
+}
+
 async function filesByIntel(pool, ids) {
   const byId = new Map();
   if (!ids.length) return byId;
@@ -107,10 +140,14 @@ async function filesByIntel(pool, ids) {
 export async function assembleDiscoverBoard(pool) {
   const posts = await listPublicIntel(pool, 30, null);
   const { rows: wishes } = await pool.query(WISH_SQL);
+  const people = await listActivePeople(pool);
+  const facets = await listFacets(pool);
   const files = await filesByIntel(pool, [...posts.map((row) => row.id), ...wishes.map((row) => row.id)]);
   return {
     information: posts.map((row) => publicPost(row, files.get(row.id) || [])),
     requests: wishes.map((row) => publicWish(row, files.get(row.id) || [])),
+    people,
+    facets,
   };
 }
 
@@ -184,6 +221,28 @@ export function pushDiscoverBoard(boardDir) {
   child.unref();
 }
 
+// wish 到期不会触发内容变动，定时把刚过期的那几条从公开快照里清掉。
+function startWishSweep(env) {
+  let sweptAt = new Date();
+  const timer = setInterval(async () => {
+    const since = sweptAt;
+    sweptAt = new Date();
+    try {
+      const { rows } = await env.pool.query(
+        `SELECT 1 FROM intel
+         WHERE kind = 'wish' AND expires_at > $1 AND expires_at <= $2
+         LIMIT 1`,
+        [since, sweptAt]
+      );
+      if (rows.length) scheduleDiscoverWrite(env, pushDiscoverBoard);
+    } catch (error) {
+      console.error(error);
+    }
+  }, 60 * 1000);
+  timer.unref?.();
+  return timer;
+}
+
 export function bindDiscoverBoard({ pool, uploadDir, boardDir }) {
   const env = {
     pool,
@@ -193,6 +252,7 @@ export function bindDiscoverBoard({ pool, uploadDir, boardDir }) {
   setDiscoverPublisher(() => scheduleDiscoverWrite(env, pushDiscoverBoard));
   fs.mkdirSync(previewDir(env.boardDir), { recursive: true });
   scheduleDiscoverWrite(env, pushDiscoverBoard);
+  startWishSweep(env);
   return {
     dir: env.boardDir,
     previewDir: () => previewDir(env.boardDir),

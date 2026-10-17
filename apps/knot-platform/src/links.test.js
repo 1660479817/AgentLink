@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { toRecord } from "./card.js";
-import { contentHash, readMedia } from "./links.js";
+import { contentHash, readImageMedia, readMedia } from "./links.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -18,25 +18,37 @@ test("a platform upload url counts as a stored id", () => {
   assert.deepEqual(readMedia([`/api/web/uploads/${ID}/display`], 4).ids, [ID]);
 });
 
+test("images only accept an uploaded id, not an external url", () => {
+  assert.deepEqual(
+    readImageMedia([ID, { id: "22222222-2222-4222-8222-222222222222" }], 4),
+    [ID, "22222222-2222-4222-8222-222222222222"]
+  );
+  assert.deepEqual(readImageMedia([`/api/web/uploads/${ID}/display`], 4), [ID]);
+  assert.throws(() => readImageMedia([{ url: "https://example.com/a.jpg" }], 4), (e) => e.code === "bad_image");
+  assert.throws(() => readImageMedia(["https://example.com/a.jpg"], 4), (e) => e.code === "bad_image");
+});
+
 test("the same content keeps one hash", () => {
+  const video = { url: "https://example.com/v", poster: { url: "https://cdn.example.com/c.jpg" } };
   const first = contentHash({
     kind: "post",
     body: "原文",
     imageIds: [ID],
     imageUrls: ["https://example.com/a.jpg"],
-    videos: ["https://example.com/v"],
+    videos: [video],
   });
   const again = contentHash({
     kind: "post",
     body: "原文",
     imageIds: [ID.toUpperCase()],
     imageUrls: ["https://example.com/a.jpg"],
-    videos: ["https://example.com/v"],
+    videos: [video],
   });
   assert.equal(first, again);
   assert.equal(first.length, 64);
   assert.notEqual(first, contentHash({ kind: "wish", body: "原文", imageIds: [ID] }));
-  assert.notEqual(first, contentHash({ kind: "post", body: "原文", respondsTo: null, imageIds: [ID], videos: ["https://example.com/other"] }));
+  assert.notEqual(first, contentHash({ kind: "post", body: "原文", respondsTo: null, imageIds: [ID], videos: [{ url: "https://example.com/other", poster: video.poster }] }));
+  assert.notEqual(first, contentHash({ kind: "post", body: "原文", imageIds: [ID], videos: [{ url: video.url, poster: { url: "https://cdn.example.com/other.jpg" } }] }));
 });
 
 test("a card shows a stored image and keeps an external url", () => {

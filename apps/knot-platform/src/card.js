@@ -9,6 +9,16 @@ function recordText(detail, key) {
   return typeof detail[key] === "string" ? detail[key].trim() : "";
 }
 
+function recordTopics(detail) {
+  if (!detail || typeof detail !== "object" || !Array.isArray(detail.topics)) return [];
+  const topics = [];
+  for (const item of detail.topics) {
+    const topic = String(item).trim();
+    if (topic && !topics.includes(topic)) topics.push(topic);
+  }
+  return topics;
+}
+
 function bag(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -51,6 +61,7 @@ function videoOf(item) {
   if (typeof url !== "string" || !url) return null;
   const video = { url, stored: false };
   if (item && typeof item === "object" && typeof item.poster === "string" && item.poster) video.poster = item.poster;
+  if (item && typeof item === "object" && typeof item.playUrl === "string" && item.playUrl) video.playUrl = item.playUrl;
   return video;
 }
 
@@ -103,10 +114,12 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
         payee: payeeFor(kind),
       },
       category: row.category || "",
+      topics: recordTopics(row.detail),
       note: recordText(row.detail, "note"),
       language: recordText(row.detail, "language"),
       verdict: row.verdict || "pending",
       rejectReason: row.reject_reason || null,
+      expiresAt: when(row.expires_at),
       weight: Number(row.weight) || 0,
       createdAt,
       updatedAt,

@@ -1,10 +1,13 @@
 import { createHash, randomInt } from "node:crypto";
 import nodemailer from "nodemailer";
+import { NAME_MAX } from "./account.js";
 import { signupGrant } from "./points.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_ADMIN_EMAIL = "manwjh@gmail.com";
 const FEEDBACK_LABEL = { suggestion: "建议", complaint: "投诉" };
+// 017 建的称呼唯一索引。注册撞上它时追加序号重试。
+const DISPLAY_NAME_KEY = "users_display_name_key";
 
 export const FEEDBACK_MAX = 2000;
 
@@ -17,8 +20,13 @@ export function normalizeEmail(value) {
 // 注册时没有自带称呼，就用邮箱前缀兜底，保证称呼非空。前缀为空时用「用户」。
 export function defaultDisplayName(email) {
   const local = String(email || "").split("@")[0].trim();
-  const base = local || "用户";
-  return Array.from(base).slice(0, 40).join("");
+  return Array.from(local || "用户").slice(0, NAME_MAX).join("");
+}
+
+// 称呼被占用时追加序号，整串仍不超过 NAME_MAX 个字。
+function numberedName(base, seq) {
+  const suffix = ` ${seq}`;
+  return Array.from(base).slice(0, NAME_MAX - Array.from(suffix).length).join("") + suffix;
 }
 
 export function normalizeLoginKey(value) {
@@ -95,8 +103,8 @@ export async function redeemLoginKey(pool, email, key) {
   );
   if (!matched.rowCount) return { error: "bad_key", status: 400 };
   const base = defaultDisplayName(email);
-  let name = base;
-  for (let seq = 1; ; seq += 1) {
+  for (let seq = 0; ; seq += 1) {
+    const name = seq === 0 ? base : numberedName(base, seq);
     try {
       const saved = await pool.query(
         `INSERT INTO users (email, display_name, points_balance) VALUES ($1, $2, $3)
@@ -107,9 +115,8 @@ export async function redeemLoginKey(pool, email, key) {
       );
       return { userId: saved.rows[0].id, pointsBalance: saved.rows[0].points_balance };
     } catch (error) {
-      if (error.code !== "23505" || seq >= 1000) throw error;
-      const suffix = ` ${seq}`;
-      name = Array.from(base).slice(0, 40 - Array.from(suffix).length).join("") + suffix;
+      // 只给称呼重名让路：换一个序号再插，其余唯一约束照常抛出。
+      if (error.code !== "23505" || error.constraint !== DISPLAY_NAME_KEY || seq >= 1000) throw error;
     }
   }
 }
@@ -118,6 +125,13 @@ export function adminEmail() {
   const raw = process.env.KNOT_ADMIN_EMAIL;
   const email = normalizeEmail(raw == null || String(raw).trim() === "" ? DEFAULT_ADMIN_EMAIL : raw);
   return email;
+}
+
+// 人类管理员：外部账号的邮箱等于管理员邮箱时，其 WebUI 操作按平台层执行。
+export async function isAdminUser(pool, userId) {
+  if (!userId) return false;
+  const { rows } = await pool.query(`SELECT email FROM users WHERE id = $1`, [userId]);
+  return Boolean(rows[0]?.email) && rows[0].email === adminEmail();
 }
 
 export function feedbackMessage({ kind, accountEmail, userId, body }) {

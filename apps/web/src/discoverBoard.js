@@ -1,3 +1,5 @@
+import { wishIsLive } from "./record.js";
+
 const hidden = new Set();
 let memory = null;
 let aheadFeed = null;
@@ -47,9 +49,25 @@ export function showDiscoverItem(id) {
 }
 
 export function revealDiscover(board) {
+  const now = Date.now();
   return {
     information: (Array.isArray(board?.information) ? board.information : []).filter((item) => item?.id && !hidden.has(item.id)),
-    requests: (Array.isArray(board?.requests) ? board.requests : []).filter((wish) => wish?.id && !hidden.has(wish.id)),
+    requests: (Array.isArray(board?.requests) ? board.requests : []).filter(
+      (wish) => wish?.id && !hidden.has(wish.id) && wishIsLive(wish, now)
+    ),
+  };
+}
+
+export function emptyFacets() {
+  return { categories: [], topics: [] };
+}
+
+export function facetsOf(board) {
+  const facets = board?.facets;
+  if (!facets || typeof facets !== "object") return emptyFacets();
+  return {
+    categories: Array.isArray(facets.categories) ? facets.categories : [],
+    topics: Array.isArray(facets.topics) ? facets.topics : [],
   };
 }
 
@@ -61,6 +79,8 @@ export function paintDiscover(board, userId) {
       ...wish,
       mine: Boolean(userId && wish.authorId === userId),
     })),
+    people: Array.isArray(board?.people) ? board.people : [],
+    facets: facetsOf(board),
   };
 }
 
@@ -93,6 +113,8 @@ export function applyDiscoverSelf(painted, self) {
           responseCount: count ? Number(count.responseCount) || 0 : wish.responseCount,
         };
       }),
+    people: painted?.people || [],
+    facets: facetsOf(painted),
   };
 }
 
@@ -117,6 +139,7 @@ export async function fetchDiscoverBoard() {
     error.code = "no_board";
     throw error;
   }
+  if (!Array.isArray(data.people)) data.people = [];
   rememberDiscover(data);
   return data;
 }

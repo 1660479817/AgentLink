@@ -18,6 +18,7 @@ const props = defineProps({
   showPrice: { type: Boolean, default: false },
   showFreeNote: { type: Boolean, default: true },
   priceId: { type: String, required: true },
+  posterPreview: { type: String, default: "" },
   busy: { type: Boolean, default: false },
 });
 
@@ -25,7 +26,7 @@ const body = defineModel("body", { type: String, default: "" });
 const video = defineModel("video", { type: String, default: "" });
 const price = defineModel("price", { type: String, default: "" });
 
-const emit = defineEmits(["remove-image", "remove-audio", "remove-file"]);
+const emit = defineEmits(["remove-image", "remove-audio", "remove-file", "pick-poster", "remove-poster"]);
 
 const session = useSessionStore();
 const bodyInput = ref(null);
@@ -99,6 +100,23 @@ defineExpose({
       :placeholder="t('home.videoPlaceholder')"
       :disabled="busy"
     />
+    <div v-if="videoOpen || video" class="share-poster">
+      <AppButton variant="secondary" type="button" :disabled="busy" @click="emit('pick-poster')">
+        {{ t("home.posterPick") }}
+      </AppButton>
+      <span v-if="posterPreview" class="share-poster-thumb">
+        <img :src="posterPreview" alt="" />
+        <AppButton
+          variant="icon"
+          type="button"
+          :aria-label="t('home.remove')"
+          :disabled="busy"
+          @click="emit('remove-poster')"
+        >
+          <CloseIcon aria-hidden="true" />
+        </AppButton>
+      </span>
+    </div>
     <ul v-if="audioName" class="chat-pending share-files">
       <li class="chat-pending-item">
         <span class="chat-file-name share-file-name">{{ audioName }}</span>

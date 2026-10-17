@@ -2,16 +2,18 @@ import { defineStore } from "pinia";
 import { createIntel, uploadAttachment, uploadAudio, uploadImage } from "../api.js";
 import { errorText } from "../composers/packet.js";
 
-export function packetDraft({ body, images = [], files = [], audio = null, extra, policy }) {
+export function packetDraft({ body, images = [], files = [], audio = null, video = null, extra, policy }) {
   const parts = [
     ...images.map((file) => ({ file, kind: "image" })),
     ...files.map((file) => ({ file, kind: "file" })),
     ...(audio ? [{ file: audio, kind: "audio" }] : []),
+    ...(video?.posterFile ? [{ file: video.posterFile, kind: "poster" }] : []),
   ];
   return {
-    name: files[0]?.name || audio?.name || images[0]?.name || "",
+    name: files[0]?.name || audio?.name || images[0]?.name || video?.posterFile?.name || "",
     body,
     parts,
+    video,
     extra,
     policy,
   };
@@ -21,6 +23,7 @@ const uploadOf = {
   image: uploadImage,
   file: uploadAttachment,
   audio: uploadAudio,
+  poster: uploadImage,
 };
 
 let nextId = 0;
@@ -51,6 +54,7 @@ export const useOutboxStore = defineStore("outbox", {
         const imageIds = [];
         const fileIds = [];
         const audioIds = [];
+        let posterId = "";
         const total = draft.parts.reduce((sum, part) => sum + (part.file.size || 0), 0) || 1;
         let sent = 0;
         for (const part of draft.parts) {
@@ -62,10 +66,14 @@ export const useOutboxStore = defineStore("outbox", {
           sent += part.file.size || 0;
           if (part.kind === "image") imageIds.push(data.id);
           else if (part.kind === "file") fileIds.push(data.id);
+          else if (part.kind === "poster") posterId = data.id;
           else audioIds.push(data.id);
         }
         const extra = { ...draft.extra };
         if (audioIds.length) extra.audioIds = audioIds;
+        if (draft.video) {
+          extra.videos = [{ url: draft.video.url, poster: { id: posterId } }];
+        }
         await createIntel(draft.body, imageIds, fileIds, extra);
         this.jobs = this.jobs.filter((job) => job.id !== id);
         this.revision += 1;

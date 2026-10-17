@@ -13,20 +13,27 @@ export function muteState(value, now = new Date()) {
 const SPECIALTY_MAX = 8;
 const SPECIALTY_LEN = 20;
 export const BIO_MAX = 200;
+export const NAME_MAX = 40;
+
+function fail(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
 
 export function bioText(value) {
   if (value == null) return "";
-  if (typeof value !== "string") {
-    const error = new Error("bad_bio");
-    error.code = "bad_bio";
-    throw error;
-  }
+  if (typeof value !== "string") throw fail("bad_bio");
   const text = value.replace(/\r\n?/g, "\n").trim();
-  if (text.length > BIO_MAX) {
-    const error = new Error("bad_bio");
-    error.code = "bad_bio";
-    throw error;
-  }
+  if (text.length > BIO_MAX) throw fail("bad_bio");
+  return text;
+}
+
+// 称呼：连续空白收成一个，首尾去掉，非空且不超过 40 个字（按码点算，和库里的 char_length 一致）。
+export function displayNameText(value) {
+  if (typeof value !== "string") throw fail("bad_name");
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text || Array.from(text).length > NAME_MAX) throw fail("bad_name");
   return text;
 }
 
@@ -42,33 +49,19 @@ export function storedSpecialties(value) {
 }
 
 export function specialtyList(value) {
-  if (!Array.isArray(value)) {
-    const error = new Error("bad_specialty");
-    error.code = "bad_specialty";
-    throw error;
-  }
+  if (!Array.isArray(value)) throw fail("bad_specialty");
   const names = [];
   for (const item of value) {
     const text = String(item ?? "").replace(/\s+/g, " ").trim();
-    if (!text || text.length > SPECIALTY_LEN || /[、,，]/.test(text)) {
-      const error = new Error("bad_specialty");
-      error.code = "bad_specialty";
-      throw error;
-    }
+    if (!text || text.length > SPECIALTY_LEN || /[、,，]/.test(text)) throw fail("bad_specialty");
     if (!names.includes(text)) names.push(text);
   }
-  if (names.length > SPECIALTY_MAX) {
-    const error = new Error("bad_specialty");
-    error.code = "bad_specialty";
-    throw error;
-  }
+  if (names.length > SPECIALTY_MAX) throw fail("bad_specialty");
   return names;
 }
 
 export async function assertCanSpeak(pool, userId) {
   const { rows } = await pool.query(`SELECT muted_until FROM users WHERE id = $1`, [userId]);
   if (!muteState(rows[0]?.muted_until).muted) return;
-  const error = new Error("muted");
-  error.code = "muted";
-  throw error;
+  throw fail("muted");
 }

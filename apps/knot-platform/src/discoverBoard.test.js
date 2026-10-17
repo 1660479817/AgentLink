@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assembleDiscoverBoard, presentDiscoverSelf, writeDiscoverBoard } from "./discoverBoard.js";
+import { assembleDiscoverBoard, presentDiscoverSelf, publicPerson, writeDiscoverBoard } from "./discoverBoard.js";
 import { setDiscoverPublisher, touchDiscoverBoard } from "./discoverPublish.js";
 
 const POST = "11111111-1111-4111-8111-111111111111";
@@ -60,6 +60,9 @@ function pool() {
       if (sql.includes("FROM intel_files")) {
         return { rows: [{ intel_id: POST, id: FILE, mime: "image/jpeg", original_name: "a.jpg" }, { intel_id: POST, id: "sound", mime: "audio/mpeg", original_name: "a.mp3" }] };
       }
+      if (sql.includes("GROUP BY i.user_id")) {
+        return { rows: [{ id: AUTHOR, display_name: "甲", avatar_upload_id: null, last_at: "2026-10-15T03:00:00.000Z" }] };
+      }
       if (sql.includes("i.kind = 'wish'")) return { rows: [wish] };
       if (sql.includes("kind IN ('post', 'fastpost')")) return { rows: [post] };
       return { rows: [] };
@@ -85,6 +88,20 @@ test("the public board drops personal fields and keeps the wish author", async (
   assert.equal(board.requests[0].authorId, AUTHOR);
   assert.equal(board.requests[0].mine, false);
   assert.equal(board.requests[0].responseCount, null);
+  assert.equal(board.people.length, 1);
+  assert.equal(board.people[0].id, AUTHOR);
+  assert.equal(board.people[0].name, "甲");
+  assert.equal(board.people[0].lastAt, "2026-10-15T03:00:00.000Z");
+  assert.match(board.people[0].avatarUrl, /^\/avatars\/\d+\.svg$|^\/api\/web\/uploads\//);
+  assert.deepEqual(board.facets, { categories: ["价格"], topics: [] });
+});
+
+test("a person row without a timestamp or avatar still comes back whole", () => {
+  const person = publicPerson({ id: AUTHOR, display_name: "", avatar_upload_id: null, last_at: null });
+  assert.equal(person.id, AUTHOR);
+  assert.equal(person.name, "");
+  assert.equal(person.lastAt, null);
+  assert.ok(person.avatarUrl);
 });
 
 test("a personal patch lists dismissals, stars, and friends", () => {

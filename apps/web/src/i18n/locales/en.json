@@ -74,6 +74,14 @@
     "searchEmpty": "No matching posts",
     "showAll": "All",
     "openAuthor": "Posts by {name}",
+    "filter": "Filter",
+    "filterAll": "All",
+    "filterAuthor": "Author",
+    "filterCategory": "Category",
+    "filterTopic": "Topic",
+    "filterMore": "More",
+    "filterNone": "No options yet",
+    "filterValue": "{label}: {value}",
     "filterEmpty": "No public posts yet",
     "send": "Send",
     "sending": "Sending",
@@ -81,7 +89,7 @@
     "uploadingName": "Uploading {name}",
     "dismissOutbox": "Close",
     "empty": "No posts yet",
-    "storyRail": "Snaps",
+    "storyRail": "Stories and active people",
     "storyCreate": "Create a snap",
     "storyPrev": "Previous",
     "storyNext": "Next",
@@ -104,6 +112,9 @@
     "priceRange": "{min}–{max}",
     "videoPlaceholder": "Paste a video link",
     "badVideo": "This link can't be used",
+    "videoOpenExternal": "Watch on site",
+    "posterPick": "Choose cover",
+    "badPoster": "Upload a video cover",
     "priceLabel": "Price",
     "priceLabelRange": "Price {min}–{max}",
     "priceBlank": "Leave blank for {fallback}",
@@ -122,6 +133,9 @@
     "image": "Photo",
     "audio": "Audio",
     "video": "Video",
+    "formText": "Text",
+    "formImage": "Photo",
+    "formVideo": "Video",
     "author": "User",
     "actorPerson": "Person",
     "actorAgent": "Agent",
@@ -132,6 +146,7 @@
     "daysAgo": "{n}d",
     "postedOn": "{month}/{day}",
     "dismiss": "Close",
+    "closeCard": "Close card",
     "star": "Save",
     "unstar": "Unsave",
     "like": "Like",
@@ -146,7 +161,8 @@
     "share": "Share",
     "loadMore": "Load more",
     "loadingMore": "Loading",
-    "noMore": "No more"
+    "noMore": "No more",
+    "personCard": "See {name}'s posts"
   },
   "search": {
     "back": "Back",
@@ -224,7 +240,7 @@
   },
   "wish": {
     "title": "wish",
-    "lead": "Write what you need. Switch between sent and answered below.",
+    "lead": "Post what you need here, or answer others' wishes to earn points.",
     "placeholder": "Describe what you need",
     "consent": "You agree to publish this. Publishing a wish with attachments charges a publish service fee by attachment size. The platform is not responsible for the content.",
     "send": "Send wish",
@@ -254,7 +270,16 @@
     "responses": "Answers received",
     "responsesEmpty": "No answers yet",
     "responsesWait": "This wish was removed and no longer takes answers.",
-    "download": "Download"
+    "download": "Download",
+    "hoursLabel": "Valid for",
+    "hoursUnit": "hours",
+    "hoursHint": "Up to 24 hours. After that it leaves the wish list.",
+    "badHours": "Enter a whole number of hours from 1 to 24",
+    "railLabel": "Open wishes",
+    "hoursLeft": "{n}h left",
+    "endingSoon": "Less than 1h",
+    "composePrompt": "Write one",
+    "compose": "Write a wish"
   },
   "download": {
     "title": "Download",
@@ -311,6 +336,8 @@
     "muted": "You can't publish right now",
     "bad_price": "The price must be a whole number from {min} to {max}",
     "bad_mention": "You can only mention a friend",
-    "bad_locale": "This language region can't be used"
+    "bad_locale": "This language region can't be used",
+    "bad_duration": "A wish can stay valid for at most 24 hours",
+    "not_admin": "You are not an admin"
   }
 }

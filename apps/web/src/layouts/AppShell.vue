@@ -107,8 +107,15 @@ watch(
   () => releaseWatch?.poke()
 );
 
+watch(
+  () => session.user,
+  (user) => {
+    if (user) notifications.load();
+  }
+);
+
 onMounted(() => {
-  notifications.load();
+  if (session.user) notifications.load();
   notificationsPoll = startPolling({
     fn: () => notifications.load(),
     intervalMs: NOTIFICATIONS_POLL_MS,

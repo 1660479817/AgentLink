@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ActorMark from "../components/ActorMark.vue";
 import AppButton from "../components/AppButton.vue";
@@ -7,6 +7,7 @@ import MentionPicker from "../components/MentionPicker.vue";
 import PacketMediaFields from "../components/PacketMediaFields.vue";
 import VideoFrame from "../components/VideoFrame.vue";
 import WishCopy from "../components/WishCopy.vue";
+import WishRail from "../components/WishRail.vue";
 import {
   downloadInformation,
   listLooks,
@@ -18,11 +19,12 @@ import {
 } from "../api.js";
 import { ATTACHMENT_ACCEPT, errorText, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
-import { feeOf, priceOf } from "../record.js";
+import { feeOf, priceOf, wishIsLive } from "../record.js";
+import { startPolling } from "../polling.js";
 import { t } from "../i18n/index.js";
 import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
-import { AtIcon, AudioIcon, ChatIcon, ImageIcon, PaperclipIcon, RespondIcon, SendIcon, VideoIcon } from "../icons/index.js";
+import { AtIcon, AudioIcon, ChatIcon, ImageIcon, PaperclipIcon, PlusIcon, RespondIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
 import { packetDraft, useOutboxStore } from "../stores/outbox";
 import { useSessionStore } from "../stores/session";
 
@@ -44,12 +46,17 @@ const audioInput = ref(null);
 const replyImageInput = ref(null);
 const replyFileInput = ref(null);
 const replyAudioInput = ref(null);
+const posterInput = ref(null);
+const replyPosterInput = ref(null);
 const replyError = ref("");
 const body = ref("");
+const hours = ref(24);
 const mentions = ref([]);
 const mentionOpen = ref(false);
 const replyBody = ref("");
 const agreed = ref(false);
+const composeOpen = ref(false);
+let requestsPoll = null;
 const {
   images,
   previewUrls,
@@ -57,6 +64,8 @@ const {
   audio,
   video,
   videoOpen,
+  posterFile,
+  posterPreview,
   price,
   error,
   addImages,
@@ -65,6 +74,8 @@ const {
   removeFile,
   setAudio,
   removeAudio,
+  setPosterFile,
+  removePoster,
   reset: resetMedia,
 } = usePacketMedia();
 const {
@@ -74,6 +85,8 @@ const {
   audio: replyAudio,
   video: replyVideo,
   videoOpen: replyVideoOpen,
+  posterFile: replyPosterFile,
+  posterPreview: replyPosterPreview,
   price: replyPrice,
   addImages: addReplyImages,
   removeImage: removeReplyImage,
@@ -81,6 +94,8 @@ const {
   removeFile: removeReplyFile,
   setAudio: setReplyAudio,
   removeAudio: removeReplyAudio,
+  setPosterFile: setReplyPosterFile,
+  removePoster: removeReplyPoster,
   reset: resetReply,
 } = usePacketMedia();
 
@@ -95,17 +110,18 @@ const targetMissing = computed(
 );
 const engagements = computed(() => {
   const byId = new Map();
+  const now = Date.now();
   for (const look of looks.value) {
     const wish = look.wish;
-    if (!wish?.id) continue;
+    if (!wish?.id || !wishIsLive(wish, now)) continue;
     byId.set(wish.id, { wish, lookedAt: look.lookedAt || "", responses: [] });
   }
-  if (target.value && !byId.has(target.value.id)) {
+  if (target.value && wishIsLive(target.value, now) && !byId.has(target.value.id)) {
     byId.set(target.value.id, { wish: target.value, lookedAt: "", responses: [] });
   }
   for (const reply of replies.value) {
     const id = reply.wish?.id;
-    if (!id) continue;
+    if (!id || !wishIsLive(reply.wish, now)) continue;
     const row = byId.get(id) || { wish: reply.wish, lookedAt: reply.kMeta?.createdAt || "", responses: [] };
     row.responses.push(reply);
     if (!row.wish) row.wish = reply.wish;
@@ -158,7 +174,7 @@ async function load() {
   let open = [];
   try {
     const listed = await listRequests();
-    open = listed.requests || [];
+    open = (listed.requests || []).filter((item) => wishIsLive(item));
   } catch {
     open = [];
   }
@@ -183,7 +199,7 @@ async function load() {
     ]);
     const byId = new Map();
     for (const item of submitted.submissions || []) {
-      if (item.kMeta?.kind !== "wish") continue;
+      if (item.kMeta?.kind !== "wish" || !wishIsLive(item)) continue;
       byId.set(item.id, {
         ...item,
         responses: [],
@@ -212,7 +228,7 @@ async function load() {
         })
     );
     wishes.value = rows;
-    looks.value = looked.looks || [];
+    looks.value = (looked.looks || []).filter((look) => !look.wish || wishIsLive(look.wish));
     replies.value = authored.responses || [];
   } catch {
     wishes.value = [];
@@ -223,12 +239,30 @@ async function load() {
   }
 }
 
+// 卡片条上的 wish 会到期，也会有人新发。只刷这一份，不动我的列表和正在写的回应。
+async function refreshOpenRequests() {
+  try {
+    const listed = await listRequests();
+    openRequests.value = (listed.requests || []).filter((item) => wishIsLive(item));
+  } catch {
+    /* 保持当前卡片条，下一轮再试 */
+  }
+}
+
 async function focusWish() {
   const id = String(route.query.wish || "");
   if (!id) return;
   lane.value = "posted";
   await nextTick();
   document.getElementById(`wish-${id}`)?.scrollIntoView({ block: "start" });
+}
+
+// 「写一个」打开发布表单，并把人放到输入框里。
+async function openCompose() {
+  composeOpen.value = true;
+  await nextTick();
+  document.querySelector(".wish-compose")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  document.getElementById("wish-body")?.focus({ preventScroll: true });
 }
 
 function selectLane(next) {
@@ -277,9 +311,18 @@ async function showLook(id) {
 onMounted(async () => {
   if (respondId.value) lane.value = "replied";
   await load();
+  requestsPoll = startPolling({
+    fn: refreshOpenRequests,
+    intervalMs: 60 * 1000,
+    when: () => !busy.value,
+  });
   if (respondId.value) await ensureLook();
   if (respondId.value) await showLook(respondId.value);
   else await focusWish();
+});
+onBeforeUnmount(() => {
+  requestsPoll?.stop();
+  requestsPoll = null;
 });
 watch(() => route.query.wish, focusWish);
 watch(
@@ -329,6 +372,18 @@ function pickReplyAudio(event) {
   if (file) setReplyAudio(file);
 }
 
+function pickPoster(event) {
+  const file = Array.from(event.target.files || [])[0];
+  event.target.value = "";
+  if (file) setPosterFile(file);
+}
+
+function pickReplyPoster(event) {
+  const file = Array.from(event.target.files || [])[0];
+  event.target.value = "";
+  if (file) setReplyPosterFile(file);
+}
+
 function submit() {
   if (!canSend() || !agreed.value || busy.value) return;
   error.value = "";
@@ -337,20 +392,33 @@ function submit() {
     error.value = t("home.badVideo");
     return;
   }
+  let videoPayload = null;
+  if (link) {
+    if (!posterFile.value) {
+      error.value = t("home.badPoster");
+      return;
+    }
+    videoPayload = { url: link, posterFile: posterFile.value };
+  }
   try {
     requireSession(session.user);
   } catch (err) {
     error.value = errorText(err.code, session.policy);
     return;
   }
-  const extra = { kind: "wish" };
-  if (link) extra.videos = [link];
+  const lifespan = Number(hours.value);
+  if (!Number.isInteger(lifespan) || lifespan < 1 || lifespan > 24) {
+    error.value = t("wish.badHours");
+    return;
+  }
+  const extra = { kind: "wish", hours: lifespan };
   if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
   outbox.enqueue(packetDraft({
     body: body.value.trim(),
     images: images.value,
     files: files.value.map((item) => item.file),
     audio: audio.value?.file || null,
+    video: videoPayload,
     extra,
     policy: session.policy,
   }));
@@ -359,6 +427,7 @@ function submit() {
   mentionOpen.value = false;
   agreed.value = false;
   resetMedia();
+  composeOpen.value = false;
 }
 
 async function submitReply() {
@@ -368,6 +437,14 @@ async function submitReply() {
   if (link === null) {
     replyError.value = t("home.badVideo");
     return;
+  }
+  let replyVideoPayload = null;
+  if (link) {
+    if (!replyPosterFile.value) {
+      replyError.value = t("home.badPoster");
+      return;
+    }
+    replyVideoPayload = { url: link, posterFile: replyPosterFile.value };
   }
   const priced = replyFiles.value.length ? readOptionalPrice(replyPrice.value, session.policy) : { ok: true, price: undefined };
   if (replyFiles.value.length && !priced.ok) {
@@ -381,13 +458,13 @@ async function submitReply() {
     return;
   }
   const extra = { kind: "wishRespond", respondsTo: target.value.id };
-  if (link) extra.videos = [link];
   if (priced.price !== undefined) extra.price = priced.price;
   outbox.enqueue(packetDraft({
     body: replyBody.value.trim(),
     images: replyImages.value,
     files: replyFiles.value.map((item) => item.file),
     audio: replyAudio.value?.file || null,
+    video: replyVideoPayload,
     extra,
     policy: session.policy,
   }));
@@ -454,82 +531,7 @@ async function downloadReply(item) {
     <h1 class="page-title">{{ t("wish.title") }}</h1>
     <p class="wish-lead">{{ t("wish.lead") }}</p>
 
-    <section class="card share-bar" :aria-label="t('wish.title')">
-      <form id="wish-form" class="share-dialog" @submit.prevent="submit">
-        <PacketMediaFields
-          ref="fields"
-          v-model:body="body"
-          v-model:video="video"
-          v-model:price="price"
-          body-id="wish-body"
-          :body-label="t('wish.title')"
-          :placeholder="t('wish.placeholder')"
-          :rows="2"
-          grow
-          :video-open="videoOpen"
-          :previews="previewUrls"
-          :audio-name="audio?.name || ''"
-          :files="files"
-          :show-price="false"
-          :show-free-note="false"
-          price-id="wish-price"
-          :busy="busy"
-          @remove-image="removeImage"
-          @remove-audio="removeAudio"
-          @remove-file="removeFile"
-        />
-      </form>
-      <MentionPicker v-model="mentions" v-model:body="body" v-model:open="mentionOpen" :disabled="busy" />
-      <div class="share-actions">
-        <button
-          type="button"
-          class="share-action"
-          :disabled="busy"
-          :aria-expanded="mentionOpen"
-          :aria-label="t('home.mention')"
-          @click="mentionOpen = !mentionOpen"
-        >
-          <AtIcon class="share-action-icon share-action-mention" aria-hidden="true" />
-          <span>{{ t("home.mention") }}</span>
-        </button>
-        <button type="button" class="share-action" :disabled="busy" @click="imageInput?.click()">
-          <ImageIcon class="share-action-icon share-action-image" aria-hidden="true" />
-          <span>{{ t("home.shareImage") }}</span>
-        </button>
-        <button type="button" class="share-action" :disabled="busy" @click="videoOpen = true">
-          <VideoIcon class="share-action-icon share-action-video" aria-hidden="true" />
-          <span>{{ t("home.shareVideo") }}</span>
-        </button>
-        <button type="button" class="share-action" :disabled="busy" @click="audioInput?.click()">
-          <AudioIcon class="share-action-icon share-action-audio" aria-hidden="true" />
-          <span>{{ t("home.shareAudio") }}</span>
-        </button>
-        <button type="button" class="share-action" :disabled="busy" @click="fileInput?.click()">
-          <PaperclipIcon class="share-action-icon share-action-file" aria-hidden="true" />
-          <span>{{ t("home.shareFile") }}</span>
-        </button>
-      </div>
-      <div class="wish-submit-row">
-        <label class="wish-consent">
-          <input v-model="agreed" type="checkbox" :disabled="busy" />
-          <span>{{ t("wish.consent") }}</span>
-        </label>
-        <AppButton
-          class="wish-send"
-          variant="icon"
-          type="submit"
-          form="wish-form"
-          :aria-label="t('wish.send')"
-          :disabled="busy || !canSend() || !agreed"
-        >
-          <SendIcon aria-hidden="true" />
-        </AppButton>
-      </div>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <input ref="imageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickImages" />
-      <input ref="fileInput" type="file" :accept="ATTACHMENT_ACCEPT" multiple class="visually-hidden" @change="pickFiles" />
-      <input ref="audioInput" type="file" accept="audio/*" class="visually-hidden" @change="pickAudio" />
-    </section>
+    <WishRail :wishes="openRequests" :label="t('wish.railLabel')" />
 
     <div class="card wish-lanes" role="tablist" :aria-label="t('wish.lanes')">
       <button
@@ -602,7 +604,7 @@ async function downloadReply(item) {
           </span>
         </li>
       </ul>
-      <VideoFrame v-if="wish.videos?.[0]" :url="wish.videos[0].url" :poster="wish.videos[0].poster || ''" />
+      <VideoFrame v-if="wish.videos?.[0]" :url="wish.videos[0].url" :poster="wish.videos[0].poster || ''" :play-url="wish.videos[0].playUrl || ''" />
       <div class="wish-responses">
         <p class="wish-responses-label">{{ t("wish.responses") }}</p>
         <p v-if="(wish.kMeta?.verdict === 'passed' || wish.kMeta?.verdict === 'pending') && !wish.responses.length" class="muted">{{ t("wish.responsesEmpty") }}</p>
@@ -624,7 +626,7 @@ async function downloadReply(item) {
               </span>
             </li>
           </ul>
-          <VideoFrame v-if="item.videos?.[0]" :url="item.videos[0].url" :poster="item.videos[0].poster || ''" />
+          <VideoFrame v-if="item.videos?.[0]" :url="item.videos[0].url" :poster="item.videos[0].poster || ''" :play-url="item.videos[0].playUrl || ''" />
           <AppButton
             v-if="fileRows(item).length"
             variant="secondary"
@@ -673,7 +675,7 @@ async function downloadReply(item) {
               </span>
             </li>
           </ul>
-          <VideoFrame v-if="item.wish.videos?.[0]" :url="item.wish.videos[0].url" :poster="item.wish.videos[0].poster || ''" />
+          <VideoFrame v-if="item.wish.videos?.[0]" :url="item.wish.videos[0].url" :poster="item.wish.videos[0].poster || ''" :play-url="item.wish.videos[0].playUrl || ''" />
         </div>
         <ol class="wish-stages">
           <li class="wish-stage is-done">
@@ -732,7 +734,7 @@ async function downloadReply(item) {
                     </span>
                   </li>
                 </ul>
-                <VideoFrame v-if="reply.videos?.[0]" :url="reply.videos[0].url" :poster="reply.videos[0].poster || ''" />
+                <VideoFrame v-if="reply.videos?.[0]" :url="reply.videos[0].url" :poster="reply.videos[0].poster || ''" :play-url="reply.videos[0].playUrl || ''" />
               </div>
               <template v-if="!item.responses.length && session.user && respondId === item.wish.id">
                 <form id="wish-reply-form" class="share-dialog" @submit.prevent="submitReply">
@@ -751,11 +753,14 @@ async function downloadReply(item) {
                     :files="replyFiles"
                     :show-price="replyFiles.length > 0"
                     :show-free-note="false"
+                    :poster-preview="replyPosterPreview"
                     price-id="wish-reply-price"
                     :busy="busy"
                     @remove-image="removeReplyImage"
                     @remove-audio="removeReplyAudio"
                     @remove-file="removeReplyFile"
+                    @pick-poster="replyPosterInput?.click()"
+                    @remove-poster="removeReplyPoster"
                   />
                 </form>
                 <div class="share-actions">
@@ -827,6 +832,115 @@ async function downloadReply(item) {
       <input ref="replyImageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickReplyImages" />
       <input ref="replyFileInput" type="file" :accept="ATTACHMENT_ACCEPT" multiple class="visually-hidden" @change="pickReplyFiles" />
       <input ref="replyAudioInput" type="file" accept="audio/*" class="visually-hidden" @change="pickReplyAudio" />
+      <input ref="replyPosterInput" type="file" accept="image/*" class="visually-hidden" @change="pickReplyPoster" />
     </div>
+
+    <section class="card share-bar wish-compose" :aria-label="t('wish.compose')">
+      <button v-if="!composeOpen" type="button" class="share-prompt wish-compose-prompt" @click="openCompose">
+        <span class="share-avatar" aria-hidden="true">
+          <img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="" />
+          <UserIcon v-else />
+        </span>
+        <span class="share-pill">{{ t("wish.composePrompt") }}</span>
+        <PlusIcon class="wish-compose-icon" aria-hidden="true" />
+      </button>
+
+      <template v-else>
+        <form id="wish-form" class="share-dialog" @submit.prevent="submit">
+          <PacketMediaFields
+            ref="fields"
+            v-model:body="body"
+            v-model:video="video"
+            v-model:price="price"
+            body-id="wish-body"
+            :body-label="t('wish.title')"
+            :placeholder="t('wish.placeholder')"
+            :rows="2"
+            grow
+            :video-open="videoOpen"
+            :previews="previewUrls"
+            :audio-name="audio?.name || ''"
+            :files="files"
+            :show-price="false"
+            :show-free-note="false"
+            :poster-preview="posterPreview"
+            price-id="wish-price"
+            :busy="busy"
+            @remove-image="removeImage"
+            @remove-audio="removeAudio"
+            @remove-file="removeFile"
+            @pick-poster="posterInput?.click()"
+            @remove-poster="removePoster"
+          />
+        </form>
+        <MentionPicker v-model="mentions" v-model:body="body" v-model:open="mentionOpen" :disabled="busy" />
+        <div class="share-actions">
+          <button
+            type="button"
+            class="share-action"
+            :disabled="busy"
+            :aria-expanded="mentionOpen"
+            :aria-label="t('home.mention')"
+            @click="mentionOpen = !mentionOpen"
+          >
+            <AtIcon class="share-action-icon share-action-mention" aria-hidden="true" />
+            <span>{{ t("home.mention") }}</span>
+          </button>
+          <button type="button" class="share-action" :disabled="busy" @click="imageInput?.click()">
+            <ImageIcon class="share-action-icon share-action-image" aria-hidden="true" />
+            <span>{{ t("home.shareImage") }}</span>
+          </button>
+          <button type="button" class="share-action" :disabled="busy" @click="videoOpen = true">
+            <VideoIcon class="share-action-icon share-action-video" aria-hidden="true" />
+            <span>{{ t("home.shareVideo") }}</span>
+          </button>
+          <button type="button" class="share-action" :disabled="busy" @click="audioInput?.click()">
+            <AudioIcon class="share-action-icon share-action-audio" aria-hidden="true" />
+            <span>{{ t("home.shareAudio") }}</span>
+          </button>
+          <button type="button" class="share-action" :disabled="busy" @click="fileInput?.click()">
+            <PaperclipIcon class="share-action-icon share-action-file" aria-hidden="true" />
+            <span>{{ t("home.shareFile") }}</span>
+          </button>
+        </div>
+        <div class="wish-duration">
+          <label class="wish-duration-label" for="wish-hours">{{ t("wish.hoursLabel") }}</label>
+          <input
+            id="wish-hours"
+            v-model="hours"
+            class="wish-duration-input"
+            type="number"
+            min="1"
+            max="24"
+            step="1"
+            inputmode="numeric"
+            :disabled="busy"
+          />
+          <span class="wish-duration-unit">{{ t("wish.hoursUnit") }}</span>
+          <span class="wish-duration-hint">{{ t("wish.hoursHint") }}</span>
+        </div>
+        <div class="wish-submit-row">
+          <label class="wish-consent">
+            <input v-model="agreed" type="checkbox" :disabled="busy" />
+            <span>{{ t("wish.consent") }}</span>
+          </label>
+          <AppButton
+            class="wish-send"
+            variant="icon"
+            type="submit"
+            form="wish-form"
+            :aria-label="t('wish.send')"
+            :disabled="busy || !canSend() || !agreed"
+          >
+            <SendIcon aria-hidden="true" />
+          </AppButton>
+        </div>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
+        <input ref="imageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickImages" />
+        <input ref="fileInput" type="file" :accept="ATTACHMENT_ACCEPT" multiple class="visually-hidden" @change="pickFiles" />
+        <input ref="audioInput" type="file" accept="audio/*" class="visually-hidden" @change="pickAudio" />
+        <input ref="posterInput" type="file" accept="image/*" class="visually-hidden" @change="pickPoster" />
+      </template>
+    </section>
   </div>
 </template>

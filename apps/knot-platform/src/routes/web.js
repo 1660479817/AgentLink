@@ -4,16 +4,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
-import { fileView, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videosOf, visibleVerdict } from "../information.js";
-import { readMedia } from "../links.js";
+import { fileView, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videoItemsOf, visibleVerdict } from "../information.js";
+import { readImageMedia, readMedia } from "../links.js";
 import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
-import { loadDiscoverSelf, emptyDiscoverSelf } from "../discoverBoard.js";
+import { loadDiscoverSelf, emptyDiscoverSelf, listActivePeople } from "../discoverBoard.js";
+import { listFacets } from "../facets.js";
 import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, searchPublicIntel, setIntelStar } from "../market.js";
 import { listNotifications, markNotificationsRead } from "../notifications.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
-import { normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
-import { bioText, muteState } from "../account.js";
+import { adminEmail, isAdminUser, normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
+import { removePost } from "../admin.js";
+import { bioText, displayNameText, muteState } from "../account.js";
 import { economyReport } from "../actuary.js";
 import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
@@ -33,6 +35,7 @@ function presentUser(row) {
   return {
     id: row.id,
     email: row.email,
+    admin: Boolean(row.email) && row.email === adminEmail(),
     displayName: row.display_name || "",
     avatarUrl: avatarUrlFor(row),
     level: row.level,
@@ -53,8 +56,12 @@ async function loadUser(pool, id) {
 function httpError(res, error) {
   const code = error.code || error.message;
   if (code === "bad_video") return res.status(400).json({ error: "bad_video" });
+  if (code === "bad_poster") return res.status(400).json({ error: "bad_poster" });
+  if (code === "bad_image") return res.status(400).json({ error: "bad_image" });
   if (code === "bad_url") return res.status(400).json({ error: "bad_url" });
   if (code === "bad_price") return res.status(400).json({ error: "bad_price" });
+  if (code === "bad_body") return res.status(400).json({ error: "bad_body" });
+  if (code === "bad_duration") return res.status(400).json({ error: "bad_duration" });
   if (code === "bad_public") return res.status(400).json({ error: "bad_public" });
   if (code === "nothing_to_download") return res.status(400).json({ error: "nothing_to_download" });
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
@@ -183,8 +190,14 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.patch("/profile", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const hasName = typeof req.body?.displayName === "string";
-    const name = hasName ? req.body.displayName.replace(/\s+/g, " ").trim() : null;
-    if (hasName && (!name || name.length > 40)) return res.status(400).json({ error: "bad_name" });
+    let name;
+    if (hasName) {
+      try {
+        name = displayNameText(req.body.displayName);
+      } catch {
+        return res.status(400).json({ error: "bad_name" });
+      }
+    }
     let avatarId;
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "avatarUploadId")) {
       const raw = req.body.avatarUploadId;
@@ -369,20 +382,20 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.post("/intel", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
-    let images;
+    let images = [];
     let audio;
     let attachments;
     let videos = [];
     try {
-      images = readMedia([...(Array.isArray(req.body?.images) ? req.body.images : []), ...(Array.isArray(req.body?.imageIds) ? req.body.imageIds : [])], MAX_IMAGES);
+      images = readImageMedia([...(Array.isArray(req.body?.images) ? req.body.images : []), ...(Array.isArray(req.body?.imageIds) ? req.body.imageIds : [])], MAX_IMAGES);
       audio = readMedia([...(Array.isArray(req.body?.audio) ? req.body.audio : []), ...(Array.isArray(req.body?.audioIds) ? req.body.audioIds : [])], MAX_AUDIO);
       attachments = readMedia([...(Array.isArray(req.body?.attachments) ? req.body.attachments : []), ...(Array.isArray(req.body?.fileIds) ? req.body.fileIds : [])], MAX_FILES);
-      if (Object.prototype.hasOwnProperty.call(req.body || {}, "videos")) videos = videosOf(req.body.videos);
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, "videos")) videos = videoItemsOf(req.body.videos);
     } catch (error) {
-      if (error.code === "bad_video" || error.code === "bad_url") return res.status(400).json({ error: error.code });
+      if (error.code === "bad_video" || error.code === "bad_poster" || error.code === "bad_url" || error.code === "bad_image") return res.status(400).json({ error: error.code });
       throw error;
     }
-    if (!body && !images.ids.length && !images.urls.length && !audio.ids.length && !audio.urls.length && !attachments.ids.length && !attachments.urls.length && !videos.length) {
+    if (!body && !images.length && !audio.ids.length && !audio.urls.length && !attachments.ids.length && !attachments.urls.length && !videos.length) {
       return res.status(400).json({ error: "empty_body" });
     }
     try {
@@ -391,8 +404,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         actor: "person",
         door: "webui",
         body,
-        imageIds: images.ids,
-        imageUrls: images.urls,
+        imageIds: images,
+        imageUrls: [],
         audioIds: audio.ids,
         audioUrls: audio.urls,
         fileIds: attachments.ids,
@@ -400,6 +413,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         videos,
         isPublic: req.body?.public,
         price: req.body?.price,
+        hours: req.body?.hours,
         kind: typeof req.body?.kind === "string" ? req.body.kind : "",
         respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
         mentions: req.body?.mentions,
@@ -413,7 +427,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/submissions", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at
+      `SELECT id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at
        FROM intel
        WHERE user_id = $1 AND door = 'webui'
        ORDER BY created_at DESC`,
@@ -438,12 +452,21 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/search", async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (!q) return res.json({ information: [] });
-    const rows = await searchPublicIntel(pool, q, req.user?.id || null);
+    const filters = { category: req.query.category, topic: req.query.topic };
+    const rows = await searchPublicIntel(pool, q, req.user?.id || null, filters);
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
+  });
+
+  router.get("/facets", async (_req, res) => {
+    res.json(await listFacets(pool));
   });
 
   router.get("/requests", async (req, res) => {
     res.json({ requests: await listRequests(pool, req.user?.id || null) });
+  });
+
+  router.get("/people", async (_req, res) => {
+    res.json({ people: await listActivePeople(pool) });
   });
 
   router.get("/responses", async (req, res) => {
@@ -546,7 +569,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (author && !INTEL_ID.test(author)) return res.json({ information: [], author: null });
     const before = String(req.query.before || "").trim();
     const anchor = before && INTEL_ID.test(before) ? before : null;
-    const rows = await listPublicIntel(pool, 30, req.user?.id || null, author || null, anchor);
+    const filters = { category: req.query.category, topic: req.query.topic };
+    const rows = await listPublicIntel(pool, 30, req.user?.id || null, author || null, anchor, filters);
     const information = (await withUploads(pool, rows)).map(publicCard);
     if (!author) return res.json({ information });
     res.json({ information, author: await publicAuthor(pool, author) });
@@ -590,6 +614,20 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
       [req.user.id, id]
     );
     res.json({ ok: true });
+  });
+
+  // 平台层关闭：绑定为管理员的人类账号点「关闭」，卡片对所有用户不可见。
+  router.post("/intel/:id/close", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!(await isAdminUser(pool, req.user.id))) return res.status(403).json({ error: "not_admin" });
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    const reason = String(req.body?.reason ?? "").trim() || "平台关闭";
+    try {
+      res.json(await removePost(pool, id, reason, req.user.id));
+    } catch (error) {
+      httpError(res, error);
+    }
   });
 
   async function writeStar(req, res, starred) {

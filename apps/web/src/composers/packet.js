@@ -84,6 +84,8 @@ export function usePacketMedia() {
   const audio = ref(null);
   const video = ref("");
   const videoOpen = ref(false);
+  const posterFile = ref(null);
+  const posterPreview = ref("");
   const price = ref("");
   const error = ref("");
   const hasUpload = computed(() => images.value.length > 0 || files.value.length > 0 || Boolean(audio.value));
@@ -167,18 +169,44 @@ export function usePacketMedia() {
     audio.value = null;
   }
 
+  function setPosterFile(file) {
+    error.value = "";
+    if (!file) return;
+    if (!String(file.type || "").startsWith("image/")) {
+      error.value = t("error.bad_mime");
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      error.value = t("error.image_too_large");
+      return;
+    }
+    removePoster();
+    posterFile.value = file;
+    posterPreview.value = URL.createObjectURL(file);
+  }
+
+  function removePoster() {
+    if (posterPreview.value) URL.revokeObjectURL(posterPreview.value);
+    posterPreview.value = "";
+    posterFile.value = null;
+  }
+
   function reset() {
     images.value = [];
     files.value = [];
     audio.value = null;
     video.value = "";
     videoOpen.value = false;
+    removePoster();
     price.value = "";
     error.value = "";
     clearPreviews();
   }
 
-  onUnmounted(clearPreviews);
+  onUnmounted(() => {
+    clearPreviews();
+    removePoster();
+  });
 
   return {
     images,
@@ -187,6 +215,8 @@ export function usePacketMedia() {
     audio,
     video,
     videoOpen,
+    posterFile,
+    posterPreview,
     price,
     error,
     hasUpload,
@@ -196,6 +226,8 @@ export function usePacketMedia() {
     removeFile,
     setAudio,
     removeAudio,
+    setPosterFile,
+    removePoster,
     reset,
   };
 }

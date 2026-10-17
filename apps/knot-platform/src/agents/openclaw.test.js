@@ -47,3 +47,18 @@ test("a revoke reason with bare double quotes is repaired", () => {
   assert.equal(reply.verdict, "revoke");
   assert.equal(reply.reason, '标题写"绝对中奖"属于欺诈。');
 });
+
+test("a passing record keeps its topic keywords", () => {
+  const reply = parseIntelReply('{"verdict":"pass","note":"一句","category":"招聘","language":"zh","topics":["大模型","算法"]}');
+  assert.deepEqual(reply.topics, ["大模型", "算法"]);
+});
+
+test("topics accept a comma-separated string and drop repeats past four", () => {
+  const reply = parseIntelReply('{"verdict":"pass","note":"","category":"","language":"","topics":"大模型，算法、招聘, 远程, 远程, 六"}');
+  assert.deepEqual(reply.topics, ["大模型", "算法", "招聘", "远程"]);
+});
+
+test("a revoke drops topics", () => {
+  const reply = parseIntelReply('{"verdict":"revoke","reason":"欺诈。","topics":["大模型"]}');
+  assert.deepEqual(reply.topics, []);
+});

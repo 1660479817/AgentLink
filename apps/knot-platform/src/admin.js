@@ -97,7 +97,7 @@ export async function findUsers(pool, query) {
   const { rows } = await pool.query(
     `SELECT ${ACCOUNT_COLUMNS}
      FROM users
-     WHERE lower(email) = lower($1) OR display_name = $1
+     WHERE lower(email) = lower($1) OR lower(btrim(display_name)) = lower(btrim($1))
      ORDER BY created_at ASC
      LIMIT 6`,
     [q]
@@ -219,14 +219,14 @@ export async function listPosts(pool, { user, q, within }) {
   };
 }
 
-async function writeAction(pool, { action, userId = null, intelId = null, body }) {
+async function writeAction(pool, { action, userId = null, intelId = null, body, actorId = null }) {
   await pool.query(
-    `INSERT INTO admin_actions (action, user_id, intel_id, body) VALUES ($1, $2, $3, $4)`,
-    [action, userId, intelId, body]
+    `INSERT INTO admin_actions (action, user_id, intel_id, body, actor_id) VALUES ($1, $2, $3, $4, $5)`,
+    [action, userId, intelId, body, actorId]
   );
 }
 
-export async function removePost(pool, id, reason) {
+export async function removePost(pool, id, reason, actorId = null) {
   if (!UUID.test(String(id || ""))) throw fail("not_found");
   const text = requireText(reason, REASON_MAX, "bad_body");
   const { rows } = await pool.query(
@@ -249,7 +249,7 @@ export async function removePost(pool, id, reason) {
     body: text,
     href: "/mine/submissions",
   });
-  await writeAction(pool, { action: "remove", userId: rows[0].user_id, intelId: id, body: text });
+  await writeAction(pool, { action: "remove", userId: rows[0].user_id, intelId: id, body: text, actorId });
   touchDiscoverBoard();
   return { ok: true, already: false, id, userId: rows[0].user_id };
 }

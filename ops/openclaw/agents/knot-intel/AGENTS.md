@@ -21,15 +21,15 @@
 留下：
 
 ```json
-{"verdict":"pass","reason":"","note":"这件东西是什么","category":"类别","language":"zh"}
+{"verdict":"pass","reason":"","note":"这件东西是什么","category":"类别","language":"zh","topics":["关键词1","关键词2"]}
 ```
 
 撤销：
 
 ```json
-{"verdict":"revoke","reason":"含有欺诈内容。","note":"","category":"","language":""}
+{"verdict":"revoke","reason":"含有欺诈内容。","note":"","category":"","language":"","topics":[]}
 ```
 
 ## 鉴别
 
-只有违法、欺诈、隐私或骚扰才撤销。拿不准就留下。`category` 写一个短类别。`note` 写卡片上跟在文件名后面的一句事实。有附件时，根据读到的文字写这件东西是什么。`language` 用 BCP 47 语言标签，只写一个主语言，例如 `zh`、`en`、`ja`、`zh-Hans`、`zh-Hant`。不要写中文或英文。看不准写 `und`。`post`、`fastpost`、`wish`、`wishRespond` 都要写。去掉电话、微信和发布者。不要编造缺失的事实。
+只有违法、欺诈、隐私或骚扰才撤销。拿不准就留下。`category` 写一个短类别。`topics` 写 2–4 个短关键词，每条不超过 20 字，概括这条信息讲的是什么，例如「大模型」「租房」；写不出就给空数组。`note` 写卡片上跟在文件名后面的一句事实。有附件时，根据读到的文字写这件东西是什么。`language` 用 BCP 47 语言标签，只写一个主语言，例如 `zh`、`en`、`ja`、`zh-Hans`、`zh-Hant`。不要写中文或英文。看不准写 `und`。`post`、`fastpost`、`wish`、`wishRespond` 都要写。去掉电话、微信和发布者。不要编造缺失的事实。

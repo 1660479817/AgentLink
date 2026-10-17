@@ -1,10 +1,10 @@
 import { lookup } from "node:dns/promises";
 import net from "node:net";
-import { knownPoster, previewImage } from "./information.js";
+import { previewVideo } from "./information.js";
 
-const VIDEO_FILE = /\.(mp4|webm|ogg|ogv|mov|m4v|mkv|avi)(?:$|[?#])/i;
 const HOP_LIMIT = 3;
 const HTML_LIMIT = 512 * 1024;
+const VIDEO_FILE = /\.(mp4|webm|ogg|ogv|mov|m4v)(?:$|[?#])/i;
 
 function privateAddress(address) {
   const ip = String(address || "").toLowerCase();
@@ -112,18 +112,14 @@ async function readHtml(raw, hops = 0) {
   }
 }
 
-export async function postersFor(urls) {
-  const records = [];
-  for (const url of urls) {
-    const known = knownPoster(url);
-    if (known) {
-      records.push({ url, poster: known });
-      continue;
-    }
-    const page = await readHtml(url);
-    const poster = page.url ? previewImage(page.html, page.url.toString()) : "";
-    const safe = poster ? await publicUrl(poster) : null;
-    records.push(safe ? { url, poster: safe.toString() } : { url });
-  }
-  return records;
+// 把「落地页链接」解析成「可播直链」。拿不到就返回空，绝不因解析失败影响提交。
+export async function resolveVideo(raw) {
+  const url = await publicUrl(raw);
+  if (!url) return "";
+  if (VIDEO_FILE.test(url.pathname)) return url.toString();
+  const page = await readHtml(url.toString());
+  const direct = page.url ? previewVideo(page.html, page.url.toString()) : "";
+  if (!direct) return "";
+  const safe = await publicUrl(direct);
+  return safe ? safe.toString() : "";
 }

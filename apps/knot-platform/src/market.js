@@ -2,9 +2,9 @@ import { access, readFile, rm } from "node:fs/promises";
 import { intelAgentId, runIntelAgent } from "./agents/openclaw.js";
 import { toRecord } from "./card.js";
 import { loadBootstrapConfig } from "./config.js";
-import { fileView, isArchiveUpload, isAttachmentUpload, isAudioUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, uploadName, videosOf, visibleVerdict } from "./information.js";
+import { fileView, isArchiveUpload, isAttachmentUpload, isAudioUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, uploadName, videoItemsOf, visibleVerdict } from "./information.js";
 import { assertReachable, contentHash } from "./links.js";
-import { postersFor } from "./videoPoster.js";
+import { resolveVideo } from "./videoPoster.js";
 import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./friends.js";
 import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
@@ -14,8 +14,9 @@ import { scoreText } from "./search.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { attachmentOpens } from "./readable.js";
 import { avatarUrlFor } from "./avatars.js";
-import { storagePath } from "./uploads.js";
+import { cardImageUrl, storagePath } from "./uploads.js";
 import { discardExtract, extractsFor } from "./extracts.js";
+import { wishExpiresAt, wishHours, wishLive } from "./wish.js";
 
 function videoText(videos) {
   if (!Array.isArray(videos)) return "";
@@ -120,7 +121,7 @@ async function loadIntel(pool, id) {
 
 async function loadPresentedIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at FROM intel WHERE id = $1`,
+    `SELECT id, user_id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at FROM intel WHERE id = $1`,
     [id]
   );
   if (!rows[0]) return null;
@@ -186,7 +187,7 @@ async function notifyWishResponse(pool, { wishId, authorId }) {
 export async function judgeIntel(pool, id) {
   const intel = await loadIntel(pool, id);
   if (!intel || intel.verdict !== "pending") return presentIntel(intel);
-  let result = { verdict: "pass", reason: "", note: "", category: "", language: "" };
+  let result = { verdict: "pass", reason: "", note: "", category: "", language: "", topics: [] };
   if (intelAgentId()) {
     const images = await imageFiles(pool, id);
     const attachments = await attachmentFiles(pool, id);
@@ -213,7 +214,7 @@ export async function judgeIntel(pool, id) {
     await pool.query(
       `UPDATE intel SET verdict = 'passed', reject_reason = NULL, category = $2, detail = $3::jsonb
        WHERE id = $1 AND verdict = 'pending'`,
-      [id, result.category || "", JSON.stringify({ note: result.note || "", language: result.language || "" })]
+      [id, result.category || "", JSON.stringify({ note: result.note || "", language: result.language || "", topics: result.topics || [] })]
     );
   }
   if (intel.kind === "post" || intel.kind === "fastpost" || intel.kind === "wish") touchDiscoverBoard();
@@ -331,7 +332,7 @@ export async function resumePendingReviews(pool) {
 async function assertRespondsTo(pool, requestId, userId) {
   if (!requestId) return;
   const { rows } = await pool.query(
-    `SELECT user_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")}`,
+    `SELECT user_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")} AND ${wishLive("intel")}`,
     [requestId]
   );
   if (!rows.length || rows[0].user_id === userId) {
@@ -364,6 +365,7 @@ export async function createIntel(pool, input) {
   const fileIds = (input.fileIds || []).slice(0, MAX_FILES);
   const fileUrls = (input.fileUrls || []).slice(0, Math.max(0, MAX_FILES - fileIds.length));
   const { kind, respondsTo } = resolveKind(input);
+  const expiresAt = kind === "wish" ? wishExpiresAt(wishHours(input.hours)) : null;
   const mentions = mentionList(input.mentions);
   if (mentions.length && kind !== "post" && kind !== "fastpost" && kind !== "wish") {
     const error = new Error("bad_mention");
@@ -372,6 +374,7 @@ export async function createIntel(pool, input) {
   }
   if (mentions.length) await assertFriends(pool, userId, mentions);
   const mention = (intelId) => directMentions(pool, { authorId: userId, intelId, kind, body, mentions });
+  const videoItems = videoItemsOf(videos);
   const hash = contentHash({
     kind,
     respondsTo,
@@ -382,7 +385,7 @@ export async function createIntel(pool, input) {
     audioUrls,
     fileIds,
     fileUrls,
-    videos: videosOf(videos),
+    videos: videoItems,
   });
   const prior = await pool.query(
     `SELECT id FROM intel WHERE user_id = $1 AND content_hash = $2 AND verdict <> 'pending'`,
@@ -408,11 +411,36 @@ export async function createIntel(pool, input) {
     const order = new Map(uploadIds.map((id, index) => [id, index]));
     owned = rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   }
-  const videoLinks = videosOf(videos);
+  const videoLinks = videoItems.map((item) => item.url);
+  const posterIds = [...new Set(videoItems.filter((item) => item.poster.id).map((item) => item.poster.id))];
+  const posterById = new Map();
+  if (posterIds.length) {
+    const { rows } = await pool.query(
+      `SELECT id FROM uploads WHERE user_id = $1 AND id = ANY($2::uuid[]) AND mime LIKE 'image/%'`,
+      [userId, posterIds]
+    );
+    if (rows.length !== posterIds.length) {
+      const error = new Error("bad_poster");
+      error.code = "bad_poster";
+      throw error;
+    }
+    for (const row of rows) posterById.set(row.id, cardImageUrl(row.id));
+  }
+  // 存进 intel.videos 的 poster 是上传图的卡片显示地址。
+  // playUrl 是后端从落地页解析出的直链，解析不出就留空；它不是用户输入，不进 content_hash。
+  const playUrls = await Promise.all(videoItems.map((item) => resolveVideo(item.url)));
+  const storedVideos = videoItems.map((item, i) => {
+    const playUrl = playUrls[i] && playUrls[i] !== item.url ? playUrls[i] : "";
+    const record = {
+      url: item.url,
+      poster: posterById.get(item.poster.id) || "",
+    };
+    if (playUrl) record.playUrl = playUrl;
+    return record;
+  });
   await assertAttachmentsOpen(pool, fileIds);
   await assertReachable([...imageUrls, ...audioUrls, ...fileUrls, ...videoLinks]);
   await assertRespondsTo(pool, respondsTo, userId);
-  const posters = await postersFor(videoLinks);
   const external = {
     images: imageUrls.map((url) => ({ url })),
     audio: audioUrls.map((url) => ({ url })),
@@ -426,9 +454,9 @@ export async function createIntel(pool, input) {
   try {
     await client.query("BEGIN");
     const inserted = await client.query(
-      `INSERT INTO intel (user_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to, price)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11) RETURNING id`,
-      [userId, actor, door, body, JSON.stringify(posters), JSON.stringify(external), hash, listed, kind, respondsTo, priced]
+      `INSERT INTO intel (user_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to, price, expires_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12) RETURNING id`,
+      [userId, actor, door, body, JSON.stringify(storedVideos), JSON.stringify(external), hash, listed, kind, respondsTo, priced, expiresAt]
     );
     intelId = inserted.rows[0].id;
     for (let i = 0; i < owned.length; i += 1) {
@@ -500,13 +528,36 @@ export function compareByWeight(a, b) {
   return new Date(b.created_at) - new Date(a.created_at);
 }
 
-export async function listPublicIntel(pool, limit = 30, userId = null, authorId = null, before = null) {
+// 筛选值去空白、截断，避免超长参数进查询。
+function filterText(raw, max) {
+  const value = String(raw ?? "").trim();
+  return value ? value.slice(0, max) : "";
+}
+
+// 类型与热词筛选：类型精确匹配 category，热词命中 detail.topics 里的某个关键词。
+function filterSql(filters, params) {
+  let sql = "";
+  const category = filterText(filters?.category, 40);
+  if (category) {
+    params.push(category);
+    sql += ` AND i.category = $${params.length}`;
+  }
+  const topic = filterText(filters?.topic, 20);
+  if (topic) {
+    params.push(topic);
+    sql += ` AND (i.detail -> 'topics') ? $${params.length}`;
+  }
+  return sql;
+}
+
+export async function listPublicIntel(pool, limit = 30, userId = null, authorId = null, before = null, filters = {}) {
   const params = [userId];
   let sql = PUBLIC_INTEL_SQL;
   if (authorId) {
     params.push(authorId);
     sql += ` AND i.user_id = $${params.length}`;
   }
+  sql += filterSql(filters, params);
   if (before) {
     // 键集分页：只取排在锚点（上一页最后一条）之后的内容，避免偏移翻页的重复与漏条。
     params.push(before);
@@ -544,11 +595,10 @@ export async function publicAuthor(pool, authorId) {
   };
 }
 
-export async function searchPublicIntel(pool, query, userId = null) {
-  const { rows } = await pool.query(
-    `${PUBLIC_INTEL_SQL} ORDER BY i.weight DESC, i.created_at DESC LIMIT 500`,
-    [userId]
-  );
+export async function searchPublicIntel(pool, query, userId = null, filters = {}) {
+  const params = [userId];
+  const sql = `${PUBLIC_INTEL_SQL}${filterSql(filters, params)} ORDER BY i.weight DESC, i.created_at DESC LIMIT 500`;
+  const { rows } = await pool.query(sql, params);
   const extracts = await extractsFor(rows.map((row) => row.id));
   return rows
     .map((row, index) => ({ ...row, score: scoreText(query, `${intelText(row)} ${extracts[index] || ""}`) }))

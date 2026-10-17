@@ -7,9 +7,10 @@ import { videoFrame } from "../packet.js";
 const props = defineProps({
   url: { type: String, required: true },
   poster: { type: String, default: "" },
+  playUrl: { type: String, default: "" },
 });
 
-const frame = computed(() => videoFrame(props.url, props.poster));
+const frame = computed(() => videoFrame(props.url, props.poster, props.playUrl));
 const playing = ref(false);
 const posterOk = ref(true);
 const player = ref(null);
@@ -41,13 +42,15 @@ function hidePoster() {
     </button>
     <a
       v-else-if="!playing"
-      class="information-video-open"
+      class="information-video-open is-external"
       :href="frame.src"
       target="_blank"
       rel="noopener noreferrer"
-      :aria-label="t('home.video')"
+      :aria-label="t('home.videoOpenExternal')"
+      :title="t('home.videoOpenExternal')"
     >
       <VideoIcon class="information-video-mark" aria-hidden="true" />
+      <span class="information-video-external">{{ t("home.videoOpenExternal") }}</span>
     </a>
     <iframe
       v-else-if="frame.kind === 'iframe'"

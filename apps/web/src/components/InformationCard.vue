@@ -4,13 +4,16 @@ import ActorMark from "./ActorMark.vue";
 import AppButton from "./AppButton.vue";
 import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
-import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, RemovedIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { isMarkdown, plainMarkdown, renderMarkdown } from "../markdown.js";
-import { lockedImages, packetAudio, packetFile, packetVideos, photoUrls } from "../packet.js";
+import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoUrls } from "../packet.js";
 
 const props = defineProps({
   body: { type: String, default: "" },
   category: { type: String, default: "" },
+  topics: { type: Array, default: () => [] },
+  categorySelected: { type: Boolean, default: false },
+  activeTopic: { type: String, default: "" },
   language: { type: String, default: "" },
   price: { type: Number, default: 0 },
   granted: { type: Boolean, default: true },
@@ -34,13 +37,25 @@ const props = defineProps({
   busy: { type: Boolean, default: false },
   sharing: { type: Boolean, default: false },
   notice: { type: String, default: "" },
+  canClose: { type: Boolean, default: false },
+  closing: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["author", "dismiss", "star", "download", "friend", "share"]);
+const emit = defineEmits(["author", "category", "topic", "dismiss", "star", "download", "friend", "share", "close"]);
 
 function onAuthor() {
   if (!props.authorId) return;
   emit("author");
+}
+
+function onCategory() {
+  if (!props.category) return;
+  emit("category");
+}
+
+function onTopic(topic) {
+  if (!topic) return;
+  emit("topic", topic);
 }
 
 const photos = computed(() => photoUrls(props.imageUrls, props.images));
@@ -48,6 +63,8 @@ const pendingImages = computed(() => lockedImages(props.imageUrls, props.images)
 const clips = computed(() => packetAudio(props.audio));
 const links = computed(() => packetVideos(props.videos));
 const files = computed(() => packetFile(props.attachments));
+const form = computed(() => packetForm({ images: props.images, imageUrls: props.imageUrls, videos: props.videos }));
+const formLabel = computed(() => ({ text: "home.formText", image: "home.formImage", video: "home.formVideo" }[form.value]));
 const markdown = computed(() => isMarkdown(props.body));
 const bodyPlain = computed(() => (markdown.value ? plainMarkdown(props.body) : props.body));
 const bodyHtml = computed(() => (markdown.value ? renderMarkdown(props.body) : ""));
@@ -121,7 +138,7 @@ watch(
 </script>
 
 <template>
-  <article class="card post information-card">
+  <article class="card post information-card" :class="`is-${form}`">
     <header class="information-head">
       <div class="information-author">
         <button
@@ -139,10 +156,21 @@ watch(
             <span class="information-name-text">{{ authorName || t("home.author") }}</span>
             <ActorMark :actor="actor" />
           </p>
-          <p v-if="posted || category || language" class="information-time">
+          <p v-if="posted || category || language || formLabel" class="information-time">
+            <span class="information-form">{{ t(formLabel) }}</span>
+            <span v-if="posted || category || language"> · </span>
             <span v-if="posted">{{ posted }}</span>
             <span v-if="posted && (category || language)"> · </span>
-            <span v-if="category">{{ category }}</span>
+            <button
+              v-if="category"
+              type="button"
+              class="information-category"
+              :class="{ 'is-on': categorySelected }"
+              :aria-pressed="categorySelected"
+              @click="onCategory"
+            >
+              {{ category }}
+            </button>
             <span v-if="category && language"> · </span>
             <span v-if="language">{{ language }}</span>
           </p>
@@ -168,6 +196,17 @@ watch(
         <span>{{ price }}</span>
       </span>
       <AppButton
+        v-if="canClose"
+        class="information-close"
+        variant="icon"
+        type="button"
+        :disabled="closing"
+        :aria-label="t('home.closeCard')"
+        @click="emit('close')"
+      >
+        <RemovedIcon class="information-close-icon" aria-hidden="true" />
+      </AppButton>
+      <AppButton
         class="information-dismiss"
         variant="icon"
         type="button"
@@ -177,6 +216,19 @@ watch(
         <CloseIcon class="information-dismiss-icon" aria-hidden="true" />
       </AppButton>
     </header>
+    <div v-if="topics.length" class="information-topics">
+      <button
+        v-for="topic in topics"
+        :key="topic"
+        type="button"
+        class="information-topic"
+        :class="{ 'is-on': activeTopic === topic }"
+        :aria-pressed="activeTopic === topic"
+        @click="onTopic(topic)"
+      >
+        {{ topic }}
+      </button>
+    </div>
     <div v-if="body" class="information-body-wrap">
       <p v-if="!markdown" ref="bodyRef" class="information-body" :class="{ 'is-clamped': !bodyOpen }">{{ body }}</p>
       <p v-else-if="!bodyOpen" ref="bodyRef" class="information-body" :class="{ 'is-clamped': true }">{{ bodyPlain }}</p>
@@ -212,7 +264,7 @@ watch(
         </span>
       </template>
     </div>
-    <VideoFrame v-if="links[0]" :url="links[0].url" :poster="links[0].poster || ''" />
+    <VideoFrame v-if="links[0]" :url="links[0].url" :poster="links[0].poster || ''" :play-url="links[0].playUrl || ''" />
     <ul v-if="files.length" class="information-files">
       <li v-for="(file, index) in files" :key="file.id || `${file.name}-${index}`">
         <span class="information-file">

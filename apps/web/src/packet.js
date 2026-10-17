@@ -26,10 +26,20 @@ export function packetVideos(videos = []) {
       const url = typeof item === "string" ? item : item?.url;
       if (typeof url !== "string" || !url) return null;
       const poster = typeof item === "object" && typeof item.poster === "string" ? item.poster : "";
-      return poster ? { url, poster } : { url };
+      const playUrl = typeof item === "object" && typeof item.playUrl === "string" ? item.playUrl : "";
+      const out = poster ? { url, poster } : { url };
+      if (playUrl) out.playUrl = playUrl;
+      return out;
     })
     .filter(Boolean)
     .slice(0, PACKET_LIMITS.videos);
+}
+
+// 卡片形态：视频优先，其次图文，其余是文字。与 kind 无关，纯由内容推导。
+export function packetForm({ images = [], imageUrls = [], videos = [] } = {}) {
+  if (packetVideos(videos).length) return "video";
+  if (photoUrls(imageUrls, images).length) return "image";
+  return "text";
 }
 
 function youtubeId(url) {
@@ -50,15 +60,25 @@ function youtubeId(url) {
 
 const VIDEO_FILE = /\.(mp4|webm|ogg|ogv|mov|m4v)(?:$|[?#])/i;
 
-export function videoFrame(url, poster = "") {
+function isVideoFile(raw) {
+  try {
+    return VIDEO_FILE.test(new URL(raw).pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function videoFrame(url, poster = "", playUrl = "") {
+  // 后端解析出的直链只在确实是可播文件时使用；否则回到原链接（落地页）走完整判断。
+  const source = playUrl && isVideoFile(playUrl) ? playUrl : url;
   let parsed;
   try {
-    parsed = new URL(url);
+    parsed = new URL(source);
   } catch {
     return null;
   }
   const host = parsed.hostname.replace(/^www\./, "");
-  const youtube = youtubeId(url);
+  const youtube = youtubeId(source);
   const known = youtube && /^[\w-]{6,}$/.test(youtube) ? `https://i.ytimg.com/vi/${youtube}/hqdefault.jpg` : "";
   const image = poster || known;
   const frame = { poster: image };
@@ -71,8 +91,8 @@ export function videoFrame(url, poster = "") {
     const id = parsed.pathname.match(/(\d+)/);
     if (id) return { ...frame, kind: "iframe", src: `https://player.vimeo.com/video/${id[1]}` };
   }
-  if (VIDEO_FILE.test(parsed.pathname)) return { ...frame, kind: "file", src: url };
-  return { ...frame, kind: "open", src: url };
+  if (VIDEO_FILE.test(parsed.pathname)) return { ...frame, kind: "file", src: source };
+  return { ...frame, kind: "open", src: source };
 }
 
 export function packetFile(attachments = []) {

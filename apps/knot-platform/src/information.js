@@ -55,6 +55,12 @@ function videoError() {
   return error;
 }
 
+function posterError() {
+  const error = new Error("bad_poster");
+  error.code = "bad_poster";
+  return error;
+}
+
 function videoUrl(raw) {
   const text = raw.trim();
   if (!text || text.length > 2000) return "";
@@ -69,22 +75,33 @@ function videoUrl(raw) {
   return url.toString();
 }
 
-export function videosOf(value, limit = MAX_VIDEOS) {
+// 缩略图由发送方必填，只收平台上传图 { id }，不收外链。
+function posterInput(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw posterError();
+  if (typeof raw.id === "string") {
+    const id = raw.id.trim().toLowerCase();
+    if (!UUID.test(id)) throw posterError();
+    return { id };
+  }
+  throw posterError();
+}
+
+// 视频项：{ url, poster }。url 是 http/https 链接，poster 是平台上传图 { id }。
+export function videoItemsOf(value, limit = MAX_VIDEOS) {
   if (value == null) return [];
   if (!Array.isArray(value)) throw videoError();
-  const videos = [];
+  const items = [];
   const seen = new Set();
   for (const item of value) {
-    if (videos.length >= limit) break;
-    const raw = typeof item === "string" ? item : item && typeof item === "object" ? item.url : null;
-    if (typeof raw !== "string") throw videoError();
-    const url = videoUrl(raw);
+    if (items.length >= limit) break;
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw posterError();
+    const url = videoUrl(typeof item.url === "string" ? item.url.trim() : "");
     if (!url) throw videoError();
     if (seen.has(url)) continue;
     seen.add(url);
-    videos.push(url);
+    items.push({ url, poster: posterInput(item.poster) });
   }
-  return videos;
+  return items;
 }
 
 export function publicOf(value) {
@@ -184,6 +201,37 @@ export function previewImage(html, base) {
     } catch {
       /* skip a broken preview address */
     }
+  }
+  return "";
+}
+
+const VIDEO_META_KEYS = new Set(["og:video", "og:video:url", "og:video:secure_url", "twitter:player:stream"]);
+
+function safeAbsolute(raw, base) {
+  if (!raw) return "";
+  try {
+    const url = new URL(raw, base);
+    if ((url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password) return url.toString();
+  } catch {
+    /* skip a broken address */
+  }
+  return "";
+}
+
+// 从页面里找出可播放的视频直链。落地页不直接给流时，尽力解析 og:video / twitter 流 / 内联 <video><source>。
+export function previewVideo(html, base) {
+  const doc = String(html || "");
+  const tags = doc.match(/<meta\b[^>]*>/gi) || [];
+  for (const tag of tags) {
+    const key = (metaContent(tag, "property") || metaContent(tag, "name")).toLowerCase();
+    if (!VIDEO_META_KEYS.has(key)) continue;
+    const url = safeAbsolute(metaContent(tag, "content"), base);
+    if (url) return url;
+  }
+  const inline = doc.match(/<(?:video|source)\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/i);
+  if (inline) {
+    const url = safeAbsolute(inline[1] || inline[2] || inline[3], base);
+    if (url) return url;
   }
   return "";
 }
