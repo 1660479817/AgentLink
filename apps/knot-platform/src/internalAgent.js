@@ -24,7 +24,7 @@ function fail(code) {
 
 const EXISTING_AGENT = `SELECT id, points_balance, side
      FROM users
-     WHERE display_name = $1
+     WHERE lower(btrim(display_name)) = lower(btrim($1))
      ORDER BY created_at ASC`;
 
 export function agentEnvText(issued) {

@@ -285,7 +285,7 @@
     "mail_unavailable": "Mail can't be sent right now",
     "mail_failed": "The message was not sent",
     "too_many": "Wait a moment before asking for another key",
-    "bad_name": "A name can't be longer than 40 characters",
+    "bad_name": "A name is required and can't be longer than 40 characters",
     "bad_bio": "A bio can't be longer than 200 characters",
     "name_taken": "That name is already taken",
     "bad_avatar": "This picture can't be a profile photo",

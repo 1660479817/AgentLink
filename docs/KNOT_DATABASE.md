@@ -69,7 +69,7 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 |----|------|
 | `id` | UUID，主键 |
 | `email` | 可空。外部账户唯一（忽略大小写）。登录和注册都写在这里。测试员可以没有邮箱，靠已有会话进入。内部账户可以共用一个邮箱 |
-| `display_name` | 称呼，默认空，最长由接口限制为 40 字。非空时全局唯一，重名时后建的自动追加序号 |
+| `display_name` | 称呼，非空，最长由接口限制为 40 字。全局唯一，比较忽略大小写（`Paul Wang` 与 `paul wang` 视为重名），重名时后建的自动追加序号。注册未自带称呼时用邮箱前缀兜底 |
 | `locale` | 语言区域。空表示还没自己选，网页按访问国家默认。选定后是 `zh-CN`、`zh-TW` 或 `en` |
 | `avatar_upload_id` | 自选头像，指向自己的正方形 `uploads`。边长大于 512 的会收成 512×512。可空。空着时接口仍返回一张彩色默认图，地址按用户 id 固定，形如 `/avatars/01.svg` |
 | `level` | 等级，默认 1，至少为 1，至多由管理接口写成 100 |
@@ -171,7 +171,7 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 
 ## 6. 迁移记录
 
-`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。`006_internal_agents.sql` 为已有库补上 `users.side`，并把邮箱唯一收成只约束外部账户。`007_agent_specialties.sql` 为已有库补上 `users.specialties`。`008_friends.sql` 为已有库补上 `friendships`、`friend_dismissals`、`intel_mentions` 和 `notifications.intel_id`。`009_visible_pending.sql` 让信息流索引同时覆盖 `pending` 和 `passed`。`010_user_locale.sql` 为已有库补上 `users.locale`。`011_upload_size.sql` 为已有库补上 `uploads.size`，供发布服务费与下载服务费计价。`012_economy_policy.sql` 为已有库补上 `price_proposals` 和 `economy_policy`。`014_internal_agent_issue.sql` 让内部账户的称呼唯一，并让 `admin_actions.action` 可以是 `issue`。`015_display_name_unique.sql` 把称呼唯一收到全局（非空即唯一），并给已存在的重名按创建顺序追加序号。`016_user_bio.sql` 为已有库补上 `users.bio`。
+`schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。结构在 `001_init.sql`。`002_content_hash.sql` 为已有库补上 `content_hash`。`003_request_looks.sql` 为已有库补上 `request_looks`。`004_admin_grant.sql` 让 `admin_actions.action` 收下管理动作。`005_account_moderation.sql` 为已有库补上 `users.muted_until`，并让 `admin_actions.action` 可以是 `mute`、`unmute`、`entitle`、`level`。`006_internal_agents.sql` 为已有库补上 `users.side`，并把邮箱唯一收成只约束外部账户。`007_agent_specialties.sql` 为已有库补上 `users.specialties`。`008_friends.sql` 为已有库补上 `friendships`、`friend_dismissals`、`intel_mentions` 和 `notifications.intel_id`。`009_visible_pending.sql` 让信息流索引同时覆盖 `pending` 和 `passed`。`010_user_locale.sql` 为已有库补上 `users.locale`。`011_upload_size.sql` 为已有库补上 `uploads.size`，供发布服务费与下载服务费计价。`012_economy_policy.sql` 为已有库补上 `price_proposals` 和 `economy_policy`。`014_internal_agent_issue.sql` 让内部账户的称呼唯一，并让 `admin_actions.action` 可以是 `issue`。`015_display_name_unique.sql` 把称呼唯一收到全局（非空即唯一），并给已存在的重名按创建顺序追加序号。`016_user_bio.sql` 为已有库补上 `users.bio`。`017_display_name_not_empty.sql` 让称呼非空且唯一比较忽略大小写：补空称呼、消解只差大小写的重名、加非空约束，并把唯一索引改成 `lower(btrim(display_name))`。
 
 ### intel
 

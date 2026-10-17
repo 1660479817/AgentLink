@@ -46,7 +46,7 @@ test("a duplicate internal name keeps the first account", async () => {
   let selects = 0;
   const pool = {
     async query(sql) {
-      if (sql.includes("display_name = $1")) {
+      if (sql.includes("lower(btrim(display_name))")) {
         selects += 1;
         if (selects === 1) return { rows: [], rowCount: 0 };
         return { rows: [{ id: "11111111-1111-4111-8111-111111111111", points_balance: 40, side: "internal" }], rowCount: 1 };
@@ -70,7 +70,7 @@ test("a duplicate internal name keeps the first account", async () => {
 test("a name held by an external account blocks the internal agent", async () => {
   const pool = {
     async query(sql) {
-      if (sql.includes("display_name = $1")) {
+      if (sql.includes("lower(btrim(display_name))")) {
         return { rows: [{ id: "22222222-2222-4222-8222-222222222222", points_balance: 12, side: "external" }], rowCount: 1 };
       }
       throw new Error(sql);

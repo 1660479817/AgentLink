@@ -295,7 +295,7 @@ async function leave() {
             :disabled="busy"
           />
           <div class="form-actions">
-            <AppButton type="submit" :disabled="busy || nameUnchanged">{{ t("mine.save") }}</AppButton>
+            <AppButton type="submit" :disabled="busy || nameUnchanged || !name.trim()">{{ t("mine.save") }}</AppButton>
             <AppButton variant="secondary" type="button" :disabled="busy" @click="cancelEditName">
               {{ t("mine.cancel") }}
             </AppButton>

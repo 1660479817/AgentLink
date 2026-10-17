@@ -14,6 +14,13 @@ export function normalizeEmail(value) {
   return email;
 }
 
+// 注册时没有自带称呼，就用邮箱前缀兜底，保证称呼非空。前缀为空时用「用户」。
+export function defaultDisplayName(email) {
+  const local = String(email || "").split("@")[0].trim();
+  const base = local || "用户";
+  return Array.from(base).slice(0, 40).join("");
+}
+
 export function normalizeLoginKey(value) {
   const key = String(value || "").trim().replace(/\s+/g, "");
   if (!/^\d{6}$/.test(key)) return null;
@@ -87,14 +94,24 @@ export async function redeemLoginKey(pool, email, key) {
     [email, hashLoginKey(key)]
   );
   if (!matched.rowCount) return { error: "bad_key", status: 400 };
-  const saved = await pool.query(
-    `INSERT INTO users (email, points_balance) VALUES ($1, $2)
-     ON CONFLICT (lower(email)) WHERE email IS NOT NULL AND side = 'external'
-     DO UPDATE SET email = EXCLUDED.email
-     RETURNING id, points_balance`,
-    [email, signupGrant()]
-  );
-  return { userId: saved.rows[0].id, pointsBalance: saved.rows[0].points_balance };
+  const base = defaultDisplayName(email);
+  let name = base;
+  for (let seq = 1; ; seq += 1) {
+    try {
+      const saved = await pool.query(
+        `INSERT INTO users (email, display_name, points_balance) VALUES ($1, $2, $3)
+         ON CONFLICT (lower(email)) WHERE email IS NOT NULL AND side = 'external'
+         DO UPDATE SET email = EXCLUDED.email
+         RETURNING id, points_balance`,
+        [email, name, signupGrant()]
+      );
+      return { userId: saved.rows[0].id, pointsBalance: saved.rows[0].points_balance };
+    } catch (error) {
+      if (error.code !== "23505" || seq >= 1000) throw error;
+      const suffix = ` ${seq}`;
+      name = Array.from(base).slice(0, 40 - Array.from(suffix).length).join("") + suffix;
+    }
+  }
 }
 
 export function adminEmail() {
@@ -129,6 +146,71 @@ export async function sendFeedback({ kind, accountEmail, userId, body }) {
   });
 }
 
+const EMAIL_FONT = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'PingFang SC','Microsoft YaHei',sans-serif`;
+
+function digitBoxes(key) {
+  return [...key]
+    .map(
+      (digit) =>
+        `<td style="width:48px;padding:0 4px;"><div style="height:56px;line-height:56px;background:#F7F8FA;border:1px solid #E4E6EB;border-radius:10px;color:#050505;font-size:28px;font-weight:700;text-align:center;font-family:${EMAIL_FONT};">${digit}</div></td>`
+    )
+    .join("");
+}
+
+export function loginKeyMessage(key) {
+  return {
+    subject: "Knot 登录密钥",
+    text: `登录密钥：${key}\n\n六位数字，十分钟内有效。登录和注册用的是同一把密钥。\n\n如果不是你本人操作，请忽略这封邮件。`,
+    html: `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Knot 登录密钥</title>
+  </head>
+  <body style="margin:0;padding:0;background:#F0F2F5;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F0F2F5;">
+      <tr>
+        <td align="center" style="padding:36px 16px;">
+          <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;">
+            <tr>
+              <td align="center" style="padding:0 0 24px;">
+                <span style="font-family:${EMAIL_FONT};font-size:24px;font-weight:700;color:#0866FF;letter-spacing:0.5px;">Knot</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#FFFFFF;border:1px solid #E4E6EB;border-radius:12px;padding:40px 40px 32px;">
+                <p style="margin:0 0 16px;font-family:${EMAIL_FONT};font-size:22px;font-weight:700;color:#050505;">你好，</p>
+                <p style="margin:0 0 32px;font-family:${EMAIL_FONT};font-size:15px;line-height:1.6;color:#65676B;">
+                  感谢使用 Knot。用下面的登录密钥确认邮箱，登录和注册都用这一把密钥。
+                </p>
+                <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
+                  <tr>${digitBoxes(key)}</tr>
+                </table>
+                <p style="margin:0;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#65676B;text-align:center;">
+                  六位数字，十分钟内有效，用过即废。
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:24px 16px 0;">
+                <p style="margin:0 0 8px;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#8A8D91;">
+                  如果不是你本人操作，请忽略这封邮件。
+                </p>
+                <p style="margin:0;font-family:${EMAIL_FONT};font-size:12px;line-height:1.6;color:#B0B3B8;">
+                  需要帮助？回复这封邮件联系我们。
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`,
+  };
+}
+
 export async function sendLoginKey(email, key) {
   const mail = mailTransport();
   if (!mail) {
@@ -136,10 +218,12 @@ export async function sendLoginKey(email, key) {
     error.code = "mail_unavailable";
     throw error;
   }
+  const message = loginKeyMessage(key);
   await mail.transport.sendMail({
     from: mail.from,
     to: email,
-    subject: "Knot 登录密钥",
-    text: `登录密钥：${key}\n\n六位数字，十分钟内有效。登录和注册用的是同一把密钥。`,
+    subject: message.subject,
+    text: message.text,
+    html: message.html,
   });
 }

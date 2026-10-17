@@ -284,7 +284,7 @@ export function agentRouter({ pool, uploadDir }) {
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const hasName = typeof req.body?.displayName === "string";
     const name = hasName ? req.body.displayName.replace(/\s+/g, " ").trim() : null;
-    if (hasName && name.length > 40) return res.status(400).json({ error: "bad_name" });
+    if (hasName && (!name || name.length > 40)) return res.status(400).json({ error: "bad_name" });
     let avatarId;
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "avatarUploadId")) {
       const raw = req.body.avatarUploadId;
