@@ -36,8 +36,18 @@ watch(
 </script>
 
 <template>
-  <div v-if="frame" class="information-video" :class="{ 'has-poster': Boolean(cover) && !playing }">
+  <div v-if="frame" class="information-video">
     <img v-if="cover && !playing" class="information-video-poster" :src="cover" alt="" @error="hidePoster" />
+    <!-- 没有封面时先露第一帧，别留一块黑底 -->
+    <video
+      v-else-if="!playing && frame.kind === 'file'"
+      class="information-video-poster"
+      :src="`${frame.src}#t=0.1`"
+      preload="metadata"
+      muted
+      playsinline
+      aria-hidden="true"
+    />
     <button
       v-if="!playing && frame.kind !== 'open'"
       type="button"

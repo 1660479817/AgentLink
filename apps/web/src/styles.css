@@ -3657,9 +3657,13 @@ a.intel-person:hover {
   background: #000;
 }
 
-.information-video-poster,
 .information-video video {
   object-fit: contain;
+  background: #000;
+}
+
+.information-video-poster {
+  object-fit: cover;
   background: #000;
 }
 
@@ -3667,13 +3671,9 @@ a.intel-person:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background: transparent;
   color: #fff;
   text-decoration: none;
-}
-
-.information-video.has-poster .information-video-open {
-  background: transparent;
 }
 
 .information-video-open:hover {
@@ -3700,6 +3700,7 @@ a.intel-person:hover {
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.55);
   box-sizing: border-box;
+  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.45));
 }
 
 .information-card .information-video {

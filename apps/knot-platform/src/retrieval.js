@@ -97,16 +97,17 @@ async function storeReport(pool, uploadDir, report, query) {
 }
 
 // 内部优先、外部补充：先用平台信息流检索，再把命中交给信息检索员整合（可用工具补外部）。
+// 返回 true 表示这次失败后已排入重试；调用方据此保留尝试计数，别在重试前把它清掉。
 async function processRetrieval(pool, jobId) {
   const { rows } = await pool.query(
     `SELECT id, wish_id, user_id, query, status FROM retrieval_jobs WHERE id = $1`,
     [jobId],
   );
   const job = rows[0];
-  if (!job || job.status === "done" || job.status === "failed") return;
+  if (!job || job.status === "done" || job.status === "failed") return false;
   if (!UUID.test(String(job.wish_id))) {
     await markFailed(pool, jobId, "bad_wish");
-    return;
+    return false;
   }
 
   let internal = [];
@@ -126,11 +127,11 @@ async function processRetrieval(pool, jobId) {
     if (attempt < RETRIEVAL_MAX_ATTEMPTS) {
       await pool.query(`UPDATE retrieval_jobs SET status = 'pending', updated_at = now() WHERE id = $1`, [jobId]);
       scheduleRetry(pool, jobId);
-      return;
+      return true;
     }
     await markFailed(pool, jobId, error.message || "retrieval_failed");
     await notifyRetrievalFailed(pool, job);
-    return;
+    return false;
   }
 
   const { uploadDir } = loadBootstrapConfig();
@@ -140,7 +141,7 @@ async function processRetrieval(pool, jobId) {
   } catch (error) {
     await markFailed(pool, jobId, error.message || "report_store_failed");
     await notifyRetrievalFailed(pool, job);
-    return;
+    return false;
   }
 
   try {
@@ -161,11 +162,12 @@ async function processRetrieval(pool, jobId) {
     if (attempt < RETRIEVAL_MAX_ATTEMPTS) {
       await pool.query(`UPDATE retrieval_jobs SET status = 'pending', updated_at = now() WHERE id = $1`, [jobId]);
       scheduleRetry(pool, jobId);
-      return;
+      return true;
     }
     await markFailed(pool, jobId, error.message || "respond_failed");
     await notifyRetrievalFailed(pool, job);
   }
+  return false;
 }
 
 async function notifyRetrievalFailed(pool, job) {
@@ -181,9 +183,11 @@ async function notifyRetrievalFailed(pool, job) {
 async function runOne(pool, jobId) {
   try {
     await markRunning(pool, jobId);
-    await processRetrieval(pool, jobId);
-    attempts.delete(jobId);
+    // 已排入重试时保留计数，下一次失败才能数到上限；否则清掉这条任务的状态。
+    const retrying = await processRetrieval(pool, jobId);
+    if (!retrying) attempts.delete(jobId);
   } catch (error) {
+    attempts.delete(jobId);
     console.error(error);
     await markFailed(pool, jobId, error.message || "retrieval_failed");
     try {
