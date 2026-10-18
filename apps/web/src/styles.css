@@ -3480,6 +3480,66 @@ a.intel-person:hover {
   color: #0866ff;
 }
 
+.information-md .md-table {
+  margin: 0.5rem 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.information-md .md-tasks {
+  list-style: none;
+  padding-left: 0.15rem;
+}
+
+.information-md .md-task {
+  list-style: none;
+}
+
+.information-md .md-task input {
+  margin: 0 0.35rem 0 0;
+  vertical-align: -0.05em;
+  accent-color: #0866ff;
+}
+
+.information-md li > ul,
+.information-md li > ol {
+  margin: 0.15rem 0;
+}
+
+.information-md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.information-md th,
+.information-md td {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #e4e6eb;
+  text-align: left;
+  vertical-align: top;
+}
+
+.information-md th {
+  background: #f0f2f5;
+  font-weight: 600;
+}
+
+.information-md th.md-left,
+.information-md td.md-left {
+  text-align: left;
+}
+
+.information-md th.md-center,
+.information-md td.md-center {
+  text-align: center;
+}
+
+.information-md th.md-right,
+.information-md td.md-right {
+  text-align: right;
+}
+
 .information-md hr {
   margin: 0.75rem 0;
   border: 0;

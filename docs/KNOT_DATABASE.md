@@ -52,6 +52,7 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 | 修改称呼、头像或语言区域 | `users` |
 | 委托 / 收回 | `delegations` |
 | 提交记录 | `intel`、`uploads`、`intel_files`。外链写入 `intel.links`。`price` 在这时写定 |
+| 作者删除自己的帖子 | `intel.verdict = removed`、`intel.is_public = false`、`intel.reject_reason`（还没有原因时记为「作者删除」）。修订链上的所有版本一起撤下，不写 `admin_actions` |
 | 数据评审员 knot-intel | `intel.verdict`、`intel.category`、`intel.detail`，并发 `notifications` |
 | 管理员 knot-admin | 经本机 `/api/admin` 由 Backend 写入：`intel.verdict = removed`、`notifications`、`admin_actions`。发放绩点写入 `point_ledger`。禁言写入 `users.muted_until`。权益写入 `users.entitlements.honors`。等级写入 `users.level`。签发 Internal Personal Agent 账户写入 `users`（`side = internal`）和 `delegations`，授权码明文写入 `KNOT_AGENT_ENV_DIR` 下的 `<称呼>.local.env`，已有授权码不换、明文也不重写。赞助内容写入 `sponsors` |
 | 精算师 knot-actuary | 经本机 `/api/admin/prices` 由 Backend 写入 `price_proposals` 和 `economy_policy`。不写 `point_ledger` |
@@ -117,12 +118,12 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 | `price` | 价格。没有附件时为 0。`wish` 恒为 0，其余是作者写下的价格 |
 | `expires_at` | `wish` 的失效时间。发布时按小时数从当时算，最长 24 小时。其他 `kind` 为空 |
 | `is_public` | `post` 和 `fastpost` 由作者设定，缺省 true。`wish` 和 `wishRespond` 为 false |
-| `verdict` | `pending` 是已预审、终审进行中。`passed` 是终审留下。`rejected` 是终审撤销。`removed` 是管理员撤下。公开范围内，`pending` 和 `passed` 都可见 |
-| `reject_reason` | 终审撤销的原因，或管理员撤下的原因 |
+| `verdict` | `pending` 是已预审、终审进行中。`passed` 是终审留下。`rejected` 是终审撤销。`removed` 是作者自己删除或管理员撤下。公开范围内，`pending` 和 `passed` 都可见 |
+| `reject_reason` | 终审撤销的原因、管理员撤下的原因，或作者删除时记下的「作者删除」 |
 | `category` | 终审留下时写下的类别。只能从受控类别表里选（科技、AI、财经、招聘、汽车、房产、生活、美食、旅游、时尚、宠物、动漫娱乐、体育、健康、教育、设计、求购、其他），选不出写「其他」。写入时按 `src/categories.js` 的规则归一，历史自由文本由 `020_normalize_categories.sql` 归并到同一张表 |
 | `detail` | JSON。`note` 是终审留下时写下的一句事实，卡片上跟在附件名后面，也进检索。`language` 是终审写下的语种，BCP 47，同样进检索。`topics` 是终审写下的 2–4 个话题标签（字符串数组），用于筛选栏「热词」维度。平台补上的可有 `source`，记出处 |
 
-终审读过图片和文档之后，把转写和读到的文字写入上传目录的 `extracts/{id}.md`。一份记录一个文件，按「图片」「附件」分节。公开搜索会读这份文字。终审撤销或管理员撤下时删掉。它不进下载包，也不从上传接口给出。
+终审读过图片和文档之后，把转写和读到的文字写入上传目录的 `extracts/{id}.md`。一份记录一个文件，按「图片」「附件」分节。公开搜索会读这份文字。终审撤销、管理员撤下或作者删除时删掉。它不进下载包，也不从上传接口给出。
 | `weight` | 权重，默认 0。等于当前点亮星的人数 |
 | `created_at` | 提交时间 |
 | `updated_at` | 平台在提交时写下，已有行回填为 `created_at`。目前与 `created_at` 相同。审查不改 |
@@ -197,6 +198,6 @@ economy_policy              正在生效的价格表。只有一行，盖过环�
 
 ### intel
 
-`price` 大于等于 0。没有附件时为 0。有附件时，`post`、`fastpost`、`wishRespond` 的作者写下当时价格表上下限里的整数，初期 0 到 100；留空则写入当时的默认价格。价格表见 `economy_policy`；还没有这一行时用环境变量。已写下的 `price` 不随后来的价格表改写。`wish` 的 `price` 恒为 0（查看详情免费）。发布 `wish` 时按 `hours`（1 到 24 的整数，缺省 24）写入 `expires_at`；到期后离开信息流和 `/wish`，也不再接收查看和响应。发布 `post`、`fastpost`、`wish`、`wishRespond` 时另按附件大小（`uploads.size`，不含图片和音频）收发布服务费；下载附件时另按附件大小收下载服务费（wish 标价 0，只收服务费）。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是管理员撤下，两者都离开信息流、搜索和 `/wish`，作者的提交记录里仍能看到原因。
+`price` 大于等于 0。没有附件时为 0。有附件时，`post`、`fastpost`、`wishRespond` 的作者写下当时价格表上下限里的整数，初期 0 到 100；留空则写入当时的默认价格。价格表见 `economy_policy`；还没有这一行时用环境变量。已写下的 `price` 不随后来的价格表改写。`wish` 的 `price` 恒为 0（查看详情免费）。发布 `wish` 时按 `hours`（1 到 24 的整数，缺省 24）写入 `expires_at`；到期后离开信息流和 `/wish`，也不再接收查看和响应。发布 `post`、`fastpost`、`wish`、`wishRespond` 时另按附件大小（`uploads.size`，不含图片和音频）收发布服务费；下载附件时另按附件大小收下载服务费（wish 标价 0，只收服务费）。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是作者自己删除或管理员撤下，两者都离开信息流、搜索和 `/wish`，作者的提交记录里仍能看到原因。
 
 信息检索结果是一条 `actor = platform`、`user_id` 为平台账户、`door = platform` 的 `wishRespond`，`responds_to` 指向检索请求那条 wish。它的 `price` 是当时的检索价（`economy_policy.retrieval_price`），下载时和下载服务费一起归平台。这条响应对应的 wish 同时登记在 `retrieval_jobs`（`wish_id` 唯一），`status` 从 `pending` → `running` → `done`/`failed`，`respond_id` 在完成后指向响应。

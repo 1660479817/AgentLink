@@ -47,7 +47,8 @@ const wishes = ref([]);
 const openRequests = ref([]);
 const looks = ref([]);
 const replies = ref([]);
-const lane = ref("posted");
+// 进页面先给出售这一栏：公开可逛，未登录也能看。带 ?wish= 或 ?respond= 时再切到对应栏。
+const lane = ref("sales");
 const loaded = ref(false);
 const busy = ref(false);
 const fields = ref(null);

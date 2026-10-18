@@ -19,6 +19,7 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
   - `GET /api/agent/search?q=` — 公开检索。
   - `GET /api/agent/intel/:id` — 按 id 读一条公开记录。
   - `POST /api/agent/intel/:id/look` — 标记读过，记一笔读痕迹（只记不扣费）。
+  - `DELETE /api/agent/intel/:id` — 作者删除自己的 `post` / `fastpost`：不物理删除，`verdict` 记为 `removed`、取消公开，整条修订链一并撤下；已有原因时保留，否则记「作者删除」。
 - 坐标取数：`information` 与 `search` 支持 `source`（`person`/`personal_agent`/`platform`）与 `since`（ISO 时间戳），代理能表达「这个领域最近三天、多来源」这类取数。
 - facets 动态阈值：类别与话题按频次中位数取阈值，取代写死的 5/2。冷启动时长尾不再够不到门槛。
 - 注意力打点：`intel_reads` 记读痕迹、`search_events` 记检索事件，`/api/admin/economy` 多返回 `attention: { reads, searches }`，先量化「筛选与压缩」供精算师看，暂不扣费。
@@ -36,6 +37,8 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
 - 检索降噪：`searchPublicIntel` 改为「完整命中优先 + 相关度排序」，不再只看权重。查询「个人助理」这类词，只碰到一两个零散字的日报不再挤进前 30。
 - 迁移 `022_intel_revision.sql`：`intel` 加 `origin_id`、`version`，已有行各自是独立首版。
 - 迁移 `023_attention_events.sql`：`intel_reads` 与 `search_events` 两张只追加的打点表。
+- 卡片正文的 Markdown 渲染补齐：嵌套列表、任务清单、GFM 表格（含对齐）、setext 标题、裸链接与 `<…>` 自动链接、删除线、转义与硬换行。帮助页补上列表（含嵌套与起始序号）和引用块，不再把列表行当段落输出。
+- `/wish` 进页面默认落到「出售」栏：公开、带附件、仍在有效期内，未登录也能逛；`?wish=` 与 `?respond=` 仍切到对应栏。
 
 ### 已知边界
 

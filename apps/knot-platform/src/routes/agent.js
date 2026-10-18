@@ -18,6 +18,7 @@ import { decideAgentAccess, suppliedAgentEmail } from "../agentAccess.js";
 import { listFriends } from "../friends.js";
 import {
   createIntel,
+  deleteOwnPost,
   downloadPacket,
   listPublicIntel,
   loadPublicIntel,
@@ -468,6 +469,20 @@ export function agentRouter({ pool, uploadDir }) {
     const intel = await loadPublicIntel(pool, access.userId, id);
     if (!intel) return res.status(404).json({ error: "not_found" });
     res.json({ intel });
+  });
+
+  // 删除自己的一条 post/fastpost：记录留在库里，只记为 removed 并取消公开。
+  // 修订链上的历史版本一并撤下。不是自己的、没有这条返回 not_found。
+  router.delete("/intel/:id", async (req, res) => {
+    const access = await accessFor(req, res, req.query.email ?? req.body?.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const id = String(req.params.id || "");
+    if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json(await deleteOwnPost(pool, access.userId, id));
+    } catch (error) {
+      agentFail(res, error);
+    }
   });
 
   // 标记读过：从 information/search 拿到 id 后记一笔读痕迹。loadPublicIntel 读到即记，重复读不重复记。

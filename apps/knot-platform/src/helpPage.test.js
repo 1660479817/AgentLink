@@ -46,4 +46,12 @@ test("the agent guide renders its register step and error table", () => {
   assert.equal(page.includes("<授权码>"), false);
   assert.match(page, /<td>bad_email<\/td>/);
   assert.match(page, /<td>packet_unavailable<\/td>/);
+  assert.equal(page.includes("<p>- "), false);
+  assert.match(page, /<ul><li>/);
+});
+
+test("lists keep their nesting and numbering", () => {
+  const page = helpDocument("# T\n\n- a\n  - b\n- c\n\n3. three\n4. four\n");
+  assert.match(page, /<ul><li>a\s*<ul><li>b<\/li><\/ul><\/li><li>c<\/li><\/ul>/);
+  assert.match(page, /<ol start="3"><li>three<\/li><li>four<\/li><\/ol>/);
 });

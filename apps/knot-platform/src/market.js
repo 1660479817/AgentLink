@@ -663,6 +663,41 @@ export function saleLive(alias = "i") {
   return `${saleDeadline(alias)} > now()`;
 }
 
+// 作者删除自己的帖子：行留在库里，只把 verdict 记为 removed 并取消公开。
+// 修订链上的所有版本一起撤下，免得删掉新版后旧版重新出现在信息流里。
+export async function deleteOwnPost(pool, userId, intelId) {
+  const { rows } = await pool.query(
+    `SELECT id, user_id, kind, origin_id, verdict FROM intel WHERE id = $1`,
+    [intelId]
+  );
+  const target = rows[0];
+  if (!target || target.user_id !== userId) {
+    const error = new Error("not_found");
+    error.code = "not_found";
+    throw error;
+  }
+  if (target.kind !== "post" && target.kind !== "fastpost") {
+    const error = new Error("bad_state");
+    error.code = "bad_state";
+    throw error;
+  }
+  const { rows: removed } = await pool.query(
+    `UPDATE intel
+     SET verdict = 'removed', is_public = false,
+         reject_reason = COALESCE(reject_reason, '作者删除'),
+         updated_at = now()
+     WHERE COALESCE(origin_id, id) = COALESCE($2::uuid, $1::uuid)
+       AND verdict <> 'removed'
+     RETURNING id`,
+    [target.id, target.origin_id]
+  );
+  // 并发删除时后到的那次什么都没改，按已经删过处理。
+  if (!removed.length) return { ok: true, already: true, id: intelId };
+  for (const row of removed) await discardExtract(row.id);
+  touchDiscoverBoard();
+  return { ok: true, already: false, id: intelId };
+}
+
 export async function listPublicIntel(pool, limit = 30, userId = null, authorId = null, before = null, filters = {}) {
   const params = [userId];
   let sql = PUBLIC_INTEL_SQL;

@@ -53,6 +53,15 @@ h1 { margin: 0 0 0.75rem; font-size: 1.375rem; }
 h2 { margin: 1.75rem 0 0.5rem; font-size: 1.0625rem; }
 h3 { margin: 1.25rem 0 0.4rem; font-size: 1rem; }
 p { margin: 0.65rem 0; }
+ul, ol { margin: 0.5rem 0; padding-left: 1.15rem; }
+li { margin: 0.15rem 0; }
+li > ul, li > ol { margin: 0.15rem 0; }
+blockquote {
+  margin: 0.75rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid #e4e6eb;
+  color: #65676b;
+}
 a { color: #0866ff; }
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -139,17 +148,49 @@ ${doc.body}
 
 function renderMarkdown(markdown) {
   const lines = String(markdown).replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").split("\n");
+  return {
+    title: documentTitle(lines),
+    description: documentDescription(lines),
+    body: renderBlocks(lines),
+  };
+}
+
+function documentTitle(lines) {
+  for (const line of lines) {
+    const heading = /^#[ \t]+(.*\S)\s*$/.exec(line);
+    if (heading) return plain(heading[1]);
+  }
+  return "Knot";
+}
+
+function documentDescription(lines) {
+  let fenced = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^[ \t]*(?:```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced || !line.trim()) continue;
+    if (/^ {0,3}#{1,6}[ \t]+/.test(line)) continue;
+    if (LIST_ITEM.test(line)) continue;
+    if (/^ {0,3}>/.test(line)) continue;
+    if (isSeparator(line) || isTableStart(lines, i)) continue;
+    return plain(line);
+  }
+  return "";
+}
+
+function renderBlocks(lines) {
   const blocks = [];
-  let title = "Knot";
-  let description = "";
-  let titled = false;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
-    if (line.trim().startsWith("```")) {
+
+    if (/^[ \t]*(?:```|~~~)/.test(line)) {
       const buf = [];
       i += 1;
-      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+      while (i < lines.length && !/^[ \t]*(?:```|~~~)/.test(lines[i])) {
         buf.push(lines[i]);
         i += 1;
       }
@@ -157,6 +198,7 @@ function renderMarkdown(markdown) {
       blocks.push(`<pre><code>${escapeHtml(buf.join("\n"))}</code></pre>`);
       continue;
     }
+
     if (isTableStart(lines, i)) {
       const rows = [splitRow(lines[i])];
       i += 2;
@@ -167,38 +209,161 @@ function renderMarkdown(markdown) {
       blocks.push(renderTable(rows));
       continue;
     }
-    const heading = /^(#{1,3})[ \t]+(.*\S)\s*$/.exec(line);
+
+    const heading = /^ {0,3}(#{1,3})[ \t]+(.*\S)[ \t]*$/.exec(line);
     if (heading) {
-      const level = heading[1].length;
-      const text = plain(heading[2]);
-      if (level === 1 && !titled && text) {
-        title = text;
-        titled = true;
-      }
-      blocks.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+      blocks.push(`<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`);
       i += 1;
       continue;
     }
+
     if (!line.trim()) {
       i += 1;
       continue;
     }
+
+    if (LIST_ITEM.test(line)) {
+      const list = renderList(lines, i);
+      blocks.push(list.html);
+      i = list.end;
+      continue;
+    }
+
+    if (/^ {0,3}>/.test(line)) {
+      const quote = [];
+      while (i < lines.length && /^ {0,3}>/.test(lines[i])) {
+        quote.push(lines[i].replace(/^ {0,3}> ?/, ""));
+        i += 1;
+      }
+      blocks.push(`<blockquote>${renderBlocks(quote)}</blockquote>`);
+      continue;
+    }
+
     const para = [];
-    while (
-      i < lines.length &&
-      lines[i].trim() &&
-      !lines[i].trim().startsWith("```") &&
-      !/^(#{1,3})[ \t]+/.test(lines[i]) &&
-      !isTableStart(lines, i)
-    ) {
+    while (i < lines.length && lines[i].trim() && !startsBlock(lines, i)) {
       para.push(lines[i].trim());
       i += 1;
     }
-    const text = para.join(" ");
-    if (!description) description = plain(text);
-    blocks.push(`<p>${inline(text)}</p>`);
+    if (!para.length) {
+      para.push(line.trim());
+      i += 1;
+    }
+    blocks.push(`<p>${inline(para.join(" "))}</p>`);
   }
-  return { title, description, body: blocks.join("\n") };
+  return blocks.join("\n");
+}
+
+const LIST_ITEM = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
+
+function startsBlock(lines, index) {
+  const line = lines[index];
+  return (
+    /^[ \t]*(?:```|~~~)/.test(line) ||
+    /^ {0,3}#{1,3}[ \t]+/.test(line) ||
+    /^ {0,3}>/.test(line) ||
+    LIST_ITEM.test(line) ||
+    isTableStart(lines, index)
+  );
+}
+
+function indentWidth(line) {
+  const lead = /^[ \t]*/.exec(line)[0];
+  let width = 0;
+  for (const c of lead) width += c === "\t" ? 4 : 1;
+  return width;
+}
+
+function removeIndent(line, columns) {
+  let removed = 0;
+  let i = 0;
+  while (i < line.length && removed < columns) {
+    if (line[i] === " ") {
+      removed += 1;
+      i += 1;
+      continue;
+    }
+    if (line[i] === "\t") {
+      removed += 4;
+      i += 1;
+      continue;
+    }
+    break;
+  }
+  return line.slice(i);
+}
+
+function renderList(lines, index) {
+  const first = LIST_ITEM.exec(lines[index]);
+  const base = indentWidth(lines[index]);
+  const ordered = /^\d/.test(first[2]);
+  const startAt = ordered ? Number(first[2].slice(0, -1)) : 1;
+  const items = [];
+  let loose = false;
+  let i = index;
+
+  while (i < lines.length) {
+    const marker = LIST_ITEM.exec(lines[i]);
+    if (!marker) break;
+    if (indentWidth(lines[i]) !== base) break;
+    if (/^\d/.test(marker[2]) !== ordered) break;
+
+    const contentIndent = base + marker[2].length + Math.max(1, marker[3].length);
+    const body = [marker[4]];
+    i += 1;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) {
+        let next = i + 1;
+        while (next < lines.length && !lines[next].trim()) next += 1;
+        if (next >= lines.length) {
+          i = next;
+          break;
+        }
+        const peek = lines[next];
+        const peekItem = LIST_ITEM.exec(peek);
+        if (peekItem && indentWidth(peek) === base && /^\d/.test(peekItem[2]) === ordered) {
+          loose = true;
+          i = next;
+          break;
+        }
+        if (indentWidth(peek) > base) {
+          loose = true;
+          body.push("");
+          i += 1;
+          continue;
+        }
+        i = next;
+        break;
+      }
+      if (indentWidth(line) <= base) break;
+      body.push(removeIndent(line, contentIndent));
+      i += 1;
+    }
+
+    items.push(body);
+
+    const sibling = LIST_ITEM.exec(lines[i] || "");
+    if (!sibling || indentWidth(lines[i]) !== base) break;
+    if (/^\d/.test(sibling[2]) !== ordered) break;
+  }
+
+  const tag = ordered ? "ol" : "ul";
+  const start = ordered && startAt !== 1 ? ` start="${startAt}"` : "";
+  const html = items
+    .map((body) => {
+      const nested = body.some((line, position) => position > 0 && (LIST_ITEM.test(line) || /^ {0,3}>/.test(line)));
+      let content;
+      if (!loose && !nested) {
+        content = inline(body.join(" ").trim());
+      } else {
+        content = renderBlocks(body);
+        if (!loose) content = content.replace(/^<p>([\s\S]*?)<\/p>/, "$1");
+      }
+      return `<li>${content}</li>`;
+    })
+    .join("");
+  return { html: `<${tag}${start}>${html}</${tag}>`, end: i };
 }
 
 function isTableStart(lines, index) {

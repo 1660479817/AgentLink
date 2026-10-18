@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { saveReviewExtract } from "./extracts.js";
-import { compareByWeight, isDownloadableFile, listPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
+import { compareByWeight, deleteOwnPost, isDownloadableFile, listPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
 import { serviceFee, packetPrice, policyConfig } from "./points.js";
 
 const AUTHOR = "33333333-3333-4333-8333-333333333333";
@@ -350,3 +350,62 @@ test("reopening is refused for someone else's post or a non-sale", async () => {
   };
   await assert.rejects(() => reopenSale(pool, "11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), (error) => error.code === "not_found");
 });
+
+const POST_V1 = "55555555-5555-4555-8555-555555555555";
+const POST_V2 = "66666666-6666-4666-8666-666666666666";
+const POST_ORIGIN = "44444444-4444-4444-8444-444444444444";
+
+test("deleting a post keeps the row and takes the whole revision chain down", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("SELECT id, user_id, kind, origin_id, verdict")) {
+        return { rows: [{ id: POST_V2, user_id: AUTHOR, kind: "post", origin_id: POST_ORIGIN, verdict: "passed" }] };
+      }
+      if (sql.includes("UPDATE intel")) return { rows: [{ id: POST_V1 }, { id: POST_V2 }] };
+      return { rows: [] };
+    },
+  };
+  const result = await deleteOwnPost(pool, AUTHOR, POST_V2);
+  assert.deepEqual(result, { ok: true, already: false, id: POST_V2 });
+  const update = calls.find((call) => call.sql.includes("UPDATE intel"));
+  assert.match(update.sql, /verdict = 'removed'/);
+  assert.match(update.sql, /is_public = false/);
+  assert.match(update.sql, /COALESCE\(origin_id, id\) = COALESCE\(\$2::uuid, \$1::uuid\)/);
+  assert.deepEqual(update.params, [POST_V2, POST_ORIGIN]);
+});
+
+test("deleting is quiet for someone else's post, another kind, or an already deleted one", async () => {
+  const other = {
+    async query(sql) {
+      if (sql.includes("SELECT id, user_id, kind, origin_id, verdict")) {
+        return { rows: [{ id: POST_V2, user_id: "22222222-2222-4222-8222-222222222222", kind: "post", origin_id: null, verdict: "passed" }] };
+      }
+      throw new Error("should not update");
+    },
+  };
+  await assert.rejects(deleteOwnPost(other, AUTHOR, POST_V2), (error) => error.code === "not_found");
+
+  const wish = {
+    async query(sql) {
+      if (sql.includes("SELECT id, user_id, kind, origin_id, verdict")) {
+        return { rows: [{ id: POST_V2, user_id: AUTHOR, kind: "wish", origin_id: null, verdict: "passed" }] };
+      }
+      throw new Error("should not update");
+    },
+  };
+  await assert.rejects(deleteOwnPost(wish, AUTHOR, POST_V2), (error) => error.code === "bad_state");
+
+  const gone = {
+    async query(sql) {
+      if (sql.includes("SELECT id, user_id, kind, origin_id, verdict")) {
+        return { rows: [{ id: POST_V2, user_id: AUTHOR, kind: "post", origin_id: null, verdict: "removed" }] };
+      }
+      if (sql.includes("UPDATE intel")) return { rows: [] };
+      throw new Error(sql);
+    },
+  };
+  assert.deepEqual(await deleteOwnPost(gone, AUTHOR, POST_V2), { ok: true, already: true, id: POST_V2 });
+});
+
