@@ -12,7 +12,7 @@ const HINTS = {
   not_pending: "这份提议已经写入或已经收回。先重新提议。",
   not_found: "没有这份提议。",
 };
-const PRICE_FLAGS = ["default", "min", "max", "publish-fee", "download-fee", "cap", "usd-cents"];
+const PRICE_FLAGS = ["default", "min", "max", "publish-fee", "download-fee", "cap", "usd-cents", "retrieval"];
 
 function withHint(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
@@ -128,6 +128,7 @@ export function buildRequest(argv) {
           downloadServiceFeePerMb: whole(parsed.flags["download-fee"]),
           serviceFeeCap: whole(parsed.flags.cap),
           pointUsdCents: whole(parsed.flags["usd-cents"]),
+          retrievalPrice: whole(parsed.flags.retrieval),
         },
       }
     );

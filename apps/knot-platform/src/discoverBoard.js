@@ -11,7 +11,7 @@ import { listPublicIntel, presentIntel } from "./market.js";
 import { avatarUrlFor } from "./avatars.js";
 import { wishLive } from "./wish.js";
 
-// 最近发过公开信息的人。内部 Agent 也算；平台自己的系统账号不算。
+// 最近发过公开信息的人。Internal Personal Agent 也算；平台自己的系统账号不算。
 const PEOPLE_SQL = `
   SELECT i.user_id AS id, u.display_name, u.avatar_upload_id, max(i.created_at) AS last_at
   FROM intel i

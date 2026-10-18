@@ -508,7 +508,7 @@ test("the admin door checks the token before it acts", async () => {
   }
 });
 
-test("the economy door hands back the three numbers", async () => {
+test("the economy door hands back the three numbers and attention counters", async () => {
   const app = express();
   app.use(express.json());
   app.use(
@@ -529,7 +529,12 @@ test("the economy door hands back the three numbers", async () => {
       headers: { Authorization: "Bearer secret" },
     });
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { issued: 205, circulating: 200, platform: 5 });
+    assert.deepEqual(await response.json(), {
+      issued: 205,
+      circulating: 200,
+      platform: 5,
+      attention: { reads: 0, searches: 0 },
+    });
   } finally {
     server.close();
   }

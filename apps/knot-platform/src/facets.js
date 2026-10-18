@@ -1,11 +1,9 @@
 import { visibleVerdict } from "./information.js";
 
 // 筛选栏的候选维度：从最近 7 天公开 post/fastpost 里统计类别与话题标签。
-// 不开 30 条的快照窗，否则选项太稀疏。
-// 只展示超过阈值的项，滤掉只有一两条的长尾。
-export const CATEGORY_MIN = 5;
-export const TOPIC_MIN = 2;
-
+// 阈值动态取频次中位数，而不是固定数字：冷启动时中位数低，长尾话题不会
+// 永远够不到门槛；数据多了中位数自然升高，把只有零星一两条的噪声滤掉。
+// 调用方仍可显式给 categoryMin / topicMin 覆盖（测试和特殊窗口用）。
 const FACETS_SQL = `
   SELECT i.category, i.detail
   FROM intel i
@@ -21,15 +19,21 @@ function bump(map, value) {
   map.set(key, (map.get(key) || 0) + 1);
 }
 
-function sorted(map, min) {
-  // 先按频次，频次相同时按码点，保证顺序稳定；只保留达到阈值的项。
-  return [...map.entries()]
-    .filter(([, count]) => count >= min)
-    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-    .map(([value]) => value);
+// 动态阈值：频次中位数，至少 1。条目数少于等于 1 时全列。
+function medianMin(counts) {
+  if (counts.length <= 1) return 1;
+  const sorted = [...counts].sort((a, b) => a - b);
+  return Math.max(1, sorted[Math.floor(sorted.length / 2)]);
 }
 
-export function facetRows(rows, { categoryMin = CATEGORY_MIN, topicMin = TOPIC_MIN } = {}) {
+function rank(map, min) {
+  // 先按频次，频次相同时按码点，保证顺序稳定。
+  const entries = [...map.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  const threshold = min == null ? medianMin(entries.map(([, count]) => count)) : min;
+  return entries.filter(([, count]) => count >= threshold).map(([value]) => value);
+}
+
+export function facetRows(rows, { categoryMin, topicMin } = {}) {
   const categories = new Map();
   const topics = new Map();
   for (const row of rows) {
@@ -38,8 +42,8 @@ export function facetRows(rows, { categoryMin = CATEGORY_MIN, topicMin = TOPIC_M
     for (const topic of Array.isArray(detail.topics) ? detail.topics : []) bump(topics, topic);
   }
   return {
-    categories: sorted(categories, categoryMin),
-    topics: sorted(topics, topicMin),
+    categories: rank(categories, categoryMin),
+    topics: rank(topics, topicMin),
   };
 }
 

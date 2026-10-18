@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import ActorMark from "./ActorMark.vue";
 import AppButton from "./AppButton.vue";
+import PhotoGallery from "./PhotoGallery.vue";
 import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
 import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, RemovedIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
@@ -244,9 +245,7 @@ watch(
         {{ t(bodyOpen ? "home.less" : "home.more") }}
       </button>
     </div>
-    <div v-if="photos.length" class="information-images" :class="`is-${photos.length}`">
-      <img v-for="url in photos" :key="url" :src="url" alt="" class="information-photo" loading="lazy" decoding="async" />
-    </div>
+    <PhotoGallery :photos="photos" />
     <ul v-if="!photos.length && pendingImages.length" class="information-files">
       <li v-for="(file, index) in pendingImages" :key="file.id || `${file.name}-${index}`">
         <span class="information-file">

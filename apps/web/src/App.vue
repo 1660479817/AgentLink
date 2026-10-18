@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, watch } from "vue";
+import { watch } from "vue";
 import DownloadConsent from "./components/DownloadConsent.vue";
 import AppShell from "./layouts/AppShell.vue";
 import { updateProfile } from "./api.js";
@@ -10,10 +10,6 @@ import { useSessionStore } from "./stores/session";
 const session = useSessionStore();
 const locale = useLocaleStore();
 let syncing = "";
-
-onMounted(() => {
-  session.load();
-});
 
 watch(
   () => [session.ready, session.user?.id || "", session.user?.locale || "", session.region],

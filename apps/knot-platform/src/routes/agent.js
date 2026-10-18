@@ -16,8 +16,18 @@ import {
 import { bioText, displayNameText, muteState, specialtyList, storedSpecialties } from "../account.js";
 import { decideAgentAccess, suppliedAgentEmail } from "../agentAccess.js";
 import { listFriends } from "../friends.js";
-import { createIntel, downloadPacket } from "../market.js";
+import {
+  createIntel,
+  downloadPacket,
+  listPublicIntel,
+  loadPublicIntel,
+  presentIntelRows,
+  publicAuthor,
+  searchPublicIntel,
+} from "../market.js";
 import { listNotifications, markNotificationsRead, noticeSummary } from "../notifications.js";
+import { createRetrieval } from "../retrieval.js";
+import { economyConfig } from "../points.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
 import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
@@ -47,6 +57,7 @@ function agentFail(res, error) {
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
+  if (code === "bad_body") return res.status(400).json({ error: "bad_body" });
   if (code === "muted") return res.status(403).json({ error: "muted" });
   if (code === "bad_mention") return res.status(400).json({ error: "bad_mention" });
   if (code === "unreadable_file") return res.status(400).json({ error: "unreadable_file" });
@@ -388,6 +399,7 @@ export function agentRouter({ pool, uploadDir }) {
         hours: req.body?.hours,
         kind: typeof req.body?.kind === "string" ? req.body.kind : "",
         respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
+        revises: typeof req.body?.revises === "string" ? req.body.revises : null,
         mentions: req.body?.mentions,
       });
       res.status(201).json({ intel });
@@ -421,6 +433,72 @@ export function agentRouter({ pool, uploadDir }) {
     const result = await listRequestResponses(pool, access.userId, req.params.id);
     if (result.error) return res.status(result.status).json({ error: result.error });
     res.json(result);
+  });
+
+  // 读取公开信息流：与网页同一份记录。带授权码，个人态（关掉的、星、赞、已下载、好友）按这个账户算。
+  router.get("/information", async (req, res) => {
+    const access = await accessFor(req, res, req.query.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const author = String(req.query.author || "").trim();
+    if (author && !UUID.test(author)) return res.json({ information: [], author: null });
+    const before = String(req.query.before || "").trim();
+    const anchor = before && UUID.test(before) ? before : null;
+    const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
+    const rows = await listPublicIntel(pool, 30, access.userId, author || null, anchor, filters);
+    const information = await presentIntelRows(pool, rows);
+    if (!author) return res.json({ information });
+    res.json({ information, author: await publicAuthor(pool, author) });
+  });
+
+  router.get("/search", async (req, res) => {
+    const access = await accessFor(req, res, req.query.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const q = String(req.query.q || "").trim();
+    if (!q) return res.json({ information: [] });
+    const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
+    const rows = await searchPublicIntel(pool, q, access.userId, filters);
+    res.json({ information: await presentIntelRows(pool, rows) });
+  });
+
+  router.get("/intel/:id", async (req, res) => {
+    const access = await accessFor(req, res, req.query.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const id = String(req.params.id || "");
+    if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
+    const intel = await loadPublicIntel(pool, access.userId, id);
+    if (!intel) return res.status(404).json({ error: "not_found" });
+    res.json({ intel });
+  });
+
+  // 标记读过：从 information/search 拿到 id 后记一笔读痕迹。loadPublicIntel 读到即记，重复读不重复记。
+  router.post("/intel/:id/look", async (req, res) => {
+    const access = await accessFor(req, res, req.body?.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const id = String(req.params.id || "");
+    if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
+    const found = await loadPublicIntel(pool, access.userId, id);
+    if (!found) return res.status(404).json({ error: "not_found" });
+    res.json({ ok: true });
+  });
+
+  // 信息检索：自然语言检索要求落成 wish，交给平台「信息检索员」后台执行。
+  // 结果打包成 wishRespond（带报告附件），请求方到 wish 里下载时按平台统一检索价付费。
+  router.post("/retrieve", async (req, res) => {
+    const access = await accessFor(req, res, req.body?.email);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
+    if (!query) return res.status(400).json({ error: "bad_body" });
+    try {
+      const { wish, jobId } = await createRetrieval(pool, {
+        userId: access.userId,
+        actor: "personal_agent",
+        door: "agent_api",
+        query,
+      });
+      res.status(201).json({ wish, job: { id: jobId, status: "pending" }, price: economyConfig().retrievalPrice });
+    } catch (error) {
+      agentFail(res, error);
+    }
   });
 
   router.get("/friends", async (req, res) => {

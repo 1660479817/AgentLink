@@ -185,7 +185,7 @@ onUnmounted(() => {
           </label>
         </form>
         <div class="header-side header-side-end">
-          <AppButton variant="icon" to="/wish" :aria-label="t('nav.wish')">
+          <AppButton variant="icon" to="/wish" :aria-label="t('nav.market')">
             <ChatIcon class="nav-icon" weight="header" aria-hidden="true" />
           </AppButton>
           <AppButton variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
@@ -258,6 +258,9 @@ onUnmounted(() => {
       </nav>
       <main id="main-content" class="layout">
         <RememberLoginCard />
+        <p v-if="session.user && session.agentDelegated === false" class="agent-login-guide" role="status">
+          {{ t("agentGuide.hint") }}
+        </p>
         <OutboxNotice />
         <slot />
       </main>

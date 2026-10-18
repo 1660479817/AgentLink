@@ -13,6 +13,7 @@ const NEXT = {
   downloadServiceFeePerMb: 2,
   serviceFeeCap: 10,
   pointUsdCents: 1,
+  retrievalPrice: 10,
 };
 
 function memoryPool() {
@@ -27,6 +28,7 @@ function memoryPool() {
     "download_service_fee_per_mb",
     "service_fee_cap",
     "point_usd_cents",
+    "retrieval_price",
   ];
   async function query(sql, params = []) {
     if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
@@ -56,7 +58,7 @@ function memoryPool() {
       return { rows: proposals.filter((item) => item.status === "pending") };
     }
     if (sql.includes("INSERT INTO economy_policy")) {
-      policy = { id: 1, proposal_id: params[7] };
+      policy = { id: 1, proposal_id: params[8] };
       columns.forEach((column, index) => {
         policy[column] = params[index];
       });
@@ -88,7 +90,7 @@ function memoryPool() {
 }
 
 describe("price schedule", { concurrency: false }, () => {
-test("a price schedule is seven whole numbers, with the default inside the range", () => {
+test("a price schedule is eight whole numbers, with the default inside the range", () => {
   assert.deepEqual(parsePriceSchedule({ ...NEXT, defaultPrice: 0, priceMax: 0, publishServiceFeePerMb: 0 }), {
     ...NEXT,
     defaultPrice: 0,
@@ -96,7 +98,7 @@ test("a price schedule is seven whole numbers, with the default inside the range
     publishServiceFeePerMb: 0,
   });
   assert.equal(parsePriceSchedule({ ...NEXT, defaultPrice: "12" }).defaultPrice, 12);
-  for (const body of [{}, { ...NEXT, defaultPrice: 81 }, { ...NEXT, priceMax: 1, priceMin: 2 }, { ...NEXT, publishServiceFeePerMb: 1001 }, { ...NEXT, pointUsdCents: -1 }, { ...NEXT, serviceFeeCap: 1.5 }]) {
+  for (const body of [{}, { ...NEXT, defaultPrice: 81 }, { ...NEXT, priceMax: 1, priceMin: 2 }, { ...NEXT, publishServiceFeePerMb: 1001 }, { ...NEXT, pointUsdCents: -1 }, { ...NEXT, serviceFeeCap: 1.5 }, { ...NEXT, retrievalPrice: -1 }, { ...NEXT, retrievalPrice: 100001 }]) {
     assert.throws(() => parsePriceSchedule(body), (error) => error.code === "bad_price");
   }
 });

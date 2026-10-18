@@ -103,7 +103,8 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
       hash: row.content_hash || "",
       kind,
       respondsTo: row.responds_to || null,
-      version: 1,
+      version: Number(row.version) || 1,
+      originId: row.origin_id || null,
       public: row.is_public !== false,
       commerce: {
         price: Number(row.price) || 0,

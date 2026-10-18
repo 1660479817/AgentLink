@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 按仓库 ops/openclaw 同步 bot01 上的 OpenClaw 员工、提示词和技能名单。
+# 按仓库 ops/openclaw 同步 bot01 上的 OpenClaw 智能体、提示词和技能名单。
 # OPENCLAW_ENABLE_PROCESS=1 时让 Knot Backend 拉起 knot-intel。
 # 管理员 knot-admin 不由 Backend 拉起。脚本给它写本机令牌，并登记每天 09:00 的巡查。
-# 内部 Personal Agent 在同步前签发账户。已有授权码不换。
+# Internal Personal Agent 在同步前签发账户。已有授权码不换。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -66,7 +66,7 @@ if [[ -f "$ENV_FILE" ]]; then
     "$KNOT_HOME/ops/scripts/ensure-internal-agent.sh" "$agent_id"
   done < <(node "$APPLY" internal-ids)
 else
-  echo "没有 $ENV_FILE，内部账户这次不签发。"
+  echo "没有 $ENV_FILE，Internal Personal Agent 账户这次不签发。"
 fi
 
 echo "==> sync prompts and skills"
@@ -154,7 +154,7 @@ fi
 ensure_admin_cron
 
 if [[ "${OPENCLAW_ENABLE_PROCESS:-}" != 1 ]]; then
-  echo "员工已按 ops/openclaw 同步。Knot Backend 尚未切换。"
+  echo "智能体已按 ops/openclaw 同步。Knot Backend 尚未切换。"
   echo "确认 Process 能跑通后执行：OPENCLAW_ENABLE_PROCESS=1 ./ops/scripts/ensure-openclaw.sh"
   exit 0
 fi
@@ -171,8 +171,9 @@ ensure_line() {
   fi
 }
 ensure_line OPENCLAW_INTEL_AGENT knot-intel
+ensure_line OPENCLAW_RETRIEVAL_AGENT knot-retrieval
 ensure_line OPENCLAW_BIN openclaw
-ensure_line OPENCLAW_PROCESS_TIMEOUT 90
+ensure_line OPENCLAW_PROCESS_TIMEOUT 120
 uid="$(id -u)"
 launchctl kickstart -k "gui/$uid/com.knot.platform" 2>/dev/null || true
 echo "OK: Knot Backend 拉起 knot-intel。管理员 knot-admin 接受指令，并在每天 09:00 巡查。"

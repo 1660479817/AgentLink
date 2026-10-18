@@ -8,7 +8,7 @@ function nonNegativeInt(raw, fallback) {
 }
 
 // 环境变量是还没有价格表时的初值。精算师写入 economy_policy 后，
-// 下面这七个键盖过环境变量，其余键仍只读环境变量。
+// 下面这八个键盖过环境变量，其余键仍只读环境变量。
 const PRICE_KEYS = [
   "defaultPrice",
   "priceMin",
@@ -17,6 +17,7 @@ const PRICE_KEYS = [
   "downloadServiceFeePerMb",
   "serviceFeeCap",
   "pointUsdCents",
+  "retrievalPrice",
 ];
 
 let priceOverride = null;
@@ -48,6 +49,8 @@ function economyFromEnv() {
     downloadServiceFeePerMb: nonNegativeInt(process.env.KNOT_DOWNLOAD_SERVICE_FEE_PER_MB, 1),
     // 服务费单次上限，避免大附件天价。0 表示不封顶。
     serviceFeeCap: nonNegativeInt(process.env.KNOT_SERVICE_FEE_CAP, 10),
+    // 信息检索价：平台「信息检索员」每次检索的统一定价，下载检索结果时收。独立于作者标价。
+    retrievalPrice: nonNegativeInt(process.env.KNOT_RETRIEVAL_PRICE, 10),
     // 第二期：只充值、不兑出。汇率是平台定价，盈亏平衡看现金流。
     // 每积分的美元价，用「美分」表示（1 = 0.01 美元），避免小数。
     pointUsdCents: nonNegativeInt(process.env.KNOT_POINT_USD_CENTS, 1),
@@ -88,7 +91,7 @@ export function signupGrant() {
 
 export function policyConfig() {
   const price = pricePolicy();
-  const { publishServiceFeePerMb, downloadServiceFeePerMb, serviceFeeCap } = economyConfig();
+  const { publishServiceFeePerMb, downloadServiceFeePerMb, serviceFeeCap, retrievalPrice } = economyConfig();
   return {
     defaultPrice: price.defaultPrice,
     priceMin: price.min,
@@ -96,6 +99,7 @@ export function policyConfig() {
     publishServiceFeePerMb,
     downloadServiceFeePerMb,
     serviceFeeCap,
+    retrievalPrice,
   };
 }
 
@@ -118,6 +122,18 @@ export function packetPrice(fileCount, raw) {
   if (raw == null || raw === "") return defaultPrice;
   const value = Number(raw);
   if (!Number.isInteger(value) || value < min || value > max) {
+    const error = new Error("bad_price");
+    error.code = "bad_price";
+    throw error;
+  }
+  return value;
+}
+
+// 平台服务价（信息检索）：平台统一定价，独立于作者标价的 min/max 区间。
+export function servicePrice(raw) {
+  if (raw == null || raw === "") return 0;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 100_000) {
     const error = new Error("bad_price");
     error.code = "bad_price";
     throw error;

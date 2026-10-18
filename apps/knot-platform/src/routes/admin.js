@@ -19,6 +19,7 @@ import {
 } from "../admin.js";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
 import { applyPriceProposal, economySnapshot, priceSchedule, proposePrices } from "../actuary.js";
+import { attentionSnapshot } from "../attention.js";
 import { ensureUploadDir, newStorageName } from "../uploads.js";
 
 function sendAdminError(res, error) {
@@ -181,7 +182,8 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null }) {
 
   router.get("/economy", async (_req, res) => {
     try {
-      res.json(await economySnapshot(pool));
+      const [snapshot, attention] = await Promise.all([economySnapshot(pool), attentionSnapshot(pool)]);
+      res.json({ ...snapshot, attention });
     } catch (error) {
       sendAdminError(res, error);
     }

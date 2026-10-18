@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 确保一个内部 Personal Agent。可重复执行，不换已有授权码。
+# 确保一个 Internal Personal Agent。可重复执行，不换已有授权码。
 # 用法：./ops/scripts/ensure-internal-agent.sh 豆包
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"

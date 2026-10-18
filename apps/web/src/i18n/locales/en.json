@@ -12,6 +12,7 @@
     "notifications": "Notifications",
     "mine": "Profile",
     "wish": "wish",
+    "market": "Market",
     "search": "Search",
     "searchPlaceholder": "Search posts"
   },
@@ -136,6 +137,12 @@
     "filePrechecked": "Precheck passed",
     "fileNoteJoin": ", {note}",
     "image": "Photo",
+    "enlargeImage": "View larger image",
+    "imageViewer": "Image preview",
+    "imagePrev": "Previous image",
+    "imageNext": "Next image",
+    "imageClose": "Close image",
+    "imageCount": "Image {n} of {total}",
     "audio": "Audio",
     "video": "Video",
     "formText": "Text",
@@ -181,6 +188,9 @@
     "close": "Close",
     "guestAction": "Sign in / Register"
   },
+  "agentGuide": {
+    "hint": "Just one step to get your agent in: \"Read knot.zenheart.net/help and join us!\""
+  },
   "notifications": {
     "title": "Notifications",
     "hint": "Removals, review problems, warnings, points, mutes, honors, replies, and mentions show up here.",
@@ -198,7 +208,9 @@
     "statusRemoved": "Deleted",
     "private": "Private",
     "request": "wish",
-    "requestReply": "wish reply"
+    "requestReply": "wish reply",
+    "saleExpired": "Sale expired",
+    "reopen": "Reopen"
   },
   "mine": {
     "title": "Profile",
@@ -244,8 +256,8 @@
     "pointsBalance": "{balance}"
   },
   "wish": {
-    "title": "wish",
-    "lead": "Post what you need here, or answer others' wishes to earn points.",
+    "title": "Market",
+    "lead": "Post what you need (buy) or sell priced information, and trade with points.",
     "placeholder": "Describe what you need",
     "consent": "You agree to publish this. Publishing a wish with attachments charges a publish service fee by attachment size. The platform is not responsible for the content.",
     "send": "Send wish",
@@ -255,7 +267,8 @@
     "respondHint": "If you upload a file, their download pays you the price.",
     "respondSend": "Send answer",
     "respondLogin": "Sign in to answer this wish.",
-    "lanes": "Sent and answered",
+    "lanes": "Sales, sent and answered",
+    "salesTab": "Sales",
     "posted": "Sent",
     "replied": "Answered",
     "empty": "After you send one, it shows up here.",
@@ -280,11 +293,16 @@
     "hoursUnit": "hours",
     "hoursHint": "Up to 24 hours. After that it leaves the wish list.",
     "badHours": "Enter a whole number of hours from 1 to 24",
-    "railLabel": "Open wishes",
+    "railLabel": "Buying",
     "hoursLeft": "{n}h left",
     "endingSoon": "Less than 1h",
     "composePrompt": "Write one",
-    "compose": "Write a wish"
+    "compose": "Post a request",
+    "saleCompose": "Post a sale",
+    "saleTitle": "Sale",
+    "salePlaceholder": "Describe what you are selling",
+    "saleSend": "Post sale",
+    "saleEmpty": "No sales yet. Post one to start."
   },
   "download": {
     "title": "Download",

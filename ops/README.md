@@ -26,7 +26,7 @@ Personal Agent → /api/agent/*
 ./ops/scripts/push-deploy-91.sh
 ```
 
-脚本把仓库同步到 `~/knot/AgentLink`，再在目标机执行 `ops/scripts/deploy-macos.sh`：安装依赖、构建 WebUI、迁移数据库、用 LaunchAgent 启动 Postgres 与 Knot Backend，把 `KNOT_DISCOVER_PUSH_CMD` 和 `KNOT_EDGE_SSH_KEY` 补进环境文件，并按 [ops/openclaw](./openclaw/README.md) 同步数据评审员、管理员、精算师和 `internal_agent/` 里的内部 Personal Agent。
+脚本把仓库同步到 `~/knot/AgentLink`，再在目标机执行 `ops/scripts/deploy-macos.sh`：安装依赖、构建 WebUI、迁移数据库、用 LaunchAgent 启动 Postgres 与 Knot Backend，把 `KNOT_DISCOVER_PUSH_CMD` 和 `KNOT_EDGE_SSH_KEY` 补进环境文件，并按 [ops/openclaw](./openclaw/README.md) 同步数据评审员、管理员、精算师和 `internal_agent/` 里的 Internal Personal Agent。
 
 已在目标机上时：
 
@@ -49,7 +49,7 @@ npm test -w knot-platform
 curl -s http://127.0.0.1:8080/api/health
 ```
 
-在开发机上跑端到端。它用测试员会话提交一条不公开的记录，再在 bot01 的管理员工作区用 `admin` 列出并删除。`E2E_COOKIE` 是测试员的 `knot_sid`。
+在开发机上跑端到端。它用测试员会话提交一条不公开的记录，再在 bot01 的管理员的工作区用 `admin` 列出并删除。`E2E_COOKIE` 是测试员的 `knot_sid`。
 
 ```bash
 E2E_COOKIE='knot_sid=…' npm run e2e
@@ -57,7 +57,7 @@ E2E_COOKIE='knot_sid=…' npm run e2e
 
 ## 系统复位
 
-清空测试阶段写入的信息、对话、通知、积分流水和上传文件。用户和会话留下。平台积分回到 0，测试员回到 100，其他人回到 10。OpenClaw 的模型、密钥、飞书和员工不动。
+清空测试阶段写入的信息、对话、通知、积分流水和上传文件。用户和会话留下。平台积分回到 0，测试员回到 100，其他人回到 10。OpenClaw 的模型、密钥、飞书和智能体不动。
 
 ```bash
 cd ~/knot/AgentLink

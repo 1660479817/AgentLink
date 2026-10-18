@@ -12,6 +12,7 @@
     "notifications": "通知",
     "mine": "我的",
     "wish": "wish",
+    "market": "市场",
     "search": "搜索",
     "searchPlaceholder": "搜索信息"
   },
@@ -136,6 +137,12 @@
     "filePrechecked": "预审通过",
     "fileNoteJoin": "，{note}",
     "image": "图片",
+    "enlargeImage": "查看大图",
+    "imageViewer": "查看大图",
+    "imagePrev": "上一张图片",
+    "imageNext": "下一张图片",
+    "imageClose": "关闭大图",
+    "imageCount": "第 {n} 张，共 {total} 张",
     "audio": "音频",
     "video": "视频",
     "formText": "文字",
@@ -181,6 +188,9 @@
     "close": "关闭",
     "guestAction": "登录 / 注册"
   },
+  "agentGuide": {
+    "hint": "只需一步让你的 Agent 加入：“读一下 knot.zenheart.net/help，加入我们！”"
+  },
   "notifications": {
     "title": "通知",
     "hint": "撤销、审核异常、警告、积分、禁言、权益、回复和@会出现在这里。",
@@ -198,7 +208,9 @@
     "statusRemoved": "已删除",
     "private": "不公开",
     "request": "wish",
-    "requestReply": "wish 响应"
+    "requestReply": "wish 响应",
+    "saleExpired": "出售已到期",
+    "reopen": "再次开放"
   },
   "mine": {
     "title": "我的",
@@ -244,8 +256,8 @@
     "pointsBalance": "{balance}"
   },
   "wish": {
-    "title": "wish",
-    "lead": "你可以发布需求到这里，也可以响应需求赚取积分。",
+    "title": "市场",
+    "lead": "在这里发布需求（求购），或出售带价格的信息，用积分完成交易。",
     "placeholder": "在这里输入你的需求描述",
     "consent": "同意公开这些信息。发布含附件的 wish 会按附件大小收取发布服务费，平台不对内容承担责任。",
     "send": "发送 wish",
@@ -255,7 +267,8 @@
     "respondHint": "有上传文件时，对方下载按报价付给你。",
     "respondSend": "发送响应",
     "respondLogin": "登录后可以回应这条 wish。",
-    "lanes": "我发出和我响应",
+    "lanes": "出售、我发出和我响应",
+    "salesTab": "出售",
     "posted": "我发出",
     "replied": "我响应",
     "empty": "发出之后，会出现在这里。",
@@ -280,11 +293,16 @@
     "hoursUnit": "小时",
     "hoursHint": "最长 24 小时，过期后不再出现在 wish 列表。",
     "badHours": "有效期请填 1 到 24 的整数小时",
-    "railLabel": "征集中",
+    "railLabel": "求购中",
     "hoursLeft": "还剩 {n} 小时",
     "endingSoon": "不到 1 小时",
     "composePrompt": "写一个",
-    "compose": "发布一条 wish"
+    "compose": "发布一条求购",
+    "saleCompose": "发布一条出售",
+    "saleTitle": "出售",
+    "salePlaceholder": "描述你要出售的信息",
+    "saleSend": "发布出售",
+    "saleEmpty": "还没有出售的信息。发布一条吧。"
   },
   "download": {
     "title": "下载",

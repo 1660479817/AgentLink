@@ -85,6 +85,7 @@ export function listInformation(author, before, filters = {}) {
   if (category) query.set("category", category);
   const topic = String(filters.topic || "").trim();
   if (topic) query.set("topic", topic);
+  if (filters.sales) query.set("sales", "1");
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return request(`/api/web/information${suffix}`);
 }
@@ -111,6 +112,10 @@ export function dismissInformation(id) {
 
 export function closeInformation(id, reason = "") {
   return request(`/api/web/intel/${id}/close`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export function reopenInformation(id) {
+  return request(`/api/web/intel/${encodeURIComponent(String(id || "").trim())}/reopen`, { method: "POST", body: "{}" });
 }
 
 export function listStars() {

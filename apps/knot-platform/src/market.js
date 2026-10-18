@@ -9,7 +9,7 @@ import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./fr
 import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
 import { assertCanSpeak } from "./account.js";
-import { applyPoints, serviceFee, economyConfig, packetPrice, PLATFORM_USER_ID } from "./points.js";
+import { applyPoints, serviceFee, economyConfig, packetPrice, servicePrice, PLATFORM_USER_ID } from "./points.js";
 import { scoreText } from "./search.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { attachmentOpens } from "./readable.js";
@@ -18,6 +18,7 @@ import { cardImageUrl, storagePath } from "./uploads.js";
 import { discardExtract, extractsFor } from "./extracts.js";
 import { normalizeCategory } from "./categories.js";
 import { wishExpiresAt, wishHours, wishLive } from "./wish.js";
+import { recordIntelRead, recordSearchEvent } from "./attention.js";
 
 function videoText(videos) {
   if (!Array.isArray(videos)) return "";
@@ -123,7 +124,7 @@ async function loadIntel(pool, id) {
 
 async function loadPresentedIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at FROM intel WHERE id = $1`,
+    `SELECT id, user_id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at, origin_id, version FROM intel WHERE id = $1`,
     [id]
   );
   if (!rows[0]) return null;
@@ -358,6 +359,32 @@ function resolveKind({ kind, respondsTo }) {
   return { kind: name, respondsTo: name === "wishRespond" ? target : null };
 }
 
+// 修订只对 post / fastpost 开放：wish 有时效、wishRespond 是响应，都不修订。
+// origin 是首版 id，version 是 origin 内的序号。早期流量低，先不做跨事务行锁。
+async function assertRevision(pool, userId, revises, kind) {
+  if (!revises) return { originId: null, version: 1 };
+  if (kind !== "post" && kind !== "fastpost") {
+    const error = new Error("bad_state");
+    error.code = "bad_state";
+    throw error;
+  }
+  const { rows } = await pool.query(
+    `SELECT id, user_id, origin_id, version FROM intel WHERE id = $1 AND ${visibleVerdict("verdict")}`,
+    [revises]
+  );
+  if (!rows[0] || rows[0].user_id !== userId) {
+    const error = new Error("bad_state");
+    error.code = "bad_state";
+    throw error;
+  }
+  const originId = rows[0].origin_id || rows[0].id;
+  const { rows: latest } = await pool.query(
+    `SELECT COALESCE(MAX(version), 0)::int AS v FROM intel WHERE COALESCE(origin_id, id) = $1`,
+    [originId]
+  );
+  return { originId, version: (latest[0]?.v || 0) + 1 };
+}
+
 export async function createIntel(pool, input) {
   const { userId, actor, door, body, videos = [], isPublic = true, price } = input;
   await assertCanSpeak(pool, userId);
@@ -367,7 +394,9 @@ export async function createIntel(pool, input) {
   const fileIds = (input.fileIds || []).slice(0, MAX_FILES);
   const fileUrls = (input.fileUrls || []).slice(0, Math.max(0, MAX_FILES - fileIds.length));
   const { kind, respondsTo } = resolveKind(input);
-  const expiresAt = kind === "wish" ? wishExpiresAt(wishHours(input.hours)) : null;
+  const revision = await assertRevision(pool, userId, typeof input.revises === "string" ? input.revises : null, kind);
+  // wish 时效固定；出售帖的时效取决于 owned 里有没有可下载附件，等 owned 查出后再定。
+  const wishExpiry = kind === "wish" ? wishExpiresAt(wishHours(input.hours)) : null;
   const mentions = mentionList(input.mentions);
   if (mentions.length && kind !== "post" && kind !== "fastpost" && kind !== "wish") {
     const error = new Error("bad_mention");
@@ -397,7 +426,11 @@ export async function createIntel(pool, input) {
     return loadPresentedIntel(pool, prior.rows[0].id);
   }
   const uploadIds = [...new Set([...imageIds.slice(0, MAX_IMAGES), ...audioIds.slice(0, MAX_AUDIO), ...fileIds.slice(0, MAX_FILES)])];
-  if (kind !== "wish" && fileIds.length) packetPrice(1, price);
+  if (kind !== "wish" && fileIds.length) {
+    // 平台自产（信息检索结果）走服务价，不受作者标价上下限约束。
+    if (actor === "platform") servicePrice(price);
+    else packetPrice(1, price);
+  }
   let owned = [];
   if (uploadIds.length) {
     const { rows } = await pool.query(
@@ -447,16 +480,19 @@ export async function createIntel(pool, input) {
     attachments: fileUrls.map((url) => ({ url })),
   };
   const listed = kind === "post" || kind === "fastpost" ? publicOf(isPublic) : false;
+  // 出售帖 = post/fastpost 且有可下载附件。与 HAS_ATTACHMENT 同口径，平台时长、用户不可填。
+  const isSale = (kind === "post" || kind === "fastpost") && owned.some(isDownloadableFile);
+  const expiresAt = wishExpiry ?? (isSale ? saleExpiresAt() : null);
   const billable = owned.filter((row) => isAttachmentUpload({ originalname: row.original_name }));
-  const priced = kind === "wish" ? 0 : packetPrice(billable.length, price);
+  const priced = kind === "wish" ? 0 : actor === "platform" ? servicePrice(price) : packetPrice(billable.length, price);
   let intelId;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const inserted = await client.query(
-      `INSERT INTO intel (user_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to, price, expires_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12) RETURNING id`,
-      [userId, actor, door, body, JSON.stringify(storedVideos), JSON.stringify(external), hash, listed, kind, respondsTo, priced, expiresAt]
+      `INSERT INTO intel (user_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to, price, expires_at, origin_id, version)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+      [userId, actor, door, body, JSON.stringify(storedVideos), JSON.stringify(external), hash, listed, kind, respondsTo, priced, expiresAt, revision.originId, revision.version]
     );
     intelId = inserted.rows[0].id;
     for (let i = 0; i < owned.length; i += 1) {
@@ -467,7 +503,10 @@ export async function createIntel(pool, input) {
       ]);
     }
     // 四种发布都按附件字节收发布服务费。图片和音频直接显示，不计入。
-    await chargePublish(client, { userId, intelId, bytes: billable.reduce((sum, row) => sum + Number(row.size || 0), 0) });
+    // 平台自产（信息检索结果）不向自己收发布服务费，只在下游下载时收检索价。
+    if (actor !== "platform") {
+      await chargePublish(client, { userId, intelId, bytes: billable.reduce((sum, row) => sum + Number(row.size || 0), 0) });
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -499,7 +538,7 @@ export async function createIntel(pool, input) {
 }
 
 const PUBLIC_INTEL_SQL = `
-  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at,
+  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.origin_id, i.version,
     u.display_name, u.avatar_upload_id,
     EXISTS (
       SELECT 1 FROM intel_stars s
@@ -524,6 +563,14 @@ ${FRIEND_COLUMNS}
       SELECT 1 FROM intel_dismissals d
       WHERE d.intel_id = i.id AND d.user_id = $1
     ))
+    AND NOT EXISTS (
+      SELECT 1 FROM intel newer
+      WHERE COALESCE(newer.origin_id, newer.id) = COALESCE(i.origin_id, i.id)
+        AND newer.version > i.version
+        AND newer.is_public
+        AND newer.kind IN ('post', 'fastpost')
+        AND ${visibleVerdict("newer.verdict")}
+    )
 `;
 
 export function compareByWeight(a, b) {
@@ -539,6 +586,17 @@ function filterText(raw, max) {
 }
 
 // 类型与热词筛选：类型精确匹配 category，热词命中 detail.topics 里的某个关键词。
+// 另有来源（actor）和时间段（since）坐标，让代理能表达「这个领域最近三天、多来源」这类取数。
+const ACTORS = new Set(["person", "personal_agent", "platform"]);
+
+function validSince(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return "";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString();
+}
+
 function filterSql(filters, params) {
   let sql = "";
   const category = filterText(filters?.category, 40);
@@ -551,7 +609,58 @@ function filterSql(filters, params) {
     params.push(topic);
     sql += ` AND (i.detail -> 'topics') ? $${params.length}`;
   }
+  const source = filterText(filters?.source, 16);
+  if (source && ACTORS.has(source)) {
+    params.push(source);
+    sql += ` AND i.actor = $${params.length}`;
+  }
+  const since = validSince(filters?.since);
+  if (since) {
+    params.push(since);
+    sql += ` AND i.created_at >= $${params.length}::timestamptz`;
+  }
   return sql;
+}
+
+// 出售 = 有可下载附件（非图片、非音频）的 post/fastpost。这些记录离开信息流，归入市场的出售区。
+//
+// 「可下载附件」是唯一口径，三处必须一致，改一处同步其余：
+//   - HAS_ATTACHMENT（SQL，列表 / reopen 用）
+//   - isDownloadableFile（JS，发布时写 expires_at 用）
+//   - packetZip.kindOf（下载打包）、card.toRecord（展示）同为「非图片、非音频」
+const HAS_ATTACHMENT = `EXISTS (
+  SELECT 1 FROM intel_files f
+  JOIN uploads u ON u.id = f.upload_id
+  WHERE f.intel_id = i.id
+    AND u.mime NOT LIKE 'image/%'
+    AND NOT (u.mime LIKE 'audio/%' OR u.original_name ~* '\\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$')
+)`;
+
+export function isDownloadableFile(row) {
+  if (String(row.mime || "").startsWith("image/")) return false;
+  return !isAudioUpload({ mime: row.mime, originalname: row.original_name });
+}
+
+// 出售帖有效期（小时）：平台设定，用户不可填。默认 72 小时，可用 KNOT_SALE_TTL_HOURS 覆盖。
+const SALE_DEFAULT_TTL_HOURS = 72;
+
+export function saleTtlHours() {
+  const value = Number(process.env.KNOT_SALE_TTL_HOURS);
+  return Number.isInteger(value) && value > 0 ? value : SALE_DEFAULT_TTL_HOURS;
+}
+
+export function saleExpiresAt(now = Date.now()) {
+  return new Date(now + saleTtlHours() * 60 * 60 * 1000);
+}
+
+// 025 迁移之前的出售帖没有 expires_at，按创建时间加平台时长算（镜像 wish 的 fallback）。
+function saleDeadline(alias = "i") {
+  return `COALESCE(${alias}.expires_at, ${alias}.created_at + interval '${saleTtlHours()} hours')`;
+}
+
+// 只留仍在有效期内的出售帖。
+export function saleLive(alias = "i") {
+  return `${saleDeadline(alias)} > now()`;
 }
 
 export async function listPublicIntel(pool, limit = 30, userId = null, authorId = null, before = null, filters = {}) {
@@ -562,6 +671,12 @@ export async function listPublicIntel(pool, limit = 30, userId = null, authorId 
     sql += ` AND i.user_id = $${params.length}`;
   }
   sql += filterSql(filters, params);
+  // 信息流只放免费内容；出售（有附件）归市场。sales=true 时反过来只取出售，且只留仍在有效期内的。
+  if (filters.sales === true) {
+    sql += ` AND ${HAS_ATTACHMENT} AND ${saleLive("i")}`;
+  } else {
+    sql += ` AND NOT ${HAS_ATTACHMENT}`;
+  }
   if (before) {
     // 键集分页：只取排在锚点（上一页最后一条）之后的内容，避免偏移翻页的重复与漏条。
     params.push(before);
@@ -601,14 +716,42 @@ export async function publicAuthor(pool, authorId) {
 
 export async function searchPublicIntel(pool, query, userId = null, filters = {}) {
   const params = [userId];
+  // 候选集上限 500：把「可能命中」的行收进内存打分。真正的内存墙在这里，v0.3 换 trigram / 向量后去掉全量拉取。
   const sql = `${PUBLIC_INTEL_SQL}${filterSql(filters, params)} ORDER BY i.weight DESC, i.created_at DESC LIMIT 500`;
   const { rows } = await pool.query(sql, params);
+  // 检索打点（只记不扣费）：先量化代理替人「筛选」的次数，供精算师看。
+  recordSearchEvent(pool, userId, query).catch(() => {});
   const extracts = await extractsFor(rows.map((row) => row.id));
-  return rows
+  const scored = rows
     .map((row, index) => ({ ...row, score: scoreText(query, `${intelText(row)} ${extracts[index] || ""}`) }))
-    .filter((row) => row.score > 0)
-    .sort(compareByWeight)
+    .filter((row) => row.score > 0);
+  // 完整命中（score >= 1）优先，别让「只碰到一两个字的日报」挤掉真正相关的结果；
+  // 一个完整命中都没有时，才回退到部分命中，至少给点结果而不是空手。
+  const exact = scored.filter((row) => row.score >= 1);
+  const candidates = exact.length ? exact : scored;
+  // 相关度优先；相关度相同时按权重、再按时间，与信息流保持一致。
+  return candidates
+    .sort((a, b) => (b.score - a.score) || compareByWeight(a, b))
     .slice(0, 30);
+}
+
+// 给一批行挂上附件，再组装成同一份记录。Agent 读路径和信息流共用，保证 shape 一致。
+export async function presentIntelRows(pool, rows) {
+  if (!rows.length) return [];
+  const files = await filesByIntel(pool, rows.map((row) => row.id));
+  return rows.map((row) => presentIntel({ ...row, files: files.get(row.id) || [] }));
+}
+
+// 按 id 读一条公开记录，带当前账户的 star/like/granted/friend 个人态。读不到返回 null。
+// 读到即记一次读痕迹（只记不扣费），供「回音室」可观测和未来注意力计价。
+export async function loadPublicIntel(pool, userId, id) {
+  const params = [userId, id];
+  const sql = `${PUBLIC_INTEL_SQL} AND i.id = $2::uuid`;
+  const { rows } = await pool.query(sql, params);
+  if (!rows.length) return null;
+  recordIntelRead(pool, userId, id).catch(() => {});
+  const [record] = await presentIntelRows(pool, rows);
+  return record;
 }
 
 export async function setIntelStar(pool, userId, intelId, starred) {
@@ -847,4 +990,30 @@ export async function downloadPacket(pool, userId, intelId, uploadDir, { zip = f
     zipPath,
     downloadName: packetDownloadName(intel.body),
   };
+}
+
+// 再次开放到期的出售帖：仅作者，仅 post/fastpost 且有可下载附件。免费，只把 expires_at 重置为 now + 平台时长。
+export async function reopenSale(pool, userId, intelId) {
+  const { rows } = await pool.query(
+    `SELECT i.id
+     FROM intel i
+     WHERE i.id = $1
+       AND i.user_id = $2
+       AND i.kind IN ('post', 'fastpost')
+       AND i.is_public
+       AND ${visibleVerdict("i.verdict")}
+       AND ${HAS_ATTACHMENT}`,
+    [intelId, userId]
+  );
+  if (!rows.length) {
+    const error = new Error("not_found");
+    error.code = "not_found";
+    throw error;
+  }
+  const expiresAt = saleExpiresAt();
+  await pool.query(
+    `UPDATE intel SET expires_at = $2, updated_at = now() WHERE id = $1`,
+    [intelId, expiresAt]
+  );
+  return loadPresentedIntel(pool, intelId);
 }

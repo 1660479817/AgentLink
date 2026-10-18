@@ -3,28 +3,39 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import ActorMark from "../components/ActorMark.vue";
 import AppButton from "../components/AppButton.vue";
+import InformationCard from "../components/InformationCard.vue";
 import MentionPicker from "../components/MentionPicker.vue";
 import PacketMediaFields from "../components/PacketMediaFields.vue";
 import VideoFrame from "../components/VideoFrame.vue";
 import WishCopy from "../components/WishCopy.vue";
 import WishRail from "../components/WishRail.vue";
 import {
+  addCardFriend,
+  dismissInformation,
   downloadInformation,
+  downloadShare,
+  likeInformation,
+  listInformation,
   listLooks,
   listMyResponses,
   listRequestResponses,
   listRequests,
   listSubmissions,
   lookRequest,
+  removeCardFriend,
+  starInformation,
+  unlikeInformation,
+  unstarInformation,
 } from "../api.js";
 import { ATTACHMENT_ACCEPT, errorText, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
+import { cardIsMine } from "../discoverBoard.js";
 import { feeOf, priceOf, wishIsLive } from "../record.js";
 import { startPolling } from "../polling.js";
 import { t } from "../i18n/index.js";
 import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
-import { AtIcon, AudioIcon, ChatIcon, ImageIcon, PaperclipIcon, PlusIcon, RespondIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
+import { AtIcon, AudioIcon, ChatIcon, CoinIcon, ImageIcon, PaperclipIcon, PlusIcon, RespondIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
 import { packetDraft, useOutboxStore } from "../stores/outbox";
 import { useSessionStore } from "../stores/session";
 
@@ -57,6 +68,11 @@ const replyBody = ref("");
 const agreed = ref(false);
 const composeOpen = ref(false);
 let requestsPoll = null;
+const sales = ref([]);
+const salesCursor = ref(null);
+const salesLoaded = ref(false);
+const salesMore = ref(false);
+const salesLoading = ref(false);
 const {
   images,
   previewUrls,
@@ -130,6 +146,33 @@ const engagements = computed(() => {
   return [...byId.values()].sort((a, b) => String(b.lookedAt).localeCompare(String(a.lookedAt)));
 });
 const orphanReplies = computed(() => replies.value.filter((item) => !item.wish));
+const composeMode = computed(() => (lane.value === "sales" ? "sale" : "wish"));
+
+// 出售区：带附件（可下载、可标价）的 post/fastpost。公开可读，未登录也能逛。
+async function loadSales(cursor = null) {
+  try {
+    const data = await listInformation(null, cursor, { sales: true });
+    const incoming = Array.isArray(data.information) ? data.information : [];
+    if (cursor) {
+      const seen = new Set(sales.value.map((item) => item.id));
+      sales.value = [...sales.value, ...incoming.filter((row) => row?.id && !seen.has(row.id))];
+    } else {
+      sales.value = incoming;
+    }
+    salesCursor.value = incoming.length ? incoming[incoming.length - 1].id : cursor;
+    salesMore.value = incoming.length > 0;
+    salesLoaded.value = true;
+  } catch {
+    salesLoaded.value = true;
+  }
+}
+
+async function loadMoreSales() {
+  if (salesLoading.value || !salesMore.value) return;
+  salesLoading.value = true;
+  await loadSales(salesCursor.value || null);
+  salesLoading.value = false;
+}
 
 function when(value) {
   const then = new Date(value).getTime();
@@ -311,6 +354,7 @@ async function showLook(id) {
 onMounted(async () => {
   if (respondId.value) lane.value = "replied";
   await load();
+  loadSales();
   requestsPoll = startPolling({
     fn: refreshOpenRequests,
     intervalMs: 60 * 1000,
@@ -329,6 +373,7 @@ watch(
   () => outbox.revision,
   (revision) => {
     if (revision) load();
+    if (revision) loadSales();
   }
 );
 watch(respondId, async (id, prev) => {
@@ -385,7 +430,8 @@ function pickReplyPoster(event) {
 }
 
 function submit() {
-  if (!canSend() || !agreed.value || busy.value) return;
+  if (!canSend() || busy.value) return;
+  if (composeMode.value === "wish" && !agreed.value) return;
   error.value = "";
   const link = readVideoLink(video.value);
   if (link === null) {
@@ -406,12 +452,23 @@ function submit() {
     error.value = errorText(err.code, session.policy);
     return;
   }
-  const lifespan = Number(hours.value);
-  if (!Number.isInteger(lifespan) || lifespan < 1 || lifespan > 24) {
-    error.value = t("wish.badHours");
-    return;
+  let extra;
+  if (composeMode.value === "sale") {
+    const priced = files.value.length ? readOptionalPrice(price.value, session.policy) : { ok: true, price: undefined };
+    if (files.value.length && !priced.ok) {
+      error.value = errorText("bad_price", session.policy);
+      return;
+    }
+    extra = { kind: "post", public: true };
+    if (files.value.length && priced.price !== undefined) extra.price = priced.price;
+  } else {
+    const lifespan = Number(hours.value);
+    if (!Number.isInteger(lifespan) || lifespan < 1 || lifespan > 24) {
+      error.value = t("wish.badHours");
+      return;
+    }
+    extra = { kind: "wish", hours: lifespan };
   }
-  const extra = { kind: "wish", hours: lifespan };
   if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
   outbox.enqueue(packetDraft({
     body: body.value.trim(),
@@ -524,6 +581,94 @@ async function downloadReply(item) {
     item.downloading = false;
   }
 }
+
+async function downloadSale(item) {
+  if (item.downloading) return;
+  item.downloading = true;
+  try {
+    if (session.user) await session.load();
+    const ok = await acceptDownload({
+      price: priceOf(item),
+      fee: feeOf(item),
+      granted: item.granted === true,
+      mine: cardIsMine(item, session.user),
+      balance: session.user?.pointsBalance,
+      code: session.user ? "" : "no_session",
+      task: () => downloadInformation(item.id),
+    });
+    if (!ok) return;
+    try {
+      const data = await listInformation(null, null, { sales: true });
+      const next = (data.information || []).find((row) => row.id === item.id);
+      if (next) Object.assign(item, next);
+      else item.granted = true;
+      if (session.user) await session.load();
+    } catch {
+      item.granted = true;
+    }
+  } finally {
+    item.downloading = false;
+  }
+}
+
+async function toggleSaleStar(item) {
+  if (!session.user) return;
+  const previous = Boolean(item.starred);
+  item.starred = !previous;
+  try {
+    if (item.starred) await starInformation(item.id);
+    else await unstarInformation(item.id);
+  } catch {
+    item.starred = previous;
+  }
+}
+
+async function toggleSaleLike(item) {
+  if (!session.user) return;
+  const previous = Boolean(item.liked);
+  item.liked = !previous;
+  try {
+    if (item.liked) await likeInformation(item.id);
+    else await unlikeInformation(item.id);
+  } catch {
+    item.liked = previous;
+  }
+}
+
+async function toggleSaleFriend(item) {
+  if (!session.user || !item.canFriend) return;
+  const previous = Boolean(item.friend);
+  item.friend = !previous;
+  try {
+    const data = item.friend ? await addCardFriend(item.id) : await removeCardFriend(item.id);
+    item.friend = Boolean(data.friend);
+  } catch {
+    item.friend = previous;
+  }
+}
+
+async function shareSale(item) {
+  if (item.sharing) return;
+  item.sharing = true;
+  item.shareError = "";
+  try {
+    await downloadShare(item.id);
+  } catch {
+    item.shareError = t("error.request_failed");
+  } finally {
+    item.sharing = false;
+  }
+}
+
+async function dismissSale(item) {
+  const previous = sales.value;
+  sales.value = sales.value.filter((row) => row.id !== item.id);
+  try {
+    await dismissInformation(item.id);
+  } catch (error) {
+    if (error.status !== 401) sales.value = previous;
+  }
+}
 </script>
 
 <template>
@@ -534,6 +679,19 @@ async function downloadReply(item) {
     <WishRail :wishes="openRequests" :label="t('wish.railLabel')" />
 
     <div class="card wish-lanes" role="tablist" :aria-label="t('wish.lanes')">
+      <button
+        id="wish-tab-sales"
+        type="button"
+        class="wish-lane"
+        role="tab"
+        :class="{ 'is-active': lane === 'sales' }"
+        :aria-selected="lane === 'sales'"
+        aria-controls="wish-panel-sales"
+        :aria-label="t('wish.salesTab')"
+        @click="selectLane('sales')"
+      >
+        <CoinIcon class="wish-lane-icon" aria-hidden="true" />
+      </button>
       <button
         id="wish-tab-posted"
         type="button"
@@ -560,6 +718,65 @@ async function downloadReply(item) {
       >
         <RespondIcon class="wish-lane-icon" aria-hidden="true" />
       </button>
+    </div>
+
+    <div v-if="lane === 'sales'" id="wish-panel-sales" role="tabpanel" aria-labelledby="wish-tab-sales">
+      <section v-if="salesLoaded && sales.length === 0" class="card wish-empty">
+        <p class="empty-line">
+          <CoinIcon class="empty-icon" aria-hidden="true" />
+          <span>{{ t("wish.saleEmpty") }}</span>
+        </p>
+      </section>
+
+      <InformationCard
+        v-for="item in sales"
+        :id="`sale-${item.id}`"
+        :key="item.id"
+        :body="item.body || ''"
+        :category="item.kMeta?.category || ''"
+        :topics="item.kMeta?.topics || []"
+        :language="item.kMeta?.language || ''"
+        :price="priceOf(item)"
+        :granted="item.granted !== false"
+        :images="item.images || []"
+        :audio="item.audio || []"
+        :videos="item.videos || []"
+        :attachments="item.attachments || []"
+        :note="item.kMeta?.note || ''"
+        :verdict="item.kMeta?.verdict || ''"
+        :author-id="item.author?.id || ''"
+        :author-name="item.author?.name || ''"
+        :avatar-url="item.author?.avatarUrl || ''"
+        :actor="item.actor || ''"
+        :created-at="item.kMeta?.createdAt || ''"
+        :starred="Boolean(item.starred)"
+        :can-star="Boolean(session.user)"
+        :liked="Boolean(item.liked)"
+        :can-like="Boolean(session.user)"
+        :friend="Boolean(item.friend)"
+        :can-friend="Boolean(item.canFriend)"
+        :busy="Boolean(item.downloading)"
+        :sharing="Boolean(item.sharing)"
+        :notice="item.shareError || ''"
+        @dismiss="dismissSale(item)"
+        @star="toggleSaleStar(item)"
+        @like="toggleSaleLike(item)"
+        @friend="toggleSaleFriend(item)"
+        @download="downloadSale(item)"
+        @share="shareSale(item)"
+      />
+
+      <div v-if="salesLoaded" class="feed-more">
+        <AppButton
+          v-if="salesMore"
+          variant="secondary"
+          :disabled="salesLoading"
+          @click="loadMoreSales"
+        >
+          {{ salesLoading ? t("home.loadingMore") : t("home.loadMore") }}
+        </AppButton>
+        <p v-else class="muted feed-end-note">{{ t("home.noMore") }}</p>
+      </div>
     </div>
 
     <div v-if="lane === 'posted'" id="wish-panel-posted" role="tabpanel" aria-labelledby="wish-tab-posted">
@@ -835,7 +1052,7 @@ async function downloadReply(item) {
       <input ref="replyPosterInput" type="file" accept="image/*" class="visually-hidden" @change="pickReplyPoster" />
     </div>
 
-    <section class="card share-bar wish-compose" :aria-label="t('wish.compose')">
+    <section class="card share-bar wish-compose" :aria-label="composeMode === 'sale' ? t('wish.saleCompose') : t('wish.compose')">
       <button v-if="!composeOpen" type="button" class="share-prompt wish-compose-prompt" @click="openCompose">
         <span class="share-avatar" aria-hidden="true">
           <img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="" />
@@ -853,15 +1070,15 @@ async function downloadReply(item) {
             v-model:video="video"
             v-model:price="price"
             body-id="wish-body"
-            :body-label="t('wish.title')"
-            :placeholder="t('wish.placeholder')"
+            :body-label="composeMode === 'sale' ? t('wish.saleTitle') : t('wish.title')"
+            :placeholder="composeMode === 'sale' ? t('wish.salePlaceholder') : t('wish.placeholder')"
             :rows="2"
             grow
             :video-open="videoOpen"
             :previews="previewUrls"
             :audio-name="audio?.name || ''"
             :files="files"
-            :show-price="false"
+            :show-price="composeMode === 'sale' && files.length > 0"
             :show-free-note="false"
             :poster-preview="posterPreview"
             price-id="wish-price"
@@ -903,7 +1120,7 @@ async function downloadReply(item) {
             <span>{{ t("home.shareFile") }}</span>
           </button>
         </div>
-        <div class="wish-duration">
+        <div v-if="composeMode === 'wish'" class="wish-duration">
           <label class="wish-duration-label" for="wish-hours">{{ t("wish.hoursLabel") }}</label>
           <input
             id="wish-hours"
@@ -920,7 +1137,7 @@ async function downloadReply(item) {
           <span class="wish-duration-hint">{{ t("wish.hoursHint") }}</span>
         </div>
         <div class="wish-submit-row">
-          <label class="wish-consent">
+          <label v-if="composeMode === 'wish'" class="wish-consent">
             <input v-model="agreed" type="checkbox" :disabled="busy" />
             <span>{{ t("wish.consent") }}</span>
           </label>
@@ -929,8 +1146,8 @@ async function downloadReply(item) {
             variant="icon"
             type="submit"
             form="wish-form"
-            :aria-label="t('wish.send')"
-            :disabled="busy || !canSend() || !agreed"
+            :aria-label="composeMode === 'sale' ? t('wish.saleSend') : t('wish.send')"
+            :disabled="busy || !canSend() || (composeMode === 'wish' && !agreed)"
           >
             <SendIcon aria-hidden="true" />
           </AppButton>

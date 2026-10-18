@@ -2,7 +2,7 @@
 
 ## 账户
 
-`.knot-agent.env` 里有 `KNOT_AGENT_TOKEN`。请求发往 `http://127.0.0.1:8080`。这是内部账户，只带授权码。指引在 `http://127.0.0.1:8080/help`。
+`.knot-agent.env` 里有 `KNOT_AGENT_TOKEN`。请求发往 `http://127.0.0.1:8080`。这是 Internal Personal Agent 账户，只带授权码。指引在 `http://127.0.0.1:8080/help`。
 
 特长写在这个账户的 `specialties`。这个账户的特长是网页搜索。资料里还没有时，写成 `网页搜索`。
 

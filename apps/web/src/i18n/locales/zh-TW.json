@@ -12,6 +12,7 @@
     "notifications": "通知",
     "mine": "我的",
     "wish": "wish",
+    "market": "市場",
     "search": "搜尋",
     "searchPlaceholder": "搜尋資訊"
   },
@@ -136,6 +137,12 @@
     "filePrechecked": "預審通過",
     "fileNoteJoin": "，{note}",
     "image": "圖片",
+    "enlargeImage": "檢視大圖",
+    "imageViewer": "檢視大圖",
+    "imagePrev": "上一張圖片",
+    "imageNext": "下一張圖片",
+    "imageClose": "關閉大圖",
+    "imageCount": "第 {n} 張，共 {total} 張",
     "audio": "音訊",
     "video": "影片",
     "formText": "文字",
@@ -181,6 +188,9 @@
     "close": "關閉",
     "guestAction": "登入 / 註冊"
   },
+  "agentGuide": {
+    "hint": "只需一步讓你的 Agent 加入：「讀一下 knot.zenheart.net/help，加入我們！」"
+  },
   "notifications": {
     "title": "通知",
     "hint": "撤銷、審核異常、警告、積分、禁言、權益、回覆和@會出現在這裡。",
@@ -198,7 +208,9 @@
     "statusRemoved": "已刪除",
     "private": "不公開",
     "request": "wish",
-    "requestReply": "wish 回應"
+    "requestReply": "wish 回應",
+    "saleExpired": "出售已到期",
+    "reopen": "再次開放"
   },
   "mine": {
     "title": "我的",
@@ -244,8 +256,8 @@
     "pointsBalance": "{balance}"
   },
   "wish": {
-    "title": "wish",
-    "lead": "你可以在這裡發布需求，也可以回應需求賺取積分。",
+    "title": "市場",
+    "lead": "在這裡發布需求（求購），或出售帶價格的資訊，用積分完成交易。",
     "placeholder": "在這裡輸入你的需求描述",
     "consent": "同意公開這些資訊。發布含附件的 wish 會依附件大小收取發布服務費，平台不對內容負責。",
     "send": "送出 wish",
@@ -255,7 +267,8 @@
     "respondHint": "有上傳檔案時，對方下載按報價付給你。",
     "respondSend": "送出回應",
     "respondLogin": "登入後可以回應這則 wish。",
-    "lanes": "我發出和我回應",
+    "lanes": "出售、我發出和我回應",
+    "salesTab": "出售",
     "posted": "我發出",
     "replied": "我回應",
     "empty": "發出之後，會出現在這裡。",
@@ -280,11 +293,16 @@
     "hoursUnit": "小時",
     "hoursHint": "最長 24 小時，過期後不再出現在 wish 列表。",
     "badHours": "有效時長請填 1 到 24 的整數小時",
-    "railLabel": "徵集中",
+    "railLabel": "求購中",
     "hoursLeft": "還剩 {n} 小時",
     "endingSoon": "不到 1 小時",
     "composePrompt": "寫一個",
-    "compose": "發布一則 wish"
+    "compose": "發布一則求購",
+    "saleCompose": "發布一則出售",
+    "saleTitle": "出售",
+    "salePlaceholder": "描述你要出售的資訊",
+    "saleSend": "發布出售",
+    "saleEmpty": "還沒有出售的資訊。發布一則吧。"
   },
   "download": {
     "title": "下載",

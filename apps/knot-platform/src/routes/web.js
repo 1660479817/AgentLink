@@ -9,7 +9,7 @@ import { readImageMedia, readMedia } from "../links.js";
 import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
 import { loadDiscoverSelf, emptyDiscoverSelf, listActivePeople } from "../discoverBoard.js";
 import { listFacets } from "../facets.js";
-import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, searchPublicIntel, setIntelLike, setIntelStar } from "../market.js";
+import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, reopenSale, searchPublicIntel, setIntelLike, setIntelStar } from "../market.js";
 import { listNotifications, markNotificationsRead } from "../notifications.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
@@ -415,6 +415,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         hours: req.body?.hours,
         kind: typeof req.body?.kind === "string" ? req.body.kind : "",
         respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
+        revises: typeof req.body?.revises === "string" ? req.body.revises : null,
         mentions: req.body?.mentions,
       });
       res.status(201).json({ intel });
@@ -426,7 +427,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/submissions", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at
+      `SELECT id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at, origin_id, version
        FROM intel
        WHERE user_id = $1 AND door = 'webui'
        ORDER BY created_at DESC`,
@@ -451,7 +452,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/search", async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (!q) return res.json({ information: [] });
-    const filters = { category: req.query.category, topic: req.query.topic };
+    const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
     const rows = await searchPublicIntel(pool, q, req.user?.id || null, filters);
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
@@ -568,7 +569,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (author && !INTEL_ID.test(author)) return res.json({ information: [], author: null });
     const before = String(req.query.before || "").trim();
     const anchor = before && INTEL_ID.test(before) ? before : null;
-    const filters = { category: req.query.category, topic: req.query.topic };
+    const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since, sales: req.query.sales === "1" };
     const rows = await listPublicIntel(pool, 30, req.user?.id || null, author || null, anchor, filters);
     const information = (await withUploads(pool, rows)).map(publicCard);
     if (!author) return res.json({ information });
@@ -580,7 +581,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.origin_id, i.version,
               u.display_name, u.avatar_upload_id
        FROM intel i
        JOIN users u ON u.id = i.user_id
@@ -624,6 +625,18 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     const reason = String(req.body?.reason ?? "").trim() || "平台关闭";
     try {
       res.json(await removePost(pool, id, reason, req.user.id));
+    } catch (error) {
+      httpError(res, error);
+    }
+  });
+
+  // 再次开放到期的出售帖：仅作者，免费，把有效期重置为平台时长。
+  router.post("/intel/:id/reopen", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json({ intel: await reopenSale(pool, req.user.id, id) });
     } catch (error) {
       httpError(res, error);
     }

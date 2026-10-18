@@ -339,10 +339,10 @@ if (isDirect && command === "ids") {
   const named = identityFields("# IDENTITY.md\n\n- **Name:** 数据评审员\n- 名字：不会被认\n- **Vibe:** 短\n");
   if (named.name !== "数据评审员" || named.vibe !== "短" || named["名字"]) process.exit(1);
   if (!soulReady("# SOUL.md\n\n## Core Truths\n\n短。\n\n## Boundaries\n\n- 不猜。\n\n## Vibe\n\n短。\n")) process.exit(1);
-  if (soulReady("# SOUL\n\n你是员工。\n")) process.exit(1);
+  if (soulReady("# SOUL\n\n你是智能体。\n")) process.exit(1);
   if (!userReady("<!-- observed: 2026-10-16 | status: active -->\n\n- Always 交回 JSON。\n")) process.exit(1);
   if (userReady("# USER\n\n交回 JSON。\n")) process.exit(1);
-  for (const id of ["knot-intel", "knot-admin", "knot-actuary"]) {
+  for (const id of ["knot-intel", "knot-admin", "knot-actuary", "knot-retrieval"]) {
     await assertPrompts(path.join(root, "agents", id));
   }
   await assertPrompts(path.join(root, "internal_agent", "bravesearch"));

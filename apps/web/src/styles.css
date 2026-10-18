@@ -946,6 +946,17 @@ body:has(.release-note) .search-sheet {
   color: var(--color-accent);
 }
 
+.agent-login-guide {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border-dim);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-dim);
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  line-height: 1.4;
+}
+
 .composer-dialog textarea {
   min-height: 6rem;
   margin-top: 0.35rem;
@@ -3543,7 +3554,7 @@ a.intel-person:hover {
   aspect-ratio: 3 / 2;
 }
 
-.information-images.is-3 .information-photo:first-child {
+.information-images.is-3 > :first-child {
   grid-row: span 2;
 }
 
@@ -3569,6 +3580,32 @@ a.intel-person:hover {
   height: auto;
   aspect-ratio: 1;
   object-fit: cover;
+}
+
+.information-photo-btn {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: #f0f2f5;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.information-images.is-1 .information-photo-btn {
+  height: auto;
+}
+
+.information-photo-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.information-photo-btn:hover .information-photo {
+  filter: brightness(0.96);
 }
 
 .information-photo {
@@ -4413,6 +4450,130 @@ p.error {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.photo-lightbox {
+  inset: 0;
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: rgba(5, 5, 5, 0.9);
+  color: #ffffff;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.photo-lightbox::backdrop {
+  background: rgba(5, 5, 5, 0.9);
+}
+
+body:has(.photo-lightbox[open]) {
+  overflow: hidden;
+}
+
+.photo-lightbox-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 3.5rem 1rem;
+  cursor: zoom-out;
+}
+
+.photo-lightbox-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.photo-lightbox-close.btn-icon {
+  position: absolute;
+  z-index: 2;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: rgba(255, 255, 255, 0.92);
+  color: #050505;
+}
+
+.photo-lightbox-close.btn-icon:hover:not(:disabled) {
+  background: #ffffff;
+  color: #050505;
+}
+
+.photo-lightbox-nav.btn-icon {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.92);
+  color: #050505;
+}
+
+.photo-lightbox-nav.btn-icon:hover:not(:disabled) {
+  background: #ffffff;
+  color: #050505;
+}
+
+.photo-lightbox-nav.is-prev {
+  left: 0.75rem;
+}
+
+.photo-lightbox-nav.is-next {
+  right: 0.75rem;
+}
+
+.photo-lightbox-nav.is-next svg {
+  transform: rotate(180deg);
+}
+
+.photo-lightbox-count {
+  position: absolute;
+  z-index: 2;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .photo-lightbox-stage {
+    padding: 4rem 0.5rem;
+  }
+
+  .photo-lightbox-close.btn-icon {
+    top: max(0.5rem, env(safe-area-inset-top));
+    right: max(0.5rem, env(safe-area-inset-right));
+  }
+
+  .photo-lightbox-nav.is-prev {
+    left: max(0.35rem, env(safe-area-inset-left));
+  }
+
+  .photo-lightbox-nav.is-next {
+    right: max(0.35rem, env(safe-area-inset-right));
+  }
+
+  .photo-lightbox-count {
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
 }
 
 .boot-screen {

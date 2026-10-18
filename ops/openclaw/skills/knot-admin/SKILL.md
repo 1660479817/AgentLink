@@ -65,7 +65,7 @@ description: Run the local admin command to find an account, list posts, delete,
 
 `level` 是 1 到 100 的整数。做完说明现在是多少。巡查不调用。
 
-## 签发内部账户
+## 签发 Internal Personal Agent 账户
 
 `issue --name 称呼`
 

@@ -14,6 +14,10 @@ export function intelAgentId() {
   return agentId("OPENCLAW_INTEL_AGENT");
 }
 
+export function retrievalAgentId() {
+  return agentId("OPENCLAW_RETRIEVAL_AGENT");
+}
+
 function cleanText(value) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
@@ -254,7 +258,7 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
   const agent = intelAgentId();
   if (!agent) throw new Error("intel_agent_unconfigured");
   const bin = process.env.OPENCLAW_BIN || "openclaw";
-  const timeoutSec = Number(process.env.OPENCLAW_PROCESS_TIMEOUT || 90);
+  const timeoutSec = Number(process.env.OPENCLAW_PROCESS_TIMEOUT || 120);
   const notes = [];
   const sections = [];
   const images = imagePaths.slice(0, 4).map(imageFile).filter((image) => image.path);
@@ -294,4 +298,63 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
   ].join("\n");
   const text = await askEmployee(agent, `intel-${intel.id}`, message, timeoutSec);
   return parseIntelReply(text);
+}
+
+const RETRIEVAL_REPORT_MAX = 20_000;
+
+// 内部检索命中行转成一行可读文字，交给信息检索员整合。
+function internalResultLine(row, index) {
+  const detail = row.detail && typeof row.detail === "object" ? row.detail : {};
+  const note = typeof detail.note === "string" ? detail.note.trim() : "";
+  const body = String(row.body || "").replace(/\s+/g, " ").trim();
+  const category = String(row.category || "").trim();
+  const author = String(row.display_name || "").trim();
+  const when = row.created_at ? new Date(row.created_at).toISOString() : "";
+  const parts = [];
+  if (category) parts.push(`[${category}]`);
+  if (body) parts.push(body);
+  if (note) parts.push(`（${note}）`);
+  if (author) parts.push(`来源：${author}`);
+  if (when) parts.push(`时间：${when}`);
+  return `${index + 1}. ${parts.join(" ")}`;
+}
+
+export function retrievalMessage(query, internalResults = []) {
+  const lines = [
+    "你收到一个自然语言检索要求。优先使用下面「平台内部检索结果」；内部结果不足时，用你的搜索工具补充外部信息，并标明出处。交回一份 Markdown 检索报告，不要 JSON，不要开场白。",
+    "",
+    "检索要求：",
+    String(query || "").trim(),
+    "",
+  ];
+  if (Array.isArray(internalResults) && internalResults.length) {
+    lines.push("平台内部检索结果（按相关度排序）：");
+    for (let i = 0; i < internalResults.length; i += 1) {
+      lines.push(internalResultLine(internalResults[i], i));
+    }
+  } else {
+    lines.push("平台内部检索结果：没有命中。");
+  }
+  lines.push(
+    "",
+    "报告要求：",
+    "1. 开头一行写明检索要求。",
+    "2. 「内部结果」逐条给出标题、摘要、来源、时间，保留可核对的事实。",
+    "3. 「外部补充」在内部结果不足时给出，每条标明出处（站点或链接）。",
+    "4. 结尾给「来源列表」。",
+    "5. 只写 Markdown，不要 JSON，不要用代码块围栏包住整份报告。",
+  );
+  return lines.join("\n");
+}
+
+// 调信息检索员，交回 Markdown 检索报告（纯文本）。sessionKey 区分不同的检索任务。
+export async function runRetrievalAgent(query, internalResults = [], sessionKey = "") {
+  const agent = retrievalAgentId();
+  if (!agent) throw new Error("retrieval_agent_unconfigured");
+  const timeoutSec = Number(process.env.OPENCLAW_RETRIEVAL_TIMEOUT || 300);
+  const message = retrievalMessage(query, internalResults);
+  const text = await askEmployee(agent, sessionKey || `retrieval-${Date.now()}`, message, timeoutSec);
+  const report = clip(text, RETRIEVAL_REPORT_MAX);
+  if (!report) throw new Error("agent_empty");
+  return report;
 }

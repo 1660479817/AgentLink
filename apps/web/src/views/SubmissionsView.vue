@@ -5,7 +5,7 @@ import AppButton from "../components/AppButton.vue";
 import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
 import VideoFrame from "../components/VideoFrame.vue";
-import { listSubmissions } from "../api.js";
+import { listSubmissions, reopenInformation } from "../api.js";
 import { t } from "../i18n/index.js";
 import { PaperclipIcon } from "../icons/index.js";
 import { packetFile, packetVideos } from "../packet.js";
@@ -36,6 +36,34 @@ function statusKey(status) {
   if (status === "rejected") return "submissions.statusRejected";
   if (status === "removed") return "submissions.statusRemoved";
   return "submissions.statusPending";
+}
+
+// 出售帖 = post/fastpost 且有存储的下载附件。与后端 HAS_ATTACHMENT 同口径：
+// item.attachments 已是「非图片、非音频」的分类（card.toRecord），stored=true 表示上传的。
+function isSale(item) {
+  const kind = item.kMeta?.kind;
+  if (kind !== "post" && kind !== "fastpost") return false;
+  return (item.attachments || []).some((file) => file?.stored);
+}
+
+function saleExpired(item) {
+  const at = item.kMeta?.expiresAt;
+  if (!at) return false;
+  return new Date(at).getTime() <= Date.now();
+}
+
+async function reopen(item) {
+  if (item.reopening) return;
+  item.reopening = true;
+  item.reopenError = "";
+  try {
+    const data = await reopenInformation(item.id);
+    if (data?.intel?.kMeta) item.kMeta = { ...(item.kMeta || {}), ...data.intel.kMeta };
+  } catch {
+    item.reopenError = t("error.request_failed");
+  } finally {
+    item.reopening = false;
+  }
 }
 
 </script>
@@ -76,6 +104,13 @@ function statusKey(status) {
       </li>
     </ul>
     <p v-if="item.kMeta?.rejectReason" class="error card-notice" role="alert">{{ item.kMeta.rejectReason }}</p>
+    <p v-if="isSale(item) && saleExpired(item)" class="muted submission-expired">
+      <span>{{ t("submissions.saleExpired") }}</span>
+      <AppButton variant="secondary" type="button" :disabled="item.reopening" @click="reopen(item)">
+        {{ t("submissions.reopen") }}
+      </AppButton>
+    </p>
+    <p v-if="item.reopenError" class="error card-notice" role="alert">{{ item.reopenError }}</p>
   </article>
   <div class="form-actions">
     <AppButton variant="secondary" to="/mine">{{ t("submissions.back") }}</AppButton>

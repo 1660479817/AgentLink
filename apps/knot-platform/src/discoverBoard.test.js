@@ -57,7 +57,7 @@ function pool() {
     post,
     wish,
     async query(sql) {
-      if (sql.includes("FROM intel_files")) {
+      if (sql.includes("SELECT f.intel_id")) {
         return { rows: [{ intel_id: POST, id: FILE, mime: "image/jpeg", original_name: "a.jpg" }, { intel_id: POST, id: "sound", mime: "audio/mpeg", original_name: "a.mp3" }] };
       }
       if (sql.includes("GROUP BY i.user_id")) {

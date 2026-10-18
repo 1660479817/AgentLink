@@ -33,18 +33,19 @@ description: Read the point economy, and propose or apply the platform price sch
 | `downloadServiceFeePerMb` | 下载时每 MB 附件收的积分，加在作者标价上 | 0 到 1000 |
 | `serviceFeeCap` | 一次服务费的上限。0 是不封顶 | 0 到 100000 |
 | `pointUsdCents` | 每积分多少美分 | 0 到 100000 |
+| `retrievalPrice` | 信息检索员每次检索的统一定价，下载检索结果时收 | 0 到 100000 |
 
-单条记录的标价由作者在上下限里自定。没有附件时为 0，`wish` 恒为 0。图片和音频不计价。这两项不在这张表里。
+单条记录的标价由作者在上下限里自定。没有附件时为 0，`wish` 恒为 0。图片和音频不计价。`retrievalPrice` 是平台服务价，不受作者标价上下限约束。这些不在这张表里。
 
 ## propose
 
-主人要改价格时，先跑 `prices`。没点名的项沿用现在的数，点名的项用主人给出的数。七个键要一次给全。主人只说「定一下价格」而没说改哪几项，先问，不要自己估。
+主人要改价格时，先跑 `prices`。没点名的项沿用现在的数，点名的项用主人给出的数。八个键要一次给全。主人只说「定一下价格」而没说改哪几项，先问，不要自己估。
 
 ```bash
-actuary propose --default 10 --min 0 --max 100 --publish-fee 1 --download-fee 1 --cap 10 --usd-cents 1
+actuary propose --default 10 --min 0 --max 100 --publish-fee 1 --download-fee 1 --cap 10 --usd-cents 1 --retrieval 10
 ```
 
-这只写下一份待确认的提议，不生效。已经有一份待确认的，会被这新的一份收回。把七个数和返回的 `id` 报给主人。
+这只写下一份待确认的提议，不生效。已经有一份待确认的，会被这新的一份收回。把八个数和返回的 `id` 报给主人。
 
 ## apply
 

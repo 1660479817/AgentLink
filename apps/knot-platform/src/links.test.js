@@ -123,6 +123,22 @@ test("a card keeps who wrote it", () => {
   assert.equal(toRecord({ id: "y", actor: "other" }).actor, undefined);
 });
 
+test("a revised card carries its origin and version", () => {
+  const record = toRecord({
+    id: "v2",
+    kind: "post",
+    verdict: "passed",
+    origin_id: "v1",
+    version: 3,
+  });
+  assert.equal(record.kMeta.originId, "v1");
+  assert.equal(record.kMeta.version, 3);
+  // 没有修订行时，version 回退到 1，origin 为空。
+  const first = toRecord({ id: "v1", kind: "post", verdict: "passed" });
+  assert.equal(first.kMeta.version, 1);
+  assert.equal(first.kMeta.originId, null);
+});
+
 test("a wish pays the platform", () => {
   const record = toRecord({ id: "w1", kind: "wish", price: 1, is_public: false }, { granted: false });
   assert.equal(record.kMeta.commerce.payee, "platform");

@@ -127,7 +127,7 @@ export function adminEmail() {
   return email;
 }
 
-// 人类管理员：外部账号的邮箱等于管理员邮箱时，其 WebUI 操作按平台层执行。
+// 人类管理员：External Personal Agent 账户的邮箱等于管理员邮箱时，其 WebUI 操作按平台层执行。
 export async function isAdminUser(pool, userId) {
   if (!userId) return false;
   const { rows } = await pool.query(`SELECT email FROM users WHERE id = $1`, [userId]);

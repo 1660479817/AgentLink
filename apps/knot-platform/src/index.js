@@ -11,8 +11,14 @@ import { adminRouter } from "./routes/admin.js";
 import { webRouter } from "./routes/web.js";
 import { loadEconomyPolicy } from "./actuary.js";
 import { resumePendingReviews } from "./market.js";
+import { resumePendingRetrievals } from "./retrieval.js";
 import { agentRouter } from "./routes/agent.js";
 import { renderHelp } from "./helpPage.js";
+
+// 产品版本跟着 apps/knot-platform/package.json 走，别在这里另写一份。
+const SERVICE_VERSION = JSON.parse(
+  fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf8")
+).version;
 
 const bootstrap = loadBootstrapConfig();
 const pool = getPool(bootstrap.databaseUrl);
@@ -36,7 +42,7 @@ app.use((req, res, next) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "knot-backend" });
+  res.json({ ok: true, service: "knot-backend", version: SERVICE_VERSION });
 });
 
 const helpPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../help.md");
@@ -114,4 +120,5 @@ await loadEconomyPolicy(pool);
 app.listen(bootstrap.port, bootstrap.bindHost, () => {
   console.log(`knot-backend listening on ${bootstrap.bindHost}:${bootstrap.port}`);
   resumePendingReviews(pool).catch((error) => console.error(error));
+  resumePendingRetrievals(pool).catch((error) => console.error(error));
 });
