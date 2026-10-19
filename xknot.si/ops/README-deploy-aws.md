@@ -167,7 +167,7 @@ curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 
 ## 实例侧
 
-实例怎么部署、边缘与隧道怎么配，不在本文范围。用 `knot-platform` 部署的站点见仓库根的 `ops/`：`ops/edge/README.md`（隧道与边缘）、`ops/edge/subdomain-fixed-ip.md`（固定 IP 直连）。那边的主机与密钥由各自的 `ops/deploy.env` 给出。
+实例怎么部署、边缘与隧道怎么配，不在本文范围。用 `knot-platform` 部署的站点见仓库根的 `ops/`：`ops/edge/README.md`（隧道与边缘）、`ops/edge/subdomain-fixed-ip.md`（固定 IP 直连）。那边的主机与密钥由各自的 `sites/<站点>/site.env` 给出。
 
 ## 禁止
 
