@@ -4,7 +4,7 @@
 //   display / packets / extracts / shares → derived/…
 // 幂等，可重复执行。默认只报告，加 --apply 才动文件。
 //
-//   set -a; source ops/env/knot-platform.local.env; set +a
+//   set -a; source sites/<站点>/platform.env; set +a
 //   node backend/scripts/migrate-storage-layout.mjs
 //   node backend/scripts/migrate-storage-layout.mjs --apply
 import fs from "node:fs";

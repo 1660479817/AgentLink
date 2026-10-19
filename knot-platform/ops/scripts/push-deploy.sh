@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # 从开发机把仓库同步到平台主机，再在那边执行 deploy-site.sh。
 #
-# 目标主机、目录和私钥都来自部署配置。脚本里不写死任何 IP。
+# 目标主机、目录和私钥都来自 sites/<站点>/site.env。脚本里不写死任何 IP。
 #
 # 用法：
-#   ./ops/scripts/push-deploy.sh                        # 用 ops/deploy.env
-#   ./ops/scripts/push-deploy.sh --profile local        # 用 ops/profiles/local.local.env
-#   ./ops/scripts/push-deploy.sh --edge                 # 部署后再推一次云端边缘
-#   ./ops/scripts/push-deploy.sh --profile local --edge # 两者可以一起用，但纯本地部署不要带 --edge
+#   ./ops/scripts/push-deploy.sh --site bot01
+#   ./ops/scripts/push-deploy.sh --site bot01 --variant local
+#   ./ops/scripts/push-deploy.sh --site bot01 --edge     # 部署后再推一次云端边缘
 #
-# 一份 profile 就是一个站点：它自己的对外地址、端口、Cookie 名和边缘开关。
-# profile 文件不进版本库，部署时单独拷到平台主机的同名路径。
+# 变体是 site.<变体>.env 叠加层，可以只写和基础配置不同的几项。
+# 站点配置不进 rsync，单独拷到平台主机的同路径；platform.env 和 agents/ 留在那台机器上。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-PROFILE=""
+SITE_ARG=""
+VARIANT_ARG=""
 PUSH_EDGE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,9 +24,14 @@ while [[ $# -gt 0 ]]; do
       PUSH_EDGE=1
       shift
       ;;
-    --profile)
-      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--profile 后面要跟 profile 名" >&2; exit 2; }
-      PROFILE="$2"
+    --site)
+      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--site 后面要跟站点名" >&2; exit 2; }
+      SITE_ARG="$2"
+      shift 2
+      ;;
+    --variant | --profile)
+      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "$1 后面要跟变体名" >&2; exit 2; }
+      VARIANT_ARG="$2"
       shift 2
       ;;
     *)
@@ -35,30 +40,25 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+[[ -n "$SITE_ARG" ]] && export KNOT_SITE="$SITE_ARG"
+[[ -n "$VARIANT_ARG" ]] && export KNOT_SITE_VARIANT="$VARIANT_ARG"
 
-if [[ -n "$PROFILE" ]]; then
-  KNOT_DEPLOY_ENV="$REPO_ROOT/ops/profiles/$PROFILE.local.env"
-  if [[ ! -f "$KNOT_DEPLOY_ENV" ]]; then
-    echo "找不到 profile：ops/profiles/$PROFILE.local.env" >&2
-    exit 2
-  fi
-  export KNOT_DEPLOY_ENV
-fi
-
-# shellcheck source=lib/deploy-config.sh
-source "$SCRIPT_DIR/lib/deploy-config.sh"
+# shellcheck source=lib/site-config.sh
+source "$SCRIPT_DIR/lib/site-config.sh"
 
 # 纯本地部署不该顺带推云端。配置里 KNOT_EDGE=0 时，--edge 直接报错，
 # 免得以为在测本地、实际上把边缘改了。
 if [[ "$PUSH_EDGE" == 1 ]] && ! knot_enabled KNOT_EDGE; then
-  knot_fail "当前配置 KNOT_EDGE=0，不能加 --edge。要推边缘请用带 KNOT_EDGE=1 的 profile。"
+  knot_fail "当前站点配置 KNOT_EDGE=0，不能加 --edge。要推边缘请用带 KNOT_EDGE=1 的配置。"
 fi
 
-knot_require KNOT_DEPLOY_SSH "在部署配置里写 KNOT_DEPLOY_SSH=user@host，或直接在平台主机上跑 deploy-site.sh。"
+knot_require KNOT_DEPLOY_SSH "在 sites/$KNOT_SITE/site.env 里写 KNOT_DEPLOY_SSH=user@host，或直接在平台主机上跑 deploy-site.sh。"
 
 # 先在开发机校验一遍，别把错的配置同步到平台主机再回滚。
-echo "==> config $(basename "$KNOT_DEPLOY_ENV")"
-node "$SCRIPT_DIR/config.mjs" check --deploy "$KNOT_DEPLOY_ENV"
+echo "==> config sites/$KNOT_SITE/site.env${KNOT_SITE_VARIANT:+ + site.$KNOT_SITE_VARIANT.env}"
+CHECK_ARGS=(--site "$KNOT_SITE")
+[[ -n "$KNOT_SITE_VARIANT" ]] && CHECK_ARGS+=(--variant "$KNOT_SITE_VARIANT")
+node "$SCRIPT_DIR/config.mjs" check "${CHECK_ARGS[@]}"
 
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
 PUBLISH_KEY="$(knot_expand_path "$KNOT_DEPLOY_SSH_KEY")"
@@ -99,27 +99,24 @@ rsync -avz --delete \
   --exclude .git \
   --exclude .tmp-review \
   --exclude .tmp-verify \
-  --exclude 'ops/env/*.local.env' \
-  --exclude 'ops/profiles/*.local.env' \
+  --exclude 'sites' \
   -e "$RSYNC_E" \
-  "$KNOT_REPO_ROOT/" "$KNOT_DEPLOY_SSH:$DEPLOY_DIR/"
+  "$REPO_ROOT/" "$KNOT_DEPLOY_SSH:$DEPLOY_DIR/"
 
-# profile 不进仓库，也不进 rsync，单独拷过去。远端 deploy-site.sh 用它算站点取值。
-REMOTE_ENV=""
-if [[ -n "$PROFILE" ]]; then
-  REMOTE_ENV="ops/profiles/$PROFILE.local.env"
-  echo "==> profile → $KNOT_DEPLOY_SSH:$DEPLOY_DIR/$REMOTE_ENV"
-  "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "mkdir -p '$DEPLOY_DIR/ops/profiles' && chmod 700 '$DEPLOY_DIR/ops/profiles'"
-  "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "cat > '$DEPLOY_DIR/$REMOTE_ENV' && chmod 600 '$DEPLOY_DIR/$REMOTE_ENV'" <"$KNOT_DEPLOY_ENV"
+# 站点配置不进 rsync：它属于这台机器，而且 platform.env 里有密钥。
+REMOTE_SITE="sites/$KNOT_SITE"
+echo "==> site → $KNOT_DEPLOY_SSH:$DEPLOY_DIR/$REMOTE_SITE/site.env"
+"${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "mkdir -p '$DEPLOY_DIR/$REMOTE_SITE' && chmod 700 '$DEPLOY_DIR/$REMOTE_SITE'"
+"${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "cat > '$DEPLOY_DIR/$REMOTE_SITE/site.env' && chmod 600 '$DEPLOY_DIR/$REMOTE_SITE/site.env'" <"$KNOT_SITE_ENV"
+if [[ -n "$KNOT_SITE_OVERLAY" ]]; then
+  REMOTE_OVERLAY="$REMOTE_SITE/$(basename "$KNOT_SITE_OVERLAY")"
+  echo "==> variant → $KNOT_DEPLOY_SSH:$DEPLOY_DIR/$REMOTE_OVERLAY"
+  "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "cat > '$DEPLOY_DIR/$REMOTE_OVERLAY' && chmod 600 '$DEPLOY_DIR/$REMOTE_OVERLAY'" <"$KNOT_SITE_OVERLAY"
 fi
 
-if [[ -n "$REMOTE_ENV" ]]; then
-  echo "==> remote deploy-site.sh ($REMOTE_ENV)"
-else
-  echo "==> remote deploy-site.sh"
-fi
+echo "==> remote deploy-site.sh"
 "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" \
-  "cd '$DEPLOY_DIR' && chmod +x ops/scripts/*.sh && KNOT_DEPLOY_ENV='${REMOTE_ENV:-ops/deploy.env}' ./ops/scripts/deploy-site.sh"
+  "cd '$DEPLOY_DIR' && chmod +x ops/scripts/*.sh && KNOT_SITE='$KNOT_SITE' KNOT_SITE_VARIANT='$KNOT_SITE_VARIANT' ./ops/scripts/deploy-site.sh"
 
 VERIFY_URL="$KNOT_DEPLOY_VERIFY_URL"
 if [[ -z "$VERIFY_URL" ]]; then
@@ -147,5 +144,7 @@ fi
 
 if [[ "$PUSH_EDGE" == 1 ]]; then
   echo "==> push edge"
-  "$SCRIPT_DIR/push-edge.sh"
+  EDGE_ARGS=(--site "$KNOT_SITE")
+  [[ -n "$KNOT_SITE_VARIANT" ]] && EDGE_ARGS+=(--variant "$KNOT_SITE_VARIANT")
+  "$SCRIPT_DIR/push-edge.sh" "${EDGE_ARGS[@]}"
 fi

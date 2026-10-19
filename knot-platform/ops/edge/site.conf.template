@@ -1,5 +1,5 @@
-# Knot 云端边缘。由 ops/scripts/render-config.mjs 从 ops/deploy.env 生成。
-# 不要在这种模板里写死域名、目录或端口；改 ops/deploy.env。
+# Knot 云端边缘。由 ops/scripts/render-config.mjs 从 sites/<站点>/site.env 生成。
+# 不要在这种模板里写死域名、目录或端口；改站点配置。
 #
 # 边缘只做三件事：
 #   1. 提供 WebUI 静态文件；

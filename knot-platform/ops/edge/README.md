@@ -17,10 +17,11 @@
 
 | 路径 | 用途 |
 |------|------|
-| `site.conf.template` | 门户与接口的 nginx 模板（由 `ops/deploy.env` 渲染） |
+| `site.conf.template` | 门户与接口的 nginx 模板（由 `sites/<站点>/site.env` 渲染） |
 | `sshd-tunnel.conf.template` | 边缘隧道账号的 sshd Match 块（变量化） |
 | `knot.zenheart.net.conf` | 自营实例在 `knot.zenheart.net` 的生成样例 |
 | `wang.xknot.si.conf` | 实例拿到 `某名.xknot.si` 时的单子域模板（隧道反代） |
+| `zjj.xknot.si.conf` | `zjj.xknot.si` 签发阶段样例（静态占位，无隧道反代） |
 | `subdomain-fixed-ip.md` | 固定公网 IP 直连 runbook |
 
 通配 `*.xknot.si` 多租户自动 server **未做**；每个子域目前手工一份 conf（复制 `wang.xknot.si.conf`，改 `server_name`、证书路径与静态根）。
@@ -58,7 +59,7 @@
 实例主动连出，把边缘的回环端口转到本机 Backend：
 
 ```bash
-# ops/deploy.env
+# sites/<站点>/site.env
 KNOT_EDGE=1
 KNOT_EDGE_SSH=ec2-user@<边缘公网IP>
 KNOT_TUNNEL=1

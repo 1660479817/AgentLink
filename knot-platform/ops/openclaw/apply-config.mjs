@@ -158,7 +158,8 @@ async function syncInternal(ids) {
       await copyFile(path.join(source, name), path.join(workspace, name));
     }
     await rm(path.join(workspace, "BOOTSTRAP.md"), { force: true });
-    const envFile = path.join(root, "../env", `${id}.local.env`);
+    const envDir = process.env.KNOT_AGENT_ENV_DIR || path.join(root, "../sites", process.env.KNOT_SITE || "", "agents");
+    const envFile = path.join(envDir, `${id}.local.env`);
     const tokenFile = path.join(workspace, ".knot-agent.env");
     try {
       await copyFile(envFile, tokenFile);

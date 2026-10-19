@@ -1,35 +1,56 @@
 #!/usr/bin/env bash
 # 把 Knot WebUI 和 nginx 配置推到云端边缘。
 #
-# 目标主机、Web 根目录、配置路径、证书和回源端口都来自 ops/deploy.env。
+# 目标主机、Web 根目录、配置路径、证书和回源端口都来自 sites/<站点>/site.env。
 # 平台仍在平台主机上，/api 和 /help 经隧道（或同机反代）回来。
 #
 # 用法：
-#   ./ops/scripts/push-edge.sh
-#   ./ops/scripts/push-edge.sh --no-build
+#   ./ops/scripts/push-edge.sh --site bot01
+#   ./ops/scripts/push-edge.sh --site bot01 --no-build
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=lib/deploy-config.sh
-source "$SCRIPT_DIR/lib/deploy-config.sh"
 
-knot_require KNOT_EDGE_SSH "在 ops/deploy.env 里写 KNOT_EDGE_SSH=user@edge-host，并把 KNOT_EDGE=1。"
-knot_require KNOT_DOMAIN "在 ops/deploy.env 里写 KNOT_DOMAIN=你的域名，或让 KNOT_PUBLIC_ORIGIN 带上域名。"
+SITE_ARG=""
+VARIANT_ARG=""
+BUILD=1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site)
+      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--site 后面要跟站点名" >&2; exit 2; }
+      SITE_ARG="$2"
+      shift 2
+      ;;
+    --variant | --profile)
+      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "$1 后面要跟变体名" >&2; exit 2; }
+      VARIANT_ARG="$2"
+      shift 2
+      ;;
+    --no-build)
+      BUILD=0
+      shift
+      ;;
+    *)
+      echo "未知参数：$1" >&2
+      exit 2
+      ;;
+  esac
+done
+[[ -n "$SITE_ARG" ]] && export KNOT_SITE="$SITE_ARG"
+[[ -n "$VARIANT_ARG" ]] && export KNOT_SITE_VARIANT="$VARIANT_ARG"
 
-# 边缘配置也是从 ops/deploy.env 渲染的，先校验再动 nginx。
-node "$SCRIPT_DIR/config.mjs" check --deploy "$KNOT_DEPLOY_ENV"
+# shellcheck source=lib/site-config.sh
+source "$SCRIPT_DIR/lib/site-config.sh"
+
+knot_require KNOT_EDGE_SSH "在 sites/$KNOT_SITE/site.env 里写 KNOT_EDGE_SSH=user@edge-host，并把 KNOT_EDGE=1。"
+knot_require KNOT_DOMAIN "在 sites/$KNOT_SITE/site.env 里写 KNOT_DOMAIN=你的域名，或让 KNOT_PUBLIC_ORIGIN 带上域名。"
+
+# 边缘配置也是从 site.env 渲染的，先校验再动 nginx。
+node "$SCRIPT_DIR/config.mjs" check --site "$KNOT_SITE"
 if knot_enabled KNOT_EDGE_SSL; then
   knot_require KNOT_EDGE_CERT "KNOT_EDGE_SSL=1 时要有证书。先签证书，或把 KNOT_EDGE_SSL 设为 0。"
   knot_require KNOT_EDGE_KEY "KNOT_EDGE_SSL=1 时要有私钥。先签证书，或把 KNOT_EDGE_SSL 设为 0。"
 fi
-
-BUILD=1
-for arg in "$@"; do
-  case "$arg" in
-    --no-build) BUILD=0 ;;
-    *) knot_fail "未知参数：$arg" ;;
-  esac
-done
 
 if [[ "$BUILD" == 1 ]]; then
   echo "==> build web"

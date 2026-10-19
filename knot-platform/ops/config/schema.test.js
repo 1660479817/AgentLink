@@ -5,14 +5,14 @@ import { fileURLToPath } from "node:url";
 import {
   GROUPS,
   KEYS,
-  checkDeploy,
-  checkRuntime,
+  checkPlatform,
+  checkSite,
   formatValue,
   parseEnv,
-  renderDeployExample,
   renderDocs,
-  renderRuntimeExample,
-  renderRuntimeFile,
+  renderPlatformExample,
+  renderPlatformFile,
+  renderSiteExample,
   resolve,
   updateEnvText,
 } from "./schema.mjs";
@@ -31,20 +31,20 @@ test("every key is registered once, in a known group and a known file", () => {
     assert.ok(!seen.has(entry.key), `${entry.key} 登记了两次`);
     seen.add(entry.key);
     assert.ok(groups.has(entry.group), `${entry.key} 的分组 ${entry.group} 不存在`);
-    assert.ok(["deploy", "runtime"].includes(entry.file), `${entry.key} 的 file 不对`);
+    assert.ok(["site", "platform"].includes(entry.file), `${entry.key} 的 file 不对`);
     assert.ok(entry.desc && entry.desc.length > 4, `${entry.key} 缺说明`);
-    assert.ok(entry.file !== "deploy" || !entry.runtime || /^[A-Z][A-Z0-9_]*$/.test(entry.runtime));
+    assert.ok(entry.file !== "site" || !entry.runtime || /^[A-Z][A-Z0-9_]*$/.test(entry.runtime));
   }
 });
 
 test("generated example files and docs are committed as generated", () => {
-  assert.equal(read("ops/deploy.env.example"), renderDeployExample());
-  assert.equal(read("ops/env/knot-platform.env.example"), renderRuntimeExample());
+  assert.equal(read("sites/_template/site.env"), renderSiteExample());
+  assert.equal(read("sites/_template/platform.env"), renderPlatformExample());
   assert.equal(read("docs/CONFIG.md"), renderDocs());
 });
 
-test("a complete deploy config passes", () => {
-  const result = checkDeploy({
+test("a complete site config passes", () => {
+  const result = checkSite({
     KNOT_SITE_NAME: "Knot",
     KNOT_PUBLIC_ORIGIN: "https://knot.example.com",
     KNOT_ADMIN_EMAIL: "admin@example.com",
@@ -55,12 +55,12 @@ test("a complete deploy config passes", () => {
 });
 
 test("missing admin email fails", () => {
-  const result = checkDeploy({});
+  const result = checkSite({});
   assert.ok(result.errors.some((message) => message.includes("KNOT_ADMIN_EMAIL")));
 });
 
 test("types are checked, not just presence", () => {
-  const result = checkDeploy({
+  const result = checkSite({
     KNOT_ADMIN_EMAIL: "not-an-email",
     KNOT_PORT: "eighty",
     KNOT_PUBLIC_ORIGIN: "knot.example.com",
@@ -78,15 +78,15 @@ test("types are checked, not just presence", () => {
 
 test("cross-key rules fire only when their condition holds", () => {
   const base = { KNOT_ADMIN_EMAIL: "admin@example.com", KNOT_BACKUP_DIR: "/backups" };
-  assert.deepEqual(checkDeploy({ ...base, KNOT_EDGE: "0" }).errors, []);
-  assert.ok(checkDeploy({ ...base, KNOT_EDGE: "1" }).errors.some((m) => m.includes("KNOT_EDGE_SSH")));
+  assert.deepEqual(checkSite({ ...base, KNOT_EDGE: "0" }).errors, []);
+  assert.ok(checkSite({ ...base, KNOT_EDGE: "1" }).errors.some((m) => m.includes("KNOT_EDGE_SSH")));
   assert.ok(
-    checkDeploy({ ...base, KNOT_DB_MODE: "external" }).errors.some((m) => m.includes("KNOT_DATABASE_URL"))
+    checkSite({ ...base, KNOT_DB_MODE: "external" }).errors.some((m) => m.includes("KNOT_DATABASE_URL"))
   );
 });
 
-test("unknown deploy keys are reported as warnings, not errors", () => {
-  const result = checkDeploy({
+test("unknown site keys are reported as warnings, not errors", () => {
+  const result = checkSite({
     KNOT_ADMIN_EMAIL: "admin@example.com",
     KNOT_BACKUP_DIR: "/backups",
     KNOT_SITE_NAM: "typo",
@@ -95,22 +95,22 @@ test("unknown deploy keys are reported as warnings, not errors", () => {
   assert.ok(result.warnings.some((message) => message.includes("KNOT_SITE_NAM")));
 });
 
-test("a runtime file may not carry dev-only keys", () => {
-  const result = checkRuntime("PORT=8080\nKNOT_EDGE_SSH_KEY=/Users/me/.ssh/id_rsa\n");
+test("a platform runtime file may not carry dev-only keys", () => {
+  const result = checkPlatform("PORT=8080\nKNOT_EDGE_SSH_KEY=/Users/me/.ssh/id_rsa\n");
   assert.ok(result.errors.some((message) => message.includes("KNOT_EDGE_SSH_KEY")));
 });
 
-test("a runtime file warns on unknown keys and loose permissions", () => {
+test("a platform runtime file warns on unknown keys and loose permissions", () => {
   const text = "PORT=8080\nKNOT_AGENT_TOKEN=secret\nSMTP_PASS=hunter2\n";
-  const result = checkRuntime(text, { mode: 0o644 });
+  const result = checkPlatform(text, { mode: 0o644 });
   assert.deepEqual(result.errors, []);
   assert.ok(result.warnings.some((message) => message.includes("KNOT_AGENT_TOKEN")));
   assert.ok(result.warnings.some((message) => message.includes("chmod 600")));
-  assert.deepEqual(checkRuntime(text, { mode: 0o600 }).warnings.filter((m) => m.includes("chmod")), []);
+  assert.deepEqual(checkPlatform(text, { mode: 0o600 }).warnings.filter((m) => m.includes("chmod")), []);
 });
 
-test("runtime values are type checked too", () => {
-  const result = checkRuntime("KNOT_COUPON_SIGNUP=7\nSMTP_PORT=99999\n");
+test("platform runtime values are type checked too", () => {
+  const result = checkPlatform("KNOT_COUPON_SIGNUP=7\nSMTP_PORT=99999\n");
   assert.match(result.errors.join("\n"), /KNOT_COUPON_SIGNUP/);
   assert.match(result.errors.join("\n"), /SMTP_PORT/);
 });
@@ -163,7 +163,7 @@ test("schema defaults match the values the code falls back to", () => {
   }
 });
 
-test("derived values follow deploy.env without being written back", () => {
+test("derived values follow site.env without being written back", () => {
   const env = {
     KNOT_PUBLIC_ORIGIN: "https://knot.example.com:8443",
     KNOT_PORT: "9090",
@@ -217,8 +217,8 @@ test("formatValue quotes only what the shell needs", () => {
   assert.equal(formatValue(""), "");
 });
 
-test("a fresh runtime file is written with resolved values and blanks commented", () => {
-  const text = renderRuntimeFile({
+test("a fresh platform runtime file is written with resolved values and blanks commented", () => {
+  const text = renderPlatformFile({
     PORT: "8080",
     KNOT_SITE_NAME: "Knot",
     SMTP_PORT: "587",

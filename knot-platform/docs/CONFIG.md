@@ -3,21 +3,31 @@
 这份文档由 `ops/config/schema.mjs` 生成，不要手改。改配置项请改 schema，再跑：
 
 ```bash
-node ops/scripts/config.mjs template --write   # 重新生成两个示例文件
-node ops/scripts/config.mjs docs --write       # 重新生成本文
+node ops/scripts/config.mjs template --write           # sites/_template/site.env
+node ops/scripts/config.mjs platform-template --write  # sites/_template/platform.env
+node ops/scripts/config.mjs docs --write               # 重新生成本文
 ```
 
-## 三个文件，三种职责
+## 三个边界
 
-| 文件 | 放在哪 | 放什么 | 能不能进版本库 |
+| 边界 | 位置 | 放什么 | 能不能进版本库 |
 | --- | --- | --- | --- |
-| `ops/deploy.env` | 开发机和平台主机 | 域名、主机、端口、路径、边缘。不含密码 | 不进 |
-| `ops/env/knot-platform.local.env` | 只放平台主机 | SMTP 密码、价格初值、管理令牌 | 不进，权限 600 |
-| `backend/src` | 项目内 | 真正的默认行为 | 进 |
+| 代码 | `backend/` `web/` `packages/` | 真正的默认行为 | 进 |
+| 部署 | `ops/` | 脚本、模板、LaunchAgent。不写站点取值 | 进 |
+| 配置 | `sites/<站点>/` | 站点身份、拓扑、密钥 | 不进（`sites/_template/` 除外） |
 
 环境变量只覆盖代码里的默认值。一个键要么在 schema 里登记，要么就别读。
 
-## 部署配置（`ops/deploy.env`）
+一个站点一个目录：
+
+| 文件 | 放什么 |
+| --- | --- |
+| `sites/<站点>/site.env` | 域名、主机、端口、路径、边缘。不含密码 |
+| `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。部署脚本生成，权限 600 |
+| `sites/<站点>/site.<变体>.env` | 可选叠加层，用 `--variant <变体>` 选择 |
+| `sites/<站点>/agents/` | Internal Personal Agent 的授权码，权限 700 |
+
+## 站点配置（`sites/<站点>/site.env`）
 
 ### 站点
 
@@ -89,7 +99,13 @@ node ops/scripts/config.mjs docs --write       # 重新生成本文
 | `KNOT_TUNNEL_LOCAL_PORT` | 见说明 |  | 隧道落回本机的端口。留空等于 KNOT_PORT。 |
 | `KNOT_TUNNEL_REMOTE_PORT` | 见说明 |  | 隧道在边缘上占用的端口。留空等于 KNOT_EDGE_PROXY_PORT。 |
 
-## 运行时配置（`ops/env/knot-platform.local.env`）
+## 平台运行时配置（`sites/<站点>/platform.env`）
+
+### 站点
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `KNOT_SITE` | （空） | 由部署脚本写入：站点目录名（sites/<站点>）。平台主机上的脚本靠它找到这份配置。 |
 
 ### 平台主机
 
@@ -97,7 +113,7 @@ node ops/scripts/config.mjs docs --write       # 重新生成本文
 | --- | --- | --- |
 | `DATABASE_URL` | （空） | 由部署脚本写入：local 模式是 postgres://knot@127.0.0.1:<KNOT_PGPORT>/knot，external 模式取 KNOT_DATABASE_URL。 |
 | `STATIC_WEB_DIR` | （空） | 由部署脚本写入：<knot-platform>/web/dist。 |
-| `KNOT_AGENT_ENV_DIR` | （空） | 由部署脚本写入：<knot-platform>/ops/env。智能体的账号文件放这里。 |
+| `KNOT_AGENT_ENV_DIR` | （空） | 由部署脚本写入：<knot-platform>/sites/<站点>/agents。智能体的账号文件放这里。 |
 
 ### 云端边缘
 
@@ -177,8 +193,9 @@ node ops/scripts/config.mjs docs --write       # 重新生成本文
 手动检查：
 
 ```bash
-node ops/scripts/config.mjs check                    # 查 ops/deploy.env
-node ops/scripts/config.mjs check --runtime          # 查平台主机的运行时文件
+node ops/scripts/config.mjs check --site <站点>              # 查 site.env
+node ops/scripts/config.mjs check --platform --site <站点>   # 查平台主机的 platform.env
+node ops/scripts/config.mjs sites                            # 列出已有站点
 ```
 
 必填与跨键规则：

@@ -8,13 +8,10 @@ set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
-ENV_FILE="${KNOT_ENV:-$KNOT_HOME/ops/env/knot-platform.local.env}"
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$ENV_FILE"
-  set +a
-fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/site-config.sh
+source "$SCRIPT_DIR/lib/site-config.sh"
+knot_source_platform_env
 
 cd "$KNOT_HOME"
 exec node backend/scripts/gc-uploads.mjs "$@"

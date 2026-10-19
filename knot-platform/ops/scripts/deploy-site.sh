@@ -1,22 +1,50 @@
 #!/usr/bin/env bash
 # 在 macOS 平台主机上部署 Knot：装依赖、建库、迁移、构建 WebUI、装 LaunchAgent。
 #
-# 所有站点相关取值来自 ops/deploy.env（见 ops/deploy.env.example）。
+# 所有站点相关取值来自 sites/<站点>/site.env（见 sites/_template/site.env）。
 # 不在本脚本里写死 IP、域名、目录或端口。
 #
 # 用法：
-#   cp ops/deploy.env.example ops/deploy.env
-#   编辑 ops/deploy.env
 #   ./ops/scripts/deploy-site.sh
+#   ./ops/scripts/deploy-site.sh --site bot01
+#   ./ops/scripts/deploy-site.sh --site bot01 --variant local
 #
 # 从开发机发布用 ./ops/scripts/push-deploy.sh。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=lib/deploy-config.sh
-source "$SCRIPT_DIR/lib/deploy-config.sh"
+
+SITE_ARG=""
+VARIANT_ARG=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --site)
+      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--site 后面要跟站点名" >&2; exit 2; }
+      SITE_ARG="$2"
+      shift 2
+      ;;
+    --variant)
+      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--variant 后面要跟变体名" >&2; exit 2; }
+      VARIANT_ARG="$2"
+      shift 2
+      ;;
+    *)
+      echo "未知参数：$1" >&2
+      exit 2
+      ;;
+  esac
+done
+[[ -n "$SITE_ARG" ]] && export KNOT_SITE="$SITE_ARG"
+[[ -n "$VARIANT_ARG" ]] && export KNOT_SITE_VARIANT="$VARIANT_ARG"
+
+# shellcheck source=lib/site-config.sh
+source "$SCRIPT_DIR/lib/site-config.sh"
 cd "$KNOT_REPO_ROOT"
+
+# config.mjs 不读 shell 里的默认值，变体要显式传进去；否则只会看到 site.env。
+CONFIG_ARGS=(--site "$KNOT_SITE")
+[[ -n "$KNOT_SITE_VARIANT" ]] && CONFIG_ARGS+=(--variant "$KNOT_SITE_VARIANT")
 
 case "$(knot_origin_host "$KNOT_PUBLIC_ORIGIN")" in
   127.0.0.1 | localhost | "")
@@ -33,8 +61,8 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
 fi
 
 # 配置先过一遍：类型、必填、跨键矛盾。有问题在动数据库和 LaunchAgent 之前停下。
-echo "==> check $KNOT_DEPLOY_ENV"
-node "$SCRIPT_DIR/config.mjs" check --deploy "$KNOT_DEPLOY_ENV"
+echo "==> check sites/$KNOT_SITE/site.env${KNOT_SITE_VARIANT:+ + site.$KNOT_SITE_VARIANT.env}"
+node "$SCRIPT_DIR/config.mjs" check "${CONFIG_ARGS[@]}"
 
 if [[ "$KNOT_DB_MODE" == "local" && ! -x "$KNOT_PG_BIN/pg_ctl" ]]; then
   knot_fail "缺少 postgresql@16：brew install postgresql@16（或把 KNOT_PG_BIN 指向它的 bin 目录）。也可用 KNOT_DB_MODE=external 接已有数据库。"
@@ -57,8 +85,9 @@ fi
 mkdir -p "$KNOT_REPO_ROOT/var/log"
 chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
 
-APP_ENV="$KNOT_REPO_ROOT/ops/env/knot-platform.local.env"
-mkdir -p "$(dirname "$APP_ENV")" "$KNOT_REPO_ROOT/ops/env"
+APP_ENV="$KNOT_PLATFORM_ENV"
+mkdir -p "$(dirname "$APP_ENV")" "$KNOT_SITE_DIR/agents"
+chmod 700 "$KNOT_SITE_DIR" "$KNOT_SITE_DIR/agents"
 
 # 旧机器把备份目录写在环境文件里；部署配置没写时沿用，避免升级后备份悄悄停掉。
 if [[ -z "$KNOT_BACKUP_DIR" ]]; then
@@ -118,8 +147,8 @@ UPLOAD_DIR="$KNOT_UPLOAD_DIR" node backend/scripts/migrate-storage-layout.mjs --
 # 已有的注释和运维改过的邮件、价格键都会保留，只更新部署相关的值。
 echo "==> write $APP_ENV"
 export KNOT_BACKUP_DIR KNOT_UPLOAD_DIR DATABASE_URL
-node "$SCRIPT_DIR/config.mjs" env --deploy "$KNOT_DEPLOY_ENV" --out "$APP_ENV" --root "$KNOT_REPO_ROOT"
-node "$SCRIPT_DIR/config.mjs" check --runtime "$APP_ENV"
+node "$SCRIPT_DIR/config.mjs" env "${CONFIG_ARGS[@]}" --out "$APP_ENV" --root "$KNOT_REPO_ROOT"
+node "$SCRIPT_DIR/config.mjs" check --platform --site "$KNOT_SITE"
 
 # ---- LaunchAgent ----
 echo "==> install LaunchAgents"

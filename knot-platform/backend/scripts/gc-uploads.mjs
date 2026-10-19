@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 回收没有被引用的上传和派生件。默认只报告；加 --apply 才删。
 //
-//   set -a; source ops/env/knot-platform.local.env; set +a
+//   set -a; source sites/<站点>/platform.env; set +a
 //   node backend/scripts/gc-uploads.mjs                      # 报告
 //   node backend/scripts/gc-uploads.mjs --apply              # 删行 + 删文件
 //   node backend/scripts/gc-uploads.mjs --apply --previews   # 另删旧版 previews/

@@ -16,6 +16,7 @@ var/
 data/uploads/
 # 本地截图与预览产物，只在本机看，不进仓库
 .tmp-review/
-knot-platform/ops/env/*.local.env
-knot-platform/ops/profiles/*.local.env
-knot-platform/ops/deploy.env
+# 站点配置：只有模板进版本库，真实站点目录都留在本机
+knot-platform/sites/*/**
+!knot-platform/sites/_template/**
+*.local.env

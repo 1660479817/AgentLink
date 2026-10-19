@@ -1,22 +1,130 @@
 #!/usr/bin/env bash
-# 部署脚本共用的配置读取与默认值。
+# 部署脚本共用的站点配置读取。
 #
-# 只做三件事：
-#   1. 读 ops/deploy.env（不存在的旧机器仍读进程环境变量，保持兼容）；
+# 一个站点一个目录：
+#
+#   sites/<站点>/site.env            站点身份与拓扑（必填）
+#   sites/<站点>/site.<变体>.env      可选叠加层
+#   sites/<站点>/platform.env        平台主机运行时值（部署脚本生成）
+#
+# 选择顺序：
+#   1. KNOT_SITE_FILE 指向一份 site.env（测试或特殊布局）；
+#   2. KNOT_SITE 指定站点目录名；
+#   3. sites/ 下恰好一个站点时自动选中。
+#
+# 这里只做四件事：
+#   1. 定位站点目录并读 site.env（不存在的旧机器仍读进程环境变量，保持兼容）；
 #   2. 补默认值，所有站点相关取值都不在脚本里写死；
-#   3. 提供渲染模板、写 env 文件、装 LaunchAgent 的小工具。
+#   3. 提供渲染模板、写 env 文件、装 LaunchAgent 的小工具；
+#   4. 把站点与平台两个文件的位置导出给其他脚本。
 #
 # 兼容 macOS 自带的 bash 3.2：不用关联数组、不用 mapfile、不用 ${var,,}。
 
 KNOT_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-KNOT_DEPLOY_ENV="${KNOT_DEPLOY_ENV:-$KNOT_REPO_ROOT/ops/deploy.env}"
+KNOT_SITES_DIR="$KNOT_REPO_ROOT/sites"
 
-if [[ -f "$KNOT_DEPLOY_ENV" ]]; then
+knot_fail() {
+  echo "错误：$*" >&2
+  exit 1
+}
+
+knot_warn() {
+  echo "警告：$*" >&2
+}
+
+knot_list_sites() {
+  local dir name
+  for dir in "$KNOT_SITES_DIR"/*/; do
+    [[ -d "$dir" ]] || continue
+    name="$(basename "$dir")"
+    case "$name" in _*) continue ;; esac
+    [[ -f "$dir/site.env" ]] || continue
+    printf '%s\n' "$name"
+  done
+}
+
+knot_site_name_ok() {
+  case "${1:-}" in
+    "" | *[!A-Za-z0-9._-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+knot_resolve_site() {
+  local requested="${KNOT_SITE:-}"
+  local variant="${KNOT_SITE_VARIANT:-}"
+  local file="${KNOT_SITE_FILE:-}"
+
+  if [[ -n "$file" ]]; then
+    [[ -f "$file" ]] || knot_fail "找不到站点配置：$file"
+    KNOT_SITE_ENV="$file"
+    KNOT_SITE_DIR="$(cd "$(dirname "$file")" && pwd)"
+    KNOT_SITE="${requested:-$(basename "$KNOT_SITE_DIR")}"
+  elif [[ -n "$requested" ]]; then
+    knot_site_name_ok "$requested" || knot_fail "站点名只能用字母、数字、点、下划线和短横线：$requested"
+    KNOT_SITE="$requested"
+    KNOT_SITE_DIR="$KNOT_SITES_DIR/$KNOT_SITE"
+    KNOT_SITE_ENV="$KNOT_SITE_DIR/site.env"
+  else
+    local names name
+    names=""
+    while IFS= read -r name; do
+      [[ -n "$name" ]] || continue
+      names="${names}${names:+、}${name}"
+    done <<EOF
+$(knot_list_sites)
+EOF
+    case "$names" in
+      "")
+        knot_fail "sites/ 下没有站点配置。先创建：mkdir -p sites/<站点> && cp sites/_template/site.env sites/<站点>/site.env"
+        ;;
+      *、*)
+        knot_fail "sites/ 下有多个站点，请用 --site 指定或设置 KNOT_SITE。候选：$names"
+        ;;
+      *)
+        KNOT_SITE="$names"
+        KNOT_SITE_DIR="$KNOT_SITES_DIR/$KNOT_SITE"
+        KNOT_SITE_ENV="$KNOT_SITE_DIR/site.env"
+        ;;
+    esac
+  fi
+
+  [[ -f "$KNOT_SITE_ENV" ]] || knot_fail "找不到站点配置：$KNOT_SITE_ENV"
+
+  if [[ -n "$variant" ]]; then
+    knot_site_name_ok "$variant" || knot_fail "变体名只能用字母、数字、点、下划线和短横线：$variant"
+    KNOT_SITE_OVERLAY="$KNOT_SITE_DIR/site.$variant.env"
+    [[ -f "$KNOT_SITE_OVERLAY" ]] || knot_fail "找不到变体配置：$KNOT_SITE_OVERLAY"
+  else
+    KNOT_SITE_OVERLAY=""
+  fi
+
+  KNOT_SITE_VARIANT="$variant"
+  KNOT_PLATFORM_ENV="${KNOT_ENV:-$KNOT_SITE_DIR/platform.env}"
+
   set -a
-  # shellcheck disable=SC1090
-  source "$KNOT_DEPLOY_ENV"
+  # shellcheck source=/dev/null
+  source "$KNOT_SITE_ENV"
+  if [[ -n "$KNOT_SITE_OVERLAY" ]]; then
+    # shellcheck source=/dev/null
+    source "$KNOT_SITE_OVERLAY"
+  fi
   set +a
-fi
+
+  export KNOT_SITE KNOT_SITE_DIR KNOT_SITE_ENV KNOT_SITE_OVERLAY
+  export KNOT_SITE_VARIANT KNOT_PLATFORM_ENV
+}
+
+knot_resolve_site
+
+# 读平台主机的运行时文件。文件不存在时保持 site.env 与默认值。
+knot_source_platform_env() {
+  [[ -f "$KNOT_PLATFORM_ENV" ]] || return 0
+  set -a
+  # shellcheck source=/dev/null
+  source "$KNOT_PLATFORM_ENV"
+  set +a
+}
 
 # ---- 站点 ----
 KNOT_SITE_NAME="${KNOT_SITE_NAME:-Knot}"
@@ -53,7 +161,7 @@ KNOT_OPENCLAW="${KNOT_OPENCLAW:-auto}"
 
 # ---- 远程发布 ----
 KNOT_DEPLOY_SSH="${KNOT_DEPLOY_SSH:-}"
-# 远端路径：`~/...` 按目标机的 home 展开，不按本机。op/deploy.env 里写 `~`
+# 远端路径：`~/...` 按目标机的 home 展开，不按本机。site.env 里写 `~`
 # 会被 source 成本机 home，push-deploy.sh 会再换回远端 home。
 KNOT_DEPLOY_DIR="${KNOT_DEPLOY_DIR:-~/knot/AgentLink/knot-platform}"
 KNOT_DEPLOY_SSH_KEY="${KNOT_DEPLOY_SSH_KEY:-}"
@@ -95,18 +203,9 @@ KNOT_TUNNEL_USER="${KNOT_TUNNEL_USER:-${KNOT_TUNNEL_SSH%%@*}}"
 
 # ---- 工具 ----
 
-knot_fail() {
-  echo "错误：$*" >&2
-  exit 1
-}
-
-knot_warn() {
-  echo "警告：$*" >&2
-}
-
 knot_require() {
   local name="$1"
-  local hint="${2:-在 $KNOT_DEPLOY_ENV 里配置 $name}"
+  local hint="${2:-在 sites/$KNOT_SITE/site.env 里配置 $name}"
   if [[ -z "${!name:-}" ]]; then
     knot_fail "缺少 $name。$hint"
   fi
@@ -114,7 +213,7 @@ knot_require() {
 
 knot_enabled() {
   case "$(printf '%s' "${!1:-}" | tr '[:upper:]' '[:lower:]')" in
-    1|true|yes|on) return 0 ;;
+    1 | true | yes | on) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -177,7 +276,7 @@ knot_env_get() {
   )
 }
 
-# 装一个 LaunchAgent。plist 里的 __KNOT_HOME__ 替换成仓库路径。
+# 装一个 LaunchAgent。plist 里的 __KNOT_HOME__ 换成仓库路径，__KNOT_SITE__ 换成站点名。
 knot_install_launchd() {
   local src="$1"
   local label="$2"
@@ -185,7 +284,7 @@ knot_install_launchd() {
   local dest="$HOME/Library/LaunchAgents/$label.plist"
   local attempt=1
   mkdir -p "$(dirname "$dest")"
-  sed "s|__KNOT_HOME__|$KNOT_REPO_ROOT|g" "$src" >"$dest"
+  sed -e "s|__KNOT_HOME__|$KNOT_REPO_ROOT|g" -e "s|__KNOT_SITE__|$KNOT_SITE|g" "$src" >"$dest"
   launchctl bootout "$domain/$label" 2>/dev/null || true
   # bootout 是异步的，紧接着 bootstrap 偶发 "Input/output error"。
   # 已经加载上了也算成功，最多等 10 秒再放弃。

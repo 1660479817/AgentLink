@@ -2,7 +2,7 @@
 // 把 uploads 里缺的 size / sha256 / 宽高从磁盘补上，并报告没有引用的文件。
 // 默认只报告，不改库。确认后加 --apply。
 //
-//   set -a; source ops/env/knot-platform.local.env; set +a
+//   set -a; source sites/<站点>/platform.env; set +a
 //   node backend/scripts/backfill-uploads.mjs
 //   node backend/scripts/backfill-uploads.mjs --apply
 import fs from "node:fs";

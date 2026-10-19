@@ -6,22 +6,12 @@
 set -euo pipefail
 
 KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
-# PostgreSQL 的 bin 目录可在 ops/deploy.env 里用 KNOT_PG_BIN 覆盖（Intel Homebrew 用 /usr/local）。
-if [[ -f "$KNOT_HOME/ops/deploy.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$KNOT_HOME/ops/deploy.env"
-  set +a
-fi
-export PATH="${KNOT_PG_BIN:-/opt/homebrew/opt/postgresql@16/bin}:/opt/homebrew/bin:/usr/local/bin:$PATH"
-
-ENV_FILE="${KNOT_ENV:-$KNOT_HOME/ops/env/knot-platform.local.env}"
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$ENV_FILE"
-  set +a
-fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# PostgreSQL 的 bin 目录可在 site.env 里用 KNOT_PG_BIN 覆盖（Intel Homebrew 用 /usr/local）。
+# shellcheck source=lib/site-config.sh
+source "$SCRIPT_DIR/lib/site-config.sh"
+knot_source_platform_env
+export PATH="$KNOT_PG_BIN:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 UPLOAD_DIR="${UPLOAD_DIR:-$KNOT_HOME/var/uploads}"
 UPLOAD_DIR="$(cd "$UPLOAD_DIR" 2>/dev/null && pwd)" || {

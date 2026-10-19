@@ -7,8 +7,15 @@ set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/site-config.sh
+source "$SCRIPT_DIR/lib/site-config.sh"
+knot_source_platform_env
 APPLY="$KNOT_HOME/ops/openclaw/apply-config.mjs"
-ENV_FILE="$KNOT_HOME/ops/env/knot-platform.local.env"
+ENV_FILE="$KNOT_PLATFORM_ENV"
+if [[ -z "${KNOT_AGENT_ENV_DIR:-}" ]]; then
+  export KNOT_AGENT_ENV_DIR="$KNOT_SITE_DIR/agents"
+fi
 STATE_DIR="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
 PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 export OPENCLAW_STATE_DIR="$STATE_DIR"

@@ -4,7 +4,7 @@ Knot 的 Platform Management Agent 放在 OpenClaw 上。这份目录是开发�
 
 Personal Agent 不是这里的智能体。人在 Knot WebUI 委托后，Personal Agent 用凭证调用 `/api/agent/*`。`knot-intel` 只由 Knot Backend 拉起。管理员接受主人的吩咐，并按每天的定时任务巡查。
 
-Internal Personal Agent 的提示词在 `ops/openclaw/internal_agent/<id>/`。同一次同步把它们登记成 OpenClaw 智能体，工作区是 `~/.openclaw/workspace-<id>`。它们不进 `manifest.json`，不复制智能体技能，不拿管理令牌。授权码在目标机的 `ops/env/<id>.local.env`，同步时复制到工作区的 `.knot-agent.env`，不进仓库。
+Internal Personal Agent 的提示词在 `ops/openclaw/internal_agent/<id>/`。同一次同步把它们登记成 OpenClaw 智能体，工作区是 `~/.openclaw/workspace-<id>`。它们不进 `manifest.json`，不复制智能体技能，不拿管理令牌。授权码在平台主机的 `sites/<站点>/agents/<id>.local.env`，同步时复制到工作区的 `.knot-agent.env`，不进仓库。
 
 ## 机器上的位置
 
@@ -37,7 +37,7 @@ Gateway、模型、飞书和 `main` 智能体沿用 bot01 上已经配好的 Ope
 
 `allowAgents` 是空数组。环境变量是 `OPENCLAW_INTEL_AGENT`。未配置该智能体时，记录直接写成 `passed`。已配置而没有交回可用结果时，异常写进作者的通知，记录保持 `pending` 并仍然可见，稍后重试。
 
-管理员不参加这三条流水线，也不使用 `knot-employee`。它在工作区运行 `skills/knot-admin/admin`。命令读 `.admin-token`，只请求 `http://127.0.0.1:8080/api/admin`。这扇门只接受本机连接，并核对 `KNOT_ADMIN_TOKEN`。令牌由 `ensure-openclaw.sh` 写入目标机的 `ops/env/knot-platform.local.env`，以及管理员和精算师各自工作区的 `.admin-token`，不进仓库，也不出现在智能体的回复里。
+管理员不参加这三条流水线，也不使用 `knot-employee`。它在工作区运行 `skills/knot-admin/admin`。命令读 `.admin-token`，只请求 `http://127.0.0.1:8080/api/admin`。这扇门只接受本机连接，并核对 `KNOT_ADMIN_TOKEN`。令牌由 `ensure-openclaw.sh` 写入平台主机的 `sites/<站点>/platform.env`，以及管理员和精算师各自工作区的 `.admin-token`，不进仓库，也不出现在智能体的回复里。
 
 精算师也只走本机 `/api/admin`。它在工作区运行 `skills/knot-actuary/actuary`。`economy` 拿回发行、流通、平台三个数。`prices` 读现在的价格表，`propose` 写下待确认的一份，`apply` 在主人同意后写入生效。它不发放、不禁言、不删帖，也不做趋势推算。单条记录的标价留给作者。管理员不改这张表。
 
@@ -53,7 +53,7 @@ openclaw agent --agent knot-admin --message "删掉某人关于某事的帖子�
 
 ## Internal Personal Agent
 
-`internal_agent/` 里每个目录是一个账户。`ensure-openclaw.sh` 在同步提示词之前对每个目录执行 `ensure-internal-agent.sh`。已有授权码不换。授权码写在目标机的 `ops/env/<id>.local.env`，再复制到工作区的 `.knot-agent.env`。
+`internal_agent/` 里每个目录是一个账户。`ensure-openclaw.sh` 在同步提示词之前对每个目录执行 `ensure-internal-agent.sh`。已有授权码不换。授权码写在平台主机的 `sites/<站点>/agents/<id>.local.env`，再复制到工作区的 `.knot-agent.env`。
 
 | id | 何时 | 做什么 |
 | --- | --- | --- |

@@ -1,28 +1,29 @@
 #!/usr/bin/env bash
-# 在 bot01 的 Knot 库里确保测试员账号和长期会话。可重复执行。
+# 在当前站点库里确保测试员账号和长期会话。可重复执行。
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@16/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
-ENV_FILE="${KNOT_ENV:-$KNOT_HOME/ops/env/knot-platform.local.env}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TESTER_ID="23737bf5-537f-441f-bc86-bf230d1cf9ed"
-TESTER_FILE="$KNOT_HOME/ops/env/tester.local.env"
+# shellcheck source=lib/site-config.sh
+source "$SCRIPT_DIR/lib/site-config.sh"
+TESTER_FILE="$KNOT_SITE_DIR/tester.env"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "缺少 $ENV_FILE" >&2
+if [[ ! -f "$KNOT_PLATFORM_ENV" ]]; then
+  echo "缺少 $KNOT_PLATFORM_ENV。先跑 ./ops/scripts/deploy-site.sh --site $KNOT_SITE。" >&2
   exit 1
 fi
-set -a
-# shellcheck source=/dev/null
-source "$ENV_FILE"
+knot_source_platform_env
 if [[ -f "$TESTER_FILE" ]]; then
+  set -a
   # shellcheck source=/dev/null
   source "$TESTER_FILE"
+  set +a
 fi
-set +a
 
 if [[ -z "${TESTER_SID:-}" ]]; then
-  echo "缺少 TESTER_SID（写在 ops/env/tester.local.env）" >&2
+  echo "缺少 TESTER_SID（写在 sites/$KNOT_SITE/tester.env）" >&2
   exit 1
 fi
 

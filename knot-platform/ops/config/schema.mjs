@@ -3,21 +3,26 @@
 // 这里登记每一个配置键：类型、默认值、是否必填、属于哪台机器、是不是密钥。
 // 其余东西都从这里派生，不要另手写一份：
 //
-//   ops/deploy.env.example               <- config.mjs template
-//   ops/env/knot-platform.env.example    <- config.mjs runtime-template
+//   sites/_template/site.env             <- config.mjs template
+//   sites/_template/platform.env         <- config.mjs platform-template
 //   docs/CONFIG.md                       <- config.mjs docs
-//   ops/env/knot-platform.local.env      <- config.mjs env
+//   sites/<站点>/platform.env             <- config.mjs env
 //
-// 为什么这样分：
-//   * ops/deploy.env  站点拓扑：域名、主机、端口、路径。不含密码，可以进运维流程。
-//   * 运行时环境文件   平台主机自己的东西：SMTP 密码、价格初值。只留在这台机器上。
-//   * 代码            真正的行为。环境变量只是覆盖，键在这里登记过才算数。
+// 三层边界：
+//   * 代码      backend/ web/ packages/  真正的行为。环境变量只是覆盖，键在这里登记过才算数。
+//   * 部署      ops/                     脚本、模板、LaunchAgent。不写任何站点取值。
+//   * 配置      sites/<站点>/             站点身份、拓扑、密钥。一个目录就是一份完整配置。
+//
+// 站点配置分两个文件：
+//   * site.env      站点身份与拓扑：域名、主机、端口、路径、边缘。不含密码。
+//   * platform.env  平台主机自己的运行时值：SMTP 密码、价格初值、管理令牌。部署脚本生成，权限 600。
 //
 // 加一个配置项的步骤：
 //   1. 在这里加一条；
 //   2. 在代码里读 process.env 并给同样的默认值；
-//   3. 跑 `npm run config -- template --write` 重新生成示例文件和文档；
-//   4. 跑测试。示例文件、文档、代码默认值任何一处漂移都会直接失败。
+//   3. 跑 `npm run config -- template --write` 与 `platform-template --write` 重新生成模板；
+//   4. 跑 `npm run config -- docs --write` 重新生成文档；
+//   5. 跑测试。模板文件、文档、代码默认值任何一处漂移都会直接失败。
 
 export const GROUPS = [
   { id: "site", label: "站点" },
@@ -53,11 +58,11 @@ export function isBlank(value) {
   return value == null || String(value).trim() === "";
 }
 
-// 部署键：写在 ops/deploy.env。
+// 站点键：写在 sites/<站点>/site.env。
 //   runtime  运行时环境里的名字；为空表示这个键只给脚本用，不进 Backend
 //   scope    运行时谁需要它。用于按机器裁剪配置和检查跨机泄露
-//   derive   留空时的推导值，和 ops/scripts/lib/deploy-config.sh 保持一致
-const DEPLOY_KEYS = [
+//   derive   留空时的推导值，和 ops/scripts/lib/site-config.sh 保持一致
+const SITE_KEYS = [
   // ---- 站点 ----
   {
     key: "KNOT_SITE_NAME",
@@ -454,9 +459,17 @@ const DEPLOY_KEYS = [
   },
 ];
 
-// 运行时种子键：只写在平台主机的 ops/env/knot-platform.local.env。
+// 平台运行时键：只写在平台主机的 sites/<站点>/platform.env。
 // 文件里已经有这个键就不覆盖，运维改过的值必须留住。
-const RUNTIME_KEYS = [
+const PLATFORM_KEYS = [
+  {
+    key: "KNOT_SITE",
+    group: "site",
+    type: "string",
+    default: "",
+    computed: true,
+    desc: "由部署脚本写入：站点目录名（sites/<站点>）。平台主机上的脚本靠它找到这份配置。",
+  },
   {
     key: "DATABASE_URL",
     group: "platform",
@@ -480,7 +493,7 @@ const RUNTIME_KEYS = [
     type: "path",
     default: "",
     computed: true,
-    desc: "由部署脚本写入：<knot-platform>/ops/env。智能体的账号文件放这里。",
+    desc: "由部署脚本写入：<knot-platform>/sites/<站点>/agents。智能体的账号文件放这里。",
   },
   {
     key: "KNOT_DISCOVER_PUSH_CMD",
@@ -674,8 +687,8 @@ function normalize(entry, file) {
 }
 
 export const KEYS = [
-  ...DEPLOY_KEYS.map((entry) => normalize(entry, "deploy")),
-  ...RUNTIME_KEYS.map((entry) => normalize(entry, "runtime")),
+  ...SITE_KEYS.map((entry) => normalize(entry, "site")),
+  ...PLATFORM_KEYS.map((entry) => normalize(entry, "platform")),
 ];
 
 const BY_KEY = new Map(KEYS.map((entry) => [entry.key, entry]));
@@ -687,8 +700,8 @@ export function keyEntry(key) {
 // 运行时键名 -> 定义。部署键允许改名为别的运行时名（KNOT_PORT -> PORT）。
 const BY_RUNTIME = new Map();
 for (const entry of KEYS) {
-  if (entry.file === "deploy" && entry.runtime) BY_RUNTIME.set(entry.runtime, entry);
-  if (entry.file === "runtime") BY_RUNTIME.set(entry.key, entry);
+  if (entry.file === "site" && entry.runtime) BY_RUNTIME.set(entry.runtime, entry);
+  if (entry.file === "platform") BY_RUNTIME.set(entry.key, entry);
 }
 
 export function runtimeEntry(runtimeKey) {
@@ -704,7 +717,7 @@ export function isRequired(entry, env) {
 }
 
 export function runtimeName(entry) {
-  if (entry.file !== "deploy") return entry.key;
+  if (entry.file !== "site") return entry.key;
   return entry.runtime || "";
 }
 
@@ -716,7 +729,7 @@ export function expandPath(value, home = process.env.HOME || "") {
   return text.replace(/^\$HOME(?=\/|$)/, home);
 }
 
-// 把 deploy.env 里的值和默认值合成一个完整视图。不改写文件，只用于校验和生成运行时配置。
+// 把 site.env 里的值和默认值合成一个完整视图。不改写文件，只用于校验和生成运行时配置。
 // expand: 只有真正写进运行时文件时才展开 ~ 和 $HOME；展示远端路径时保持字面量。
 export function resolve(entry, env, ctx = {}) {
   const context = { root: "", home: process.env.HOME || "", expand: false, ...ctx };
@@ -820,12 +833,12 @@ export const WARNINGS = [
   },
 ];
 
-// 部署文件校验：类型、必填、跨键规则、未知键。
-export function checkDeploy(env) {
+// 站点文件校验：类型、必填、跨键规则、未知键。
+export function checkSite(env) {
   const errors = [];
   const warnings = [];
   for (const entry of KEYS) {
-    if (entry.file !== "deploy") continue;
+    if (entry.file !== "site") continue;
     const value = String(env[entry.key] ?? "").trim();
     if (!value) {
       if (isRequired(entry, env)) errors.push(`缺少 ${entry.key}。${entry.desc}`);
@@ -845,7 +858,7 @@ export function checkDeploy(env) {
   for (const warning of WARNINGS) {
     if (warning.when(env)) warnings.push(warning.message);
   }
-  const known = new Set(DEPLOY_KEYS.map((entry) => entry.key));
+  const known = new Set(SITE_KEYS.map((entry) => entry.key));
   for (const key of Object.keys(env)) {
     if (known.has(key)) continue;
     warnings.push(`${key} 不在 ops/config/schema.mjs 里，可能拼错了，或者已经废弃。`);
@@ -854,7 +867,7 @@ export function checkDeploy(env) {
 }
 
 // 这些键只属于开发机或边缘，平台主机的运行时文件里出现就是配错了。
-export const FORBIDDEN_RUNTIME_KEYS = [
+export const FORBIDDEN_PLATFORM_KEYS = [
   "KNOT_EDGE_SSH_KEY",
   "KNOT_DEPLOY_SSH",
   "KNOT_DEPLOY_SSH_KEY",
@@ -862,26 +875,26 @@ export const FORBIDDEN_RUNTIME_KEYS = [
   "KNOT_EDGE_KEY",
 ];
 
-// 运行时文件校验：类型、未知键、跨机泄露、权限。
-export function checkRuntime(text, { mode = null } = {}) {
+// 平台运行时文件校验：类型、未知键、跨机泄露、权限。
+export function checkPlatform(text, { mode = null } = {}) {
   const env = parseEnv(text);
   const errors = [];
   const warnings = [];
   const known = runtimeKeySet();
 
-  const forbidden = new Set(FORBIDDEN_RUNTIME_KEYS);
+  const forbidden = new Set(FORBIDDEN_PLATFORM_KEYS);
   for (const [key, value] of Object.entries(env)) {
     if (forbidden.has(key)) {
       errors.push(`${key} 是开发机或边缘的键，不该写进平台主机的运行时配置。`);
       continue;
     }
     if (!known.has(key)) {
-      warnings.push(`${key} 不在运行时配置的登记表里，可能拼错了，或者已经废弃。`);
+      warnings.push(`${key} 不在平台运行时配置的登记表里，可能拼错了，或者已经废弃。`);
       continue;
     }
     const entry = runtimeEntry(key);
     if (!entry) continue;
-    if (entry.file === "deploy" && !entry.scope.includes("platform")) {
+    if (entry.file === "site" && !entry.scope.includes("platform")) {
       errors.push(`${key} 只给开发机用，不该出现在平台主机的运行时配置里。`);
       continue;
     }
@@ -942,31 +955,34 @@ function commentLines(entry, indent = "") {
   return lines;
 }
 
-const DEPLOY_HEADER = `# Knot 部署配置。
+const SITE_HEADER = `# Knot 站点配置。
 #
 # 用法：
-#   cp ops/deploy.env.example ops/deploy.env
-#   按自己的站点改 ops/deploy.env
+#   mkdir -p sites/<站点>
+#   cp sites/_template/site.env sites/<站点>/site.env
+#   按自己的站点改 sites/<站点>/site.env
 #
-# ops/deploy.env 不进版本库。部署脚本只从这里读站点、主机、路径和端口。
+# 站点目录不进版本库（sites/_template 除外）。部署脚本只从这里读站点、主机、路径和端口。
 # 这份文件由 ops/config/schema.mjs 生成，不要手改；改配置项请改 schema 后跑
 #   node ops/scripts/config.mjs template --write
 #
-# 同一个文件既给平台主机用，也给从开发机发布和云端边缘用。`;
+# 同一个文件既给平台主机用，也给从开发机发布和云端边缘用。
+# 只想改一处、其余沿用本文件时，可以放 site.<变体>.env 作为叠加层，
+# 用 --variant <变体> 选择。`;
 
-const RUNTIME_HEADER = `# 运行时环境模板。由 ops/config/schema.mjs 生成。
+const PLATFORM_HEADER = `# 平台运行时配置模板。由 ops/config/schema.mjs 生成。
 #
-# 平台主机上的 ops/env/knot-platform.local.env 由 deploy-site.sh 写入：
-#   * 站点与端口从 ops/deploy.env 来；
+# 平台主机上的 sites/<站点>/platform.env 由 deploy-site.sh 写入：
+#   * 站点与端口从 sites/<站点>/site.env 来；
 #   * 下面的邮件、价格、存储键只在文件里还没有时写入初值，之后归运维。
 #
-# 这个文件不含站点拓扑；域名、主机、边缘、端口写 ops/deploy.env。`;
+# 这个文件不含站点拓扑；域名、主机、边缘、端口写 site.env。`;
 
-// 生成 ops/deploy.env.example。
-export function renderDeployExample() {
-  const parts = [DEPLOY_HEADER];
+// 生成 sites/_template/site.env。
+export function renderSiteExample() {
+  const parts = [SITE_HEADER];
   for (const group of GROUPS) {
-    const entries = DEPLOY_KEYS.filter((entry) => entry.group === group.id);
+    const entries = SITE_KEYS.filter((entry) => entry.group === group.id);
     if (!entries.length) continue;
     parts.push(`\n# ---- ${group.label} ----`);
     for (const entry of entries) {
@@ -979,11 +995,11 @@ export function renderDeployExample() {
   return `${parts.join("\n")}\n`;
 }
 
-// 生成 ops/env/knot-platform.env.example。
-export function renderRuntimeExample() {
-  const parts = [RUNTIME_HEADER];
+// 生成 sites/_template/platform.env。
+export function renderPlatformExample() {
+  const parts = [PLATFORM_HEADER];
   for (const group of GROUPS) {
-    const entries = RUNTIME_KEYS.filter((entry) => entry.group === group.id && !entry.computed);
+    const entries = PLATFORM_KEYS.filter((entry) => entry.group === group.id && !entry.computed);
     if (!entries.length) continue;
     parts.push(`\n# ---- ${group.label} ----`);
     for (const entry of entries) {
@@ -998,14 +1014,14 @@ export function renderRuntimeExample() {
 }
 
 // 首次生成平台主机的运行时文件。之后由 updateEnvText 就地改写，保留注释和运维改过的值。
-export function renderRuntimeFile(values) {
+export function renderPlatformFile(values) {
   const parts = [
-    "# 运行时环境。由 ops/scripts/deploy-site.sh 写入，权限 600。",
-    "# 站点拓扑在 ops/deploy.env；这里只放平台主机自己的值。",
+    "# 平台运行时配置。由 ops/scripts/deploy-site.sh 写入，权限 600。",
+    "# 站点拓扑在 site.env；这里只放平台主机自己的值。",
   ];
   for (const group of GROUPS) {
-    const mapped = KEYS.filter((entry) => entry.file === "deploy" && entry.runtime && entry.group === group.id);
-    const own = KEYS.filter((entry) => entry.file === "runtime" && entry.group === group.id);
+    const mapped = KEYS.filter((entry) => entry.file === "site" && entry.runtime && entry.group === group.id);
+    const own = KEYS.filter((entry) => entry.file === "platform" && entry.group === group.id);
     if (!mapped.length && !own.length) continue;
     parts.push(`\n# ---- ${group.label} ----`);
     for (const entry of mapped) {
@@ -1022,7 +1038,7 @@ export function renderRuntimeFile(values) {
 }
 
 function defaultCell(entry) {  if (entry.secret && entry.default !== "") return "（密钥）";
-  if (entry.file === "runtime" && entry.computed) return "部署脚本写入";
+  if (entry.file === "platform" && entry.computed) return "部署脚本写入";
   const value = entry.default;
   if (value == null || value === "") return entry.derive ? "见说明" : "（空）";
   if (entry.type === "bytes") return `${value}（${Math.round(value / MiB)} MiB）`;
@@ -1037,25 +1053,35 @@ export function renderDocs() {
     "这份文档由 `ops/config/schema.mjs` 生成，不要手改。改配置项请改 schema，再跑：",
     "",
     "```bash",
-    "node ops/scripts/config.mjs template --write   # 重新生成两个示例文件",
-    "node ops/scripts/config.mjs docs --write       # 重新生成本文",
+    "node ops/scripts/config.mjs template --write           # sites/_template/site.env",
+    "node ops/scripts/config.mjs platform-template --write  # sites/_template/platform.env",
+    "node ops/scripts/config.mjs docs --write               # 重新生成本文",
     "```",
     "",
-    "## 三个文件，三种职责",
+    "## 三个边界",
     "",
-    "| 文件 | 放在哪 | 放什么 | 能不能进版本库 |",
+    "| 边界 | 位置 | 放什么 | 能不能进版本库 |",
     "| --- | --- | --- | --- |",
-    "| `ops/deploy.env` | 开发机和平台主机 | 域名、主机、端口、路径、边缘。不含密码 | 不进 |",
-    "| `ops/env/knot-platform.local.env` | 只放平台主机 | SMTP 密码、价格初值、管理令牌 | 不进，权限 600 |",
-    "| `backend/src` | 项目内 | 真正的默认行为 | 进 |",
+    "| 代码 | `backend/` `web/` `packages/` | 真正的默认行为 | 进 |",
+    "| 部署 | `ops/` | 脚本、模板、LaunchAgent。不写站点取值 | 进 |",
+    "| 配置 | `sites/<站点>/` | 站点身份、拓扑、密钥 | 不进（`sites/_template/` 除外） |",
     "",
     "环境变量只覆盖代码里的默认值。一个键要么在 schema 里登记，要么就别读。",
     "",
-    "## 部署配置（`ops/deploy.env`）",
+    "一个站点一个目录：",
+    "",
+    "| 文件 | 放什么 |",
+    "| --- | --- |",
+    "| `sites/<站点>/site.env` | 域名、主机、端口、路径、边缘。不含密码 |",
+    "| `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。部署脚本生成，权限 600 |",
+    "| `sites/<站点>/site.<变体>.env` | 可选叠加层，用 `--variant <变体>` 选择 |",
+    "| `sites/<站点>/agents/` | Internal Personal Agent 的授权码，权限 700 |",
+    "",
+    "## 站点配置（`sites/<站点>/site.env`）",
     "",
   ];
   for (const group of GROUPS) {
-    const entries = DEPLOY_KEYS.filter((entry) => entry.group === group.id);
+    const entries = SITE_KEYS.filter((entry) => entry.group === group.id);
     if (!entries.length) continue;
     lines.push(`### ${group.label}`, "", "| 变量 | 默认 | 必填 | 说明 |", "| --- | --- | --- | --- |");
     for (const entry of entries) {
@@ -1064,9 +1090,9 @@ export function renderDocs() {
     }
     lines.push("");
   }
-  lines.push("## 运行时配置（`ops/env/knot-platform.local.env`）", "");
+  lines.push("## 平台运行时配置（`sites/<站点>/platform.env`）", "");
   for (const group of GROUPS) {
-    const entries = RUNTIME_KEYS.filter((entry) => entry.group === group.id);
+    const entries = PLATFORM_KEYS.filter((entry) => entry.group === group.id);
     if (!entries.length) continue;
     lines.push(`### ${group.label}`, "", "| 变量 | 默认 | 说明 |", "| --- | --- | --- |");
     for (const entry of entries) {
@@ -1081,8 +1107,9 @@ export function renderDocs() {
     "手动检查：",
     "",
     "```bash",
-    "node ops/scripts/config.mjs check                    # 查 ops/deploy.env",
-    "node ops/scripts/config.mjs check --runtime          # 查平台主机的运行时文件",
+    "node ops/scripts/config.mjs check --site <站点>              # 查 site.env",
+    "node ops/scripts/config.mjs check --platform --site <站点>   # 查平台主机的 platform.env",
+    "node ops/scripts/config.mjs sites                            # 列出已有站点",
     "```",
     "",
     "必填与跨键规则：",

@@ -4,6 +4,11 @@
 <dict>
   <key>Label</key>
   <string>com.knot.postgres</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>KNOT_SITE</key>
+    <string>__KNOT_SITE__</string>
+  </dict>
   <key>ProgramArguments</key>
   <array>
     <string>__KNOT_HOME__/ops/scripts/ensure-knot-postgres.sh</string>

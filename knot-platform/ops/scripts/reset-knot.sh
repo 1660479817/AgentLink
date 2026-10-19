@@ -11,15 +11,14 @@ if [[ "${1:-}" != "--yes" ]]; then
 fi
 
 KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
-ENV_FILE="${KNOT_ENV:-$KNOT_HOME/ops/env/knot-platform.local.env}"
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "缺少 $ENV_FILE" >&2
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/site-config.sh
+source "$SCRIPT_DIR/lib/site-config.sh"
+if [[ ! -f "$KNOT_PLATFORM_ENV" ]]; then
+  echo "缺少 $KNOT_PLATFORM_ENV。先跑 ./ops/scripts/deploy-site.sh --site $KNOT_SITE。" >&2
   exit 1
 fi
-set -a
-# shellcheck source=/dev/null
-source "$ENV_FILE"
-set +a
+knot_source_platform_env
 
 UPLOAD_DIR="${UPLOAD_DIR:-$KNOT_HOME/var/uploads}"
 UID_NUM="$(id -u)"

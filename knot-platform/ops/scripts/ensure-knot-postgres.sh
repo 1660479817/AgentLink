@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
 # macOS：用户目录 Postgres，不依赖 Colima / brew services。
-# 端口、数据目录、日志位置和 PostgreSQL bin 目录来自 ops/deploy.env，缺省 5433。
+# 端口、数据目录、日志位置和 PostgreSQL bin 目录来自 sites/<站点>/site.env，缺省 5433。
 #
-# com.knot.postgres 直接执行本脚本，所以这里自己读 ops/deploy.env；
+# com.knot.postgres 直接执行本脚本，所以这里自己读站点配置；
 # 不能只靠 deploy-site.sh 传进来的进程环境。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
-if [[ -f "${KNOT_DEPLOY_ENV:-$KNOT_HOME/ops/deploy.env}" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "${KNOT_DEPLOY_ENV:-$KNOT_HOME/ops/deploy.env}"
-  set +a
-fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/site-config.sh
+source "$SCRIPT_DIR/lib/site-config.sh"
 
-PGD="${KNOT_PGDATA:-$HOME/knot/pgdata}"
+PGD="$KNOT_PGDATA"
 LOG="${KNOT_PGLOG:-$HOME/knot/pg.log}"
 PORT="${KNOT_PGPORT:-5433}"
 BIN="${KNOT_PG_BIN:-/opt/homebrew/opt/postgresql@16/bin}"

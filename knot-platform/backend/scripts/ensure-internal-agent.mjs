@@ -22,7 +22,8 @@ try {
 }
 
 if (issued.token) {
-  const tokenFile = await writeAgentEnvFile(path.join(root, "ops", "env"), issued);
+  const envDir = process.env.KNOT_AGENT_ENV_DIR || path.join(root, "sites", process.env.KNOT_SITE || "", "agents");
+  const tokenFile = await writeAgentEnvFile(envDir, issued);
   console.log(`${issued.displayName} ${issued.userId}`);
   console.log(`授权码已写入 ${tokenFile}`);
 } else {

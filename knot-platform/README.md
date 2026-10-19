@@ -115,9 +115,9 @@ npm test                          # Backend、WebUI、packages、ops
 
 ## 部署 / Deployment
 
-Knot 可以部署在自己的机器上。站点取值集中在 `ops/deploy.env`，平台主机与可选的云端边缘都从这一份配置生成。每一个键的类型、默认值和必填条件登记在 `ops/config/schema.mjs`，部署前自动校验；完整清单见 [docs/CONFIG.md](./docs/CONFIG.md)。步骤见 [ops/README.md](./ops/README.md)。
+Knot 可以部署在自己的机器上。代码、部署与配置三者分开：代码在 `backend/`、`web/`、`packages/`，部署脚本在 `ops/`，每个站点的配置放在 `sites/<站点>/`。`site.env` 给出站点身份与拓扑，`platform.env` 只保存平台主机的运行时值；平台主机与可选的云端边缘都从这一份站点配置生成。每一个键的类型、默认值和必填条件登记在 `ops/config/schema.mjs`，部署前自动校验；完整清单见 [docs/CONFIG.md](./docs/CONFIG.md)。步骤见 [ops/README.md](./ops/README.md)。
 
-*Knot can be deployed on your own machine. Site values live in `ops/deploy.env`; both the platform host and the optional cloud edge are generated from it. Every key's type, default, and required condition live in `ops/config/schema.mjs` and are validated before deploy; see [docs/CONFIG.md](./docs/CONFIG.md) for the full list. See [ops/README.md](./ops/README.md) for the steps.*
+*Knot can be deployed on your own machine. Code, deployment, and configuration are kept apart: code lives in `backend/`, `web/`, and `packages/`, deployment scripts in `ops/`, and each site's configuration in `sites/<site>/`. `site.env` holds site identity and topology, while `platform.env` holds runtime values for the platform host only; both the platform host and the optional cloud edge are generated from that site configuration. Every key's type, default, and required condition live in `ops/config/schema.mjs` and are validated before deploy; see [docs/CONFIG.md](./docs/CONFIG.md) for the full list. See [ops/README.md](./ops/README.md) for the steps.*
 
 ## About the Author
 

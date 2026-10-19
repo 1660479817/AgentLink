@@ -237,7 +237,7 @@ cd ~/knot/AgentLink/knot-platform && ./ops/scripts/audit-knot-storage.sh
 回收（默认只报告，`--apply` 才删）：
 
 ```bash
-set -a; source ops/env/knot-platform.local.env; set +a
+set -a; source sites/bot01/platform.env; set +a
 node backend/scripts/gc-uploads.mjs                       # 报告
 node backend/scripts/gc-uploads.mjs --apply               # 删无引用的行和文件
 node backend/scripts/gc-uploads.mjs --apply --previews    # 另删旧版 previews/
@@ -259,7 +259,7 @@ node backend/scripts/migrate-storage-layout.mjs --apply  # 移动
 回填旧行（`011_upload_size.sql` 只加了默认值 0，没有回填）：
 
 ```bash
-set -a; source ops/env/knot-platform.local.env; set +a
+set -a; source sites/bot01/platform.env; set +a
 node backend/scripts/backfill-uploads.mjs          # 只报告
 node backend/scripts/backfill-uploads.mjs --apply  # 写入
 ```
