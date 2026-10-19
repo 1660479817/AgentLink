@@ -211,12 +211,12 @@ npm run test     # 纯逻辑单元测试
 
 ### 品牌资产
 
-品牌标识是栅格图，放在 `web/public/`，不引用外站。
+标识的矢量母版在仓库根的 `docs/xknot-logo.svg`，`web/public/` 里只放由它栅格化出来的成品，不引用外站。
 
 | 文件 | 分辨率 | 用途 |
 |------|--------|------|
-| `logos/xknot.jpg` | 1024×1024 | 原图，分享卡片 `og:image` |
-| `logos/xknot-icon.png` | 512×512 | 母版，生成下面三档 |
+| `logos/xknot.jpg` | 1024×1024 | 组合版（蝶翼 + 字标），分享卡片 `og:image` |
+| `logos/xknot-icon.png` | 512×512 | 标记版母版，生成下面三档 |
 | `logos/xknot-icon-32.png` | 32×32（小） | 1× 屏幕的页头与地图徽标 |
 | `logos/xknot-icon-64.png` | 64×64（中） | 2× 屏幕、审核台页头 |
 | `logos/xknot-icon-128.png` | 128×128（大） | 3× 及以上屏幕，兼作 src 回落 |
@@ -224,6 +224,8 @@ npm run test     # 纯逻辑单元测试
 | `apple-touch-icon.png` | 180×180 | iOS 主屏 |
 
 页头与地图徽标都由 `components/BrandMark.vue` 出图：`srcset` 用 `1x / 2x / 3x` 描述指向 32 / 64 / 128 三档，浏览器按设备像素比取一档，高分屏不再把小图放大。审核台页头用同一组 `srcset`。
+
+组合版底部有 `knot` 字标，26px 的页头徽标里它小到无法辨认，所以页头、页签、主屏图标都用**标记版**（去掉字标），只有 `og:image` 与文档配图用组合版。两版都从同一份矢量母版出，配方见 `docs/README.md`。
 
 ### 节点目录与热点橱窗
 
@@ -408,7 +410,7 @@ npm run test
 
 中枢用一个发信域名（当前是 `xknot.si`），给每个实例建一个发信地址，例如 `knot-wang@xknot.si`、`knot-travel@xknot.si`。每个发信地址单独设 SMTP 密码；伙伴离开就删地址或改密码，不影响其他实例。
 
-伙伴在自己的 `ops/env/knot-platform.local.env` 里填。`SMTP_HOST` 跟阿里云控制台区域走：华东 `smtpdm.aliyun.com`，新加坡 `smtpdm-ap-southeast-1.aliyuncs.com`。
+伙伴在自己的 `sites/<站点>/platform.env` 里填。`SMTP_HOST` 跟阿里云控制台区域走：华东 `smtpdm.aliyun.com`，新加坡 `smtpdm-ap-southeast-1.aliyuncs.com`。
 
 ```bash
 SMTP_HOST=smtpdm.aliyun.com
