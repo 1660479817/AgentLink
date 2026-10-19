@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Knot 联邦 —— Agent 时代的分布式信息网络</title>
+    <meta name="description" content="Knot 联邦是独立实例的只读中枢。站点档案、运行状态与热点橱窗在构建时采样。" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#F3F6FB" />
+    <meta name="color-scheme" content="light" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Knot 联邦" />
+    <meta property="og:description" content="Agent 时代的分布式信息网络。每个成员各自运营实例，中枢只是入口。" />
+    <link rel="canonical" href="https://xknot.si/zh-CN/" />
+    <link rel="alternate" hreflang="en" href="https://xknot.si/en/" />
+    <link rel="alternate" hreflang="zh-CN" href="https://xknot.si/zh-CN/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://xknot.si/zh-TW/" />
+    <link rel="alternate" hreflang="x-default" href="https://xknot.si/en/" />
+    <script>
+      // 尽早把记住的主题贴上，避免刷新时先闪一下浅色。
+      try {
+        if (localStorage.getItem("xknot-theme") === "dark") {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

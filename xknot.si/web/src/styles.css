@@ -1,0 +1,233 @@
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* 浅色是默认：白底、冷灰、单一蓝。深色是同一套语义变量的墨蓝改写。 */
+:root {
+  --page: #f3f6fb;
+  --surface: #ffffff;
+  --surface-soft: #f8fafd;
+  --ink: #0a1322;
+  --muted: #475569;
+  --dim: #64748b;
+  --accent: #0b5fff;
+  --accent-strong: #0847c4;
+  --accent-soft: #e8efff;
+  --teal: #0093a6;
+  --violet: #6d4aff;
+  --ok: #0b7a54;
+  --warn: #a16207;
+  --bad: #b42318;
+  --unknown: #64748b;
+  --line: #e1e8f2;
+  --line-strong: #c3d2e6;
+  --faint: #93a3b8;
+  --row-hover: #f7faff;
+  --row-active: #eef4ff;
+  --bars-off: rgba(100, 116, 139, 0.22);
+  --tier-line: rgba(11, 95, 255, 0.2);
+  --tier-ink: #2f5fae;
+  --chip-bg: #eef2f8;
+  --chip-hover: #e4ebf5;
+  --nav-h: 64px;
+  --grid-line: rgba(16, 61, 122, 0.075);
+  --nav-bg: rgba(255, 255, 255, 0.82);
+  --glow-a: rgba(11, 95, 255, 0.16);
+  --glow-b: rgba(0, 163, 180, 0.14);
+  --glow-c: rgba(109, 74, 255, 0.09);
+  --outline-ink: rgba(16, 61, 122, 0.72);
+  --wordmark-1: #0a2352;
+  --wordmark-2: #0b5fff;
+  --wordmark-3: #0093a6;
+  --orbit-ring: rgba(16, 61, 122, 0.2);
+  --orbit-ring-solid: rgba(16, 61, 122, 0.3);
+  --orbit-line: rgba(11, 95, 255, 0.55);
+  --orbit-tick: rgba(11, 95, 255, 0.45);
+  --orbit-hub: #ffffff;
+  --orbit-pin: #93a6bf;
+  --map-land: rgba(16, 61, 122, 0.15);
+  --map-edge: rgba(16, 61, 122, 0.06);
+  /* 联邦链路用暖橙：右栏申请区是同一条橙，视觉上把「进来」和「连上」串起来 */
+  --map-link: #e8701c;
+  --map-link-spark: #ffb26b;
+  /* 连线本身走半透明橙，虚线压在底图上不抢节点 */
+  --map-link-line: rgba(232, 112, 28, 0.42);
+  --map-link-line-active: rgba(232, 112, 28, 0.78);
+  /* 节点之间的直连：浅绿。和朝中心的橙是两套语义，别混成一种颜色 */
+  --map-peer: rgba(31, 168, 110, 0.4);
+  --map-peer-active: rgba(31, 168, 110, 0.7);
+  /* 热点橱窗：比右栏的橙收一点，只做一块安静的琥珀色底 */
+  --hot-ink: #a9520c;
+  --hot-line: rgba(232, 112, 28, 0.24);
+  --hot-bg: rgba(232, 112, 28, 0.06);
+  --hot-bg-strong: rgba(232, 112, 28, 0.11);
+  --hub-shadow: 0 14px 28px -18px rgba(8, 26, 56, 0.55),
+    0 2px 6px -3px rgba(8, 26, 56, 0.16);
+  --hub-cast: rgba(8, 26, 56, 0.22);
+  --card-shadow: 0 1px 2px rgba(16, 61, 122, 0.04),
+    0 18px 40px -26px rgba(11, 95, 255, 0.4);
+  --skeleton-a: #e8eef7;
+  --skeleton-b: #f6f9fd;
+  --join-1: #f4802f;
+  --join-2: #dd5409;
+  --join-3: #b03d05;
+  --layout-max: 1120px;
+  --font-display: "Space Grotesk Variable", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono",
+    Menlo, monospace;
+  --font-body: "Space Grotesk Variable", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --page: #0a1220;
+  --surface: #101a2b;
+  --surface-soft: #0d1626;
+  --ink: #e6edf8;
+  --muted: #a6b4c9;
+  --dim: #8595ad;
+  --accent: #5b9bff;
+  --accent-strong: #8fbaff;
+  --accent-soft: rgba(91, 155, 255, 0.14);
+  --teal: #45cbd8;
+  --violet: #a48bff;
+  --ok: #3ddc97;
+  --warn: #f0b44c;
+  --bad: #ff7b88;
+  --unknown: #8595ad;
+  --line: rgba(148, 180, 225, 0.16);
+  --line-strong: rgba(148, 180, 225, 0.3);
+  --faint: #71839c;
+  --row-hover: rgba(91, 155, 255, 0.055);
+  --row-active: rgba(91, 155, 255, 0.12);
+  --bars-off: rgba(148, 180, 225, 0.2);
+  --tier-line: rgba(91, 155, 255, 0.26);
+  --tier-ink: #9dc0ff;
+  --chip-bg: rgba(148, 180, 225, 0.1);
+  --chip-hover: rgba(148, 180, 225, 0.17);
+  --grid-line: rgba(140, 180, 240, 0.07);
+  --nav-bg: rgba(10, 18, 32, 0.82);
+  --glow-a: rgba(91, 155, 255, 0.2);
+  --glow-b: rgba(69, 203, 216, 0.14);
+  --glow-c: rgba(164, 139, 255, 0.14);
+  --outline-ink: rgba(148, 190, 255, 0.5);
+  --wordmark-1: #dbe9ff;
+  --wordmark-2: #7fb3ff;
+  --wordmark-3: #5ee0ea;
+  --orbit-ring: rgba(148, 180, 225, 0.18);
+  --orbit-ring-solid: rgba(148, 180, 225, 0.3);
+  --orbit-line: rgba(91, 155, 255, 0.5);
+  --orbit-tick: rgba(91, 155, 255, 0.4);
+  --orbit-hub: #101a2b;
+  --orbit-pin: #5b6c85;
+  --map-land: rgba(148, 180, 225, 0.3);
+  --map-edge: rgba(148, 180, 225, 0.14);
+  --map-link: #ff9a52;
+  --map-link-spark: #ffd6ad;
+  --map-link-line: rgba(255, 154, 82, 0.4);
+  --map-link-line-active: rgba(255, 154, 82, 0.82);
+  --map-peer: rgba(126, 231, 178, 0.24);
+  --map-peer-active: rgba(126, 231, 178, 0.56);
+  --hot-ink: #ffb27a;
+  --hot-line: rgba(255, 154, 82, 0.26);
+  --hot-bg: rgba(255, 154, 82, 0.08);
+  --hot-bg-strong: rgba(255, 154, 82, 0.14);
+  --hub-shadow: 0 16px 32px -18px rgba(0, 0, 0, 0.85),
+    0 1px 0 rgba(148, 180, 225, 0.1);
+  --hub-cast: rgba(91, 155, 255, 0.2);
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3),
+    0 18px 40px -26px rgba(91, 155, 255, 0.55);
+  --skeleton-a: #16223a;
+  --skeleton-b: #1d2c47;
+  --join-1: #c25a17;
+  --join-2: #963707;
+  --join-3: #6f2604;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--nav-h) + 0.75rem);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  transition:
+    background 240ms ease,
+    color 240ms ease;
+}
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+}
+
+button {
+  font: inherit;
+}
+
+.shell {
+  width: 100%;
+  max-width: var(--layout-max);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 2rem);
+}
+
+::selection {
+  background: rgba(11, 95, 255, 0.18);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --nav-h: 56px;
+  }
+}

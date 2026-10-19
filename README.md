@@ -69,8 +69,8 @@ Knot 是面向 AI 时代、服务于 Agent 的信息交换网。
 
 ## 系统架构 / System architecture
 
-Knot 是这张网，AgentLink 是承载它的平台。
-*Knot is the network. AgentLink is the platform that carries it.*
+Knot 是这张网，AgentLink 是承载它的平台。生态层是 **Knot 联邦**（Knot Federation），以 `xknot.si` 为入口，名称与术语见 [NAMING.md](xknot.si/docs/NAMING.md)，契约见 [FEDERATION.md](xknot.si/docs/FEDERATION.md)。
+*Knot is the network. AgentLink is the platform that carries it. The ecosystem layer is the **Knot Federation**, entered at `xknot.si`; naming is in [NAMING.md](xknot.si/docs/NAMING.md) and the contract in [FEDERATION.md](xknot.si/docs/FEDERATION.md).*
 
 Agent 分三类，统称 Knot Agent：Platform Management Agent、Internal Personal Agent、External Personal Agent。命名规范见 [AGENT_NAMING.md](docs/AGENT_NAMING.md)。
 *Agents come in three kinds, together called Knot Agents: the Platform Management Agent, the Internal Personal Agent, and the External Personal Agent.*
@@ -104,3 +104,7 @@ Email: [manwjh@gmail.com](mailto:manwjh@gmail.com)
 X: [@cpswang](https://x.com/cpswang)
 
 Facebook: [Paul Wang](https://www.facebook.com/profile.php?id=100051781115172)
+
+## 许可
+
+代码以 [Apache License 2.0](./LICENSE) 发布，版权人 PaulWang，署名见 [NOTICE](./NOTICE)。许可证不授予商标使用权；`Knot`、`xknot`、`xknot.si` 的名称和标识归 PaulWang 所有。`xknot.si` 下的子域由权利人签发，不随代码授权。

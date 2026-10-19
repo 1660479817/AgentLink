@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 1.2 L 10 5 L 0 8.8 Z" fill="#222"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="680" fill="#ffffff"/>
+
+  <rect x="320" y="90" width="560" height="180" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.4">
+    <rect x="345" y="150" width="165" height="54" rx="8"/>
+    <rect x="520" y="150" width="165" height="54" rx="8"/>
+    <rect x="695" y="150" width="165" height="54" rx="8"/>
+  </g>
+
+  <rect x="60" y="400" width="340" height="150" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+  <rect x="430" y="400" width="340" height="150" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+  <rect x="800" y="400" width="340" height="150" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+
+  <g fill="none" stroke="#222" stroke-width="1.6">
+    <line x1="600" y1="270" x2="600" y2="330"/>
+    <line x1="230" y1="330" x2="970" y2="330"/>
+    <line x1="230" y1="330" x2="230" y2="396" marker-end="url(#arrow)"/>
+    <line x1="600" y1="330" x2="600" y2="396" marker-end="url(#arrow)"/>
+    <line x1="970" y1="330" x2="970" y2="396" marker-end="url(#arrow)"/>
+  </g>
+  <rect x="330" y="307" width="540" height="22" fill="#ffffff"/>
+
+  <rect x="60" y="580" width="340" height="76" rx="10" fill="#ffffff" stroke="#222" stroke-width="1.4"/>
+  <rect x="430" y="580" width="340" height="76" rx="10" fill="#ffffff" stroke="#222" stroke-width="1.4"/>
+  <rect x="800" y="580" width="340" height="76" rx="10" fill="#ffffff" stroke="#222" stroke-width="1.4"/>
+
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
+    <text x="600" y="120" font-size="17" font-weight="600" fill="#111">xknot.si 中枢</text>
+    <text x="427" y="173" font-size="14" font-weight="600" fill="#111">门户</text>
+    <text x="427" y="194" font-size="12" fill="#333">档案 · 状态 · 区域</text>
+    <text x="602" y="173" font-size="14" font-weight="600" fill="#111">健康探测</text>
+    <text x="602" y="194" font-size="12" fill="#333">每 2–5 分钟</text>
+    <text x="777" y="173" font-size="14" font-weight="600" fill="#111">跳转</text>
+    <text x="777" y="194" font-size="12" fill="#333">301</text>
+    <text x="600" y="242" font-size="13" fill="#333">无数据库 · 无写入口 · 一个提交就是一次变更</text>
+
+    <text x="230" y="434" font-size="15" font-weight="600" fill="#111">Knot 旗舰</text>
+    <text x="230" y="460" font-size="12" fill="#333">knot.zenheart.net</text>
+    <text x="230" y="484" font-size="12" fill="#333">root.xknot.si 301 到此</text>
+    <text x="230" y="508" font-size="11" fill="#555">Postgres · 上传 · 账号 · 积分</text>
+
+    <text x="600" y="434" font-size="15" font-weight="600" fill="#111">travel.xknot.si</text>
+    <text x="600" y="460" font-size="12" fill="#333">OPC 伙伴运营</text>
+    <text x="600" y="484" font-size="12" fill="#333">自有 Postgres</text>
+    <text x="600" y="508" font-size="11" fill="#555">自己的账号 · 积分 · 审核</text>
+
+    <text x="970" y="434" font-size="15" font-weight="600" fill="#111">ai.xknot.si</text>
+    <text x="970" y="460" font-size="12" fill="#333">OPC 伙伴运营</text>
+    <text x="970" y="484" font-size="12" fill="#333">自有 Postgres</text>
+    <text x="970" y="508" font-size="11" fill="#555">自己的账号 · 积分 · 审核</text>
+
+    <text x="600" y="321" font-size="12" fill="#333">定时 GET：健康状态、橱窗 URL　　点击一律回原站</text>
+
+    <text x="230" y="606" font-size="14" font-weight="600" fill="#111">中枢不做</text>
+    <text x="230" y="628" font-size="12" fill="#333">不建库 · 不开写入口 · 不参与运营</text>
+    <text x="230" y="648" font-size="12" fill="#333">不做信息流 · 不代伙伴审核</text>
+
+    <text x="600" y="606" font-size="14" font-weight="600" fill="#111">M1 · 门户</text>
+    <text x="600" y="628" font-size="12" fill="#333">跳转 · 站点简介 · 健康状态</text>
+    <text x="600" y="648" font-size="12" fill="#333">实例清单是一个 JSON 文件</text>
+
+    <text x="970" y="606" font-size="14" font-weight="600" fill="#111">M2 · 橱窗</text>
+    <text x="970" y="628" font-size="12" fill="#333">文章数 · 用户增长趋势</text>
+    <text x="970" y="648" font-size="12" fill="#333">橱窗：伙伴给一个 URL，中枢拉取</text>
+  </g>
+
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="start">
+    <text x="40" y="34" font-size="20" font-weight="600" fill="#111">Knot 联邦：中枢、实例、橱窗</text>
+    <text x="40" y="58" font-size="13" fill="#555">中枢只读。不设写入口，不建库，不参与伙伴的运营与收费。三语输出：en / zh-CN / zh-TW。</text>
+    <text x="40" y="672" font-size="12" fill="#666">每个实例的数据、账号、积分和审核都留在自己的库里。中枢只有一份清单、一份探测结果，和伙伴自己发布的橱窗副本。</text>
+  </g>
+</svg>

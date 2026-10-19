@@ -1,0 +1,160 @@
+{
+  "locale": {
+    "en": "EN",
+    "zh-CN": "简",
+    "zh-TW": "繁"
+  },
+  "portal": {
+    "title": "Knot 联邦",
+    "tagline": "Agent 时代的信息交换网络，一站一站连起来。",
+    "skipToContent": "跳到节点目录",
+    "switchLanguage": "语言",
+    "toDark": "切到深色",
+    "toLight": "切到浅色"
+  },
+  "hero": {
+    "wordmark": "KNOT",
+    "name": "联邦",
+    "eyebrow": "分布式网络 / AGENT 时代",
+    "protocol": "联邦协议 v1.0",
+    "summary": "中枢只读。这里汇总各站的站点简介、运行状态与展示片段；账号、内容、积分都留在各自的站点。"
+  },
+  "stats": {
+    "nodes": "节点",
+    "regions": "区域",
+    "sync": "最近同步",
+    "online": "在线"
+  },
+  "filter": {
+    "label": "区域",
+    "all": "全部"
+  },
+  "nodes": {
+    "label": "节点目录",
+    "onlineOnly": "只看在线",
+    "hotOnly": "只看热点"
+  },
+  "hot": {
+    "label": "热点",
+    "updated": "更新于 {when}",
+    "undated": "更新于未知",
+    "more": "另 {count} 条"
+  },
+  "status": {
+    "label": "状态",
+    "up": "正常",
+    "degraded": "缓慢",
+    "down": "不可达",
+    "unknown": "未探测",
+    "online": "{ok}/{total} 在线"
+  },
+  "instance": {
+    "lastOk": "上次可达 {when}",
+    "never": "从未可达",
+    "listed": "共 {count} 个",
+    "empty": "还没有收录的实例。",
+    "emptyFiltered": "没有符合当前筛选的站点。",
+    "checked": "探测于 {when}",
+    "tomorrow": "当地已是次日",
+    "yesterday": "当地还是前一日"
+  },
+  "tier": {
+    "demo": "示例",
+    "partner": "伙伴",
+    "community": "社区"
+  },
+  "region": {
+    "global": "全球",
+    "east-asia": "东亚",
+    "southeast-asia": "东南亚",
+    "south-asia": "南亚",
+    "central-asia": "中亚",
+    "middle-east": "中东",
+    "europe": "欧洲",
+    "north-america": "北美",
+    "latin-america": "拉美",
+    "africa": "非洲",
+    "oceania": "大洋洲",
+    "other": "其他"
+  },
+  "state": {
+    "loading": "正在同步节点目录…",
+    "error": "节点目录没有加载出来。",
+    "retry": "重试"
+  },
+  "footer": {
+    "disclaimer": "中枢不托管内容。数据、账号与积分留在各自的实例。",
+    "license": "源码按 Apache-2.0 发布",
+    "admin": "运营者入口"
+  },
+  "localeName": {
+    "en": "English",
+    "zh-CN": "简体中文",
+    "zh-TW": "繁體中文"
+  },
+  "map": {
+    "label": "联邦地图：{total} 个节点，{online} 个可达，{peers} 条节点间直连",
+    "hint": "点一个节点，跳到它那一行",
+    "peer": "绿线为节点间协议直连，数据可就地交换，不必绕中枢",
+    "title": "全球节点分布",
+    "global": "无固定区域",
+    "hub": "联邦中心"
+  },
+  "join": {
+    "eyebrow": "加入联邦",
+    "title": "申请加入 XKnot",
+    "lede": "手上已经跑着一个 Knot 站点？把信息留在这里。每条申请都由运营者人工看一遍，通过后才会出现在地图上。",
+    "step1": "提交申请",
+    "step1desc": "站点、运营者、联系方式。",
+    "step2": "人工审核",
+    "step2desc": "核对站点在线、自建、可访问。",
+    "step3": "写进清单",
+    "step3desc": "通过后并入实例清单，下次构建上线。",
+    "terms": "提交即表示站点遵守联邦约定：不托管他站内容，账号与数据留在自己的域名。",
+    "jump": "申请加入 →"
+  },
+  "form": {
+    "name": "站点名称",
+    "namePlaceholder": "例如：北港",
+    "url": "站点地址",
+    "intro": "一句话简介",
+    "introPlaceholder": "这个站点收什么，给谁看。",
+    "operator": "运营者",
+    "operatorPlaceholder": "个人或团队",
+    "email": "联系邮箱",
+    "region": "区域",
+    "regionPlaceholder": "选一个区域",
+    "timezone": "时区",
+    "timezoneHint": "按你的浏览器取，站点在别处可以改。",
+    "tags": "标签",
+    "tagsPlaceholder": "最多五个，逗号分隔",
+    "optional": "选填",
+    "agree": "站点遵守联邦约定，内容、账号与数据留在自己的域名。",
+    "submit": "提交申请",
+    "submitting": "正在提交…"
+  },
+  "formError": {
+    "summary": "还有几项需要改。",
+    "review": "回到表单",
+    "name": "名称填 2 到 40 个字。",
+    "url": "要一个公开的 https:// 地址。",
+    "operator": "写上运营者。",
+    "email": "邮箱看起来不完整。",
+    "region": "选一个区域。",
+    "timezone": "时区不认识。",
+    "intro": "一句，最多 60 字。",
+    "tags": "标签最多五个。",
+    "agree": "勾选同意后才能提交。",
+    "duplicate": "这个地址已经在审核队列里了。",
+    "rate": "提交太频繁，过一会儿再试。",
+    "generic": "没有提交成功，请再试一次。",
+    "offline": "接口没连上，确认 API 在运行。"
+  },
+  "done": {
+    "title": "申请已收到",
+    "body": "已经进入人工审核队列。有结果后会写到你填的邮箱。",
+    "ref": "申请编号",
+    "at": "提交时间",
+    "again": "再提交一份"
+  }
+}

@@ -1,0 +1,160 @@
+{
+  "locale": {
+    "en": "EN",
+    "zh-CN": "简",
+    "zh-TW": "繁"
+  },
+  "portal": {
+    "title": "Knot 聯邦",
+    "tagline": "Agent 時代的資訊交換網路，一站一站連起來。",
+    "skipToContent": "跳到節點目錄",
+    "switchLanguage": "語言",
+    "toDark": "切到深色",
+    "toLight": "切到淺色"
+  },
+  "hero": {
+    "wordmark": "KNOT",
+    "name": "聯邦",
+    "eyebrow": "分散式網路 / AGENT 時代",
+    "protocol": "聯邦協議 v1.0",
+    "summary": "中樞唯讀。這裡彙整各站的站點簡介、執行狀態與展示片段；帳號、內容、積分都留在各自的站點。"
+  },
+  "stats": {
+    "nodes": "節點",
+    "regions": "區域",
+    "sync": "最近同步",
+    "online": "線上"
+  },
+  "filter": {
+    "label": "區域",
+    "all": "全部"
+  },
+  "nodes": {
+    "label": "節點目錄",
+    "onlineOnly": "只看線上",
+    "hotOnly": "只看熱點"
+  },
+  "hot": {
+    "label": "熱點",
+    "updated": "更新於 {when}",
+    "undated": "更新時間未標註",
+    "more": "另 {count} 條"
+  },
+  "status": {
+    "label": "狀態",
+    "up": "正常",
+    "degraded": "緩慢",
+    "down": "不可達",
+    "unknown": "未探測",
+    "online": "{ok}/{total} 線上"
+  },
+  "instance": {
+    "lastOk": "上次可達 {when}",
+    "never": "從未可達",
+    "listed": "共 {count} 個",
+    "empty": "還沒有收錄的實例。",
+    "emptyFiltered": "沒有符合目前篩選的站點。",
+    "checked": "探測於 {when}",
+    "tomorrow": "當地已是次日",
+    "yesterday": "當地還是前一日"
+  },
+  "tier": {
+    "demo": "範例",
+    "partner": "夥伴",
+    "community": "社群"
+  },
+  "region": {
+    "global": "全球",
+    "east-asia": "東亞",
+    "southeast-asia": "東南亞",
+    "south-asia": "南亞",
+    "central-asia": "中亞",
+    "middle-east": "中東",
+    "europe": "歐洲",
+    "north-america": "北美",
+    "latin-america": "拉美",
+    "africa": "非洲",
+    "oceania": "大洋洲",
+    "other": "其他"
+  },
+  "state": {
+    "loading": "正在同步節點目錄…",
+    "error": "節點目錄沒有載入出來。",
+    "retry": "重試"
+  },
+  "footer": {
+    "disclaimer": "中樞不託管內容。資料、帳號與積分留在各自的實例。",
+    "license": "原始碼依 Apache-2.0 釋出",
+    "admin": "營運者入口"
+  },
+  "localeName": {
+    "en": "English",
+    "zh-CN": "简体中文",
+    "zh-TW": "繁體中文"
+  },
+  "map": {
+    "label": "聯邦地圖：{total} 個節點，{online} 個可達，{peers} 條節點間直連",
+    "hint": "點一個節點，跳到它那一列",
+    "peer": "綠線為節點間協議直連，資料可就地交換，不必繞中樞",
+    "title": "全球節點分佈",
+    "global": "無固定區域",
+    "hub": "聯邦中心"
+  },
+  "join": {
+    "eyebrow": "加入聯邦",
+    "title": "申請加入 XKnot",
+    "lede": "手上已經跑著一個 Knot 站點？把資訊留在這裡。每筆申請都由營運者人工看過，通過後才會出現在地圖上。",
+    "step1": "提交申請",
+    "step1desc": "站點、營運者、聯絡方式。",
+    "step2": "人工審核",
+    "step2desc": "核對站點線上、自建、可存取。",
+    "step3": "寫進清單",
+    "step3desc": "通過後併入實例清單，下次建置上線。",
+    "terms": "提交即表示站點遵守聯邦約定：不託管他站內容，帳號與資料留在自己的網域。",
+    "jump": "申請加入 →"
+  },
+  "form": {
+    "name": "站點名稱",
+    "namePlaceholder": "例如：北港",
+    "url": "站點位址",
+    "intro": "一句話簡介",
+    "introPlaceholder": "這個站點收什麼，給誰看。",
+    "operator": "營運者",
+    "operatorPlaceholder": "個人或團隊",
+    "email": "聯絡信箱",
+    "region": "區域",
+    "regionPlaceholder": "選一個區域",
+    "timezone": "時區",
+    "timezoneHint": "依你的瀏覽器取得，站點在別處可以改。",
+    "tags": "標籤",
+    "tagsPlaceholder": "最多五個，逗號分隔",
+    "optional": "選填",
+    "agree": "站點遵守聯邦約定，內容、帳號與資料留在自己的網域。",
+    "submit": "提交申請",
+    "submitting": "正在提交…"
+  },
+  "formError": {
+    "summary": "還有幾項需要修改。",
+    "review": "回到表單",
+    "name": "名稱填 2 到 40 個字。",
+    "url": "要一個公開的 https:// 位址。",
+    "operator": "寫上營運者。",
+    "email": "信箱看起來不完整。",
+    "region": "選一個區域。",
+    "timezone": "時區不認識。",
+    "intro": "一句，最多 60 字。",
+    "tags": "標籤最多五個。",
+    "agree": "勾選同意後才能提交。",
+    "duplicate": "這個位址已經在審核佇列裡了。",
+    "rate": "提交太頻繁，過一會兒再試。",
+    "generic": "沒有提交成功，請再試一次。",
+    "offline": "介面沒連上，確認 API 在執行。"
+  },
+  "done": {
+    "title": "申請已收到",
+    "body": "已經進入人工審核佇列。有結果後會寫到你填的信箱。",
+    "ref": "申請編號",
+    "at": "提交時間",
+    "again": "再提交一份"
+  }
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Knot Federation — a distributed information network</title>
+    <meta
+      name="description"
+      content="Knot Federation is a read-only hub for independent Knot instances. Site profiles, runtime status and showcases, sampled at build."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#F3F6FB" />
+    <meta name="color-scheme" content="light" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Knot Federation" />
+    <meta
+      property="og:description"
+      content="A distributed information network for the Agent era. Members run their own instances; the hub is an entry point only."
+    />
+    <link rel="canonical" href="https://xknot.si/en/" />
+    <link rel="alternate" hreflang="en" href="https://xknot.si/en/" />
+    <link rel="alternate" hreflang="zh-CN" href="https://xknot.si/zh-CN/" />
+    <link rel="alternate" hreflang="zh-TW" href="https://xknot.si/zh-TW/" />
+    <link rel="alternate" hreflang="x-default" href="https://xknot.si/en/" />
+    <script>
+      // 尽早把记住的主题贴上，避免刷新时先闪一下浅色。
+      try {
+        if (localStorage.getItem("xknot-theme") === "dark") {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

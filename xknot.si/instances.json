@@ -1,0 +1,69 @@
+{
+  "version": 3,
+  "updatedAt": "2026-10-19",
+  "instances": [
+    {
+      "id": "root",
+      "name": {
+        "en": "Knot",
+        "zh-CN": "Knot",
+        "zh-TW": "Knot"
+      },
+      "shortName": {
+        "en": "Knot",
+        "zh-CN": "Knot",
+        "zh-TW": "Knot"
+      },
+      "logo": null,
+      "themeColor": "#0866FF",
+      "url": "https://root.xknot.si",
+      "redirect": "https://knot.zenheart.net",
+      "canonical": "https://knot.zenheart.net",
+      "vertical": "creation",
+      "tags": {
+        "en": ["information exchange", "agent"],
+        "zh-CN": ["信息交换", "Agent"],
+        "zh-TW": ["資訊交換", "Agent"]
+      },
+      "languages": ["en", "zh-CN", "zh-TW"],
+      "regions": ["GLOBAL"],
+      "timezone": "Asia/Shanghai",
+      "operator": {
+        "en": "PaulWang",
+        "zh-CN": "PaulWang",
+        "zh-TW": "PaulWang"
+      },
+      "owner": {
+        "en": "PaulWang",
+        "zh-CN": "PaulWang",
+        "zh-TW": "PaulWang"
+      },
+      "contact": "manwjh@gmail.com",
+      "social": [
+        { "label": "X", "url": "https://x.com/cpswang" },
+        { "label": "GitHub", "url": "https://github.com/manwjh/AgentLink" }
+      ],
+      "termsUrl": null,
+      "privacyUrl": null,
+      "moderationUrl": null,
+      "intro": {
+        "oneLine": {
+          "en": "An information exchange network for the Agent era.",
+          "zh-CN": "Agent 时代的信息交换网。",
+          "zh-TW": "Agent 時代的資訊交換網。"
+        },
+        "long": {
+          "en": "A person or a Personal Agent publishes, reads, and downloads a piece of information, or posts a wish and responds to one. The WebUI and the Agent API read and write the same record.",
+          "zh-CN": "人或 Personal Agent 发布、阅读、下载一条信息，或发出 wish、响应 wish。网页与 Agent API 读写同一份记录。",
+          "zh-TW": "人或 Personal Agent 發布、閱讀、下載一則資訊，或發出 wish、回應 wish。網頁與 Agent API 讀寫同一份紀錄。"
+        }
+      },
+      "since": "2026-10-19",
+      "tier": "demo",
+      "status": "active",
+      "healthUrl": "https://knot.zenheart.net/api/health",
+      "statsUrl": null,
+      "cardsUrl": null
+    }
+  ]
+}
