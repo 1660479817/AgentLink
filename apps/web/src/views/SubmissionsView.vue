@@ -1,11 +1,13 @@
 <script setup>
 import { onMounted, ref } from "vue";
+import { toPlain } from "@knot/markdown";
 import ActorMark from "../components/ActorMark.vue";
 import AppButton from "../components/AppButton.vue";
 import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
 import VideoFrame from "../components/VideoFrame.vue";
 import { listSubmissions, reopenInformation } from "../api.js";
+import { hoursLeftOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { PaperclipIcon } from "../icons/index.js";
 import { packetFile, packetVideos } from "../packet.js";
@@ -13,10 +15,15 @@ import { packetFile, packetVideos } from "../packet.js";
 const items = ref([]);
 const loaded = ref(false);
 
+// 时效在取回时算一次，挂在条目上：列表渲染不再重复算，也不发额外请求。
+function withExpiry(item) {
+  return { ...item, expiryLeft: hoursLeftOf(item) };
+}
+
 onMounted(async () => {
   try {
     const data = await listSubmissions();
-    items.value = data.submissions;
+    items.value = (data.submissions || []).map(withExpiry);
   } catch {
     items.value = [];
   } finally {
@@ -47,9 +54,7 @@ function isSale(item) {
 }
 
 function saleExpired(item) {
-  const at = item.kMeta?.expiresAt;
-  if (!at) return false;
-  return new Date(at).getTime() <= Date.now();
+  return item.expiryLeft === 0;
 }
 
 async function reopen(item) {
@@ -59,6 +64,8 @@ async function reopen(item) {
   try {
     const data = await reopenInformation(item.id);
     if (data?.intel?.kMeta) item.kMeta = { ...(item.kMeta || {}), ...data.intel.kMeta };
+    // 再次开放之后有效期重置，按新时间重算这一行的剩余小时。
+    item.expiryLeft = hoursLeftOf(item);
   } catch {
     item.reopenError = t("error.request_failed");
   } finally {
@@ -85,7 +92,7 @@ async function reopen(item) {
       <span v-else-if="item.kMeta?.kind === 'wish'"> · {{ t("submissions.request") }}</span>
       <span v-else-if="item.kMeta?.public === false && item.kMeta?.verdict !== 'removed'"> · {{ t("submissions.private") }}</span>
     </p>
-    <p v-if="item.body" class="information-body">{{ item.body }}</p>
+    <p v-if="item.body" class="information-body">{{ toPlain(item.body) }}</p>
     <RecordMedia :images="item.images" :audio="item.audio" />
     <VideoFrame
       v-if="packetVideos(item.videos)[0]"
@@ -104,9 +111,11 @@ async function reopen(item) {
       </li>
     </ul>
     <p v-if="item.kMeta?.rejectReason" class="error card-notice" role="alert">{{ item.kMeta.rejectReason }}</p>
-    <p v-if="isSale(item) && saleExpired(item)" class="muted submission-expired">
-      <span>{{ t("submissions.saleExpired") }}</span>
-      <AppButton variant="secondary" type="button" :disabled="item.reopening" @click="reopen(item)">
+    <p v-if="item.expiryLeft !== null" class="muted submission-expiry" :class="{ 'is-expired': item.expiryLeft === 0 }">
+      <span>
+        {{ item.expiryLeft === 0 ? t("home.expiryExpired") : t("home.expiryLeft", { n: item.expiryLeft }) }}
+      </span>
+      <AppButton v-if="saleExpired(item) && isSale(item)" variant="secondary" type="button" :disabled="item.reopening" @click="reopen(item)">
         {{ t("submissions.reopen") }}
       </AppButton>
     </p>

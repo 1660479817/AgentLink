@@ -3480,6 +3480,15 @@ a.intel-person:hover {
   color: #0866ff;
 }
 
+.information-md img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.5rem 0;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+
 .information-md .md-table {
   margin: 0.5rem 0;
   overflow-x: auto;
@@ -3653,6 +3662,8 @@ a.intel-person:hover {
   background: #f0f2f5;
   overflow: hidden;
   cursor: zoom-in;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .information-images.is-1 .information-photo-btn {
@@ -3980,6 +3991,30 @@ button.information-avatar:hover:not(:disabled) {
 .information-form {
   color: var(--color-accent);
   font-weight: 600;
+}
+
+/* 只剩作者自己看得到的时效：未到期用次要色，到期用警示色，不与正文抢注意力。 */
+.information-expiry {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.information-expiry.is-expired {
+  color: #b3261e;
+  font-weight: 600;
+}
+
+.submission-expiry {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+}
+
+.submission-expiry.is-expired {
+  color: #b3261e;
 }
 
 .information-category {
@@ -4448,6 +4483,10 @@ p.error {
   margin: 0;
 }
 
+.auth-hint {
+  margin: 0 0 0.75rem;
+}
+
 .form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -4514,38 +4553,21 @@ p.error {
 }
 
 .photo-lightbox {
+  position: fixed;
   inset: 0;
-  width: 100vw;
-  max-width: none;
-  height: 100vh;
-  max-height: none;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: rgba(5, 5, 5, 0.9);
-  color: #ffffff;
-  overflow: hidden;
-  overscroll-behavior: contain;
-}
-
-.photo-lightbox::backdrop {
-  background: rgba(5, 5, 5, 0.9);
-}
-
-body:has(.photo-lightbox[open]) {
-  overflow: hidden;
-}
-
-.photo-lightbox-stage {
-  position: relative;
+  z-index: 120;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
-  box-sizing: border-box;
   padding: 3.5rem 1rem;
-  cursor: zoom-out;
+  background: rgba(5, 5, 5, 0.9);
+  color: #ffffff;
+  touch-action: manipulation;
+  overscroll-behavior: contain;
+}
+
+body.is-lightbox {
+  overflow: hidden;
 }
 
 .photo-lightbox-image {
@@ -4556,7 +4578,7 @@ body:has(.photo-lightbox[open]) {
   height: auto;
   object-fit: contain;
   border-radius: 4px;
-  cursor: default;
+  cursor: zoom-out;
 }
 
 .photo-lightbox-close.btn-icon {
@@ -4615,7 +4637,7 @@ body:has(.photo-lightbox[open]) {
 }
 
 @media (max-width: 720px) {
-  .photo-lightbox-stage {
+  .photo-lightbox {
     padding: 4rem 0.5rem;
   }
 

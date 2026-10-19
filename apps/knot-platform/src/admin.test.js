@@ -20,6 +20,7 @@ import {
 } from "./admin.js";
 import { assertCanSpeak, muteState } from "./account.js";
 import { adminRouter } from "./routes/admin.js";
+import { installSystemPolicy, resetSystemPolicy } from "./system.js";
 
 const POST_ID = "23737bf5-537f-441f-bc86-bf230d1cf9ed";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -505,6 +506,97 @@ test("the admin door checks the token before it acts", async () => {
     assert.deepEqual(await rejected.json(), { error: "bad_amount" });
   } finally {
     server2.close();
+  }
+});
+
+test("the system door flips switches and records the change", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("INSERT INTO system_policy")) return { rows: [{ updated_at: new Date("2026-10-19T00:00:00Z") }] };
+      return { rows: [] };
+    },
+  };
+  installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: true });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/admin", adminRouter({ pool, token: "secret" }));
+  const server = await listen(app);
+  try {
+    const port = server.address().port;
+    const response = await fetch(`http://127.0.0.1:${port}/api/admin/system`, {
+      method: "PATCH",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ guestBrowsing: false }),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.system.guestBrowsing, false);
+    // 关掉站内浏览，公开快照一起关。
+    assert.equal(body.system.publicBoard, false);
+    assert.equal(body.system.registrationMode, "open");
+    const audit = calls.find((call) => call.sql.includes("INSERT INTO admin_actions"));
+    assert.equal(audit.params[0], "站内浏览、公开快照");
+
+    const read = await fetch(`http://127.0.0.1:${port}/api/admin/system`, {
+      headers: { Authorization: "Bearer secret" },
+    });
+    assert.equal((await read.json()).system.guestBrowsing, false);
+  } finally {
+    server.close();
+    resetSystemPolicy();
+  }
+});
+
+test("the invite door hands out a code and rejects a taken one", async () => {
+  const pool = {
+    async query(sql, params) {
+      if (!sql.includes("INSERT INTO invite_codes")) return { rows: [] };
+      if (params[0] === "TAKEN") {
+        const error = new Error("duplicate key");
+        error.code = "23505";
+        throw error;
+      }
+      return {
+        rows: [
+          {
+            id: "inv-1",
+            code: params[0],
+            note: params[1],
+            max_uses: params[2],
+            used_count: 0,
+            expires_at: params[3],
+            disabled_at: null,
+            created_at: new Date("2026-10-19T00:00:00Z"),
+          },
+        ],
+      };
+    },
+  };
+  const app = express();
+  app.use(express.json());
+  app.use("/api/admin", adminRouter({ pool, token: "secret" }));
+  const server = await listen(app);
+  const post = (body) =>
+    fetch(`http://127.0.0.1:${server.address().port}/api/admin/invites`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  try {
+    const created = await post({ code: "party 2026", maxUses: 2, note: "首批" });
+    assert.equal(created.status, 201);
+    const { invite } = await created.json();
+    assert.equal(invite.code, "PARTY2026");
+    assert.equal(invite.remaining, 2);
+    assert.equal(invite.usable, true);
+
+    const taken = await post({ code: "TAKEN" });
+    assert.equal(taken.status, 409);
+    assert.deepEqual(await taken.json(), { error: "code_taken" });
+  } finally {
+    server.close();
   }
 });
 

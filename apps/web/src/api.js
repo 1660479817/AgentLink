@@ -18,8 +18,11 @@ export function getSession() {
   return request("/api/web/session");
 }
 
-export function requestLoginKey(email) {
-  return request("/api/web/login", { method: "POST", body: JSON.stringify({ email }) });
+export function requestLoginKey(email, inviteCode) {
+  const body = { email };
+  const code = String(inviteCode || "").trim();
+  if (code) body.inviteCode = code;
+  return request("/api/web/login", { method: "POST", body: JSON.stringify(body) });
 }
 
 export function confirmLoginKey(email, key) {

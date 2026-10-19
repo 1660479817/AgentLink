@@ -10,16 +10,28 @@ const INITIAL_POLICY = {
   serviceFeeCap: 10,
 };
 
+// 后端还没回话时按最保守的开关：未登录停在登录/注册页，快照不读。
+const INITIAL_SITE = {
+  guestBrowsing: false,
+  registrationMode: "open",
+  publicBoard: false,
+};
+
 let loading = null;
 
 export const useSessionStore = defineStore("session", {
   state: () => ({
     user: null,
     policy: { ...INITIAL_POLICY },
+    site: { ...INITIAL_SITE },
     ready: false,
     region: "zh-CN",
     agentDelegated: null,
   }),
+  getters: {
+    // 未登录能不能进站内。登录的人永远可以；访客看系统开关。
+    canBrowse: (state) => Boolean(state.user) || state.site.guestBrowsing,
+  },
   actions: {
     load() {
       if (loading) return loading;
@@ -28,10 +40,12 @@ export const useSessionStore = defineStore("session", {
           const data = await getSession();
           this.user = data.user;
           if (data.policy) this.policy = data.policy;
+          if (data.site && typeof data.site === "object") this.site = { ...INITIAL_SITE, ...data.site };
           if (typeof data.region === "string" && data.region) this.region = data.region;
           if (this.user) this.refreshAgent();
         } catch {
           this.user = null;
+          this.site = { ...INITIAL_SITE };
           this.agentDelegated = null;
         } finally {
           this.ready = true;
@@ -52,8 +66,8 @@ export const useSessionStore = defineStore("session", {
         this.agentDelegated = null;
       }
     },
-    async requestKey(email) {
-      await requestLoginKey(email);
+    async requestKey(email, inviteCode) {
+      await requestLoginKey(email, inviteCode);
     },
     async confirmKey(email, key) {
       const data = await confirmLoginKey(email, key);

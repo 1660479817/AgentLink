@@ -6,7 +6,7 @@
 set -euo pipefail
 
 BOARD="${1:?board directory}"
-EDGE="${KNOT_EDGE_SSH:-ec2-user@16.162.24.182}"
+EDGE="${KNOT_EDGE_SSH:-ec2-user@54.169.33.64}"
 EDGE_KEY="${KNOT_EDGE_SSH_KEY:-$HOME/.ssh/id_rsa}"
 SSH_OPTS=(-o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -i "$EDGE_KEY")
 

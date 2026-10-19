@@ -142,6 +142,28 @@ export function fileView(row) {
   };
 }
 
+// 一次查询把一批记录的附件取齐，按 intel_id 分组。列表、快照、Agent 读路径共用这一份，
+// 不要各自再抄一遍 SQL：口径（图片/音频/附件的分类）只在这里定。
+export async function filesByIntel(pool, ids) {
+  const byId = new Map();
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  if (!unique.length) return byId;
+  const { rows } = await pool.query(
+    `SELECT f.intel_id, u.id, u.mime, u.original_name, u.size
+     FROM intel_files f
+     JOIN uploads u ON u.id = f.upload_id
+     WHERE f.intel_id = ANY($1::uuid[])
+     ORDER BY f.sort_order ASC, f.upload_id ASC`,
+    [unique]
+  );
+  for (const row of rows) {
+    const list = byId.get(row.intel_id) || [];
+    list.push(fileView(row));
+    byId.set(row.intel_id, list);
+  }
+  return byId;
+}
+
 function metaContent(tag, name) {
   const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
   return match ? match[1] || match[2] || match[3] || "" : "";

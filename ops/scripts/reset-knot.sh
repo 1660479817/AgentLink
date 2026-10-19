@@ -165,7 +165,18 @@ if [[ -d "$UPLOAD_DIR" ]]; then
       removed=$((removed + 1))
     fi
   done < <(find "$UPLOAD_DIR" -maxdepth 1 -type f)
-  rm -rf "$UPLOAD_DIR/packets" "$UPLOAD_DIR/previews" "$UPLOAD_DIR/shares" "$UPLOAD_DIR/extracts"
+  rm -rf "$UPLOAD_DIR/derived" "$UPLOAD_DIR/tmp" "$UPLOAD_DIR/packets" "$UPLOAD_DIR/previews" "$UPLOAD_DIR/shares" "$UPLOAD_DIR/extracts"
+  # blobs 分片里的原件按库里的保留清单再扫一遍，刚被删的帖子才真正落下。
+  if [[ -d "$UPLOAD_DIR/blobs" ]]; then
+    while IFS= read -r file; do
+      [[ -z "$file" ]] && continue
+      base="$(basename "$file")"
+      if ! grep -Fxq "$base" <<<"$kept"; then
+        rm -f "$file"
+        removed=$((removed + 1))
+      fi
+    done < <(find "$UPLOAD_DIR/blobs" -type f)
+  fi
 fi
 
 if [[ -x "$KNOT_HOME/ops/scripts/ensure-tester.sh" ]]; then

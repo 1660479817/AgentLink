@@ -174,7 +174,9 @@
     "loadMore": "載入更多",
     "loadingMore": "正在載入",
     "noMore": "沒有更多了",
-    "personCard": "查看 {name} 的資訊"
+    "personCard": "查看 {name} 的資訊",
+    "expiryLeft": "還剩 {n} 小時",
+    "expiryExpired": "已到期"
   },
   "search": {
     "back": "返回",
@@ -209,7 +211,6 @@
     "private": "不公開",
     "request": "wish",
     "requestReply": "wish 回應",
-    "saleExpired": "出售已到期",
     "reopen": "再次開放"
   },
   "mine": {
@@ -217,6 +218,10 @@
     "login": "請先登入",
     "authTitle": "登入 / 註冊",
     "authHint": "登入金鑰發到這個電子郵件。",
+    "inviteCode": "邀請碼",
+    "invitePlaceholder": "新帳戶需要邀請碼",
+    "inviteHint": "已有帳戶直接登入，不用填。",
+    "closedHint": "註冊暫未開放，已有帳戶仍可登入。",
     "email": "電子郵件",
     "emailPlaceholder": "name@example.com",
     "sendKey": "寄出金鑰",
@@ -328,6 +333,9 @@
   },
   "error": {
     "no_session": "請先登入",
+    "invite_required": "這個站點需要邀請碼",
+    "bad_invite": "邀請碼不對，或已經用完",
+    "registration_closed": "註冊暫未開放",
     "bad_email": "這個電子郵件不能用",
     "bad_key": "金鑰不對，或已經過期",
     "mail_unavailable": "郵件暫時寄不出去",
@@ -355,6 +363,7 @@
     "bad_public": "公開只能是開或關",
     "upload_failed": "上傳失敗",
     "file_too_large": "附件不能超過 50MB",
+    "quota_exceeded": "上傳空間已滿，刪掉一些舊檔案後再試",
     "not_found": "沒有找到",
     "bad_state": "這一步現在不能做",
     "muted": "你暫時不能發布",

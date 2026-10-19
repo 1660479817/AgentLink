@@ -6,6 +6,7 @@ import InformationCard from "../components/InformationCard.vue";
 import { StarIcon } from "../icons/index.js";
 import { addCardFriend, dismissInformation, downloadInformation, downloadShare, likeInformation, listStars, removeCardFriend, unlikeInformation, unstarInformation } from "../api.js";
 import { acceptDownload } from "../download/consent.js";
+import { cardIsMine } from "../discoverBoard.js";
 import { feeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { useFriendStore } from "../stores/friends";
@@ -166,6 +167,9 @@ onMounted(load);
       :avatar-url="item.author?.avatarUrl || ''"
       :actor="item.actor || ''"
       :created-at="item.kMeta?.createdAt || ''"
+      :kind="item.kMeta?.kind || ''"
+      :expires-at="item.kMeta?.expiresAt || ''"
+      :mine="cardIsMine(item, session.user)"
       :starred="true"
       :liked="Boolean(item.liked)"
       :friend="Boolean(item.friend)"

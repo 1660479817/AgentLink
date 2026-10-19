@@ -3,7 +3,7 @@
 # 云端 127.0.0.1:8080 是另一套站点，不能占用。
 set -euo pipefail
 KEY="${KNOT_EDGE_KEY:-$HOME/.ssh/knot-edge}"
-HOST="${KNOT_EDGE_HOST:-knot-tunnel@16.162.24.182}"
+HOST="${KNOT_EDGE_HOST:-knot-tunnel@54.169.33.64}"
 exec /usr/bin/ssh -N \
   -i "$KEY" \
   -o BatchMode=yes \

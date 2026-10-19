@@ -25,6 +25,8 @@ router.beforeEach(async (to) => {
   const session = useSessionStore();
   if (!session.ready) await session.load();
   if (to.name === "gate" && session.user) return { name: "discover" };
+  // 站内浏览关掉时，未登录只能停在登录/注册页。
+  if (!session.canBrowse) return to.name === "gate" ? true : { name: "gate" };
   if ((to.name === "mine" || to.name === "submissions") && !session.user) return { name: "gate" };
   return true;
 });

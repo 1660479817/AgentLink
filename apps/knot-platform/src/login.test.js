@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adminEmail, defaultDisplayName, feedbackMessage, isAdminUser, loginKeyMessage, newLoginKey, normalizeLoginKey, redeemLoginKey } from "./login.js";
+import { adminEmail, defaultDisplayName, feedbackMessage, isAdminUser, loginKeyMessage, newLoginKey, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "./login.js";
+import { installSystemPolicy, resetSystemPolicy } from "./system.js";
 
 test("login key is six digits", () => {
   for (let i = 0; i < 30; i += 1) {
@@ -75,18 +76,26 @@ test("a complaint letter names the account and keeps the text", () => {
   assert.match(message.text, /页面打不开/);
 });
 
+const TX = /^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/;
+
+function poolWith(handler) {
+  const query = async (sql, params) => {
+    if (TX.test(sql)) return { rowCount: 0, rows: [] };
+    return handler(sql, params);
+  };
+  return { query, connect: async () => ({ query, release() {} }) };
+}
+
 function redeemPool(insertUser) {
   const inserts = [];
-  const pool = {
-    async query(sql, params) {
-      if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "key-1" }] };
-      if (sql.includes("INSERT INTO users")) {
-        inserts.push(params);
-        return insertUser(inserts.length, params);
-      }
-      throw new Error(sql);
-    },
-  };
+  const pool = poolWith((sql, params) => {
+    if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "key-1" }] };
+    if (sql.includes("INSERT INTO users")) {
+      inserts.push(params);
+      return insertUser(inserts.length, params);
+    }
+    throw new Error(sql);
+  });
   return { pool, inserts };
 }
 
@@ -123,11 +132,93 @@ test("a unique clash that is not the display name is not retried", async () => {
 });
 
 test("a wrong key never writes an account", async () => {
-  const pool = {
+  const pool = poolWith((sql) => {
+    if (sql.includes("UPDATE login_keys")) return { rowCount: 0, rows: [] };
+    throw new Error("should not insert");
+  });
+  assert.deepEqual(await redeemLoginKey(pool, "paul@example.com", "000000"), { error: "bad_key", status: 400 });
+});
+
+function gatedPool({ inserted = true, inviteId = null, consume = true } = {}) {
+  return poolWith((sql) => {
+    if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "key-1", invite_code_id: inviteId }] };
+    if (sql.includes("INSERT INTO users")) return { rows: [{ id: "user-1", points_balance: 100, inserted }] };
+    if (sql.includes("UPDATE invite_codes")) return { rowCount: consume ? 1 : 0, rows: consume ? [{ id: inviteId }] : [] };
+    if (sql.includes("INSERT INTO invite_redemptions")) return { rowCount: 1, rows: [] };
+    throw new Error(sql);
+  });
+}
+
+test("邀请制下新账户必须带着能用的码", async () => {
+  installSystemPolicy({ guestBrowsing: false, registrationMode: "invite", publicBoard: false });
+  try {
+    assert.deepEqual(await redeemLoginKey(gatedPool({ inviteId: null }), "new@example.com", "048291"), {
+      error: "invite_required",
+      status: 400,
+    });
+    assert.deepEqual(await redeemLoginKey(gatedPool({ inviteId: "inv-1", consume: false }), "new@example.com", "048291"), {
+      error: "bad_invite",
+      status: 400,
+    });
+    assert.deepEqual(await redeemLoginKey(gatedPool({ inviteId: "inv-1" }), "new@example.com", "048291"), {
+      userId: "user-1",
+      pointsBalance: 100,
+    });
+  } finally {
+    resetSystemPolicy();
+  }
+});
+
+test("暂停注册只挡新账户，老账户照常登录", async () => {
+  installSystemPolicy({ guestBrowsing: false, registrationMode: "closed", publicBoard: false });
+  try {
+    assert.deepEqual(await redeemLoginKey(gatedPool(), "new@example.com", "048291"), {
+      error: "registration_closed",
+      status: 403,
+    });
+    assert.deepEqual(await redeemLoginKey(gatedPool({ inserted: false }), "old@example.com", "048291"), {
+      userId: "user-1",
+      pointsBalance: 100,
+    });
+  } finally {
+    resetSystemPolicy();
+  }
+});
+
+function requestPool({ existing = false, invite = false } = {}) {
+  return {
     async query(sql) {
-      if (sql.includes("UPDATE login_keys")) return { rowCount: 0, rows: [] };
-      throw new Error("should not insert");
+      if (sql.includes("FROM login_keys")) return { rowCount: 0, rows: [] };
+      if (sql.includes("FROM users")) return { rows: existing ? [{ exists: 1 }] : [] };
+      if (sql.includes("FROM invite_codes")) return { rows: invite ? [{ id: "inv-1" }] : [] };
+      if (sql.includes("INSERT INTO login_keys")) throw new Error("passed_gate");
+      throw new Error(sql);
     },
   };
-  assert.deepEqual(await redeemLoginKey(pool, "paul@example.com", "000000"), { error: "bad_key", status: 400 });
+}
+
+test("暂停注册时不给新邮箱发密钥", async () => {
+  installSystemPolicy({ guestBrowsing: false, registrationMode: "closed", publicBoard: false });
+  try {
+    assert.deepEqual(await requestLoginKey(requestPool(), "new@example.com"), {
+      error: "registration_closed",
+      status: 403,
+    });
+  } finally {
+    resetSystemPolicy();
+  }
+});
+
+test("邀请制先验码再发密钥，已有账户不看码", async () => {
+  installSystemPolicy({ guestBrowsing: false, registrationMode: "invite", publicBoard: false });
+  try {
+    assert.deepEqual(await requestLoginKey(requestPool(), "new@example.com"), { error: "invite_required", status: 400 });
+    assert.deepEqual(await requestLoginKey(requestPool(), "new@example.com", { inviteCode: "NOPE" }), {
+      error: "bad_invite",
+      status: 400,
+    });
+    await assert.rejects(() => requestLoginKey(requestPool({ existing: true }), "old@example.com"), /passed_gate/);
+  } finally {
+    resetSystemPolicy();
+  }
 });

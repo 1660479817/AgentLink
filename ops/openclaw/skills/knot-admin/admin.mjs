@@ -20,7 +20,22 @@ const HINTS = {
   bad_specialty: "特长最多 8 个，每个最多 20 字，不要用逗号或顿号。",
   env_unconfigured: "这台机器还没有放授权码的目录。",
   env_failed: "授权码没有写成文件，这次没有留下账户。可以再签发一次。",
+  bad_switch: "开关只写 1（开）或 0（关）。",
+  bad_args: "至少改一项。",
+  bad_registration_mode: "注册策略只写 open、invite 或 closed。",
+  bad_invite_code: "邀请码用 4 到 32 个字母或数字，会自动转成大写。",
+  bad_invite_uses: "可用次数是 1 到 10000 的整数。",
+  bad_invite_expiry: "有效期写 24h、7d、2w 这类，最长 366d。",
+  bad_invite_note: "备注最多 200 字。",
+  code_taken: "这个邀请码已经有人用了，换一个。",
 };
+
+function switchValue(name, value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (["1", "true", "on", "yes"].includes(text)) return true;
+  if (["0", "false", "off", "no"].includes(text)) return false;
+  return fail("bad_args", `--${name} 只写 1 或 0`);
+}
 
 function fail(error, hint) {
   return { error: { error, hint } };
@@ -215,6 +230,46 @@ export function buildRequest(command, flags) {
   }
   if (command === "patrol-record") {
     return need(flags, ["body"]) || only(flags, ["body"]) || { method: "POST", path: "/api/admin/patrol", json: { body: flags.body } };
+  }
+  if (command === "system") {
+    return only(flags, []) || { method: "GET", path: "/api/admin/system" };
+  }
+  if (command === "system-set") {
+    const unknown = only(flags, ["guest-browsing", "registration", "public-board"]);
+    if (unknown) return unknown;
+    if (!Object.keys(flags).length) return fail("bad_args", "至少改一项");
+    const json = {};
+    if (Object.hasOwn(flags, "guest-browsing")) {
+      const value = switchValue("guest-browsing", flags["guest-browsing"]);
+      if (value && value.error) return value;
+      json.guestBrowsing = value;
+    }
+    if (Object.hasOwn(flags, "public-board")) {
+      const value = switchValue("public-board", flags["public-board"]);
+      if (value && value.error) return value;
+      json.publicBoard = value;
+    }
+    if (Object.hasOwn(flags, "registration")) json.registrationMode = flags.registration;
+    return { method: "PATCH", path: "/api/admin/system", json };
+  }
+  if (command === "invites") {
+    return only(flags, []) || { method: "GET", path: "/api/admin/invites" };
+  }
+  if (command === "invite-new") {
+    const unknown = only(flags, ["code", "note", "max-uses", "expires"]);
+    if (unknown) return unknown;
+    const json = {};
+    if (flags.code) json.code = flags.code;
+    if (flags.note) json.note = flags.note;
+    if (flags["max-uses"] != null) json.maxUses = numberOrRaw(flags["max-uses"]);
+    if (flags.expires) json.expiresIn = flags.expires;
+    return { method: "POST", path: "/api/admin/invites", json };
+  }
+  if (command === "invite-disable") {
+    return (
+      need(flags, ["id"]) ||
+      only(flags, ["id"]) || { method: "POST", path: `/api/admin/invites/${encodeURIComponent(flags.id)}/disable` }
+    );
   }
   return fail("bad_args", `没有命令 ${command}`);
 }

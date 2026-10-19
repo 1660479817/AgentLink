@@ -53,6 +53,9 @@ if [[ "$migrated" != 1 ]]; then
   exit 1
 fi
 
+echo "==> move uploads into blobs/ and derived/"
+node apps/knot-platform/scripts/migrate-storage-layout.mjs --apply
+
 if [[ ! -f "$ENV_FILE" ]]; then
   cat >"$ENV_FILE" <<EOF
 PORT=8080
@@ -87,6 +90,17 @@ install_plist() {
 
 install_plist "$KNOT_HOME/ops/launchd/com.knot.postgres.plist" "com.knot.postgres"
 install_plist "$KNOT_HOME/ops/launchd/com.knot.platform.plist" "com.knot.platform"
+
+chmod +x "$KNOT_HOME/ops/scripts/backup-knot.sh" "$KNOT_HOME/ops/scripts/audit-knot-storage.sh" "$KNOT_HOME/ops/scripts/gc-knot-storage.sh"
+if [[ -n "${KNOT_BACKUP_DIR:-}" ]]; then
+  install_plist "$KNOT_HOME/ops/launchd/com.knot.backup.plist" "com.knot.backup"
+else
+  echo "==> KNOT_BACKUP_DIR 未配置，不装备份 LaunchAgent"
+  launchctl bootout "$DOMAIN/com.knot.backup" 2>/dev/null || true
+fi
+
+# 每月 1 日 04:45 只出回收报告，不删。要真删得人工加 --apply。
+install_plist "$KNOT_HOME/ops/launchd/com.knot.gc.plist" "com.knot.gc"
 
 sleep 2
 curl -sf "http://127.0.0.1:8080/api/health" && echo

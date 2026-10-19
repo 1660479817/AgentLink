@@ -14,6 +14,7 @@ import { resumePendingReviews } from "./market.js";
 import { resumePendingRetrievals } from "./retrieval.js";
 import { agentRouter } from "./routes/agent.js";
 import { renderHelp } from "./helpPage.js";
+import { loadSystemPolicy, publicBoardEnabled } from "./system.js";
 
 // 产品版本跟着 apps/knot-platform/package.json 走，别在这里另写一份。
 const SERVICE_VERSION = JSON.parse(
@@ -23,11 +24,21 @@ const SERVICE_VERSION = JSON.parse(
 const bootstrap = loadBootstrapConfig();
 const pool = getPool(bootstrap.databaseUrl);
 
+// 先读系统开关，公开快照的首次写入和下面的内容接口都按它来。
+await loadSystemPolicy(pool);
+
 const app = express();
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(createSessionMiddleware({ pool, sessionCookieName: bootstrap.sessionCookieName }));
+
+// 上传的文件按自己的 MIME 回源。禁止嗅探，避免浏览器把图片当页面执行。
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -80,6 +91,7 @@ app.use(
 const discoverBoard = bindDiscoverBoard({ pool, uploadDir: bootstrap.uploadDir });
 
 app.get("/discover.json", async (_req, res, next) => {
+  if (!publicBoardEnabled()) return res.status(404).json({ error: "not_found" });
   try {
     const file = await discoverBoard.file();
     res.set("Cache-Control", "public, max-age=0, must-revalidate");
@@ -90,6 +102,7 @@ app.get("/discover.json", async (_req, res, next) => {
   }
 });
 
+app.use("/media/previews", (_req, res, next) => (publicBoardEnabled() ? next() : res.status(404).end()));
 app.use("/media/previews", express.static(discoverBoard.previewDir(), { maxAge: "1d" }));
 app.use("/media/previews", (_req, res) => res.status(404).end());
 

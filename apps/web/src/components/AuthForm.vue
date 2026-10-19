@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import AppButton from "./AppButton.vue";
 import { t } from "../i18n/index.js";
 import { useSessionStore } from "../stores/session";
@@ -9,7 +9,10 @@ const error = ref("");
 const busy = ref(false);
 const email = ref("");
 const loginKey = ref("");
+const inviteCode = ref("");
 const keySent = ref(false);
+const inviteMode = computed(() => session.site.registrationMode === "invite");
+const closedMode = computed(() => session.site.registrationMode === "closed");
 
 function showError(err) {
   const key = `error.${err.code}`;
@@ -21,7 +24,7 @@ async function sendKey() {
   error.value = "";
   busy.value = true;
   try {
-    await session.requestKey(email.value);
+    await session.requestKey(email.value, inviteCode.value);
     keySent.value = true;
     loginKey.value = "";
   } catch (err) {
@@ -64,6 +67,19 @@ function changeEmail() {
         :disabled="busy"
       />
     </div>
+    <div v-if="inviteMode" class="auth-line">
+      <label class="auth-label" for="login-invite">{{ t("mine.inviteCode") }}</label>
+      <input
+        id="login-invite"
+        v-model="inviteCode"
+        type="text"
+        autocomplete="off"
+        :placeholder="t('mine.invitePlaceholder')"
+        :disabled="busy"
+      />
+    </div>
+    <p v-if="inviteMode" class="muted auth-hint">{{ t("mine.inviteHint") }}</p>
+    <p v-else-if="closedMode" class="muted auth-hint">{{ t("mine.closedHint") }}</p>
     <div class="form-actions">
       <AppButton type="submit" :disabled="busy || !email.trim()">{{ t("mine.sendKey") }}</AppButton>
     </div>

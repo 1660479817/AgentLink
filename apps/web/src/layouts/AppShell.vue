@@ -161,7 +161,7 @@ onUnmounted(() => {
           <span class="brand-mark" aria-hidden="true">{{ mark }}</span>
         </a>
         <AppButton
-          v-if="!searchOpen"
+          v-if="!searchOpen && session.canBrowse"
           variant="icon"
           :aria-label="t('nav.search')"
           @click="openSearch"
@@ -185,10 +185,10 @@ onUnmounted(() => {
           </label>
         </form>
         <div class="header-side header-side-end">
-          <AppButton variant="icon" to="/wish" :aria-label="t('nav.market')">
+          <AppButton v-if="session.canBrowse" variant="icon" to="/wish" :aria-label="t('nav.market')">
             <ChatIcon class="nav-icon" weight="header" aria-hidden="true" />
           </AppButton>
-          <AppButton variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
+          <AppButton v-if="session.canBrowse" variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
             <BellIcon class="nav-icon" weight="header" aria-hidden="true" />
             <span v-if="notifications.unread > 0" class="nav-badge">{{
               notifications.unread > 99 ? "99+" : notifications.unread

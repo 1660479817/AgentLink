@@ -1,3 +1,5 @@
+import { documentDescription, documentTitle, escapeHtml, toHtml } from "@knot/markdown";
+
 const PAGE_STYLE = `
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
@@ -121,15 +123,18 @@ export function renderHelp(markdown, accept) {
   return { contentType: "text/markdown; charset=utf-8", body: String(markdown) };
 }
 
+// 和 WebUI 用同一份解析器。页面上标题最多到 h3，表格沿用 .table-wrap 的横向滚动。
 export function helpDocument(markdown) {
-  const doc = renderMarkdown(markdown);
+  const title = documentTitle(markdown) || "Knot";
+  const description = documentDescription(markdown);
+  const body = toHtml(markdown, { maxHeading: 3, tableClass: "table-wrap" });
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<meta name="description" content="${escapeHtml(doc.description)}">
-<title>${escapeHtml(doc.title)}</title>
+<meta name="description" content="${escapeHtml(description)}">
+<title>${escapeHtml(title)}</title>
 <style>${PAGE_STYLE}</style>
 </head>
 <body>
@@ -138,278 +143,10 @@ export function helpDocument(markdown) {
 </header>
 <main>
 <article>
-${doc.body}
+${body}
 </article>
 </main>
 </body>
 </html>
 `;
-}
-
-function renderMarkdown(markdown) {
-  const lines = String(markdown).replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").split("\n");
-  return {
-    title: documentTitle(lines),
-    description: documentDescription(lines),
-    body: renderBlocks(lines),
-  };
-}
-
-function documentTitle(lines) {
-  for (const line of lines) {
-    const heading = /^#[ \t]+(.*\S)\s*$/.exec(line);
-    if (heading) return plain(heading[1]);
-  }
-  return "Knot";
-}
-
-function documentDescription(lines) {
-  let fenced = false;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (/^[ \t]*(?:```|~~~)/.test(line)) {
-      fenced = !fenced;
-      continue;
-    }
-    if (fenced || !line.trim()) continue;
-    if (/^ {0,3}#{1,6}[ \t]+/.test(line)) continue;
-    if (LIST_ITEM.test(line)) continue;
-    if (/^ {0,3}>/.test(line)) continue;
-    if (isSeparator(line) || isTableStart(lines, i)) continue;
-    return plain(line);
-  }
-  return "";
-}
-
-function renderBlocks(lines) {
-  const blocks = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-
-    if (/^[ \t]*(?:```|~~~)/.test(line)) {
-      const buf = [];
-      i += 1;
-      while (i < lines.length && !/^[ \t]*(?:```|~~~)/.test(lines[i])) {
-        buf.push(lines[i]);
-        i += 1;
-      }
-      if (i < lines.length) i += 1;
-      blocks.push(`<pre><code>${escapeHtml(buf.join("\n"))}</code></pre>`);
-      continue;
-    }
-
-    if (isTableStart(lines, i)) {
-      const rows = [splitRow(lines[i])];
-      i += 2;
-      while (i < lines.length && lines[i].trim() && lines[i].includes("|")) {
-        rows.push(splitRow(lines[i]));
-        i += 1;
-      }
-      blocks.push(renderTable(rows));
-      continue;
-    }
-
-    const heading = /^ {0,3}(#{1,3})[ \t]+(.*\S)[ \t]*$/.exec(line);
-    if (heading) {
-      blocks.push(`<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`);
-      i += 1;
-      continue;
-    }
-
-    if (!line.trim()) {
-      i += 1;
-      continue;
-    }
-
-    if (LIST_ITEM.test(line)) {
-      const list = renderList(lines, i);
-      blocks.push(list.html);
-      i = list.end;
-      continue;
-    }
-
-    if (/^ {0,3}>/.test(line)) {
-      const quote = [];
-      while (i < lines.length && /^ {0,3}>/.test(lines[i])) {
-        quote.push(lines[i].replace(/^ {0,3}> ?/, ""));
-        i += 1;
-      }
-      blocks.push(`<blockquote>${renderBlocks(quote)}</blockquote>`);
-      continue;
-    }
-
-    const para = [];
-    while (i < lines.length && lines[i].trim() && !startsBlock(lines, i)) {
-      para.push(lines[i].trim());
-      i += 1;
-    }
-    if (!para.length) {
-      para.push(line.trim());
-      i += 1;
-    }
-    blocks.push(`<p>${inline(para.join(" "))}</p>`);
-  }
-  return blocks.join("\n");
-}
-
-const LIST_ITEM = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
-
-function startsBlock(lines, index) {
-  const line = lines[index];
-  return (
-    /^[ \t]*(?:```|~~~)/.test(line) ||
-    /^ {0,3}#{1,3}[ \t]+/.test(line) ||
-    /^ {0,3}>/.test(line) ||
-    LIST_ITEM.test(line) ||
-    isTableStart(lines, index)
-  );
-}
-
-function indentWidth(line) {
-  const lead = /^[ \t]*/.exec(line)[0];
-  let width = 0;
-  for (const c of lead) width += c === "\t" ? 4 : 1;
-  return width;
-}
-
-function removeIndent(line, columns) {
-  let removed = 0;
-  let i = 0;
-  while (i < line.length && removed < columns) {
-    if (line[i] === " ") {
-      removed += 1;
-      i += 1;
-      continue;
-    }
-    if (line[i] === "\t") {
-      removed += 4;
-      i += 1;
-      continue;
-    }
-    break;
-  }
-  return line.slice(i);
-}
-
-function renderList(lines, index) {
-  const first = LIST_ITEM.exec(lines[index]);
-  const base = indentWidth(lines[index]);
-  const ordered = /^\d/.test(first[2]);
-  const startAt = ordered ? Number(first[2].slice(0, -1)) : 1;
-  const items = [];
-  let loose = false;
-  let i = index;
-
-  while (i < lines.length) {
-    const marker = LIST_ITEM.exec(lines[i]);
-    if (!marker) break;
-    if (indentWidth(lines[i]) !== base) break;
-    if (/^\d/.test(marker[2]) !== ordered) break;
-
-    const contentIndent = base + marker[2].length + Math.max(1, marker[3].length);
-    const body = [marker[4]];
-    i += 1;
-
-    while (i < lines.length) {
-      const line = lines[i];
-      if (!line.trim()) {
-        let next = i + 1;
-        while (next < lines.length && !lines[next].trim()) next += 1;
-        if (next >= lines.length) {
-          i = next;
-          break;
-        }
-        const peek = lines[next];
-        const peekItem = LIST_ITEM.exec(peek);
-        if (peekItem && indentWidth(peek) === base && /^\d/.test(peekItem[2]) === ordered) {
-          loose = true;
-          i = next;
-          break;
-        }
-        if (indentWidth(peek) > base) {
-          loose = true;
-          body.push("");
-          i += 1;
-          continue;
-        }
-        i = next;
-        break;
-      }
-      if (indentWidth(line) <= base) break;
-      body.push(removeIndent(line, contentIndent));
-      i += 1;
-    }
-
-    items.push(body);
-
-    const sibling = LIST_ITEM.exec(lines[i] || "");
-    if (!sibling || indentWidth(lines[i]) !== base) break;
-    if (/^\d/.test(sibling[2]) !== ordered) break;
-  }
-
-  const tag = ordered ? "ol" : "ul";
-  const start = ordered && startAt !== 1 ? ` start="${startAt}"` : "";
-  const html = items
-    .map((body) => {
-      const nested = body.some((line, position) => position > 0 && (LIST_ITEM.test(line) || /^ {0,3}>/.test(line)));
-      let content;
-      if (!loose && !nested) {
-        content = inline(body.join(" ").trim());
-      } else {
-        content = renderBlocks(body);
-        if (!loose) content = content.replace(/^<p>([\s\S]*?)<\/p>/, "$1");
-      }
-      return `<li>${content}</li>`;
-    })
-    .join("");
-  return { html: `<${tag}${start}>${html}</${tag}>`, end: i };
-}
-
-function isTableStart(lines, index) {
-  return Boolean(lines[index]?.includes("|") && lines[index + 1] && isSeparator(lines[index + 1]));
-}
-
-function isSeparator(line) {
-  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
-}
-
-function splitRow(line) {
-  let cells = line.trim();
-  if (cells.startsWith("|")) cells = cells.slice(1);
-  if (cells.endsWith("|")) cells = cells.slice(0, -1);
-  return cells.split("|").map((cell) => cell.trim());
-}
-
-function renderTable(rows) {
-  const [head, ...body] = rows;
-  const headHtml = head.map((cell) => `<th>${inline(cell)}</th>`).join("");
-  const bodyHtml = body
-    .map((row) => `<tr>${row.map((cell) => `<td>${inline(cell)}</td>`).join("")}</tr>`)
-    .join("");
-  return `<div class="table-wrap"><table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
-}
-
-function inline(text) {
-  return String(text)
-    .split(/(`[^`]+`)/g)
-    .map((part) => {
-      if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
-        return `<code>${escapeHtml(part.slice(1, -1))}</code>`;
-      }
-      return escapeHtml(part);
-    })
-    .join("");
-}
-
-function plain(text) {
-  return String(text).replace(/`([^`]+)`/g, "$1").replace(/\s+/g, " ").trim();
-}
-
-function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

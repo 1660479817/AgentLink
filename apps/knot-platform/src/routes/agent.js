@@ -31,7 +31,10 @@ import { createRetrieval } from "../retrieval.js";
 import { economyConfig } from "../points.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
-import { acceptAvatar, ensureUploadDir, newStorageName, publicUploadUrl } from "../uploads.js";
+import { acceptAvatar, ensureUploadDir, newStorageName } from "../uploads.js";
+import { tmpDir } from "../storage.js";
+import { storeUploadedFile } from "../uploadStore.js";
+import { sendUploadError } from "./uploadError.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_WAIT_MS = 60_000;
@@ -150,7 +153,7 @@ async function loadUser(pool, userId) {
 export function agentRouter({ pool, uploadDir }) {
   ensureUploadDir(uploadDir);
   const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadDir),
+    destination: (_req, _file, cb) => cb(null, tmpDir(uploadDir)),
     filename: (_req, file, cb) => cb(null, newStorageName(file.originalname)),
   });
   const imageUpload = multer({
@@ -222,11 +225,11 @@ export function agentRouter({ pool, uploadDir }) {
     };
   }
 
-  async function storeUpload(req, res) {
+  async function storeUpload(req, res, kind) {
     const access = await accessFor(req, res, req.body?.email);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const name = uploadName(req.file.originalname);
-    if (isAttachmentUpload(req.file) && !isArchiveUpload(req.file)) {
+    if (kind === "file" && isAttachmentUpload(req.file) && !isArchiveUpload(req.file)) {
       try {
         const buffer = await readFile(req.file.path);
         if (!attachmentOpens(name, buffer)) {
@@ -238,23 +241,18 @@ export function agentRouter({ pool, uploadDir }) {
         return res.status(400).json({ error: "unreadable_file" });
       }
     }
-    const { rows } = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime, original_name, size) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [access.userId, req.file.filename, req.file.mimetype, name || null, req.file.size]
-    );
-    const mime = req.file.mimetype || "";
-    res.status(201).json({
-      id: rows[0].id,
-      url: publicUploadUrl(rows[0].id),
-      name,
-      mime,
-    });
+    try {
+      const stored = await storeUploadedFile({ uploadDir, pool, userId: access.userId, file: req.file, kind, name });
+      res.status(201).json({ id: stored.id, url: stored.url, name, mime: stored.mime });
+    } catch (error) {
+      sendUploadError(res, error);
+    }
   }
 
   router.post("/register", async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     if (!email) return res.status(400).json({ error: "bad_email" });
-    const sent = await requestLoginKey(pool, email);
+    const sent = await requestLoginKey(pool, email, { inviteCode: req.body?.inviteCode });
     if (sent.error) return res.status(sent.status).json({ error: sent.error });
     res.json({ ok: true });
   });
@@ -365,9 +363,9 @@ export function agentRouter({ pool, uploadDir }) {
     res.json({ user: await loadUser(pool, access.userId) });
   });
 
-  router.post("/uploads", acceptFile("image"), storeUpload);
-  router.post("/audio", acceptFile("audio"), storeUpload);
-  router.post("/files", acceptFile("file"), storeUpload);
+  router.post("/uploads", acceptFile("image"), (req, res) => storeUpload(req, res, "image"));
+  router.post("/audio", acceptFile("audio"), (req, res) => storeUpload(req, res, "audio"));
+  router.post("/files", acceptFile("file"), (req, res) => storeUpload(req, res, "file"));
 
   router.post("/intel", async (req, res) => {
     const access = await accessFor(req, res, req.body?.email);

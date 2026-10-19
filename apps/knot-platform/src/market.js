@@ -1,8 +1,9 @@
 import { access, readFile, rm } from "node:fs/promises";
+import { toPlain } from "@knot/markdown";
 import { intelAgentId, runIntelAgent } from "./agents/openclaw.js";
 import { toRecord } from "./card.js";
 import { loadBootstrapConfig } from "./config.js";
-import { fileView, isArchiveUpload, isAttachmentUpload, isAudioUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, uploadName, videoItemsOf, visibleVerdict } from "./information.js";
+import { filesByIntel, isArchiveUpload, isAttachmentUpload, isAudioUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, publicOf, uploadName, videoItemsOf, visibleVerdict } from "./information.js";
 import { assertReachable, contentHash } from "./links.js";
 import { resolveVideo } from "./videoPoster.js";
 import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./friends.js";
@@ -14,7 +15,8 @@ import { scoreText } from "./search.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { attachmentOpens } from "./readable.js";
 import { avatarUrlFor } from "./avatars.js";
-import { cardImageUrl, storagePath } from "./uploads.js";
+import { cardImageUrl } from "./uploads.js";
+import { readableBlobPath } from "./storage.js";
 import { discardExtract, extractsFor } from "./extracts.js";
 import { normalizeCategory } from "./categories.js";
 import { wishExpiresAt, wishHours, wishLive } from "./wish.js";
@@ -32,7 +34,7 @@ function intelText(row) {
   const detail = row.detail && typeof row.detail === "object" ? row.detail : {};
   const note = typeof detail.note === "string" ? detail.note : "";
   const language = typeof detail.language === "string" ? detail.language : "";
-  return `${row.body || ""} ${note} ${language} ${videoText(row.videos)}`.trim();
+  return `${toPlain(String(row.body || ""))} ${note} ${language} ${videoText(row.videos)}`.trim();
 }
 
 async function imageFiles(pool, intelId) {
@@ -48,7 +50,7 @@ async function imageFiles(pool, intelId) {
   );
   const files = [];
   for (const row of rows) {
-    const file = storagePath(uploadDir, row.storage_name);
+    const file = readableBlobPath(uploadDir, row.storage_name);
     await access(file);
     files.push({ path: file, name: uploadName(row.original_name) });
   }
@@ -73,25 +75,6 @@ export function presentIntel(row) {
   });
 }
 
-async function filesByIntel(pool, ids) {
-  const byId = new Map();
-  if (!ids.length) return byId;
-  const { rows } = await pool.query(
-    `SELECT f.intel_id, u.id, u.mime, u.original_name, u.size
-     FROM intel_files f
-     JOIN uploads u ON u.id = f.upload_id
-     WHERE f.intel_id = ANY($1::uuid[])
-     ORDER BY f.sort_order ASC, f.upload_id ASC`,
-    [ids]
-  );
-  for (const row of rows) {
-    const list = byId.get(row.intel_id) || [];
-    list.push(fileView(row));
-    byId.set(row.intel_id, list);
-  }
-  return byId;
-}
-
 async function attachmentFiles(pool, intelId) {
   const { uploadDir } = loadBootstrapConfig();
   const { rows } = await pool.query(
@@ -107,7 +90,7 @@ async function attachmentFiles(pool, intelId) {
     if (String(row.mime || "").startsWith("image/")) continue;
     if (isAudioUpload({ mime: row.mime, originalname: row.original_name })) continue;
     if (isArchiveUpload({ originalname: row.original_name })) continue;
-    const file = storagePath(uploadDir, row.storage_name);
+    const file = readableBlobPath(uploadDir, row.storage_name);
     await access(file);
     files.push({ path: file, name: uploadName(row.original_name) });
   }
@@ -144,7 +127,7 @@ async function assertAttachmentsOpen(pool, uploadIds) {
     if (isAudioUpload({ mime: row.mime, originalname: row.original_name })) continue;
     const name = uploadName(row.original_name || row.storage_name);
     if (!isAttachmentUpload({ originalname: name }) || isArchiveUpload({ originalname: name })) continue;
-    const file = storagePath(uploadDir, row.storage_name);
+    const file = readableBlobPath(uploadDir, row.storage_name);
     let buffer;
     try {
       buffer = await readFile(file);
@@ -538,7 +521,7 @@ export async function createIntel(pool, input) {
 }
 
 const PUBLIC_INTEL_SQL = `
-  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.origin_id, i.version,
+  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
     u.display_name, u.avatar_upload_id,
     EXISTS (
       SELECT 1 FROM intel_stars s

@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from "vue";
+import { toPlain } from "@knot/markdown";
 
 const props = defineProps({
   body: { type: String, default: "" },
@@ -64,7 +65,7 @@ function lineText(text) {
 }
 
 const blocks = computed(() => {
-  const raw = String(props.body || "").replace(/\r\n/g, "\n").trim();
+  const raw = toPlain(props.body);
   if (!raw) return [];
   return raw
     .split(/\n{2,}/)

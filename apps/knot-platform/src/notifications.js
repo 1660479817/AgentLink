@@ -48,6 +48,7 @@ const NOTICE_GROUPS = {
   intel_rejected: "system",
   intel_review_error: "system",
   intel_removed: "system",
+  retrieval_failed: "system",
   warning: "system",
   points_granted: "system",
   muted: "system",

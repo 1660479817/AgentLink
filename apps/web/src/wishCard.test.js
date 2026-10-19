@@ -6,6 +6,7 @@ const NOW = Date.UTC(2026, 9, 17, 12, 0, 0);
 
 test("a wish card shows its words, then its file name", () => {
   assert.equal(wishText({ body: " 找一份手册 " }), "找一份手册");
+  assert.equal(wishText({ body: "# 找一份手册\n\n**急**" }), "找一份手册 急");
   assert.equal(wishText({ body: "", images: [{ name: "a.jpg", url: "/x" }] }), "a.jpg");
   assert.equal(wishText({ body: "", images: [{ url: "/x" }], attachments: [{ name: "b.pdf" }] }), "/x");
   assert.equal(wishText({}, "wish"), "wish");

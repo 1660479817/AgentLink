@@ -38,7 +38,6 @@ watch(
 <template>
   <div v-if="frame" class="information-video">
     <img v-if="cover && !playing" class="information-video-poster" :src="cover" alt="" @error="hidePoster" />
-    <!-- 没有封面时先露第一帧，别留一块黑底 -->
     <video
       v-else-if="!playing && frame.kind === 'file'"
       class="information-video-poster"

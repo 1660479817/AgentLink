@@ -12,28 +12,12 @@ const props = defineProps({
 
 const emit = defineEmits(["close"]);
 
-const dialog = ref(null);
+const panel = ref(null);
 const current = ref(0);
-
 const count = computed(() => props.photos.length);
 const photo = computed(() => props.photos[current.value] || "");
 
-watch(
-  () => props.open,
-  async (open) => {
-    if (open) current.value = clamp(props.index);
-    await nextTick();
-    const el = dialog.value;
-    if (!el) return;
-    if (open && !el.open) el.showModal();
-    if (!open && el.open) el.close();
-  },
-);
-
-onBeforeUnmount(() => {
-  const el = dialog.value;
-  if (el?.open) el.close();
-});
+let restoreFocus = null;
 
 function clamp(value) {
   if (!Number.isFinite(value)) return 0;
@@ -46,31 +30,57 @@ function step(delta) {
 }
 
 function onKeydown(event) {
-  if (event.key === "ArrowLeft") {
-    event.preventDefault();
-    step(-1);
-  } else if (event.key === "ArrowRight") {
-    event.preventDefault();
-    step(1);
-  }
+  if (event.key === "Escape") emit("close");
+  else if (event.key === "ArrowLeft") step(-1);
+  else if (event.key === "ArrowRight") step(1);
 }
 
-function onCancel(event) {
-  event.preventDefault();
-  emit("close");
+function release() {
+  document.body.classList.remove("is-lightbox");
+  window.removeEventListener("keydown", onKeydown);
+  restoreFocus?.focus?.();
+  restoreFocus = null;
 }
+
+watch(
+  () => props.photos,
+  () => {
+    current.value = clamp(current.value);
+  },
+);
+
+watch(
+  () => props.open,
+  async (open) => {
+    if (!open) {
+      release();
+      return;
+    }
+    current.value = clamp(props.index);
+    restoreFocus = document.activeElement;
+    document.body.classList.add("is-lightbox");
+    window.addEventListener("keydown", onKeydown);
+    await nextTick();
+    panel.value?.focus();
+  },
+);
+
+onBeforeUnmount(release);
 </script>
 
 <template>
-  <dialog
-    ref="dialog"
-    class="photo-lightbox"
-    :aria-label="t('home.imageViewer')"
-    @cancel="onCancel"
-    @keydown="onKeydown"
-  >
-    <div v-if="photo" class="photo-lightbox-stage" @click="emit('close')">
-      <img class="photo-lightbox-image" :src="photo" alt="" @click.stop />
+  <Teleport to="body">
+    <div
+      v-if="open && photo"
+      ref="panel"
+      class="photo-lightbox"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      :aria-label="t('home.imageViewer')"
+      @click="emit('close')"
+    >
+      <img class="photo-lightbox-image" :src="photo" alt="" />
       <p v-if="count > 1" class="photo-lightbox-count">{{ t("home.imageCount", { n: current + 1, total: count }) }}</p>
       <AppButton
         class="photo-lightbox-close"
@@ -102,5 +112,5 @@ function onCancel(event) {
         </AppButton>
       </template>
     </div>
-  </dialog>
+  </Teleport>
 </template>

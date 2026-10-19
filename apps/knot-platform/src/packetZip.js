@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { firstLine, toPlain } from "@knot/markdown";
 import { isAudioUpload, uploadName } from "./information.js";
-import { storagePath } from "./uploads.js";
+import { derivedDir, readableBlobPath } from "./storage.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const building = new Map();
@@ -132,15 +133,12 @@ export function packetReadme({ category = "", price = 0, author = "", createdAt,
   lines.push(...linkLines(links));
   for (const file of files) lines.push(`${file.label}：${file.name}`);
   lines.push("");
-  lines.push(String(body || "").trim());
+  lines.push(toPlain(String(body || "")));
   return `${lines.join("\n")}\n`;
 }
 
 export function packetDownloadName(body) {
-  const line = String(body || "")
-    .split(/\r?\n/)
-    .map((part) => part.trim())
-    .find(Boolean) || "";
+  const line = firstLine(body);
   const cleaned = line.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "").trim().slice(0, 40);
   return `${cleaned || "packet"}.zip`;
 }
@@ -220,13 +218,17 @@ function zipReady(file) {
   }
 }
 
-function destPath(uploadDir, intelId) {
+export function packetZipPath(uploadDir, intelId) {
   if (!UUID.test(String(intelId || ""))) {
     const error = new Error("not_found");
     error.code = "not_found";
     throw error;
   }
-  return path.join(path.resolve(uploadDir), "packets", `${intelId}.zip`);
+  return path.join(derivedDir(uploadDir, "packets"), `${intelId}.zip`);
+}
+
+function destPath(uploadDir, intelId) {
+  return packetZipPath(uploadDir, intelId);
 }
 
 async function writeZip(dest, render) {
@@ -259,7 +261,7 @@ export async function ensurePacketZip(uploadDir, intelId, readme, sources) {
   writeZip(dest, async () => {
     const parts = [{ name: "readme.txt", data: Buffer.from(readme, "utf8") }];
     for (const source of sources) {
-      const full = storagePath(uploadDir, path.basename(String(source.storageName || "")));
+      const full = readableBlobPath(uploadDir, path.basename(String(source.storageName || "")));
       let data;
       try {
         data = fs.readFileSync(full);

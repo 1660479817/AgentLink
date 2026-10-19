@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
+import { derivedDir } from "./storage.js";
 
 const INTEL = "23737bf5-537f-441f-bc86-bf230d1cf9ed";
 
@@ -82,6 +83,7 @@ test("a download packet keeps attachments and leaves images and audio out", () =
 
 test("the download name comes from the first line of the body", () => {
   assert.equal(packetDownloadName("报价说明\n第二行"), "报价说明.zip");
+  assert.equal(packetDownloadName("# 报价说明"), "报价说明.zip");
   assert.equal(packetDownloadName("  "), "packet.zip");
   assert.equal(packetDownloadName("a/b:c"), "abc.zip");
 });
@@ -90,6 +92,7 @@ test("the first download builds one zip and the next one reuses it", async () =>
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "knot-zip-"));
   const upload = path.join(root, "uploads");
   fs.mkdirSync(upload);
+  fs.mkdirSync(path.join(upload, "blobs"), { recursive: true });
   fs.writeFileSync(path.join(upload, "pic.bin"), "file-bytes");
   const sources = archiveSources([{ mime: "application/pdf", original_name: "报价.pdf", storage_name: "pic.bin" }]);
   const readme = packetReadme({
@@ -118,6 +121,6 @@ test("a missing source file does not leave a zip", async () => {
     ensurePacketZip(upload, INTEL, "报价：10\n\n\n", sources),
     (error) => error.code === "packet_unavailable"
   );
-  assert.equal(fs.existsSync(path.join(upload, "packets", `${INTEL}.zip`)), false);
+  assert.equal(fs.existsSync(path.join(derivedDir(upload, "packets"), `${INTEL}.zip`)), false);
   fs.rmSync(root, { recursive: true, force: true });
 });

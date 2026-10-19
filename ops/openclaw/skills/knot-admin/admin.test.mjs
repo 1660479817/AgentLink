@@ -48,6 +48,21 @@ test("commands map onto the admin API", () => {
       { method: "POST", path: "/api/admin/sponsors", json: { title: "一则标题", href: "/wish" } },
     ],
     [["patrol-record", "--body", "无"], { method: "POST", path: "/api/admin/patrol", json: { body: "无" } }],
+    [["system"], { method: "GET", path: "/api/admin/system" }],
+    [
+      ["system-set", "--guest-browsing", "0", "--registration", "invite"],
+      {
+        method: "PATCH",
+        path: "/api/admin/system",
+        json: { guestBrowsing: false, registrationMode: "invite" },
+      },
+    ],
+    [
+      ["invite-new", "--max-uses", "3", "--expires", "7d", "--note", "首批"],
+      { method: "POST", path: "/api/admin/invites", json: { maxUses: 3, expiresIn: "7d", note: "首批" } },
+    ],
+    [["invites"], { method: "GET", path: "/api/admin/invites" }],
+    [["invite-disable", "--id", "inv-1"], { method: "POST", path: "/api/admin/invites/inv-1/disable" }],
     [
       ["issue", "--name", "豆包", "--specialty", "网页搜索", "--specialty", "资料整理"],
       {

@@ -3,9 +3,10 @@ import { access, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path";
 import QRCode from "qrcode";
 import sharp from "sharp";
+import { isMarkdown, toRuns } from "@knot/markdown";
 import { isAudioUpload, uploadName, visibleVerdict } from "./information.js";
 import { loadBootstrapConfig } from "./config.js";
-import { storagePath } from "./uploads.js";
+import { derivedDir, readableBlobPath } from "./storage.js";
 import { defaultAvatarIndex } from "./avatars.js";
 
 export const SHARE_PAGE = "https://knot.zenheart.net";
@@ -17,6 +18,10 @@ const WIDTH = 1080;
 const PAD = 72;
 const PANEL_PAD = 72;
 const INNER = WIDTH - PAD * 2;
+// sharp 读 SVG 的单边上限是 32767px。留出余量，并让一张长图仍能发进聊天工具。
+export const MAX_HEIGHT = 24576;
+// 预览图最高占 5 倍内容宽，超出的竖图按顶部裁切，不让一张图吃掉整张海报。
+export const MAX_PREVIEW_HEIGHT = INNER * 5;
 const GAP = 32;
 const HOLD = 280;
 const BODY_SIZE = 40;
@@ -35,8 +40,6 @@ const H3_SIZE = 40;
 const H3_LEADING = 58;
 const CODE_SIZE = 30;
 const CODE_LEADING = 46;
-const LIST_INDENT = 36;
-const QUOTE_INDENT = 24;
 const LABEL = { video: "视频", image: "图片" };
 const ACTOR_LABEL = { person: "人", personal_agent: "Agent", platform: "平台" };
 const HEAD_AVATAR = 88;
@@ -131,56 +134,6 @@ export function wrapText(text, width, size, maxLines = Infinity) {
   return lines.length ? lines : [""];
 }
 
-export function isMarkdown(body) {
-  const text = clean(body);
-  if (!text) return false;
-  return (
-    /(^|\n)\s{0,3}#{1,6}\s+\S/.test(text) ||
-    /(^|\n)\s*[-*+]\s+\S/.test(text) ||
-    /(^|\n)\s*\d+[.)]\s+\S/.test(text) ||
-    /`{3,}/.test(text) ||
-    /(^|\n)\s*>\s+\S/.test(text) ||
-    /\*\*[^*\s][^*]*\*\*/.test(text) ||
-    /`[^`]+`/.test(text) ||
-    /\[[^\]]+\]\([^)\s]+\)/.test(text)
-  );
-}
-
-function plainRun(text) {
-  return { text, bold: false, italic: false, code: false, link: null };
-}
-
-function parseInline(text) {
-  const src = String(text || "");
-  const segments = [];
-  const pattern = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
-  let last = 0;
-  let match;
-  while ((match = pattern.exec(src))) {
-    if (match.index > last) segments.push(plainRun(src.slice(last, match.index)));
-    const token = match[0];
-    if (token.startsWith("**") && token.endsWith("**") && token.length > 4) {
-      segments.push({ text: token.slice(2, -2), bold: true, italic: false, code: false, link: null });
-    } else if (token.startsWith("`") && token.endsWith("`") && token.length > 2) {
-      segments.push({ text: token.slice(1, -1), bold: false, italic: false, code: true, link: null });
-    } else if (token.startsWith("[")) {
-      const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token);
-      segments.push({ text: link ? link[1] : token, bold: false, italic: false, code: false, link: link ? link[2] : null });
-    } else if (token.startsWith("*") && token.endsWith("*") && token.length > 2) {
-      segments.push({ text: token.slice(1, -1), bold: false, italic: true, code: false, link: null });
-    }
-    last = match.index + token.length;
-  }
-  if (last < src.length) segments.push(plainRun(src.slice(last)));
-  return segments.filter((segment) => segment.text !== "");
-}
-
-function charWidth(chars, size) {
-  let used = 0;
-  for (const ch of chars) used += charUnits(ch.ch) * size;
-  return used;
-}
-
 function compressSegments(chars) {
   const segments = [];
   let current = null;
@@ -197,7 +150,7 @@ function compressSegments(chars) {
   return segments;
 }
 
-function wrapInline(segments, width, size, maxLines = Infinity) {
+function wrapInline(segments, width, size) {
   const chars = [];
   for (const segment of segments) {
     for (const ch of segment.text) chars.push({ ch, bold: segment.bold, italic: segment.italic, code: segment.code, link: segment.link });
@@ -205,7 +158,6 @@ function wrapInline(segments, width, size, maxLines = Infinity) {
   const lines = [];
   let line = [];
   let used = 0;
-  let overflow = false;
   for (let index = 0; index < chars.length; index += 1) {
     const ch = chars[index];
     const next = charUnits(ch.ch) * size;
@@ -213,29 +165,18 @@ function wrapInline(segments, width, size, maxLines = Infinity) {
       lines.push(line);
       line = [];
       used = 0;
-      if (lines.length === maxLines) {
-        overflow = index < chars.length;
-        break;
-      }
     }
     line.push(ch);
     used += next;
   }
-  if (lines.length < maxLines && line.length) lines.push(line);
-  else if (line.length) overflow = true;
-  if (overflow) {
-    const last = lines[lines.length - 1];
-    const ell = charUnits("…") * size;
-    while (last.length && charWidth(last, size) + ell > width) last.pop();
-    last.push({ ch: "…", bold: false, italic: false, code: false, link: null });
-  }
+  if (line.length) lines.push(line);
   if (!lines.length) return [[{ text: "", bold: false, italic: false, code: false, link: null }]];
   return lines.map(compressSegments);
 }
 
+// 海报的文字行由共享解析器给出，这里只负责字号、缩进和省略号。
 export function markdownTexts(body, width = INNER, maxLines = Infinity) {
   const items = [];
-  const lines = clean(body).split("\n");
   const add = (item) => {
     if (items.length >= maxLines) return false;
     items.push(item);
@@ -249,87 +190,47 @@ export function markdownTexts(body, width = INNER, maxLines = Infinity) {
     tail.text = `${tail.text.replace(/…$/, "")}…`;
   };
 
-  let i = 0;
-  while (i < lines.length && items.length < maxLines) {
-    const line = lines[i];
+  for (const run of toRuns(clean(body))) {
+    if (items.length >= maxLines) break;
 
-    if (/^\s*(```|~~~)/.test(line)) {
-      i += 1;
-      while (i < lines.length && !/^\s*(```|~~~)/.test(lines[i])) {
-        const code = lines[i].replace(/\t/g, "  ");
-        if (!add({ segments: [{ text: code || " ", bold: false, italic: false, code: true, link: null }], size: CODE_SIZE, leading: CODE_LEADING, fill: "#050505", code: true })) break;
-        i += 1;
-      }
-      if (i < lines.length) i += 1;
-      continue;
-    }
-
-    const heading = /^(#{1,3})\s+(.*)$/.exec(line);
-    if (heading) {
-      const level = heading[1].length;
-      const size = level === 1 ? H1_SIZE : level === 2 ? H2_SIZE : H3_SIZE;
-      const leading = level === 1 ? H1_LEADING : level === 2 ? H2_LEADING : H3_LEADING;
-      for (const runLine of wrapInline(parseInline(heading[2].trim()), width, size)) {
-        if (!add({ segments: runLine, size, leading, fill: "#050505", weight: "600" })) break;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line) && line.trim().length >= 3) {
+    if (run.type === "rule") {
       add({ rule: true, leading: GAP });
-      i += 1;
       continue;
     }
 
-    if (/^\s*>\s?/.test(line)) {
-      const quoted = [];
-      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
-        quoted.push(lines[i].replace(/^\s*>\s?/, ""));
-        i += 1;
-      }
-      for (const runLine of wrapInline(parseInline(quoted.join(" ")), width - QUOTE_INDENT, BODY_SIZE)) {
-        if (!add({ segments: runLine, size: BODY_SIZE, leading: BODY_LEADING, fill: "#65676B", quote: true, indent: QUOTE_INDENT })) break;
-      }
-      continue;
-    }
-
-    const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
-    const ordered = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
-    if (bullet || ordered) {
-      const prefix = bullet ? "•" : `${ordered[1]}.`;
-      const text = (bullet ? bullet[1] : ordered[2]).trim();
-      const runLines = wrapInline(parseInline(text), width - LIST_INDENT, BODY_SIZE);
-      for (let li = 0; li < runLines.length; li += 1) {
-        const item = { segments: runLines[li], size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505", indent: LIST_INDENT };
-        if (li === 0) item.prefix = prefix;
+    if (run.type === "code") {
+      for (const raw of run.lines) {
+        const code = raw.replace(/\t/g, "  ");
+        const item = {
+          segments: [{ text: code || " ", bold: false, italic: false, code: true, link: null }],
+          size: CODE_SIZE,
+          leading: CODE_LEADING,
+          fill: "#050505",
+          code: true,
+        };
         if (!add(item)) break;
       }
-      i += 1;
       continue;
     }
 
-    if (!line.trim()) {
-      i += 1;
+    if (run.type === "heading") {
+      const level = Math.max(1, Math.min(3, run.level));
+      const size = level === 1 ? H1_SIZE : level === 2 ? H2_SIZE : H3_SIZE;
+      const leading = level === 1 ? H1_LEADING : level === 2 ? H2_LEADING : H3_LEADING;
+      for (const line of wrapInline(run.segments, width, size)) {
+        if (!add({ segments: line, size, leading, fill: "#050505", weight: "600" })) break;
+      }
       continue;
     }
 
-    const para = [];
-    while (
-      i < lines.length &&
-      lines[i].trim() &&
-      !/^\s*(```|~~~)/.test(lines[i]) &&
-      !/^(#{1,3})\s+/.test(lines[i]) &&
-      !/^\s*>/.test(lines[i]) &&
-      !/^\s*[-*+]\s+/.test(lines[i]) &&
-      !/^\s*\d+[.)]\s+/.test(lines[i]) &&
-      !/^\s*([-*_])\s*(\1\s*){2,}$/.test(lines[i])
-    ) {
-      para.push(lines[i].trim());
-      i += 1;
-    }
-    for (const runLine of wrapInline(parseInline(para.join(" ")), width, BODY_SIZE)) {
-      if (!add({ segments: runLine, size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505" })) break;
+    const indent = run.indent || 0;
+    const fill = run.quote ? "#65676B" : "#050505";
+    const lines = wrapInline(run.segments, Math.max(1, width - indent), BODY_SIZE);
+    for (let index = 0; index < lines.length; index += 1) {
+      const item = { segments: lines[index], size: BODY_SIZE, leading: BODY_LEADING, fill, indent };
+      if (index === 0 && run.prefix) item.prefix = run.prefix;
+      if (run.quote) item.quote = true;
+      if (!add(item)) break;
     }
   }
 
@@ -560,12 +461,45 @@ async function fittedPreview(preview, y) {
     const srcW = meta.width || 0;
     const srcH = meta.height || 0;
     if (!srcW || !srcH) return null;
-    const height = Math.round((srcH / srcW) * INNER);
-    if (height < 1) return null;
-    return { x: PAD, y, width: INNER, height };
+    const natural = Math.round((srcH / srcW) * INNER);
+    if (natural < 1) return null;
+    return { x: PAD, y, width: INNER, height: Math.min(natural, MAX_PREVIEW_HEIGHT) };
   } catch {
     return null;
   }
+}
+
+// 高度到顶时，把最后一段有字的正文收尾成省略号。
+function ellipsizeLine(line) {
+  if (line.rule) return false;
+  if (line.segments?.length) {
+    const tail = line.segments[line.segments.length - 1];
+    if (!tail.text) return false;
+    tail.text = `${tail.text.replace(/…$/, "")}…`;
+    return true;
+  }
+  if (typeof line.text === "string" && line.text) {
+    line.text = `${line.text.replace(/…$/, "")}…`;
+    return true;
+  }
+  return false;
+}
+
+// 只保留放得进 room 的行。放不下的部分不画，最后一句话用省略号收住。
+function fitTexts(texts, room) {
+  const kept = [];
+  let used = 0;
+  for (const line of texts) {
+    if (used + line.leading > room) {
+      for (let index = kept.length - 1; index >= 0; index -= 1) {
+        if (ellipsizeLine(kept[index])) break;
+      }
+      return kept;
+    }
+    kept.push(line);
+    used += line.leading;
+  }
+  return kept;
 }
 
 function posterPr(content) {
@@ -623,7 +557,9 @@ export async function buildSharePoster(content) {
     parts.push(hold(PAD, y, LABEL.image, false));
     y += HOLD + GAP;
   }
-  for (const line of texts) {
+  // 正文按剩余高度收口，保证整张图不超过 MAX_HEIGHT（sharp 读 SVG 有单边上限）。
+  const fitted = fitTexts(texts, MAX_HEIGHT - GAP - pr.height - y);
+  for (const line of fitted) {
     if (line.rule) {
       parts.push(`<line x1="${PAD}" y1="${y + Math.round(line.leading / 2)}" x2="${WIDTH - PAD}" y2="${y + Math.round(line.leading / 2)}" stroke="#E4E6EB" stroke-width="2"/>`);
       y += line.leading;
@@ -704,7 +640,12 @@ export async function renderSharePoster(content) {
   const composites = [];
   if (layout.previewBox && content.preview) {
     const box = layout.previewBox;
-    const layer = await sharp(content.preview).rotate().resize(box.width, box.height, { fit: "cover" }).png().toBuffer();
+    // 只有超长竖图被 MAX_PREVIEW_HEIGHT 截过，此时保留图片顶部。
+    const layer = await sharp(content.preview)
+      .rotate()
+      .resize(box.width, box.height, { fit: "cover", position: "top" })
+      .png()
+      .toBuffer();
     composites.push({ input: layer, left: box.x, top: box.y });
   }
   if (layout.avatarBox && content.avatarPath) {
@@ -729,7 +670,7 @@ export function sharePosterPath(uploadDir, intelId, contentHash, metaKey) {
     error.code = "not_found";
     throw error;
   }
-  return path.join(uploadDir, "shares", id, `${hash}-${meta}-poster.jpg`);
+  return path.join(derivedDir(uploadDir, "shares"), id, `${hash}-${meta}-poster.jpg`);
 }
 
 async function fileExists(file) {
@@ -779,9 +720,12 @@ export function storeSharePoster(uploadDir, card, render = renderSharePoster) {
   if (pending) return pending;
   const job = writeOnce(dest, card, render);
   inflight.set(dest, job);
-  job.finally(() => {
-    if (inflight.get(dest) === job) inflight.delete(dest);
-  });
+  // 这里必须接住 job 的拒绝：finally 派生出的 promise 没人等，Node 会当成未处理拒绝退出进程。
+  job
+    .catch(() => {})
+    .finally(() => {
+      if (inflight.get(dest) === job) inflight.delete(dest);
+    });
   return job;
 }
 
@@ -814,7 +758,7 @@ export async function loadShareCard(pool, intelId, uploadDir) {
     [row.id]
   );
   const image = files.find((file) => String(file.mime || "").startsWith("image/"));
-  let preview = image ? storagePath(uploadDir, image.storage_name) : "";
+  let preview = image ? readableBlobPath(uploadDir, image.storage_name) : "";
   if (preview && !(await fileExists(preview))) preview = "";
   const head = shareHead(row);
   let avatarPath = "";
@@ -826,7 +770,7 @@ export async function loadShareCard(pool, intelId, uploadDir) {
     );
     const storage = avatars[0]?.storage_name;
     if (storage) {
-      avatarPath = storagePath(uploadDir, storage);
+      avatarPath = readableBlobPath(uploadDir, storage);
       avatarKey = `upload:${String(row.avatar_upload_id).toLowerCase()}`;
     }
   } else if (row.user_id) {

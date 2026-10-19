@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fileView, hasInformation, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, previewVideo, publicOf, uploadName, videoItemsOf } from "./information.js";
+import { fileView, filesByIntel, hasInformation, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, previewVideo, publicOf, uploadName, videoItemsOf } from "./information.js";
 
 test("a latin1 upload name is shown as chinese", () => {
   const garbled = Buffer.from("今日简史.pdf", "utf8").toString("latin1");
@@ -16,6 +16,42 @@ test("hasInformation counts any present part", () => {
   assert.equal(hasInformation({ body: "文字" }), true);
   assert.equal(hasInformation({ videos: [{ url: "https://example.com/watch" }] }), true);
   assert.equal(hasInformation({ body: "", images: [], audio: [], videos: [], attachments: [] }), false);
+});
+
+// 列表、快照、Agent 读路径共用这一份附件查询：一次往返，去重后按记录分组。
+test("a batch of records fetches its files in one query", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return {
+        rows: [
+          { intel_id: "a", id: "1", mime: "image/jpeg", original_name: "a.jpg", size: 10 },
+          { intel_id: "b", id: "2", mime: "application/pdf", original_name: "b.pdf", size: 20 },
+          { intel_id: "a", id: "3", mime: "audio/mpeg", original_name: "c.mp3", size: 30 },
+        ],
+      };
+    },
+  };
+  const byId = await filesByIntel(pool, ["a", "b", "a", null]);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].params, [["a", "b"]]);
+  assert.deepEqual([...byId.keys()], ["a", "b"]);
+  assert.deepEqual(byId.get("a").map((file) => file.id), ["1", "3"]);
+  assert.equal(byId.get("b")[0].image, false);
+});
+
+test("an empty batch costs no query", async () => {
+  let queried = false;
+  const pool = {
+    async query() {
+      queried = true;
+      return { rows: [] };
+    },
+  };
+  const byId = await filesByIntel(pool, []);
+  assert.equal(queried, false);
+  assert.equal(byId.size, 0);
 });
 
 test("a video item carries a required poster as an upload id", () => {

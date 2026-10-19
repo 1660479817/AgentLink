@@ -12,6 +12,13 @@ function listen(app) {
   });
 }
 
+// 开户走真实事务；假池也要给出 connect，事务语句本身不用模拟。
+function dbPool(handler) {
+  const query = async (sql, params) =>
+    /^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/.test(sql) ? { rowCount: 0, rows: [] } : handler(sql, params);
+  return { query, connect: async () => ({ query, release() {} }) };
+}
+
 test("notices split into platform actions and social activity", () => {
   assert.equal(noticeGroup("warning"), "system");
   assert.equal(noticeGroup("intel_removed"), "system");
@@ -176,15 +183,13 @@ test("a failed summary still returns the payload", async () => {
 });
 
 test("register/key returns the token even when the inbox fails", async () => {
-  const pool = {
-    async query(sql) {
-      if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "k1" }] };
-      if (sql.includes("INSERT INTO users")) return { rows: [{ id: USER_ID, points_balance: 100 }] };
-      if (sql.includes("INSERT INTO delegations")) return { rows: [{ created_at: "2026-10-16T09:00:00.000Z" }] };
-      if (sql.includes("GROUP BY kind")) throw new Error("db down");
-      return { rows: [] };
-    },
-  };
+  const pool = dbPool((sql) => {
+    if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "k1" }] };
+    if (sql.includes("INSERT INTO users")) return { rows: [{ id: USER_ID, points_balance: 100 }] };
+    if (sql.includes("INSERT INTO delegations")) return { rows: [{ created_at: "2026-10-16T09:00:00.000Z" }] };
+    if (sql.includes("GROUP BY kind")) throw new Error("db down");
+    return { rows: [] };
+  });
   const app = express();
   app.use(express.json());
   app.use("/api/agent", agentRouter({ pool, uploadDir: "/tmp/knot-test-uploads" }));
@@ -206,31 +211,29 @@ test("register/key returns the token even when the inbox fails", async () => {
 });
 
 test("register/key carries the inbox on the first reply", async () => {
-  const pool = {
-    async query(sql) {
-      if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "k1" }] };
-      if (sql.includes("INSERT INTO users")) return { rows: [{ id: USER_ID, points_balance: 100 }] };
-      if (sql.includes("INSERT INTO delegations")) return { rows: [{ created_at: "2026-10-16T09:00:00.000Z" }] };
-      if (sql.includes("GROUP BY kind")) return { rows: [{ kind: "warning", n: 2 }] };
-      if (sql.includes("(read_at IS NULL) DESC")) {
-        return {
-          rows: [
-            {
-              id: "n1",
-              kind: "warning",
-              title: "平台警告",
-              body: "别再发重复的",
-              href: null,
-              intel_id: null,
-              read_at: null,
-              created_at: "2026-10-16T09:00:00.000Z",
-            },
-          ],
-        };
-      }
-      return { rows: [] };
-    },
-  };
+  const pool = dbPool((sql) => {
+    if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "k1" }] };
+    if (sql.includes("INSERT INTO users")) return { rows: [{ id: USER_ID, points_balance: 100 }] };
+    if (sql.includes("INSERT INTO delegations")) return { rows: [{ created_at: "2026-10-16T09:00:00.000Z" }] };
+    if (sql.includes("GROUP BY kind")) return { rows: [{ kind: "warning", n: 2 }] };
+    if (sql.includes("(read_at IS NULL) DESC")) {
+      return {
+        rows: [
+          {
+            id: "n1",
+            kind: "warning",
+            title: "平台警告",
+            body: "别再发重复的",
+            href: null,
+            intel_id: null,
+            read_at: null,
+            created_at: "2026-10-16T09:00:00.000Z",
+          },
+        ],
+      };
+    }
+    return { rows: [] };
+  });
   const app = express();
   app.use(express.json());
   app.use("/api/agent", agentRouter({ pool, uploadDir: "/tmp/knot-test-uploads" }));

@@ -163,7 +163,7 @@ watch(
       </div>
     </div>
 
-    <div class="gate-enter">
+    <div v-if="session.canBrowse" class="gate-enter">
       <AppButton to="/discover" class="gate-cta">
         <span>{{ t("gate.enter") }}</span>
         <SendIcon class="gate-cta-arrow" aria-hidden="true" />

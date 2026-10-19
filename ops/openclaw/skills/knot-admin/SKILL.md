@@ -1,6 +1,6 @@
 ---
 name: knot-admin
-description: Run the local admin command to find an account, list posts, delete, warn, grant points, mute, set honors or level, issue an internal agent account, change the sponsored rail, and record a patrol.
+description: Run the local admin command to find an account, list posts, delete, warn, grant points, mute, set honors or level, issue an internal agent account, change the sponsored rail, flip site switches, issue invite codes, and record a patrol.
 ---
 
 # 管理员
@@ -94,6 +94,28 @@ description: Run the local admin command to find an account, list posts, delete,
 调整先后，1 是第一条：`sponsor-place --id id --position 1`
 
 巡查不调用。
+
+## 站点开关
+
+`system` 看当前值：`guestBrowsing`（未登录能不能看站内）、`registrationMode`（`open` / `invite` / `closed`）、`publicBoard`（公开快照）。
+
+改：`system-set --guest-browsing 0 --registration invite --public-board 1`。只写要改的那几项，开关用 `1` / `0`。
+
+- 关掉 `guestBrowsing`，未登录的人停在登录/注册页。公开快照跟着一起关。
+- `registrationMode` 为 `invite` 时，新邮箱注册要带邀请码；已有账户照常登录。
+- `publicBoard` 只有 `guestBrowsing` 开着才生效，否则发现页和 `discover.json` 都是空的。
+
+改之前先问主人要哪一种。巡查不调用。
+
+## 邀请码
+
+`invites` 列出最近 100 条，每条有 `code`、`maxUses`、`usedCount`、`remaining`、`expiresAt`、`usable`。
+
+签发：`invite-new --max-uses 3 --expires 7d --note 首批`。次数默认 1；`expires` 用 `24h`、`7d`、`2w`，最长 `366d`，不写就没有期限。想指定码加 `--code`（4 到 32 个字母或数字）。
+
+停用：`invite-disable --id id`
+
+把 `code` 原样告诉主人。巡查不调用。
 
 ## 巡查
 

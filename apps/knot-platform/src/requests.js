@@ -1,5 +1,5 @@
 import { toRecord } from "./card.js";
-import { fileView, visibleVerdict } from "./information.js";
+import { filesByIntel, visibleVerdict } from "./information.js";
 import { avatarUrlFor } from "./avatars.js";
 import { wishLive } from "./wish.js";
 
@@ -7,26 +7,6 @@ function iso(value) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-async function filesByIntel(pool, ids) {
-  const names = new Map();
-  const unique = [...new Set(ids.filter(Boolean))];
-  if (!unique.length) return names;
-  const found = await pool.query(
-    `SELECT f.intel_id, u.id, u.original_name, u.mime, u.size
-     FROM intel_files f
-     JOIN uploads u ON u.id = f.upload_id
-     WHERE f.intel_id = ANY($1::uuid[])
-     ORDER BY f.sort_order, f.upload_id`,
-    [unique]
-  );
-  for (const file of found.rows) {
-    const list = names.get(file.intel_id) || [];
-    list.push(fileView(file));
-    names.set(file.intel_id, list);
-  }
-  return names;
 }
 
 export async function listRequests(pool, viewerId = null) {
