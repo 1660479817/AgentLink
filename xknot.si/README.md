@@ -95,7 +95,10 @@ xknot.si/
 │   ├── fetch-cards.mjs    橱窗拉取，写 var/cards/（M2）
 │   ├── build-hub.sh       本机构建：校验、探测、构建、写快照
 │   ├── build-world-dots.mjs  生成世界底图（web/src/lib/world.js）
-│   ├── deploy-hub.sh      可选的远端同步（目标由环境变量给出）
+│   ├── deploy-hub.sh      可选的静态站同步（目标由环境变量给出）
+│   ├── deploy-api.sh      接口、审核台与站点配置的同步
+│   ├── README-deploy-aws.md  托管主机的部署笔记
+│   ├── edge/              子域边缘：nginx 模板、隧道与固定 IP runbook
 │   └── validate-instances.mjs  清单校验
 ├── var/                   生成物：探测结果、申请库、会话密钥（不入版本库）
 └── web/                   Vue 门户，独立安装与构建
@@ -116,7 +119,10 @@ npm run dev      # 接口 5181 + 门户开发服务器 5180
 npm run build    # 校验、探测、构建、写快照
 npm run test     # 单元测试（清单、页面、接口）
 npm run admin -- create-admin paul   # 建审核账号
+npm run deploy:api                   # 部署接口与审核台（需 XKNOT_EDGE）
 ```
+
+部署分两条独立的命令：`npm run deploy` 同步静态站，`npm run deploy:api` 同步接口、审核台与站点配置。两者都只认 `XKNOT_EDGE` 等环境变量，仓库里没有默认主机。
 
 审核台在本机 `http://127.0.0.1:5180/admin/`。申请数据在 `var/xknot.db`，与 `instances.json` 一起备份。
 
@@ -133,6 +139,9 @@ npm run admin -- create-admin paul   # 建审核账号
 | [ops/xknot.si.conf](ops/xknot.si.conf) | 门户的 nginx 配置 |
 | [ops/check-health.mjs](ops/check-health.mjs) | 健康探测，写 `var/health.json` |
 | [ops/build-hub-data.mjs](ops/build-hub-data.mjs) | 合并清单与探测结果，写 `data/hub.json` |
+| [ops/deploy-api.sh](ops/deploy-api.sh) | 同步接口、审核台与站点配置 |
+| [ops/edge/README.md](ops/edge/README.md) | 子域边缘：隧道落地步骤 |
+| [ops/edge/wang.xknot.si.conf](ops/edge/wang.xknot.si.conf) | 单子域边缘 nginx 模板 |
 | [ops/build-hub.sh](ops/build-hub.sh) | 本机构建：校验、探测、构建、写快照 |
 | [ops/deploy-hub.sh](ops/deploy-hub.sh) | 可选的远端同步，目标由环境变量给出 |
 | [ops/validate-instances.mjs](ops/validate-instances.mjs) | 清单校验，不过不构建 |
@@ -159,7 +168,7 @@ npm run admin -- create-admin paul   # 建审核账号
 
 ## 归属与许可
 
-`xknot.si` 及其下签发的子域归 **PaulWang** 所有。代码以 [Apache-2.0](../LICENSE) 发布，版权人是 PaulWang，署名见 [NOTICE](../NOTICE)。
+`xknot.si` 及其下签发的子域归 **PaulWang** 所有。代码以 [Apache-2.0](../LICENSE) 发布，版权人是 PaulWang，署名见 [NOTICE](./NOTICE)。许可证全文在仓库根；本项目自带一份 `NOTICE`，单独取用本目录时署名不依赖根目录。
 
 - 许可证授予代码的版权与专利许可，**不含商标**。`Knot`、`xknot`、`xknot.si` 的名称和标识不随代码授权。
 - `*.xknot.si` 子域只由权利人签发。自部署实例可使用自有域名，也可写「基于 Knot」，不得暗示官方认证。

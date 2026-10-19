@@ -19,6 +19,7 @@
     "api": "node server/index.mjs",
     "admin": "node server/admin-cli.mjs",
     "deploy": "./ops/deploy-hub.sh",
+    "deploy:api": "./ops/deploy-api.sh",
     "build:world": "node ops/build-world-dots.mjs"
   }
 }

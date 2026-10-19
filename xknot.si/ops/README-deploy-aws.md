@@ -52,19 +52,35 @@ XKNOT_TARGET=/var/www/xknot \
 
 `deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录。
 
-接口与依赖（首次或代码变更）：
+接口、审核台与配置（首次或代码变更）：
+
+```bash
+cd xknot.si
+XKNOT_EDGE=ec2-user@54.169.33.64 \
+XKNOT_SSH_KEY=$HOME/.ssh/suanli-sg-probe.pem \
+  ./ops/deploy-api.sh
+
+# 只看会做什么，不连远端
+XKNOT_EDGE=ec2-user@54.169.33.64 ./ops/deploy-api.sh --dry-run
+```
+
+`deploy-api.sh` 依次同步 `server/`、`admin/`、`docs/`、清单校验依赖，安装 nginx 配置与 systemd unit，`nginx -t` 通过后重启接口并 reload nginx，最后在本机回环上验证 `/api/health`。静态站不在它的范围内，仍由 `deploy-hub.sh` 负责。
+
+等价的手工步骤（脚本不可用时）：
 
 ```bash
 KEY=$HOME/.ssh/suanli-sg-probe.pem
 EDGE=ec2-user@54.169.33.64
 rsync -az -e "ssh -i $KEY" server/ "$EDGE:/opt/xknot/server/"
 rsync -az -e "ssh -i $KEY" admin/ "$EDGE:/opt/xknot/admin/"
+rsync -az -e "ssh -i $KEY" docs/ "$EDGE:/opt/xknot/docs/"
 rsync -az -e "ssh -i $KEY" ops/validate-instances.mjs "$EDGE:/opt/xknot/ops/"
 rsync -az -e "ssh -i $KEY" web/src/lib/i18n.js web/src/lib/regions.js \
   "$EDGE:/opt/xknot/web/src/lib/"
-scp -i "$KEY" ops/xknot.si.conf ops/xknot-api.service "$EDGE:/tmp/"
+scp -i "$KEY" ops/xknot.si.conf ops/root.xknot.si.conf ops/xknot-api.service "$EDGE:/tmp/"
 ssh -i "$KEY" "$EDGE" '
   sudo cp /tmp/xknot.si.conf /etc/nginx/conf.d/xknot.si.conf
+  sudo cp /tmp/root.xknot.si.conf /etc/nginx/conf.d/root.xknot.si.conf
   sudo cp /tmp/xknot-api.service /etc/systemd/system/xknot-api.service
   sudo nginx -t && sudo systemctl daemon-reload
   sudo systemctl enable --now xknot-api
@@ -120,14 +136,16 @@ curl -skI --resolve zenheart.net:443:54.169.33.64 https://zenheart.net/         
 
 ## instances.json 备注
 
-当前清单里示范实例 `root` 的 `healthUrl` / `canonical` / `redirect` 仍指向 **`knot.zenheart.net`**（正式切 `wang` 边缘另任务）。中枢门户可先上线；探测结果可能为 `down`（构建时采样），不影响静态站与申请接口。
+清单里的示范实例 `root` 与旗舰实例 `wang` 目前都指向 `https://wang.xknot.si`。中枢门户可以先上线；探测结果为构建时采样，不影响静态站与申请接口。
 
-## 父仓脚本默认主机
+## 实例侧脚本与主机
 
-`AgentLink/ops/scripts/push-edge.sh`、`push-discover.sh`、`run-edge-tunnel.sh` 默认边缘已改为 `54.169.33.64`（仍可用 `KNOT_EDGE_SSH` / `KNOT_EDGE_HOST` 覆盖）。隧道用户 `knot-tunnel@` 需在 SG 上另行开通后再用隧道脚本。
+实例侧的隧道与边缘脚本（Knot 平台仓库的 `ops/scripts/run-edge-tunnel.sh`、`ops/scripts/push-edge.sh`、`ops/scripts/push-discover.sh`）都以 `ops/deploy.env` 里的 `KNOT_EDGE_SSH` / `KNOT_EDGE_HOST` 为准，仓库里没有默认主机；未配置时脚本直接报错。中枢自己的部署见 `ops/deploy-hub.sh` 与 `ops/deploy-api.sh`，也不写死主机。
+
+隧道用户 `knot-tunnel@` 需在边缘机另行开通后再用隧道。
 
 ## 禁止
 
 - 未切 NS 前不要对 xknot / wang 跑 certbot
 - 不要改 Dynadot / 不要动 Route53 `zenheart` 区
-- 不要 terminate 实例、不要停 zenheart / knot 服务
+- 不要 terminate 实例；不要停同机其它站点（zenheart 等）的服务

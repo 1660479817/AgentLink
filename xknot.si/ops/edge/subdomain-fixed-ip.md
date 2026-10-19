@@ -1,6 +1,6 @@
 # xknot 子域：固定公网 IP 直连 runbook
 
-适用：伙伴主机已有稳定公网 IP（或云主机弹性 IP），不需要 SSH 反向隧道。加入流程与域名轴说明见 `xknot.si/docs/JOIN.md` §3.1。NAT / 仅出网场景用 [README-xknot-edge.md](./README-xknot-edge.md)。
+适用：伙伴主机已有稳定公网 IP（或云主机弹性 IP），不需要 SSH 反向隧道。加入流程与域名轴说明见 [docs/JOIN.md](../../docs/JOIN.md) §3.1。NAT / 仅出网场景用 [README.md](./README.md)。
 
 ## 目标拓扑
 
@@ -10,7 +10,7 @@
 DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 ```
 
-中枢只按清单探测公网 `healthUrl`；与新加坡边缘、`18080`、隧道用户无关。
+中枢只按清单探测公网 `healthUrl`；与本项目中枢主机的边缘端口、隧道用户无关。
 
 ## 工作人员清单
 
@@ -41,7 +41,7 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 | DNS 指向 | 伙伴公网 IP | 边缘公网 IP |
 | 证书落点 | 伙伴主机 | 边缘 nginx |
 | `sshd` Match / `18080` | 不需要 | 需要 |
-| 实例常驻隧道 | 不需要 | 需要（`run-edge-tunnel.sh`） |
+| 实例常驻隧道 | 不需要 | 需要（`ssh -R`，见 [README.md](./README.md)） |
 | 边缘 `wang.xknot.si.conf` 类文件 | 不需要 | 需要（每子域或未来通配） |
 
 ## 切换注意

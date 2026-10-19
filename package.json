@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test \"knot-platform/**/*.test.js\" \"ops/**/*.test.js\" \"ops/**/*.test.mjs\"",
+    "test:all": "npm test && npm --prefix xknot.si test",
     "config": "node ops/scripts/config.mjs",
-    "validate:hub": "node xknot.si/ops/validate-instances.mjs",
     "migrate": "npm --prefix knot-platform run migrate",
     "dev:platform": "npm --prefix knot-platform run dev:platform",
     "dev:web": "npm --prefix knot-platform run dev:web",

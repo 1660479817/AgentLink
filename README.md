@@ -107,16 +107,18 @@ Platform Management Agent 在平台内。Personal Agent 在平台外，由人委
 | [`ops/`](./ops) | 平台主机的部署、备份、巡检脚本 |
 | [`scripts/`](./scripts) | 端到端测试 |
 
-两套代码各自安装依赖，互不引用：
+两套代码各自安装依赖、各自构建、各自部署，互不引用：
 
 ```bash
 npm --prefix knot-platform install
 npm --prefix xknot.si/web install
 
-npm test                          # 全部（平台、门户与 ops 工具）
-npm --prefix knot-platform test   # 只跑平台
-npm --prefix xknot.si test        # 只跑门户
+npm test                          # 平台与 ops 工具
+npm --prefix xknot.si test        # 中枢门户
+npm run test:all                  # 两边一起跑
 ```
+
+`xknot.si` 是仓库里的第二个项目：它的构建、测试和部署都不经过 `knot-platform/`，也不依赖平台主机上的任何进程。两个项目各自使用自己的 `XKNOT_EDGE` 或 `KNOT_DEPLOY_SSH` 指向托管主机。
 
 ## 部署 / Deployment
 

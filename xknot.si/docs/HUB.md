@@ -56,7 +56,10 @@ xknot.si/
 │   ├── fetch-cards.mjs          橱窗拉取，写 var/cards/（M2）
 │   ├── build-hub.sh             本机构建：校验、探测、构建、写快照
 │   ├── verify-hub-data.mjs      发布前守卫：快照里的 id 必须与清单一致
-│   ├── deploy-hub.sh            可选的远端同步（目标由环境变量给出）
+│   ├── deploy-hub.sh            可选的静态站同步（目标由环境变量给出）
+│   ├── deploy-api.sh            接口、审核台与站点配置的同步
+│   ├── README-deploy-aws.md     托管主机的部署笔记
+│   ├── edge/                    子域边缘：nginx 模板、隧道与固定 IP runbook
 │   └── validate-instances.mjs   清单校验
 ├── var/
 │   ├── health.json        探测结果（生成物，不入版本库）
@@ -362,6 +365,15 @@ XKNOT_EDGE=user@host ./xknot.si/ops/deploy-hub.sh
 ```
 
 `XKNOT_EDGE` 必填，脚本不写死主机；`XKNOT_TARGET`（默认 `/var/www/xknot`）和 `XKNOT_SSH_KEY` 可覆盖。这一步由执行构建的机器直接发起，与 bot01 无关。
+
+接口、审核台与站点配置用 `ops/deploy-api.sh`，同样只认 `XKNOT_EDGE`：
+
+```bash
+XKNOT_EDGE=user@host ./xknot.si/ops/deploy-api.sh --dry-run
+XKNOT_EDGE=user@host ./xknot.si/ops/deploy-api.sh
+```
+
+它同步 `server/`、`admin/`、`docs/` 和清单校验依赖，安装 nginx 配置与 systemd unit，`nginx -t` 后重启接口并 reload nginx。静态站与接口分开部署，互不覆盖。
 
 ### 7.4 更新流程
 
