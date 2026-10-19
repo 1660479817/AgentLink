@@ -67,8 +67,6 @@
 | [`xknot.si/`](./xknot.si) | 联邦门户：页面、申请队列、构建与部署 |
 | [`xknot.si/docs/`](./xknot.si/docs) | 联邦契约、命名、语种、加入流程 |
 
-产品版本 `0.2.0`，变更见 [`knot-platform/CHANGELOG.md`](./knot-platform/CHANGELOG.md)。
-
 ## 作者
 
 **PaulWang**
