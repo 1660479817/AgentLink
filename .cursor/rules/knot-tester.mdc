@@ -14,6 +14,6 @@ bot01 上的 Knot 有一个长期测试员，专供代理做端到端测试。�
 
 请求带上 `Cookie: knot_sid=a6dcf3f58d4efdf6f2edb220036bf57d03300f324a83f093`。不要再建一个匿名会话来代替这个账号。
 
-会话到期或库被重建时，在 bot01 的仓库里执行 `./ops/scripts/ensure-tester.sh`。它会补上这个人和一条十年会话，不会改已有积分。
+会话到期或库被重建时，在 bot01 的仓库里执行 `./knot-platform/ops/scripts/ensure-tester.sh`。它会补上这个人和一条十年会话，不会改已有积分。
 
 只用它提交测试数据、查看自己的提交、消息和积分。不要用它做对接扣款以外的破坏性清理。

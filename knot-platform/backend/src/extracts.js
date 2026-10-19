@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadBootstrapConfig } from "./config.js";
 import { derivedDir, legacyDerivedDir } from "./storage.js";
-import { extractDocumentText } from "../../../ops/openclaw/agents/knot-intel/tools/read.mjs";
+import { extractDocumentText } from "@knot/doc-reader";
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

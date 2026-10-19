@@ -5,8 +5,8 @@
 // 幂等，可重复执行。默认只报告，加 --apply 才动文件。
 //
 //   set -a; source ops/env/knot-platform.local.env; set +a
-//   node knot-platform/backend/scripts/migrate-storage-layout.mjs
-//   node knot-platform/backend/scripts/migrate-storage-layout.mjs --apply
+//   node backend/scripts/migrate-storage-layout.mjs
+//   node backend/scripts/migrate-storage-layout.mjs --apply
 import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";

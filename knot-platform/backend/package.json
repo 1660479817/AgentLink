@@ -11,6 +11,7 @@
     "migrate": "node scripts/migrate.js"
   },
   "dependencies": {
+    "@knot/doc-reader": "0.1.0",
     "@knot/markdown": "0.1.0",
     "cookie-parser": "^1.4.7",
     "express": "^4.21.2",

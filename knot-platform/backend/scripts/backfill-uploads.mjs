@@ -3,8 +3,8 @@
 // 默认只报告，不改库。确认后加 --apply。
 //
 //   set -a; source ops/env/knot-platform.local.env; set +a
-//   node knot-platform/backend/scripts/backfill-uploads.mjs
-//   node knot-platform/backend/scripts/backfill-uploads.mjs --apply
+//   node backend/scripts/backfill-uploads.mjs
+//   node backend/scripts/backfill-uploads.mjs --apply
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";

@@ -5,14 +5,14 @@ alwaysApply: true
 
 # 云端边缘
 
-`knot.zenheart.net` 只放 WebUI 和发现页的公开快照。平台、数据库、OpenClaw 仍在 bot01。用户明确要求更新云端页面时，在开发机执行 `./ops/scripts/push-edge.sh`（它用 `--exclude /discover.json --exclude /media/` 跳过快照，不会把快照删掉）。不要在云端起 Knot Backend 或 Postgres。
+`knot.zenheart.net` 只放 WebUI 和发现页的公开快照。平台、数据库、OpenClaw 仍在 bot01。用户明确要求更新云端页面时，在开发机执行 `./knot-platform/ops/scripts/push-edge.sh`（它用 `--exclude /discover.json --exclude /media/` 跳过快照，不会把快照删掉）。不要在云端起 Knot Backend 或 Postgres。
 
 - 实例：`ap-southeast-1` 的 `i-0c876685a64c75538`，`ec2-user@54.169.33.64`。登录用 `~/.ssh/suanli-sg-probe.pem`（`id_rsa` 会被拒，`id_ed25519` 也不要）。
 - AWS 凭据在 `~/.aws/credentials` 的 `knot-deploy`（另有 `grokbot`）。用 `--profile knot-deploy --region ap-southeast-1`：配置里的 profile 区域写的是 `ap-east-1`，这台实例在 `ap-southeast-1`，不带 `--region` 会查不到。密钥不进仓库，不作废，除非用户明确要求。
 - 域名经 Cloudflare 指到这台 nginx。证书由 Certbot 管，不要改 `ssl_certificate` 那几行。
 - 同一台机器上的 ZenHeart 占用 `127.0.0.1:8080`。不要改 `aiugc.conf`，不要把 Knot 隧道绑到 8080。
 - 这台机同时托管联盟门户：`/var/www/xknot`、`/opt/xknot`、`xknot-api`（`127.0.0.1:5181`）、`root.xknot.si`。它归 `xknot.si/` 项目自己管，别用 Knot 的脚本或配置去覆盖；改 `conf.d/` 里任何一份之前先 `nginx -t`。
-- WebUI 目录是 `/var/www/knot`。配置在 `ops/edge/knot.zenheart.net.conf`。`/api/` 和 `/help` 反代到 `127.0.0.1:18080`。`/api/admin` 在边缘返回 404。
-- `/discover.json` 和 `/media/previews/` 也在 `/var/www/knot`，由 bot01 的 `ops/scripts/push-discover.sh` 推上来（Backend 走 `KNOT_DISCOVER_PUSH_CMD`）。云端有就先给这一份，缺了用 `try_files` 回落隧道。要改快照逻辑，改推送脚本或 Backend 的组装，不要在云端手改文件。
-- bot01 的 LaunchAgent `com.knot.edge-tunnel` 执行 `ops/scripts/run-edge-tunnel.sh`：用 `~/.ssh/knot-edge` 以 `knot-tunnel` 连出，把云端 `127.0.0.1:18080` 转到本机 `127.0.0.1:8080`。私钥不进仓库。
-- 端到端：`E2E_BASE=https://knot.zenheart.net E2E_COOKIE='knot_sid=…' npm run e2e`。Cookie 用测试员规则里的那一条。
+- WebUI 目录是 `/var/www/knot`。配置在 `knot-platform/ops/edge/knot.zenheart.net.conf`。`/api/` 和 `/help` 反代到 `127.0.0.1:18080`。`/api/admin` 在边缘返回 404。
+- `/discover.json` 和 `/media/previews/` 也在 `/var/www/knot`，由 bot01 的 `knot-platform/ops/scripts/push-discover.sh` 推上来（Backend 走 `KNOT_DISCOVER_PUSH_CMD`）。云端有就先给这一份，缺了用 `try_files` 回落隧道。要改快照逻辑，改推送脚本或 Backend 的组装，不要在云端手改文件。
+- bot01 的 LaunchAgent `com.knot.edge-tunnel` 执行 `knot-platform/ops/scripts/run-edge-tunnel.sh`：用 `~/.ssh/knot-edge` 以 `knot-tunnel` 连出，把云端 `127.0.0.1:18080` 转到本机 `127.0.0.1:8080`。私钥不进仓库。
+- 端到端：用测试员规则里的 Cookie 打 `E2E_BASE`（如 `https://knot.zenheart.net`），提交一条不公开记录后在管理员工作区 `admin posts` 列出、`admin remove` 删除，再到 `/api/web/submissions` 确认 `verdict` 为 `removed`。步骤见 `knot-platform/ops/README.md` 第 5 节。

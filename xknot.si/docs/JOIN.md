@@ -143,7 +143,7 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 落地要点：
 
 1. 工作人员签发 `某名.xknot.si`，DNS 指到伙伴主机公网 IP。
-2. 主机上自行配置 TLS（Let’s Encrypt 等）与反向代理到 Knot Backend / WebUI。这类配置与自营站点相同，见实例仓库的 [ops/edge/README.md](../../ops/edge/README.md) 与 [subdomain-fixed-ip.md](../../ops/edge/subdomain-fixed-ip.md)。
+2. 主机上自行配置 TLS（Let’s Encrypt 等）与反向代理到 Knot Backend / WebUI。这类配置与自营站点相同，见实例仓库的 [ops/edge/README.md](../../knot-platform/ops/edge/README.md) 与 [subdomain-fixed-ip.md](../../knot-platform/ops/edge/subdomain-fixed-ip.md)。
 3. 清单里 `url`、`canonical`、`healthUrl` 使用该 `https://某名.xknot.si/...`。
 4. 中枢构建时对公网 `healthUrl` 探测；与边缘隧道无关。
 
@@ -151,7 +151,7 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 
 ### 3.2 主机无固定公网 IP（或仅出网 / NAT 后）
 
-需要一台公网边缘机持证书，实例主动连出建反向隧道。**这是实例侧的部署形态，不属于中枢**；具体配置与命令在实例仓库的 [ops/edge/README.md](../../ops/edge/README.md)。
+需要一台公网边缘机持证书，实例主动连出建反向隧道。**这是实例侧的部署形态，不属于中枢**；具体配置与命令在实例仓库的 [ops/edge/README.md](../../knot-platform/ops/edge/README.md)。
 
 ```text
 浏览器 ──HTTPS──▶ 公网边缘（nginx + 证书）
@@ -174,7 +174,7 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 | 清单 | `healthUrl` 必须是**公网 HTTPS**（经边缘可达），不能写 `http://192.168.…` 或 `http://127.0.0.1:…` |
 | 密钥 | 只在运行机 `~/.ssh/`，**不进仓库、不写本文** |
 
-签发子域的工作人员另外要把该子域的 DNS 指到边缘公网 IP，并在边缘加一份 `server` 块。模板与步骤见 [ops/edge/README.md](../../ops/edge/README.md)；通配多租户自动 server 未做（见第 6 节）。
+签发子域的工作人员另外要把该子域的 DNS 指到边缘公网 IP，并在边缘加一份 `server` 块。模板与步骤见 [ops/edge/README.md](../../knot-platform/ops/edge/README.md)；通配多租户自动 server 未做（见第 6 节）。
 
 `ops/README-deploy-aws.md` 注明：隧道用户 `knot-tunnel@` 需在边缘机另行开通后再用隧道；边缘主机由部署配置给出，仓库里不写默认值。
 
@@ -222,7 +222,7 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 | **边缘**（公网机上的 nginx / sshd） | 证书、对外 HTTPS、把动态请求反代到隧道端口或本机静态目录；隧道用户隔离 | 业务库；审核联邦申请；改 `instances.json` |
 | **实例**（伙伴 Knot，用 `knot-platform` 部署） | 自有部署、库、上传、账号、审核、证书（直连时）或维持隧道（NAT 时）、提供 `/api/health` 与可选橱窗 | 改中枢清单；要求中枢代管内容 |
 
-两边的代码与脚本分开存放：中枢的部署文件在本文同级的 `ops/`；实例的部署文件在仓库根的 [`ops/`](../../ops)（`edge/` 下是边缘配置）。中枢不引用实例的文件，实例也不引用中枢的文件；本文只做策略说明与跳转。
+两边的代码与脚本分开存放：中枢的部署文件在本文同级的 `ops/`；实例的部署文件在 [`knot-platform/ops/`](../../knot-platform/ops)（`edge/` 下是边缘配置）。中枢不引用实例的文件，实例也不引用中枢的文件；本文只做策略说明与跳转。
 
 - 中枢 nginx：`ops/xknot.si.conf`；中枢部署笔记：`ops/README-deploy-aws.md`
 - 实例边缘：`../../ops/edge/README.md`、`../../ops/edge/subdomain-fixed-ip.md`
@@ -239,7 +239,7 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 | 传统 DDNS（客户端改 A 到当前出口 IP） | **不做**；NAT 场景用边缘 + SSH 反向隧道 |
 | `ops/fetch-cards.mjs` 橱窗拉取 | **M2，脚本未落地**；展示侧已可读 `var/cards/` |
 | L2 探测「DNS 后拒私网」 | **契约已写，check-health 尚未实现** |
-| 单子域边缘 nginx 模板（`wang.xknot.si`） | **已有**：[`ops/edge/wang.xknot.si.conf`](../../ops/edge/wang.xknot.si.conf)（实例侧）；步骤见 [`ops/edge/README.md`](../../ops/edge/README.md)；固定 IP 见 [`ops/edge/subdomain-fixed-ip.md`](../../ops/edge/subdomain-fixed-ip.md) |
+| 单子域边缘 nginx 模板（`wang.xknot.si`） | **已有**：[`ops/edge/wang.xknot.si.conf`](../../knot-platform/ops/edge/wang.xknot.si.conf)（实例侧）；步骤见 [`ops/edge/README.md`](../../knot-platform/ops/edge/README.md)；固定 IP 见 [`ops/edge/subdomain-fixed-ip.md`](../../knot-platform/ops/edge/subdomain-fixed-ip.md) |
 | 通配多租户 `*.xknot.si` 边缘 nginx | **未做**；每签发子域仍手工一份 conf，不能自动按 Host 分租户 |
 | 中枢站点 HTTPS / NS 切换细节 | 见 `ops/README-deploy-aws.md`；证书与部分 DNS 步骤标为另任务 |
 

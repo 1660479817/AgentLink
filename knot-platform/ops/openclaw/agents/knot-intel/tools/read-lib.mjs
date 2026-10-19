@@ -1,0 +1,1 @@
+../../../../../packages/knot-doc-reader/src/index.mjs

@@ -146,10 +146,10 @@ npm run deploy:api                   # 部署接口与审核台（需 XKNOT_EDGE
 | 位置 | 内容 |
 |------|------|
 | [`knot-platform/`](../knot-platform) | 实例实现：Backend、WebUI 与共享包。`xxx.xknot.si` 跑的就是它 |
-| [`ops/`](../ops) | 实例的部署、边缘、备份、巡检脚本；子域边缘模板在 `ops/edge/` |
+| [`knot-platform/ops/`](../knot-platform/ops) | 实例的部署、边缘、备份、巡检脚本；子域边缘模板在 `ops/edge/` |
 | [`docs/`](../docs) | 跨项目文档：命名、部署配置 |
 
-方向是单向的：中枢只按清单探测实例的公网 `healthUrl`，不读实例的代码、库或进程；实例也不改中枢的清单。子域签发与清单登记是这里的策略（[docs/JOIN.md](docs/JOIN.md)），而边缘与隧道怎么落地是实例侧的事（[`ops/edge/README.md`](../ops/edge/README.md)）。
+方向是单向的：中枢只按清单探测实例的公网 `healthUrl`，不读实例的代码、库或进程；实例也不改中枢的清单。子域签发与清单登记是这里的策略（[docs/JOIN.md](docs/JOIN.md)），而边缘与隧道怎么落地是实例侧的事（[`knot-platform/ops/edge/README.md`](../knot-platform/ops/edge/README.md)）。
 
 ## 收录与收费
 

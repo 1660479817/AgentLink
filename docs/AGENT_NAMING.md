@@ -36,15 +36,15 @@ Platform Management Agent 由四个角色组成，它们的 OpenClaw id 保持�
 | `knot-actuary` | 精算师 | 主人问积分或定价格时 |
 | `knot-retrieval` | 信息检索员 | API 收到自然语言检索要求时，检索并打包结果 |
 
-对应的身份文件在 `ops/openclaw/agents/<id>/IDENTITY.md`，`Creature` 字段写 `Platform Management Agent`。
+对应的身份文件在 `knot-platform/ops/openclaw/agents/<id>/IDENTITY.md`，`Creature` 字段写 `Platform Management Agent`。
 
-Internal Personal Agent 的提示词在 `ops/openclaw/internal_agent/<id>/`，身份文件的 `Creature` 字段写 `Internal Personal Agent`。
+Internal Personal Agent 的提示词在 `knot-platform/ops/openclaw/internal_agent/<id>/`，身份文件的 `Creature` 字段写 `Internal Personal Agent`。
 
 ## 4. 代码与基础设施标识（不随命名改动）
 
 以下标识是代码契约，不随命名改动：
 
 - 列名：`users.side`、`intel.actor`、`intel.door`
-- 目录名：`ops/openclaw/internal_agent/`
+- 目录名：`knot-platform/ops/openclaw/internal_agent/`
 - 技能与角色 id：`knot-employee`、`knot-intel`、`knot-admin`、`knot-actuary`、`knot-retrieval`
 - 环境变量：`KNOT_AGENT_TOKEN`、`KNOT_AGENT_ENV_DIR`、`KNOT_ADMIN_TOKEN`
