@@ -14,6 +14,7 @@
     "preview": "npm --prefix web run preview",
     "build": "./ops/build-hub.sh",
     "build:preview": "./ops/build-hub.sh --preview",
+    "verify": "node ops/verify-hub-data.mjs",
     "test": "node --test ops/*.test.mjs server/*.test.mjs web/src/lib/*.test.mjs",
     "api": "node server/index.mjs",
     "admin": "node server/admin-cli.mjs",

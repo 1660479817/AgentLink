@@ -52,4 +52,16 @@ npm --prefix "$WEB" run build
 echo "== snapshot =="
 XKNOT_PREVIEW="$PREVIEW" node "$HUB/ops/build-hub-data.mjs" --out "$DIST/data/hub.json"
 
+echo "== verify =="
+if [ "$PREVIEW" = "1" ]; then
+  node "$HUB/ops/verify-hub-data.mjs" \
+    --data "$DIST/data/hub.json" \
+    --instances "$HUB/instances.json" \
+    --fixtures "$HUB/fixtures/preview-instances.json"
+else
+  node "$HUB/ops/verify-hub-data.mjs" \
+    --data "$DIST/data/hub.json" \
+    --instances "$HUB/instances.json"
+fi
+
 echo "done: $DIST"

@@ -23,6 +23,10 @@ if [ ! -f "$DIST/index.html" ]; then
   exit 1
 fi
 
+# 同步前再核一次：部署目录里不能有 fixtures 的样例条目。
+echo "== verify =="
+node "$HUB/ops/verify-hub-data.mjs" --data "$DIST/data/hub.json" --instances "$HUB/instances.json"
+
 : "${XKNOT_EDGE:?set XKNOT_EDGE=user@host}"
 TARGET="${XKNOT_TARGET:-/var/www/xknot}"
 KEY="${XKNOT_SSH_KEY:-$HOME/.ssh/id_rsa}"
