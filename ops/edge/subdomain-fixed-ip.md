@@ -1,6 +1,6 @@
 # xknot 子域：固定公网 IP 直连 runbook
 
-适用：伙伴主机已有稳定公网 IP（或云主机弹性 IP），不需要 SSH 反向隧道。加入流程与域名轴说明见 [docs/JOIN.md](../../docs/JOIN.md) §3.1。NAT / 仅出网场景用 [README.md](./README.md)。
+适用：伙伴主机已有稳定公网 IP（或云主机弹性 IP），不需要 SSH 反向隧道。加入流程与域名轴说明见 [xknot.si/docs/JOIN.md](../../xknot.si/docs/JOIN.md) §3.1。NAT / 仅出网场景用 [README.md](./README.md)。
 
 ## 目标拓扑
 

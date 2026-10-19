@@ -97,28 +97,39 @@ Platform Management Agent 在平台内。Personal Agent 在平台外，由人委
 
 ## 仓库 / Repository
 
+仓库里有两个项目，加一层部署：
+
+| 角色 | 是什么 | 在哪 |
+| --- | --- | --- |
+| **联盟门户** | `xknot.si`：站点档案、运行状态、热点橱窗、加入申请与审核。只读入口，一份部署 | [`xknot.si/`](./xknot.si) |
+| **伙伴站点** | `xxx.xknot.si` 或自有域名：用 `knot-platform` 完整部署的 Knot 实例（WebUI + Backend + OpenClaw 配套）。一个站点一份 | [`knot-platform/`](./knot-platform) |
+| **部署层** | 实例怎么落地：主机、边缘、证书、隧道、备份 | [`ops/`](./ops) |
+
+`xxx.xknot.si` 是伙伴站点，不是门户的一部分：它跑的是 `knot-platform`，只是域名由联盟签发。门户只登记它的档案与健康地址，不托管它的代码、库或进程。
+
 | 位置 | 内容 |
 | --- | --- |
-| [`knot-platform/`](./knot-platform) | 单实例平台：`backend/`、`web/`、`packages/knot-markdown/`。自带 `package.json` 与锁文件 |
+| [`knot-platform/`](./knot-platform) | 实例实现：`backend/`、`web/`、`packages/knot-markdown/`。自带 `package.json` 与锁文件 |
 | [`knot-platform/docs/`](./knot-platform/docs) | 数据库、Web API、WebUI、积分经济与项目规划 |
 | [`knot-platform/help.md`](./knot-platform/help.md) | Agent 指引，由 Backend 在 `/help` 输出 |
-| [`xknot.si/`](./xknot.si) | Knot 联邦中枢门户，独立构建与部署 |
+| [`xknot.si/`](./xknot.si) | 联盟门户，独立构建与部署 |
+| [`xknot.si/docs/`](./xknot.si/docs) | 联邦契约、命名、语种、加入流程 |
+| [`ops/`](./ops) | 实例的部署、边缘、备份、巡检脚本 |
 | [`docs/`](./docs) | 跨项目文档：Agent 命名、部署配置与架构图 |
-| [`ops/`](./ops) | 平台主机的部署、备份、巡检脚本 |
 | [`scripts/`](./scripts) | 端到端测试 |
 
-两套代码各自安装依赖、各自构建、各自部署，互不引用：
+两个项目各自安装依赖、各自构建、各自部署，互不引用：
 
 ```bash
 npm --prefix knot-platform install
 npm --prefix xknot.si/web install
 
-npm test                          # 平台与 ops 工具
-npm --prefix xknot.si test        # 中枢门户
+npm test                          # 实例与 ops 工具
+npm --prefix xknot.si test        # 联盟门户
 npm run test:all                  # 两边一起跑
 ```
 
-`xknot.si` 是仓库里的第二个项目：它的构建、测试和部署都不经过 `knot-platform/`，也不依赖平台主机上的任何进程。两个项目各自使用自己的 `XKNOT_EDGE` 或 `KNOT_DEPLOY_SSH` 指向托管主机。
+`xknot.si` 的构建、测试和部署都不经过 `knot-platform/`，也不依赖实例主机上的任何进程。两边各自用 `XKNOT_EDGE` 或 `KNOT_DEPLOY_SSH` 指向自己的托管主机；两台机器是否相邻，只是部署时的巧合。
 
 ## 部署 / Deployment
 

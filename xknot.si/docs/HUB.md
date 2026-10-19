@@ -57,9 +57,8 @@ xknot.si/
 │   ├── build-hub.sh             本机构建：校验、探测、构建、写快照
 │   ├── verify-hub-data.mjs      发布前守卫：快照里的 id 必须与清单一致
 │   ├── deploy-hub.sh            可选的静态站同步（目标由环境变量给出）
-│   ├── deploy-api.sh            接口、审核台与站点配置的同步
-│   ├── README-deploy-aws.md     托管主机的部署笔记
-│   ├── edge/                    子域边缘：nginx 模板、隧道与固定 IP runbook
+│   ├── deploy-api.sh            中枢接口、审核台与站点配置的同步
+│   ├── README-deploy-aws.md     中枢托管主机的部署笔记
 │   └── validate-instances.mjs   清单校验
 ├── var/
 │   ├── health.json        探测结果（生成物，不入版本库）
@@ -353,7 +352,23 @@ npm run preview  # 预览构建产物（在 web/ 内执行）
 | `XKNOT_SECURE_COOKIE` | 关 | 生产置 `1`，会话 Cookie 加 `Secure` |
 | `XKNOT_TRUST_PROXY` | 关 | 生产置 `1`，限流按 `X-Forwarded-For` 的首个地址 |
 
-接口没有外部依赖，Node 26 的 `node:sqlite` 即可运行，根目录仍然不需要 `node_modules`。
+邮件可选，不配就不发信：
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `SMTP_HOST` | （空） | SMTP 主机。与 `MAIL_FROM` 同时有值才启用发信 |
+| `SMTP_PORT` | `587` | SMTP 端口 |
+| `SMTP_SECURE` | 关 | 465 隐式 TLS 写 `1`；587 用 STARTTLS 保持 `0` |
+| `SMTP_USER` | （空） | SMTP 用户名。阿里云邮件推送要求与发信地址一致 |
+| `SMTP_PASS` | （空） | SMTP 密码 |
+| `SMTP_FROM` | （空） | 发信地址 |
+| `MAIL_FROM` | （空） | 发信地址，优先于 `SMTP_FROM` |
+| `XKNOT_ADMIN_EMAIL` | （空） | 新申请通知的收件地址；留空则只通知审核台 |
+| `XKNOT_PUBLIC_ORIGIN` | `https://xknot.si` | 邮件里链接用的门户地址 |
+
+生产把密码放在 `/opt/xknot/var/mail.env`（`0600`），由 systemd 的 `EnvironmentFile` 读入，不写进 unit 文件。`npm run mail:test -- <收件地址>` 用同一套环境变量发一封测试信。
+
+接口没有外部依赖，Node 26 的 `node:sqlite` 即可运行，根目录仍然不需要 `node_modules`；SMTP 客户端用 `node:net` / `node:tls`，也没有引入新依赖。
 
 ### 7.3 同步到托管目录（可选）
 
@@ -471,6 +486,13 @@ M3：加入申请
 | `POST /api/admin/applications/:id/review` | 会话 | `approve` / `reject` / `hold`，可带备注 |
 | `GET /api/admin/applications/:id/manifest` | 会话 | 生成清单条目，生成后自检，不合法返回 422 |
 
+邮件通知：
+
+- 新申请落库后寄给 `XKNOT_ADMIN_EMAIL`，`Reply-To` 是申请人邮箱，最多每小时 30 封；超过只入库不发信。
+- 审核把状态从 `pending` / `hold` 改成 `approved` 或 `rejected` 时，按申请时的 `locale` 给申请人寄三语结果信；`hold` 不发，重复点同一个动作也不重复发。
+- 审核备注只在库里和审核台，不寄给申请人。
+- 发信失败只写进程日志，提交和审核照常成功；没配 `SMTP_HOST` / `MAIL_FROM` 时静默跳过。
+
 接收侧规则：
 
 - 请求体上限 16KB，只接受 JSON；`Origin` 与 `Host` 不一致的 POST 返回 403。
@@ -516,7 +538,7 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug
 
 `var/xknot.db` 与 `var/session-secret` 要跟 `instances.json` 一起备份。数据库是普通 SQLite 文件，停机复制即可；WAL 模式下同时复制 `-wal` 与 `-shm`，或先执行 `sqlite3 var/xknot.db 'pragma wal_checkpoint(truncate)'`。
 
-`npm run test` 覆盖提交、重复、限流、跨源、登录、审核、清单生成与退出登录；测试用内存库，不碰 `var/`。
+`npm run test` 覆盖提交、重复、限流、跨源、登录、审核、清单生成、退出登录与邮件通知；测试用内存库和一个本地假 SMTP，不碰 `var/`，也不发真信。
 
 ## 10. 运维
 
@@ -532,3 +554,5 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug
 | 忘记管理员口令 | 删掉该账号再建：`npm run admin -- delete-admin <name>`，然后 `create-admin` |
 | 接口挂了 | 看进程日志；库文件在 `var/`，重启不丢申请 |
 | 申请被刷 | 调低限流或临时关掉表单；已入库的记录在审核台拒绝 |
+| 通知信没到 | `npm run mail:test -- <地址>`；查 `journalctl -u xknot-api` 里的 `mail failed`、发信地址是否设了 SMTP 密码、DNS 的 SPF/DKIM/DMARC 是否通过 |
+| 发信被限流 | 查阿里云邮件推送的日额度与发信地址类型；共享给伙伴时按站点分开发信地址 |

@@ -1,11 +1,24 @@
 # 部署与运维
 
-Knot 的部署分两层，两层都从同一份配置读取取值：
+本目录是**实例侧**的部署层：每台用 `knot-platform` 部署的 Knot 站点（WebUI + Backend + OpenClaw 配套）都从这里发布。联盟门户 `xknot.si` 是另一个项目，它自己的部署在 [`xknot.si/ops/`](../xknot.si/ops)，与本目录互不引用。
+
+实例的部署分两层，两层都从同一份配置读取取值：
 
 - **平台主机**：跑 Knot Backend、PostgreSQL、WebUI，用 macOS 的 LaunchAgent 常驻。
 - **云端边缘（可选）**：一台 Linux + nginx，只放 WebUI 和公开快照，`/api`、`/help` 经隧道回到平台主机。
 
 没有域名也能部署：只跑平台主机，局域网直接访问 `http://<主机>:<端口>/`。需要公网域名时再加边缘。
+
+按对外形态分，常见四种，配置都在本目录：
+
+| 形态 | 什么时候用 | 配置 |
+| --- | --- | --- |
+| 本机 / 局域网 | 自用、内网试用 | `ops/deploy.env` 的 `KNOT_PUBLIC_ORIGIN` |
+| 自有域名 + 云主机直连 | 主机有固定公网 IP | 实例自己配 TLS，参考 [`edge/subdomain-fixed-ip.md`](./edge/subdomain-fixed-ip.md) |
+| 自有域名 + 边缘 + 隧道 | 主机在 NAT 后 | [`edge/site.conf.template`](./edge/site.conf.template) + `push-edge.sh` |
+| 联盟子域 `某名.xknot.si` | 拿到联邦子域签发 | [`edge/wang.xknot.si.conf`](./edge/wang.xknot.si.conf) + [`edge/README.md`](./edge/README.md) |
+
+最后一种的域名申请、清单登记与验收要求属联盟，见 [`xknot.si/docs/JOIN.md`](../xknot.si/docs/JOIN.md)；具体怎么在这台机器上落地，仍是本目录的事。
 
 > 部署脚本里不再写死 IP、域名、目录或端口。所有站点取值集中在 **`ops/deploy.env`**，模板见 [`deploy.env.example`](./deploy.env.example)。`ops/deploy.env` 不进版本库。
 
@@ -219,6 +232,8 @@ profile 会单独拷到目标机的同路径（权限 `600`），只影响这一
    ```
 
    它渲染 [`edge/site.conf.template`](./edge/site.conf.template)、同步 `knot-platform/web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建。`ops/edge/knot.zenheart.net.conf` 是作者站点的生成样例，实际以模板为准。
+
+同一套边缘也用来给伙伴站点做 `某名.xknot.si` 入口，只是域名与证书不同：单子域模板是 [`edge/wang.xknot.si.conf`](./edge/wang.xknot.si.conf)，固定公网 IP 直连见 [`edge/subdomain-fixed-ip.md`](./edge/subdomain-fixed-ip.md)，总览见 [`edge/README.md`](./edge/README.md)。子域怎么申请、清单怎么登记，归联盟门户 `xknot.si/docs/JOIN.md`，不在本目录。
 
 平台主机开启 `KNOT_EDGE=1` 后，`deploy-site.sh` 会装 `com.knot.edge-tunnel`，并由 Backend 在公开内容变化后调用 `push-discover.sh` 推送 `/discover.json`。推页面用的 `KNOT_EDGE_SSH_KEY` 和平台主机推快照用的 `KNOT_EDGE_PUSH_KEY` 可以不是同一把。手动补推：
 

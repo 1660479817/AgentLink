@@ -24,7 +24,7 @@
 | `travel.xknot.si` | OPC 伙伴 | 旅行垂直（版式示例，尚未上线） |
 | `ai.xknot.si` | OPC 伙伴 | AI 垂直（版式示例，尚未上线） |
 
-每个子域后面是一套独立部署的 Knot：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与中枢单线联系，中枢只读。
+`xknot.si` 是联盟门户本身；其余子域是**伙伴站点**，每个跑一套用 `knot-platform` 完整部署的 Knot（WebUI + Backend + OpenClaw 配套）：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与门户单线联系，门户只读。
 
 `root.xknot.si` 是示范入口，只做 301，不计入实例统计。
 
@@ -43,7 +43,7 @@
 | L2 | 运行状态 | 构建时探测 `/api/health`，给出健康点、上次正常时间、可用率 |
 | L3 | 热点橱窗 | 构建时拉取 `cardsUrl`，最多 6 张卡片，点开回原站 |
 | — | 门户 | 三语静态页，左栏全球地图与卡片式节点目录（可筛区域、在线、热点），右栏加入申请 |
-| — | 申请与审核 | 申请表入库、管理员审核、生成清单条目 |
+| — | 申请与审核 | 申请表入库、邮件通知、管理员审核、生成清单条目 |
 | — | 跳转 | `root.xknot.si` 301 到 `wang.xknot.si` |
 
 ## 语言与区域
@@ -96,9 +96,8 @@ xknot.si/
 │   ├── build-hub.sh       本机构建：校验、探测、构建、写快照
 │   ├── build-world-dots.mjs  生成世界底图（web/src/lib/world.js）
 │   ├── deploy-hub.sh      可选的静态站同步（目标由环境变量给出）
-│   ├── deploy-api.sh      接口、审核台与站点配置的同步
-│   ├── README-deploy-aws.md  托管主机的部署笔记
-│   ├── edge/              子域边缘：nginx 模板、隧道与固定 IP runbook
+│   ├── deploy-api.sh      中枢接口、审核台与站点配置的同步
+│   ├── README-deploy-aws.md  中枢托管主机的部署笔记
 │   └── validate-instances.mjs  清单校验
 ├── var/                   生成物：探测结果、申请库、会话密钥（不入版本库）
 └── web/                   Vue 门户，独立安装与构建
@@ -139,9 +138,7 @@ npm run deploy:api                   # 部署接口与审核台（需 XKNOT_EDGE
 | [ops/xknot.si.conf](ops/xknot.si.conf) | 门户的 nginx 配置 |
 | [ops/check-health.mjs](ops/check-health.mjs) | 健康探测，写 `var/health.json` |
 | [ops/build-hub-data.mjs](ops/build-hub-data.mjs) | 合并清单与探测结果，写 `data/hub.json` |
-| [ops/deploy-api.sh](ops/deploy-api.sh) | 同步接口、审核台与站点配置 |
-| [ops/edge/README.md](ops/edge/README.md) | 子域边缘：隧道落地步骤 |
-| [ops/edge/wang.xknot.si.conf](ops/edge/wang.xknot.si.conf) | 单子域边缘 nginx 模板 |
+| [ops/deploy-api.sh](ops/deploy-api.sh) | 同步中枢接口、审核台与站点配置 |
 | [ops/build-hub.sh](ops/build-hub.sh) | 本机构建：校验、探测、构建、写快照 |
 | [ops/deploy-hub.sh](ops/deploy-hub.sh) | 可选的远端同步，目标由环境变量给出 |
 | [ops/validate-instances.mjs](ops/validate-instances.mjs) | 清单校验，不过不构建 |
@@ -149,18 +146,19 @@ npm run deploy:api                   # 部署接口与审核台（需 XKNOT_EDGE
 | [web/src/lib/regions.js](web/src/lib/regions.js) | 国家代码到区域分组 |
 | [web/src/lib/hub.js](web/src/lib/hub.js) | 快照到页面视图 |
 
-中枢的代码放在本目录，不并进 `knot-platform/`。实例的代码和运行文档在仓库其他位置：
+中枢的代码放在本目录，不并进 `knot-platform/`。本仓库里的另外两处属于**实例侧**，与本项目互不引用：
 
 | 位置 | 内容 |
 |------|------|
-| [`knot-platform/`](../knot-platform) | Knot Backend、WebUI 与共享包 |
-| [`knot-platform/docs/`](../knot-platform/docs) | 单实例的数据库、API、页面、经济模型 |
+| [`knot-platform/`](../knot-platform) | 实例实现：Backend、WebUI 与共享包。`xxx.xknot.si` 跑的就是它 |
+| [`ops/`](../ops) | 实例的部署、边缘、备份、巡检脚本；子域边缘模板在 `ops/edge/` |
 | [`docs/`](../docs) | 跨项目文档：命名、部署配置 |
-| [`ops/`](../ops) | 单实例的部署、备份、巡检脚本 |
+
+方向是单向的：中枢只按清单探测实例的公网 `healthUrl`，不读实例的代码、库或进程；实例也不改中枢的清单。子域签发与清单登记是这里的策略（[docs/JOIN.md](docs/JOIN.md)），而边缘与隧道怎么落地是实例侧的事（[`ops/edge/README.md`](../ops/edge/README.md)）。
 
 ## 收录与收费
 
-收录免费，但改成了申请制。门户右侧填表，运营者在 `/admin/` 审核，通过后执行 `npm run admin -- publish <id>` 写进 `instances.json`，再构建上线。申请只进队列，审核不通过也不通知实例。
+收录免费，但改成了申请制。门户右侧填表，运营者在 `/admin/` 审核，通过后执行 `npm run admin -- publish <id>` 写进 `instances.json`，再构建上线。申请只进队列；新申请会邮件提醒管理员，审核结果会按申请表里的联系邮箱寄给申请人，但不会自动改动任何已上线条目。
 
 收费不在中枢发生。`*.xknot.si` 子域、部署、升级、备份和故障响应是单独的服务，中枢不处理订单、不扣费、不分账。
 
