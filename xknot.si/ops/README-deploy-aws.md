@@ -163,7 +163,7 @@ curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 
 ## instances.json 备注
 
-清单里当前只有旗舰实例 `wang`，指向 `https://wang.xknot.si`。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
+清单里当前有两个实例：自营旗舰 `wang`（`https://wang.xknot.si`）和社区成员 `zjj`（`https://zjj.xknot.si`）。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
 
 ## 实例侧
 

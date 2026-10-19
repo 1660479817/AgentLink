@@ -66,23 +66,23 @@ test("order is tier, then since, then id", () => {
   const list = [
     instance({ id: "b", tier: "community", since: "2026-01-01" }),
     instance({ id: "a", tier: "partner", since: "2026-02-01" }),
-    instance({ id: "root", tier: "demo", since: "2026-10-19" }),
+    instance({ id: "core", tier: "demo", since: "2026-10-19" }),
     instance({ id: "c", tier: "partner", since: "2026-01-01" }),
   ];
   assert.deepEqual(
     sortInstances(list).map((item) => item.id),
-    ["root", "c", "a", "b"]
+    ["core", "c", "a", "b"]
   );
 });
 
 test("demo entries stay in the list", () => {
   const view = buildView(
-    { instances: [instance({ id: "root", tier: "demo" }), instance({ id: "travel-sg" })] },
+    { instances: [instance({ id: "core", tier: "demo" }), instance({ id: "travel-sg" })] },
     { locale: "en" }
   );
   assert.deepEqual(
     view.map((item) => item.id),
-    ["root", "travel-sg"]
+    ["core", "travel-sg"]
   );
 });
 

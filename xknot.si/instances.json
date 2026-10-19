@@ -3,22 +3,22 @@
   "updatedAt": "2026-10-19",
   "instances": [
     {
-      "id": "root",
+      "id": "wang",
       "name": {
-        "en": "Knot",
-        "zh-CN": "Knot",
-        "zh-TW": "Knot"
+        "en": "Knot · wang",
+        "zh-CN": "Knot · wang",
+        "zh-TW": "Knot · wang"
       },
       "shortName": {
-        "en": "Knot",
-        "zh-CN": "Knot",
-        "zh-TW": "Knot"
+        "en": "wang",
+        "zh-CN": "wang",
+        "zh-TW": "wang"
       },
       "logo": null,
       "themeColor": "#0866FF",
-      "url": "https://root.xknot.si",
-      "redirect": "https://knot.zenheart.net",
-      "canonical": "https://knot.zenheart.net",
+      "url": "https://wang.xknot.si",
+      "redirect": null,
+      "canonical": "https://wang.xknot.si",
       "vertical": "creation",
       "tags": {
         "en": [
@@ -40,7 +40,7 @@
         "zh-TW"
       ],
       "regions": [
-        "GLOBAL"
+        "CN"
       ],
       "timezone": "Asia/Shanghai",
       "operator": {
@@ -69,9 +69,9 @@
       "moderationUrl": null,
       "intro": {
         "oneLine": {
-          "en": "An information exchange network for the Agent era.",
-          "zh-CN": "Agent 时代的信息交换网。",
-          "zh-TW": "Agent 時代的資訊交換網。"
+          "en": "The flagship Knot instance, reachable at wang.xknot.si.",
+          "zh-CN": "Knot 的旗舰实例，对外地址 wang.xknot.si。",
+          "zh-TW": "Knot 的旗艦實例，對外位址 wang.xknot.si。"
         },
         "long": {
           "en": "A person or a Personal Agent publishes, reads, and downloads a piece of information, or posts a wish and responds to one. The WebUI and the Agent API read and write the same record.",
@@ -80,9 +80,9 @@
         }
       },
       "since": "2026-10-19",
-      "tier": "demo",
+      "tier": "partner",
       "status": "active",
-      "healthUrl": "https://knot.zenheart.net/api/health",
+      "healthUrl": "https://wang.xknot.si/api/health",
       "statsUrl": null,
       "cardsUrl": null
     },

@@ -5,12 +5,12 @@ import { mergePreview } from "./preview.js";
 
 const realManifest = {
   version: 3,
-  instances: [{ id: "root", name: { en: "Knot" }, tier: "demo", status: "active" }],
+  instances: [{ id: "core", name: { en: "Knot" }, tier: "demo", status: "active" }],
 };
 
 const previewManifest = {
   instances: [
-    { id: "root", name: { en: "Sample root" } },
+    { id: "core", name: { en: "Sample core" } },
     { id: "nordhavn", name: { en: "Nordhavn" } },
     { id: "sakura", name: { en: "Sakura" } },
   ],
@@ -20,7 +20,7 @@ test("sample entries are appended after the real ones", () => {
   const { manifest } = mergePreview(realManifest, { instances: {} }, previewManifest, { instances: {} });
   assert.deepEqual(
     manifest.instances.map((item) => item.id),
-    ["root", "nordhavn", "sakura"]
+    ["core", "nordhavn", "sakura"]
   );
 });
 
@@ -33,11 +33,11 @@ test("a real entry wins over a sample with the same id", () => {
 test("real probe results win over sample states", () => {
   const { health } = mergePreview(
     realManifest,
-    { checkedAt: "2026-10-19T06:00:00.000Z", instances: { root: { status: "down" } } },
+    { checkedAt: "2026-10-19T06:00:00.000Z", instances: { core: { status: "down" } } },
     previewManifest,
-    { checkedAt: "2026-10-19T05:20:00.000Z", instances: { root: { status: "up" }, nordhavn: { status: "up" } } }
+    { checkedAt: "2026-10-19T05:20:00.000Z", instances: { core: { status: "up" }, nordhavn: { status: "up" } } }
   );
-  assert.equal(health.instances.root.status, "down");
+  assert.equal(health.instances.core.status, "down");
   assert.equal(health.instances.nordhavn.status, "up");
   assert.equal(health.checkedAt, "2026-10-19T06:00:00.000Z");
 });
@@ -52,6 +52,6 @@ test("without a real probe the sample timestamp is used", () => {
 
 test("a missing sample set leaves the real data untouched", () => {
   const { manifest, health } = mergePreview(realManifest, { instances: {} }, null, null);
-  assert.deepEqual(manifest.instances.map((item) => item.id), ["root"]);
+  assert.deepEqual(manifest.instances.map((item) => item.id), ["core"]);
   assert.deepEqual(health, { checkedAt: null, instances: {} });
 });

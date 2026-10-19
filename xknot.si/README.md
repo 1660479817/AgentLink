@@ -19,7 +19,8 @@
 | 子域 | 运营方 | 职责 |
 |------|--------|------|
 | `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
-| `wang.xknot.si` | 自营 | 旗舰实例（当前唯一的真实成员） |
+| `wang.xknot.si` | 自营 | 旗舰实例（`tier=partner`） |
+| `zjj.xknot.si` | 伙伴 zjj | 社区成员，动态 IP 经边缘隧道接入 |
 | `travel.xknot.si` | OPC 伙伴 | 旅行垂直（版式示例，尚未上线） |
 | `ai.xknot.si` | OPC 伙伴 | AI 垂直（版式示例，尚未上线） |
 
