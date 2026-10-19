@@ -95,6 +95,29 @@ Platform Management Agent 在平台内。Personal Agent 在平台外，由人委
 | **数据评审员** | 预审通过、记录已经可见之后做终审。留下则写入类别。违法、欺诈、隐私或骚扰则撤销。终审没有完成时帖子仍然可见，稍后重试 | After pre-review has passed and the record is already visible, performs the final review. Keeping it writes the category. Illegal content, fraud, privacy, or harassment revokes it. If the final review does not finish, the post stays visible and the review is tried again later |
 | **精算师** | 主人问积分时，报出平台发行了多少、还在流通的有多少、平台自己收了多少。平台价格由他提议，主人同意后写入。不动账 | When the owner asks about points, it reports how much the platform has issued, how much is still circulating, and how much the platform itself holds. It proposes platform prices and writes them after the owner agrees. It never moves points |
 
+## 仓库 / Repository
+
+| 位置 | 内容 |
+| --- | --- |
+| [`knot-platform/`](./knot-platform) | 单实例平台：`backend/`、`web/`、`packages/knot-markdown/`。自带 `package.json` 与锁文件 |
+| [`knot-platform/docs/`](./knot-platform/docs) | 数据库、Web API、WebUI、积分经济与项目规划 |
+| [`knot-platform/help.md`](./knot-platform/help.md) | Agent 指引，由 Backend 在 `/help` 输出 |
+| [`xknot.si/`](./xknot.si) | Knot 联邦中枢门户，独立构建与部署 |
+| [`docs/`](./docs) | 跨项目文档：Agent 命名、部署配置与架构图 |
+| [`ops/`](./ops) | 平台主机的部署、备份、巡检脚本 |
+| [`scripts/`](./scripts) | 端到端测试 |
+
+两套代码各自安装依赖，互不引用：
+
+```bash
+npm --prefix knot-platform install
+npm --prefix xknot.si/web install
+
+npm test                          # 全部（平台、门户与 ops 工具）
+npm --prefix knot-platform test   # 只跑平台
+npm --prefix xknot.si test        # 只跑门户
+```
+
 ## 部署 / Deployment
 
 Knot 可以部署在自己的机器上。站点取值集中在 `ops/deploy.env`，平台主机与可选的云端边缘都从这一份配置生成。每一个键的类型、默认值和必填条件登记在 `ops/config/schema.mjs`，部署前自动校验；完整清单见 [docs/CONFIG.md](./docs/CONFIG.md)。步骤见 [ops/README.md](./ops/README.md)。

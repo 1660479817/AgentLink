@@ -132,7 +132,7 @@ function computedValue(key, env, ctx) {
       return `postgres://knot@127.0.0.1:${port}/knot`;
     }
     case "STATIC_WEB_DIR":
-      return path.join(ctx.root, "apps/web/dist");
+      return path.join(ctx.root, "knot-platform/web/dist");
     case "KNOT_AGENT_ENV_DIR":
       return path.join(ctx.root, "ops/env");
     case "KNOT_DISCOVER_PUSH_CMD":

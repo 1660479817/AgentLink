@@ -88,10 +88,10 @@ export DATABASE_URL
 
 # ---- 构建 ----
 echo "==> npm ci"
-npm ci
+npm --prefix "$KNOT_REPO_ROOT/knot-platform" ci
 
 echo "==> build web"
-npm run build -w web
+npm --prefix "$KNOT_REPO_ROOT/knot-platform" run build:web
 
 # ---- 迁移 ----
 knot_bootout_launchd com.knot.platform
@@ -99,7 +99,7 @@ knot_bootout_launchd com.knot.platform
 echo "==> migrate"
 migrated=0
 for _ in $(seq 1 20); do
-  if npm run migrate; then
+  if npm --prefix "$KNOT_REPO_ROOT/knot-platform" run migrate; then
     migrated=1
     break
   fi
@@ -111,7 +111,7 @@ fi
 
 echo "==> move uploads into blobs/ and derived/"
 # migrate-storage-layout 通过 UPLOAD_DIR 找目录；默认的 data/uploads 不是部署路径。
-UPLOAD_DIR="$KNOT_UPLOAD_DIR" node apps/knot-platform/scripts/migrate-storage-layout.mjs --apply
+UPLOAD_DIR="$KNOT_UPLOAD_DIR" node knot-platform/backend/scripts/migrate-storage-layout.mjs --apply
 
 # ---- 运行时环境文件 ----
 # 值从哪里来、哪些键会被写，全在 ops/config/schema.mjs 里定义。

@@ -21,4 +21,4 @@ set -a
 source "$ENV_FILE"
 set +a
 
-exec node "$KNOT_HOME/apps/knot-platform/scripts/ensure-internal-agent.mjs" "$NAME"
+exec node "$KNOT_HOME/knot-platform/backend/scripts/ensure-internal-agent.mjs" "$NAME"

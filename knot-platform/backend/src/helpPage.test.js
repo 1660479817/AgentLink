@@ -5,7 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { helpDocument, renderHelp, wantsHelpHtml } from "./helpPage.js";
 
-const helpPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../help.md");
+const helpPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../help.md");
 const browserAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 
 test("agents keep the markdown source", () => {

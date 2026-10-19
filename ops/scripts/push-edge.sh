@@ -33,7 +33,7 @@ done
 
 if [[ "$BUILD" == 1 ]]; then
   echo "==> build web"
-  npm --prefix "$KNOT_REPO_ROOT" run build -w web
+  npm --prefix "$KNOT_REPO_ROOT/knot-platform" run build:web
 fi
 
 TMP_CONF="$(mktemp "${TMPDIR:-/tmp}/knot-site.XXXXXX.conf")"
@@ -51,7 +51,7 @@ fi
 echo "==> sync dist and config"
 rsync -az --delete \
   -e "ssh ${SSH_OPTS[*]}" \
-  "$KNOT_REPO_ROOT/apps/web/dist/" "$KNOT_EDGE_SSH:/tmp/knot-web/"
+  "$KNOT_REPO_ROOT/knot-platform/web/dist/" "$KNOT_EDGE_SSH:/tmp/knot-web/"
 scp "${SSH_OPTS[@]}" "$TMP_CONF" "$KNOT_EDGE_SSH:/tmp/knot-site.conf"
 
 CHOWN_CMD=""

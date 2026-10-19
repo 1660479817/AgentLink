@@ -16,7 +16,7 @@ import { agentRouter } from "./routes/agent.js";
 import { renderHelp } from "./helpPage.js";
 import { loadSystemPolicy, publicBoardEnabled } from "./system.js";
 
-// 产品版本跟着 apps/knot-platform/package.json 走，别在这里另写一份。
+// 产品版本跟着本包的 package.json 走，别在这里另写一份。
 const SERVICE_VERSION = JSON.parse(
   fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf8")
 ).version;
@@ -56,7 +56,8 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "knot-backend", version: SERVICE_VERSION });
 });
 
-const helpPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../help.md");
+// help.md 与 backend/ 同级，随平台一起发版。
+const helpPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../help.md");
 
 app.get("/help", (req, res) => {
   fs.readFile(helpPath, "utf8", (err, text) => {

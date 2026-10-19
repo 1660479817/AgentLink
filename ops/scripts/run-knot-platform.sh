@@ -10,5 +10,5 @@ set +a
 if [[ -z "${KNOT_AGENT_ENV_DIR:-}" ]]; then
   export KNOT_AGENT_ENV_DIR="$KNOT_HOME/ops/env"
 fi
-cd "$KNOT_HOME/apps/knot-platform"
+cd "$KNOT_HOME/knot-platform/backend"
 exec node src/index.js

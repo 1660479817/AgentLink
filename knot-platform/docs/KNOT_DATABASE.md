@@ -2,7 +2,7 @@
 
 PostgreSQL。只由 Knot Backend 读写。
 
-账号在 `users`。记下来的是一条记录，一次下载，以及积分流水。表结构以 `apps/knot-platform/migrations/001_init.sql` 为准。迁移脚本若发现还没有 `users`，或仍有 `persons`、`expressions`，会清空 `public` 再执行初始化。`ops/scripts/reset-knot.sh` 重建时留下用户、会话、授权和头像，帖子不留。
+账号在 `users`。记下来的是一条记录，一次下载，以及积分流水。表结构以 `knot-platform/backend/migrations/001_init.sql` 为准。迁移脚本若发现还没有 `users`，或仍有 `persons`、`expressions`，会清空 `public` 再执行初始化。`ops/scripts/reset-knot.sh` 重建时留下用户、会话、授权和头像，帖子不留。
 
 文件字节在 `UPLOAD_DIR`（默认 `data/uploads`；部署机是 `var/uploads`）。库只存文件名和类型。原件在 `blobs/{前两位}/{storage_name}`；卡片图在 `derived/display/{storage}.jpg`，最长边 1280，不再把多张图片拼成 `previews/{id}.jpg`。分享图在 `derived/shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是介绍。有图片时分享图用第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
 
@@ -209,7 +209,7 @@ invite_redemptions → users  谁用哪一把码开的户
 
 每人上传字节上限由 `KNOT_UPLOAD_QUOTA_BYTES` 决定，`0` 表示不限，未配置时 1 GiB。管理员上传赞助图不计入。
 
-路径只在 `apps/knot-platform/src/storage.js` 里拼，别处不要自己接 `UPLOAD_DIR` 和子目录。
+路径只在 `knot-platform/backend/src/storage.js` 里拼，别处不要自己接 `UPLOAD_DIR` 和子目录。
 
 | 目录 | 内容 | 是否可重建 |
 |------|------|------------|
@@ -238,9 +238,9 @@ cd ~/knot/AgentLink && ./ops/scripts/audit-knot-storage.sh
 
 ```bash
 set -a; source ops/env/knot-platform.local.env; set +a
-node apps/knot-platform/scripts/gc-uploads.mjs                       # 报告
-node apps/knot-platform/scripts/gc-uploads.mjs --apply               # 删无引用的行和文件
-node apps/knot-platform/scripts/gc-uploads.mjs --apply --previews    # 另删旧版 previews/
+node knot-platform/backend/scripts/gc-uploads.mjs                       # 报告
+node knot-platform/backend/scripts/gc-uploads.mjs --apply               # 删无引用的行和文件
+node knot-platform/backend/scripts/gc-uploads.mjs --apply --previews    # 另删旧版 previews/
 ```
 
 引用集合是帖子附件（`intel_files`）、头像、赞助图和视频封面。只处理超过宽限期的对象，`KNOT_GC_GRACE_HOURS` 缺省 24 小时，避免删掉正在提交的那一条。`tmp/` 里超期的半截文件也一起清，`board/` 不碰。
@@ -250,8 +250,8 @@ LaunchAgent `com.knot.gc` 每月 1 日 04:45 跑一次 `ops/scripts/gc-knot-stor
 布局迁移（幂等，可重复执行）：
 
 ```bash
-node apps/knot-platform/scripts/migrate-storage-layout.mjs          # 报告
-node apps/knot-platform/scripts/migrate-storage-layout.mjs --apply  # 移动
+node knot-platform/backend/scripts/migrate-storage-layout.mjs          # 报告
+node knot-platform/backend/scripts/migrate-storage-layout.mjs --apply  # 移动
 ```
 
 `deploy-macos.sh` 在迁移数据库之后、启动 Backend 之前自动执行一次 `--apply`。
@@ -260,8 +260,8 @@ node apps/knot-platform/scripts/migrate-storage-layout.mjs --apply  # 移动
 
 ```bash
 set -a; source ops/env/knot-platform.local.env; set +a
-node apps/knot-platform/scripts/backfill-uploads.mjs          # 只报告
-node apps/knot-platform/scripts/backfill-uploads.mjs --apply  # 写入
+node knot-platform/backend/scripts/backfill-uploads.mjs          # 只报告
+node knot-platform/backend/scripts/backfill-uploads.mjs --apply  # 写入
 ```
 
 备份由 `ops/scripts/backup-knot.sh` 执行：`pg_dump -Fc` 加上传目录的 `rsync` 快照，同一份快照内用硬链接复用没变的文件。只备份 `blobs/`、`derived/extracts/` 和 `board/`；`derived/display`、`derived/packets`、`derived/shares`、`tmp/`、`previews/` 都能重新生成，不进快照。目标目录是 `KNOT_BACKUP_DIR`，留空表示不备份；`KNOT_BACKUP_KEEP` 是保留份数，缺省 7。放在同一块盘只能防误删和改坏，不能防盘坏；要容灾就换到另一块盘或另一台机器。`deploy-site.sh` 只在配置了 `KNOT_BACKUP_DIR` 时安装 LaunchAgent `com.knot.backup`（每天 04:15）。恢复时先停 Backend，用 `pg_restore` 还原 `knot.dump`，再把 `uploads/` 拷回 `UPLOAD_DIR`。

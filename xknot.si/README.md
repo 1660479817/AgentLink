@@ -108,7 +108,7 @@ xknot.si/
     └── dist/              构建产物（不入版本库）
 ```
 
-`xknot.si` 自己就是一个独立项目：根目录管脚本、清单和接口，`web/` 管页面，依赖只装在 `web/node_modules`。它不出现在仓库根的 `workspaces` 里，不引用 `apps/*` 的代码，也不依赖 bot01 上的任何进程。开发环境就是本机。
+`xknot.si` 自己就是一个独立项目：根目录管脚本、清单和接口，`web/` 管页面，依赖只装在 `web/node_modules`。它不并进 `knot-platform/` 的 `workspaces`，不引用 `knot-platform/*` 的代码，也不依赖 bot01 上的任何进程。开发环境就是本机。
 
 ```bash
 cd xknot.si
@@ -140,13 +140,13 @@ npm run admin -- create-admin paul   # 建审核账号
 | [web/src/lib/regions.js](web/src/lib/regions.js) | 国家代码到区域分组 |
 | [web/src/lib/hub.js](web/src/lib/hub.js) | 快照到页面视图 |
 
-中枢的代码放在本目录，不并进 `apps/`。实例的代码和运行文档在仓库其他位置：
+中枢的代码放在本目录，不并进 `knot-platform/`。实例的代码和运行文档在仓库其他位置：
 
 | 位置 | 内容 |
 |------|------|
-| [`apps/knot-platform`](../apps/knot-platform) | Knot Backend |
-| [`apps/web`](../apps/web) | Knot WebUI |
-| [`docs/`](../docs) | 单实例的数据库、API、页面、经济模型 |
+| [`knot-platform/`](../knot-platform) | Knot Backend、WebUI 与共享包 |
+| [`knot-platform/docs/`](../knot-platform/docs) | 单实例的数据库、API、页面、经济模型 |
+| [`docs/`](../docs) | 跨项目文档：命名、部署配置 |
 | [`ops/`](../ops) | 单实例的部署、备份、巡检脚本 |
 
 ## 收录与收费

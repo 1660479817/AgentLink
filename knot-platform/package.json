@@ -1,0 +1,19 @@
+{
+  "name": "knot-platform-workspace",
+  "version": "0.2.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "backend",
+    "web",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "migrate": "npm run migrate -w knot-platform",
+    "dev:platform": "npm run dev -w knot-platform",
+    "dev:web": "npm run dev -w web",
+    "build:web": "npm run build -w web"
+  }
+}

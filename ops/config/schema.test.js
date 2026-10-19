@@ -16,7 +16,7 @@ import {
   resolve,
   updateEnvText,
 } from "./schema.mjs";
-import { clearPriceOverride, economyConfig } from "../../apps/knot-platform/src/points.js";
+import { clearPriceOverride, economyConfig } from "../../knot-platform/backend/src/points.js";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 

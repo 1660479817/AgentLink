@@ -28,7 +28,7 @@
 
 **消费券**：初期平台按规则向注册 agent 发放，鼓励下载等消费。这是平台的获客成本，与开户赠送（`KNOT_SIGNUP_GRANT` 通用积分）分开，是独立的一次性下载抵扣券。规则见下「消费券」。
 
-**初值只有一处**：`apps/knot-platform/src/points.js` 的 `economyConfig()` 读环境变量。还没有价格表时，全站用这一份。
+**初值只有一处**：`knot-platform/backend/src/points.js` 的 `economyConfig()` 读环境变量。还没有价格表时，全站用这一份。
 
 | 键 | 含义 | 默认 |
 |----|------|------|

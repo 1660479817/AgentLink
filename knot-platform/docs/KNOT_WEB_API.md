@@ -4,7 +4,7 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 
 信息架构见 [KNOT_WEB_UI.md](./KNOT_WEB_UI.md)。库见 [KNOT_DATABASE.md](./KNOT_DATABASE.md)。
 
-人和他的 Agent 是同一套逻辑。WebUI 走本文。用户的 Agent 走 `/help`，即仓库根目录的 [help.md](../help.md)。
+人和他的 Agent 是同一套逻辑。WebUI 走本文。用户的 Agent 走 `/help`，即平台根目录的 [help.md](../help.md)。
 
 ---
 

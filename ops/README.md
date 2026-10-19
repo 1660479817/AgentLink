@@ -120,7 +120,7 @@ node ops/scripts/config.mjs docs --write            # docs/CONFIG.md
             └── /help             ──隧道──→ 平台主机
 
 浏览器 → http://<平台主机>:<KNOT_PORT>/            （局域网直连）
-            ├── /       WebUI（apps/web/dist）
+            ├── /       WebUI（knot-platform/web/dist）
             └── /api/*  Knot Backend
 
 Knot Backend → 127.0.0.1:<KNOT_PGPORT>       （PostgreSQL）
@@ -146,7 +146,7 @@ cp ops/deploy.env.example ops/deploy.env   # 第一次
 它依次做：
 
 1. 按 `KNOT_DB_MODE` 启动本机 Postgres（或使用外部 `KNOT_DATABASE_URL`）；
-2. `npm ci`、构建 WebUI；
+2. 在 `knot-platform/` 跑 `npm ci`、构建 WebUI；
 3. 停 Backend，跑迁移，搬迁旧上传目录；
 4. 把站点取值写进 `ops/env/knot-platform.local.env`；
 5. 安装 `com.knot.postgres`、`com.knot.platform`、`com.knot.gc`，配置了 `KNOT_BACKUP_DIR` 时装 `com.knot.backup`，开启边缘和隧道时装 `com.knot.edge-tunnel`；
@@ -218,7 +218,7 @@ profile 会单独拷到目标机的同路径（权限 `600`），只影响这一
    ./ops/scripts/push-edge.sh
    ```
 
-   它渲染 [`edge/site.conf.template`](./edge/site.conf.template)、同步 `apps/web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建。`ops/edge/knot.zenheart.net.conf` 是作者站点的生成样例，实际以模板为准。
+   它渲染 [`edge/site.conf.template`](./edge/site.conf.template)、同步 `knot-platform/web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建。`ops/edge/knot.zenheart.net.conf` 是作者站点的生成样例，实际以模板为准。
 
 平台主机开启 `KNOT_EDGE=1` 后，`deploy-site.sh` 会装 `com.knot.edge-tunnel`，并由 Backend 在公开内容变化后调用 `push-discover.sh` 推送 `/discover.json`。推页面用的 `KNOT_EDGE_SSH_KEY` 和平台主机推快照用的 `KNOT_EDGE_PUSH_KEY` 可以不是同一把。手动补推：
 
@@ -235,9 +235,9 @@ profile 会单独拷到目标机的同路径（权限 `600`），只影响这一
 在开发机跑单测。覆盖平台、WebUI 和 `ops/` 下的工具，不需要数据库，不连网。
 
 ```bash
-npm test              # 全部
-npm test -w web       # 只跑 WebUI
-npm test -w knot-platform
+npm test                                            # 全部
+npm --prefix knot-platform test -w web              # 只跑 WebUI
+npm --prefix knot-platform test -w knot-platform    # 只跑 Backend
 ```
 
 部署前也可以只查配置，不连数据库：
@@ -266,7 +266,7 @@ E2E_COOKIE='knot_sid=…' npm run e2e
 
 文件在 `UPLOAD_DIR`（部署脚本会写绝对路径），库只记 `uploads` 行。每人上传上限由 `KNOT_UPLOAD_QUOTA_BYTES` 决定，`0` 表示不限，未配置时 1 GiB。
 
-目录分三层：`blobs/` 是原件，`derived/` 是可重建的卡片图、下载包、转写和分享图，`tmp/` 是刚收到还没入库的文件。路径由 `apps/knot-platform/src/storage.js` 统一决定。
+目录分三层：`blobs/` 是原件，`derived/` 是可重建的卡片图、下载包、转写和分享图，`tmp/` 是刚收到还没入库的文件。路径由 `knot-platform/backend/src/storage.js` 统一决定。
 
 巡检只读，不删文件：
 
@@ -280,9 +280,9 @@ cd <仓库目录>
 回收默认只报告，`--apply` 才删；宽限期由 `KNOT_GC_GRACE_HOURS` 决定，缺省 24 小时：
 
 ```bash
-node apps/knot-platform/scripts/gc-uploads.mjs
-node apps/knot-platform/scripts/gc-uploads.mjs --apply
-node apps/knot-platform/scripts/gc-uploads.mjs --apply --previews
+node knot-platform/backend/scripts/gc-uploads.mjs
+node knot-platform/backend/scripts/gc-uploads.mjs --apply
+node knot-platform/backend/scripts/gc-uploads.mjs --apply --previews
 ```
 
 它只删没有引用的 `uploads` 行和对应文件、没有库记录的 blobs 文件、主体已不存在的派生件，以及超期的 `tmp/` 半截文件。`board/` 不碰。
@@ -290,16 +290,16 @@ node apps/knot-platform/scripts/gc-uploads.mjs --apply --previews
 旧布局迁移（幂等；`deploy-site.sh` 已自动执行）：
 
 ```bash
-node apps/knot-platform/scripts/migrate-storage-layout.mjs
-node apps/knot-platform/scripts/migrate-storage-layout.mjs --apply
+node knot-platform/backend/scripts/migrate-storage-layout.mjs
+node knot-platform/backend/scripts/migrate-storage-layout.mjs --apply
 ```
 
 旧行回填（先只报告，再加 `--apply`）：
 
 ```bash
 set -a; source ops/env/knot-platform.local.env; set +a
-node apps/knot-platform/scripts/backfill-uploads.mjs
-node apps/knot-platform/scripts/backfill-uploads.mjs --apply
+node knot-platform/backend/scripts/backfill-uploads.mjs
+node knot-platform/backend/scripts/backfill-uploads.mjs --apply
 ```
 
 备份：

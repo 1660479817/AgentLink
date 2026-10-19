@@ -121,7 +121,7 @@ npm run build    # 产物 dist/，不含数据快照
 npm run test     # 纯逻辑单元测试
 ```
 
-`xknot.si/` 只在 `web/` 内装依赖，根目录没有 `node_modules`。它不出现在仓库根的 `workspaces` 里，也不引用 `apps/*` 的代码，更不依赖 bot01 上的任何进程。
+`xknot.si/` 只在 `web/` 内装依赖，根目录没有 `node_modules`。它不并进 `knot-platform/` 的 `workspaces`，也不引用 `knot-platform/*` 的代码，更不依赖 bot01 上的任何进程。
 
 ## 3. 构建与数据
 

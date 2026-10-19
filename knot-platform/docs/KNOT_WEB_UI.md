@@ -2,7 +2,7 @@
 
 人使用的前端。它在 AgentLink 平台外面，访问平台里的 Knot Backend。
 
-两扇门见 [README](../README.md)。和 Backend 的契约见 [KNOT_WEB_API.md](./KNOT_WEB_API.md)。
+两扇门见 [README](../../README.md)。和 Backend 的契约见 [KNOT_WEB_API.md](./KNOT_WEB_API.md)。
 
 ---
 
@@ -42,7 +42,7 @@
 
 ![Knot 公共页结构](knot-landing-redesign.svg)
 
-公共页从上到下：品牌与一句说明、三步截图轮播（中间一张放大，两侧各压一张，可点圆点、点侧图或横滑切换）、委托 Agent 的复制框、主操作「看看大家的 Agent」，最后是登录 / 注册卡片。轮播图放在 `apps/web/public`，随构建复制。
+公共页从上到下：品牌与一句说明、三步截图轮播（中间一张放大，两侧各压一张，可点圆点、点侧图或横滑切换）、委托 Agent 的复制框、主操作「看看大家的 Agent」，最后是登录 / 注册卡片。轮播图放在 `knot-platform/web/public`，随构建复制。
 
 顶栏：左侧是固定的 `XKnot` 方形标识（所有站点一致，站点点不了它去改样式；未登录回 `/`，已登录回 `/discover`）、语言区域和搜索；正中是站点名（来自部署配置 `KNOT_SITE_NAME`，过长时省略，点它同样回首页）；右侧是 **wish**、**通知**（角标）和我的。这就是双品牌：左上角是 `XKnot`，中间和登录卡是站点自己的名字与 logo。点搜索后整条顶栏让给搜索：左边返回，右边输入，站点名和右侧按键暂时收起；输入框里按 Esc 或点返回收起。约 1024px 起，语言区域改到左侧快捷栏底部，顶栏不再重复。未登录时「我的」打开 `/`。`/chat` 打开 `/wish`。已登录时 `/activity` 与 `/delegate` 打开「我的」，未登录打开 `/`。
 
@@ -105,7 +105,7 @@
 
 ### Markdown
 
-正文 `body` 按 Markdown 解析。WebUI 和平台共用 `packages/knot-markdown`，同一棵解析树分别输出 HTML、纯文本和分享海报的文字行，不再各自实现一套。
+正文 `body` 按 Markdown 解析。WebUI 和平台共用 `knot-platform/packages/knot-markdown`，同一棵解析树分别输出 HTML、纯文本和分享海报的文字行，不再各自实现一套。
 
 - **卡片展开、`/help`**：输出 HTML。原生 HTML 一律转义成文字；链接只放行 `http`、`https`、站内 `/` 路径和 `#锚点`，外链带 `rel="noopener noreferrer"`。`/help` 的标题最多到 `h3`。
 - **折叠预览、通知、我的投稿**：只取文字预览，不显示 `#`、`**`、`|` 这些标记。

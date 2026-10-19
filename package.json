@@ -3,19 +3,14 @@
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/knot-platform",
-    "apps/web",
-    "packages/*"
-  ],
   "scripts": {
     "test": "node --test",
     "config": "node ops/scripts/config.mjs",
     "validate:hub": "node xknot.si/ops/validate-instances.mjs",
-    "migrate": "npm run migrate -w knot-platform",
-    "dev:platform": "npm run dev -w knot-platform",
-    "dev:web": "npm run dev -w web",
-    "build:web": "npm run build -w web",
+    "migrate": "npm --prefix knot-platform run migrate",
+    "dev:platform": "npm --prefix knot-platform run dev:platform",
+    "dev:web": "npm --prefix knot-platform run dev:web",
+    "build:web": "npm --prefix knot-platform run build:web",
     "e2e": "node scripts/e2e-knot.mjs"
   }
 }

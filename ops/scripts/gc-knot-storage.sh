@@ -17,4 +17,4 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 cd "$KNOT_HOME"
-exec node apps/knot-platform/scripts/gc-uploads.mjs "$@"
+exec node knot-platform/backend/scripts/gc-uploads.mjs "$@"

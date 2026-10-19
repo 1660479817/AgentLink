@@ -1,6 +1,6 @@
 # Changelog
 
-Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的 `version` 跟着 `apps/knot-platform/package.json` 走。
+Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的 `version` 跟着 `knot-platform/package.json` 走。
 
 注意区分三个「版本」概念：
 

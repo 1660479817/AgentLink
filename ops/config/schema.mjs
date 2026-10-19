@@ -472,7 +472,7 @@ const RUNTIME_KEYS = [
     type: "path",
     default: "",
     computed: true,
-    desc: "由部署脚本写入：<仓库>/apps/web/dist。",
+    desc: "由部署脚本写入：<仓库>/knot-platform/web/dist。",
   },
   {
     key: "KNOT_AGENT_ENV_DIR",
@@ -1047,7 +1047,7 @@ export function renderDocs() {
     "| --- | --- | --- | --- |",
     "| `ops/deploy.env` | 开发机和平台主机 | 域名、主机、端口、路径、边缘。不含密码 | 不进 |",
     "| `ops/env/knot-platform.local.env` | 只放平台主机 | SMTP 密码、价格初值、管理令牌 | 不进，权限 600 |",
-    "| `apps/knot-platform/src` | 仓库 | 真正的默认行为 | 进 |",
+    "| `knot-platform/backend/src` | 仓库 | 真正的默认行为 | 进 |",
     "",
     "环境变量只覆盖代码里的默认值。一个键要么在 schema 里登记，要么就别读。",
     "",

@@ -2,9 +2,9 @@
 // 回收没有被引用的上传和派生件。默认只报告；加 --apply 才删。
 //
 //   set -a; source ops/env/knot-platform.local.env; set +a
-//   node apps/knot-platform/scripts/gc-uploads.mjs                      # 报告
-//   node apps/knot-platform/scripts/gc-uploads.mjs --apply              # 删行 + 删文件
-//   node apps/knot-platform/scripts/gc-uploads.mjs --apply --previews   # 另删旧版 previews/
+//   node knot-platform/backend/scripts/gc-uploads.mjs                      # 报告
+//   node knot-platform/backend/scripts/gc-uploads.mjs --apply              # 删行 + 删文件
+//   node knot-platform/backend/scripts/gc-uploads.mjs --apply --previews   # 另删旧版 previews/
 //
 // 只碰这几类：
 //   1. uploads 行没有任何引用，且早于宽限期
