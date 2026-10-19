@@ -554,4 +554,11 @@ const hotMore = computed(() => {
     animation: none;
   }
 }
+
+/* 打印或被冻结动画时，入场动画的延迟会让卡片停在 opacity 0：直接不给动画。 */
+@media print {
+  .card {
+    animation: none;
+  }
+}
 </style>
