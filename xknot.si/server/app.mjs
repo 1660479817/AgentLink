@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { checkManifestEntry, toManifestEntry } from "./manifest.mjs";
+import { applicantReviewMail, newApplicationMail } from "./notify.mjs";
 import { ipHash } from "./store.mjs";
 import { LIMITS, validateApplication } from "./validate.mjs";
 
@@ -130,6 +131,25 @@ export function createApp({ store, config }) {
   const adminDir = config.adminDir;
   const submitLimit = createLimiter({ windowMs: 3600_000, max: 8 });
   const loginLimit = createLimiter({ windowMs: 900_000, max: 12 });
+  const noticeLimit = createLimiter({ windowMs: 3600_000, max: 30 });
+  const mailer = config.mailer || null;
+  const adminEmail = String(config.adminEmail || "").trim();
+  const origin = String(config.origin || "https://xknot.si").replace(/\/+$/, "");
+
+  // 发信是副作用，不能拖住提交和审核。正文组装和发送都放进 Promise，
+  // 任何一步失败只记日志，接口照常返回。
+  function notify(build) {
+    if (!mailer) return;
+    Promise.resolve()
+      .then(() => (typeof build === "function" ? build() : build))
+      .then((message) => {
+        if (!message || !message.to) return;
+        return mailer.send(message);
+      })
+      .catch((error) => {
+        console.error("mail failed:", error.message);
+      });
+  }
 
   function currentAdmin(req) {
     const token = parseCookies(req.headers.cookie)[COOKIE];
@@ -218,6 +238,11 @@ export function createApp({ store, config }) {
         ipHash: ipHash(ip, secret),
       });
 
+      // 全站每小时最多 30 封，防止有人靠刷申请把管理员信箱打爆。
+      if (noticeLimit("admin").allowed) {
+        notify(() => newApplicationMail(application, { adminEmail, origin }));
+      }
+
       return send(res, 201, {
         application: { id: application.id, status: application.status, createdAt: application.createdAt },
       });
@@ -291,6 +316,7 @@ export function createApp({ store, config }) {
     if (review && req.method === "POST") {
       const body = await readJson(req);
       const decision = String(body.decision || "");
+      const before = store.getApplication(review[1]);
       const result = store.reviewApplication({
         id: review[1],
         decision: decision === "approve" ? "approved" : decision === "reject" ? "rejected" : decision,
@@ -299,6 +325,14 @@ export function createApp({ store, config }) {
       });
       if (result.error === "not_found") return send(res, 404, { error: "not_found" });
       if (result.error === "invalid_decision") return send(res, 400, { error: "invalid_decision" });
+
+      // 只有状态真的变了才寄，重复点同一个审核动作不会重复发信。
+      if (before && before.status !== result.application.status) {
+        notify(() =>
+          applicantReviewMail(result.application, result.application.status, { adminEmail, origin })
+        );
+      }
+
       return send(res, 200, { application: result.application });
     }
 

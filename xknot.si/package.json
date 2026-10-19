@@ -17,6 +17,7 @@
     "verify": "node ops/verify-hub-data.mjs",
     "test": "node --test ops/*.test.mjs server/*.test.mjs web/src/lib/*.test.mjs",
     "api": "node server/index.mjs",
+    "mail:test": "node server/mail-test.mjs",
     "admin": "node server/admin-cli.mjs",
     "deploy": "./ops/deploy-hub.sh",
     "deploy:api": "./ops/deploy-api.sh",

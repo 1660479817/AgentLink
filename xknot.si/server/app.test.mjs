@@ -19,9 +19,18 @@ const valid = {
   agree: true,
 };
 
-async function start(t) {
+async function start(t, options = {}) {
   const store = openMemoryStore();
-  const { handle } = createApp({ store, config: { secret: "test", adminDir: null } });
+  const { handle } = createApp({
+    store,
+    config: {
+      secret: "test",
+      adminDir: null,
+      mailer: options.mailer || null,
+      adminEmail: options.adminEmail || "",
+      origin: options.origin || "https://xknot.si",
+    },
+  });
   const server = createServer((req, res) => {
     handle(req, res).catch(() => {
       res.writeHead(500).end();
@@ -105,6 +114,97 @@ test("api: submission returns an id and lands in the pending queue", async (t) =
   assert.match(result.data.application.id, /^XK-\d{4}-[0-9A-Z]{6}$/);
   assert.equal(result.data.application.status, "pending");
   assert.equal(store.listApplications({ status: "pending" }).length, 1);
+});
+
+function recordingMailer() {
+  const sent = [];
+  return {
+    sent,
+    async send(message) {
+      sent.push(message);
+    },
+  };
+}
+
+test("api: a new application emails the admin and replies to the applicant", async (t) => {
+  const mailer = recordingMailer();
+  const { call } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const result = await call("/api/applications", {
+    method: "POST",
+    body: { ...valid, locale: "en" },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(mailer.sent.length, 1);
+  const mail = mailer.sent[0];
+  assert.equal(mail.to, "admin@example.com");
+  assert.equal(mail.replyTo, "lin@example.com");
+  assert.match(mail.subject, /新加入申请/);
+  assert.match(mail.text, new RegExp(result.data.application.id));
+  assert.match(mail.text, /https:\/\/xknot\.si\/admin\//);
+});
+
+test("api: a broken mailer never fails the submission", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const mailer = {
+    async send() {
+      throw new Error("smtp_down");
+    },
+  };
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const result = await call("/api/applications", { method: "POST", body: valid });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(result.status, 201);
+  assert.equal(store.listApplications({ status: "pending" }).length, 1);
+});
+
+test("api: approval and rejection email the applicant, hold stays internal", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  store.createAdmin({ username: "paul", password: "correct-horse-battery" });
+  const login = await call("/api/admin/login", {
+    method: "POST",
+    body: { username: "paul", password: "correct-horse-battery" },
+  });
+  const cookie = adminCookie(login);
+
+  const approved = await call("/api/applications", {
+    method: "POST",
+    body: { ...valid, locale: "zh-CN" },
+  });
+  await call(`/api/admin/applications/${approved.data.application.id}/review`, {
+    method: "POST",
+    cookie,
+    body: { decision: "approve" },
+  });
+
+  const rejected = await call("/api/applications", {
+    method: "POST",
+    body: { ...valid, url: "https://sakura.example", locale: "en" },
+  });
+  await call(`/api/admin/applications/${rejected.data.application.id}/review`, {
+    method: "POST",
+    cookie,
+    body: { decision: "reject", note: "内部备注，不该出现在信里" },
+  });
+
+  const held = await call("/api/applications", {
+    method: "POST",
+    body: { ...valid, url: "https://hold.example", locale: "zh-CN" },
+  });
+  await call(`/api/admin/applications/${held.data.application.id}/review`, {
+    method: "POST",
+    cookie,
+    body: { decision: "hold" },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const applicantMail = mailer.sent.filter((mail) => mail.to === "lin@example.com");
+  assert.equal(applicantMail.length, 2);
+  assert.match(applicantMail[0].subject, /已通过/);
+  assert.equal(applicantMail[0].replyTo, "admin@example.com");
+  assert.match(applicantMail[1].subject, /application/);
+  assert.ok(!applicantMail[1].text.includes("内部备注"));
 });
 
 test("api: the same site cannot be queued twice", async (t) => {

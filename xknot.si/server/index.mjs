@@ -7,6 +7,9 @@
 //   XKNOT_SESSION_SECRET 未设置时生成并写入 var/session-secret
 //   XKNOT_SECURE_COOKIE  生产置 1，Cookie 加 Secure
 //   XKNOT_TRUST_PROXY    生产置 1，取 X-Forwarded-For 的首个地址
+//   SMTP_* / MAIL_FROM   发信配置，见 server/mail.mjs；未配置时不发信
+//   XKNOT_ADMIN_EMAIL    新申请通知的收件地址
+//   XKNOT_PUBLIC_ORIGIN  邮件里的门户地址，默认 https://xknot.si
 
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
@@ -15,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createApp } from "./app.mjs";
+import { createMailer, mailConfigFromEnv } from "./mail.mjs";
 import { openStore } from "./store.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +47,8 @@ function sessionSecret() {
   }
 }
 
+const mailConfig = mailConfigFromEnv();
+const mailer = createMailer(mailConfig);
 const store = openStore(path.join(dataDir, "xknot.db"));
 const { handle } = createApp({
   store,
@@ -51,6 +57,9 @@ const { handle } = createApp({
     secureCookies: process.env.XKNOT_SECURE_COOKIE === "1",
     trustProxy: process.env.XKNOT_TRUST_PROXY === "1",
     adminDir: path.join(root, "admin"),
+    mailer,
+    adminEmail: mailConfig?.adminEmail || "",
+    origin: mailConfig?.origin || process.env.XKNOT_PUBLIC_ORIGIN || "https://xknot.si",
   },
 });
 
@@ -67,7 +76,8 @@ const server = createServer((req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`xknot api on http://${host}:${port}  (db: ${path.join(dataDir, "xknot.db")})`);
+  const mail = mailer ? `on (${mailConfig.from})` : "off";
+  console.log(`xknot api on http://${host}:${port}  (db: ${path.join(dataDir, "xknot.db")}, mail: ${mail})`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
