@@ -364,9 +364,11 @@ dropdb -h 127.0.0.1 -p <KNOT_PGPORT> -U knot knot_restore_drill
 | 平台主机 | `zenwang_bot01@192.168.3.91`（macOS + Homebrew） |
 | 局域网地址 | `http://192.168.3.91:8080` |
 | 云端域名 | `https://knot.zenheart.net` |
-| 边缘主机 | `ec2-user@16.162.24.182`（ap-east-1） |
+| 边缘主机 | `ec2-user@54.169.33.64`（ap-southeast-1，`~/.ssh/suanli-sg-probe.pem`） |
 | 边缘 Web 根 | `/var/www/knot` |
 | 回源端口 | `18080` |
-| 隧道账号 | `knot-tunnel@16.162.24.182` |
+| 隧道账号 | `knot-tunnel@54.169.33.64` |
+
+同一台机器还托管了联盟门户（`/var/www/xknot`、`/opt/xknot`、`xknot-api`）与其它站点。门户的部署见 [`xknot.si/ops/README-deploy-aws.md`](../xknot.si/ops/README-deploy-aws.md)；共用主机不是依赖，改 nginx 配置前一律先 `nginx -t`。
 
 对应配置写在这台机器的 `ops/deploy.env` 里，不写进仓库。云端配置样例是 [`edge/knot.zenheart.net.conf`](./edge/knot.zenheart.net.conf)，由同一份模板生成。

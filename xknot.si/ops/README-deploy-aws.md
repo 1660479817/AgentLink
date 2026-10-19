@@ -6,19 +6,23 @@
 
 ## 主机
 
-仓库里不写死主机。下面的值只是当前实例，改动时以 `ops/deploy.env` 那台为准，或直接覆盖环境变量。
+仓库里不写死主机。下面的值只是当前实例，改动时以实际那台为准，或直接覆盖环境变量。
 
 ```bash
-EDGE=ec2-user@16.162.24.182
+EDGE=ec2-user@54.169.33.64
+KEY=~/.ssh/suanli-sg-probe.pem
 ```
 
 | 项 | 值 |
 |----|----|
-| 区域 | `ap-east-1` |
-| 实例 | `i-0efad2ed59a4d023c` |
-| 公网 | `16.162.24.182`（随 EIP / 重建变化） |
-| SSH | `ssh -i ~/.ssh/id_rsa $EDGE` |
-| 同机其它站点 | 可能还有实例侧的站点（`../..` 的 `ops/` 管那一侧）。各站 nginx 配置独立，改 conf 前务必 `nginx -t` |
+| 区域 | `ap-southeast-1` |
+| 实例 | `i-0c876685a64c75538` |
+| 公网 | `54.169.33.64`（随 EIP / 重建变化） |
+| SSH | `ssh -i $KEY $EDGE`（`id_rsa` 在这台机上会被拒） |
+| DNS | `xknot.si`、`www`、`root` 的 A 记录都指向这里 |
+| 同机其它站点 | 这台机同时托管实例侧站点：`/var/www/wang`（`wang.xknot.si`）、`/var/www/knot`（`knot.zenheart.net`），以及无关的 `/var/www/aiugc`。`conf.d/` 下五份配置各自独立，改 conf 前务必 `nginx -t` |
+
+门户与这些实例站点共用一台机器，但目录、进程与配置互不重叠：门户是 `/var/www/xknot` + `/opt/xknot` + `xknot-api`，实例是各自的 `ops/` 部署产物。共用的只是 nginx 进程、证书目录与这台机的容量。
 
 ## 路径
 
@@ -46,8 +50,45 @@ EDGE=ec2-user@16.162.24.182
 | `XKNOT_DATA_DIR` | `/opt/xknot/var` |
 | `XKNOT_TRUST_PROXY` | `1` |
 | `XKNOT_SECURE_COOKIE` | 有 HTTPS 时 `1`（当前 unit 已置 `1`）；只在 HTTP 阶段临时关掉 |
+| `XKNOT_PUBLIC_ORIGIN` | `https://xknot.si` |
+| `EnvironmentFile` | `-/opt/xknot/var/mail.env`，可选；不存在时只是不发信 |
 
 接口只监听回环；nginx 反代 `/api/`、`/admin/`。
+
+## 邮件（可选）
+
+发信凭据不进 unit（unit 是 `0644`），单独放 `/opt/xknot/var/mail.env`，权限 `0600`：
+
+```bash
+ssh -i "$KEY" "$EDGE"
+sudo install -m 600 -o ec2-user -g ec2-user /dev/null /opt/xknot/var/mail.env
+sudo -u ec2-user vi /opt/xknot/var/mail.env
+```
+
+内容（阿里云邮件推送，465 隐式 TLS）。`SMTP_HOST` 跟着控制台区域走：华东是 `smtpdm.aliyun.com`，新加坡是 `smtpdm-ap-southeast-1.aliyuncs.com`。
+
+```bash
+SMTP_HOST=smtpdm.aliyun.com
+SMTP_PORT=465
+SMTP_SECURE=1
+SMTP_USER=notify@mail.xknot.si
+SMTP_PASS='换成该发信地址的 SMTP 密码'
+SMTP_FROM=notify@mail.xknot.si
+MAIL_FROM=notify@mail.xknot.si
+XKNOT_ADMIN_EMAIL=manwjh@gmail.com
+```
+
+`SMTP_USER` 必须与 `SMTP_FROM` 一致，这是阿里云邮件推送的认证规则。改完 unit 或 env 后：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart xknot-api
+sudo -u ec2-user bash -c 'set -a; . /opt/xknot/var/mail.env; set +a; cd /opt/xknot && npm run mail:test -- manwjh@gmail.com'
+```
+
+测试信只证明 SMTP 认证与投递通了；是否进箱要看收件方原始邮件头里的 `spf=pass`、`dkim=pass`、`dmarc=pass`。发信域名在阿里云控制台验证后，DNS 记录不要删。
+
+共享给伙伴时，一个发信域名下按站点建不同发信地址，每个地址单独设 SMTP 密码；伙伴只填上面 6 个 `SMTP_*` / `MAIL_FROM`，不要拿到中枢的管理员邮箱与会话密钥。
 
 ## 构建与部署
 
@@ -56,10 +97,10 @@ cd xknot.si
 
 # 静态站
 ./ops/build-hub.sh                 # 或 --offline
-XKNOT_EDGE=$EDGE XKNOT_SSH_KEY=~/.ssh/id_rsa ./ops/deploy-hub.sh
+XKNOT_EDGE=$EDGE XKNOT_SSH_KEY=$KEY ./ops/deploy-hub.sh
 
 # 接口、审核台与配置
-XKNOT_EDGE=$EDGE XKNOT_SSH_KEY=~/.ssh/id_rsa ./ops/deploy-api.sh
+XKNOT_EDGE=$EDGE XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh
 ```
 
 `deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/` 与清单校验依赖，安装 nginx 配置与 systemd unit，`nginx -t` 通过后重启接口并 reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
@@ -82,7 +123,7 @@ XKNOT_EDGE=$EDGE ./ops/deploy-api.sh --dry-run
 
 ```bash
 # 1) 确认 A/AAAA 已指向本机，HTTP ACME 可通
-curl -sI -H 'Host: xknot.si' http://16.162.24.182/.well-known/acme-challenge/ping
+curl -sI -H 'Host: xknot.si' http://54.169.33.64/.well-known/acme-challenge/ping
 
 # 2) 签证书（webroot）
 sudo certbot certonly --webroot -w /var/www/xknot -d xknot.si -d www.xknot.si
@@ -96,15 +137,26 @@ sudo systemctl show xknot-api -p Environment   # 应含 XKNOT_SECURE_COOKIE=1
 
 ## 验收
 
-```bash
-curl -sI -H 'Host: xknot.si' https://16.162.24.182/            # 302 → /en/
-curl -sI -H 'Host: xknot.si' https://16.162.24.182/en/         # 200
-curl -sI -H 'Host: xknot.si' https://16.162.24.182/data/hub.json  # 200，no-cache
-curl -s  -H 'Host: xknot.si' https://16.162.24.182/api/health  # {"ok":true,...}
-curl -sI -H 'Host: xknot.si' https://16.162.24.182/admin/      # 200
-curl -sI -H 'Host: xknot.si' https://16.162.24.182/api/admin/applications  # 401
+按域名验（证书与 SNI 都走真实路径）：
 
-# 回归：同机其它站点不得受影响，按各项目自己的地址检查
+```bash
+curl -sI https://xknot.si/                        # 302 → /en/
+curl -sI https://xknot.si/en/                     # 200
+curl -sI https://xknot.si/data/hub.json           # 200，no-cache
+curl -s  https://xknot.si/api/health              # {"ok":true,...}
+curl -sI https://xknot.si/admin/                  # 200
+curl -sI https://xknot.si/api/admin/applications   # 401
+curl -sI https://root.xknot.si/                   # 301 → wang.xknot.si
+
+# 同机其它站点不得受影响
+curl -sI https://wang.xknot.si/                   # 实例，200
+curl -sI https://knot.zenheart.net/               # 实例，200
+```
+
+在 DNS 还没切、只想验这台机时，用 `--resolve` 指定解析，不要直接连 IP：
+
+```bash
+curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 ```
 
 ## instances.json 备注
