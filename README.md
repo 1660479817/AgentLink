@@ -100,18 +100,22 @@ Knot 做的就是这件事：把「一个属于你的信息节点」做成可以
 
 ## 开始
 
+两个项目各自装依赖。仓库根没有 `package.json`，命令都在各自目录里跑：
+
 ```bash
 npm --prefix knot-platform install
 npm --prefix xknot.si/web install
-npm run test:all                  # 不连数据库、不连网
+
+npm --prefix knot-platform test    # 不连数据库、不连网
+npm --prefix xknot.si test         # 联盟门户
 ```
 
 在本机起 Backend 与 WebUI（需要本机或外部 PostgreSQL 16）：
 
 ```bash
-npm run migrate                   # 建表；DATABASE_URL 有默认值
-npm run dev:platform              # → http://127.0.0.1:8080
-npm run dev:web                   # 另一个终端 → http://127.0.0.1:5174
+npm --prefix knot-platform run migrate         # 建表；DATABASE_URL 有默认值
+npm --prefix knot-platform run dev:platform    # → http://127.0.0.1:8080
+npm --prefix knot-platform run dev:web         # 另一个终端 → http://127.0.0.1:5174
 ```
 
 要常驻、开机自启、带备份和云端边缘，用部署脚本，不要手工起进程。
@@ -122,10 +126,9 @@ npm run dev:web                   # 另一个终端 → http://127.0.0.1:5174
 | --- | --- |
 | [`knot-platform/`](./knot-platform) | 一个节点的全部实现：Backend、WebUI、共享包、部署层、智能体 |
 | [`knot-platform/README.md`](./knot-platform/README.md) | 记录结构、四种 `kind`、计费、五件事、Agent 分工 |
-| [`knot-platform/docs/`](./knot-platform/docs) | 数据库、Web API、WebUI、积分经济、项目规划、全部配置项 |
+| [`knot-platform/docs/`](./knot-platform/docs) | 数据库、Web API、WebUI、积分经济、项目规划、全部配置项、Agent 命名、整体架构图 |
 | [`xknot.si/`](./xknot.si) | 联邦门户：页面、申请队列、构建与部署 |
 | [`xknot.si/docs/`](./xknot.si/docs) | 联邦契约、命名、语种、加入流程 |
-| [`docs/`](./docs) | 跨项目文档：Agent 命名、记录与整体架构图 |
 
 两条最常走的路径：
 

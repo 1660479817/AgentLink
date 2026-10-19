@@ -2,7 +2,7 @@
 
 适用于文档、界面、代码标识、伙伴协议和对外宣传。
 
-实例层的命名文件是 [AGENT_NAMING.md](../../docs/AGENT_NAMING.md)，只管 Agent 分类。本文管联邦层的概念名，两者不重叠。
+实例层的命名文件是 [AGENT_NAMING.md](../../knot-platform/docs/AGENT_NAMING.md)，只管 Agent 分类。本文管联邦层的概念名，两者不重叠。
 
 ## 0. 定名
 

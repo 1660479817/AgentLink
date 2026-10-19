@@ -11,6 +11,7 @@
   ],
   "scripts": {
     "test": "node --test",
+    "config": "node ops/scripts/config.mjs",
     "migrate": "npm run migrate -w knot-platform",
     "dev:platform": "npm run dev -w knot-platform",
     "dev:web": "npm run dev -w web",

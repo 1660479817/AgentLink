@@ -250,11 +250,10 @@ profile 会单独拷到目标机的同路径（权限 `600`），只影响这一
 在开发机跑单测。覆盖平台、WebUI 和 `ops/` 下的工具，不需要数据库，不连网。中枢门户是另一个项目，测试单独跑。
 
 ```bash
-npm test                                            # 平台与 ops 工具
-npm --prefix knot-platform test -w web              # 只跑 WebUI
-npm --prefix knot-platform test -w knot-platform    # 只跑 Backend
-npm --prefix xknot.si test                          # 中枢门户
-npm run test:all                                    # 两边一起跑
+npm test                                # Backend、WebUI、packages 与 ops 工具
+npm test -w web                         # 只跑 WebUI
+npm test -w knot-platform               # 只跑 Backend
+npm --prefix ../xknot.si test           # 中枢门户
 ```
 
 部署前也可以只查配置，不连数据库：
