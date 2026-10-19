@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import AppButton from "./AppButton.vue";
+import SiteMark from "./SiteMark.vue";
 import { CloseIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { useSessionStore } from "../stores/session";
@@ -9,7 +10,6 @@ const CHOICE_KEY = "knot.rememberLogin.choice";
 const LEGACY_KEY = "knot.rememberLogin.hidden";
 
 const session = useSessionStore();
-const mark = t("app.name").slice(0, 1);
 const choice = ref(readChoice());
 
 const visible = computed(() => Boolean(session.user) && !choice.value);
@@ -53,7 +53,7 @@ function dismiss() {
 <template>
   <section v-if="visible" class="card remember-card" aria-labelledby="remember-login-title">
     <div class="remember-head">
-      <span class="brand-mark remember-mark" aria-hidden="true">{{ mark }}</span>
+      <SiteMark class="brand-mark remember-mark" />
       <svg class="remember-art" viewBox="0 0 124 88" aria-hidden="true">
         <rect x="16" y="2" width="92" height="64" rx="8" fill="#dfe1e6" />
         <rect x="24" y="10" width="76" height="48" rx="3" fill="#ffffff" />

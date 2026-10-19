@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
 import sharp from "sharp";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AVATAR_PX, CARD_IMAGE_EDGE, avatarBufferError, ensureCardImage, fitAvatar, imageSize } from "./uploads.js";
+import { AVATAR_PX, CARD_IMAGE_EDGE, acceptAvatar, avatarBufferError, ensureCardImage, fitAvatar, imageSize, storagePath } from "./uploads.js";
 
 function png(width, height) {
   const buffer = Buffer.alloc(24);
@@ -94,7 +96,9 @@ test("a card image is a jpeg that fits the column", async () => {
     })
       .png()
       .toBuffer();
-    await writeFile(path.join(dir, "wide.png"), wide);
+    const widePath = storagePath(dir, "wide.png");
+    await mkdir(path.dirname(widePath), { recursive: true });
+    await writeFile(widePath, wide);
     const display = await ensureCardImage(dir, "wide.png");
     const again = await ensureCardImage(dir, "wide.png");
     assert.equal(again, display);
@@ -107,11 +111,55 @@ test("a card image is a jpeg that fits the column", async () => {
       create: { width: 400, height: 200, channels: 3, background: { r: 20, g: 40, b: 80 } },
     })
       .png()
-      .toBuffer();
-    await writeFile(path.join(dir, "small.png"), small);
+    .toBuffer();
+    const smallPath = storagePath(dir, "small.png");
+    await mkdir(path.dirname(smallPath), { recursive: true });
+    await writeFile(smallPath, small);
     const fitted = await sharp(await ensureCardImage(dir, "small.png")).metadata();
     assert.equal(fitted.width, 400);
     assert.equal(fitted.height, 200);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("shrinking an avatar refreshes the stored size, digest and dimensions", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-avatar-"));
+  try {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const name = `${id}.png`;
+    const original = await sharp({
+      create: { width: 800, height: 800, channels: 3, background: { r: 8, g: 102, b: 255 } },
+    })
+      .png()
+      .toBuffer();
+    const source = storagePath(dir, name);
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, original);
+
+    const calls = [];
+    const pool = {
+      async query(sql, params = []) {
+        calls.push({ sql, params });
+        if (sql.includes("SELECT id, storage_name, mime")) {
+          return { rows: [{ id, storage_name: name, mime: "image/png" }] };
+        }
+        return { rows: [] };
+      },
+    };
+
+    assert.deepEqual(await acceptAvatar(pool, dir, "22222222-2222-4222-8222-222222222222", id), { id });
+    const update = calls.find((call) => call.sql.includes("UPDATE uploads"));
+    assert.ok(update, "the upload row is updated");
+    const [nextName, size, sha256, width, height] = update.params;
+    assert.equal(nextName, `${id}.jpg`);
+    assert.equal(width, AVATAR_PX);
+    assert.equal(height, AVATAR_PX);
+
+    const written = await readFile(storagePath(dir, nextName));
+    assert.equal(size, written.length);
+    assert.equal(sha256, createHash("sha256").update(written).digest("hex"));
+    assert.equal(fs.existsSync(storagePath(dir, name)), false, "the original png is removed");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

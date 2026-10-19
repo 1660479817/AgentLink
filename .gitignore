@@ -15,3 +15,6 @@ venv/
 var/
 data/uploads/
 ops/env/*.local.env
+ops/profiles/*.local.env
+ops/deploy.env
+.tmp-review/

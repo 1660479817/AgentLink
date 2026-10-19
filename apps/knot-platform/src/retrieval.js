@@ -1,4 +1,6 @@
-import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { runRetrievalAgent } from "./agents/openclaw.js";
 import { loadBootstrapConfig } from "./config.js";
 import { createIntel, searchPublicIntel } from "./market.js";
@@ -87,13 +89,23 @@ function reportFileName(query) {
 
 async function storeReport(pool, uploadDir, report, query) {
   const storageName = newStorageName(reportFileName(query));
-  await writeFile(storagePath(uploadDir, storageName), report, "utf8");
-  const { rows } = await pool.query(
-    `INSERT INTO uploads (user_id, storage_name, mime, original_name, size)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [PLATFORM_USER_ID, storageName, "text/markdown", reportFileName(query), Buffer.byteLength(report, "utf8")],
-  );
-  return rows[0].id;
+  const file = storagePath(uploadDir, storageName);
+  const bytes = Buffer.byteLength(report, "utf8");
+  const sha256 = createHash("sha256").update(report, "utf8").digest("hex");
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, report, "utf8");
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO uploads (user_id, storage_name, mime, original_name, size, sha256)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [PLATFORM_USER_ID, storageName, "text/markdown", reportFileName(query), bytes, sha256],
+    );
+    return rows[0].id;
+  } catch (error) {
+    // 写库失败时删掉刚写的报告，否则审计里会多一个没有库记录的文件。
+    await rm(file, { force: true }).catch(() => {});
+    throw error;
+  }
 }
 
 // 内部优先、外部补充：先用平台信息流检索，再把命中交给信息检索员整合（可用工具补外部）。

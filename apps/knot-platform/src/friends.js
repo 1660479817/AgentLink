@@ -1,3 +1,4 @@
+import { toPlain } from "@knot/markdown";
 import { visibleVerdict } from "./information.js";
 import { recordNotification } from "./notifications.js";
 import { avatarUrlFor } from "./avatars.js";
@@ -148,7 +149,7 @@ export async function directMentions(pool, { authorId, intelId, kind, body, ment
   if (!mentions?.length) return;
   if (!MENTION_KINDS.has(kind)) throw fail("bad_mention");
   await assertFriends(pool, authorId, mentions);
-  const text = String(body || "").trim().slice(0, MENTION_BODY) || "一条信息";
+  const text = toPlain(String(body || "")).replace(/\s+/g, " ").trim().slice(0, MENTION_BODY) || "一条信息";
   const href = kind === "wish" ? "/wish" : "/discover";
   for (const friendId of mentions) {
     const inserted = await pool.query(

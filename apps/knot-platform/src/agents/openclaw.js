@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { toPlain } from "@knot/markdown";
 import { attachmentExtract, saveReviewExtract, sectionHeading } from "../extracts.js";
 import { CATEGORIES } from "../categories.js";
 
@@ -306,7 +307,7 @@ const RETRIEVAL_REPORT_MAX = 20_000;
 function internalResultLine(row, index) {
   const detail = row.detail && typeof row.detail === "object" ? row.detail : {};
   const note = typeof detail.note === "string" ? detail.note.trim() : "";
-  const body = String(row.body || "").replace(/\s+/g, " ").trim();
+  const body = toPlain(String(row.body || "")).replace(/\s+/g, " ").trim();
   const category = String(row.category || "").trim();
   const author = String(row.display_name || "").trim();
   const when = row.created_at ? new Date(row.created_at).toISOString() : "";

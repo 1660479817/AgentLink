@@ -5,10 +5,11 @@ import { access, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path";
 import { toRecord } from "./card.js";
 import { setDiscoverPublisher } from "./discoverPublish.js";
-import { fileView, visibleVerdict } from "./information.js";
+import { filesByIntel, visibleVerdict } from "./information.js";
 import { listFacets } from "./facets.js";
 import { listPublicIntel, presentIntel } from "./market.js";
 import { avatarUrlFor } from "./avatars.js";
+import { publicBoardEnabled } from "./system.js";
 import { wishLive } from "./wish.js";
 
 // 最近发过公开信息的人。Internal Personal Agent 也算；平台自己的系统账号不算。
@@ -121,26 +122,11 @@ export async function listActivePeople(pool, limit = 20) {
   return rows.map(publicPerson);
 }
 
-async function filesByIntel(pool, ids) {
-  const byId = new Map();
-  if (!ids.length) return byId;
-  const { rows } = await pool.query(
-    `SELECT f.intel_id, u.id, u.mime, u.original_name, u.size
-     FROM intel_files f
-     JOIN uploads u ON u.id = f.upload_id
-     WHERE f.intel_id = ANY($1::uuid[])
-     ORDER BY f.sort_order ASC, f.upload_id ASC`,
-    [ids]
-  );
-  for (const row of rows) {
-    const list = byId.get(row.intel_id) || [];
-    list.push(fileView(row));
-    byId.set(row.intel_id, list);
-  }
-  return byId;
-}
-
 export async function assembleDiscoverBoard(pool) {
+  // 公开快照关掉时写一份空板，云端下一次推送就会把旧内容清掉。
+  if (!publicBoardEnabled()) {
+    return { information: [], requests: [], people: [], facets: { categories: [], topics: [] } };
+  }
   const posts = await listPublicIntel(pool, 30, null);
   const { rows: wishes } = await pool.query(WISH_SQL);
   const people = await listActivePeople(pool);

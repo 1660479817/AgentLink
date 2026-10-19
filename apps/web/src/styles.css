@@ -87,6 +87,7 @@ a:hover {
 }
 
 .header-bar {
+  position: relative;
   height: 100%;
   padding: 0 1rem;
   padding-left: max(1rem, env(safe-area-inset-left));
@@ -102,11 +103,96 @@ a:hover {
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .header-side-end {
   margin-left: auto;
+}
+
+/* 站点名固定在顶栏正中。两侧各留三个图标的位置，名字长了省略，
+   不会压到按键；搜索展开时整条顶栏让给输入框。 */
+.site-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 19.5rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.site-title:hover {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+/* 360px 一档收紧内边距，给中间的名字多留一点位置。 */
+@media (max-width: 400px) {
+  .header-bar {
+    padding: 0 0.75rem;
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+    gap: 0.375rem;
+  }
+
+  .header-side {
+    gap: 0.375rem;
+  }
+
+  .site-title {
+    max-width: calc(100% - 18.5rem);
+    font-size: 1rem;
+  }
+}
+
+.site-header .brand-logo {
+  display: block;
+  width: 2.5rem;
+  height: 2.5rem;
   flex-shrink: 0;
+}
+
+/* XKnot 标识固定在代码里：方形浅底 + 六边形 K。站点配置改不到它。 */
+.xknot-mark {
+  display: block;
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.xknot-mark-tile {
+  fill: #eef3ff;
+}
+
+.xknot-mark-hex {
+  fill: none;
+  stroke: #0b5fff;
+  stroke-width: 1.4;
+}
+
+.xknot-mark-k {
+  fill: none;
+  stroke: #0b5fff;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 站点自己的标识。配了图就铺满这块位置，没配仍显示站点名首字。 */
+.site-mark {
+  overflow: hidden;
+}
+
+.site-mark-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .site-header .brand-mark,
@@ -184,18 +270,18 @@ body:has(.release-note) .search-sheet {
   border-radius: 50%;
 }
 
+/* 搜索展开后盖住整条顶栏：返回键 + 输入框，不再和站点名抢位置。 */
 .header-search {
-  flex: 1;
-  min-width: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 0.25rem;
-}
-
-@media (max-width: 480px) {
-  .header-bar:has(.header-search) .header-side-end {
-    display: none;
-  }
+  padding: 0 1rem;
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+  background: var(--color-surface);
 }
 
 
@@ -224,6 +310,15 @@ body:has(.release-note) .search-sheet {
   border-radius: 8px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08);
   padding: 0.35rem 0;
+}
+
+/* 手机上历史和输入框同宽，不再缩在右边。 */
+@media (max-width: 480px) {
+  .search-sheet {
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+  }
 }
 
 .search-field {
@@ -634,6 +729,12 @@ body:has(.release-note) .search-sheet {
 .header-locale {
   position: relative;
   display: flex;
+}
+
+/* 语言切换在顶栏左侧，弹层向右展开，别跑到屏幕外。 */
+.header-side-start .locale-popover {
+  right: auto;
+  left: 0;
 }
 
 .locale-popover {
@@ -3480,6 +3581,15 @@ a.intel-person:hover {
   color: #0866ff;
 }
 
+.information-md img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.5rem 0;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+
 .information-md .md-table {
   margin: 0.5rem 0;
   overflow-x: auto;
@@ -3653,6 +3763,8 @@ a.intel-person:hover {
   background: #f0f2f5;
   overflow: hidden;
   cursor: zoom-in;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .information-images.is-1 .information-photo-btn {
@@ -3980,6 +4092,30 @@ button.information-avatar:hover:not(:disabled) {
 .information-form {
   color: var(--color-accent);
   font-weight: 600;
+}
+
+/* 只剩作者自己看得到的时效：未到期用次要色，到期用警示色，不与正文抢注意力。 */
+.information-expiry {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.information-expiry.is-expired {
+  color: #b3261e;
+  font-weight: 600;
+}
+
+.submission-expiry {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+}
+
+.submission-expiry.is-expired {
+  color: #b3261e;
 }
 
 .information-category {
@@ -4448,6 +4584,10 @@ p.error {
   margin: 0;
 }
 
+.auth-hint {
+  margin: 0 0 0.75rem;
+}
+
 .form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -4514,38 +4654,21 @@ p.error {
 }
 
 .photo-lightbox {
+  position: fixed;
   inset: 0;
-  width: 100vw;
-  max-width: none;
-  height: 100vh;
-  max-height: none;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: rgba(5, 5, 5, 0.9);
-  color: #ffffff;
-  overflow: hidden;
-  overscroll-behavior: contain;
-}
-
-.photo-lightbox::backdrop {
-  background: rgba(5, 5, 5, 0.9);
-}
-
-body:has(.photo-lightbox[open]) {
-  overflow: hidden;
-}
-
-.photo-lightbox-stage {
-  position: relative;
+  z-index: 120;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
-  box-sizing: border-box;
   padding: 3.5rem 1rem;
-  cursor: zoom-out;
+  background: rgba(5, 5, 5, 0.9);
+  color: #ffffff;
+  touch-action: manipulation;
+  overscroll-behavior: contain;
+}
+
+body.is-lightbox {
+  overflow: hidden;
 }
 
 .photo-lightbox-image {
@@ -4556,7 +4679,7 @@ body:has(.photo-lightbox[open]) {
   height: auto;
   object-fit: contain;
   border-radius: 4px;
-  cursor: default;
+  cursor: zoom-out;
 }
 
 .photo-lightbox-close.btn-icon {
@@ -4615,7 +4738,7 @@ body:has(.photo-lightbox[open]) {
 }
 
 @media (max-width: 720px) {
-  .photo-lightbox-stage {
+  .photo-lightbox {
     padding: 4rem 0.5rem;
   }
 

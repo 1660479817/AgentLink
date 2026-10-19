@@ -3,11 +3,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import ActorMark from "./ActorMark.vue";
 import AppButton from "./AppButton.vue";
 import PhotoGallery from "./PhotoGallery.vue";
+import PhotoLightbox from "./PhotoLightbox.vue";
 import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
 import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, RemovedIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
-import { isMarkdown, plainMarkdown, renderMarkdown } from "../markdown.js";
+import { containsImage, isMarkdown, parse, toHtml, toPlain } from "@knot/markdown";
 import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoUrls } from "../packet.js";
+import { expiryOf, hoursLeftAt } from "../record.js";
+import { timeAgo } from "../time.js";
 
 const props = defineProps({
   body: { type: String, default: "" },
@@ -30,6 +33,9 @@ const props = defineProps({
   authorSelected: { type: Boolean, default: false },
   actor: { type: String, default: "" },
   createdAt: { type: String, default: "" },
+  kind: { type: String, default: "" },
+  expiresAt: { type: String, default: "" },
+  mine: { type: Boolean, default: false },
   starred: { type: Boolean, default: false },
   canStar: { type: Boolean, default: true },
   liked: { type: Boolean, default: false },
@@ -45,69 +51,27 @@ const props = defineProps({
 
 const emit = defineEmits(["author", "category", "topic", "dismiss", "star", "like", "download", "friend", "share", "close"]);
 
-function onAuthor() {
-  if (!props.authorId) return;
-  emit("author");
-}
-
-function onCategory() {
-  if (!props.category) return;
-  emit("category");
-}
-
-function onTopic(topic) {
-  if (!topic) return;
-  emit("topic", topic);
-}
-
 const photos = computed(() => photoUrls(props.images));
 const pendingImages = computed(() => lockedImages(props.images));
 const clips = computed(() => packetAudio(props.audio));
 const links = computed(() => packetVideos(props.videos));
 const files = computed(() => packetFile(props.attachments));
-const form = computed(() => packetForm({ images: props.images, videos: props.videos }));
-const formLabel = computed(() => ({ text: "home.formText", image: "home.formImage", video: "home.formVideo" }[form.value]));
+const formLabel = computed(() => ({ text: "home.formText", image: "home.formImage", video: "home.formVideo" }[packetForm({ images: props.images, videos: props.videos })]));
 const markdown = computed(() => isMarkdown(props.body));
-const bodyPlain = computed(() => (markdown.value ? plainMarkdown(props.body) : props.body));
-const bodyHtml = computed(() => (markdown.value ? renderMarkdown(props.body) : ""));
-const fileNote = computed(() => {
-  const note = String(props.note || "").trim();
-  if (note) return note;
-  if (props.verdict === "pending") return t("home.filePrechecked");
-  return "";
-});
-const hasDownload = computed(() => files.value.length > 0);
-
-function onDownload() {
-  if (props.busy) return;
-  emit("download");
-}
-
-const posted = computed(() => postedLabel(props.createdAt));
-
-function postedLabel(value) {
-  const then = new Date(value).getTime();
-  if (!Number.isFinite(then)) return "";
-  const minutes = Math.floor((Date.now() - then) / 60000);
-  if (minutes < 1) return t("home.justNow");
-  if (minutes < 60) return t("home.minutesAgo", { n: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("home.hoursAgo", { n: hours });
-  const days = Math.floor(hours / 24);
-  if (days < 7) return t("home.daysAgo", { n: days });
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Shanghai",
-    month: "numeric",
-    day: "numeric",
-  }).formatToParts(new Date(then));
-  const month = parts.find((part) => part.type === "month")?.value || "";
-  const day = parts.find((part) => part.type === "day")?.value || "";
-  return t("home.postedOn", { month, day });
-}
+const blocks = computed(() => (markdown.value ? parse(props.body) : []));
+const bodyPlain = computed(() => (markdown.value ? toPlain(props.body) : props.body));
+const bodyHtml = computed(() => toHtml(blocks.value));
+const posted = computed(() => timeAgo(props.createdAt));
+// 时效只给作者自己看：一条已经取到的记录，算一次剩余小时，不发额外请求。
+// null 表示这条不会因时间失效（免费帖），0 表示已经到期。
+const expiryLeft = computed(() => (props.mine ? hoursLeftAt(expiryOf({ kMeta: { kind: props.kind, expiresAt: props.expiresAt } })) : null));
+const fileNote = computed(() => String(props.note || "").trim() || (props.verdict === "pending" ? t("home.filePrechecked") : ""));
 
 const bodyRef = ref(null);
 const bodyOpen = ref(false);
 const bodyClipped = ref(false);
+const viewer = ref({ open: false, index: 0, photos: [] });
+const hasBodyImage = computed(() => containsImage(blocks.value));
 
 function measureBody() {
   const el = bodyRef.value;
@@ -120,8 +84,24 @@ function toggleBody() {
   nextTick(measureBody);
 }
 
+function openBodyImage(event) {
+  const img = event.target.closest?.("img");
+  const box = event.currentTarget;
+  if (!img || !box?.contains(img)) return;
+  const images = [...box.querySelectorAll("img")];
+  const index = images.indexOf(img);
+  if (index < 0) return;
+  viewer.value = { open: true, index, photos: images.map((item) => item.getAttribute("src") || "") };
+}
+
+function onDownload() {
+  if (props.busy) return;
+  emit("download");
+}
+
 onMounted(() => {
-  measureBody();
+  bodyOpen.value = hasBodyImage.value;
+  nextTick(measureBody);
   window.addEventListener("resize", measureBody);
 });
 
@@ -132,7 +112,7 @@ onBeforeUnmount(() => {
 watch(
   () => props.body,
   () => {
-    bodyOpen.value = false;
+    bodyOpen.value = hasBodyImage.value;
     nextTick(measureBody);
   },
 );
@@ -147,7 +127,7 @@ watch(
           class="information-avatar"
           :aria-label="t('home.openAuthor', { name: authorName || t('home.author') })"
           :aria-pressed="authorSelected"
-          @click="onAuthor"
+          @click="authorId && emit('author')"
         >
           <img v-if="avatarUrl" :src="avatarUrl" alt="" />
           <UserIcon v-else aria-hidden="true" />
@@ -168,12 +148,18 @@ watch(
               class="information-category"
               :class="{ 'is-on': categorySelected }"
               :aria-pressed="categorySelected"
-              @click="onCategory"
+              @click="emit('category')"
             >
               {{ category }}
             </button>
             <span v-if="category && language"> · </span>
             <span v-if="language">{{ language }}</span>
+            <template v-if="expiryLeft !== null">
+              <span v-if="posted || category || language"> · </span>
+              <span class="information-expiry" :class="{ 'is-expired': expiryLeft === 0 }">
+                {{ expiryLeft === 0 ? t("home.expiryExpired") : t("home.expiryLeft", { n: expiryLeft }) }}
+              </span>
+            </template>
           </p>
         </div>
       </div>
@@ -225,7 +211,7 @@ watch(
         class="information-topic"
         :class="{ 'is-on': activeTopic === topic }"
         :aria-pressed="activeTopic === topic"
-        @click="onTopic(topic)"
+        @click="emit('topic', topic)"
       >
         {{ topic }}
       </button>
@@ -233,7 +219,7 @@ watch(
     <div v-if="body" class="information-body-wrap">
       <p v-if="!markdown" ref="bodyRef" class="information-body" :class="{ 'is-clamped': !bodyOpen }">{{ body }}</p>
       <p v-else-if="!bodyOpen" ref="bodyRef" class="information-body" :class="{ 'is-clamped': true }">{{ bodyPlain }}</p>
-      <div v-else class="information-body information-md" v-html="bodyHtml"></div>
+      <div v-else class="information-body information-md" v-html="bodyHtml" @click="openBodyImage"></div>
       <button
         v-if="bodyClipped || bodyOpen || markdown"
         type="button"
@@ -298,7 +284,7 @@ watch(
         <StarIcon :filled="starred" aria-hidden="true" />
       </button>
       <button
-        v-if="hasDownload"
+        v-if="files.length"
         type="button"
         class="post-action"
         :disabled="busy"
@@ -318,5 +304,6 @@ watch(
       </button>
     </div>
     <p v-if="notice" class="error card-notice" role="alert">{{ notice }}</p>
+    <PhotoLightbox :photos="viewer.photos" :open="viewer.open" :index="viewer.index" @close="viewer.open = false" />
   </article>
 </template>

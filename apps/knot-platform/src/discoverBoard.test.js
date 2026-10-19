@@ -5,6 +5,10 @@ import path from "node:path";
 import test from "node:test";
 import { assembleDiscoverBoard, presentDiscoverSelf, publicPerson, writeDiscoverBoard } from "./discoverBoard.js";
 import { setDiscoverPublisher, touchDiscoverBoard } from "./discoverPublish.js";
+import { installSystemPolicy } from "./system.js";
+
+// 这个文件只测快照本身，先把系统开关放到「可浏览 + 快照开」。
+installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: true });
 
 const POST = "11111111-1111-4111-8111-111111111111";
 const WISH = "22222222-2222-4222-8222-222222222222";
@@ -147,4 +151,17 @@ test("a publisher is told when the board changes", () => {
   touchDiscoverBoard();
   assert.equal(calls, 2);
   setDiscoverPublisher(null);
+});
+
+test("the board is empty when public browsing is off", async () => {
+  installSystemPolicy({ guestBrowsing: false, registrationMode: "open", publicBoard: false });
+  try {
+    const board = await assembleDiscoverBoard(pool());
+    assert.deepEqual(board.information, []);
+    assert.deepEqual(board.requests, []);
+    assert.deepEqual(board.people, []);
+    assert.deepEqual(board.facets, { categories: [], topics: [] });
+  } finally {
+    installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: true });
+  }
 });

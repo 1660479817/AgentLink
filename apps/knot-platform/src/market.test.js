@@ -107,6 +107,20 @@ test("the public feed excludes sales and can be flipped to sales only", async ()
   assert.match(calls[1].sql, /> now\(\)/);
 });
 
+test("the list projection carries expires_at so the reader side can show validity", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+  await listPublicIntel(pool, 30, null);
+  // 投影里必须带出这一列：card.toRecord 读 row.expires_at，缺了就恒为 null。
+  const projection = calls[0].sql.split("FROM intel i")[0];
+  assert.match(projection, /i\.expires_at/);
+});
+
 test("search applies the same category and topic filters", async () => {
   const calls = [];
   const pool = {

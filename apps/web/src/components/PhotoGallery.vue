@@ -20,7 +20,7 @@ function openAt(position) {
   <div v-if="props.photos.length" class="information-images" :class="`is-${props.photos.length}`">
     <button
       v-for="(url, position) in props.photos"
-      :key="url"
+      :key="position"
       type="button"
       class="information-photo-btn"
       :aria-label="t('home.enlargeImage')"

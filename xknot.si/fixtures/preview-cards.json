@@ -1,0 +1,120 @@
+{
+  "nordhavn": {
+    "formatVersion": 1,
+    "generatedAt": "2026-10-19T04:20:00.000Z",
+    "cards": [
+      {
+        "id": "c-2026-10-nordhavn-archive",
+        "lang": "en",
+        "title": "Forty winters of harbour ice, in one chart",
+        "summary": "The reading room finished digitizing the 1984–2024 ice records.",
+        "url": "https://nordhavn.xknot.si/notes/harbour-ice"
+      }
+    ]
+  },
+  "sakura": {
+    "formatVersion": 1,
+    "generatedAt": "2026-10-19T05:10:00.000Z",
+    "cards": [
+      {
+        "id": "c-2026-10-sakura-rig",
+        "lang": "ja",
+        "title": "冬の観測機材、ぜんぶ小さくする",
+        "summary": "車に積める範囲で、気温と風だけを測る一式。",
+        "url": "https://sakura.xknot.si/notes/winter-rig"
+      },
+      {
+        "id": "c-2026-10-sakura-agent",
+        "lang": "ja",
+        "title": "エージェントに任せる作業の線引き",
+        "summary": null,
+        "url": "https://sakura.xknot.si/notes/agent-boundary"
+      }
+    ]
+  },
+  "meridian": {
+    "formatVersion": 1,
+    "generatedAt": "2026-10-18T21:40:00.000Z",
+    "cards": [
+      {
+        "id": "c-2026-10-meridian-tide",
+        "lang": "en",
+        "title": "The tide gauge archive, gaps and all",
+        "summary": "Forty years of readings, including the months nobody wrote down.",
+        "url": "https://meridian.xknot.si/archive/tide-gauges"
+      }
+    ]
+  },
+  "khaleej": {
+    "formatVersion": 1,
+    "generatedAt": "2026-10-17T06:00:00.000Z",
+    "cards": [
+      {
+        "id": "c-2026-10-khaleej-berth",
+        "lang": "en",
+        "title": "Which berths actually clear on a Thursday",
+        "summary": "Two months of arrival logs, sorted by waiting time.",
+        "url": "https://khaleej.xknot.si/logs/berth-thursday"
+      }
+    ]
+  },
+  "saigon": {
+    "formatVersion": 1,
+    "generatedAt": "2026-10-19T03:05:00.000Z",
+    "cards": [
+      {
+        "id": "c-2026-10-saigon-cholon",
+        "lang": "vi",
+        "title": "Một buổi sáng ở Chợ Lớn",
+        "summary": "Quán cà phê, con hẻm, và chiếc xe Vespa cũ.",
+        "url": "https://saigon.xknot.si/notes/cholon-morning"
+      }
+    ]
+  },
+  "bengaluru": {
+    "formatVersion": 1,
+    "generatedAt": "2026-10-19T00:30:00.000Z",
+    "cards": [
+      {
+        "id": "c-2026-10-bengaluru-teardown",
+        "lang": "en",
+        "title": "Teardown: a 1990s weather station",
+        "summary": "The barometer still works. The serial port does not.",
+        "url": "https://bengaluru.xknot.si/teardowns/weather-station"
+      },
+      {
+        "id": "c-2026-10-bengaluru-solder",
+        "lang": "en",
+        "title": "A soldering bench under two hundred dollars",
+        "summary": null,
+        "url": "https://bengaluru.xknot.si/notes/bench"
+      }
+    ]
+  },
+  "aurora": {
+    "formatVersion": 1,
+    "generatedAt": "2026-10-18T12:15:00.000Z",
+    "cards": [
+      {
+        "id": "c-2026-10-aurora-season",
+        "lang": "en",
+        "title": "A field guide to aurora season",
+        "summary": "What to bring, and when the forecast is worth trusting.",
+        "url": "https://aurora.xknot.si/guides/aurora-season"
+      }
+    ]
+  },
+  "koru": {
+    "formatVersion": 1,
+    "generatedAt": "2026-10-19T02:45:00.000Z",
+    "cards": [
+      {
+        "id": "c-2026-10-koru-walks",
+        "lang": "en",
+        "title": "Six coastal walks that stay open in winter",
+        "summary": "Checked after the last round of slips.",
+        "url": "https://koru.xknot.si/walks/winter-coast"
+      }
+    ]
+  }
+}

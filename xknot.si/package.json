@@ -1,0 +1,23 @@
+{
+  "name": "xknot-si",
+  "version": "0.1.0",
+  "description": "Knot 联邦中枢门户",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "node ops/validate-instances.mjs",
+    "validate:fixtures": "node ops/validate-instances.mjs --instances fixtures/preview-instances.json",
+    "probe": "node ops/check-health.mjs",
+    "dev": "node ops/dev.mjs --preview",
+    "dev:real": "node ops/dev.mjs",
+    "preview": "npm --prefix web run preview",
+    "build": "./ops/build-hub.sh",
+    "build:preview": "./ops/build-hub.sh --preview",
+    "test": "node --test ops/*.test.mjs server/*.test.mjs web/src/lib/*.test.mjs",
+    "api": "node server/index.mjs",
+    "admin": "node server/admin-cli.mjs",
+    "deploy": "./ops/deploy-hub.sh",
+    "build:world": "node ops/build-world-dots.mjs"
+  }
+}

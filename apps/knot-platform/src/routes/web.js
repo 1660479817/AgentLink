@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
-import { fileView, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videoItemsOf, visibleVerdict } from "../information.js";
+import { filesByIntel, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videoItemsOf, visibleVerdict } from "../information.js";
 import { readImageMedia, readMedia } from "../links.js";
 import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
 import { loadDiscoverSelf, emptyDiscoverSelf, listActivePeople } from "../discoverBoard.js";
@@ -18,14 +18,27 @@ import { removePost } from "../admin.js";
 import { bioText, displayNameText, muteState } from "../account.js";
 import { economyReport } from "../actuary.js";
 import { policyConfig } from "../points.js";
-import { clearSessionCookie, setSessionCookie, SESSION_TTL_MS } from "../middleware/session.js";
-import { directMediaReadable } from "../preview.js";
+import { clearSessionCookie, setSessionCookie, sessionTtlMs } from "../middleware/session.js";
+import { MEDIA_PUBLIC, mediaAudience } from "../preview.js";
 import { ensureSharePoster } from "../sharePoster.js";
 import { listPublicSponsors } from "../sponsors.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
 import { parseLocale, regionForRequest } from "../locale.js";
-import { acceptAvatar, ensureCardImage, ensureUploadDir, newStorageName, publicUploadUrl, storagePath } from "../uploads.js";
+import { guestBrowsing, siteConfig } from "../system.js";
+import { acceptAvatar, ensureCardImage, ensureUploadDir, newStorageName } from "../uploads.js";
+import { readableBlobPath, tmpDir } from "../storage.js";
+import { storeUploadedFile } from "../uploadStore.js";
+import { sendUploadError } from "./uploadError.js";
+import { siteBrand } from "../config.js";
+
+const MiB = 1024 * 1024;
+
+// 上传上限。默认值写在 ops/config/schema.mjs，环境变量只做覆盖。
+function envBytes(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
 const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, locale, bio`;
 
@@ -77,6 +90,12 @@ function httpError(res, error) {
 
 const INTEL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// 站内浏览开关关掉时，没有会话就拿不到内容。信息流、搜索、深链、分享图都一样。
+function contentGate(req, res, next) {
+  if (req.user || guestBrowsing()) return next();
+  return res.status(401).json({ error: "no_session" });
+}
+
 function publicCard(row) {
   return {
     role: "intel",
@@ -92,32 +111,21 @@ function publicCard(row) {
 
 async function withUploads(pool, rows) {
   if (!rows.length) return rows;
-  const { rows: files } = await pool.query(
-    `SELECT f.intel_id, u.id, u.mime, u.original_name, u.size
-     FROM intel_files f
-     JOIN uploads u ON u.id = f.upload_id
-     WHERE f.intel_id = ANY($1::uuid[])
-     ORDER BY f.sort_order ASC, f.upload_id ASC`,
-    [rows.map((row) => row.id)]
-  );
-  const byId = new Map();
-  for (const file of files) {
-    const list = byId.get(file.intel_id) || [];
-    list.push(fileView(file));
-    byId.set(file.intel_id, list);
-  }
+  const byId = await filesByIntel(pool, rows.map((row) => row.id));
   return rows.map((row) => ({ ...row, attachments: byId.get(row.id) || [] }));
 }
 
-export function webRouter({ pool, sessionCookieName, uploadDir }) {
+export function webRouter({ pool, sessionCookieName, uploadDir, brand }) {
+  // 站点身份只用于展示：顶栏名称和分享文案。系统开关仍在 session.site。
+  const identity = brand && typeof brand === "object" ? brand : siteBrand();
   ensureUploadDir(uploadDir);
   const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadDir),
+    destination: (_req, _file, cb) => cb(null, tmpDir(uploadDir)),
     filename: (_req, file, cb) => cb(null, newStorageName(file.originalname)),
   });
   const upload = multer({
     storage,
-    limits: { fileSize: 8 * 1024 * 1024 },
+    limits: { fileSize: envBytes("KNOT_UPLOAD_IMAGE_MAX_BYTES", 8 * MiB) },
     fileFilter: (_req, file, cb) => {
       if (String(file.mimetype || "").startsWith("image/")) cb(null, true);
       else cb(new Error("bad_mime"));
@@ -125,7 +133,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   });
   const attachment = multer({
     storage,
-    limits: { fileSize: 50 * 1024 * 1024 },
+    limits: { fileSize: envBytes("KNOT_UPLOAD_ATTACHMENT_MAX_BYTES", 50 * MiB) },
     fileFilter: (_req, file, cb) => {
       if (isVideoUpload(file)) cb(new Error("bad_video"));
       else if (isAudioUpload(file)) cb(new Error("bad_audio"));
@@ -136,7 +144,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
 
   const audioUpload = multer({
     storage,
-    limits: { fileSize: 8 * 1024 * 1024 },
+    limits: { fileSize: envBytes("KNOT_UPLOAD_AUDIO_MAX_BYTES", 8 * MiB) },
     fileFilter: (_req, file, cb) => {
       if (isAudioUpload(file)) cb(null, true);
       else cb(new Error("bad_audio"));
@@ -148,7 +156,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.post("/login", async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     if (!email) return res.status(400).json({ error: "bad_email" });
-    const sent = await requestLoginKey(pool, email);
+    const sent = await requestLoginKey(pool, email, { inviteCode: req.body?.inviteCode });
     if (sent.error) return res.status(sent.status).json({ error: sent.error });
     res.json({ ok: true });
   });
@@ -162,7 +170,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (redeemed.error) return res.status(redeemed.status).json({ error: redeemed.error });
     const userId = redeemed.userId;
     const sid = randomBytes(24).toString("hex");
-    const expires = new Date(Date.now() + SESSION_TTL_MS);
+    const expires = new Date(Date.now() + sessionTtlMs());
     await pool.query(`INSERT INTO sessions (sid, user_id, expires_at) VALUES ($1, $2, $3)`, [
       sid,
       userId,
@@ -175,9 +183,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/session", async (req, res) => {
     const policy = policyConfig();
     const region = regionForRequest(req);
-    if (!req.user) return res.json({ user: null, policy, region });
+    const site = siteConfig();
+    if (!req.user) return res.json({ user: null, policy, region, site, brand: identity });
     const user = await loadUser(pool, req.user.id);
-    res.json({ user, policy, region });
+    res.json({ user, policy, region, site, brand: identity });
   });
 
   router.delete("/session", async (req, res) => {
@@ -253,16 +262,21 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.post("/uploads", (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     upload.single("file")(req, res, (err) => {
-      if (err) return res.status(400).json({ error: err.message === "bad_mime" ? "bad_mime" : "upload_failed" });
+      if (err) {
+        const tooBig = err.code === "LIMIT_FILE_SIZE";
+        const code = err.message === "bad_mime" ? "bad_mime" : tooBig ? "image_too_large" : "upload_failed";
+        return res.status(400).json({ error: code });
+      }
       if (!req.file) return res.status(400).json({ error: "empty_file" });
       next();
     });
   }, async (req, res) => {
-    const { rows } = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime, size) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [req.user.id, req.file.filename, req.file.mimetype, req.file.size]
-    );
-    res.status(201).json({ id: rows[0].id, url: publicUploadUrl(rows[0].id) });
+    try {
+      const stored = await storeUploadedFile({ uploadDir, pool, userId: req.user.id, file: req.file, kind: "image" });
+      res.status(201).json({ id: stored.id, url: stored.url });
+    } catch (error) {
+      sendUploadError(res, error);
+    }
   });
 
   router.post("/audio", (req, res, next) => {
@@ -278,16 +292,19 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     });
   }, async (req, res) => {
     const name = uploadName(req.file.originalname);
-    const { rows } = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime, original_name, size) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [req.user.id, req.file.filename, req.file.mimetype, name || null, req.file.size]
-    );
-    res.status(201).json({
-      id: rows[0].id,
-      url: publicUploadUrl(rows[0].id),
-      name,
-      mime: req.file.mimetype,
-    });
+    try {
+      const stored = await storeUploadedFile({
+        uploadDir,
+        pool,
+        userId: req.user.id,
+        file: req.file,
+        kind: "audio",
+        name,
+      });
+      res.status(201).json({ id: stored.id, url: stored.url, name, mime: stored.mime });
+    } catch (error) {
+      sendUploadError(res, error);
+    }
   });
 
   router.post("/files", (req, res, next) => {
@@ -316,17 +333,28 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
         return res.status(400).json({ error: "unreadable_file" });
       }
     }
-    const { rows } = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime, original_name, size) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [req.user.id, req.file.filename, req.file.mimetype, name || null, req.file.size]
-    );
-    res.status(201).json({
-      id: rows[0].id,
-      url: publicUploadUrl(rows[0].id),
-      name,
-      mime: req.file.mimetype,
-    });
+    try {
+      const stored = await storeUploadedFile({
+        uploadDir,
+        pool,
+        userId: req.user.id,
+        file: req.file,
+        kind: "file",
+        name,
+      });
+      res.status(201).json({ id: stored.id, url: stored.url, name, mime: stored.mime });
+    } catch (error) {
+      sendUploadError(res, error);
+    }
   });
+
+  // 内容媒体的缓存头跟着可见范围走。只有「未登录也能读」且站点确实开着访客浏览时，
+  // 才允许写进共享缓存（边缘按 $uri 缓存，不看会话）；其余一律 private，只进浏览器缓存。
+  // 站点关上访客浏览后，新响应不再进边缘，旧的最多再分发到缓存到期（边缘上设 1 天）。
+  function mediaCacheControl(audience) {
+    if (audience === MEDIA_PUBLIC && guestBrowsing()) return "public, max-age=86400";
+    return "private, max-age=600";
+  }
 
   async function readableUpload(req) {
     const { rows } = await pool.query(
@@ -339,17 +367,23 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     );
     if (!rows.length) return null;
     const row = rows[0];
-    const owner = Boolean(req.user && req.user.id === row.user_id);
+    // 关闭站内浏览时，除头像和赞助图外，内容媒体也要有会话。
+    if (!req.user && !guestBrowsing() && !row.avatar && !row.sponsor) return null;
     const image = String(row.mime || "").startsWith("image/");
+    // SVG 带脚本，直接打开 URL 就是同源执行。历史上没有这类记录，也不给它开口子。
+    if (String(row.mime || "").toLowerCase() === "image/svg+xml") return null;
     const audio = isAudioUpload({ mime: row.mime, originalname: row.original_name });
     if (isAttachmentUpload({ originalname: row.original_name || row.storage_name })) return null;
-    if ((image || audio) && !row.avatar && !row.sponsor && !owner) {
-      const visible = await directMediaReadable(pool, req.params.id, req.user?.id || null);
-      if (!visible) return null;
-    }
-    const filePath = storagePath(uploadDir, row.storage_name);
+    // 头像和赞助图对所有人公开；其余内容媒体按当事人关系判一次，一次查询带公开/私下两档。
+    const audience = row.avatar || row.sponsor
+      ? MEDIA_PUBLIC
+      : image || audio
+        ? await mediaAudience(pool, req.params.id, req.user?.id || null)
+        : null;
+    if (audience === null) return null;
+    const filePath = readableBlobPath(uploadDir, row.storage_name);
     if (!fs.existsSync(filePath)) return null;
-    return { row, filePath, image };
+    return { row, filePath, image, audience };
   }
 
   router.get("/uploads/:id/display", async (req, res) => {
@@ -357,10 +391,11 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (!opened?.image) return res.status(404).end();
     try {
       const display = await ensureCardImage(uploadDir, opened.row.storage_name);
-      res.set("Cache-Control", "public, max-age=604800");
+      res.set("Cache-Control", mediaCacheControl(opened.audience));
       res.type("image/jpeg");
       fs.createReadStream(display).pipe(res);
     } catch {
+      // 生成失败时回退原件。原件可能是几 MB 的整图，不让它占住 /display 这个地址。
       res.set("Cache-Control", "no-store");
       res.type(opened.row.mime);
       fs.createReadStream(opened.filePath).pipe(res);
@@ -372,9 +407,11 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     if (!opened) return res.status(404).end();
     // 头像和赞助图是公开、不随内容变动而换地址的：换头像生成新 upload，URL 也就变了。
     // 给它们缓存头，让浏览器和边缘缓存，避免每次刷新都穿过隧道重新拉一遍。
-    if (opened.row.avatar || opened.row.sponsor) {
-      res.set("Cache-Control", "public, max-age=86400");
-    }
+    // 内容原图跟着可见范围走，理由见 mediaCacheControl。
+    res.set(
+      "Cache-Control",
+      opened.row.avatar || opened.row.sponsor ? "public, max-age=86400" : mediaCacheControl(opened.audience)
+    );
     res.type(opened.row.mime);
     fs.createReadStream(opened.filePath).pipe(res);
   });
@@ -433,23 +470,13 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
        ORDER BY created_at DESC`,
       [req.user.id]
     );
-    const submissions = [];
-    for (const row of rows) {
-      const files = await pool.query(
-        `SELECT u.id, u.mime, u.original_name, u.size
-         FROM intel_files f
-         JOIN uploads u ON u.id = f.upload_id
-         WHERE f.intel_id = $1
-         ORDER BY f.sort_order`,
-        [row.id]
-      );
-      const attachments = files.rows.map(fileView);
-      submissions.push(presentIntel({ ...row, files: attachments }));
-    }
+    // 一次把这一批的附件取齐，不再每条一次查询。
+    const files = await filesByIntel(pool, rows.map((row) => row.id));
+    const submissions = rows.map((row) => presentIntel({ ...row, files: files.get(row.id) || [] }));
     res.json({ submissions });
   });
 
-  router.get("/search", async (req, res) => {
+  router.get("/search", contentGate, async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (!q) return res.json({ information: [] });
     const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
@@ -457,15 +484,15 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
-  router.get("/facets", async (_req, res) => {
+  router.get("/facets", contentGate, async (_req, res) => {
     res.json(await listFacets(pool));
   });
 
-  router.get("/requests", async (req, res) => {
+  router.get("/requests", contentGate, async (req, res) => {
     res.json({ requests: await listRequests(pool, req.user?.id || null) });
   });
 
-  router.get("/people", async (_req, res) => {
+  router.get("/people", contentGate, async (_req, res) => {
     res.json({ people: await listActivePeople(pool) });
   });
 
@@ -524,7 +551,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     }
   });
 
-  router.get("/intel/:id/share", async (req, res) => {
+  router.get("/intel/:id/share", contentGate, async (req, res) => {
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     try {
@@ -564,7 +591,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     }
   });
 
-  router.get("/information", async (req, res) => {
+  router.get("/information", contentGate, async (req, res) => {
     const author = String(req.query.author || "").trim();
     if (author && !INTEL_ID.test(author)) return res.json({ information: [], author: null });
     const before = String(req.query.before || "").trim();
@@ -577,11 +604,11 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   });
 
   // 分享海报二维码深链：按帖子 id 取一条公开信息。
-  router.get("/intel/:id", async (req, res) => {
+  router.get("/intel/:id", contentGate, async (req, res) => {
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.origin_id, i.version,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
               u.display_name, u.avatar_upload_id
        FROM intel i
        JOIN users u ON u.id = i.user_id
@@ -593,7 +620,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
     res.json(publicCard({ ...withFiles, granted: false }));
   });
 
-  router.post("/discover-self", async (req, res) => {
+  router.post("/discover-self", contentGate, async (req, res) => {
     if (!req.user) return res.json(emptyDiscoverSelf());
     const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))]
       .filter((id) => INTEL_ID.test(id))
@@ -681,7 +708,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir }) {
   router.get("/stars", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, u.display_name, u.avatar_upload_id,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, u.display_name, u.avatar_upload_id,
         TRUE AS starred,
         EXISTS (
           SELECT 1 FROM intel_likes l WHERE l.intel_id = i.id AND l.user_id = $1

@@ -3,15 +3,17 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import AuthForm from "../components/AuthForm.vue";
+import SiteMark from "../components/SiteMark.vue";
 import { t } from "../i18n/index.js";
 import { CheckIcon, CopyIcon, QuoteIcon, SendIcon } from "../icons/index.js";
 import { useSessionStore } from "../stores/session";
 
 const router = useRouter();
 const session = useSessionStore();
-const mark = computed(() => t("app.name").slice(0, 1));
+const siteName = computed(() => session.brandName);
 const active = ref(0);
 const copied = ref(false);
+const siteOrigin = typeof window !== "undefined" ? window.location.origin : "";
 
 const shots = computed(() => [
   { src: "/discover-preview.jpg", label: t("gate.shotDiscover") },
@@ -46,7 +48,7 @@ function prev() {
 
 async function copyDelegate() {
   try {
-    await navigator.clipboard.writeText(t("gate.delegateQuote"));
+    await navigator.clipboard.writeText(t("gate.delegateQuote", { origin: siteOrigin }));
     copied.value = true;
     setTimeout(() => (copied.value = false), 1600);
   } catch {
@@ -109,8 +111,8 @@ watch(
   <section class="gate">
     <header class="gate-hero">
       <div class="gate-identity">
-        <p class="brand-mark gate-mark" aria-hidden="true">{{ mark }}</p>
-        <p class="gate-name">{{ t("app.name") }}</p>
+        <SiteMark class="brand-mark gate-mark" />
+        <p class="gate-name">{{ siteName }}</p>
       </div>
       <h1 class="gate-lead">{{ t("gate.lead") }}</h1>
       <p class="gate-detail">{{ t("gate.detail") }}</p>
@@ -152,7 +154,7 @@ watch(
       <p class="gate-delegate-lead">{{ t("gate.delegateLead") }}</p>
       <blockquote class="gate-delegate-quote">
         <QuoteIcon class="gate-delegate-mark" aria-hidden="true" />
-        <p class="gate-delegate-text">{{ t("gate.delegateQuote") }}</p>
+        <p class="gate-delegate-text">{{ t("gate.delegateQuote", { origin: siteOrigin }) }}</p>
       </blockquote>
       <div class="gate-delegate-actions">
         <AppButton variant="secondary" @click="copyDelegate">
@@ -163,7 +165,7 @@ watch(
       </div>
     </div>
 
-    <div class="gate-enter">
+    <div v-if="session.canBrowse" class="gate-enter">
       <AppButton to="/discover" class="gate-cta">
         <span>{{ t("gate.enter") }}</span>
         <SendIcon class="gate-cta-arrow" aria-hidden="true" />

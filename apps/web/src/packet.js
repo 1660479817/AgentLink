@@ -66,7 +66,6 @@ function isVideoFile(raw) {
 }
 
 export function videoFrame(url, poster = "", playUrl = "") {
-  // 后端解析出的直链只在确实是可播文件时使用；否则回到原链接（落地页）走完整判断。
   const source = playUrl && isVideoFile(playUrl) ? playUrl : url;
   let parsed;
   try {

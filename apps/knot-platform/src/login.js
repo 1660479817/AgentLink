@@ -1,10 +1,11 @@
 import { createHash, randomInt } from "node:crypto";
 import nodemailer from "nodemailer";
 import { NAME_MAX } from "./account.js";
+import { consumeInvite, findUsableInvite, normalizeInviteCode, recordInviteRedemption } from "./invites.js";
 import { signupGrant } from "./points.js";
+import { registrationMode } from "./system.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const DEFAULT_ADMIN_EMAIL = "manwjh@gmail.com";
 const FEEDBACK_LABEL = { suggestion: "建议", complaint: "投诉" };
 // 017 建的称呼唯一索引。注册撞上它时追加序号重试。
 const DISPLAY_NAME_KEY = "users_display_name_key";
@@ -65,18 +66,37 @@ function mailTransport() {
   };
 }
 
-export async function requestLoginKey(pool, email) {
+export async function requestLoginKey(pool, email, options = {}) {
   const recent = await pool.query(
     `SELECT 1 FROM login_keys WHERE email = $1 AND created_at > now() - interval '60 seconds' LIMIT 1`,
     [email]
   );
   if (recent.rowCount) return { error: "too_many", status: 429 };
+
+  // 新邮箱才看注册策略；已有账户照常登录，不受邀请码和暂停注册影响。
+  let inviteId = null;
+  const existing = await pool.query(
+    `SELECT 1 FROM users WHERE lower(email) = lower($1) AND side = 'external' LIMIT 1`,
+    [email]
+  );
+  if (!existing.rows.length) {
+    const mode = registrationMode();
+    if (mode === "closed") return { error: "registration_closed", status: 403 };
+    if (mode === "invite") {
+      const code = normalizeInviteCode(options.inviteCode);
+      if (!code) return { error: "invite_required", status: 400 };
+      const invite = await findUsableInvite(pool, code);
+      if (!invite) return { error: "bad_invite", status: 400 };
+      inviteId = invite.id;
+    }
+  }
+
   const key = newLoginKey();
   const inserted = await pool.query(
-    `INSERT INTO login_keys (email, key_hash, expires_at)
-     VALUES ($1, $2, now() + interval '10 minutes')
+    `INSERT INTO login_keys (email, key_hash, expires_at, invite_code_id)
+     VALUES ($1, $2, now() + interval '10 minutes', $3)
      RETURNING id`,
-    [email, hashLoginKey(key)]
+    [email, hashLoginKey(key), inviteId]
   );
   try {
     await sendLoginKey(email, key);
@@ -88,8 +108,9 @@ export async function requestLoginKey(pool, email) {
   return { ok: true };
 }
 
-export async function redeemLoginKey(pool, email, key) {
-  const matched = await pool.query(
+// 真正写库的那一段，在调用方开好的事务里跑。
+async function redeemOn(db, email, key) {
+  const matched = await db.query(
     `UPDATE login_keys
      SET used_at = now()
      WHERE id = (
@@ -98,33 +119,69 @@ export async function redeemLoginKey(pool, email, key) {
        ORDER BY created_at DESC
        LIMIT 1
      )
-     RETURNING id`,
+     RETURNING id, invite_code_id`,
     [email, hashLoginKey(key)]
   );
   if (!matched.rowCount) return { error: "bad_key", status: 400 };
+
   const base = defaultDisplayName(email);
   for (let seq = 0; ; seq += 1) {
     const name = seq === 0 ? base : numberedName(base, seq);
+    await db.query(`SAVEPOINT name_${seq}`);
     try {
-      const saved = await pool.query(
+      const saved = await db.query(
         `INSERT INTO users (email, display_name, points_balance) VALUES ($1, $2, $3)
          ON CONFLICT (lower(email)) WHERE email IS NOT NULL AND side = 'external'
          DO UPDATE SET email = EXCLUDED.email
-         RETURNING id, points_balance`,
+         RETURNING id, points_balance, (xmax = 0) AS inserted`,
         [email, name, signupGrant()]
       );
-      return { userId: saved.rows[0].id, pointsBalance: saved.rows[0].points_balance };
+      await db.query(`RELEASE SAVEPOINT name_${seq}`);
+      const row = saved.rows[0];
+      // 老账户直接登录；新账户才看注册策略。
+      if (row.inserted === false) return { userId: row.id, pointsBalance: row.points_balance };
+
+      const mode = registrationMode();
+      if (mode === "closed") return { error: "registration_closed", status: 403 };
+      if (mode === "invite") {
+        const inviteId = matched.rows[0].invite_code_id;
+        if (!inviteId) return { error: "invite_required", status: 400 };
+        const consumed = await consumeInvite(db, inviteId);
+        if (!consumed) return { error: "bad_invite", status: 400 };
+        await recordInviteRedemption(db, { inviteId, userId: row.id, email });
+      }
+      return { userId: row.id, pointsBalance: row.points_balance };
     } catch (error) {
       // 只给称呼重名让路：换一个序号再插，其余唯一约束照常抛出。
       if (error.code !== "23505" || error.constraint !== DISPLAY_NAME_KEY || seq >= 1000) throw error;
+      await db.query(`ROLLBACK TO SAVEPOINT name_${seq}`);
+      await db.query(`RELEASE SAVEPOINT name_${seq}`);
     }
   }
 }
 
+export async function redeemLoginKey(pool, email, key) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await redeemOn(client, email, key);
+    if (result && result.error) await client.query("ROLLBACK");
+    else await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // 已经回滚过时再回滚会失败，原错误仍然抛出。
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export function adminEmail() {
-  const raw = process.env.KNOT_ADMIN_EMAIL;
-  const email = normalizeEmail(raw == null || String(raw).trim() === "" ? DEFAULT_ADMIN_EMAIL : raw);
-  return email;
+  return normalizeEmail(process.env.KNOT_ADMIN_EMAIL);
 }
 
 // 人类管理员：External Personal Agent 账户的邮箱等于管理员邮箱时，其 WebUI 操作按平台层执行。

@@ -12,6 +12,7 @@ import { errorText, nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { feeOf, priceOf } from "../record.js";
 import { startPolling } from "../polling.js";
+import { timeAgo } from "../time.js";
 import { t } from "../i18n/index.js";
 import { BackIcon, PlusIcon, UserIcon } from "../icons/index.js";
 import { useFriendStore } from "../stores/friends";
@@ -57,17 +58,15 @@ let railObserver = null;
 let railDrag = null;
 let feedPoll = null;
 let refreshing = false;
+// 公开快照已经带着 facets 时，首屏不再为它多走一次接口。
+let facetsFromBoard = false;
 const FEED_POLL_MS = 60 * 1000;
 
 onMounted(() => {
-  load().then(() => focusPost());
-  fetchFacets()
-    .then((next) => {
-      facets.value = next || { categories: [], topics: [] };
-    })
-    .catch(() => {
-      /* 隧道断时沿用快照里的 facets，或空选项 */
-    });
+  load().then(() => {
+    focusPost();
+    ensureFacets();
+  });
   feedPoll = startPolling({
     fn: refreshFeed,
     intervalMs: FEED_POLL_MS,
@@ -171,7 +170,11 @@ async function patchSelf(painted) {
 async function loadLive(options = {}) {
   const q = searchQ.value;
   const author = authorQ.value;
+  // 公开快照关掉时用户条没有快照可画，首屏跟信息流一起取一次。
+  const rosterTask = people.value.length ? null : listPeople().catch(() => null);
   const info = q ? await searchInformation(q, activeFilters.value) : await listInformation(author, null, activeFilters.value);
+  const roster = await rosterTask;
+  if (Array.isArray(roster?.people)) people.value = roster.people;
   filterAuthor.value = author ? info.author || null : null;
   const painted = { information: info.information || [], requests: [], people: people.value, facets: facets.value };
   if (options.ahead) rememberAhead(painted);
@@ -187,10 +190,23 @@ async function loadBoard() {
   if (readAhead()) rememberAhead(null);
   const painted = await patchSelf(paintDiscover(board, session.user?.id));
   showPainted(painted);
+  facetsFromBoard = true;
+}
+
+// 快照里带了 facets 就直接用。只有走实时接口、或快照没带这一项时，才回源取一次。
+async function ensureFacets() {
+  if (facetsFromBoard) return;
+  try {
+    const next = await fetchFacets();
+    facets.value = next || { categories: [], topics: [] };
+  } catch {
+    /* 隧道断时沿用现有选项，或保持空 */
+  }
 }
 
 async function load(options = {}) {
-  const live = options.live === true || hasFilter.value;
+  // 公开快照关掉时直接走实时接口。
+  const live = options.live === true || hasFilter.value || session.site.publicBoard === false;
   try {
     if (live) await loadLive({ ahead: options.live === true && !hasFilter.value });
     else await loadBoard();
@@ -263,17 +279,6 @@ watch(
     notifications.load();
   }
 );
-
-function lastSeen(value) {
-  const then = Date.parse(value || "");
-  if (!Number.isFinite(then)) return "";
-  const minutes = Math.max(0, Math.floor((Date.now() - then) / 60000));
-  if (minutes < 1) return t("home.justNow");
-  if (minutes < 60) return t("home.minutesAgo", { n: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("home.hoursAgo", { n: hours });
-  return t("home.daysAgo", { n: Math.floor(hours / 24) });
-}
 
 function updateRail() {
   const el = railViewport.value;
@@ -554,7 +559,7 @@ async function downloadItem(item) {
           <UserIcon v-else />
         </span>
         <span class="intel-person-name">{{ person.name || t("home.author") }}</span>
-        <span v-if="lastSeen(person.lastAt)" class="intel-person-time">{{ lastSeen(person.lastAt) }}</span>
+        <span v-if="timeAgo(person.lastAt)" class="intel-person-time">{{ timeAgo(person.lastAt) }}</span>
       </RouterLink>
     </div>
     <button
@@ -618,6 +623,9 @@ async function downloadItem(item) {
     :author-selected="authorQ === item.author?.id"
     :actor="item.actor || ''"
     :created-at="item.kMeta?.createdAt || ''"
+    :kind="item.kMeta?.kind || ''"
+    :expires-at="item.kMeta?.expiresAt || ''"
+    :mine="cardIsMine(item, session.user)"
     :starred="Boolean(item.starred)"
     :can-star="Boolean(session.user)"
     :liked="Boolean(item.liked)"

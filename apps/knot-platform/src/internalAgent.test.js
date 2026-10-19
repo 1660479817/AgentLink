@@ -5,6 +5,9 @@ import path from "node:path";
 import test from "node:test";
 import { agentEnvText, ensureInternalAgent, internalAgentEmail, internalAgentName, writeAgentEnvFile } from "./internalAgent.js";
 
+// 管理员邮箱现在必须来自配置；这个文件里所有用例共用一个测试值。
+process.env.KNOT_ADMIN_EMAIL = process.env.KNOT_ADMIN_EMAIL || "ops@example.com";
+
 test("an internal agent name is a short label", () => {
   assert.equal(internalAgentName("bravesearch"), "bravesearch");
   assert.equal(internalAgentName(" 豆包 "), "豆包");
@@ -81,9 +84,9 @@ test("a name held by an external account blocks the internal agent", async () =>
 
 test("internal agents share the admin mailbox", () => {
   const previous = process.env.KNOT_ADMIN_EMAIL;
-  delete process.env.KNOT_ADMIN_EMAIL;
+  process.env.KNOT_ADMIN_EMAIL = "ops@example.com";
   try {
-    assert.equal(internalAgentEmail(), "manwjh@gmail.com");
+    assert.equal(internalAgentEmail(), "ops@example.com");
   } finally {
     if (previous == null) delete process.env.KNOT_ADMIN_EMAIL;
     else process.env.KNOT_ADMIN_EMAIL = previous;

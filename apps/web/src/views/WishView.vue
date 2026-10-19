@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { toPlain } from "@knot/markdown";
 import { useRoute, useRouter } from "vue-router";
 import ActorMark from "../components/ActorMark.vue";
 import AppButton from "../components/AppButton.vue";
@@ -32,6 +33,7 @@ import { acceptDownload } from "../download/consent.js";
 import { cardIsMine } from "../discoverBoard.js";
 import { feeOf, priceOf, wishIsLive } from "../record.js";
 import { startPolling } from "../polling.js";
+import { timeAgo } from "../time.js";
 import { t } from "../i18n/index.js";
 import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
@@ -173,26 +175,6 @@ async function loadMoreSales() {
   salesLoading.value = true;
   await loadSales(salesCursor.value || null);
   salesLoading.value = false;
-}
-
-function when(value) {
-  const then = new Date(value).getTime();
-  if (!Number.isFinite(then)) return "";
-  const minutes = Math.floor((Date.now() - then) / 60000);
-  if (minutes < 1) return t("home.justNow");
-  if (minutes < 60) return t("home.minutesAgo", { n: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("home.hoursAgo", { n: hours });
-  const days = Math.floor(hours / 24);
-  if (days < 7) return t("home.daysAgo", { n: days });
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Shanghai",
-    month: "numeric",
-    day: "numeric",
-  }).formatToParts(new Date(then));
-  const month = parts.find((part) => part.type === "month")?.value || "";
-  const day = parts.find((part) => part.type === "day")?.value || "";
-  return t("home.postedOn", { month, day });
 }
 
 function statusKey(verdict) {
@@ -750,6 +732,9 @@ async function dismissSale(item) {
         :avatar-url="item.author?.avatarUrl || ''"
         :actor="item.actor || ''"
         :created-at="item.kMeta?.createdAt || ''"
+        :kind="item.kMeta?.kind || ''"
+        :expires-at="item.kMeta?.expiresAt || ''"
+        :mine="cardIsMine(item, session.user)"
         :starred="Boolean(item.starred)"
         :can-star="Boolean(session.user)"
         :liked="Boolean(item.liked)"
@@ -805,9 +790,9 @@ async function dismissSale(item) {
           <StatusIcon :verdict="wish.kMeta?.verdict || 'pending'" />
           {{ t(statusKey(wish.kMeta?.verdict)) }}
         </p>
-        <p v-if="when(wish.kMeta?.createdAt) || wish.kMeta?.language" class="information-time">
-          <span v-if="when(wish.kMeta?.createdAt)">{{ when(wish.kMeta.createdAt) }}</span>
-          <span v-if="when(wish.kMeta?.createdAt) && wish.kMeta?.language"> · </span>
+        <p v-if="timeAgo(wish.kMeta?.createdAt) || wish.kMeta?.language" class="information-time">
+          <span v-if="timeAgo(wish.kMeta?.createdAt)">{{ timeAgo(wish.kMeta.createdAt) }}</span>
+          <span v-if="timeAgo(wish.kMeta?.createdAt) && wish.kMeta?.language"> · </span>
           <span v-if="wish.kMeta?.language">{{ wish.kMeta.language }}</span>
         </p>
       </div>
@@ -831,10 +816,10 @@ async function dismissSale(item) {
           <p class="bounty-reply-meta">
             <ActorMark :actor="item.actor" />
             <span>{{ item.author?.name || t("home.author") }}</span>
-            <span v-if="when(item.kMeta?.createdAt)"> · {{ when(item.kMeta.createdAt) }}</span>
+            <span v-if="timeAgo(item.kMeta?.createdAt)"> · {{ timeAgo(item.kMeta.createdAt) }}</span>
             <span v-if="item.kMeta?.language"> · {{ item.kMeta.language }}</span>
           </p>
-          <p v-if="item.body" class="bounty-reply-body">{{ item.body }}</p>
+          <p v-if="item.body" class="bounty-reply-body">{{ toPlain(item.body) }}</p>
           <RecordMedia :images="item.images" :audio="item.audio" />
           <ul v-if="fileRows(item).length" class="wish-files">
             <li v-for="(file, index) in fileRows(item)" :key="`${file.name}-${index}`" class="wish-file">
@@ -938,11 +923,11 @@ async function dismissSale(item) {
                 </div>
                 <p class="bounty-reply-meta">
                   <span>{{ t("wish.replyPrice", { n: priceOf(reply) }) }}</span>
-                  <span v-if="when(reply.kMeta?.createdAt)"> · {{ when(reply.kMeta.createdAt) }}</span>
+                  <span v-if="timeAgo(reply.kMeta?.createdAt)"> · {{ timeAgo(reply.kMeta.createdAt) }}</span>
                   <span v-if="reply.kMeta?.language"> · {{ reply.kMeta.language }}</span>
                 </p>
                 <p v-if="reply.kMeta?.verdict === 'rejected' && reply.kMeta?.rejectReason" class="wish-reason">{{ reply.kMeta.rejectReason }}</p>
-                <p v-if="reply.body" class="bounty-reply-body">{{ reply.body }}</p>
+                <p v-if="reply.body" class="bounty-reply-body">{{ toPlain(reply.body) }}</p>
                 <RecordMedia :images="reply.images" :audio="reply.audio" />
                 <ul v-if="fileRows(reply).length" class="wish-files">
                   <li v-for="(file, index) in fileRows(reply)" :key="`${file.name}-${index}`" class="wish-file">
@@ -1044,7 +1029,7 @@ async function dismissSale(item) {
               {{ t(statusKey(item.kMeta?.verdict)) }}
             </p>
           </div>
-          <p v-if="item.body" class="bounty-reply-body">{{ item.body }}</p>
+          <p v-if="item.body" class="bounty-reply-body">{{ toPlain(item.body) }}</p>
         </div>
       </article>
       <input ref="replyImageInput" type="file" accept="image/*" multiple class="visually-hidden" @change="pickReplyImages" />

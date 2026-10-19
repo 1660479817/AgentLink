@@ -20,7 +20,11 @@ import {
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
 import { applyPriceProposal, economySnapshot, priceSchedule, proposePrices } from "../actuary.js";
 import { attentionSnapshot } from "../attention.js";
+import { touchDiscoverBoard } from "../discoverPublish.js";
+import { createInvite, disableInvite, listInvites } from "../invites.js";
+import { saveSystemPolicy, systemPolicyView } from "../system.js";
 import { ensureUploadDir, newStorageName } from "../uploads.js";
+import { tmpDir } from "../storage.js";
 
 function sendAdminError(res, error) {
   const code = error.code || "internal";
@@ -44,7 +48,14 @@ function sendAdminError(res, error) {
     code === "empty_file" ||
     code === "file_too_large" ||
     code === "upload_failed" ||
-    code === "sponsor_full"
+    code === "sponsor_full" ||
+    code === "bad_args" ||
+    code === "bad_switch" ||
+    code === "bad_registration_mode" ||
+    code === "bad_invite_code" ||
+    code === "bad_invite_uses" ||
+    code === "bad_invite_expiry" ||
+    code === "bad_invite_note"
   ) {
     return res.status(400).json({ error: code });
   }
@@ -54,6 +65,7 @@ function sendAdminError(res, error) {
   if (code === "not_found") return res.status(404).json({ error: code });
   if (code === "not_pending") return res.status(409).json({ error: code });
   if (code === "name_taken") return res.status(409).json({ error: code });
+  if (code === "code_taken") return res.status(409).json({ error: code });
   if (code === "ambiguous" || code === "protected") {
     return res.status(409).json({ error: code, users: error.users || undefined });
   }
@@ -66,7 +78,7 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null }) {
   if (uploadDir) ensureUploadDir(uploadDir);
   const sponsorUpload = multer({
     storage: multer.diskStorage({
-      destination: (_req, _file, cb) => cb(null, uploadDir),
+      destination: (_req, _file, cb) => cb(null, tmpDir(uploadDir)),
       filename: (_req, file, cb) => cb(null, newStorageName(file.originalname)),
     }),
     limits: { fileSize: 8 * 1024 * 1024 },
@@ -275,6 +287,59 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null }) {
   router.post("/sponsors/:id", async (req, res) => {
     try {
       res.json({ sponsor: await updateSponsor(pool, req.params.id, req.body || {}) });
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.get("/system", (_req, res) => {
+    res.json({ system: systemPolicyView() });
+  });
+
+  router.patch("/system", async (req, res) => {
+    try {
+      const before = systemPolicyView();
+      const system = await saveSystemPolicy(pool, req.body || {});
+      const changed = [
+        before.guestBrowsing !== system.guestBrowsing ? "站内浏览" : "",
+        before.registrationMode !== system.registrationMode ? `注册=${system.registrationMode}` : "",
+        before.publicBoard !== system.publicBoard ? "公开快照" : "",
+      ].filter(Boolean);
+      if (changed.length) {
+        await pool.query(`INSERT INTO admin_actions (action, body) VALUES ('config', $1)`, [changed.join("、")]);
+        if (before.guestBrowsing !== system.guestBrowsing || before.publicBoard !== system.publicBoard) {
+          touchDiscoverBoard();
+        }
+      }
+      res.json({ system });
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.get("/invites", async (_req, res) => {
+    try {
+      res.json({ invites: await listInvites(pool) });
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/invites", async (req, res) => {
+    try {
+      const invite = await createInvite(pool, req.body || {});
+      await pool.query(`INSERT INTO admin_actions (action, body) VALUES ('invite', $1)`, [`签发邀请码 ${invite.code}`]);
+      res.status(201).json({ invite });
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/invites/:id/disable", async (req, res) => {
+    try {
+      const result = await disableInvite(pool, req.params.id);
+      await pool.query(`INSERT INTO admin_actions (action, body) VALUES ('invite', $1)`, [`停用邀请码 ${result.invite.code}`]);
+      res.json(result);
     } catch (error) {
       sendAdminError(res, error);
     }

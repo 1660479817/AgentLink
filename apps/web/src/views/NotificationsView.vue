@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted } from "vue";
+import { toPlain } from "@knot/markdown";
 import StatusIcon from "../components/StatusIcon.vue";
 import { BellIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
@@ -23,7 +24,7 @@ onMounted(() => notifications.open());
         <StatusIcon :kind="item.kind" />
         <span>{{ item.title }}</span>
       </h2>
-      <p v-if="item.body" class="post-body">{{ item.body }}</p>
+      <p v-if="item.body" class="post-body">{{ toPlain(item.body) }}</p>
       <p v-if="item.href" class="muted">
         <RouterLink :to="item.href">{{ t("notifications.openLink") }}</RouterLink>
       </p>

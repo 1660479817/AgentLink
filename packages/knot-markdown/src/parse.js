@@ -1,49 +1,23 @@
-// Minimal, dependency-free Markdown detection and rendering for card bodies.
-// Safety rule: everything is escaped by default; we only emit a fixed set of
-// whitelisted tags and only allow http/https (or fragment) links. Raw HTML in
-// the source is treated as text and escaped, so it can never be injected.
-
-const HINTS = [
-  /^#{1,6}[ \t]+/m, // heading
-  /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/m, // list item
-  /\*\*[^*]+\*\*/, // **bold**
-  /__[^_]+__/, // __bold__
-  /`[^`\n]+`/, // `code`
-  /^[ \t]*(?:```|~~~)/m, // fenced code block
-  /^[ \t]*>[ \t]?/m, // blockquote
-  /\[[^\]\n]+\]\([^)\s]+\)/, // [text](url)
-  /~~[^~\n]+~~/, // ~~strike~~
-  /(^|[^\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])/mu, // _italic_
-  /https?:\/\/[^\s<>]+/i, // bare link
-  /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$/m, // table delimiter row
-  /^[ \t]*\S[^\n]*\n[ \t]*(?:=+|-+)[ \t]*$/m, // setext heading
-];
+// Knot 的 Markdown 解析器。块级和行内都解析成节点树，HTML、纯文本、海报文本行
+// 由各自的序列化器从同一棵树上取。原生 HTML 不解析成标签，一律当作文本。
+//
+// 节点：
+//   块  heading / paragraph / code / blockquote / list / table / thematicBreak
+//   行内 text / code / strong / em / del / link / image / break
 
 const ESCAPABLE = new Set("\\`*_{}[]()#+-.!|~>:");
 const WORD_CHAR = /[\p{L}\p{N}_]/u;
 const MAX_INLINE_DEPTH = 20;
 
-function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+const LIST_ITEM = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
+const SEPARATOR_CELL = /^:?-+:?$/;
+
+export function parse(markdown) {
+  const lines = String(markdown ?? "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
+  return parseBlocks(lines);
 }
 
-function safeUrl(raw) {
-  const value = String(raw || "").trim().replace(/^<|>$/g, "");
-  if (!value) return "";
-  try {
-    const url = new URL(value);
-    if (url.protocol === "http:" || url.protocol === "https:") return url.toString();
-  } catch {
-    /* not an absolute URL */
-  }
-  if (/^#[^#\s]+$/.test(value)) return value; // fragment-only anchor
-  return "";
-}
+// ---------------------------------------------------------------- 行内
 
 function runLength(text, index, ch) {
   let run = 1;
@@ -51,8 +25,8 @@ function runLength(text, index, ch) {
   return run;
 }
 
-// A backtick run opens a code span; only a closing run of the same length ends it.
-function codeSpanAt(text, index) {
+// 反引号串开启行内代码；只有等长的反引号串才能闭合。
+export function codeSpanAt(text, index) {
   const open = /^`+/.exec(text.slice(index));
   if (!open) return null;
   const marker = open[0];
@@ -73,7 +47,7 @@ function codeSpanAt(text, index) {
   return null;
 }
 
-function linkAt(text, index) {
+export function linkAt(text, index) {
   const ch = text[index];
   if (ch !== "[" && ch !== "!") return null;
   if (index > 0 && text[index - 1] === "\\") return null;
@@ -100,7 +74,6 @@ function linkAt(text, index) {
   if (labelEnd < 0 || text[labelEnd + 1] !== "(") return null;
   const label = text.slice(i + 1, labelEnd);
 
-  // Scan the URL, allowing balanced parentheses inside it.
   let paren = 1;
   let j = labelEnd + 2;
   let href = "";
@@ -121,7 +94,7 @@ function linkAt(text, index) {
   }
   if (paren !== 0) return null;
   const url = href.trim().split(/\s+/)[0].replace(/^<|>$/g, "");
-  return { label, url, end: j + 1 };
+  return { label, url, end: j + 1, image: ch === "!" };
 }
 
 function countChar(text, ch) {
@@ -167,7 +140,6 @@ function hardBreakBefore(text, index) {
   return /(?: {2,}|\\)$/.test(text.slice(Math.max(0, index - 40), index));
 }
 
-// Finds a closing delimiter run for emphasis, skipping escapes and code spans.
 function findClose(text, from, ch, len) {
   let j = from;
   while (j < text.length) {
@@ -198,6 +170,16 @@ function findClose(text, from, ch, len) {
   return null;
 }
 
+function pushText(nodes, value) {
+  if (!value) return;
+  const last = nodes[nodes.length - 1];
+  if (last?.type === "text") {
+    last.value += value;
+    return;
+  }
+  nodes.push({ type: "text", value });
+}
+
 function emphasisAt(text, index, ch, depth, inLink) {
   const run = runLength(text, index, ch);
   if (ch === "~" && run < 2) return null;
@@ -216,20 +198,25 @@ function emphasisAt(text, index, ch, depth, inLink) {
     const inner = text.slice(start, close.index);
     if (!inner.trim()) continue;
 
-    const body = renderInline(inner, depth + 1, inLink);
+    const children = parseInline(inner, depth + 1, inLink);
     const end = close.index + len;
-    if (len === 3) return { html: `<strong><em>${body}</em></strong>`, end };
-    if (len === 2) return { html: ch === "~" ? `<del>${body}</del>` : `<strong>${body}</strong>`, end };
-    return { html: `<em>${body}</em>`, end };
+    if (len === 3) return { node: { type: "strong", children: [{ type: "em", children }] }, end };
+    if (len === 2) {
+      return { node: { type: ch === "~" ? "del" : "strong", children }, end };
+    }
+    return { node: { type: "em", children }, end };
   }
   return null;
 }
 
-function renderInline(text, depth = 0, inLink = false) {
+export function parseInline(text, depth = 0, inLink = false) {
   const src = String(text ?? "");
-  if (depth > MAX_INLINE_DEPTH) return escapeHtml(src);
+  const out = [];
+  if (depth > MAX_INLINE_DEPTH) {
+    pushText(out, src);
+    return out;
+  }
 
-  let out = "";
   let i = 0;
   while (i < src.length) {
     const ch = src[i];
@@ -237,26 +224,27 @@ function renderInline(text, depth = 0, inLink = false) {
     if (ch === "\\") {
       const next = src[i + 1];
       if (next === "\n") {
-        out += "<br>";
+        out.push({ type: "break" });
         i += 2;
         continue;
       }
       if (next && ESCAPABLE.has(next)) {
-        out += escapeHtml(next);
+        pushText(out, next);
         i += 2;
         continue;
       }
-      out += "\\";
+      pushText(out, "\\");
       i += 1;
       continue;
     }
 
     if (ch === "\n") {
       if (hardBreakBefore(src, i)) {
-        out = out.replace(/[ \t]+$/, "");
-        out += "<br>";
+        const last = out[out.length - 1];
+        if (last?.type === "text") last.value = last.value.replace(/[ \t]+$/, "");
+        out.push({ type: "break" });
       } else {
-        out += "\n";
+        pushText(out, "\n");
       }
       i += 1;
       continue;
@@ -265,35 +253,35 @@ function renderInline(text, depth = 0, inLink = false) {
     if (ch === "`") {
       const span = codeSpanAt(src, i);
       if (span) {
-        out += `<code>${escapeHtml(span.value)}</code>`;
+        out.push({ type: "code", value: span.value });
         i = span.end;
         continue;
       }
-      out += "`";
+      pushText(out, "`");
       i += 1;
       continue;
     }
 
     if (ch === "!" || ch === "[") {
       const link = linkAt(src, i);
-      if (link && inLink) {
-        out += renderInline(link.label, depth + 1, true);
+      // 链接里不能再套链接；图片可以，`[![alt](img)](href)` 是合法的。
+      if (link && inLink && !link.image) {
+        for (const node of parseInline(link.label, depth + 1, true)) out.push(node);
         i = link.end;
         continue;
       }
       if (link) {
         const url = safeUrl(link.url);
-        if (url) {
-          const label = renderInline(link.label, depth + 1, true) || escapeHtml(url);
-          out += `<a href="${escapeHtml(url)}" rel="noopener noreferrer" target="_blank">${label}</a>`;
-          i = link.end;
-          continue;
+        if (link.image) {
+          if (url) out.push({ type: "image", src: url, alt: link.label });
+          else pushText(out, link.label);
+        } else if (url) {
+          out.push({ type: "link", href: url, children: parseInline(link.label, depth + 1, true) });
+        } else {
+          for (const node of parseInline(link.label, depth + 1, true)) out.push(node);
         }
-        if (ch === "[") {
-          out += renderInline(link.label, depth + 1, true);
-          i = link.end;
-          continue;
-        }
+        i = link.end;
+        continue;
       }
     }
 
@@ -302,11 +290,11 @@ function renderInline(text, depth = 0, inLink = false) {
       const url = auto ? safeUrl(trimUrlTail(auto[1])) : "";
       if (auto && url && !inLink) {
         const label = trimUrlTail(auto[1]);
-        out += `<a href="${escapeHtml(url)}" rel="noopener noreferrer" target="_blank">${escapeHtml(label)}</a>`;
+        out.push({ type: "link", href: url, children: [{ type: "text", value: label }] });
         i += auto[0].length;
         continue;
       }
-      out += "&lt;";
+      pushText(out, "<");
       i += 1;
       continue;
     }
@@ -317,7 +305,7 @@ function renderInline(text, depth = 0, inLink = false) {
         const url = trimUrlTail(bare[0]);
         const safe = safeUrl(url);
         if (url && safe) {
-          out += `<a href="${escapeHtml(safe)}" rel="noopener noreferrer" target="_blank">${escapeHtml(url)}</a>`;
+          out.push({ type: "link", href: safe, children: [{ type: "text", value: url }] });
           i += url.length;
           continue;
         }
@@ -327,24 +315,39 @@ function renderInline(text, depth = 0, inLink = false) {
     if (ch === "*" || ch === "_" || ch === "~") {
       const em = emphasisAt(src, i, ch, depth, inLink);
       if (em) {
-        out += em.html;
+        out.push(em.node);
         i = em.end;
         continue;
       }
       const run = runLength(src, i, ch);
-      out += escapeHtml(src.slice(i, i + run));
+      pushText(out, src.slice(i, i + run));
       i += run;
       continue;
     }
 
-    out += escapeHtml(ch);
+    pushText(out, ch);
     i += 1;
   }
   return out;
 }
 
-const LIST_ITEM = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
-const SEPARATOR_CELL = /^:?-+:?$/;
+// ---------------------------------------------------------------- 链接
+
+export function safeUrl(raw) {
+  const value = String(raw || "").trim().replace(/^<|>$/g, "");
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    if (url.protocol === "http:" || url.protocol === "https:") return url.toString();
+  } catch {
+    /* 相对路径在站点内是合法的 */
+  }
+  if (value.startsWith("/") && !value.startsWith("//")) return value;
+  if (/^#[^#\s]+$/.test(value)) return value;
+  return "";
+}
+
+// ---------------------------------------------------------------- 块级
 
 function indentOf(line) {
   const lead = /^[ \t]*/.exec(line)[0];
@@ -372,8 +375,7 @@ function removeIndent(line, columns) {
   return line.slice(i);
 }
 
-// Splits a table row on pipes, honouring `\|` escapes and inline code spans.
-function splitRow(line) {
+export function splitRow(line) {
   let row = String(line || "").trim();
   if (row.startsWith("|")) row = row.slice(1);
   if (row.endsWith("|") && !row.endsWith("\\|")) row = row.slice(0, -1);
@@ -408,7 +410,7 @@ function splitRow(line) {
   return cells;
 }
 
-function isSeparatorRow(line) {
+export function isSeparatorRow(line) {
   if (!String(line || "").includes("|")) return false;
   const cells = splitRow(line);
   return cells.length > 0 && cells.every((cell) => SEPARATOR_CELL.test(cell));
@@ -433,29 +435,17 @@ function isTableStart(lines, index) {
 
 function tableAt(lines, index) {
   if (!isTableStart(lines, index)) return null;
-  const header = splitRow(lines[index]);
+  const header = splitRow(lines[index]).map((cell) => parseInline(cell));
   const aligns = splitRow(lines[index + 1]).map(alignOf);
   const rows = [];
   let i = index + 2;
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim() || !line.includes("|") || LIST_ITEM.test(line)) break;
-    rows.push(splitRow(line));
+    rows.push(splitRow(line).map((cell) => parseInline(cell)));
     i += 1;
   }
-  return { header, aligns, rows, end: i };
-}
-
-function renderTable({ header, aligns, rows }) {
-  const cell = (tag, value, align) => {
-    const cls = align ? ` class="md-${align}"` : "";
-    return `<${tag}${cls}>${renderInline(value || "")}</${tag}>`;
-  };
-  const head = header.map((value, index) => cell("th", value, aligns[index])).join("");
-  const body = rows
-    .map((row) => `<tr>${header.map((_, index) => cell("td", row[index] || "", aligns[index])).join("")}</tr>`)
-    .join("");
-  return `<div class="md-table"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  return { node: { type: "table", header, aligns, rows }, end: i };
 }
 
 function atxHeading(line) {
@@ -465,11 +455,11 @@ function atxHeading(line) {
   return { level: match[1].length, text };
 }
 
-function isHr(line) {
+export function isHr(line) {
   return /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(line);
 }
 
-function setextLevel(line) {
+export function setextLevel(line) {
   if (/^[ \t]*=+[ \t]*$/.test(line)) return 1;
   if (/^[ \t]*-+[ \t]*$/.test(line)) return 2;
   return 0;
@@ -548,30 +538,17 @@ function listAt(lines, index) {
       i += 1;
     }
 
-    items.push({ lines: body, task });
+    items.push({ blocks: parseBlocks(body), task });
 
     const sibling = LIST_ITEM.exec(lines[i] || "");
     if (!sibling || indentOf(lines[i]) !== baseIndent) break;
     if ((/^\d/.test(sibling[2]) ? "ol" : "ul") !== type) break;
   }
 
-  const tight = !loose;
-  const rendered = items.map((item) => {
-    let content = renderBlocks(item.lines);
-    if (tight) content = content.replace(/^<p>([\s\S]*?)<\/p>/, "$1");
-    const box = item.task === null ? "" : `<input type="checkbox" disabled${item.task ? " checked" : ""} aria-hidden="true"> `;
-    const cls = item.task === null ? "" : ' class="md-task"';
-    return `<li${cls}>${box}${content}</li>`;
-  });
-  const tag = ordered ? "ol" : "ul";
-  const attrs = [
-    ordered && start !== 1 ? ` start="${start}"` : "",
-    items.some((item) => item.task !== null) ? ' class="md-tasks"' : "",
-  ].join("");
-  return { html: `<${tag}${attrs}>${rendered.join("")}</${tag}>`, end: i };
+  return { node: { type: "list", ordered, start, tight: !loose, items }, end: i };
 }
 
-function renderBlocks(lines) {
+function parseBlocks(lines) {
   const out = [];
   let i = 0;
 
@@ -594,8 +571,7 @@ function renderBlocks(lines) {
         code.push(lines[i]);
         i += 1;
       }
-      const langAttr = language ? ` class="language-${escapeHtml(language)}"` : "";
-      out.push(`<pre><code${langAttr}>${escapeHtml(code.join("\n"))}</code></pre>`);
+      out.push({ type: "code", language, text: code.join("\n") });
       continue;
     }
 
@@ -606,20 +582,20 @@ function renderBlocks(lines) {
 
     const table = tableAt(lines, i);
     if (table) {
-      out.push(renderTable(table));
+      out.push(table.node);
       i = table.end;
       continue;
     }
 
     const heading = atxHeading(line);
     if (heading) {
-      out.push(`<h${heading.level}>${renderInline(heading.text)}</h${heading.level}>`);
+      out.push({ type: "heading", level: heading.level, children: parseInline(heading.text) });
       i += 1;
       continue;
     }
 
     if (isHr(line)) {
-      out.push("<hr>");
+      out.push({ type: "thematicBreak" });
       i += 1;
       continue;
     }
@@ -630,13 +606,13 @@ function renderBlocks(lines) {
         quote.push(lines[i].replace(/^ {0,3}> ?/, ""));
         i += 1;
       }
-      out.push(`<blockquote>${renderBlocks(quote)}</blockquote>`);
+      out.push({ type: "blockquote", blocks: parseBlocks(quote) });
       continue;
     }
 
     const list = listAt(lines, i);
     if (list) {
-      out.push(list.html);
+      out.push(list.node);
       i = list.end;
       continue;
     }
@@ -657,115 +633,12 @@ function renderBlocks(lines) {
 
     const level = setextLevel(lines[i] || "");
     if (level) {
-      out.push(`<h${level}>${renderInline(paragraph.join("\n"))}</h${level}>`);
+      out.push({ type: "heading", level, children: parseInline(paragraph.join("\n")) });
       i += 1;
     } else {
-      out.push(`<p>${renderInline(paragraph.join("\n"))}</p>`);
+      out.push({ type: "paragraph", children: parseInline(paragraph.join("\n")) });
     }
   }
 
-  return out.join("");
-}
-
-export function isMarkdown(text) {
-  const value = String(text || "");
-  if (!value.trim()) return false;
-  return HINTS.some((hint) => hint.test(value));
-}
-
-export function renderMarkdown(markdown) {
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
-  return renderBlocks(lines);
-}
-
-function stripLinks(text) {
-  let out = "";
-  let i = 0;
-  while (i < text.length) {
-    if (text[i] === "\\") {
-      out += text.slice(i, i + 2);
-      i += 2;
-      continue;
-    }
-    if (text[i] === "`") {
-      const span = codeSpanAt(text, i);
-      if (span) {
-        out += `\`${span.value}\``;
-        i = span.end;
-        continue;
-      }
-    }
-    const at = linkAt(text, i);
-    if (at) {
-      out += at.label;
-      i = at.end;
-      continue;
-    }
-    out += text[i];
-    i += 1;
-  }
   return out;
-}
-
-// Drops table rows and their delimiter, leaving the cell text behind.
-function stripTables(text) {
-  const lines = String(text).split("\n");
-  const out = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const next = lines[i + 1];
-    if (lines[i].includes("|") && next && isSeparatorRow(next)) {
-      out.push(splitRow(lines[i]).join(" "));
-      i += 1;
-      while (i + 1 < lines.length && lines[i + 1].includes("|") && lines[i + 1].trim()) {
-        i += 1;
-        out.push(splitRow(lines[i]).join(" "));
-      }
-      continue;
-    }
-    out.push(lines[i]);
-  }
-  return out.join("\n");
-}
-
-// Strips the common Markdown markers so the collapsed preview reads cleanly.
-export function plainMarkdown(text) {
-  let body = String(text || "").replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, "");
-  body = stripTables(body);
-
-  const lines = body.replace(/\r\n?/g, "\n").split("\n");
-  const kept = [];
-  for (const raw of lines) {
-    if (isHr(raw) || setextLevel(raw)) continue;
-    const line = raw
-      .replace(/^[ \t]*#{1,6}[ \t]+/, "")
-      .replace(/[ \t]+#+[ \t]*$/, "")
-      .replace(/^[ \t]*>[ \t]?/, "")
-      .replace(/^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/, "")
-      .replace(/^\[[ xX]\][ \t]+/, "")
-      .trim();
-    kept.push(line);
-  }
-
-  const tokens = [];
-  const guard = (value) =>
-    value.replace(/\\([\\`*_{}[\]()#+\-.!|~>:])/g, (_, ch) => {
-      tokens.push(ch);
-      return `\u0000${tokens.length - 1}\u0000`;
-    });
-  const restore = (value) => value.replace(/\u0000(\d+)\u0000/g, (_, index) => tokens[Number(index)] ?? "");
-
-  const stripped = guard(kept.join("\n"))
-    .replace(/`+/g, "")
-    .replace(/<(https?:\/\/[^>\s]+)>/g, "$1");
-  const plain = stripLinks(stripped)
-    .replace(/\*\*\*(.+?)\*\*\*/g, "$1")
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/__(.+?)__/g, "$1")
-    .replace(/~~(.+?)~~/g, "$1")
-    .replace(/(^|[^\p{L}\p{N}_*])\*([^*\n]+)\*/gu, "$1$2")
-    .replace(/(^|[^\p{L}\p{N}_])_([^_\n]+)_(?![\p{L}\p{N}_])/gu, "$1$2")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  return restore(plain);
 }

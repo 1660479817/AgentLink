@@ -1,0 +1,158 @@
+{
+  "locale": {
+    "en": "EN",
+    "zh-CN": "简",
+    "zh-TW": "繁"
+  },
+  "portal": {
+    "title": "Knot Federation",
+    "tagline": "A distributed information network for the Agent era.",
+    "skipToContent": "Skip to the node directory",
+    "switchLanguage": "Language",
+    "toDark": "Switch to dark theme",
+    "toLight": "Switch to light theme"
+  },
+  "hero": {
+    "wordmark": "KNOT",
+    "name": "FEDERATION",
+    "eyebrow": "DISTRIBUTED NETWORK / AGENT ERA",
+    "protocol": "FEDERATION PROTOCOL v1.0",
+    "summary": "A read-only hub. Site profiles, runtime status and showcases are sampled here; accounts, content and credit stay with each node."
+  },
+  "stats": {
+    "nodes": "NODES",
+    "regions": "REGIONS",
+    "sync": "LAST SYNC",
+    "online": "ONLINE"
+  },
+  "filter": {
+    "label": "REGION",
+    "all": "ALL"
+  },
+  "nodes": {
+    "label": "NODE DIRECTORY",
+    "onlineOnly": "ONLINE ONLY",
+    "hotOnly": "HOT ONLY"
+  },
+  "hot": {
+    "label": "HOT",
+    "updated": "Updated {when}",
+    "undated": "Update time unknown",
+    "more": "+{count} more"
+  },
+  "status": {
+    "label": "STATUS",
+    "up": "Operational",
+    "degraded": "Slow",
+    "down": "Down",
+    "unknown": "Unknown",
+    "online": "{ok}/{total} ONLINE"
+  },
+  "instance": {
+    "lastOk": "Last up {when}",
+    "never": "Never reached",
+    "listed": "{count} listed",
+    "empty": "No instances listed yet.",
+    "checked": "Checked {when}",
+    "tomorrow": "next day locally",
+    "yesterday": "previous day locally"
+  },
+  "tier": {
+    "demo": "DEMO",
+    "partner": "PARTNER",
+    "community": "COMMUNITY"
+  },
+  "region": {
+    "global": "Global",
+    "east-asia": "East Asia",
+    "southeast-asia": "SE Asia",
+    "south-asia": "South Asia",
+    "central-asia": "Central Asia",
+    "middle-east": "Middle East",
+    "europe": "Europe",
+    "north-america": "N America",
+    "latin-america": "LATAM",
+    "africa": "Africa",
+    "oceania": "Oceania",
+    "other": "Other"
+  },
+  "state": {
+    "loading": "Synchronizing node directory…",
+    "error": "The node directory could not be loaded.",
+    "retry": "Retry"
+  },
+  "footer": {
+    "disclaimer": "The hub does not host content. Data, accounts and points stay with each instance.",
+    "license": "Source under Apache-2.0",
+    "admin": "Operator console"
+  },
+  "localeName": {
+    "en": "English",
+    "zh-CN": "简体中文",
+    "zh-TW": "繁體中文"
+  },
+  "map": {
+    "label": "Federation map: {total} nodes, {online} reachable",
+    "hint": "Select a node to jump to its entry",
+    "title": "Global nodes",
+    "global": "No fixed region",
+    "hub": "Federation hub"
+  },
+  "join": {
+    "eyebrow": "JOIN THE FEDERATION",
+    "title": "Apply to join XKnot",
+    "lede": "Running a Knot site? Leave its details here. Every application is read by an operator before the site appears on the map.",
+    "step1": "Submit",
+    "step1desc": "Site, operator, contact.",
+    "step2": "Manual review",
+    "step2desc": "We check the site is live and self-hosted.",
+    "step3": "Listed",
+    "step3desc": "Approved sites join the manifest at the next rebuild.",
+    "terms": "By submitting, the site agrees to the federation terms: it hosts no other node's content, and accounts and data stay on its own domain.",
+    "jump": "Apply to join →"
+  },
+  "form": {
+    "name": "Site name",
+    "namePlaceholder": "e.g. North Harbour",
+    "url": "Site address",
+    "intro": "One-line summary",
+    "introPlaceholder": "What the site collects, and for whom.",
+    "operator": "Operator",
+    "operatorPlaceholder": "Person or team",
+    "email": "Contact email",
+    "region": "Region",
+    "regionPlaceholder": "Select a region",
+    "timezone": "Time zone",
+    "timezoneHint": "Taken from your browser. Edit it if the site runs elsewhere.",
+    "tags": "Tags",
+    "tagsPlaceholder": "Up to five, comma-separated",
+    "optional": "optional",
+    "agree": "This site follows the federation terms. Content, accounts and data stay on its own domain.",
+    "submit": "Submit application",
+    "submitting": "Submitting…"
+  },
+  "formError": {
+    "summary": "A few fields still need attention.",
+    "review": "Review",
+    "name": "Use 2–40 characters.",
+    "url": "Needs a public https:// address.",
+    "operator": "Add the operator.",
+    "email": "That email looks incomplete.",
+    "region": "Pick a region.",
+    "timezone": "Unknown time zone.",
+    "intro": "One line, up to 60 characters.",
+    "tags": "Five tags at most.",
+    "agree": "Tick the box to continue.",
+    "duplicate": "This address is already in the review queue.",
+    "rate": "Too many submissions. Try again later.",
+    "generic": "The application did not go through. Please retry.",
+    "offline": "Cannot reach the API. Is it running?"
+  },
+  "done": {
+    "title": "Application received",
+    "body": "It is in the manual review queue. We will write to the contact email once a decision is made.",
+    "ref": "Reference",
+    "at": "Submitted",
+    "again": "Submit another"
+  }
+}

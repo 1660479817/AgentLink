@@ -1,6 +1,6 @@
-import fs from "node:fs";
 import { uploadName } from "./information.js";
-import { imageSize, publicUploadUrl, storagePath } from "./uploads.js";
+import { publicUploadUrl } from "./uploads.js";
+import { storeUploadedFile } from "./uploadStore.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UPLOAD_URL = /^\/api\/web\/uploads\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
@@ -114,28 +114,21 @@ export async function createSponsor(pool, input) {
 }
 
 export async function storeSponsorImage(pool, uploadDir, file) {
-  const filename = file?.filename;
-  const mime = String(file?.mimetype || "");
-  if (!filename || !mime.startsWith("image/")) throw fail("bad_mime");
-  const full = storagePath(uploadDir, filename);
-  let buffer;
+  const name = uploadName(file?.originalname);
   try {
-    buffer = fs.readFileSync(full);
-  } catch {
-    throw fail("upload_failed");
+    const stored = await storeUploadedFile({
+      uploadDir,
+      pool,
+      userId: PLATFORM_USER_ID,
+      file,
+      kind: "image",
+      name,
+      skipQuota: true,
+    });
+    return { id: stored.id, url: stored.url };
+  } catch (error) {
+    throw fail(error?.code === "bad_mime" ? "bad_mime" : "upload_failed");
   }
-  if (!imageSize(buffer)) {
-    fs.unlink(full, () => {});
-    throw fail("bad_mime");
-  }
-  const name = uploadName(file.originalname);
-  const { rows } = await pool.query(
-    `INSERT INTO uploads (user_id, storage_name, mime, original_name)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id`,
-    [PLATFORM_USER_ID, filename, mime, name || null]
-  );
-  return { id: rows[0].id, url: publicUploadUrl(rows[0].id) };
 }
 
 export async function updateSponsor(pool, id, input) {

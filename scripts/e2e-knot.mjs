@@ -1,11 +1,30 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
-const BASE = (process.env.E2E_BASE || "http://192.168.3.91:8080").replace(/\/$/, "");
+
+// 默认值来自 ops/deploy.env，不在脚本里写死某台机器。
+function deployValue(key) {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const file = process.env.KNOT_DEPLOY_ENV || path.join(root, "ops/deploy.env");
+  if (!existsSync(file)) return "";
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const text = line.trim();
+    if (!text || text.startsWith("#")) continue;
+    const index = text.indexOf("=");
+    if (index <= 0 || text.slice(0, index) !== key) continue;
+    return text.slice(index + 1).replace(/^['"]|['"]$/g, "").trim();
+  }
+  return "";
+}
+
+const BASE = (process.env.E2E_BASE || deployValue("KNOT_PUBLIC_ORIGIN") || "http://127.0.0.1:8080").replace(/\/$/, "");
 const COOKIE = process.env.E2E_COOKIE || "";
-const SSH = process.env.E2E_SSH || "zenwang_bot01@192.168.3.91";
+const SSH = process.env.E2E_SSH || deployValue("KNOT_DEPLOY_SSH");
 
 function fail(message) {
   console.error(message);
@@ -43,6 +62,7 @@ async function admin(args) {
 
 async function main() {
   if (!COOKIE) fail("缺少 E2E_COOKIE");
+  if (!SSH) fail("缺少 E2E_SSH（管理员工作区所在主机），或在 ops/deploy.env 里配置 KNOT_DEPLOY_SSH");
   const health = await fetch(`${BASE}/api/health`);
   if (!health.ok) fail("health failed");
 

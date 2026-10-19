@@ -1,18 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
+import { blobPath, derivedDir, ensureLayout, legacyBlobPath, readableBlobPath } from "./storage.js";
 
 export const AVATAR_PX = 512;
 const AVATAR_JPEG_QUALITY = 85;
 const AVATAR_FLATTEN_BACKGROUND = "#ffffff";
 
 export function ensureUploadDir(uploadDir) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+  ensureLayout(uploadDir);
 }
 
+// 原件路径。写入用它；读优先用 readableBlobPath，好在切换当天还能读到旧位置的文件。
 export function storagePath(uploadDir, storageName) {
-  return path.join(uploadDir, storageName);
+  return blobPath(uploadDir, storageName);
 }
 
 export function newStorageName(originalName) {
@@ -34,7 +36,7 @@ export function cardImageUrl(uploadId) {
 }
 
 export function cardImagePath(uploadDir, storageName) {
-  return path.join(uploadDir, "display", `${path.basename(storageName)}.jpg`);
+  return path.join(derivedDir(uploadDir, "display"), `${path.basename(storageName)}.jpg`);
 }
 
 export function ensureCardImage(uploadDir, storageName) {
@@ -42,7 +44,7 @@ export function ensureCardImage(uploadDir, storageName) {
   if (fs.existsSync(dest)) return Promise.resolve(dest);
   const current = cardJobs.get(dest);
   if (current) return current;
-  const job = writeCardImage(storagePath(uploadDir, storageName), dest).finally(() => {
+  const job = writeCardImage(readableBlobPath(uploadDir, storageName), dest).finally(() => {
     if (cardJobs.get(dest) === job) cardJobs.delete(dest);
   });
   cardJobs.set(dest, job);
@@ -151,7 +153,7 @@ export async function acceptAvatar(pool, uploadDir, userId, uploadId) {
   const row = rows[0];
   let buffer;
   try {
-    buffer = fs.readFileSync(storagePath(uploadDir, row.storage_name));
+    buffer = fs.readFileSync(readableBlobPath(uploadDir, row.storage_name));
   } catch {
     return { error: "bad_avatar" };
   }
@@ -169,16 +171,39 @@ export async function acceptAvatar(pool, uploadDir, userId, uploadId) {
     ext.toLowerCase() === ".jpg" || ext.toLowerCase() === ".jpeg"
       ? row.storage_name
       : `${path.basename(row.storage_name, ext)}.jpg`;
+  // 重写后文件字节、摘要和尺寸都变了，行里必须一起更新，否则配额和审计都按旧值算。
+  const sha256 = createHash("sha256").update(fitted).digest("hex");
+  const dest = storagePath(uploadDir, nextName);
+  const tmp = `${dest}.${randomUUID()}.tmp`;
   try {
-    fs.writeFileSync(storagePath(uploadDir, nextName), fitted);
-    if (nextName !== row.storage_name || row.mime !== "image/jpeg") {
-      await pool.query(`UPDATE uploads SET storage_name = $1, mime = 'image/jpeg' WHERE id = $2`, [
-        nextName,
-        row.id,
-      ]);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    // 先写临时名再改名：写到一半失败时，旧头像还在，不会被半截文件盖掉。
+    fs.writeFileSync(tmp, fitted);
+    fs.renameSync(tmp, dest);
+    await pool.query(
+      `UPDATE uploads
+       SET storage_name = $1, mime = 'image/jpeg', size = $2, sha256 = $3, width = $4, height = $5
+       WHERE id = $6`,
+      [nextName, fitted.length, sha256, AVATAR_PX, AVATAR_PX, row.id]
+    );
+    if (nextName !== row.storage_name) {
+      fs.rmSync(readableBlobPath(uploadDir, row.storage_name), { force: true });
+      fs.rmSync(storagePath(uploadDir, row.storage_name), { force: true });
     }
-    if (nextName !== row.storage_name) fs.rmSync(storagePath(uploadDir, row.storage_name), { force: true });
+    // 旧布局根目录里若还留着一份，也清掉；读的时候总是优先 blobs/。
+    fs.rmSync(legacyBlobPath(uploadDir, row.storage_name), { force: true });
   } catch {
+    fs.rmSync(tmp, { force: true });
+    if (nextName === row.storage_name) {
+      // 文件名没变，改名已经盖掉了原文件；写库失败就写回原来的字节，别让库和磁盘对不上。
+      try {
+        fs.writeFileSync(dest, buffer);
+      } catch {
+        // 写不回也只能留着，审计脚本会报出来。
+      }
+    } else {
+      fs.rmSync(dest, { force: true });
+    }
     return { error: "bad_avatar" };
   }
   return { id: row.id };

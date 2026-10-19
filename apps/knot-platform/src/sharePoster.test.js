@@ -6,13 +6,14 @@ import test from "node:test";
 import QRCode from "qrcode";
 import sharp from "sharp";
 import {
+  MAX_HEIGHT,
+  MAX_PREVIEW_HEIGHT,
   SHARE_HOST,
   SHARE_LINE,
   SHARE_PAGE,
   buildSharePoster,
   ensureSharePoster,
   formatPosted,
-  isMarkdown,
   markdownTexts,
   renderSharePoster,
   shareContent,
@@ -23,6 +24,7 @@ import {
   storeSharePoster,
   wrapText,
 } from "./sharePoster.js";
+import { derivedDir } from "./storage.js";
 
 const POST = "11111111-1111-4111-8111-111111111111";
 const HASH = "a".repeat(64);
@@ -43,17 +45,6 @@ test("long text wraps onto more than one line", () => {
   assert.equal(lines[3].endsWith("…"), true);
   const sentence = wrapText("这是一条分享到 Knot 的信息。人或 Agent 都能读，下载按报价结算。", 936, 40, 8);
   assert.equal(sentence.some((line) => line.startsWith("，")), false);
-});
-
-test("markdown is detected and plain text is left alone", () => {
-  assert.equal(isMarkdown("# 标题"), true);
-  assert.equal(isMarkdown("前面 **加粗** 后面"), true);
-  assert.equal(isMarkdown("- 列表项"), true);
-  assert.equal(isMarkdown("1. 有序项"), true);
-  assert.equal(isMarkdown("> 引用"), true);
-  assert.equal(isMarkdown("```\ncode\n```"), true);
-  assert.equal(isMarkdown("这条没有标记的信息"), false);
-  assert.equal(isMarkdown(""), false);
 });
 
 test("markdown blocks keep their structure", () => {
@@ -251,11 +242,11 @@ test("the first share writes the picture and the next share reads it", async () 
     assert.equal(both[0], both[1]);
     assert.equal(slow, 1);
     await storeSharePoster(dir, card, render);
-    const names = await readdir(path.join(dir, "shares", POST));
+    const names = await readdir(path.join(derivedDir(dir, "shares"), POST));
     assert.deepEqual(names, [path.basename(sharePosterPath(dir, POST, HASH, shareMetaKey(card)))]);
     const titled = { ...card, head: shareHead({ display_name: "甲", created_at: "2026-10-16T02:42:00.000Z", actor: "person", category: "新闻", price: 8 }) };
     await storeSharePoster(dir, titled, render);
-    const titledNames = await readdir(path.join(dir, "shares", POST));
+    const titledNames = await readdir(path.join(derivedDir(dir, "shares"), POST));
     assert.deepEqual(titledNames, [path.basename(sharePosterPath(dir, POST, HASH, shareMetaKey(titled)))]);
     assert.equal(drawn, 3);
   } finally {
@@ -336,7 +327,10 @@ test("a public post is drawn once and then reused", async () => {
 });
 
 test("the QR points at the post's discover deep link", async () => {
-  assert.equal(shareUrl("11111111-1111-4111-8111-111111111111"), "https://knot.zenheart.net/discover?post=11111111-1111-4111-8111-111111111111");
+  assert.equal(
+    shareUrl("11111111-1111-4111-8111-111111111111"),
+    `${SHARE_PAGE}/discover?post=11111111-1111-4111-8111-111111111111`,
+  );
   assert.equal(shareUrl(""), SHARE_PAGE);
   const withId = await buildSharePoster({ id: "22222222-2222-4222-8222-222222222222", body: "短", video: false, audioName: "", fileName: "", image: false, preview: "" });
   const withoutId = await buildSharePoster({ body: "短", video: false, audioName: "", fileName: "", image: false, preview: "" });
@@ -353,4 +347,69 @@ test("the head composites the author's avatar over the letter fallback", async (
   const box = layout.avatarBox;
   const offset = (Math.floor(box.y + box.size / 2) * info.width + Math.floor(box.x + box.size / 2)) * info.channels;
   assert.ok(data[offset] > 150 && data[offset + 1] < 90 && data[offset + 2] < 90);
+});
+
+test("a failed render is caught by the caller and tried again next time", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-share-"));
+  const card = {
+    id: POST,
+    contentHash: HASH,
+    body: "同一条",
+    video: false,
+    audioName: "",
+    fileName: "",
+    image: false,
+    preview: "",
+  };
+  const unhandled = [];
+  const listener = (error) => unhandled.push(error);
+  process.on("unhandledRejection", listener);
+  let drawn = 0;
+  try {
+    await assert.rejects(
+      storeSharePoster(dir, card, async () => {
+        drawn += 1;
+        throw new Error("render failed");
+      }),
+      /render failed/
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(unhandled.length, 0);
+    const file = await storeSharePoster(dir, card, async (value) => {
+      drawn += 1;
+      return renderSharePoster(value);
+    });
+    assert.equal(drawn, 2);
+    const meta = await sharp(file).metadata();
+    assert.equal(meta.format, "jpeg");
+  } finally {
+    process.off("unhandledRejection", listener);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a post longer than the height budget is cut with an ellipsis", async () => {
+  const body = "这是一条很长的信息。".repeat(2200);
+  const content = { body, video: false, audioName: "", fileName: "", image: false, preview: "" };
+  const layout = await buildSharePoster(content);
+  assert.ok(layout.height <= MAX_HEIGHT);
+  assert.match(layout.svg, /…/);
+
+  const jpeg = await renderSharePoster(content);
+  const meta = await sharp(jpeg).metadata();
+  assert.equal(meta.format, "jpeg");
+  assert.equal(meta.height, layout.height);
+});
+
+test("an extremely tall preview is cropped instead of stretching the picture", async () => {
+  const preview = await sharp({ create: { width: 60, height: 6000, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+    .png()
+    .toBuffer();
+  const content = { body: "", video: false, audioName: "", fileName: "", image: true, preview };
+  const layout = await buildSharePoster(content);
+  assert.equal(layout.previewBox.height, MAX_PREVIEW_HEIGHT);
+  assert.ok(layout.height <= MAX_HEIGHT);
+  const jpeg = await renderSharePoster(content);
+  const meta = await sharp(jpeg).metadata();
+  assert.equal(meta.height, layout.height);
 });

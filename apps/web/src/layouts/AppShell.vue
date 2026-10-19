@@ -1,10 +1,11 @@
 <script setup>
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import LocaleSwitch from "../components/LocaleSwitch.vue";
 import OutboxNotice from "../components/OutboxNotice.vue";
 import RememberLoginCard from "../components/RememberLoginCard.vue";
+import XknotMark from "../components/XknotMark.vue";
 import { downloadConsent } from "../download/consent.js";
 import { BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
@@ -23,7 +24,10 @@ const updateReady = ref(false);
 let releaseWatch = null;
 let notificationsPoll = null;
 const NOTIFICATIONS_POLL_MS = 30 * 1000;
-const mark = t("app.name").slice(0, 1);
+// 站点名来自部署配置，顶栏正中显示；更长的名字由 CSS 截断。
+const siteName = computed(() => session.brandName);
+const mark = computed(() => Array.from(siteName.value)[0] || "K");
+const siteOrigin = typeof window !== "undefined" ? window.location.origin : "";
 const HISTORY_KEY = "knot.search.history";
 const searchOpen = ref(false);
 const query = ref("");
@@ -72,7 +76,7 @@ function internalHref(href) {
 
 function sponsorMark(title) {
   const text = String(title || "").trim();
-  return text ? text.slice(0, 1) : mark;
+  return text ? text.slice(0, 1) : mark.value;
 }
 
 function brandHref() {
@@ -101,6 +105,15 @@ function pageBlocked() {
 function reloadPage() {
   window.location.reload();
 }
+
+// 浏览器标签上的名字也跟站点配置走，别停留在默认的 Knot。
+watch(
+  siteName,
+  (name) => {
+    if (typeof document !== "undefined") document.title = name;
+  },
+  { immediate: true }
+);
 
 watch(
   () => [outbox.jobs.map((job) => `${job.id}:${job.status}`).join(","), downloadConsent.value?.phase || ""],
@@ -157,18 +170,58 @@ onUnmounted(() => {
     <a href="#main-content" class="skip-link">{{ t("app.skipToContent") }}</a>
     <header class="site-header">
       <div class="header-bar">
-        <a :href="brandHref()" class="brand" :aria-label="t('app.name')" @click="refreshBrand">
-          <span class="brand-mark" aria-hidden="true">{{ mark }}</span>
-        </a>
-        <AppButton
-          v-if="!searchOpen"
-          variant="icon"
-          :aria-label="t('nav.search')"
-          @click="openSearch"
-        >
-          <SearchIcon class="nav-icon" weight="header" aria-hidden="true" />
-        </AppButton>
-        <form v-else class="header-search" @submit.prevent="search()">
+        <template v-if="!searchOpen">
+          <div class="header-side header-side-start">
+            <a
+              :href="brandHref()"
+              class="brand"
+              :aria-label="t('brand.xknotHome', { name: siteName })"
+              @click="refreshBrand"
+            >
+              <XknotMark class="brand-logo" />
+            </a>
+            <div class="header-locale">
+              <LocaleSwitch variant="menu" />
+            </div>
+            <AppButton
+              v-if="session.canBrowse"
+              variant="icon"
+              :aria-label="t('nav.search')"
+              @click="openSearch"
+            >
+              <SearchIcon class="nav-icon" weight="header" aria-hidden="true" />
+            </AppButton>
+          </div>
+          <a
+            class="site-title"
+            :href="brandHref()"
+            :title="siteName"
+            :aria-label="t('nav.home', { name: siteName })"
+            @click="refreshBrand"
+          >{{ siteName }}</a>
+          <div class="header-side header-side-end">
+            <AppButton v-if="session.canBrowse" variant="icon" to="/wish" :aria-label="t('nav.market')">
+              <ChatIcon class="nav-icon" weight="header" aria-hidden="true" />
+            </AppButton>
+            <AppButton v-if="session.canBrowse" variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
+              <BellIcon class="nav-icon" weight="header" aria-hidden="true" />
+              <span v-if="notifications.unread > 0" class="nav-badge">{{
+                notifications.unread > 99 ? "99+" : notifications.unread
+              }}</span>
+            </AppButton>
+            <AppButton
+              variant="icon"
+              :to="session.user ? '/mine' : '/'"
+              class="header-account"
+              :class="{ 'has-photo': Boolean(session.user?.avatarUrl) }"
+              :aria-label="session.user ? t('nav.mine') : t('remember.guestAction')"
+            >
+              <img v-if="session.user?.avatarUrl" class="header-avatar" :src="session.user.avatarUrl" alt="" />
+              <UserIcon v-else filled weight="header" class="nav-icon" aria-hidden="true" />
+            </AppButton>
+          </div>
+        </template>
+        <form v-else class="header-search" role="search" @submit.prevent="search()">
           <AppButton variant="icon" plain :aria-label="t('search.back')" @click="closeSearch">
             <BackIcon class="nav-icon" weight="header" aria-hidden="true" />
           </AppButton>
@@ -181,33 +234,10 @@ onUnmounted(() => {
               enterkeyhint="search"
               :placeholder="t('nav.searchPlaceholder')"
               :aria-label="t('nav.search')"
+              @keydown.esc="closeSearch"
             />
           </label>
         </form>
-        <div class="header-side header-side-end">
-          <AppButton variant="icon" to="/wish" :aria-label="t('nav.market')">
-            <ChatIcon class="nav-icon" weight="header" aria-hidden="true" />
-          </AppButton>
-          <AppButton variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
-            <BellIcon class="nav-icon" weight="header" aria-hidden="true" />
-            <span v-if="notifications.unread > 0" class="nav-badge">{{
-              notifications.unread > 99 ? "99+" : notifications.unread
-            }}</span>
-          </AppButton>
-          <div class="header-locale">
-            <LocaleSwitch variant="menu" />
-          </div>
-          <AppButton
-            variant="icon"
-            :to="session.user ? '/mine' : '/'"
-            class="header-account"
-            :class="{ 'has-photo': Boolean(session.user?.avatarUrl) }"
-            :aria-label="session.user ? t('nav.mine') : t('remember.guestAction')"
-          >
-            <img v-if="session.user?.avatarUrl" class="header-avatar" :src="session.user.avatarUrl" alt="" />
-            <UserIcon v-else filled weight="header" class="nav-icon" aria-hidden="true" />
-          </AppButton>
-        </div>
       </div>
     </header>
     <div v-if="updateReady" class="release-note" role="status">
@@ -259,7 +289,7 @@ onUnmounted(() => {
       <main id="main-content" class="layout">
         <RememberLoginCard />
         <p v-if="session.user && session.agentDelegated === false" class="agent-login-guide" role="status">
-          {{ t("agentGuide.hint") }}
+          {{ t("agentGuide.hint", { origin: siteOrigin }) }}
         </p>
         <OutboxNotice />
         <slot />

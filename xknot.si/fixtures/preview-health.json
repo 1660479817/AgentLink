@@ -1,0 +1,116 @@
+{
+  "checkedAt": "2026-10-19T05:20:00.000Z",
+  "preview": true,
+  "instances": {
+    "nordhavn": {
+      "status": "up",
+      "httpStatus": 200,
+      "latencyMs": 128,
+      "version": "1.6.2",
+      "lastOkAt": "2026-10-19T05:20:00.000Z",
+      "since": "2026-08-04T09:12:00.000Z",
+      "checks": 240,
+      "ok": 239,
+      "error": null
+    },
+    "sakura": {
+      "status": "up",
+      "httpStatus": 200,
+      "latencyMs": 96,
+      "version": "1.6.2",
+      "lastOkAt": "2026-10-19T05:20:00.000Z",
+      "since": "2026-08-19T02:40:00.000Z",
+      "checks": 216,
+      "ok": 214,
+      "error": null
+    },
+    "meridian": {
+      "status": "degraded",
+      "httpStatus": 200,
+      "latencyMs": 2410,
+      "version": "1.5.9",
+      "lastOkAt": "2026-10-19T05:20:00.000Z",
+      "since": "2026-07-22T11:05:00.000Z",
+      "checks": 288,
+      "ok": 281,
+      "error": null
+    },
+    "khaleej": {
+      "status": "up",
+      "httpStatus": 200,
+      "latencyMs": 172,
+      "version": "1.6.1",
+      "lastOkAt": "2026-10-19T05:20:00.000Z",
+      "since": "2026-09-02T06:30:00.000Z",
+      "checks": 168,
+      "ok": 167,
+      "error": null
+    },
+    "saigon": {
+      "status": "down",
+      "httpStatus": null,
+      "latencyMs": 5001,
+      "version": null,
+      "lastOkAt": "2026-10-19T01:10:00.000Z",
+      "since": "2026-09-11T03:00:00.000Z",
+      "checks": 132,
+      "ok": 128,
+      "error": "timeout"
+    },
+    "bengaluru": {
+      "status": "up",
+      "httpStatus": 200,
+      "latencyMs": 210,
+      "version": "1.6.2",
+      "lastOkAt": "2026-10-19T05:20:00.000Z",
+      "since": "2026-08-27T08:15:00.000Z",
+      "checks": 192,
+      "ok": 190,
+      "error": null
+    },
+    "aurora": {
+      "status": "up",
+      "httpStatus": 200,
+      "latencyMs": 143,
+      "version": "1.5.9",
+      "lastOkAt": "2026-10-19T05:20:00.000Z",
+      "since": "2026-07-30T14:45:00.000Z",
+      "checks": 264,
+      "ok": 262,
+      "error": null
+    },
+    "pampa": {
+      "status": "degraded",
+      "httpStatus": 200,
+      "latencyMs": 2180,
+      "version": "1.6.0",
+      "lastOkAt": "2026-10-19T05:20:00.000Z",
+      "since": "2026-09-18T12:20:00.000Z",
+      "checks": 96,
+      "ok": 94,
+      "error": null
+    },
+    "koru": {
+      "status": "up",
+      "httpStatus": 200,
+      "latencyMs": 118,
+      "version": "1.6.1",
+      "lastOkAt": "2026-10-19T05:20:00.000Z",
+      "since": "2026-08-08T19:00:00.000Z",
+      "checks": 216,
+      "ok": 215,
+      "error": null
+    },
+    "atlas": {
+      "status": "down",
+      "httpStatus": null,
+      "latencyMs": 5000,
+      "version": null,
+      "lastOkAt": null,
+      "since": null,
+      "checks": 72,
+      "ok": 0,
+      "error": "unreachable"
+    }
+  }
+}

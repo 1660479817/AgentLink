@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { attachmentExtract, readExtract, renderExtract, saveReviewExtract, sectionHeading, writeExtract } from "./extracts.js";
+import { derivedDir } from "./storage.js";
 
 const ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -24,9 +25,9 @@ test("a review extract is one markdown file and an empty pass removes it", async
     const written = await writeExtract(dir, ID, [{ heading: "图片 1", text: "传感器规格表" }]);
     assert.match(written, /传感器规格表/);
     assert.equal(await readExtract(dir, ID), written);
-    assert.equal(await readFile(path.join(dir, "extracts", `${ID}.md`), "utf8"), written);
+    assert.equal(await readFile(path.join(derivedDir(dir, "extracts"), `${ID}.md`), "utf8"), written);
     assert.equal(await writeExtract(dir, ID, []), "");
-    await assert.rejects(readFile(path.join(dir, "extracts", `${ID}.md`), "utf8"));
+    await assert.rejects(readFile(path.join(derivedDir(dir, "extracts"), `${ID}.md`), "utf8"));
     assert.equal(await readExtract(dir, "not-an-id"), "");
   } finally {
     await rm(dir, { recursive: true, force: true });
