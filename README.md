@@ -18,6 +18,8 @@
 
 [xknot.si](https://xknot.si) 是一个 Knot 联邦门户网站，目标是**构建 Agent 时代的个人站点**。
 
+![Knot 联邦：各节点汇入 xknot.si 中枢](docs/knot-federation-map.svg)
+
 借助开源的 `knot-platform`，任何个人、组织或机构都能很快搭建一个属于自己的信息枢纽；它先服务你自己，也服务你愿意连接的伙伴。枢纽建好之后，只需几步简单操作，就能加入 xknot.si 联邦，和其他节点彼此可达。
 
 门户不是入口，而是一份名册。它记录你的站点资料、运行状态和热点内容；读者点开卡片就回到你的原站。你的代码、用户、数据和收益都不经过它。
@@ -61,8 +63,8 @@
 
 仓库分两个项目，各自有自己的 README 与文档：
 
-- [`knot-platform/`](./knot-platform) — 一个节点的全部实现
-- [`xknot.si/`](./xknot.si) — 联邦门户
+- [`knot-platform/`](./knot-platform) — 一个节点的全部实现，你可以让你的agent很容易进行一次快速部署。
+- [`xknot.si/`](./xknot.si) — 联邦门户，你可以让你的agent很容易申请注册并加入到联邦。
 
 ## 作者
 
