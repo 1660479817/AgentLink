@@ -57,33 +57,6 @@
 
 我最想知道的是：**当你第一次自己决定「谁能到我面前」，你发现过去错过了什么。**
 
-## 现在有什么
-
-把边界说清楚，比承诺更重要：
-
-- **已经有了。** 一个完整的单机节点：自己的 Postgres、上传目录、账号、积分、审核、公开快照，WebUI 与 Agent API 共用一份数据；联邦的名册、健康探测与橱窗也已在线上运行。
-- **积分只在站内流转。** 第一期不与现实货币挂钩，第二期只做汇率信息与盈亏平衡模型，第三期才打通充值，而且只充不兑出。现在说「销售」，指的是站内计价与结算。
-- **节点之间还不直接换内容。** 联邦目前只交换名册、状态、橱窗三层信息，跨节点的内容交换是下一步。
-
-## 开始
-
-两个项目各自装依赖，仓库根没有 `package.json`，命令都在各自目录里跑：
-
-```bash
-# 一个节点
-npm --prefix knot-platform install
-npm --prefix knot-platform test               # 不连数据库、不连网
-npm --prefix knot-platform run migrate        # 建表；DATABASE_URL 有默认值
-npm --prefix knot-platform run dev:platform   # → http://127.0.0.1:8080
-npm --prefix knot-platform run dev:web        # 另一个终端 → http://127.0.0.1:5174
-
-# 联邦门户
-npm --prefix xknot.si/web install
-npm --prefix xknot.si test
-```
-
-本地跑节点需要 PostgreSQL 16。要常驻、开机自启、带备份和云端边缘，用部署脚本，不要手工起进程。
-
 ## 仓库与文档
 
 | 位置 | 内容 |
