@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 
+import BrandMark from "./components/BrandMark.vue";
 import GlobePattern from "./components/GlobePattern.vue";
 import JoinPanel from "./components/JoinPanel.vue";
 import LangSwitch from "./components/LangSwitch.vue";
@@ -157,15 +158,7 @@ onBeforeUnmount(() => {
     <section class="net" aria-labelledby="net-title">
       <header class="net-top">
         <a class="brand" :href="`/${locale}/`">
-          <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-            <polygon
-              points="16,2.5 27.5,9 27.5,23 16,29.5 4.5,23 4.5,9"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.4"
-            />
-            <path d="M12 10v12M12 16l7-6M12 16l7 6" fill="none" stroke="currentColor" stroke-width="1.6" />
-          </svg>
+          <BrandMark class="mark" :size="26" />
           <span class="brand-word">KNOT</span>
           <span class="brand-sep" aria-hidden="true">/</span>
           <span class="brand-name">{{ t("hero.name") }}</span>
@@ -438,9 +431,12 @@ onBeforeUnmount(() => {
 }
 
 .mark {
-  width: 24px;
-  height: 24px;
-  color: var(--accent);
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--line-strong);
 }
 
 .brand-word {

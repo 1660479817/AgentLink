@@ -12,8 +12,8 @@ Environment=XKNOT_API_HOST=127.0.0.1
 Environment=XKNOT_API_PORT=5181
 Environment=XKNOT_DATA_DIR=/opt/xknot/var
 Environment=XKNOT_TRUST_PROXY=1
-# HTTP-only 阶段不要开 Secure Cookie；证书启用后改为 XKNOT_SECURE_COOKIE=1
-# Environment=XKNOT_SECURE_COOKIE=1
+# HTTPS 已启用
+Environment=XKNOT_SECURE_COOKIE=1
 ExecStart=/usr/bin/node /opt/xknot/server/index.mjs
 Restart=on-failure
 RestartSec=3

@@ -8,12 +8,11 @@
 import { computed } from "vue";
 
 import { centroidOf, LAND_PATH, project, WORLD } from "../lib/world.js";
+import BrandMark from "./BrandMark.vue";
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
   activeId: { type: String, default: null },
-  // 联邦中心的 logo。为空时画占位标记。
-  logo: { type: String, default: null },
   t: { type: Function, required: true },
 });
 
@@ -275,22 +274,11 @@ function activate(id) {
         </g>
       </svg>
 
-      <!-- 联邦中心：悬在地图上方的占位。传 logo 就把六边形换成图片，位置不变。 -->
+      <!-- 联邦中心：悬在地图上方的徽标，标识由 BrandMark 按三档取图。 -->
       <div class="hub">
         <span class="hub-shadow" aria-hidden="true" />
         <span class="hub-body">
-          <img v-if="logo" class="hub-logo" :src="logo" alt="" />
-          <span v-else class="hub-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path
-                d="M12 2.6 20.4 7v10L12 21.4 3.6 17V7L12 2.6Z"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.3"
-              />
-              <circle cx="12" cy="12" r="2.5" fill="currentColor" />
-            </svg>
-          </span>
+          <BrandMark class="hub-logo" :size="24" />
           <span class="hub-text">
             <span class="hub-name">XKNOT</span>
             <span class="hub-role">{{ t("map.hub") }}</span>
@@ -540,24 +528,13 @@ function activate(id) {
   animation: cast 7s ease-in-out infinite;
 }
 
-.hub-mark {
-  display: block;
-  width: 22px;
-  height: 22px;
-  color: var(--map-link);
-}
-
-.hub-mark svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
 .hub-logo {
   display: block;
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--line);
 }
 
 .hub-text {

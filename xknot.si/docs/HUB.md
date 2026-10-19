@@ -13,7 +13,7 @@
 | 健康探测 | 构建步骤 | 构建时探测一次，写 `var/health.json` |
 | 数据快照 | 构建步骤 | 合并清单与探测结果，写 `dist/data/hub.json` |
 | 橱窗拉取 | 构建步骤（M2） | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
-| 跳转 | nginx | `root.xknot.si` 301 到 `knot.zenheart.net` |
+| 跳转 | nginx | `root.xknot.si` 301 到 `wang.xknot.si` |
 
 门户本身仍然是静态文件，所有实例数据在构建时写入。唯一的写入口是加入申请：它不写 `instances.json`，只进审核队列；审核通过后由人或命令行把条目写进清单，再重新构建。申请接口不能改变任何已上线的条目。
 
@@ -44,6 +44,7 @@ xknot.si/
 │   ├── I18N.md            国际化与区域
 │   ├── FEDERATION.md      中枢与实例的契约
 │   ├── HUB.md             本文件
+│   ├── JOIN.md            加入说明：申请、域名与隧道
 │   └── federation.svg     架构图
 ├── ops/
 │   ├── root.xknot.si.conf       示范跳转的 nginx 配置
@@ -54,6 +55,7 @@ xknot.si/
 │   ├── cards.mjs                读 var/cards/ 下的橱窗与预览样例合并
 │   ├── fetch-cards.mjs          橱窗拉取，写 var/cards/（M2）
 │   ├── build-hub.sh             本机构建：校验、探测、构建、写快照
+│   ├── verify-hub-data.mjs      发布前守卫：快照里的 id 必须与清单一致
 │   ├── deploy-hub.sh            可选的远端同步（目标由环境变量给出）
 │   └── validate-instances.mjs   清单校验
 ├── var/
@@ -68,7 +70,7 @@ xknot.si/
     ├── en/                英文入口
     ├── zh-CN/             简体入口
     ├── zh-TW/             繁体入口
-    ├── public/logos/      实例 LOGO
+    ├── public/logos/      中枢标识与实例 LOGO
     ├── src/
     │   ├── main.js        挂载，语种取自 HTML 的 lang
     │   ├── App.vue        左右分栏：左网络、右加入申请
@@ -94,6 +96,7 @@ npm run dev:real      # 同样端口，只读真实清单
 npm run api           # 只起接口
 npm run build         # 校验、探测、构建、写快照，产物在 web/dist
 npm run build:preview # 并入样例条目构建，只看版式，不用于发布
+npm run verify        # 复核 dist/data/hub.json 的实例与 instances.json 一致
 npm run test          # 单元测试（清单、页面逻辑、接口与审核）
 ```
 
@@ -138,6 +141,7 @@ npm run test     # 纯逻辑单元测试
 
 - 两个文件都是样例，**不是成员名单**，不写进 `instances.json`。
 - 只在 `XKNOT_PREVIEW=1` 时并入内存与本次构建；真实清单里已有同 id 时以真实条目为准，真实探测结果也优先。
+- `ops/verify-hub-data.mjs` 在每次构建后复核：生产快照里的 id 必须与 `instances.json` 完全一致，多一条少一条都让构建失败；预览构建只放行 `fixtures/` 里的 id。`ops/deploy-hub.sh` 同步前会再核一次。
 - `npm run validate:fixtures` 校验样例本身合法，`preview.test.mjs` 覆盖合并规则。
 - 换成真实成员时，删掉对应样例条目即可，中枢代码不用改。
 
@@ -149,7 +153,7 @@ npm run test     # 纯逻辑单元测试
       "id": "root",
       "name": { "en": "Knot", "zh-CN": "Knot", "zh-TW": "Knot" },
       "url": "https://root.xknot.si",
-      "redirect": "https://knot.zenheart.net",
+      "redirect": "https://wang.xknot.si",
       "regions": ["GLOBAL"],
       "timezone": "Asia/Shanghai",
       "tier": "demo",
@@ -191,7 +195,7 @@ npm run test     # 纯逻辑单元测试
 地图是一张等距圆柱投影的世界底图（`web/src/lib/world.js`，数据为 Natural Earth 110m 陆地，`ops/build-world-dots.mjs` 生成）。节点的位置由实例清单里的 `regions` 决定：国家中心点求和后取中心，因此「北欧四国」落在斯堪的纳维亚，「阿根廷 + 智利 + 乌拉圭」落在南锥体。`GLOBAL` 或没有可定位国家代码的条目不上图，收在地图下方「无固定区域」的一行小标签里，仍可点。
 
 - 底图是点阵填充的陆地 + 30° 经纬网，和右栏的点阵球同一套语汇。地图只说「在哪」，不承载地理细节。
-- 地图上方悬着一个**联邦中心**徽标（`XKNOT` + 联邦中心），不落经纬度。它是占位：接入正式 logo 时给 `NetworkMap` 传 `logo`，徽标里的六边形占位标记换成图片，其余布局不变。
+- 地图上方悬着一个**联邦中心**徽标（`XKNOT` + 联邦中心），不落经纬度。标识由 `BrandMark` 按三档分辨率出图，徽标其余布局不变。
 - 每个节点一条**半透明橙色长划线弧**飞向联邦中心（`stroke-dasharray: 10 5`，选中态 `12 4`），弧线朝中轴外侧鼓一点，十根线才不会在中心下方挤成一根柱子。长划线的节奏更像航线；线的状态只靠粗细与浓淡区分（选中的加粗加深、不可达的压淡），不另起一套配色。弧上的短亮光点按清单顺序错开延迟，从节点飞向中心。
 - 链路颜色走 `--map-link-line`（浅色 `rgba(232,112,28,.42)`，深色 `rgba(255,154,82,.40)`），和右栏申请区的橙是同一支暖色；联邦中心徽标里的占位标记用不透明的 `--map-link`，线的落点才不会和徽标分家。
 - 弧线的交汇点取在画布上缘之上（`HUB.y < 0`），藏在徽标后面，地图上不会留下一个结。
@@ -201,6 +205,22 @@ npm run test     # 纯逻辑单元测试
 - 地图宽度到 620px 才在点旁常驻站名（容器查询）；更窄只留点，悬停或聚焦出标签。
 - 挤在同一片区域的两个点会上下错开约 17 个单位，保证都点得到。点选后滚到对应条目并高亮 2.6 秒；被筛掉的点变暗但仍可点。
 - 动效只有脉冲、飞向中心的光点与徽标浮动，`prefers-reduced-motion` 下全部停止。
+
+### 品牌资产
+
+品牌标识是栅格图，放在 `web/public/`，不引用外站。
+
+| 文件 | 分辨率 | 用途 |
+|------|--------|------|
+| `logos/xknot.jpg` | 1024×1024 | 原图，分享卡片 `og:image` |
+| `logos/xknot-icon.png` | 512×512 | 母版，生成下面三档 |
+| `logos/xknot-icon-32.png` | 32×32（小） | 1× 屏幕的页头与地图徽标 |
+| `logos/xknot-icon-64.png` | 64×64（中） | 2× 屏幕、审核台页头 |
+| `logos/xknot-icon-128.png` | 128×128（大） | 3× 及以上屏幕，兼作 src 回落 |
+| `favicon-32.png` / `favicon-16.png` | 32、16 | 浏览器页签 |
+| `apple-touch-icon.png` | 180×180 | iOS 主屏 |
+
+页头与地图徽标都由 `components/BrandMark.vue` 出图：`srcset` 用 `1x / 2x / 3x` 描述指向 32 / 64 / 128 三档，浏览器按设备像素比取一档，高分屏不再把小图放大。审核台页头用同一组 `srcset`。
 
 ### 节点目录与热点橱窗
 
@@ -360,7 +380,7 @@ npm run test
 
 M1：
 
-- [ ] `https://root.xknot.si/` 返回 301，`Location` 为 `https://knot.zenheart.net` 加原路径
+- [ ] `https://root.xknot.si/` 返回 301，`Location` 为 `https://wang.xknot.si` 加原路径
 - [ ] `https://xknot.si/` 返回 302 到 `/en/`
 - [ ] `/en/`、`/zh-CN/`、`/zh-TW/` 内容一致，只有语言不同
 - [ ] 每个页面有正确的 `lang`、`hreflang`，`x-default` 指向 `/en/`
@@ -368,7 +388,7 @@ M1：
 - [ ] 实例列表每条有名称、简介、当地时刻和健康点
 - [ ] 目录里的时刻是节点时区的当前时间，不是访客本地时间
 - [ ] 点地图上的节点会滚到对应条目并短暂高亮；被区域筛掉的节点变暗但仍可点
-- [ ] 地图上方的联邦中心徽标悬空显示，每个节点有一条半透明橙色长划线弧连到它；换成 `logo` 后徽标仍居中且不压住地图标题
+- [ ] 地图上方的联邦中心徽标悬空显示，每个节点有一条半透明橙色长划线弧连到它；徽标显示 xknot 标识，仍居中且不压住地图标题
 - [ ] 节点之间另有浅绿直连，每个站的邻居数为 2、3 或 4；刷新页面连法不变
 - [ ] 「只看在线」只留下 `up` 与 `degraded`
 - [ ] 停掉一个实例，重新构建后它的点变红，同时显示上次正常时间，其他实例不受影响

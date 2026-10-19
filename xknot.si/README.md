@@ -10,6 +10,7 @@
 - 契约与字段：[docs/FEDERATION.md](docs/FEDERATION.md)
 - 语种与区域：[docs/I18N.md](docs/I18N.md)
 - 实现与部署：[docs/HUB.md](docs/HUB.md)
+- 加入说明：[docs/JOIN.md](docs/JOIN.md)
 
 ![xknot.si 中枢架构](docs/federation.svg)
 
@@ -18,9 +19,10 @@
 | 子域 | 运营方 | 职责 |
 |------|--------|------|
 | `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
-| `root.xknot.si` | 自营 | 示范入口，301 到 `knot.zenheart.net` |
-| `travel.xknot.si` | OPC 伙伴 | 旅行垂直 |
-| `ai.xknot.si` | OPC 伙伴 | AI 垂直 |
+| `wang.xknot.si` | 自营 | 旗舰实例（当前唯一的真实成员） |
+| `root.xknot.si` | 自营 | 示范入口，301 到 `wang.xknot.si` |
+| `travel.xknot.si` | OPC 伙伴 | 旅行垂直（版式示例，尚未上线） |
+| `ai.xknot.si` | OPC 伙伴 | AI 垂直（版式示例，尚未上线） |
 
 每个子域后面是一套独立部署的 Knot：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与中枢单线联系，中枢只读。
 
@@ -42,7 +44,7 @@
 | L3 | 热点橱窗 | 构建时拉取 `cardsUrl`，最多 6 张卡片，点开回原站 |
 | — | 门户 | 三语静态页，左栏全球地图与卡片式节点目录（可筛区域、在线、热点），右栏加入申请 |
 | — | 申请与审核 | 申请表入库、管理员审核、生成清单条目 |
-| — | 跳转 | `root.xknot.si` 301 到 `knot.zenheart.net` |
+| — | 跳转 | `root.xknot.si` 301 到 `wang.xknot.si` |
 
 ## 语言与区域
 
@@ -82,6 +84,7 @@ xknot.si/
 │   ├── I18N.md            国际化与区域：语种、回退、区域分组
 │   ├── FEDERATION.md      中枢与实例的契约
 │   ├── HUB.md             中枢的实现、运行与验收
+│   ├── JOIN.md            加入说明：申请、域名与隧道
 │   └── federation.svg     架构图
 ├── ops/
 │   ├── root.xknot.si.conf 示范跳转的 nginx 配置
@@ -100,7 +103,7 @@ xknot.si/
     ├── vite.config.js     三语入口、开发数据中间件、/api 与 /admin 代理
     ├── index.html         / 跳转
     ├── en/ zh-CN/ zh-TW/  三个语种的 HTML 入口
-    ├── public/logos/      实例 LOGO
+    ├── public/logos/      中枢标识与实例 LOGO
     ├── src/               Vue 源码：App、components（地图、卡片、申请表）、lib、locales
     └── dist/              构建产物（不入版本库）
 ```
@@ -123,9 +126,10 @@ npm run admin -- create-admin paul   # 建审核账号
 | [docs/I18N.md](docs/I18N.md) | 国际化：语种、回退链、区域分组、URL 与验收 |
 | [docs/FEDERATION.md](docs/FEDERATION.md) | 契约：L1 字段、L2 判定、L3 橱窗格式、收录与下架 |
 | [docs/HUB.md](docs/HUB.md) | 中枢的实现、运行形态和验收清单 |
+| [docs/JOIN.md](docs/JOIN.md) | 加入说明：申请流程、自有域名与签发子域、固定 IP 与隧道 |
 | [docs/federation.svg](docs/federation.svg) | 架构图 |
 | [instances.json](instances.json) | 实例清单 |
-| [ops/root.xknot.si.conf](ops/root.xknot.si.conf) | 示范跳转：`root.xknot.si` → `knot.zenheart.net` |
+| [ops/root.xknot.si.conf](ops/root.xknot.si.conf) | 示范跳转：`root.xknot.si` → `wang.xknot.si` |
 | [ops/xknot.si.conf](ops/xknot.si.conf) | 门户的 nginx 配置 |
 | [ops/check-health.mjs](ops/check-health.mjs) | 健康探测，写 `var/health.json` |
 | [ops/build-hub-data.mjs](ops/build-hub-data.mjs) | 合并清单与探测结果，写 `data/hub.json` |

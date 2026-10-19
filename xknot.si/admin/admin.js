@@ -246,7 +246,20 @@ function renderConsole() {
 
   return el("div", {}, [
     el("header", { class: "top" }, [
-      el("div", { class: "top-brand" }, [el("strong", {}, "◆ XKNOT"), "/ 联邦审核台"]),
+      el("div", { class: "top-brand" }, [
+        el("strong", { class: "top-brand-mark" }, [
+          el("img", {
+            src: "/logos/xknot-icon-64.png",
+            srcset:
+              "/logos/xknot-icon-32.png 1x, /logos/xknot-icon-64.png 2x, /logos/xknot-icon-128.png 3x",
+            alt: "",
+            width: 18,
+            height: 18,
+          }),
+          el("span", {}, "XKNOT"),
+        ]),
+        "/ 联邦审核台",
+      ]),
       el("div", { class: "top-user" }, [
         el("span", {}, state.admin.username),
         el("button", {
