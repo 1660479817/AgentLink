@@ -59,13 +59,10 @@
 
 ## 仓库与文档
 
-| 位置 | 内容 |
-| --- | --- |
-| [`knot-platform/`](./knot-platform) | 一个节点的全部实现：Backend、WebUI、共享包、部署层、智能体 |
-| [`knot-platform/README.md`](./knot-platform/README.md) | 记录结构、四种 `kind`、计费、五件事、Agent 分工 |
-| [`knot-platform/docs/`](./knot-platform/docs) | 数据库、Web API、WebUI、积分经济、项目规划、配置、Agent 命名、架构图 |
-| [`xknot.si/`](./xknot.si) | 联邦门户：页面、申请队列、构建与部署 |
-| [`xknot.si/docs/`](./xknot.si/docs) | 联邦契约、命名、语种、加入流程 |
+仓库分两个项目，各自有自己的 README 与文档：
+
+- [`knot-platform/`](./knot-platform) — 一个节点的全部实现
+- [`xknot.si/`](./xknot.si) — 联邦门户
 
 ## 作者
 
