@@ -116,10 +116,10 @@ npm run build                                    # 校验、探测、构建
 |------|------|
 | `url` | 中枢入口上展示/跳转用的地址 |
 | `canonical` | 真实站点地址（可与 `url` 相同） |
-| `redirect` | 有值时中枢侧只做 301（如示范入口 `root`） |
+| `redirect` | 有值时中枢侧只做 301，不展示为独立条目 |
 | `healthUrl` | L2 探测地址；空则不探测，状态为 `unknown` |
 
-示范条目 `root` 的写法见仓库根 `instances.json`：`url` 为 `https://root.xknot.si`，`redirect` / `canonical` / `healthUrl` 指向真实站。
+`redirect` 是给「同一个站有多个入口」用的：清单里保留一个规范条目，其余入口只写 `redirect` 指向它。当前清单没有这种条目，`url` 就是真实站点地址。
 
 ---
 
@@ -218,13 +218,13 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 
 | 角色 | 负责 | 不负责 |
 |------|------|--------|
-| **中枢**（`xknot.si`） | `instances.json`、申请队列与审核台、构建时 L2 探测、门户静态站、`root` 跳转 | 用户账号、内容、积分、订单；托管伙伴站点；自动签发子域；替伙伴开隧道 |
+| **中枢**（`xknot.si`） | `instances.json`、申请队列与审核台、构建时 L2 探测、门户静态站 | 用户账号、内容、积分、订单；托管伙伴站点；自动签发子域；替伙伴开隧道 |
 | **边缘**（公网机上的 nginx / sshd） | 证书、对外 HTTPS、把动态请求反代到隧道端口或本机静态目录；隧道用户隔离 | 业务库；审核联邦申请；改 `instances.json` |
 | **实例**（伙伴 Knot，用 `knot-platform` 部署） | 自有部署、库、上传、账号、审核、证书（直连时）或维持隧道（NAT 时）、提供 `/api/health` 与可选橱窗 | 改中枢清单；要求中枢代管内容 |
 
 两边的代码与脚本分开存放：中枢的部署文件在本文同级的 `ops/`；实例的部署文件在仓库根的 [`ops/`](../../ops)（`edge/` 下是边缘配置）。中枢不引用实例的文件，实例也不引用中枢的文件；本文只做策略说明与跳转。
 
-- 中枢 nginx：`ops/xknot.si.conf`、`ops/root.xknot.si.conf`；中枢部署笔记：`ops/README-deploy-aws.md`
+- 中枢 nginx：`ops/xknot.si.conf`；中枢部署笔记：`ops/README-deploy-aws.md`
 - 实例边缘：`../../ops/edge/README.md`、`../../ops/edge/subdomain-fixed-ip.md`
 
 收费与子域服务不在中枢订单链路里发生（见 README「收录与收费」）。
@@ -258,7 +258,7 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 | `ops/validate-instances.mjs` | 清单校验 |
 | `ops/build-hub.sh` / `deploy-hub.sh` | 构建与静态站同步 |
 | `ops/deploy-api.sh` | 接口、审核台与站点配置的同步 |
-| `ops/xknot.si.conf` / `ops/root.xknot.si.conf` | 门户与 `root` 跳转的 nginx |
+| `ops/xknot.si.conf` | 门户的 nginx |
 
 实例侧（仓库根的 `ops/`，属于用 `knot-platform` 部署的站点）：
 

@@ -13,7 +13,6 @@
 | 健康探测 | 构建步骤 | 构建时探测一次，写 `var/health.json` |
 | 数据快照 | 构建步骤 | 合并清单与探测结果，写 `dist/data/hub.json` |
 | 橱窗拉取 | 构建步骤（M2） | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
-| 跳转 | nginx | `root.xknot.si` 301 到 `wang.xknot.si` |
 
 门户本身仍然是静态文件，所有实例数据在构建时写入。唯一的写入口是加入申请：它不写 `instances.json`，只进审核队列；审核通过后由人或命令行把条目写进清单，再重新构建。申请接口不能改变任何已上线的条目。
 
@@ -33,6 +32,9 @@ xknot.si/
 │   ├── store.mjs          SQLite：申请、管理员、会话、事件
 │   ├── validate.mjs       申请表字段校验（纯函数）
 │   ├── manifest.mjs       申请 → instances.json 条目，生成后自检
+│   ├── mail.mjs           SMTP 客户端（net/tls，无外部依赖）与邮件组装
+│   ├── notify.mjs         新申请、审核结果的三语通知正文
+│   ├── mail-test.mjs      发一封测试信（npm run mail:test）
 │   ├── admin-cli.mjs      建管理员、列申请、生成条目、写入清单
 │   └── app.test.mjs       接口与审核流程测试
 ├── admin/
@@ -47,7 +49,6 @@ xknot.si/
 │   ├── JOIN.md            加入说明：申请、域名与隧道
 │   └── federation.svg     架构图
 ├── ops/
-│   ├── root.xknot.si.conf       示范跳转的 nginx 配置
 │   ├── xknot.si.conf            门户与接口的 nginx 配置
 │   ├── dev.mjs                  同时拉起接口与 Vite
 │   ├── check-health.mjs         健康探测，写 var/health.json
@@ -152,13 +153,13 @@ npm run test     # 纯逻辑单元测试
   "generatedAt": "2026-10-19T03:00:00.000Z",
   "instances": [
     {
-      "id": "root",
-      "name": { "en": "Knot", "zh-CN": "Knot", "zh-TW": "Knot" },
-      "url": "https://root.xknot.si",
-      "redirect": "https://wang.xknot.si",
-      "regions": ["GLOBAL"],
+      "id": "wang",
+      "name": { "en": "Knot · wang", "zh-CN": "Knot · wang", "zh-TW": "Knot · wang" },
+      "url": "https://wang.xknot.si",
+      "redirect": null,
+      "regions": ["CN"],
       "timezone": "Asia/Shanghai",
-      "tier": "demo",
+      "tier": "partner",
       "status": "active",
       "health": { "status": "up", "lastOkAt": "2026-10-19T02:30:00.000Z", "version": "0.2.0" }
     }
@@ -338,7 +339,7 @@ npm run preview  # 预览构建产物（在 web/ 内执行）
 - `/` 302 到 `/en/`，或直接放一个跳转用的 `index.html`。
 - `/assets/` 长缓存，`/data/hub.json` 用 `no-cache`。
 - `/api/` 与 `/admin/` 反代到 `127.0.0.1:5181`（接口只监听回环，不要直接暴露端口）。
-- `ops/xknot.si.conf` 是一份 nginx 参考配置；`ops/root.xknot.si.conf` 是 `root.xknot.si` 的 301。
+- `ops/xknot.si.conf` 是一份 nginx 参考配置。
 - 证书由 Certbot 管理，不改 `ssl_certificate` 配置。
 
 接口进程的环境变量：
@@ -403,11 +404,34 @@ npm run test
 
 回滚方式：检出上一版 `instances.json`、`web/src` 和 `var/`，重新构建。
 
+### 7.5 把发信地址共享给伙伴
+
+中枢用一个发信域名（当前是 `xknot.si`），给每个实例建一个发信地址，例如 `knot-wang@xknot.si`、`knot-travel@xknot.si`。每个发信地址单独设 SMTP 密码；伙伴离开就删地址或改密码，不影响其他实例。
+
+伙伴在自己的 `ops/env/knot-platform.local.env` 里填。`SMTP_HOST` 跟阿里云控制台区域走：华东 `smtpdm.aliyun.com`，新加坡 `smtpdm-ap-southeast-1.aliyuncs.com`。
+
+```bash
+SMTP_HOST=smtpdm.aliyun.com
+SMTP_PORT=465
+SMTP_SECURE=1
+SMTP_USER=knot-travel@xknot.si
+SMTP_PASS='该发信地址的 SMTP 密码'
+SMTP_FROM=knot-travel@xknot.si
+MAIL_FROM=knot-travel@xknot.si
+KNOT_ADMIN_EMAIL=partner@example.com
+```
+
+- `SMTP_USER` 必须等于 `SMTP_FROM`。显示名可以写 `MAIL_FROM="Knot · travel <knot-travel@xknot.si>"`。
+- 新地址或刚改的 SMTP 密码有约 10 分钟生效延迟，期间会返回 `535 Authentication failure`；`SMTP_HOST` 的区域必须与控制台一致。
+- `xknot.si` 的 MX 已指向 `mx01.dm.aliyun.com`，这个域只用于发信；不要再用它配企业邮箱收信，MX 会冲突。回信地址用伙伴自己的邮箱。
+- 只用于登录密钥、审核与交易通知；不要拿它群发。同一个域名的发信信誉是共用的，一个实例滥发会影响所有实例。
+- 发信额度、日上限和退信处理以阿里云邮件推送控制台为准；每个地址单独看。
+- 伙伴不需要 `XKNOT_*` 变量；那些只属于中枢接口。
+
 ## 8. 验收
 
 M1：
 
-- [ ] `https://root.xknot.si/` 返回 301，`Location` 为 `https://wang.xknot.si` 加原路径
 - [ ] `https://xknot.si/` 返回 302 到 `/en/`
 - [ ] `/en/`、`/zh-CN/`、`/zh-TW/` 内容一致，只有语言不同
 - [ ] 每个页面有正确的 `lang`、`hreflang`，`x-default` 指向 `/en/`

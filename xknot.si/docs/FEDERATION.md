@@ -43,7 +43,6 @@
 - 构建时探测 `/api/health`，写 `var/health.json`。
 - 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json`。
 - 构建三语门户：Vue 3 + Vite，产物是静态文件，运行时只读 `/data/hub.json`。
-- `root.xknot.si` 的 301。
 - 整组下架违规实例的橱窗。
 
 ### 2.2 实例负责
@@ -67,7 +66,7 @@
 
 | 里程碑 | 范围 | 交付 |
 |--------|------|------|
-| **M1** | L1 档案、L2 健康探测、三语门户、区域筛选、`root` 跳转 | 静态站 + 构建脚本 |
+| **M1** | L1 档案、L2 健康探测、三语门户、区域筛选 | 静态站 + 构建脚本 |
 | **M2** | L3 热点橱窗、L2 活动数据 | 增加拉取步骤与门户橱窗位 |
 
 两个里程碑都在构建时取数，只产出静态文件，没有常驻服务。
@@ -116,7 +115,7 @@
 - `logo` 是唯一进入中枢的二进制。其余图片只存 URL。
 - `healthUrl`、`statsUrl`、`cardsUrl` 决定中枢拉取哪些数据；字段为空即跳过，不报错。
 - `tier` 只影响展示徽章，不影响排序，不参与评级或分成。
-- 只做跳转、没有自站的条目（如 `root`）标 `tier: demo`，不计入实例统计。
+- 只做跳转、没有自站的条目标 `tier: demo`，不计入实例统计。
 - 页面按 `tier`、再按 `since` 排序，顺序稳定。
 - 区域只用于分组浏览，不参与排序，不影响收录。
 - 最小档案包含 `id`、`name`、`url`、`intro.oneLine`、`languages`、`regions`、`timezone`、`contact`、`since`、`tier`、`status`。不提供任何接口地址也是合法条目。
@@ -158,7 +157,7 @@ Knot 实例提供 `GET /api/health`，返回 `{ ok: true, service, version }`。
 {
   "checkedAt": "2026-10-19T02:30:00.000Z",
   "instances": {
-    "root": {
+    "wang": {
       "status": "up",
       "httpStatus": 200,
       "latencyMs": 137,

@@ -37,13 +37,13 @@
     <text x="427" y="194" font-size="12" fill="#333">档案 · 状态 · 区域</text>
     <text x="602" y="173" font-size="14" font-weight="600" fill="#111">健康探测</text>
     <text x="602" y="194" font-size="12" fill="#333">每 2–5 分钟</text>
-    <text x="777" y="173" font-size="14" font-weight="600" fill="#111">跳转</text>
-    <text x="777" y="194" font-size="12" fill="#333">301</text>
+    <text x="777" y="173" font-size="14" font-weight="600" fill="#111">申请与审核</text>
+    <text x="777" y="194" font-size="12" fill="#333">人工确认后写清单</text>
     <text x="600" y="242" font-size="13" fill="#333">无数据库 · 无写入口 · 一个提交就是一次变更</text>
 
     <text x="230" y="434" font-size="15" font-weight="600" fill="#111">Knot 旗舰</text>
-    <text x="230" y="460" font-size="12" fill="#333">knot.zenheart.net</text>
-    <text x="230" y="484" font-size="12" fill="#333">root.xknot.si 301 到此</text>
+    <text x="230" y="460" font-size="12" fill="#333">wang.xknot.si</text>
+    <text x="230" y="484" font-size="12" fill="#333">knot-platform 完整部署</text>
     <text x="230" y="508" font-size="11" fill="#555">Postgres · 上传 · 账号 · 积分</text>
 
     <text x="600" y="434" font-size="15" font-weight="600" fill="#111">travel.xknot.si</text>
@@ -63,7 +63,7 @@
     <text x="230" y="648" font-size="12" fill="#333">不做信息流 · 不代伙伴审核</text>
 
     <text x="600" y="606" font-size="14" font-weight="600" fill="#111">M1 · 门户</text>
-    <text x="600" y="628" font-size="12" fill="#333">跳转 · 站点简介 · 健康状态</text>
+    <text x="600" y="628" font-size="12" fill="#333">站点简介 · 健康状态 · 加入申请</text>
     <text x="600" y="648" font-size="12" fill="#333">实例清单是一个 JSON 文件</text>
 
     <text x="970" y="606" font-size="14" font-weight="600" fill="#111">M2 · 橱窗</text>

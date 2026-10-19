@@ -94,12 +94,12 @@ JSON 里永远是英文小写；界面上显示本地文案。
 | 位置 | 规则 | 例 |
 |------|------|----|
 | JSON 字段 | camelCase | `healthUrl`、`cardsUrl`、`formatVersion` |
-| 文件名 | kebab-case | `check-health.mjs`、`root.xknot.si.conf` |
-| 实例 `id` | 小写 kebab，2–32 位 | `root`、`travel`、`ai` |
+| 文件名 | kebab-case | `check-health.mjs`、`build-hub-data.mjs` |
+| 实例 `id` | 小写 kebab，2–32 位 | `wang`、`travel`、`ai` |
 | 状态值 | 小写 | `up`、`active` |
 | 环境变量 | 大写蛇形，前缀 `KNOT_` 或 `XKNOT_` | `XKNOT_HUB_DIR` |
 | 目录 | 小写，无空格 | `xknot.si/`、`docs/`、`ops/` |
-| 域名 | 全小写 | `xknot.si`、`root.xknot.si` |
+| 域名 | 全小写 | `xknot.si`、`wang.xknot.si` |
 
 英文概念名的大小写：正文用小写（`the hub`、`an instance`），标题、表格表头和图表标签用首字母大写（`Hub`、`Instance`）。同一份文档只用一种。
 

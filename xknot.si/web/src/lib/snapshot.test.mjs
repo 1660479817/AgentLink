@@ -6,9 +6,9 @@ import { buildHubData } from "./snapshot.js";
 const MANIFEST = {
   instances: [
     {
-      id: "root",
+      id: "legacy",
       name: { en: "Knot" },
-      url: "https://root.xknot.si",
+      url: "https://legacy.example.com",
       redirect: "https://knot.zenheart.net",
       languages: ["en", "zh-CN"],
       regions: ["GLOBAL"],
@@ -17,7 +17,7 @@ const MANIFEST = {
       tier: "demo",
       status: "active",
       since: "2026-10-19",
-      healthUrl: "https://knot.zenheart.net/api/health",
+      healthUrl: "https://legacy.example.com/api/health",
     },
   ],
 };
@@ -25,7 +25,7 @@ const MANIFEST = {
 const HEALTH = {
   checkedAt: "2026-10-19T02:30:00.000Z",
   instances: {
-    root: { status: "up", lastOkAt: "2026-10-19T02:30:00.000Z", latencyMs: 137, version: "0.2.0" },
+    legacy: { status: "up", lastOkAt: "2026-10-19T02:30:00.000Z", latencyMs: 137, version: "0.2.0" },
   },
 };
 
@@ -34,12 +34,12 @@ test("the snapshot carries manifest fields plus the probe result", () => {
   assert.equal(data.generatedAt, "2026-10-19T03:00:00.000Z");
   assert.equal(data.checkedAt, "2026-10-19T02:30:00.000Z");
 
-  const [root] = data.instances;
-  assert.equal(root.id, "root");
-  assert.equal(root.name.en, "Knot");
-  assert.equal(root.redirect, "https://knot.zenheart.net");
-  assert.deepEqual(root.regions, ["GLOBAL"]);
-  assert.deepEqual(root.health, {
+  const [legacy] = data.instances;
+  assert.equal(legacy.id, "legacy");
+  assert.equal(legacy.name.en, "Knot");
+  assert.equal(legacy.redirect, "https://knot.zenheart.net");
+  assert.deepEqual(legacy.regions, ["GLOBAL"]);
+  assert.deepEqual(legacy.health, {
     status: "up",
     lastOkAt: "2026-10-19T02:30:00.000Z",
     latencyMs: 137,

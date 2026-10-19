@@ -19,7 +19,7 @@ KEY=~/.ssh/suanli-sg-probe.pem
 | 实例 | `i-0c876685a64c75538` |
 | 公网 | `54.169.33.64`（随 EIP / 重建变化） |
 | SSH | `ssh -i $KEY $EDGE`（`id_rsa` 在这台机上会被拒） |
-| DNS | `xknot.si`、`www`、`root` 的 A 记录都指向这里 |
+| DNS | `xknot.si` 与 `www` 的 A 记录指向这里 |
 | 同机其它站点 | 这台机同时托管实例侧站点：`/var/www/wang`（`wang.xknot.si`）、`/var/www/knot`（`knot.zenheart.net`），以及无关的 `/var/www/aiugc`。`conf.d/` 下五份配置各自独立，改 conf 前务必 `nginx -t` |
 
 门户与这些实例站点共用一台机器，但目录、进程与配置互不重叠：门户是 `/var/www/xknot` + `/opt/xknot` + `xknot-api`，实例是各自的 `ops/` 部署产物。共用的只是 nginx 进程、证书目录与这台机的容量。
@@ -36,7 +36,6 @@ KEY=~/.ssh/suanli-sg-probe.pem
 | `/opt/xknot/web/src/lib/{i18n,regions}.js` | 校验依赖 |
 | `/opt/xknot/var` | SQLite / session-secret（`0600`，勿入仓） |
 | `/etc/nginx/conf.d/xknot.si.conf` | 门户 + `/api` `/admin` 反代 |
-| `/etc/nginx/conf.d/root.xknot.si.conf` | `root.xknot.si` 的 301 |
 | `/etc/systemd/system/xknot-api.service` | 接口常驻 |
 
 ## 环境变量（systemd）
@@ -71,12 +70,14 @@ sudo -u ec2-user vi /opt/xknot/var/mail.env
 SMTP_HOST=smtpdm.aliyun.com
 SMTP_PORT=465
 SMTP_SECURE=1
-SMTP_USER=notify@mail.xknot.si
-SMTP_PASS='换成该发信地址的 SMTP 密码'
-SMTP_FROM=notify@mail.xknot.si
-MAIL_FROM=notify@mail.xknot.si
+SMTP_USER=no-reply@xknot.si
+SMTP_PASS='该发信地址的 SMTP 密码，不是阿里云登录密码'
+SMTP_FROM=no-reply@xknot.si
+MAIL_FROM=no-reply@xknot.si
 XKNOT_ADMIN_EMAIL=manwjh@gmail.com
 ```
+
+`xknot.si` 的 MX 已经指向 `mx01.dm.aliyun.com`，这个域只发信；不要再给它配企业邮箱收信。
 
 `SMTP_USER` 必须与 `SMTP_FROM` 一致，这是阿里云邮件推送的认证规则。改完 unit 或 env 后：
 
@@ -87,6 +88,8 @@ sudo -u ec2-user bash -c 'set -a; . /opt/xknot/var/mail.env; set +a; cd /opt/xkn
 ```
 
 测试信只证明 SMTP 认证与投递通了；是否进箱要看收件方原始邮件头里的 `spf=pass`、`dkim=pass`、`dmarc=pass`。发信域名在阿里云控制台验证后，DNS 记录不要删。
+
+新建发信地址或刚改 SMTP 密码后，阿里云侧生效有延迟，约 10 分钟内仍会返回 `535 Authentication failure`；先等一会儿再试，不要急着当成密码错误。区域要与控制台一致，华东是 `smtpdm.aliyun.com`，拿华东的地址去打新加坡端点同样报 535。
 
 共享给伙伴时，一个发信域名下按站点建不同发信地址，每个地址单独设 SMTP 密码；伙伴只填上面 6 个 `SMTP_*` / `MAIL_FROM`，不要拿到中枢的管理员邮箱与会话密钥。
 
@@ -116,7 +119,7 @@ XKNOT_EDGE=$EDGE ./ops/deploy-api.sh --dry-run
 
 - `xknot.si` / `www.xknot.si`：443 提供门户，`/` 302 到 `/en/`；80 只留 ACME 并 301 到 HTTPS。
 - `/api/`、`/admin/` 反代到 `127.0.0.1:5181`；`/assets/` 长缓存，`/data/hub.json` 用 `no-cache`。
-- `root.xknot.si`：只做 ACME 与到 `wang.xknot.si` 的 301，不反代接口。
+- 没有其它子域。`root.xknot.si` 已删除：DNS 记录、nginx 配置与证书都清理掉了，不要重新加回来。
 - 证书由 Certbot 管理，不动 `ssl_certificate` 那几行。
 
 ## 证书
@@ -133,7 +136,7 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo systemctl show xknot-api -p Environment   # 应含 XKNOT_SECURE_COOKIE=1
 ```
 
-`root.xknot.si` 的证书单独签发，不复用 `xknot.si` 的。
+`xknot.si` 的证书覆盖 `xknot.si` 与 `www.xknot.si` 两个名字。
 
 ## 验收
 
@@ -146,7 +149,6 @@ curl -sI https://xknot.si/data/hub.json           # 200，no-cache
 curl -s  https://xknot.si/api/health              # {"ok":true,...}
 curl -sI https://xknot.si/admin/                  # 200
 curl -sI https://xknot.si/api/admin/applications   # 401
-curl -sI https://root.xknot.si/                   # 301 → wang.xknot.si
 
 # 同机其它站点不得受影响
 curl -sI https://wang.xknot.si/                   # 实例，200
@@ -161,7 +163,7 @@ curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 
 ## instances.json 备注
 
-清单里的示范入口 `root` 与旗舰实例 `wang` 目前都指向 `https://wang.xknot.si`。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
+清单里当前只有旗舰实例 `wang`，指向 `https://wang.xknot.si`。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
 
 ## 实例侧
 

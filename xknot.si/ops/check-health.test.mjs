@@ -16,7 +16,7 @@ function jsonResponse(body, status = 200) {
   };
 }
 
-const INSTANCE = { id: "root", healthUrl: "https://example.test/api/health" };
+const INSTANCE = { id: "wang", healthUrl: "https://example.test/api/health" };
 
 test("a healthy instance is up and keeps the version", async () => {
   const result = await probe(INSTANCE, {

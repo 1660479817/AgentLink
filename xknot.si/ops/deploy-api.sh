@@ -74,11 +74,10 @@ rsync_to "$HUB/web/src/lib/regions.js" "$API_ROOT/web/src/lib/"
 
 echo "==> stage config"
 if [[ "$DRY_RUN" == 1 ]]; then
-  echo "(dry-run) copy ops/xknot.si.conf, ops/root.xknot.si.conf, ops/xknot-api.service → /tmp"
+  echo "(dry-run) copy ops/xknot.si.conf, ops/xknot-api.service → /tmp"
 else
   scp -q "${SSH_OPTS[@]}" \
     "$HUB/ops/xknot.si.conf" \
-    "$HUB/ops/root.xknot.si.conf" \
     "$HUB/ops/xknot-api.service" \
     "$XKNOT_EDGE:/tmp/"
 fi
@@ -90,9 +89,6 @@ else
   ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" "
     set -e
     sudo install -m 644 /tmp/xknot.si.conf '$NGINX_CONF'
-    if [ -f /tmp/root.xknot.si.conf ]; then
-      sudo install -m 644 /tmp/root.xknot.si.conf /etc/nginx/conf.d/root.xknot.si.conf
-    fi
     sudo install -m 644 /tmp/xknot-api.service '/etc/systemd/system/$SERVICE.service'
     sudo nginx -t
     sudo systemctl daemon-reload

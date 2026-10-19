@@ -20,13 +20,10 @@
 |------|--------|------|
 | `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
 | `wang.xknot.si` | 自营 | 旗舰实例（当前唯一的真实成员） |
-| `root.xknot.si` | 自营 | 示范入口，301 到 `wang.xknot.si` |
 | `travel.xknot.si` | OPC 伙伴 | 旅行垂直（版式示例，尚未上线） |
 | `ai.xknot.si` | OPC 伙伴 | AI 垂直（版式示例，尚未上线） |
 
 `xknot.si` 是联盟门户本身；其余子域是**伙伴站点**，每个跑一套用 `knot-platform` 完整部署的 Knot（WebUI + Backend + OpenClaw 配套）：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与门户单线联系，门户只读。
-
-`root.xknot.si` 是示范入口，只做 301，不计入实例统计。
 
 ## 原则
 
@@ -44,7 +41,6 @@
 | L3 | 热点橱窗 | 构建时拉取 `cardsUrl`，最多 6 张卡片，点开回原站 |
 | — | 门户 | 三语静态页，左栏全球地图与卡片式节点目录（可筛区域、在线、热点），右栏加入申请 |
 | — | 申请与审核 | 申请表入库、邮件通知、管理员审核、生成清单条目 |
-| — | 跳转 | `root.xknot.si` 301 到 `wang.xknot.si` |
 
 ## 语言与区域
 
@@ -63,7 +59,7 @@
 
 | 里程碑 | 范围 |
 |--------|------|
-| M1 | 清单与校验、Vue 三语门户、L1 档案、L2 健康探测、区域筛选、`root` 跳转 |
+| M1 | 清单与校验、Vue 三语门户、L1 档案、L2 健康探测、区域筛选 |
 | M2 | L3 橱窗拉取、L2 活动数据、门户橱窗位 |
 | M3 | 加入申请、审核台、管理员账号、申请生成清单条目 |
 
@@ -87,7 +83,6 @@ xknot.si/
 │   ├── JOIN.md            加入说明：申请、域名与隧道
 │   └── federation.svg     架构图
 ├── ops/
-│   ├── root.xknot.si.conf 示范跳转的 nginx 配置
 │   ├── xknot.si.conf      门户与接口的 nginx 配置
 │   ├── dev.mjs            同时拉起接口与 Vite
 │   ├── check-health.mjs   健康探测，写 var/health.json
@@ -116,8 +111,9 @@ xknot.si/
 cd xknot.si
 npm run dev      # 接口 5181 + 门户开发服务器 5180
 npm run build    # 校验、探测、构建、写快照
-npm run test     # 单元测试（清单、页面、接口）
+npm run test     # 单元测试（清单、页面、接口、邮件）
 npm run admin -- create-admin paul   # 建审核账号
+npm run mail:test -- you@example.com # 用 SMTP_* 发一封测试信
 npm run deploy:api                   # 部署接口与审核台（需 XKNOT_EDGE）
 ```
 
@@ -134,7 +130,6 @@ npm run deploy:api                   # 部署接口与审核台（需 XKNOT_EDGE
 | [docs/JOIN.md](docs/JOIN.md) | 加入说明：申请流程、自有域名与签发子域、固定 IP 与隧道 |
 | [docs/federation.svg](docs/federation.svg) | 架构图 |
 | [instances.json](instances.json) | 实例清单 |
-| [ops/root.xknot.si.conf](ops/root.xknot.si.conf) | 示范跳转：`root.xknot.si` → `wang.xknot.si` |
 | [ops/xknot.si.conf](ops/xknot.si.conf) | 门户的 nginx 配置 |
 | [ops/check-health.mjs](ops/check-health.mjs) | 健康探测，写 `var/health.json` |
 | [ops/build-hub-data.mjs](ops/build-hub-data.mjs) | 合并清单与探测结果，写 `data/hub.json` |
