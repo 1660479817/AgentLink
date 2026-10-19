@@ -119,6 +119,50 @@ function fanArc(point) {
   return `M${point.x.toFixed(1)} ${point.y.toFixed(1)}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${HUB.x} ${HUB.y}`;
 }
 
+// 节点之间：将来按协议直接交换数据，不必每一条都绕到中枢。
+// 这里先把那张网的样子画出来——每个站挑最近的 2–4 个邻居连上，
+// 连几个按清单顺序轮流取，刷新、悬停都不会改变连法。
+const PEER_DEGREES = [2, 3, 4];
+
+const mesh = computed(() => {
+  const points = placed.value;
+  const seen = new Set();
+  const edges = [];
+  points.forEach((point, index) => {
+    const degree = PEER_DEGREES[index % PEER_DEGREES.length];
+    const neighbours = points
+      .map((other, otherIndex) => ({
+        otherIndex,
+        distance: Math.hypot(other.x - point.x, other.y - point.y),
+      }))
+      .filter((entry) => entry.otherIndex !== index)
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, degree);
+
+    for (const { otherIndex } of neighbours) {
+      // 两个站互相选中时只画一条，A–B 和 B–A 是同一根线。
+      const low = Math.min(index, otherIndex);
+      const high = Math.max(index, otherIndex);
+      const key = `${low}:${high}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const from = points[low];
+      const to = points[high];
+      edges.push({
+        id: key,
+        a: from.id,
+        b: to.id,
+        // 两头有一头没应答，这条交换路径此刻也只是理论上的。
+        status: from.status === "down" || to.status === "down" ? "down" : "up",
+        // 直连画直线：朝中心的橙线是弯的，形状上就把两套语义分开了。
+        d: `M${from.x.toFixed(1)} ${from.y.toFixed(1)}L${to.x.toFixed(1)} ${to.y.toFixed(1)}`,
+      });
+    }
+  });
+  return edges;
+});
+
 const online = computed(
   () => props.items.filter((item) => item.status === "up" || item.status === "degraded").length
 );
@@ -131,7 +175,11 @@ const legend = computed(() =>
 );
 
 const ariaLabel = computed(() =>
-  props.t("map.label", { total: props.items.length, online: online.value })
+  props.t("map.label", {
+    total: props.items.length,
+    online: online.value,
+    peers: mesh.value.length,
+  })
 );
 
 function label(item) {
@@ -193,6 +241,19 @@ function activate(id) {
 
         <path class="land" :d="LAND_PATH" />
         <path class="land-edge" :d="LAND_PATH" vector-effect="non-scaling-stroke" />
+
+        <!-- 节点之间：浅绿直线，表示协议直连、可就地交换数据。
+             画在橙色弧线下面，先有网，再谈汇入中枢。 -->
+        <g class="mesh">
+          <path
+            v-for="peer in mesh"
+            :key="peer.id"
+            class="peer"
+            :class="[peer.status, { active: activeId === peer.a || activeId === peer.b }]"
+            :d="peer.d"
+            vector-effect="non-scaling-stroke"
+          />
+        </g>
 
         <g class="links">
           <g v-for="link in links" :key="link.id">
@@ -259,7 +320,13 @@ function activate(id) {
     </div>
 
     <div class="map-foot">
-      <p class="hint">{{ t("map.hint") }}</p>
+      <p class="hint">
+        <span>{{ t("map.hint") }}</span>
+        <span class="peer-key">
+          <i class="peer-swatch" aria-hidden="true" />
+          {{ t("map.peer") }}
+        </span>
+      </p>
       <p v-if="unplaced.length" class="unplaced">
         <span class="unplaced-label">{{ t("map.global") }}</span>
         <button
@@ -360,6 +427,23 @@ function activate(id) {
   fill: none;
   stroke: var(--map-edge);
   stroke-width: 1;
+}
+
+/* 节点之间：浅绿细实线，直的。橙线弯着朝中心，绿线点对点，形状即语义。 */
+.peer {
+  fill: none;
+  stroke: var(--map-peer);
+  stroke-width: 1;
+}
+
+.peer.active {
+  stroke: var(--map-peer-active);
+  stroke-width: 1.4;
+}
+
+/* 两端有一头没应答，这条交换路径此刻也只是理论上的 */
+.peer.down {
+  opacity: 0.4;
 }
 
 /* 链路：半透明橙色长划线，从每个节点拉到联邦中心。
@@ -742,10 +826,27 @@ function activate(id) {
 }
 
 .hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem 0.7rem;
+  flex-wrap: wrap;
   font-family: var(--font-mono);
   font-size: 0.66rem;
   letter-spacing: 0.06em;
   color: var(--dim);
+}
+
+/* 绿线的图注：一小段线 + 一句解释，跟状态图例分开，不混进点的颜色里 */
+.peer-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.peer-swatch {
+  width: 14px;
+  height: 0;
+  border-top: 1px solid var(--map-peer-active);
 }
 
 /* 没有固定区域的节点（例如只做跳转的 root）：放到脚注，不硬塞到地图上 */

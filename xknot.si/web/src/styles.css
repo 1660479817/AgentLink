@@ -52,6 +52,9 @@
   /* 连线本身走半透明橙，虚线压在底图上不抢节点 */
   --map-link-line: rgba(232, 112, 28, 0.42);
   --map-link-line-active: rgba(232, 112, 28, 0.78);
+  /* 节点之间的直连：浅绿。和朝中心的橙是两套语义，别混成一种颜色 */
+  --map-peer: rgba(31, 168, 110, 0.4);
+  --map-peer-active: rgba(31, 168, 110, 0.7);
   /* 热点橱窗：比右栏的橙收一点，只做一块安静的琥珀色底 */
   --hot-ink: #a9520c;
   --hot-line: rgba(232, 112, 28, 0.24);
@@ -125,6 +128,8 @@
   --map-link-spark: #ffd6ad;
   --map-link-line: rgba(255, 154, 82, 0.4);
   --map-link-line-active: rgba(255, 154, 82, 0.82);
+  --map-peer: rgba(126, 231, 178, 0.24);
+  --map-peer-active: rgba(126, 231, 178, 0.56);
   --hot-ink: #ffb27a;
   --hot-line: rgba(255, 154, 82, 0.26);
   --hot-bg: rgba(255, 154, 82, 0.08);

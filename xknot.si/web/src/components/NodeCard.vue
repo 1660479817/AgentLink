@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 import ArrowUpRight from "../icons/ArrowUpRight.vue";
 import FlameIcon from "../icons/FlameIcon.vue";
@@ -63,6 +63,15 @@ const clockTitle = computed(() => {
 
 const bars = computed(() => ({ up: 4, degraded: 3, down: 1, unknown: 0 })[status.value] ?? 0);
 
+// 每个站一个字母/单字徽记，底色取自清单里的 themeColor，没配就用主色。
+// 有 logo 时用 logo，加载失败退回徽记。
+const initial = computed(() => (props.item.name || "?").trim().slice(0, 1).toUpperCase());
+const logoFailed = ref(false);
+const logo = computed(() => (props.item.logo && !logoFailed.value ? props.item.logo : null));
+const nodeStyle = computed(() => ({
+  "--node-color": props.item.themeColor || "var(--accent)",
+}));
+
 // 橱窗取第一条没过期的。卡片语言由伙伴决定，页面不翻译正文。
 const hot = computed(() => hotCard(props.item.cards, props.now));
 const hotState = computed(() => (hot.value ? cardState(hot.value.updatedAt, props.now) : null));
@@ -80,21 +89,36 @@ const hotMore = computed(() => {
   <article
     class="card"
     :id="`node-${item.id}`"
-    :class="{ 'is-active': active, 'has-hot': Boolean(hot) }"
+    :class="{ 'is-active': active }"
     :data-status="status"
-    :style="{ '--d': `${Math.min(index, 12) * 25}ms` }"
+    :style="[{ '--d': `${Math.min(index, 12) * 25}ms` }, nodeStyle]"
   >
     <header class="head">
-      <span class="bars" aria-hidden="true">
-        <i v-for="bar in 4" :key="bar" :class="{ on: bar <= bars }" />
+      <span class="badge" aria-hidden="true">
+        <img
+          v-if="logo"
+          class="badge-img"
+          :src="logo"
+          alt=""
+          loading="lazy"
+          decoding="async"
+          @error="logoFailed = true"
+        />
+        <template v-else>{{ initial }}</template>
       </span>
 
-      <h3 class="name-line">
-        <!-- 整张卡片都是入口：名称上的伪元素铺满卡片，橱窗链接浮在它上面。 -->
-        <a class="name" :href="item.url" rel="noopener noreferrer">{{ item.name }}</a>
-      </h3>
+      <span class="identity">
+        <span class="name-line">
+          <!-- 整张卡片都是入口：名称上的伪元素铺满卡片，橱窗链接浮在它上面。 -->
+          <a class="name" :href="item.url" rel="noopener noreferrer">{{ item.name }}</a>
+          <span class="tier">{{ t(`tier.${item.tier}`) }}</span>
+        </span>
+        <span class="place" :title="clockTitle">
+          <span class="place-time">{{ time || "—" }}</span>
+          <span>{{ region || t("region.other") }}<template v-if="offset"> · {{ offset }}</template></span>
+        </span>
+      </span>
 
-      <span class="tier">{{ t(`tier.${item.tier}`) }}</span>
       <ArrowUpRight class="arrow" aria-hidden="true" />
     </header>
 
@@ -121,11 +145,8 @@ const hotMore = computed(() => {
     </a>
 
     <footer class="foot">
-      <span class="clock" :title="clockTitle">
-        <span class="clock-time">{{ time || "—" }}</span>
-        <span class="clock-meta">
-          {{ region || t("region.other") }}<template v-if="offset"> · {{ offset }}</template>
-        </span>
+      <span class="bars" aria-hidden="true">
+        <i v-for="bar in 4" :key="bar" :class="{ on: bar <= bars }" />
       </span>
 
       <span class="state" :title="checked || undefined">
@@ -143,6 +164,7 @@ const hotMore = computed(() => {
   flex-direction: column;
   gap: 0.45rem;
   min-width: 0;
+  container-type: inline-size;
   padding: 0.8rem 0.9rem 0.7rem;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -203,46 +225,51 @@ const hotMore = computed(() => {
 /* ---------- 头部 ---------- */
 .head {
   display: flex;
-  align-items: center;
-  gap: 0.45rem;
+  align-items: flex-start;
+  gap: 0.6rem;
   min-width: 0;
 }
 
-.bars {
+/* 站点徽记：有 themeColor 就用它，没有落到主色。 */
+.badge {
   display: inline-flex;
   flex: 0 0 auto;
-  align-items: flex-end;
-  gap: 2px;
-  height: 13px;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--node-color) 38%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--node-color) 16%, transparent);
+  color: color-mix(in srgb, var(--node-color) 58%, var(--ink));
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
-.bars i {
-  width: 2px;
-  border-radius: 1px;
-  background: var(--bars-off);
+.badge-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--surface);
 }
 
-.bars i:nth-child(1) {
-  height: 4px;
-}
-.bars i:nth-child(2) {
-  height: 6px;
-}
-.bars i:nth-child(3) {
-  height: 9px;
-}
-.bars i:nth-child(4) {
-  height: 13px;
-}
-
-.bars i.on {
-  background: var(--status-color, var(--muted));
+.identity {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
 }
 
 .name-line {
-  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   min-width: 0;
-  font: inherit;
 }
 
 .name {
@@ -285,10 +312,31 @@ const hotMore = computed(() => {
   text-transform: uppercase;
 }
 
+/* 当地时间与区域：只占一行，窄了就省略，不换行撑高卡片。 */
+.place {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.place-time {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .arrow {
   flex: 0 0 auto;
   width: 12px;
   height: 12px;
+  margin-top: 0.25rem;
   color: var(--faint);
   transition:
     color 150ms ease,
@@ -406,42 +454,50 @@ const hotMore = computed(() => {
 /* ---------- 页脚 ---------- */
 .foot {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   margin-top: auto;
-  padding-top: 0.3rem;
+  padding-top: 0.45rem;
   border-top: 1px solid var(--line);
 }
 
-.clock {
-  display: flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  min-width: 0;
-  font-family: var(--font-mono);
-  white-space: nowrap;
+/* 信号条 */
+.bars {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 2px;
+  height: 13px;
 }
 
-.clock-time {
-  color: var(--ink);
-  font-size: 0.76rem;
-  font-variant-numeric: tabular-nums;
+.bars i {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--bars-off);
 }
 
-.clock-meta {
-  overflow: hidden;
-  color: var(--dim);
-  font-size: 0.6rem;
-  letter-spacing: 0.04em;
-  text-overflow: ellipsis;
+.bars i:nth-child(1) {
+  height: 4px;
+}
+.bars i:nth-child(2) {
+  height: 6px;
+}
+.bars i:nth-child(3) {
+  height: 9px;
+}
+.bars i:nth-child(4) {
+  height: 13px;
+}
+
+.bars i.on {
+  background: var(--status-color, var(--muted));
 }
 
 .state {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.02rem;
+  align-items: baseline;
+  gap: 0.35rem;
   min-width: 0;
   font-family: var(--font-mono);
   text-align: right;
@@ -470,9 +526,9 @@ const hotMore = computed(() => {
   }
 }
 
-/* 卡片很窄时（单列长文案），页脚退回上下两行，状态贴右。 */
+/* 卡片很窄时把语言码收掉，留住标题与时间。 */
 @container (max-width: 250px) {
-  .clock-meta {
+  .hot-lang {
     display: none;
   }
 }
@@ -484,6 +540,12 @@ const hotMore = computed(() => {
 
   .name {
     font-size: 1.02rem;
+  }
+
+  .badge {
+    width: 38px;
+    height: 38px;
+    font-size: 1.05rem;
   }
 }
 

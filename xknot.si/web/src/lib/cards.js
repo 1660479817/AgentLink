@@ -4,7 +4,7 @@
 // 门户能安全渲染的部分：标题、摘要、https 链接与生成时间。正文不进页面，点开回原站。
 // 字段上限与联邦文档一致；超长截断，不合规的整条丢掉，不做猜测性修补。
 
-export const CARD_LIMIT = 3;
+export const CARD_LIMIT = 6;
 export const TITLE_MAX = 80;
 export const SUMMARY_MAX = 160;
 export const ID_MAX = 64;

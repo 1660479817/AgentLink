@@ -44,8 +44,7 @@ test("a locale with no variant falls back to English", () => {
   assert.equal(item.name, "Knot Travel SG");
 });
 
-test("a missing health entry reads as unknown, not down", () => {
-  const [item] = buildView({ instances: [instance({ health: null })] }, { locale: "en" });
+test("a missing health entry reads as unknown, not down", () => {  const [item] = buildView({ instances: [instance({ health: null })] }, { locale: "en" });
   assert.equal(item.health.status, "unknown");
   assert.equal(item.health.lastOkAt, null);
 });
@@ -114,6 +113,20 @@ test("the filter offers only groups that are actually used, in fixed order", () 
 test("an empty snapshot renders an empty list", () => {
   assert.deepEqual(buildView({ instances: [] }, { locale: "en" }), []);
   assert.deepEqual(buildView(null, { locale: "en" }), []);
+});
+
+test("cards reach the view, and an instance without cards gets an empty list", () => {
+  const view = buildView(
+    {
+      instances: [
+        instance({ id: "with", cards: [{ id: "c", title: "Note", url: "https://a.test/n" }] }),
+        instance({ id: "without" }),
+      ],
+    },
+    { locale: "en" }
+  );
+  assert.equal(view[0].cards[0].title, "Note");
+  assert.deepEqual(view[1].cards, []);
 });
 
 test("summary counts nodes, regions and reachable nodes", () => {

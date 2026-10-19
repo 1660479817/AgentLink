@@ -53,6 +53,7 @@
     "never": "從未可達",
     "listed": "共 {count} 個",
     "empty": "還沒有收錄的實例。",
+    "emptyFiltered": "沒有符合目前篩選的站點。",
     "checked": "探測於 {when}",
     "tomorrow": "當地已是次日",
     "yesterday": "當地還是前一日"
@@ -92,8 +93,9 @@
     "zh-TW": "繁體中文"
   },
   "map": {
-    "label": "聯邦地圖：{total} 個節點，{online} 個可達",
+    "label": "聯邦地圖：{total} 個節點，{online} 個可達，{peers} 條節點間直連",
     "hint": "點一個節點，跳到它那一列",
+    "peer": "綠線為節點間協議直連，資料可就地交換，不必繞中樞",
     "title": "全球節點分佈",
     "global": "無固定區域",
     "hub": "聯邦中心"

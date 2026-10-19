@@ -251,7 +251,7 @@ onBeforeUnmount(() => {
 
                 <div class="dir-controls">
                   <button
-                    v-if="hotCount"
+                    v-if="hotCount || hotOnly"
                     type="button"
                     class="switch hot-switch"
                     role="switch"
@@ -308,7 +308,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div v-else-if="!visible.length" class="notice">
-              <p>{{ t("instance.empty") }}</p>
+              <p>{{ view.length ? t("instance.emptyFiltered") : t("instance.empty") }}</p>
             </div>
 
             <div v-else class="cards">

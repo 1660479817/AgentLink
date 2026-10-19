@@ -14,7 +14,8 @@ venv/
 *.log
 var/
 data/uploads/
+# 本地截图与预览产物，只在本机看，不进仓库
+.tmp-review/
 ops/env/*.local.env
 ops/profiles/*.local.env
 ops/deploy.env
-.tmp-review/

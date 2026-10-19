@@ -124,7 +124,7 @@ curl -skI --resolve zenheart.net:443:54.169.33.64 https://zenheart.net/         
 
 ## 父仓脚本默认主机
 
-`AgentLink/ops/scripts/push-edge.sh`、`push-discover.sh`、`run-edge-tunnel.sh` 不写死边缘主机，都从 `ops/deploy.env` 的 `KNOT_EDGE_SSH` 读取；作者站点当前的配置见 `AgentLink/ops/README.md` 的示例一节。隧道用户 `knot-tunnel@` 需在 SG 上另行开通后再用隧道脚本。
+`AgentLink/ops/scripts/push-edge.sh`、`push-discover.sh`、`run-edge-tunnel.sh` 默认边缘已改为 `54.169.33.64`（仍可用 `KNOT_EDGE_SSH` / `KNOT_EDGE_HOST` 覆盖）。隧道用户 `knot-tunnel@` 需在 SG 上另行开通后再用隧道脚本。
 
 ## 禁止
 

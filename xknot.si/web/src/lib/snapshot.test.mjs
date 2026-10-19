@@ -67,6 +67,22 @@ test("an empty or missing manifest yields an empty snapshot", () => {
   assert.deepEqual(buildHubData(null, null).instances, []);
 });
 
+test("cards come from var/cards by instance id", () => {
+  const data = buildHubData(
+    { instances: [{ id: "a", name: { en: "A" }, url: "https://a.test" }, { id: "b", name: { en: "B" }, url: "https://b.test" }] },
+    {},
+    new Date("2026-10-19T08:00:00Z"),
+    {
+      a: {
+        generatedAt: "2026-10-19T06:00:00.000Z",
+        cards: [{ title: "Note", url: "https://a.test/n", lang: "en" }],
+      },
+    }
+  );
+  assert.equal(data.instances[0].cards[0].title, "Note");
+  assert.deepEqual(data.instances[1].cards, []);
+});
+
 test("logo paths resolve from the site root", () => {
   const data = buildHubData(
     {

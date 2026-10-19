@@ -40,7 +40,7 @@
 | L1 | 站点档案 | 名称、简介、区域、语言、运营方、联系方式、接口地址 |
 | L2 | 运行状态 | 构建时探测 `/api/health`，给出健康点、上次正常时间、可用率 |
 | L3 | 热点橱窗 | 构建时拉取 `cardsUrl`，最多 6 张卡片，点开回原站 |
-| — | 门户 | 三语静态页，左栏实例列表与区域筛选，右栏加入申请 |
+| — | 门户 | 三语静态页，左栏全球地图与卡片式节点目录（可筛区域、在线、热点），右栏加入申请 |
 | — | 申请与审核 | 申请表入库、管理员审核、生成清单条目 |
 | — | 跳转 | `root.xknot.si` 301 到 `knot.zenheart.net` |
 
@@ -74,7 +74,7 @@ xknot.si/
 ├── README.md              本文件：联邦入口与原则
 ├── package.json           本项目的脚本：dev / build / test / deploy / admin
 ├── instances.json         实例清单（唯一的人工编辑入口）
-├── fixtures/              版式样例：十条伙伴条目，只并入 --preview 构建
+├── fixtures/              版式样例：十条伙伴条目与橱窗，只并入 --preview 构建
 ├── server/                接口：申请、管理员、审核、清单条目（SQLite，无外部依赖）
 ├── admin/                 审核台静态页，/admin/ 下使用
 ├── docs/
@@ -101,7 +101,7 @@ xknot.si/
     ├── index.html         / 跳转
     ├── en/ zh-CN/ zh-TW/  三个语种的 HTML 入口
     ├── public/logos/      实例 LOGO
-    ├── src/               Vue 源码：App、components（地图、条目、申请表）、lib、locales
+    ├── src/               Vue 源码：App、components（地图、卡片、申请表）、lib、locales
     └── dist/              构建产物（不入版本库）
 ```
 

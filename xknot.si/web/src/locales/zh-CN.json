@@ -53,6 +53,7 @@
     "never": "从未可达",
     "listed": "共 {count} 个",
     "empty": "还没有收录的实例。",
+    "emptyFiltered": "没有符合当前筛选的站点。",
     "checked": "探测于 {when}",
     "tomorrow": "当地已是次日",
     "yesterday": "当地还是前一日"
@@ -92,8 +93,9 @@
     "zh-TW": "繁體中文"
   },
   "map": {
-    "label": "联邦地图：{total} 个节点，{online} 个可达",
+    "label": "联邦地图：{total} 个节点，{online} 个可达，{peers} 条节点间直连",
     "hint": "点一个节点，跳到它那一行",
+    "peer": "绿线为节点间协议直连，数据可就地交换，不必绕中枢",
     "title": "全球节点分布",
     "global": "无固定区域",
     "hub": "联邦中心"

@@ -53,6 +53,7 @@
     "never": "Never reached",
     "listed": "{count} listed",
     "empty": "No instances listed yet.",
+    "emptyFiltered": "No sites match the current filters.",
     "checked": "Checked {when}",
     "tomorrow": "next day locally",
     "yesterday": "previous day locally"
@@ -92,8 +93,9 @@
     "zh-TW": "繁體中文"
   },
   "map": {
-    "label": "Federation map: {total} nodes, {online} reachable",
+    "label": "Federation map: {total} nodes, {online} reachable, {peers} node-to-node links",
     "hint": "Select a node to jump to its entry",
+    "peer": "Green: direct node-to-node links, so data can move without the hub",
     "title": "Global nodes",
     "global": "No fixed region",
     "hub": "Federation hub"
