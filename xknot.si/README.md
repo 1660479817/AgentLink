@@ -1,6 +1,6 @@
-# Knot 联邦
+# XKnot 联邦
 
-`xknot.si` 是 Knot 联邦的中枢。**Knot 联邦 —— Agent 时代的分布式信息网络。**
+`xknot.si` 是 XKnot 联邦的中枢。**XKnot 联邦 —— 面向 AI 与 Agent 时代的去中心化分布式信息网络。**
 
 中枢是只读入口，持有三类信息：**站点档案、运行状态、热点橱窗**。用户、内容、积分、审核和收费都在各实例自己的部署里。
 
@@ -10,28 +10,31 @@
 - 契约与字段：[docs/FEDERATION.md](docs/FEDERATION.md)
 - 语种与区域：[docs/I18N.md](docs/I18N.md)
 - 实现与部署：[docs/HUB.md](docs/HUB.md)
+- 本地部署与端到端测试：[docs/E2E.md](docs/E2E.md)
 - 加入说明：[docs/JOIN.md](docs/JOIN.md)
 
 ![xknot.si 中枢架构](docs/federation.svg)
 
 ## 拓扑
 
-| 子域 | 运营方 | 职责 |
-|------|--------|------|
-| `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
-| `wang.xknot.si` | 自营 | 旗舰实例（`tier=partner`） |
-| `zjj.xknot.si` | 伙伴 zjj | 社区成员，动态 IP 经边缘隧道接入 |
-| `travel.xknot.si` | OPC 伙伴 | 旅行垂直（版式示例，尚未上线） |
-| `ai.xknot.si` | OPC 伙伴 | AI 垂直（版式示例，尚未上线） |
+名册数据在 [`federation.json`](federation.json)：谁是创始实例、子域怎么来、怎么接入、隧道账号与端口。下表只是它的一个视图；改动先改名册，再同步本节。
 
-`xknot.si` 是联盟门户本身；其余子域是**伙伴站点**，每个跑一套用 `knot-platform` 完整部署的 Knot（WebUI + Backend + OpenClaw 配套）：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与门户单线联系，门户只读。
+| 子域 | 身份 | 职责 |
+|------|------|------|
+| `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
+| `wang.xknot.si` | 创始实例 | XKnot 项目创始人的实例，永久账号，不适用下架；`tier=partner` |
+| `zjj.xknot.si` | 伙伴实例 | 社区成员，动态 IP 经边缘隧道接入（子域已签发，隧道待接通） |
+| `travel.xknot.si` | 预留 | 旅行垂直（版式示例，尚未上线） |
+| `ai.xknot.si` | 预留 | AI 垂直（版式示例，尚未上线） |
+
+`xknot.si` 是联盟门户本身；其余子域是**实例**，每个跑一套用 `knot-platform` 完整部署的 Knot（WebUI + Backend + OpenClaw 配套）：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与门户单线联系，门户只读。
 
 ## 原则
 
 1. **实例自治。** 数据、账号、积分、审核和收费归实例。
-2. **中枢只读。** 网络视图不写实例；唯一的写入口是加入申请，审核通过后才由人改清单。
+2. **中枢只读。** 网络视图不写实例；数据侧的写入口只有加入申请，审核通过后才由人改清单。另有一项委托发信，只把信交给 SMTP，不改任何数据。
 3. **入口回原站。** 每个入口和每张橱窗卡片都跳回来源站点。
-4. **一份清单。** `instances.json` 是实例身份的唯一真源。
+4. **两份数据，各管一段。** `federation.json` 记成员身份与接入事实（谁在、什么身份、子域怎么来、隧道账号与端口）；`instances.json` 记门户对外展示的字段。两份互相校验，对不上就不构建。
 
 ## 中枢提供的能力
 
@@ -39,9 +42,11 @@
 |----|------|------|
 | L1 | 站点档案 | 名称、简介、区域、语言、运营方、联系方式、接口地址 |
 | L2 | 运行状态 | 构建时探测 `/api/health`，给出健康点、上次正常时间、可用率 |
+| L2 | 活动数据 | 构建时拉取 `statsUrl`，只取窗口计数，页面上标「伙伴公开的数据」 |
 | L3 | 热点橱窗 | 构建时拉取 `cardsUrl`，最多 6 张卡片，点开回原站 |
-| — | 门户 | 三语静态页，左栏全球地图与卡片式节点目录（可筛区域、在线、热点），右栏加入申请 |
+| — | 门户 | 三语静态页，左栏全球地图与卡片式实例目录（可筛区域、在线、热点），右栏加入申请 |
 | — | 申请与审核 | 申请表入库、邮件通知、管理员审核、生成清单条目 |
+| — | 委托发信 | 实例凭 Bearer 凭据委托中枢的 SMTP 发纯文本通知，带独立额度与发信记录 |
 
 ## 语言与区域
 
@@ -72,7 +77,8 @@
 xknot.si/
 ├── README.md              本文件：联邦入口与原则
 ├── package.json           本项目的脚本：dev / build / test / deploy / admin
-├── instances.json         实例清单（唯一的人工编辑入口）
+├── instances.json         实例清单：门户对外字段（唯一的人工编辑入口）
+├── federation.json        联邦名册：成员身份、子域来源、接入方式、隧道账号与端口
 ├── fixtures/              版式样例：十条伙伴条目与橱窗，只并入 --preview 构建
 ├── server/                接口：申请、管理员、审核、清单条目（SQLite，无外部依赖）
 ├── admin/                 审核台静态页，/admin/ 下使用
@@ -81,20 +87,27 @@ xknot.si/
 │   ├── I18N.md            国际化与区域：语种、回退、区域分组
 │   ├── FEDERATION.md      中枢与实例的契约
 │   ├── HUB.md             中枢的实现、运行与验收
+│   ├── E2E.md             本地部署形态、测试分层与覆盖矩阵
 │   ├── JOIN.md            加入说明：申请、域名与隧道
 │   └── federation.svg     架构图
+├── e2e/                   端到端测试：接口/发信用 node --test，页面用 Playwright
 ├── ops/
 │   ├── xknot.si.conf      门户与接口的 nginx 配置
 │   ├── dev.mjs            同时拉起接口与 Vite
+│   ├── local-hub.mjs      本机边缘：静态站与 /api /admin 反代（对齐 nginx）
+│   ├── local-stack.mjs    本地部署编排：接口 + 边缘，端到端也用它起栈
+│   ├── deploy-local.sh    一键本地部署：校验、构建、启动
 │   ├── check-health.mjs   健康探测，写 var/health.json
-│   ├── build-hub-data.mjs 合并清单与探测结果，写 data/hub.json
-│   ├── fetch-cards.mjs    橱窗拉取，写 var/cards/（M2）
-│   ├── build-hub.sh       本机构建：校验、探测、构建、写快照
+│   ├── fetch-cards.mjs    橱窗拉取，写 var/cards/{id}.json
+│   ├── fetch-stats.mjs    活动数据拉取，写 var/stats/{id}.json
+│   ├── build-hub-data.mjs 合并清单、探测、活动数据与橱窗，写 data/hub.json
+│   ├── build-hub.sh       本机构建：校验、探测、拉取、构建、写快照
 │   ├── build-world-dots.mjs  生成世界底图（web/src/lib/world.js）
 │   ├── deploy-hub.sh      可选的静态站同步（目标由环境变量给出）
 │   ├── deploy-api.sh      中枢接口、审核台与站点配置的同步
 │   ├── README-deploy-aws.md  中枢托管主机的部署笔记
-│   └── validate-instances.mjs  清单校验
+│   ├── validate-instances.mjs  清单校验
+│   └── validate-federation.mjs 名册校验（与清单交叉核对）
 ├── var/                   生成物：探测结果、申请库、会话密钥（不入版本库）
 └── web/                   Vue 门户，独立安装与构建
     ├── package.json       自己的依赖与脚本
@@ -112,7 +125,10 @@ xknot.si/
 cd xknot.si
 npm run dev      # 接口 5181 + 门户开发服务器 5180
 npm run build    # 校验、探测、构建、写快照
-npm run test     # 单元测试（清单、页面、接口、邮件）
+npm run deploy:local                 # 本机按线上形态跑：接口 + 边缘，Ctrl-C 一起停
+npm run test     # 单元测试（清单、名册、页面、接口、邮件）
+npm run test:e2e # 接口端到端：真 HTTP、SQLite、SMTP 会话与 CLI
+npm run test:ui  # 浏览器端到端：门户、申请表、审核台（首次先装 e2e 依赖）
 npm run admin -- create-admin paul   # 建审核账号
 npm run mail:test -- you@example.com # 用 SMTP_* 发一封测试信
 npm run deploy:api                   # 部署接口与审核台（需 XKNOT_EDGE）
@@ -128,33 +144,40 @@ npm run deploy:api                   # 部署接口与审核台（需 XKNOT_EDGE
 | [docs/I18N.md](docs/I18N.md) | 国际化：语种、回退链、区域分组、URL 与验收 |
 | [docs/FEDERATION.md](docs/FEDERATION.md) | 契约：L1 字段、L2 判定、L3 橱窗格式、收录与下架 |
 | [docs/HUB.md](docs/HUB.md) | 中枢的实现、运行形态和验收清单 |
+| [docs/E2E.md](docs/E2E.md) | 本地部署形态、测试分层、覆盖矩阵与排障 |
 | [docs/JOIN.md](docs/JOIN.md) | 加入说明：申请流程、自有域名与签发子域、固定 IP 与隧道 |
 | [docs/federation.svg](docs/federation.svg) | 架构图 |
-| [instances.json](instances.json) | 实例清单 |
+| [instances.json](instances.json) | 实例清单：门户对外字段 |
+| [federation.json](federation.json) | 联邦名册：成员身份、子域来源、接入方式、隧道账号与端口 |
 | [ops/xknot.si.conf](ops/xknot.si.conf) | 门户的 nginx 配置 |
 | [ops/check-health.mjs](ops/check-health.mjs) | 健康探测，写 `var/health.json` |
 | [ops/build-hub-data.mjs](ops/build-hub-data.mjs) | 合并清单与探测结果，写 `data/hub.json` |
+| [ops/local-hub.mjs](ops/local-hub.mjs) | 本机边缘：静态站、安全头与反代，对齐 nginx |
+| [ops/local-stack.mjs](ops/local-stack.mjs) | 本地部署编排：临时数据目录、随机端口、起停 |
+| [ops/deploy-local.sh](ops/deploy-local.sh) | 一键本地部署 |
+| [e2e/](e2e) | 端到端测试：`*.e2e.test.mjs` 与 `browser/*.spec.mjs` |
 | [ops/deploy-api.sh](ops/deploy-api.sh) | 同步中枢接口、审核台与站点配置 |
 | [ops/build-hub.sh](ops/build-hub.sh) | 本机构建：校验、探测、构建、写快照 |
 | [ops/deploy-hub.sh](ops/deploy-hub.sh) | 可选的远端同步，目标由环境变量给出 |
 | [ops/validate-instances.mjs](ops/validate-instances.mjs) | 清单校验，不过不构建 |
+| [ops/validate-federation.mjs](ops/validate-federation.mjs) | 名册校验：枚举、账号与端口唯一、与清单一一对应 |
 | [web/src/lib/i18n.js](web/src/lib/i18n.js) | 语言解析、按字段回退、相对时间 |
 | [web/src/lib/regions.js](web/src/lib/regions.js) | 国家代码到区域分组 |
 | [web/src/lib/hub.js](web/src/lib/hub.js) | 快照到页面视图 |
 
-中枢的代码放在本目录，不并进 `knot-platform/`。本仓库里的另外两处属于**实例侧**，与本项目互不引用：
+中枢的代码放在本目录，不并进 `knot-platform/`。仓库里另外两个位置与本项目互不引用：
 
 | 位置 | 内容 |
 |------|------|
-| [`knot-platform/`](../knot-platform) | 实例实现：Backend、WebUI 与共享包。`xxx.xknot.si` 跑的就是它 |
+| [`knot-platform/`](../knot-platform) | **独立项目**：实例实现，Backend、WebUI 与共享包。`xxx.xknot.si` 跑的就是它 |
 | [`knot-platform/ops/`](../knot-platform/ops) | 实例的部署、边缘、备份、巡检脚本；子域边缘模板在 `ops/edge/` |
-| [`docs/`](../docs) | 跨项目文档：命名、部署配置 |
+| [`docs/`](../docs) | **根公共资产**：版权与商标、LOGO 母版、API 入口索引、联邦层文档；不属于实例侧 |
 
 方向是单向的：中枢只按清单探测实例的公网 `healthUrl`，不读实例的代码、库或进程；实例也不改中枢的清单。子域签发与清单登记是这里的策略（[docs/JOIN.md](docs/JOIN.md)），而边缘与隧道怎么落地是实例侧的事（[`knot-platform/ops/edge/README.md`](../knot-platform/ops/edge/README.md)）。
 
 ## 收录与收费
 
-收录免费，但改成了申请制。门户右侧填表，运营者在 `/admin/` 审核，通过后执行 `npm run admin -- publish <id>` 写进 `instances.json`，再构建上线。申请只进队列；新申请会邮件提醒管理员，审核结果会按申请表里的联系邮箱寄给申请人，但不会自动改动任何已上线条目。
+收录免费，但改成了申请制。门户右侧填表，运营者在 `/admin/` 审核，通过后执行 `npm run admin -- publish <id>` 写进 `instances.json`，再在 `federation.json` 补一条同名 `id` 的名册成员，然后构建上线。申请只进队列；新申请会邮件提醒管理员，审核结果会按申请表里的联系邮箱寄给申请人，但不会自动改动任何已上线条目。创始实例（`wang`）是永久账号，不适用下架。
 
 收费不在中枢发生。`*.xknot.si` 子域、部署、升级、备份和故障响应是单独的服务，中枢不处理订单、不扣费、不分账。
 

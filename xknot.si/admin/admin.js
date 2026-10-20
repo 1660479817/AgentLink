@@ -304,6 +304,8 @@ function renderDetail(item) {
             });
             state.selected = data.application;
             state.manifest = null;
+            // 审核成功后必须解除忙碌态，否则「生成」与三个审核键会一直是灰的。
+            state.busy = false;
             await loadApplications();
           } catch {
             state.error = "审核没有保存，请重试。";
@@ -379,8 +381,8 @@ function renderDetail(item) {
                 el("pre", { tabindex: "0" }, manifest),
                 el("button", {
                   type: "button",
-                  class: "btn",
-                  style: "margin-top:0.5rem",
+                  // 审核台 CSP 是 style-src 'self'，行内 style 会被拦，样式放 CSS 里。
+                  class: "btn btn-copy",
                   onclick: async () => {
                     try {
                       await navigator.clipboard.writeText(manifest);

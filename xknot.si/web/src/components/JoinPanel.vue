@@ -256,8 +256,9 @@ onMounted(() => {
           :maxlength="LIMITS.intro"
           :placeholder="t('form.introPlaceholder')"
           :aria-invalid="Boolean(errors.intro)"
+          :aria-describedby="errors.intro ? 'join-intro-error' : undefined"
         />
-        <p v-if="errors.intro" class="field-error">{{ fieldError("intro") }}</p>
+        <p v-if="errors.intro" id="join-intro-error" class="field-error">{{ fieldError("intro") }}</p>
       </div>
 
       <div class="pair">
@@ -271,8 +272,9 @@ onMounted(() => {
             :maxlength="LIMITS.operator"
             :placeholder="t('form.operatorPlaceholder')"
             :aria-invalid="Boolean(errors.operator)"
+            :aria-describedby="errors.operator ? 'join-operator-error' : undefined"
           />
-          <p v-if="errors.operator" class="field-error">{{ fieldError("operator") }}</p>
+          <p v-if="errors.operator" id="join-operator-error" class="field-error">{{ fieldError("operator") }}</p>
         </div>
 
         <div class="field">
@@ -285,8 +287,9 @@ onMounted(() => {
             :maxlength="LIMITS.email"
             placeholder="you@example.com"
             :aria-invalid="Boolean(errors.email)"
+            :aria-describedby="errors.email ? 'join-email-error' : undefined"
           />
-          <p v-if="errors.email" class="field-error">{{ fieldError("email") }}</p>
+          <p v-if="errors.email" id="join-email-error" class="field-error">{{ fieldError("email") }}</p>
         </div>
       </div>
 
@@ -297,13 +300,14 @@ onMounted(() => {
             id="join-region"
             v-model="form.region"
             :aria-invalid="Boolean(errors.region)"
+            :aria-describedby="errors.region ? 'join-region-error' : undefined"
           >
             <option value="" disabled>{{ t("form.regionPlaceholder") }}</option>
             <option v-for="option in regionOptions" :key="option.code" :value="option.code">
               {{ option.label }}
             </option>
           </select>
-          <p v-if="errors.region" class="field-error">{{ fieldError("region") }}</p>
+          <p v-if="errors.region" id="join-region-error" class="field-error">{{ fieldError("region") }}</p>
         </div>
 
         <div class="field">
@@ -316,12 +320,13 @@ onMounted(() => {
             autocomplete="off"
             spellcheck="false"
             :aria-invalid="Boolean(errors.timezone)"
+            aria-describedby="join-timezone-help"
           />
           <datalist id="join-timezone-list">
             <option v-for="zone in timezones" :key="zone" :value="zone" />
           </datalist>
-          <p v-if="errors.timezone" class="field-error">{{ fieldError("timezone") }}</p>
-          <p v-else class="field-hint">{{ t("form.timezoneHint") }}</p>
+          <p v-if="errors.timezone" id="join-timezone-help" class="field-error">{{ fieldError("timezone") }}</p>
+          <p v-else id="join-timezone-help" class="field-hint">{{ t("form.timezoneHint") }}</p>
         </div>
       </div>
 
@@ -336,8 +341,9 @@ onMounted(() => {
           type="text"
           :placeholder="t('form.tagsPlaceholder')"
           :aria-invalid="Boolean(errors.tags)"
+          :aria-describedby="errors.tags ? 'join-tags-error' : undefined"
         />
-        <p v-if="errors.tags" class="field-error">{{ fieldError("tags") }}</p>
+        <p v-if="errors.tags" id="join-tags-error" class="field-error">{{ fieldError("tags") }}</p>
       </div>
 
       <!-- 蜜罐：屏幕阅读器与键盘都跳过，填了就说明是脚本。 -->
@@ -788,10 +794,13 @@ h2 {
     gap: 0.46rem;
   }
 
-  .field input,
-  .field textarea,
-  .field select {
-    min-height: 38px;
+  /* 只在桌面窄右栏压缩高度；手机上仍按上面的 44px 触控尺寸。 */
+  @media (min-width: 901px) {
+    .field input,
+    .field textarea,
+    .field select {
+      min-height: 38px;
+    }
   }
 }
 

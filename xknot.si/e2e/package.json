@@ -1,0 +1,17 @@
+{
+  "name": "xknot-e2e",
+  "version": "0.1.0",
+  "description": "xknot.si 浏览器端到端测试（独立安装，不进主项目运行依赖）",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "install:browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.57.0"
+  }
+}

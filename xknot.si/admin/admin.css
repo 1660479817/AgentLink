@@ -476,6 +476,10 @@ a {
   color: var(--muted);
 }
 
+.snippet .btn-copy {
+  margin-top: 0.5rem;
+}
+
 .snippet pre {
   max-height: 260px;
   margin: 0;

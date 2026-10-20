@@ -57,6 +57,10 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    // 字体不进 data: URI。门户的 CSP 是 `font-src 'self'`（ops/xknot.si.conf），
+    // 内联后浏览器会按 CSP 拦掉，字就悄悄退回系统字体。
+    assetsInlineLimit: (filePath) =>
+      filePath.endsWith(".woff2") || filePath.endsWith(".woff") ? false : undefined,
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL("./index.html", import.meta.url)),

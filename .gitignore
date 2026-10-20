@@ -16,7 +16,26 @@ var/
 data/uploads/
 # 本地截图与预览产物，只在本机看，不进仓库
 .tmp-review/
-# 站点配置：只有模板进版本库，真实站点目录都留在本机
-knot-platform/sites/*/**
-!knot-platform/sites/_template/**
+# 同步工具产生的冲突副本与手工备份，只留本机
+*.sync-conflict-*
+*.bak
+*.bak-*
+# 站点配置：只有模板进版本库。真实站点目录（bot01 这类开发者自己的实例）
+# 和所有 *.local.env 覆盖层只留在本机，不进仓库、不进发布包。
+knot-platform/sites/*
+!knot-platform/sites/_template/
+knot-platform/sites/_template/*
+!knot-platform/sites/_template/site.env
+!knot-platform/sites/_template/platform.env
 *.local.env
+
+# 发布包只留本机
+knot-platform/artifacts/
+knot-platform/releases/
+# local 站点把仓库当部署根，这两个是 deploy-site.sh 的产物
+knot-platform/current
+knot-platform/deployed.json
+
+# 端到端产物：失败截图、trace 与 HTML 报告只在本机看
+xknot.si/e2e/report/
+xknot.si/e2e/test-results/

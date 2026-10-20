@@ -7,14 +7,19 @@
 | 部件 | 形态 | 说明 |
 |------|------|------|
 | 门户 | Vue 静态站 | Vue 3 + Vite，三语入口，运行时读取 `/data/hub.json` |
-| 接口 | Node 常驻进程 | `POST /api/applications` 收加入申请，`/api/admin/*` 供审核台使用 |
+| 接口 | Node 常驻进程 | `POST /api/applications` 收加入申请，`/api/admin/*` 供审核台使用，`/api/federation/mail` 代实例发信 |
 | 审核台 | 静态页 + 接口 | `/admin/`，管理员登录后看申请、做审核、取清单条目 |
-| 申请存储 | SQLite | `var/xknot.db`，表 `applications`、`admins`、`sessions`、`events` |
+| 申请存储 | SQLite | `var/xknot.db`，表 `applications`、`admins`、`sessions`、`events`、`relay_tokens`、`relay_log` |
 | 健康探测 | 构建步骤 | 构建时探测一次，写 `var/health.json` |
-| 数据快照 | 构建步骤 | 合并清单与探测结果，写 `dist/data/hub.json` |
-| 橱窗拉取 | 构建步骤（M2） | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
+| 活动数据拉取 | 构建步骤 | 构建时拉取 `statsUrl`，写 `var/stats/{id}.json` |
+| 数据快照 | 构建步骤 | 合并清单、探测、活动数据与橱窗，写 `dist/data/hub.json` |
+| 橱窗拉取 | 构建步骤 | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
 
-门户本身仍然是静态文件，所有实例数据在构建时写入。唯一的写入口是加入申请：它不写 `instances.json`，只进审核队列；审核通过后由人或命令行把条目写进清单，再重新构建。申请接口不能改变任何已上线的条目。
+门户本身仍然是静态文件，所有实例数据在构建时写入。数据侧唯一的写入口是加入申请：它不写 `instances.json`，只进审核队列；审核通过后由人或命令行把条目写进清单，再重新构建。申请接口不能改变任何已上线的条目。
+
+对外展示字段与网络成员事实分开存放：`instances.json` 供门户渲染，`federation.json` 记创始实例、子域来源、接入方式与隧道账号端口。后者不参与渲染，只在构建前与前者交叉校验。
+
+接口侧另有一条委托发信（`POST /api/federation/mail`），它不写清单也不写快照，只把一封信交给中枢的 SMTP；见 [FEDERATION.md](FEDERATION.md) 第 7 节。
 
 项目与 bot01 无关：安装、构建、预览和测试都在本机完成。
 
@@ -25,18 +30,20 @@ xknot.si/
 ├── README.md              联邦入口
 ├── package.json           本项目的脚本：dev / build / test / deploy / admin
 ├── instances.json         实例清单（唯一的人工编辑入口）
+├── federation.json        联邦名册：成员身份、子域来源、接入方式、隧道账号与端口
 ├── fixtures/              版式样例：十条伙伴条目、探测与橱窗样例，只在 --preview 下并入
 ├── server/
 │   ├── index.mjs          接口进程入口，只监听 127.0.0.1:5181
 │   ├── app.mjs            路由、同源检查、限流、Cookie
-│   ├── store.mjs          SQLite：申请、管理员、会话、事件
+│   ├── store.mjs          SQLite：申请、管理员、会话、事件、发信凭据与记录
 │   ├── validate.mjs       申请表字段校验（纯函数）
 │   ├── manifest.mjs       申请 → instances.json 条目，生成后自检
+│   ├── relay.mjs          委托发信的字段校验与消息组装（纯函数）
 │   ├── mail.mjs           SMTP 客户端（net/tls，无外部依赖）与邮件组装
 │   ├── notify.mjs         新申请、审核结果的三语通知正文
 │   ├── mail-test.mjs      发一封测试信（npm run mail:test）
-│   ├── admin-cli.mjs      建管理员、列申请、生成条目、写入清单
-│   └── app.test.mjs       接口与审核流程测试
+│   ├── admin-cli.mjs      建管理员、列申请、生成条目、签发发信凭据
+│   └── *.test.mjs         接口、审核与发信流程测试
 ├── admin/
 │   ├── index.html         审核台入口，不参与 Vite 构建
 │   ├── admin.js           登录、列表、审核、清单片段
@@ -47,23 +54,30 @@ xknot.si/
 │   ├── FEDERATION.md      中枢与实例的契约
 │   ├── HUB.md             本文件
 │   ├── JOIN.md            加入说明：申请、域名与隧道
-│   └── federation.svg     架构图
+│   ├── HANDOFF.md         子域签发到实例接通的交付单
+│   ├── federation.svg     架构图
+│   └── handoff-flow.svg   交接示意图（配 HANDOFF.md）
 ├── ops/
 │   ├── xknot.si.conf            门户与接口的 nginx 配置
 │   ├── dev.mjs                  同时拉起接口与 Vite
 │   ├── check-health.mjs         健康探测，写 var/health.json
-│   ├── build-hub-data.mjs       合并清单、探测与橱窗，写 data/hub.json
+│   ├── build-hub-data.mjs       合并清单、探测、活动数据与橱窗，写 data/hub.json
 │   ├── cards.mjs                读 var/cards/ 下的橱窗与预览样例合并
-│   ├── fetch-cards.mjs          橱窗拉取，写 var/cards/（M2）
-│   ├── build-hub.sh             本机构建：校验、探测、构建、写快照
+│   ├── stats.mjs                读 var/stats/ 下的活动数据与预览样例合并
+│   ├── fetch-guard.mjs          拉取守卫：https、DNS、超时、大小、原子写
+│   ├── fetch-cards.mjs          橱窗拉取，写 var/cards/{id}.json
+│   ├── fetch-stats.mjs          活动数据拉取，写 var/stats/{id}.json
+│   ├── build-hub.sh             本机构建：校验、探测、拉取、构建、写快照
 │   ├── verify-hub-data.mjs      发布前守卫：快照里的 id 必须与清单一致
 │   ├── deploy-hub.sh            可选的静态站同步（目标由环境变量给出）
 │   ├── deploy-api.sh            中枢接口、审核台与站点配置的同步
 │   ├── README-deploy-aws.md     中枢托管主机的部署笔记
-│   └── validate-instances.mjs   清单校验
+│   ├── validate-instances.mjs   清单校验
+│   └── validate-federation.mjs  名册校验（与清单交叉核对）
 ├── var/
 │   ├── health.json        探测结果（生成物，不入版本库）
-│   ├── xknot.db           申请与账号（生成物，不入版本库）
+│   ├── xknot.db           申请、账号与发信记录（生成物，不入版本库）
+│   ├── stats/             各实例的活动数据副本（生成物，不入版本库）
 │   └── cards/             各实例的橱窗副本（生成物，不入版本库）
 └── web/                   Vue 门户，独立子项目
     ├── package.json       自己的依赖与脚本
@@ -79,7 +93,7 @@ xknot.si/
     │   ├── App.vue        左右分栏：左网络、右加入申请
     │   ├── styles.css     全局样式与主题变量
     │   ├── components/
-    │   │   ├── NetworkMap.vue  联邦地图：世界底图、悬空联邦中心与飞线，点选跳到条目
+    │   │   ├── NetworkMap.vue  联邦地图：世界底图、悬空联邦中枢与飞线，点选跳到条目
     │   │   ├── NodeCard.vue    目录卡片：状态、简介、橱窗与当地时刻
     │   │   ├── JoinPanel.vue   加入申请表：校验、提交、成功面板
     │   │   ├── GlobePattern.vue 橙色面板上的点阵球纹路
@@ -100,8 +114,31 @@ npm run api           # 只起接口
 npm run build         # 校验、探测、构建、写快照，产物在 web/dist
 npm run build:preview # 并入样例条目构建，只看版式，不用于发布
 npm run verify        # 复核 dist/data/hub.json 的实例与 instances.json 一致
-npm run test          # 单元测试（清单、页面逻辑、接口与审核）
+npm run validate      # 清单 + 名册两份校验
+npm run test          # 单元测试（清单、名册、页面逻辑、接口与审核）
 ```
+
+### 2.1 名册字段
+
+`federation.json` 记网络成员的事实，不参与门户渲染。字段与取值：
+
+| 字段 | 取值 | 说明 |
+|------|------|------|
+| `version` | 整数 ≥1 | 结构版本 |
+| `updatedAt` | `YYYY-MM-DD` | 最后改动日 |
+| `hub` | 主机名 | 中枢自己的主机，固定 `xknot.si` |
+| `members[].id` | 小写 kebab | 必须与 `instances.json` 的 `id` 一致 |
+| `members[].host` | 主机名 | 必须等于清单 `url` 的主机 |
+| `members[].role` | `founder` / `partner` | 有且只有一个 `founder` |
+| `members[].standing` | `permanent` / `regular` | `founder` 必须是 `permanent`，且不能 `listed: false` |
+| `members[].issuance` | `own-domain` / `subdomain-issued` / `subdomain-reserved` / `none` | 子域从哪来 |
+| `members[].access` | `edge-tunnel` / `direct` / `pending` | 接入方式；`edge-tunnel` 必须带 `tunnel` |
+| `members[].tunnel` | `null` 或 `{ account, port }` | 账号与端口全名册唯一 |
+| `members[].listed` | `true` / `false` | 是否已收录；决定是否要在清单里出现 |
+| `members[].since` | `YYYY-MM-DD` / `null` | `listed: true` 时必填 |
+| `members[].note` | ≤200 字 | 给工作人员看的一句话 |
+
+校验在 `ops/validate-federation.mjs`，`ops/federation.test.mjs` 覆盖负例。名册与清单靠 `id` 双向对齐，多一条少一条都失败。
 
 审核台与管理员：
 
@@ -142,7 +179,7 @@ npm run test     # 纯逻辑单元测试
 
 `fixtures/preview-instances.json` 放了十条伙伴条目（nordhavn、sakura、meridian、khaleej、saigon、bengaluru、aurora、pampa、koru、atlas），`fixtures/preview-health.json` 放它们的探测样例。用途只有一个：让目录看起来像真的有十来个成员，便于判断版式。
 
-- 两个文件都是样例，**不是成员名单**，不写进 `instances.json`。
+- 两个文件都是样例，**不是成员名单**。真实成员记在 `federation.json`（名册）与 `instances.json`（对外字段）里，样例不写进这两份文件。
 - 只在 `XKNOT_PREVIEW=1` 时并入内存与本次构建；真实清单里已有同 id 时以真实条目为准，真实探测结果也优先。
 - `ops/verify-hub-data.mjs` 在每次构建后复核：生产快照里的 id 必须与 `instances.json` 完全一致，多一条少一条都让构建失败；预览构建只放行 `fixtures/` 里的 id。`ops/deploy-hub.sh` 同步前会再核一次。
 - `npm run validate:fixtures` 校验样例本身合法，`preview.test.mjs` 覆盖合并规则。
@@ -188,26 +225,26 @@ npm run test     # 纯逻辑单元测试
 
 一屏两栏：左边白，放当前联邦的全球网络；右边橙，放加入申请。
 
-1. **左栏（白）**：顶栏（标识、在线计数、主题与语种）→ 刊头（`KNOT` 与本地语种的名称、标语、一句定位）→ 联邦地图（`全球节点分布`、状态图例、世界底图，下面一行四个数字：节点、区域、在线、最近同步）→ 节点目录（区域筛选、只看在线、只看热点、卡片）→ 页脚（不托管内容的声明、许可、运营者入口）。左栏独立滚动，筛选条与目录头吸顶。
+1. **左栏（白）**：顶栏（标识、在线计数、主题与语种）→ 刊头（`XKNOT` 与本地语种的名称、标语、一句定位）→ 联邦地图（`全球实例分布`、状态图例、世界底图，下面一行四个数字：实例、区域、在线、最近同步）→ 实例目录（区域筛选、只看在线、只看热点、卡片）→ 页脚（不托管内容的声明、许可、运营者入口）。左栏独立滚动，筛选条与目录头吸顶。
 2. **右栏（橙）**：点阵球与经纬线做底。`申请加入 XKnot`：三步说明（提交、审核、写进清单）、表单、联邦约定。表单字段为站点名称、地址、一句话简介、运营者、联系邮箱、区域、时区、标签、同意勾选。提交成功后原地换成申请编号与提交时间，可以再提交一份。
 
-900px 以下改成上下排：白色网络在上，橙色申请在下，整页滚动。上下排时申请表会落到节点目录之后，所以刊头多一个 `申请加入 →` 的锚点（`#join`），一处点得到。右栏被压到约 400px 时收掉步骤说明，让提交键留在首屏。
+900px 以下改成上下排：白色网络在上，橙色申请在下，整页滚动。上下排时申请表会落到实例目录之后，所以刊头多一个 `申请加入 →` 的锚点（`#join`），一处点得到。右栏被压到约 400px 时收掉步骤说明，让提交键留在首屏。
 
 ### 联邦地图
 
-地图是一张等距圆柱投影的世界底图（`web/src/lib/world.js`，数据为 Natural Earth 110m 陆地，`ops/build-world-dots.mjs` 生成）。节点的位置由实例清单里的 `regions` 决定：国家中心点求和后取中心，因此「北欧四国」落在斯堪的纳维亚，「阿根廷 + 智利 + 乌拉圭」落在南锥体。`GLOBAL` 或没有可定位国家代码的条目不上图，收在地图下方「无固定区域」的一行小标签里，仍可点。
+地图是一张等距圆柱投影的世界底图（`web/src/lib/world.js`，数据为 Natural Earth 110m 陆地，`ops/build-world-dots.mjs` 生成）。实例的位置由实例清单里的 `regions` 决定：国家中心点求和后取中心，因此「北欧四国」落在斯堪的纳维亚，「阿根廷 + 智利 + 乌拉圭」落在南锥体。`GLOBAL` 或没有可定位国家代码的条目不上图，收在地图下方「无固定区域」的一行小标签里，仍可点。
 
 - 底图是点阵填充的陆地 + 30° 经纬网，和右栏的点阵球同一套语汇。地图只说「在哪」，不承载地理细节。
-- 地图上方悬着一个**联邦中心**徽标（`XKNOT` + 联邦中心），不落经纬度。标识由 `BrandMark` 按三档分辨率出图，徽标其余布局不变。
-- 每个节点一条**半透明橙色长划线弧**飞向联邦中心（`stroke-dasharray: 10 5`，选中态 `12 4`），弧线朝中轴外侧鼓一点，十根线才不会在中心下方挤成一根柱子。长划线的节奏更像航线；线的状态只靠粗细与浓淡区分（选中的加粗加深、不可达的压淡），不另起一套配色。弧上的短亮光点按清单顺序错开延迟，从节点飞向中心。
-- 链路颜色走 `--map-link-line`（浅色 `rgba(232,112,28,.42)`，深色 `rgba(255,154,82,.40)`），和右栏申请区的橙是同一支暖色；联邦中心徽标里的占位标记用不透明的 `--map-link`，线的落点才不会和徽标分家。
+- 地图上方悬着一个**联邦中枢**徽标（`XKNOT` + 联邦中枢），不落经纬度。标识由 `BrandMark` 按三档分辨率出图，徽标其余布局不变。
+- 每个实例一条**半透明橙色长划线弧**飞向联邦中枢（`stroke-dasharray: 10 5`，选中态 `12 4`），弧线朝中轴外侧鼓一点，十根线才不会在中枢下方挤成一根柱子。长划线的节奏更像航线；线的状态只靠粗细与浓淡区分（选中的加粗加深、不可达的压淡），不另起一套配色。弧上的短亮光点按清单顺序错开延迟，从实例飞向中枢。
+- 链路颜色走 `--map-link-line`（浅色 `rgba(232,112,28,.42)`，深色 `rgba(255,154,82,.40)`），和右栏申请区的橙是同一支暖色；联邦中枢徽标里的占位标记用不透明的 `--map-link`，线的落点才不会和徽标分家。
 - 弧线的交汇点取在画布上缘之上（`HUB.y < 0`），藏在徽标后面，地图上不会留下一个结。
-- **节点之间另有一层浅绿直连**，画在橙色弧线下面：将来站点按协议标准直接交换数据，不必每条都绕到中枢。每个站取最近的 2、3 或 4 个邻居（按清单顺序轮流取，`PEER_DEGREES = [2, 3, 4]`），所以网是疏密不均的，不是完全图。两点互相选中时只画一条，A–B 与 B–A 是同一根线。直连用直线，朝中心的弧线用曲线，形状本身就把两套语义分开了。
+- **实例之间另有一层浅绿直连**，画在橙色弧线下面：将来站点按协议标准直接交换数据，不必每条都绕到中枢。每个站取最近的 2、3 或 4 个邻居（按清单顺序轮流取，`PEER_DEGREES = [2, 3, 4]`），所以网是疏密不均的，不是完全图。两点互相选中时只画一条，A–B 与 B–A 是同一根线。直连用直线，朝中枢的弧线用曲线，形状本身就把两套语义分开了。
 - 直连颜色走 `--map-peer`（浅色 `rgba(31,168,110,.4)`，深色 `rgba(126,231,178,.24)`）；两端有一头 `down` 时压到 0.4 透明度，选中某站时与它相连的几条加深加粗。地图脚注给一小段绿线和一句解释，不混进状态图例——绿线说的是协议关系，不是可达性。
 - 徽标用 `transform: translate(-50%, -74%)` 悬在地图上缘，底下有一层随呼吸收放的投影；徽标本体与投影各自做 7s 上下浮动，`prefers-reduced-motion` 下停止。
 - 地图宽度到 620px 才在点旁常驻站名（容器查询）；更窄只留点，悬停或聚焦出标签。
 - 挤在同一片区域的两个点会上下错开约 17 个单位，保证都点得到。点选后滚到对应条目并高亮 2.6 秒；被筛掉的点变暗但仍可点。
-- 动效只有脉冲、飞向中心的光点与徽标浮动，`prefers-reduced-motion` 下全部停止。
+- 动效只有脉冲、飞向中枢的光点与徽标浮动，`prefers-reduced-motion` 下全部停止。
 
 ### 品牌资产
 
@@ -227,11 +264,11 @@ npm run test     # 纯逻辑单元测试
 
 组合版底部有 `knot` 字标，26px 的页头徽标里它小到无法辨认，所以页头、页签、主屏图标都用**标记版**（去掉字标），只有 `og:image` 与文档配图用组合版。两版都从同一份矢量母版出，配方见 `docs/README.md`。
 
-### 节点目录与热点橱窗
+### 实例目录与热点橱窗
 
 目录是一列卡片网格（`repeat(auto-fill, minmax(272px, 1fr))`，约 750px 起两列，更宽到三列），每张卡片是一个站点：
 
-- 头部：站点徽记（有 `logo` 用 logo，否则用站名首字，底色取清单里的 `themeColor`）、站名（整张卡片可点的入口）、分级徽章、进入箭头；站名下一行是节点自己时区的当前时刻、区域与 `UTC±X`。
+- 头部：站点徽记（有 `logo` 用 logo，否则用站名首字，底色取清单里的 `themeColor`）、站名（整张卡片可点的入口）、分级徽章、进入箭头；站名下一行是实例自己时区的当前时刻、区域与 `UTC±X`。
 - 正文：一句话简介，最多两行。
 - 橱窗位：有 L3 卡片时显示第一条，火焰标 + 原标题（伙伴的语言，不翻译）+「更新于 X」+ 语言码 +「另 N 条」。点它直接去伙伴站点的那一篇，与卡片本身的入口分开。
 - 页脚：信号条与状态、延迟。延迟只在 `up`、`degraded` 时显示；`down` 时显示上次正常的时间，避免把探测耗时当成响应时间。
@@ -242,7 +279,7 @@ npm run test     # 纯逻辑单元测试
 
 橱窗年龄分三档（`lib/cards.js`）：24 小时内 `fresh`，一周内 `recent`，7–30 天 `aging` 转灰（仍在，但不再当新闻读），超过 30 天不再展示。`hub.json` 里每个实例的 `cards` 最多 6 条，只带 `id`、`title`、`summary`、`url`、`lang`、`updatedAt`，正文 `body` 不进门户。
 
-目录里的钟点是**节点自己时区**的当前时刻，每 20 秒刷新一次，并带 `UTC±X` 偏移。这条信息让「分布在不同时区、由不同的人维护」在版面上直接可见，不再只是一句声明。区域仍只用于筛选，不参与排序。
+目录里的钟点是**实例自己时区**的当前时刻，每 20 秒刷新一次，并带 `UTC±X` 偏移。这条信息让「分布在不同时区、由不同的人维护」在版面上直接可见，不再只是一句声明。区域仍只用于筛选，不参与排序。
 
 分级的排序规则不变：`demo` → `partner` → `community`，同级按 `since`，再按 `id`。
 
@@ -278,7 +315,7 @@ M2 的拉取步骤落地后，`ops/fetch-cards.mjs` 把每个 `cardsUrl` 取回�
 - 字体：标题与正文 Space Grotesk，技术标签 JetBrains Mono。两个字体随构建打包，不请求外部 CDN；中文回退到系统黑体。
 - 视觉元素：细网格底纹、两处柔光、1px 描边、行分隔线、信号条、联邦地图。不用霓虹、扫描线、故障效果。
 - 密度优先：宽屏两列卡片，首屏能看见四张以上实例；卡片以信息为主，不做大图封面，不把目录推到第二屏。
-- 动效只表达「链路在动」：顶栏扫光、节点脉冲、条目入场错峰、从地图跳转时的高亮。全部在 `prefers-reduced-motion` 下关闭。
+- 动效只表达「链路在动」：顶栏扫光、实例脉冲、条目入场错峰、从地图跳转时的高亮。全部在 `prefers-reduced-motion` 下关闭。
 - 360px、390px、768px、1280px、1440px 宽度下均可完成主操作。可点击区域不小于 44×44px。
 - 英文文案按比中文长 30% 到 50% 预留，按钮和状态点不设固定宽度。
 - 图标用内联 SVG，可点击时有 `aria-label`。
@@ -305,17 +342,18 @@ npm run build -- --offline   # 跳过探测，复用上一次结果
 
 探测在构建时执行一次，没有常驻定时任务，也不依赖任何远端机器。`var/health.json` 保留上一次结果用于累加，重新构建即刷新页面上的状态。
 
-## 6. 橱窗拉取
+## 6. 数据拉取
 
-M2 实现，入口 `ops/fetch-cards.mjs`：
+M2 的两步都在构建时执行，入口分别是 `ops/fetch-cards.mjs` 与 `ops/fetch-stats.mjs`：
 
-- 读 `instances.json`，只处理 `cardsUrl` 非空的条目。
-- 按 [FEDERATION.md](FEDERATION.md) 第 6.6 节执行 URL 检查和内容清洗。
-- 校验 `formatVersion`、卡片数量、字段长度和图片主机。
-- 成功时原子覆盖 `var/cards/{id}.json`，失败时保留上一份。
-- 构建时执行，与健康探测同一步骤。
+- 读 `instances.json`，只处理 `cardsUrl` / `statsUrl` 非空的条目，非 active 的跳过。
+- 按 [FEDERATION.md](FEDERATION.md) 第 5.5、6.6 节执行 URL 检查与内容清洗。
+- 校验 `formatVersion`（橱窗）、卡片数量、字段长度、图片主机与计数类型。
+- 带上一份的 `ETag`；304 时不动文件。
+- 成功时原子覆盖 `var/cards/{id}.json` 或 `var/stats/{id}.json`，失败时保留上一份。
+- 与健康探测同一步骤，`--offline` 时两步一起跳过。
 
-展示侧已经落地，先于拉取脚本：`ops/cards.mjs` 读 `var/cards/`，`web/src/lib/cards.js` 净化字段、按契约封顶 6 条并计算年龄，`hub.json` 的每个实例因此多一个 `cards` 数组。页面只展示第一条，其余落在「另 N 条」里。拉取脚本只需要按同样的文件名写文件，页面不用再改。
+展示侧读这两个目录：`ops/cards.mjs` 与 `ops/stats.mjs`，`hub.json` 的每个实例因此多一个 `cards` 数组和一个 `stats` 对象。页面只展示第一条橱窗与最多两项计数；没有 `stats` 的条目显示「未公开」，不显示 0。
 
 ## 7. 运行与部署
 
@@ -351,9 +389,10 @@ npm run preview  # 预览构建产物（在 web/ 内执行）
 | `XKNOT_API_PORT` | `5181` | 监听端口 |
 | `XKNOT_API_HOST` | `127.0.0.1` | 监听地址，不要改成 `0.0.0.0` |
 | `XKNOT_DATA_DIR` | `var/` | 库文件、会话密钥 |
+| `XKNOT_INSTANCES_FILE` | `instances.json` | 清单路径。本地联调与端到端指向临时清单，接口与 `admin-cli`（含 `publish`）一起生效，不动仓库里的实例表 |
 | `XKNOT_SESSION_SECRET` | 自动生成 | 首次启动写到 `var/session-secret`，`0600` |
 | `XKNOT_SECURE_COOKIE` | 关 | 生产置 `1`，会话 Cookie 加 `Secure` |
-| `XKNOT_TRUST_PROXY` | 关 | 生产置 `1`，限流按 `X-Forwarded-For` 的首个地址 |
+| `XKNOT_TRUST_PROXY` | 关 | 生产置 `1`，限流取 `X-Forwarded-For` 的末尾地址（nginx 追加的真实来源），不取可伪造的首个地址 |
 
 邮件可选，不配就不发信：
 
@@ -368,6 +407,8 @@ npm run preview  # 预览构建产物（在 web/ 内执行）
 | `MAIL_FROM` | （空） | 发信地址，优先于 `SMTP_FROM` |
 | `XKNOT_ADMIN_EMAIL` | （空） | 新申请通知的收件地址；留空则只通知审核台 |
 | `XKNOT_PUBLIC_ORIGIN` | `https://xknot.si` | 邮件里链接用的门户地址 |
+| `XKNOT_RELAY_ENABLED` | 随 SMTP | 委托发信开关；配了 SMTP 即开，置 `0` 可单独关掉 |
+| `XKNOT_RELAY_DAILY_LIMIT` | `50` | 每份凭据 24 小时内的发信上限 |
 
 生产把密码放在 `/opt/xknot/var/mail.env`（`0600`），由 systemd 的 `EnvironmentFile` 读入，不写进 unit 文件。`npm run mail:test -- <收件地址>` 用同一套环境变量发一封测试信。
 
@@ -432,6 +473,9 @@ KNOT_ADMIN_EMAIL=partner@example.com
 
 ## 8. 验收
 
+下面按里程碑列人工验收项。可自动化的部分已经落进 `e2e/`：本地怎么起栈、
+每一项对应哪个用例、哪些只能人工看，见 [E2E.md](E2E.md)。
+
 M1：
 
 - [ ] `https://xknot.si/` 返回 302 到 `/en/`
@@ -439,13 +483,14 @@ M1：
 - [ ] 每个页面有正确的 `lang`、`hreflang`，`x-default` 指向 `/en/`
 - [ ] 字段在三种语言都缺时不渲染该块，页面没有空行和键名
 - [ ] 实例列表每条有名称、简介、当地时刻和健康点
-- [ ] 目录里的时刻是节点时区的当前时间，不是访客本地时间
-- [ ] 点地图上的节点会滚到对应条目并短暂高亮；被区域筛掉的节点变暗但仍可点
-- [ ] 地图上方的联邦中心徽标悬空显示，每个节点有一条半透明橙色长划线弧连到它；徽标显示 xknot 标识，仍居中且不压住地图标题
-- [ ] 节点之间另有浅绿直连，每个站的邻居数为 2、3 或 4；刷新页面连法不变
+- [ ] 目录里的时刻是实例时区的当前时间，不是访客本地时间
+- [ ] 点地图上的实例会滚到对应条目并短暂高亮；被区域筛掉的实例变暗但仍可点
+- [ ] 地图上方的联邦中枢徽标悬空显示，每个实例有一条半透明橙色长划线弧连到它；徽标显示 xknot 标识，仍居中且不压住地图标题
+- [ ] 实例之间另有浅绿直连，每个站的邻居数为 2、3 或 4；刷新页面连法不变
 - [ ] 「只看在线」只留下 `up` 与 `degraded`
 - [ ] 停掉一个实例，重新构建后它的点变红，同时显示上次正常时间，其他实例不受影响
-- [ ] `instances.json` 加一条、重新构建后页面出现新条目，无需改代码
+- [ ] `instances.json` 加一条、`federation.json` 同步登记、重新构建后页面出现新条目，无需改代码
+- [ ] `npm run validate:federation` 对缺名册、缺清单、重复端口、两个 founder 都返回 1
 - [ ] `status` 不是 `active` 的条目保留上次结果，不被探测覆盖
 - [ ] 区域筛选按分组工作，未知国家落「其他」
 - [ ] 目录是卡片网格：宽屏两列、窄屏单列，卡片等高，悬停抬升并露出状态色条
@@ -458,17 +503,32 @@ M1：
 - [ ] 除加入申请外，门户不发起写请求；视图不设置 cookie
 - [ ] 页面只请求同源的 `/data/hub.json` 与 `/api/applications`，不直接请求伙伴站点
 - [ ] `validate-instances.mjs` 对正确清单返回 0，对错误清单返回 1
+- [ ] `validate-federation.mjs` 对正确名册返回 0；清单多一条、名册少一条时返回 1
+- [ ] `federation.test.mjs` 覆盖 founder 唯一、永久账号不可下架、账号与端口唯一、名册与清单一一对应
 
 M2：
 
-- [ ] 伙伴只改自己站点上的 `knot-cards.json`，重新构建后门户出现新橱窗（展示侧已就绪：构建与开发服务器都读 `var/cards/{id}.json`，拉取脚本待实现）
+- [ ] 伙伴只改自己站点上的 `knot-cards.json`，重新构建后门户出现新橱窗
 - [ ] 拉取失败时保留上一份，页面显示「更新于」旧时间
 - [ ] 卡片超过 7 天标灰，超过 30 天整组隐藏
 - [ ] 图片加载失败显示占位，不撑破布局
 - [ ] 每张卡片的跳转都回原站
 - [ ] 删除 `var/cards/{id}.json` 即整组下架
-- [ ] 至少一个伙伴提供 `statsUrl`，页面标注「伙伴公开的数据」
-- [ ] 缺 `statsUrl` 显示「未公开」，不显示 0
+- [ ] 至少一个伙伴提供 `statsUrl`，构建后卡片出现「伙伴公开的数据」一行
+- [ ] 缺 `statsUrl` 时不显示这一行，也不写 0
+- [ ] 伙伴的 `statsUrl` 返回坏 JSON 或私有地址时，构建继续，上一份保留
+
+委托发信：
+
+- [ ] `relay-token <instance>` 打印一次明文，`relay-tokens` 里看不到明文
+- [ ] 用该凭据发一封测试信，收件人看到 `From` 是 `MAIL_FROM`、`Reply-To` 是实例的 `contact`
+- [ ] 未带凭据返回 401，伪造凭据返回 401，吊销后返回 401
+- [ ] 实例不在清单或状态不是 `active` 时返回 403
+- [ ] `to` 带显示名、`subject` 带换行、`text` 超过 4000 字时返回 400
+- [ ] `replyTo` 用外部域名返回 400 `foreign_domain`
+- [ ] 超过每日额度返回 429；同一 `idempotencyKey` 重试不重复发信
+- [ ] SMTP 故障返回 502，`relay-log` 里有一条 `failed`，且日志不含正文与完整地址
+- [ ] 未配 SMTP 或 `XKNOT_RELAY_ENABLED=0` 时返回 503
 
 M3：加入申请
 
@@ -496,7 +556,9 @@ M3：加入申请
 | `applications` | 申请：名称、地址、运营者、邮箱、区域、时区、简介、标签、状态、审核人、审核备注 |
 | `admins` | 管理员：用户名、scrypt 口令、创建时间、最近登录 |
 | `sessions` | 会话：令牌的 SHA-256、管理员、过期时间 |
-| `events` | 审计：提交、通过、拒绝、搁置、建号、删号 |
+| `events` | 审计：提交、通过、拒绝、搁置、建号、删号、凭据签发与吊销 |
+| `relay_tokens` | 委托发信凭据：实例、标签、令牌 SHA-256、每日上限、签发与吊销时间 |
+| `relay_log` | 发信记录：实例、收件域名、地址哈希、主题长度、结果；不含正文 |
 
 状态只有 `pending`、`approved`、`rejected`、`hold`。同一地址在 `pending`、`hold`、`approved` 时再次提交返回 `409 duplicate`，避免刷队列。
 
@@ -511,6 +573,18 @@ M3：加入申请
 | `GET /api/admin/applications?status=` | 会话 | 列表与各状态计数 |
 | `POST /api/admin/applications/:id/review` | 会话 | `approve` / `reject` / `hold`，可带备注 |
 | `GET /api/admin/applications/:id/manifest` | 会话 | 生成清单条目，生成后自检，不合法返回 422 |
+| `POST /api/federation/mail` | 凭据 | 代实例发一封纯文本通知；字段错误 400，额度或频率超限 429，SMTP 失败 502 |
+| `GET /api/federation/mail` | 凭据 | 查该凭据 24 小时额度 |
+
+委托发信：
+
+- 凭据由命令行签发：`npm run admin -- relay-token <instance> [--label text] [--daily 50]`。明文只打印一次，库里只有 SHA-256。
+- 吊销按凭据 id，或按实例 id 一次吊销该实例全部凭据：`npm run admin -- relay-revoke <id|instance>`。
+- 只认 `Authorization: Bearer`，不读 Cookie；实例必须在清单里且 `status: active`。
+- 单凭据每分钟 6 封、默认每 24 小时 50 封；全站每小时最多 240 封。
+- 只发纯文本，发信人恒为 `MAIL_FROM`；`Reply-To` 必须落在实例自己的域名，省略时用 `contact`。
+- 记录只留收件域名与地址哈希，`relay-log` 可查；默认保留 30 天。
+- 没配 `SMTP_HOST` / `MAIL_FROM` 或 `XKNOT_RELAY_ENABLED=0` 时，该接口返回 503。
 
 邮件通知：
 
@@ -546,6 +620,10 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug
 
 `publish` 只接受 `approved` 的申请，按站点域名推出 `id`（punycode 与非法字符退回 `node-...`），补齐清单必填字段，用发布前的同一套 `validateInstance` 自检，再写回 `instances.json`。已存在同一地址或同一 `id` 时拒绝写入。
 
+`publish` 不写名册。写进清单之后必须在 `federation.json` 补一条同名 `id` 的成员：`host`、`role`、`standing`、`issuance`、`access`，隧道模式还要 `tunnel.account` 与 `tunnel.port`（同机唯一）。漏了这一步，`npm run validate:federation` 会报「the instance is not registered in federation.json」，构建停下。
+
+接口按清单文件的 `mtime` 缓存并重新读取，`publish` 新增条目或把 `status` 改成 `suspended` 后，下一次委托发信请求立即生效，不需要重启进程。
+
 生成条目的默认值：
 
 | 字段 | 取值 |
@@ -555,7 +633,7 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug
 | `since` | 审核当天 |
 | `languages` | `["en"]` |
 | `regions` | 申请里选的国家代码（或 `GLOBAL`） |
-| `healthUrl` | `<url>/api/health` |
+| `healthUrl` | `null`（交接期）；公网 `/api/health` 验收通过后填完整地址 |
 | `name`、`intro`、`operator` | 同一段文字填进三个语种，后续可在清单里改 |
 
 审核通过不会自动上线，也不会自动部署。写清单、重新构建、同步 `dist` 仍是三步人工操作。
@@ -570,7 +648,7 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug
 
 | 场景 | 操作 |
 |------|------|
-| 新增实例 | 审核通过 → `npm run admin -- publish <id>` → `npm run build` |
+| 新增实例 | 审核通过 → `npm run admin -- publish <id>` → 在 `federation.json` 补同名成员 → `npm run build` |
 | 暂停实例 | `status` 改 `suspended`，保留上次健康结果 |
 | 实例失联 | 构建时探测失败即显示 `down`，连续 30 天再决定是否删除 |
 | 橱窗违规 | 删除 `var/cards/{id}.json`，从清单移除 `cardsUrl`，重新构建 |
