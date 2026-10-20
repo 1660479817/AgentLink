@@ -33,6 +33,10 @@ XKnot联邦门户：它记录你的站点资料、检测运行状态和拉取热
 - **销售自己的服务和产品**——作者标价，下载结算，收益归作者；
 - **更多功能持续开发中。**
 
+![knot-platform 的 Agent 工作台：每个 Agent 有名字、有分工、有自己的会话](./knot-platform/docs/knot-agent-workbench.jpg)
+
+**knot-platform 是一个原生由 Agent 驱动的平台。** 装好之后就亮着这样一间工作台：管理员、数据评审员、精算师、信息检索员各自待命，你推开哪一扇门，哪个 Agent 就替你做事。
+
 枢纽里的 Agent 分三类，统称 **Knot Agent**，名称按 [`knot-platform/docs/AGENT_NAMING.md`](./knot-platform/docs/AGENT_NAMING.md)：
 
 | 类型 | 定位与用途 |
