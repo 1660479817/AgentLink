@@ -149,14 +149,26 @@ test("run writes var/health.json and merges the previous file", async () => {
     return jsonResponse(undefined, 503);
   };
 
-  const first = await run({ instancesPath, outPath, fetchImpl, now: () => new Date("2026-10-19T01:00:00Z") });
+  const first = await run({
+    instancesPath,
+    outPath,
+    fetchImpl,
+    resolve: async () => ["1.2.3.4"],
+    now: () => new Date("2026-10-19T01:00:00Z"),
+  });
   assert.equal(first.instances.up.status, "up");
   assert.equal(first.instances.down.status, "down");
   assert.equal(first.instances.off.status, "unknown");
   assert.equal(first.instances.off.checks, 0);
   assert.equal(first.instances.paused.checks, 0);
 
-  const second = await run({ instancesPath, outPath, fetchImpl, now: () => new Date("2026-10-19T01:05:00Z") });
+  const second = await run({
+    instancesPath,
+    outPath,
+    fetchImpl,
+    resolve: async () => ["1.2.3.4"],
+    now: () => new Date("2026-10-19T01:05:00Z"),
+  });
   assert.equal(second.instances.up.checks, 2);
   assert.equal(second.instances.up.ok, 2);
 
@@ -189,9 +201,40 @@ test("run probes concurrently and keeps manifest order", async () => {
     return jsonResponse({ ok: true });
   };
 
-  const output = await run({ instancesPath, outPath, fetchImpl, concurrency: 3 });
+  const output = await run({
+    instancesPath,
+    outPath,
+    fetchImpl,
+    resolve: async () => ["1.2.3.4"],
+    concurrency: 3,
+  });
   assert.deepEqual(Object.keys(output.instances), ids);
   assert.equal(peak, 3);
+});
+
+test("run refuses a healthUrl that resolves to a private address", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-health-"));
+  const instancesPath = path.join(dir, "instances.json");
+  const outPath = path.join(dir, "var", "health.json");
+  await writeFile(
+    instancesPath,
+    JSON.stringify({ instances: [{ id: "inside", status: "active", healthUrl: "https://inside.test/api/health" }] })
+  );
+
+  let called = false;
+  const fetchImpl = async () => {
+    called = true;
+    return jsonResponse({ ok: true });
+  };
+  const output = await run({
+    instancesPath,
+    outPath,
+    fetchImpl,
+    resolve: async () => ["192.168.3.91"],
+  });
+  assert.equal(output.instances.inside.status, "down");
+  assert.equal(output.instances.inside.error, "private_address");
+  assert.equal(called, false);
 });
 
 function sequencer(values) {

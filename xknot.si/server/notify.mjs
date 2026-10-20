@@ -42,12 +42,12 @@ export function newApplicationMail(application, { adminEmail, origin }) {
 const COPY = {
   "zh-CN": {
     approved: {
-      subject: (application) => `Knot 联邦加入申请已通过 · ${application.name}`,
+      subject: (application) => `XKnot 联邦加入申请已通过 · ${application.name}`,
       body: (application, origin) =>
         [
           `你好，${application.operator}：`,
           "",
-          `你提交的 Knot 联邦加入申请（${application.id}）已通过审核。`,
+          `你提交的 XKnot 联邦加入申请（${application.id}）已通过审核。`,
           "",
           `站点：${application.name}`,
           `地址：${application.url}`,
@@ -56,34 +56,34 @@ const COPY = {
           "",
           `联邦入口：${origin}`,
           "",
-          "—— Knot 联邦",
+          "—— XKnot 联邦",
         ].join("\n"),
     },
     rejected: {
-      subject: (application) => `Knot 联邦加入申请结果 · ${application.name}`,
+      subject: (application) => `XKnot 联邦加入申请结果 · ${application.name}`,
       body: (application, origin) =>
         [
           `你好，${application.operator}：`,
           "",
-          `你提交的 Knot 联邦加入申请（${application.id}）本次未通过审核。`,
+          `你提交的 XKnot 联邦加入申请（${application.id}）本次未通过审核。`,
           "",
           `站点：${application.name}`,
           `地址：${application.url}`,
           "",
           `如果情况有变化，可以修改后重新提交；有疑问直接回复本邮件。联邦入口：${origin}`,
           "",
-          "—— Knot 联邦",
+          "—— XKnot 联邦",
         ].join("\n"),
     },
   },
   "zh-TW": {
     approved: {
-      subject: (application) => `Knot 聯邦加入申請已通過 · ${application.name}`,
+      subject: (application) => `XKnot 聯邦加入申請已通過 · ${application.name}`,
       body: (application, origin) =>
         [
           `你好，${application.operator}：`,
           "",
-          `你提交的 Knot 聯邦加入申請（${application.id}）已通過審核。`,
+          `你提交的 XKnot 聯邦加入申請（${application.id}）已通過審核。`,
           "",
           `站點：${application.name}`,
           `位址：${application.url}`,
@@ -92,34 +92,34 @@ const COPY = {
           "",
           `聯邦入口：${origin}`,
           "",
-          "—— Knot 聯邦",
+          "—— XKnot 聯邦",
         ].join("\n"),
     },
     rejected: {
-      subject: (application) => `Knot 聯邦加入申請結果 · ${application.name}`,
+      subject: (application) => `XKnot 聯邦加入申請結果 · ${application.name}`,
       body: (application, origin) =>
         [
           `你好，${application.operator}：`,
           "",
-          `你提交的 Knot 聯邦加入申請（${application.id}）本次未通過審核。`,
+          `你提交的 XKnot 聯邦加入申請（${application.id}）本次未通過審核。`,
           "",
           `站點：${application.name}`,
           `位址：${application.url}`,
           "",
           `如果情況有變化，可以修改後重新提交；有疑問直接回覆本郵件。聯邦入口：${origin}`,
           "",
-          "—— Knot 聯邦",
+          "—— XKnot 聯邦",
         ].join("\n"),
     },
   },
   en: {
     approved: {
-      subject: (application) => `Your Knot Federation application was approved · ${application.name}`,
+      subject: (application) => `Your XKnot Federation application was approved · ${application.name}`,
       body: (application, origin) =>
         [
           `Hello ${application.operator},`,
           "",
-          `Your application to join the Knot Federation (${application.id}) has been approved.`,
+          `Your application to join the XKnot Federation (${application.id}) has been approved.`,
           "",
           `Site: ${application.name}`,
           `URL: ${application.url}`,
@@ -128,23 +128,23 @@ const COPY = {
           "",
           `Federation: ${origin}`,
           "",
-          "— Knot Federation",
+          "— XKnot Federation",
         ].join("\n"),
     },
     rejected: {
-      subject: (application) => `Your Knot Federation application · ${application.name}`,
+      subject: (application) => `Your XKnot Federation application · ${application.name}`,
       body: (application, origin) =>
         [
           `Hello ${application.operator},`,
           "",
-          `Your application to join the Knot Federation (${application.id}) was not approved this time.`,
+          `Your application to join the XKnot Federation (${application.id}) was not approved this time.`,
           "",
           `Site: ${application.name}`,
           `URL: ${application.url}`,
           "",
           `You can revise and submit again if things change. Reply to this message if you have questions. Federation: ${origin}`,
           "",
-          "— Knot Federation",
+          "— XKnot Federation",
         ].join("\n"),
     },
   },

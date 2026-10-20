@@ -107,6 +107,16 @@ test("normalize: tags split on both comma styles and drop duplicates", () => {
   assert.equal(normalizeUrl("https://a.example/"), "https://a.example");
 });
 
+test("api: health advertises the documented service shape", async (t) => {
+  const { call } = await start(t);
+  const result = await call("/api/health");
+  assert.equal(result.status, 200);
+  assert.equal(result.data.ok, true);
+  assert.equal(result.data.service, "xknot-hub");
+  assert.equal(typeof result.data.version, "string");
+  assert.match(result.data.at, /^\d{4}-\d{2}-\d{2}T/);
+});
+
 test("api: submission returns an id and lands in the pending queue", async (t) => {
   const { call, store } = await start(t);
   const result = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
@@ -302,7 +312,7 @@ test("api: an admin reviews an application and gets a valid manifest entry", asy
   assert.equal(entry.url, "https://nordhavn.example");
   assert.deepEqual(entry.regions, ["NO"]);
   assert.equal(entry.tier, "community");
-  assert.equal(entry.healthUrl, "https://nordhavn.example/api/health");
+  assert.equal(entry.healthUrl, null, "approval must not assume /api/health is connected");
   assert.deepEqual(checkManifestEntry(entry), []);
   assert.match(entry.id, /^[a-z0-9][a-z0-9-]*$/);
 });
@@ -324,4 +334,22 @@ test("manifest: id comes from the hostname, with a fallback", () => {
   assert.equal(suggestId("https://sakura.example.jp"), "sakura");
   assert.equal(suggestId("https://nord-havn.example"), "nord-havn");
   assert.match(suggestId("https://例子.中国"), /^node-/);
+});
+
+test("manifest: healthUrl is only written after an explicit verified address", () => {
+  const application = {
+    name: "北港",
+    url: "https://nordhavn.example",
+    region: "NO",
+    timezone: "Europe/Oslo",
+    operator: "Ops",
+    email: "ops@nordhavn.example",
+    intro: "News from the harbour.",
+    tags: [],
+  };
+  assert.equal(toManifestEntry(application).healthUrl, null);
+  assert.equal(
+    toManifestEntry(application, { healthUrl: "https://nordhavn.example/api/health" }).healthUrl,
+    "https://nordhavn.example/api/health"
+  );
 });

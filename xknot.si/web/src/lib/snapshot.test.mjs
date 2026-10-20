@@ -83,6 +83,24 @@ test("cards come from var/cards by instance id", () => {
   assert.deepEqual(data.instances[1].cards, []);
 });
 
+test("stats come from var/stats, and a missing file reads as null", () => {
+  const data = buildHubData(
+    { instances: [{ id: "a", name: { en: "A" }, url: "https://a.test" }, { id: "b", name: { en: "B" }, url: "https://b.test" }] },
+    {},
+    new Date("2026-10-19T08:00:00Z"),
+    {},
+    {
+      a: {
+        generatedAt: "2026-10-19T06:00:00.000Z",
+        fetchedAt: "2026-10-19T07:00:00.000Z",
+        stats: { posts: { total: 12, last24h: 3 }, accounts: { total: 4 } },
+      },
+    }
+  );
+  assert.deepEqual(data.instances[0].stats.posts, { total: 12, last24h: 3 });
+  assert.equal(data.instances[1].stats, null);
+});
+
 test("logo paths resolve from the site root", () => {
   const data = buildHubData(
     {

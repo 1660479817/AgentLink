@@ -57,9 +57,9 @@ echo "==> prepare $XKNOT_EDGE:$API_ROOT"
 if [[ "$DRY_RUN" == 1 ]]; then
   echo "(dry-run) mkdir -p $API_ROOT/{server,admin,ops,docs,web/src/lib,var}"
 else
-  ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" \
+    ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" \
     "mkdir -p '$API_ROOT/server' '$API_ROOT/admin' '$API_ROOT/ops' '$API_ROOT/docs' \
-      '$API_ROOT/web/src/lib' && chmod 700 '$API_ROOT/var' 2>/dev/null || true"
+      '$API_ROOT/web/src/lib' '$API_ROOT/var' && chmod 700 '$API_ROOT/var'"
 fi
 
 # 接口运行时需要的东西：server/ 本身，以及 manifest.mjs 校验清单时用到的
@@ -71,6 +71,8 @@ rsync_to "$HUB/docs/" "$API_ROOT/docs/"
 rsync_to "$HUB/ops/validate-instances.mjs" "$API_ROOT/ops/"
 rsync_to "$HUB/web/src/lib/i18n.js" "$API_ROOT/web/src/lib/"
 rsync_to "$HUB/web/src/lib/regions.js" "$API_ROOT/web/src/lib/"
+# 委托发信要按清单判断实例是否在册、是否 active；漏了这份文件，新实例会被 403。
+rsync_to "$HUB/instances.json" "$API_ROOT/instances.json"
 
 echo "==> stage config"
 if [[ "$DRY_RUN" == 1 ]]; then

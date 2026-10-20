@@ -9,6 +9,12 @@
 //   node server/admin-cli.mjs show <id>
 //   node server/admin-cli.mjs manifest <id>                打印可直接粘贴的清单条目
 //   node server/admin-cli.mjs publish <id> [--id slug]     把已通过的申请写进 instances.json
+//   node server/admin-cli.mjs relay-token <instance> [--label text] [--daily 50]
+//                                                          签一份委托发信凭据，明文只打印这一次
+//   node server/admin-cli.mjs relay-tokens                 列出凭据（不含明文）
+//   node server/admin-cli.mjs relay-revoke <tokenId|instance>
+//                                                          吊销一份凭据，或整个实例的全部凭据
+//   node server/admin-cli.mjs relay-log [n]                最近 n 条发信记录（只有域名，没有地址和正文）
 //
 // 示例：
 //   XKNOT_ADMIN_PASSWORD='...' node server/admin-cli.mjs create-admin paul
@@ -25,7 +31,11 @@ import { openStore } from "./store.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const dataDir = process.env.XKNOT_DATA_DIR || path.join(root, "var");
-const manifestFile = path.join(root, "instances.json");
+// 与接口共用同一个开关：本地联调/端到端可以指向一份测试清单，
+// publish 也会写回那份文件，不动仓库里的实例表。
+const manifestFile = process.env.XKNOT_INSTANCES_FILE
+  ? path.resolve(process.env.XKNOT_INSTANCES_FILE)
+  : path.join(root, "instances.json");
 const store = openStore(path.join(dataDir, "xknot.db"));
 
 function fail(message) {
@@ -146,6 +156,66 @@ async function main(argv) {
     await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     console.log(`已写入 instances.json：${entry.id} → ${entry.url}`);
     console.log("下一步：npm run build，重新构建后再部署。");
+    return;
+  }
+
+  if (command === "relay-token") {
+    const instanceId = rest[0];
+    if (!instanceId) return fail("用法：relay-token <instance> [--label text] [--daily 50]");
+    const manifest = await readManifest();
+    const instance = manifest.instances.find((item) => item.id === instanceId);
+    if (!instance) return fail(`清单里没有实例 "${instanceId}"`);
+    if (instance.status !== "active") return fail(`实例 "${instanceId}" 不是 active，先改清单状态`);
+
+    const labelIndex = rest.indexOf("--label");
+    const dailyIndex = rest.indexOf("--daily");
+    const result = store.createRelayToken({
+      instanceId,
+      label: labelIndex >= 0 ? rest[labelIndex + 1] : "",
+      dailyLimit: dailyIndex >= 0 ? Number(rest[dailyIndex + 1]) : 50,
+      createdBy: process.env.XKNOT_ADMIN_USER || null,
+    });
+    if (result.error) return fail(`签发失败：${result.error}`);
+    console.log(`凭据 ${result.record.id} 已签给 ${instanceId}，每日上限 ${result.record.dailyLimit}`);
+    console.log("明文只显示这一次，请直接写进实例的 XKNOT_HUB_RELAY_TOKEN：");
+    console.log(result.token);
+    console.log("\n吊销：node server/admin-cli.mjs relay-revoke " + result.record.id);
+    return;
+  }
+
+  if (command === "relay-tokens") {
+    const tokens = store.listRelayTokens();
+    if (!tokens.length) {
+      console.log("还没有委托发信凭据。");
+      return;
+    }
+    for (const token of tokens) {
+      const state = token.revokedAt ? `已吊销 ${token.revokedAt.slice(0, 10)}` : "有效";
+      console.log(
+        `${token.id}  ${token.instanceId.padEnd(16)} ${state.padEnd(16)} 每日 ${token.dailyLimit}  最近使用 ${token.lastUsedAt || "—"}  ${token.label || ""}`
+      );
+    }
+    return;
+  }
+
+  if (command === "relay-revoke") {
+    const result = store.revokeRelayToken(rest[0]);
+    if (result.error) return fail(`吊销失败：${result.error}`);
+    console.log(`已吊销 ${result.revoked} 份凭据（${result.instanceId}）`);
+    return;
+  }
+
+  if (command === "relay-log") {
+    const rows = store.listRelayLog(Number(rest[0]) || 50);
+    if (!rows.length) {
+      console.log("还没有发信记录。");
+      return;
+    }
+    for (const row of rows) {
+      console.log(
+        `#${String(row.seq).padEnd(6)} ${row.at.slice(0, 19)}  ${row.instanceId.padEnd(16)} ${row.status.padEnd(9)} ${row.toDomain || "—"}${row.error ? `  ${row.error}` : ""}`
+      );
+    }
     return;
   }
 

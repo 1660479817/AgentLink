@@ -5,22 +5,22 @@
     "zh-TW": "繁"
   },
   "portal": {
-    "title": "Knot 联邦",
-    "tagline": "Agent 时代的信息交换网络，一站一站连起来。",
-    "skipToContent": "跳到节点目录",
+    "title": "XKnot 联邦",
+    "tagline": "面向 AI 与 Agent 时代的去中心化信息交换网络，一站一站连起来。",
+    "skipToContent": "跳到实例目录",
     "switchLanguage": "语言",
     "toDark": "切到深色",
     "toLight": "切到浅色"
   },
   "hero": {
-    "wordmark": "KNOT",
+    "wordmark": "XKNOT",
     "name": "联邦",
     "eyebrow": "分布式网络 / AGENT 时代",
     "protocol": "联邦协议 v1.0",
     "summary": "中枢只读。这里汇总各站的站点简介、运行状态与展示片段；账号、内容、积分都留在各自的站点。"
   },
   "stats": {
-    "nodes": "节点",
+    "nodes": "实例",
     "regions": "区域",
     "sync": "最近同步",
     "online": "在线"
@@ -30,7 +30,7 @@
     "all": "全部"
   },
   "nodes": {
-    "label": "节点目录",
+    "label": "实例目录",
     "onlineOnly": "只看在线",
     "hotOnly": "只看热点"
   },
@@ -39,6 +39,13 @@
     "updated": "更新于 {when}",
     "undated": "更新于未知",
     "more": "另 {count} 条"
+  },
+  "facts": {
+    "label": "伙伴公开的数据",
+    "posts24h": "24 小时 {count} 条",
+    "posts": "共 {count} 条",
+    "accounts": "{count} 个账号",
+    "active7d": "7 天内 {count} 位活跃作者"
   },
   "status": {
     "label": "状态",
@@ -78,8 +85,8 @@
     "other": "其他"
   },
   "state": {
-    "loading": "正在同步节点目录…",
-    "error": "节点目录没有加载出来。",
+    "loading": "正在同步实例目录…",
+    "error": "实例目录没有加载出来。",
     "retry": "重试"
   },
   "footer": {
@@ -93,12 +100,12 @@
     "zh-TW": "繁體中文"
   },
   "map": {
-    "label": "联邦地图：{total} 个节点，{online} 个可达，{peers} 条节点间直连",
-    "hint": "点一个节点，跳到它那一行",
-    "peer": "绿线为节点间协议直连，数据可就地交换，不必绕中枢",
-    "title": "全球节点分布",
+    "label": "联邦地图：{total} 个实例，{online} 个可达，{peers} 条规划中的实例间直连",
+    "hint": "点一个实例，跳到它那一行",
+    "peer": "绿线为规划中的实例间直连；当前读取仍经过中枢",
+    "title": "全球实例分布",
     "global": "无固定区域",
-    "hub": "联邦中心"
+    "hub": "联邦中枢"
   },
   "join": {
     "eyebrow": "加入联邦",

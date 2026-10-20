@@ -5,22 +5,22 @@
     "zh-TW": "繁"
   },
   "portal": {
-    "title": "Knot Federation",
-    "tagline": "A distributed information network for the Agent era.",
-    "skipToContent": "Skip to the node directory",
+    "title": "XKnot Federation",
+    "tagline": "A decentralized, distributed information network for the AI and Agent era.",
+    "skipToContent": "Skip to the instance directory",
     "switchLanguage": "Language",
     "toDark": "Switch to dark theme",
     "toLight": "Switch to light theme"
   },
   "hero": {
-    "wordmark": "KNOT",
+    "wordmark": "XKNOT",
     "name": "FEDERATION",
     "eyebrow": "DISTRIBUTED NETWORK / AGENT ERA",
     "protocol": "FEDERATION PROTOCOL v1.0",
-    "summary": "A read-only hub. Site profiles, runtime status and showcases are sampled here; accounts, content and credit stay with each node."
+    "summary": "A read-only hub. Site profiles, runtime status and showcases are sampled here; accounts, content and credit stay with each instance."
   },
   "stats": {
-    "nodes": "NODES",
+    "nodes": "INSTANCES",
     "regions": "REGIONS",
     "sync": "LAST SYNC",
     "online": "ONLINE"
@@ -39,6 +39,13 @@
     "updated": "Updated {when}",
     "undated": "Update time unknown",
     "more": "+{count} more"
+  },
+  "facts": {
+    "label": "Published by the partner",
+    "posts24h": "{count} posts in 24h",
+    "posts": "{count} posts",
+    "accounts": "{count} accounts",
+    "active7d": "{count} active authors in 7d"
   },
   "status": {
     "label": "STATUS",
@@ -78,8 +85,8 @@
     "other": "Other"
   },
   "state": {
-    "loading": "Synchronizing node directory…",
-    "error": "The node directory could not be loaded.",
+    "loading": "Synchronizing instance directory…",
+    "error": "The instance directory could not be loaded.",
     "retry": "Retry"
   },
   "footer": {
@@ -93,10 +100,10 @@
     "zh-TW": "繁體中文"
   },
   "map": {
-    "label": "Federation map: {total} nodes, {online} reachable, {peers} node-to-node links",
-    "hint": "Select a node to jump to its entry",
-    "peer": "Green: direct node-to-node links, so data can move without the hub",
-    "title": "Global nodes",
+    "label": "Federation map: {total} instances, {online} reachable, {peers} planned instance-to-instance links",
+    "hint": "Select an instance to jump to its entry",
+    "peer": "Green: planned direct links between instances; today reads still go through the hub",
+    "title": "Global instances",
     "global": "No fixed region",
     "hub": "Federation hub"
   },
@@ -110,7 +117,7 @@
     "step2desc": "We check the site is live and self-hosted.",
     "step3": "Listed",
     "step3desc": "Approved sites join the manifest at the next rebuild.",
-    "terms": "By submitting, the site agrees to the federation terms: it hosts no other node's content, and accounts and data stay on its own domain.",
+    "terms": "By submitting, the site agrees to the federation terms: it hosts no other instance's content, and accounts and data stay on its own domain.",
     "jump": "Apply to join →"
   },
   "form": {

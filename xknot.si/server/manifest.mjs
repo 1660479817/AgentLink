@@ -66,7 +66,9 @@ export function toManifestEntry(application, options = {}) {
     since,
     tier: options.tier || "community",
     status: "active",
-    healthUrl: `${url}/api/health`,
+    // 审核通过只代表可以收录，不代表 /api/health 已接通。交接期先留空，
+    // 公网探测通过后再由工作人员填回完整地址（见 docs/HANDOFF.md）。
+    healthUrl: options.healthUrl || null,
     statsUrl: null,
     cardsUrl: null,
   };

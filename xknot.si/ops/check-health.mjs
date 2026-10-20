@@ -10,6 +10,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { assertPublicUrl, resolveHosts } from "./fetch-guard.mjs";
+
 export const DEFAULT_TIMEOUT_MS = 5000;
 export const DEGRADED_MS = 2000;
 
@@ -46,11 +48,22 @@ export async function probe(instance, options = {}) {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     degradedMs = DEGRADED_MS,
     clock = () => performance.now(),
+    resolve = null,
   } = options;
 
   const url = instance?.healthUrl;
   if (!url) return unknownStateResult();
   if (!isHttpsUrl(url)) return { ...unknownStateResult(), error: "insecure_url" };
+
+  // 构建时用 resolve 做 DNS 后检查，拒绝回环、私有网段与云元数据地址；
+  // 单元测试可以不传，只验证 HTTP 语义。
+  if (resolve) {
+    try {
+      await assertPublicUrl(url, { resolve });
+    } catch (error) {
+      return { status: "down", httpStatus: null, latencyMs: null, version: null, error: error.code || "unreachable" };
+    }
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -147,6 +160,7 @@ export async function run(options = {}) {
     degradedMs = DEGRADED_MS,
     concurrency = 8,
     now = () => new Date(),
+    resolve = resolveHosts,
     log = () => {},
   } = options;
 
@@ -165,7 +179,7 @@ export async function run(options = {}) {
     if (instance?.status && instance.status !== "active") {
       return [instance.id, before ?? unknownState(before)];
     }
-    const result = await probe(instance, { fetchImpl, timeoutMs, degradedMs });
+    const result = await probe(instance, { fetchImpl, timeoutMs, degradedMs, resolve });
     return [instance.id, mergeHealth(before, result, at)];
   });
 

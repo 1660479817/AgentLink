@@ -1,8 +1,8 @@
-// 联邦地图：把清单里的节点按国家中心点放到一张世界底图上。
+// 联邦地图：把清单里的实例按国家中心点放到一张世界底图上。
 //
 // 为什么不是环形图：环上的位置只跟清单顺序有关，看起来像「一圈站点」，
 // 看不出联邦在哪些时区、哪些大陆。这里位置由经纬度决定，
-// 相邻的节点之间连一条弧，读出来才是一张网，而不是一份列表。
+// 相邻的实例之间连一条弧，读出来才是一张网，而不是一份列表。
 
 <script setup>
 import { computed } from "vue";
@@ -36,7 +36,7 @@ const GRATICULE = (() => {
 
 const EQUATOR = project(0, 0).y.toFixed(1);
 
-// 同一片区域可能有多个节点（比如欧洲两个）。挤在一起就上下错开，
+// 同一片区域可能有多个实例（比如欧洲两个）。挤在一起就上下错开，
 // 让每个点都点得到，而不是叠成一个。
 function spread(points) {
   const placed = [];
@@ -86,12 +86,12 @@ const unplaced = computed(() => {
   return out;
 });
 
-// 联邦中心：不落在任何经纬度上，悬在地图上方。所有节点朝它连。
+// 联邦中枢：不落在任何经纬度上，悬在地图上方。所有实例朝它连。
 // 位置只跟画布有关，跟清单顺序无关，所以加站、减站都不会让中心漂移。
 // y 取在画布上缘之上：所有弧线的交汇点藏在徽标后面，不在地图上留下一个结。
 const HUB = { x: VIEW.width / 2, y: -8 };
 
-// 每个节点一条弧线飞向联邦中心。弧线朝中轴外侧鼓一点，
+// 每个实例一条弧线飞向联邦中枢。弧线朝中轴外侧鼓一点，
 // 十根线才不会在中心下方挤成一根柱子。
 const links = computed(() =>
   placed.value.map((point, index) => ({
@@ -107,7 +107,7 @@ function fanArc(point) {
   const dx = HUB.x - point.x;
   const dy = HUB.y - point.y;
   const distance = Math.hypot(dx, dy) || 1;
-  // 单位法线，再按节点在中轴的哪一侧取向外的那一边。
+  // 单位法线，再按实例在中轴的哪一侧取向外的那一边。
   const nx = -dy / distance;
   const ny = dx / distance;
   const outward = point.x >= HUB.x ? 1 : -1;
@@ -118,7 +118,7 @@ function fanArc(point) {
   return `M${point.x.toFixed(1)} ${point.y.toFixed(1)}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${HUB.x} ${HUB.y}`;
 }
 
-// 节点之间：将来按协议直接交换数据，不必每一条都绕到中枢。
+// 实例之间：将来按协议直接交换数据，不必每一条都绕到中枢。
 // 这里先把那张网的样子画出来——每个站挑最近的 2–4 个邻居连上，
 // 连几个按清单顺序轮流取，刷新、悬停都不会改变连法。
 const PEER_DEGREES = [2, 3, 4];
@@ -241,7 +241,7 @@ function activate(id) {
         <path class="land" :d="LAND_PATH" />
         <path class="land-edge" :d="LAND_PATH" vector-effect="non-scaling-stroke" />
 
-        <!-- 节点之间：浅绿直线，表示协议直连、可就地交换数据。
+        <!-- 实例之间：浅绿直线，表示协议直连、可就地交换数据。
              画在橙色弧线下面，先有网，再谈汇入中枢。 -->
         <g class="mesh">
           <path
@@ -274,7 +274,7 @@ function activate(id) {
         </g>
       </svg>
 
-      <!-- 联邦中心：悬在地图上方的徽标，标识由 BrandMark 按三档取图。 -->
+      <!-- 联邦中枢：悬在地图上方的徽标，标识由 BrandMark 按三档取图。 -->
       <div class="hub">
         <span class="hub-shadow" aria-hidden="true" />
         <span class="hub-body">
@@ -375,7 +375,7 @@ function activate(id) {
   position: relative;
   width: 100%;
   aspect-ratio: 960 / 379;
-  /* 上方留出联邦中心悬空的位置，它和地图不是同一层 */
+  /* 上方留出联邦中枢悬空的位置，它和地图不是同一层 */
   margin-top: 3.3rem;
 }
 
@@ -417,7 +417,7 @@ function activate(id) {
   stroke-width: 1;
 }
 
-/* 节点之间：浅绿细实线，直的。橙线弯着朝中心，绿线点对点，形状即语义。 */
+/* 实例之间：浅绿细实线，直的。橙线弯着朝中心，绿线点对点，形状即语义。 */
 .peer {
   fill: none;
   stroke: var(--map-peer);
@@ -434,7 +434,7 @@ function activate(id) {
   opacity: 0.4;
 }
 
-/* 链路：半透明橙色长划线，从每个节点拉到联邦中心。
+/* 链路：半透明橙色长划线，从每个实例拉到联邦中枢。
    颜色本身带 alpha，不靠整条 path 压不透明度，虚线才不会糊成一团。 */
 .link {
   fill: none;
@@ -475,7 +475,7 @@ function activate(id) {
   animation: none;
 }
 
-/* 光点从节点飞向联邦中心：pathLength 已归一为 100，偏移正好一圈 */
+/* 光点从实例飞向联邦中枢：pathLength 已归一为 100，偏移正好一圈 */
 @keyframes fly {
   0% {
     stroke-dashoffset: 0;
@@ -491,7 +491,7 @@ function activate(id) {
   }
 }
 
-/* 联邦中心：悬在地图上方，不落经纬度。
+/* 联邦中枢：悬在地图上方，不落经纬度。
    底下一层投影落在底图上，随呼吸收放，读起来才是「浮着」。 */
 .hub {
   position: absolute;
@@ -573,7 +573,7 @@ function activate(id) {
   }
 }
 
-/* 节点按钮 */
+/* 实例按钮 */
 .pin {
   position: absolute;
   z-index: 2;
@@ -826,7 +826,7 @@ function activate(id) {
   border-top: 1px solid var(--map-peer-active);
 }
 
-/* 没有固定区域的节点（例如只做跳转的 root）：放到脚注，不硬塞到地图上 */
+/* 没有固定区域的实例（例如只做跳转的 root）：放到脚注，不硬塞到地图上 */
 .unplaced {
   display: inline-flex;
   align-items: center;

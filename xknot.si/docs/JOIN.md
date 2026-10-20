@@ -1,4 +1,4 @@
-# Knot 联邦 · 加入说明
+# XKnot 联邦 · 加入说明
 
 版本 1.0，2026-10-19。仅文档，不改变运行配置。
 
@@ -16,7 +16,7 @@
 | 要不要 `*.xknot.si` | **不必须。** 有自有域名时，清单里登记自己的 `https` 地址即可。`*.xknot.si` 由权利人签发，与代码授权无关。 |
 | 固定公网 IP | 域名（自有或签发的 `*.xknot.si`）做 HTTPS，DNS 指到该主机；中枢按清单探测 `healthUrl`。 |
 | 无固定公网 IP / 仅出网 | **不能**把 A 记录指到内网机，也**不是**传统 DDNS。靠**公网边缘 nginx + 本机主动 SSH 反向隧道**把流量接到实例。 |
-| 私网地址 | 契约要求探测/拉取在解析 DNS 后拒绝回环、私网、链路本地与云元数据地址。当前 L2 探测脚本只强制 `https`；橱窗拉取脚本尚未落地（M2）。**不要把 `healthUrl` 写成只在局域网可达的地址。** |
+| 私网地址 | 契约要求探测/拉取在解析 DNS 后拒绝回环、私网、链路本地与云元数据地址。`ops/check-health.mjs`、`ops/fetch-cards.mjs`、`ops/fetch-stats.mjs` 都走 `ops/fetch-guard.mjs`，命中即判 `down` / 保留上一份。**不要把 `healthUrl` 写成只在局域网可达的地址。** |
 
 一句话分清两条轴：
 
@@ -69,6 +69,8 @@ npm run build（校验 + 探测 + 构建）
 ```bash
 cd xknot.si
 npm run admin -- publish XK-2026-XXXXXX          # 或加 --id custom-slug
+# 再在 federation.json 补同名 id 的成员，然后：
+npm run validate:federation
 npm run build                                    # 校验、探测、构建
 # 可选远端同步：见 ops/README-deploy-aws.md、ops/deploy-hub.sh
 ```
@@ -83,6 +85,8 @@ npm run build                                    # 校验、探测、构建
 | `statsUrl` / `cardsUrl` | `null`（可选，后续再改清单） |
 | `languages` | `["en"]` |
 
+`publish` 只写 `instances.json`。成员事实（身份、子域来源、接入方式、隧道账号与端口）记在同目录的 `federation.json`，要另行补一条同名 `id` 的成员；两份文件对不上时构建会停下。
+
 审核通过**不会**自动签发子域、不会自动改 DNS、不会自动开隧道。需要二级域名时，由工作人员在权利人流程里另行确认并赋予（见第 3 节）。
 
 ### 1.4 与「赋予二级域名」的关系
@@ -94,6 +98,8 @@ npm run build                                    # 校验、探测、构建
 | 写联邦条目 | 工作人员 | `publish` 或手工改 `instances.json` |
 | 赋予 `*.xknot.si`（若适用） | 权利人 / 工作人员 | DNS + 边缘 nginx（或直连主机）；**不是申请接口的自动副作用** |
 | 构建与发布门户 | 工作人员 | `npm run build` 与部署脚本 |
+
+签发之后到实例真正接通的交接（工作人员交付哪些信息、伙伴做哪些动作）见 [HANDOFF.md](HANDOFF.md)。**签发 ≠ 接通**：此时边缘通常只有静态占位页，清单里若已填 `healthUrl`，探测会记 `down`。
 
 `*.xknot.si` 归 PaulWang 所有，由权利人签发；见 README「归属与许可」与 [FEDERATION.md](FEDERATION.md) 第 8 节。
 
@@ -151,19 +157,20 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 
 ### 3.2 主机无固定公网 IP（或仅出网 / NAT 后）
 
-需要一台公网边缘机持证书，实例主动连出建反向隧道。**这是实例侧的部署形态，不属于中枢**；具体配置与命令在实例仓库的 [ops/edge/README.md](../../knot-platform/ops/edge/README.md)。
+需要一台公网边缘机持证书与静态文件，实例主动连出建反向隧道。**这是实例侧的部署形态，不属于中枢**；具体配置与命令在实例仓库的 [ops/edge/README.md](../../knot-platform/ops/edge/README.md)。
 
 ```text
 浏览器 ──HTTPS──▶ 公网边缘（nginx + 证书）
-                      │
-                      │  proxy_pass http://127.0.0.1:18080
-                      ▼
-              边缘本机由 SSH -R 拉起的端口
-                      │
-                      │  反向隧道（实例主动连出）
-                      ▼
-              内网 / NAT 后的 Knot 实例（如 127.0.0.1:8080）
+                     ├── /、/assets/ ──▶ 边缘磁盘 /var/www/<id>（静态）
+                     └── /api/、/help ─▶ 127.0.0.1:18081
+                                              │  边缘 sshd 上的回环端口
+                                              ▼
+                                     反向隧道（实例主动连出）
+                                              ▼
+                           NAT 后的实例 127.0.0.1:8080（Knot Backend）
 ```
+
+**静态在边缘，只有动态走隧道。** 漏掉这一点，就没有人负责把 WebUI 产物推到边缘，页面上线后只有接口能通。
 
 中枢这边只关心三件事：
 
@@ -177,6 +184,8 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 签发子域的工作人员另外要把该子域的 DNS 指到边缘公网 IP，并在边缘加一份 `server` 块。模板与步骤见 [ops/edge/README.md](../../knot-platform/ops/edge/README.md)；通配多租户自动 server 未做（见第 6 节）。
 
 `ops/README-deploy-aws.md` 注明：隧道用户 `knot-tunnel@` 需在边缘机另行开通后再用隧道；边缘主机由部署配置给出，仓库里不写默认值。
+
+**每个子域要有自己的隧道账号和回环端口，不能与同机已有实例共用**——`Match` 首条匹配生效，`PermitListen` 也只允许一个端口。逐项交接见 [HANDOFF.md](HANDOFF.md)。
 
 ---
 
@@ -201,11 +210,11 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 
 | 层级 | 现状（以仓库为准） |
 |------|-------------------|
-| 契约 | [FEDERATION.md](FEDERATION.md) §6.6 / §7：探测与拉取在解析 DNS 后应拒绝回环、私有网段、链路本地、云元数据地址 |
-| L2 实现 | `ops/check-health.mjs` 当前强制 `https`、禁重定向、超时与 `ok === true`；**尚未实现「解析后拒私网」的代码路径** |
-| L3 拉取 | `ops/fetch-cards.mjs` **未实现**（M2）；展示侧可读 `var/cards/`，契约中的 SSRF 检查随拉取脚本落地 |
+| 契约 | [FEDERATION.md](FEDERATION.md) §6.6 / §8：探测与拉取在解析 DNS 后拒绝回环、私有网段、链路本地、云元数据地址 |
+| L2 实现 | `ops/check-health.mjs` 强制 `https`、禁重定向、超时、`ok === true`，并经 `ops/fetch-guard.mjs` 拒绝私网地址 |
+| L3 / 活动数据 | `ops/fetch-cards.mjs` 与 `ops/fetch-stats.mjs` 使用同一份守卫；失败保留上一份，不影响构建 |
 
-实务结论：就算脚本暂时没拦私网，**清单也不应登记仅内网可达的 `healthUrl`**——构建机在公网侧探测，内网地址只会得到 `down` / `unreachable`。走隧道的实例应暴露边缘上的公网 HTTPS 健康检查路径。
+实务结论：**清单不应登记仅内网可达的 `healthUrl`**——构建机在公网侧解析与探测，内网地址会被判 `private_address` 或 `down`。走隧道的实例应暴露边缘上的公网 HTTPS 健康检查路径。
 
 ### 4.3 申请地址 vs 探测地址
 
@@ -237,21 +246,38 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 |----|------|
 | 申请通过后自动签发 `*.xknot.si` | **未实现**；人工确认 + 权利人签发 |
 | 传统 DDNS（客户端改 A 到当前出口 IP） | **不做**；NAT 场景用边缘 + SSH 反向隧道 |
-| `ops/fetch-cards.mjs` 橱窗拉取 | **M2，脚本未落地**；展示侧已可读 `var/cards/` |
-| L2 探测「DNS 后拒私网」 | **契约已写，check-health 尚未实现** |
 | 单子域边缘 nginx 模板（`wang.xknot.si`） | **已有**：[`ops/edge/wang.xknot.si.conf`](../../knot-platform/ops/edge/wang.xknot.si.conf)（实例侧）；步骤见 [`ops/edge/README.md`](../../knot-platform/ops/edge/README.md)；固定 IP 见 [`ops/edge/subdomain-fixed-ip.md`](../../knot-platform/ops/edge/subdomain-fixed-ip.md) |
 | 通配多租户 `*.xknot.si` 边缘 nginx | **未做**；每签发子域仍手工一份 conf，不能自动按 Host 分租户 |
 | 中枢站点 HTTPS / NS 切换细节 | 见 `ops/README-deploy-aws.md`；证书与部分 DNS 步骤标为另任务 |
 
+## 7. 委托发信（可选）
+
+自己的 SMTP 难送达时，可以把通知信交给中枢代发。契约在 [FEDERATION.md](FEDERATION.md) 第 7 节。
+
+| 项 | 说明 |
+|----|------|
+| 前提 | 实例已在清单里且 `status: active`；中枢已配 SMTP |
+| 怎么开通 | 向运营方要一份发信凭据，由中枢命令行签发，明文只给一次 |
+| 实例配置 | `XKNOT_HUB_RELAY_URL=https://xknot.si/api/federation/mail`、`XKNOT_HUB_RELAY_TOKEN=…` |
+| 发信人 | 恒为中枢的 `MAIL_FROM`，实例不能覆盖 |
+| 回信 | `Reply-To` 必须落在实例自己的域名；省略时用清单里的 `contact` |
+| 内容 | 只发纯文本，≤4000 字，不收附件、HTML、抄送与密送 |
+| 额度 | 默认每 24 小时 50 封，可调；单凭据每分钟 6 封 |
+| 记录 | 中枢只留收件域名、地址哈希与结果，不留正文 |
+| 停用 | 运营方 `relay-revoke <instance>` 即刻生效；不影响实例其他功能 |
+
+退信与投诉由实例自己盯。滥发会导致与中枢共用的发信域一起被降权，凭据会被直接吊销。
+
 ---
 
-## 7. 相关文件速查
+## 8. 相关文件速查
 
 中枢侧（本目录 `xknot.si/`）：
 
 | 路径 | 用途 |
 |------|------|
 | `instances.json` | 联邦清单唯一真源 |
+| `docs/HANDOFF.md` | 子域签发到实例接通的交付单模板（一子域一账号一端口） |
 | `server/app.mjs` / `validate.mjs` / `manifest.mjs` / `admin-cli.mjs` | 申请、校验、生成条目、写入清单 |
 | `admin/` | 审核台 |
 | `ops/check-health.mjs` | L2 探测 |

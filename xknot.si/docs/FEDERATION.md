@@ -1,14 +1,16 @@
-# Knot 联邦 · 中枢契约
+# XKnot 联邦 · 中枢契约
 
 版本 1.0，2026-10-19。中枢是轻量入口。
 
 术语与中英文写法见 [NAMING.md](NAMING.md)，语种与区域规则见 [I18N.md](I18N.md)。本文出现的概念名以那两份为准。
 
-![Knot 联邦架构](federation.svg)
+![XKnot 联邦架构](federation.svg)
 
 ## 0. 摘要
 
-`xknot.si` 是 Knot 联邦的中枢，提供三项信息：**站点档案、运行状态、热点橱窗**。用户、内容、积分和运营属于各实例。
+`xknot.si` 是 XKnot 联邦的中枢，提供三项信息：**站点档案、运行状态、热点橱窗**。用户、内容、积分和运营属于各实例。
+
+另有一项单向服务：**委托发信**（第 7 节）。实例把一封纯文本通知交给中枢的 SMTP 送出，因为联邦只有一张已验证的发信地址。它不属于上面三层信息，也不写中枢的数据。
 
 ## 1. 三层信息
 
@@ -26,9 +28,13 @@
 
 伙伴登记一个 URL，内容留在自己站点，中枢按时去取。这带来三个性质：
 
-- 中枢没有接收接口，不需要令牌、接收校验、限流和原子写。
+- 中枢没有数据接收接口，不需要令牌、接收校验、限流和原子写。
 - 伙伴不需要向中枢提交材料，也不需要通知任何人。
 - 网关只有一个：`instances.json`。改条目、提交、发布，就是全部操作。
+
+`instances.json` 只管对外展示的字段。网络成员的事实——创始实例、子域来源、接入方式、隧道账号与端口——记在同目录的 `federation.json`（联邦名册）。名册不参与门户渲染，两份文件在构建前交叉校验，对不上就不发布。
+
+唯一的例外是第 7 节的**委托发信**：实例 POST 一封信给中枢的 SMTP。它不写清单、不写快照、不留正文，也不是第四层信息，只是一项送信服务。
 
 三层的信任等级不同：
 
@@ -41,9 +47,11 @@
 
 - 维护 `instances.json` 与清单校验。
 - 构建时探测 `/api/health`，写 `var/health.json`。
+- 构建时拉取 `statsUrl`，写 `var/stats/{id}.json`。
 - 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json`。
 - 构建三语门户：Vue 3 + Vite，产物是静态文件，运行时只读 `/data/hub.json`。
 - 整组下架违规实例的橱窗。
+- 按第 7 节代实例发信，维护凭据、额度与发信记录。
 
 ### 2.2 实例负责
 
@@ -60,7 +68,10 @@
 1. 写在 `instances.json` 里，由人提交。
 2. 由中枢按清单里的 URL 主动 GET。
 
-中枢不接收写入。清单之外的数据都由实例发布，中枢只取回副本。
+中枢不接收写入，也不存伙伴的数据。清单之外的数据都由实例发布，中枢只取回副本。
+
+委托发信是唯一的写调用，判定条件另算：它必须绑定清单里的实例、只发纯文本、不留正文、
+有独立凭据与额度、可随时吊销，且不改变中枢的任何数据。不满足就不做。
 
 ## 3. 实施里程碑
 
@@ -129,7 +140,7 @@
 |------|------|------|------|
 | `/api/health` | 按需（构建时） | `no-store` | `ok`、`version`、`service` |
 
-Knot 实例提供 `GET /api/health`，返回 `{ ok: true, service, version }`。中枢直接使用该端点，实例侧无需改动。
+Knot 实例提供 `GET /api/health`，返回 `{ ok: true, service, version }`。中枢直接使用该端点，实例侧无需改动。Knot 部署层还会附上 `release`、`commit`、`builtAt` 供发布脚本核对版本，中枢不读这几个字段。
 
 ### 5.2 探测判定
 
@@ -178,7 +189,7 @@ Knot 实例提供 `GET /api/health`，返回 `{ ok: true, service, version }`。
 
 ### 5.5 活动数据
 
-伙伴可选暴露 `statsUrl`，只提供计数：
+伙伴可选暴露 `statsUrl`，只提供计数。中枢在构建时拉取，写 `var/stats/{id}.json`，门户只读这一份；缺文件显示「未公开」。
 
 ```json
 {
@@ -193,6 +204,18 @@ Knot 实例提供 `GET /api/health`，返回 `{ ok: true, service, version }`。
 - 缺 `statsUrl` 显示「未公开」，不显示 0。
 - 自报数字只做展示，不参与排序、评级或分成。
 - 只收窗口值，不收日序列。
+
+字段约束：
+
+| 字段 | 约束 |
+|------|------|
+| `generatedAt` | 可空，ISO 时间；作为「伙伴更新于」 |
+| `posts.total` / `posts.last24h` / `posts.last7d` | 可空，非负整数 |
+| `accounts.total` / `accounts.last7d` | 可空，非负整数 |
+| `authors.active7d` | 可空，非负整数 |
+| 未知字段 | 忽略，不进 `hub.json` |
+
+至少给一个认识的计数，否则整份作废。拉取由 `ops/fetch-stats.mjs` 执行：只允许 `https`，不跟随重定向，超时 5 秒，响应体上限 32KB，解析 DNS 后拒绝回环、私有网段和云元数据地址；失败时保留上一份。支持 `ETag` / `If-None-Match`。
 
 ## 6. L3：热点橱窗
 
@@ -215,7 +238,7 @@ GET https://travel.xknot.si/.well-known/knot-cards.json
 Accept: application/json
 ```
 
-响应体是固定封装。中枢取到即覆盖上一份，取不到保留上一份。
+响应体是固定封装。中枢取到即覆盖上一份，取不到保留上一份。实现是 `ops/fetch-cards.mjs`，落盘为 `var/cards/{id}.json`。
 
 ```json
 {
@@ -248,10 +271,10 @@ Accept: application/json
 
 | 项 | 约束 |
 |----|------|
-| `cards` | 1–6 条。每次拉取全量覆盖，不追加 |
-| `formatVersion` | 整数，与实例版本解耦 |
+| `cards` | 0–6 条。`[]` 表示清空；每次拉取全量覆盖，不追加 |
+| `formatVersion` | 整数，当前只认 `1`；与实例版本解耦 |
 | `id` | 实例内唯一，≤64 字符 |
-| `lang` | 必填，BCP 47，卡片自身语言 |
+| `lang` | 可空，BCP 47，卡片自身语言；省略时不标注 |
 | `title` | 必填，≤80 字 |
 | `url` | 必填，https，指向该实例自己的主机 |
 | `summary` | 可空，≤160 字 |
@@ -265,6 +288,9 @@ Accept: application/json
 | 清空 | 发布 `{"formatVersion":1,"cards":[]}`，下一次构建即清空 |
 
 最小可用的一条只有 `title` 和 `url`。伙伴不维护封装时，可以只给一个指向自己热点列表页的地址，中枢按一条外链渲染。
+
+不合格的卡片逐条丢掉，全部不合格时整份作废、保留上一份。HTML 标签在落盘前被剥掉，
+正文不进门户，页面只渲染标题、摘要、语言与跳转地址。
 
 `cardsUrl` 与 `statsUrl` 是公开只读地址。中枢不带凭据，需要私密数据时不接入。
 
@@ -297,24 +323,143 @@ Accept: application/json
 - 落盘前做白名单清洗：剥掉 HTML 标签，丢弃危险协议，`body` 只渲染 MD 子集。
 - 拉取在构建步骤内运行，失败时保留上一次的 `var/cards/`。
 
-## 7. 安全与隐私
+## 7. 委托发信
+
+联邦里只有一张通过验证的发信地址。实例量小、域名新，自己配 SMTP 容易进垃圾箱；
+可以把通知信交给中枢代发。这是三层信息之外唯一的一项服务，也是中枢唯一的写入口。
+
+它**不写中枢的数据**：不改清单、不写快照、不存正文，只在 `relay_log` 里记一条不含地址与正文的记录。
+
+### 7.1 为什么由中枢发
+
+- 发信信誉按域名累积。分散到每个实例，等于每家都从零开始。
+- 收信方只看发信域。一张已验证地址比十张新地址更容易送达。
+- 实例不必持有 SMTP 口令，也不必在防火墙上开 465 / 587。
+
+代价是收件人看到的发信人是中枢的地址，回信要靠 `Reply-To` 回到实例。
+
+### 7.2 凭据
+
+- 一份凭据绑定一个实例；`relay_tokens` 只存令牌的 SHA-256。
+- 明文只在签发时打印一次，写进实例的环境变量。
+- 吊销可以按凭据 id，也可以按实例 id 一次吊销该实例的全部凭据。
+- 实例必须仍在清单里且 `status: active`；下架或暂停后凭据自动失效。
+- 每份凭据有自己的 24 小时额度，默认 50 封，上限受中枢配置约束。
+
+签发、查看与吊销：
+
+```bash
+cd xknot.si
+node server/admin-cli.mjs relay-token wang --label "验证邮件" --daily 50
+node server/admin-cli.mjs relay-tokens
+node server/admin-cli.mjs relay-revoke wang
+node server/admin-cli.mjs relay-log 50
+```
+
+实例侧只配两项：
+
+```
+XKNOT_HUB_RELAY_URL=https://xknot.si/api/federation/mail
+XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
+```
+
+### 7.3 接口
+
+| 方法与路径 | 鉴权 | 说明 |
+|------------|------|------|
+| `POST /api/federation/mail` | `Authorization: Bearer <token>` | 送一封纯文本通知 |
+| `GET /api/federation/mail` | 同上 | 查 24 小时额度 |
+
+请求体：
+
+```json
+{
+  "to": "lin@example.com",
+  "subject": "验证你的邮箱",
+  "text": "点开这个链接完成验证：https://wang.xknot.si/verify/8f3c",
+  "replyTo": "support@wang.xknot.si",
+  "idempotencyKey": "verify-8f3c"
+}
+```
+
+| 字段 | 约束 |
+|------|------|
+| `to` | 必填。单个裸地址，不带显示名，≤254 字符 |
+| `subject` | 必填，≤120 字，不允许换行 |
+| `text` | 必填，纯文本，≤4000 字，不允许 `\r` 与 NUL |
+| `replyTo` | 可空。必须落在实例自己的域名（`url`、`canonical` 或 `contact` 的主机及其子域）；空时用 `contact` |
+| `idempotencyKey` | 可空，≤64 位 `A-Za-z0-9._:-`；24 小时内同键只发一次 |
+
+成功：
+
+```json
+{ "ok": true, "delivery": { "id": 42, "at": "2026-10-19T02:31:00.000Z", "toDomain": "example.com" } }
+```
+
+同一个幂等键重试时返回 `{"ok":true,"duplicate":true,...}`，不会再寄一次。若第一次请求仍在发信途中，重试会带 `"pending": true`；额度已先占用，等原请求结束后再查额度即可。
+
+额度查询：
+
+```json
+{
+  "instance": "wang",
+  "token": { "label": "验证邮件", "dailyLimit": 50 },
+  "quota": { "windowHours": 24, "used": 12, "limit": 50, "remaining": 38 }
+}
+```
+
+错误码：
+
+| 状态 | `error` | 含义 |
+|------|---------|------|
+| 400 | `invalid` | 字段错误，`fields` 给出字段码 |
+| 400 | `bad_json` | 请求体不是 JSON |
+| 401 | `missing_token` / `invalid_token` / `token_revoked` | 凭据缺失、无效或已吊销 |
+| 403 | `instance_not_listed` / `instance_inactive` | 实例不在清单里，或状态不是 `active` |
+| 413 | `too_large` | 请求体超过 16KB |
+| 429 | `rate_limited` | 单凭据每分钟 6 封，或全站每小时 240 封 |
+| 429 | `quota_exceeded` | 24 小时额度用完 |
+| 502 | `smtp_failed` | 中枢的 SMTP 拒绝或超时；可以用同一个幂等键重试 |
+| 503 | `relay_unavailable` | 中枢没有配 SMTP，或关掉了委托发信 |
+
+### 7.4 边界
+
+- 只发纯文本：不收 HTML、附件、多收件人、抄送与密送。
+- 发信人恒为中枢配置的 `MAIL_FROM`，实例不能覆盖；`Reply-To` 必须落在实例自己的域名。
+- 不存正文、完整收件地址与主题；日志只留实例、收件域名、地址哈希、主题长度和结果。
+- 每次发信额外带 `X-XKnot-Instance: <id>`，便于收信方与中枢对账。
+- 中枢不做退信处理，也不代管订阅。退信率和投诉率由实例自己控制。
+- 中枢可以随时吊销凭据；吊销不影响实例的其他功能。
+
+### 7.5 滥用与处置
+
+| 现象 | 动作 |
+|------|------|
+| 单个实例退信率升高 | 调低该凭据的 `--daily`，或 `relay-revoke <instance>` |
+| 收到垃圾邮件投诉 | 立即吊销，从清单下架，并删除 L3 缓存 |
+| 收件人回复无人处理 | 检查实例的 `contact` 与 `replyTo`，回信应落到实例自己的信箱 |
+
+`relay_log` 默认保留 30 天：启动时清理一次，之后每 6 小时清理更早的记录；`pending` 每分钟检查一次，超过 15 分钟仍是 `pending` 的占位视为进程在发信途中退出，直接回收，不再占用额度，也不会一直挡住同一个幂等键。
+
+## 8. 安全与隐私
 
 - 中枢只访问清单中的地址。加入申请里的站点地址不会在接收时被抓取，只有审核通过、写进清单之后，构建时才探测。
 - 探测与拉取在解析 DNS 后拒绝回环、私有网段、链路本地和云元数据地址。
-- 唯一的写入路径是 `/api/applications`：只收表单字段，不存文件，不回显 HTML，字段有长度上限与蜜罐。
+- 写入路径只有两条：`POST /api/applications`（只收表单字段，不存文件，不回显 HTML，字段有长度上限与蜜罐）和 `POST /api/federation/mail`（Bearer 凭据、纯文本、独立额度、不留正文）。
+- 委托发信与浏览器会话完全隔离：不读 Cookie，不接受 `Origin` 跨站的 POST 复用会话。
 - 审核台需要管理员账号和会话；账号由命令行建立，口令用 scrypt 加盐存储，会话 Cookie 为 `HttpOnly`、`SameSite=Strict`。
 - 门户不执行伙伴脚本，不嵌 iframe。外链带 `rel="noopener noreferrer"`。
-- 中枢不保存用户表、作者目录和个体访问画像；申请记录只存站点信息、联系邮箱和哈希后的来源地址。
-- `.si` 在欧盟境内。M2 上线前完成一次 GDPR 评估，重点检查自报计数能否反推个体。
+- 中枢不保存用户表、作者目录和个体访问画像；申请记录只存站点信息、联系邮箱和哈希后的来源地址；发信记录只存收件域名与地址哈希。
+- `.si` 在欧盟境内。M2 上线前完成一次 GDPR 评估，重点检查自报计数能否反推个体，以及发信日志的最小化。
 
-## 8. 归属与许可
+## 9. 归属与许可
 
 - 代码以 Apache-2.0 发布，版权人 PaulWang，署名见 `NOTICE`。
 - `xknot.si` 及其下签发的子域归 PaulWang 所有，不随代码授权。
 - 许可证不授予商标使用权。`Knot`、`xknot`、`xknot.si` 的名称和标识归 PaulWang 所有。
 - 收录不改变归属。伙伴的站点、内容和用户属于伙伴。
 
-## 9. 收录与下架
+## 10. 收录与下架
 
 加入是申请制：站点在门户右侧提交表单，运营者人工审核，通过后才写进清单。审核不是自动入驻，也不改变实例自治。
 

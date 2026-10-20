@@ -4,7 +4,7 @@
 // 这一层只做读写，不判断业务，也不碰 HTTP。
 
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -53,6 +53,38 @@ create table if not exists events (
   ref    text,
   detail text
 );
+
+-- 委托发信：一份凭据绑定一个实例，可单独吊销、单独定额度。
+create table if not exists relay_tokens (
+  id           text primary key,
+  instance_id  text not null,
+  label        text,
+  token_hash   text not null unique,
+  daily_limit  integer not null default 50,
+  created_at   text not null,
+  created_by   text,
+  revoked_at   text,
+  last_used_at text
+);
+
+create index if not exists relay_tokens_instance on relay_tokens(instance_id);
+
+-- 只记域名与结果，不存收件地址和正文；删掉日志不影响任何实例。
+create table if not exists relay_log (
+  seq          integer primary key autoincrement,
+  at           text not null,
+  instance_id  text not null,
+  token_id     text,
+  to_domain    text,
+  to_hash      text,
+  subject_len  integer,
+  idem_key     text,
+  status       text not null,
+  error        text
+);
+
+create index if not exists relay_log_instance on relay_log(instance_id, at);
+create index if not exists relay_log_token on relay_log(token_id, at);
 `;
 
 export const STATUSES = ["pending", "approved", "rejected", "hold"];
@@ -96,7 +128,16 @@ export function ipHash(ip, secret = "xknot") {
 export function openStore(file) {
   mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
+  // 目录通常已是 0700，库文件再收一道，避免备份或临时复制时被其他用户读到。
+  if (file !== ":memory:") {
+    try {
+      chmodSync(file, 0o600);
+    } catch {
+      // 文件系统不支持时靠目录权限。
+    }
+  }
   db.exec("pragma journal_mode = wal");
+  db.exec("pragma busy_timeout = 5000");
   db.exec("pragma foreign_keys = on");
   db.exec(SCHEMA);
 
@@ -311,6 +352,237 @@ export function openStore(file) {
 
     pruneSessions() {
       db.prepare("delete from sessions where expires_at <= ?").run(nowIso());
+    },
+
+    // ---- 委托发信 ----
+
+    // 明文只在创建时返回一次；库里只有 SHA-256。
+    createRelayToken({ instanceId, label = "", dailyLimit = 50, createdBy = null }) {
+      const id = String(instanceId || "").trim();
+      if (!/^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/.test(id)) return { error: "invalid_instance" };
+      const limit = Math.min(Math.max(Number(dailyLimit) || 50, 1), 5000);
+      const token = `xkr_${id}_${randomBytes(24).toString("base64url")}`;
+      const recordId = `rtk_${randomBytes(6).toString("hex")}`;
+      db.prepare(
+        `insert into relay_tokens (id, instance_id, label, token_hash, daily_limit, created_at, created_by)
+         values (?, ?, ?, ?, ?, ?, ?)`
+      ).run(recordId, id, String(label || "").slice(0, 80), sha256(token), limit, nowIso(), createdBy);
+      event("relay.token_created", recordId, id);
+      return {
+        token,
+        record: { id: recordId, instanceId: id, label: String(label || ""), dailyLimit: limit },
+      };
+    },
+
+    listRelayTokens() {
+      return all(
+        `select id, instance_id, label, daily_limit, created_at, created_by, revoked_at, last_used_at
+         from relay_tokens order by created_at desc`
+      ).map((row) => ({
+        id: row.id,
+        instanceId: row.instance_id,
+        label: row.label || "",
+        dailyLimit: Number(row.daily_limit) || 0,
+        createdAt: row.created_at,
+        createdBy: row.created_by,
+        revokedAt: row.revoked_at,
+        lastUsedAt: row.last_used_at,
+      }));
+    },
+
+    verifyRelayToken(token) {
+      if (typeof token !== "string" || !token) return { error: "missing" };
+      const row = get("select * from relay_tokens where token_hash = ?", sha256(token));
+      if (!row) return { error: "invalid" };
+      if (row.revoked_at) return { error: "revoked" };
+      db.prepare("update relay_tokens set last_used_at = ? where id = ?").run(nowIso(), row.id);
+      return {
+        token: {
+          id: row.id,
+          instanceId: row.instance_id,
+          label: row.label || "",
+          dailyLimit: Number(row.daily_limit) || 0,
+        },
+      };
+    },
+
+    // 吊销：给记录 id 只吊销这一份，给实例 id 吊销该实例下所有未吊销的凭据。
+    revokeRelayToken(ref) {
+      const value = String(ref || "").trim();
+      if (!value) return { error: "not_found" };
+      const byId = get("select id, instance_id from relay_tokens where id = ? and revoked_at is null", value);
+      const rows = byId
+        ? [byId]
+        : all("select id, instance_id from relay_tokens where instance_id = ? and revoked_at is null", value);
+      if (!rows.length) return { error: "not_found" };
+
+      const at = nowIso();
+      const stmt = db.prepare("update relay_tokens set revoked_at = ? where id = ?");
+      for (const row of rows) stmt.run(at, row.id);
+      event("relay.token_revoked", rows[0].id, `${byId ? "token" : "instance"}:${value}`);
+      return { revoked: rows.length, at, instanceId: rows[0].instance_id };
+    },
+
+    // 24 小时窗口内成功、失败与在途都算一次：在途先占住额度，避免并发请求
+    // 同时通过检查后一起发信。
+    relayUsage(tokenId, sinceIso) {
+      const row = get(
+        `select count(*) as n from relay_log
+         where token_id = ? and at >= ? and status in ('pending', 'accepted', 'failed')`,
+        String(tokenId),
+        String(sinceIso)
+      );
+      return Number(row?.n) || 0;
+    },
+
+    // 在同一个写事务里查幂等键、查额度和占位。Node 是单线程，但发信要 await，
+    // 检查与写入之间必须没有 await，否则两个请求会同时看到“还有余额”。
+    // 返回 { id, at } 表示已占位，{ duplicate } 表示同键已有在途或成功记录，
+    // { error: "quota_exceeded" } 表示额度已满。
+    reserveRelay({
+      instanceId,
+      tokenId,
+      sinceIso,
+      limit,
+      toDomain = null,
+      toHash = null,
+      subjectLength = null,
+      idemKey = null,
+    }) {
+      const capped = Math.min(Math.max(Number(limit) || 50, 1), 5000);
+      db.exec("begin immediate");
+      try {
+        if (idemKey) {
+          const hit = get(
+            `select seq, at, status from relay_log
+             where token_id = ? and idem_key = ? and at >= ? and status in ('pending', 'accepted')
+             order by seq desc limit 1`,
+            String(tokenId),
+            String(idemKey),
+            String(sinceIso)
+          );
+          if (hit) {
+            db.exec("commit");
+            return {
+              duplicate: {
+                id: Number(hit.seq),
+                at: hit.at,
+                pending: hit.status === "pending",
+              },
+            };
+          }
+        }
+
+        const used = Number(
+          get(
+            `select count(*) as n from relay_log
+             where token_id = ? and at >= ? and status in ('pending', 'accepted', 'failed')`,
+            String(tokenId),
+            String(sinceIso)
+          )?.n
+        ) || 0;
+        if (used >= capped) {
+          db.exec("commit");
+          return { error: "quota_exceeded", used, limit: capped };
+        }
+
+        const at = nowIso();
+        const result = db
+          .prepare(
+            `insert into relay_log (at, instance_id, token_id, to_domain, to_hash, subject_len, idem_key, status, error)
+             values (?, ?, ?, ?, ?, ?, ?, 'pending', null)`
+          )
+          .run(
+            at,
+            String(instanceId),
+            String(tokenId),
+            toDomain ? String(toDomain).slice(0, 253) : null,
+            toHash ? String(toHash).slice(0, 32) : null,
+            Number.isInteger(subjectLength) ? subjectLength : null,
+            idemKey ? String(idemKey).slice(0, 64) : null
+          );
+        db.exec("commit");
+        return { id: Number(result.lastInsertRowid), at };
+      } catch (error) {
+        try {
+          db.exec("rollback");
+        } catch {
+          // 事务可能已经结束，交给上层处理原始错误。
+        }
+        throw error;
+      }
+    },
+
+    finishRelay(id, { status, error = null } = {}) {
+      if (status !== "accepted" && status !== "failed") return 0;
+      const result = db
+        .prepare("update relay_log set status = ?, error = ? where seq = ? and status = 'pending'")
+        .run(String(status), error ? String(error).slice(0, 120) : null, Number(id));
+      return Number(result.changes) || 0;
+    },
+
+    findRelayDelivery(tokenId, idemKey, sinceIso) {
+      if (!idemKey) return null;
+      const row = get(
+        `select seq, at from relay_log
+         where token_id = ? and idem_key = ? and status = 'accepted' and at >= ?
+         order by seq desc limit 1`,
+        String(tokenId),
+        String(idemKey),
+        String(sinceIso)
+      );
+      return row ? { id: Number(row.seq), at: row.at } : null;
+    },
+
+    logRelay({ instanceId, tokenId = null, toDomain = null, toHash = null, subjectLength = null, idemKey = null, status, error = null }) {
+      const result = db
+        .prepare(
+          `insert into relay_log (at, instance_id, token_id, to_domain, to_hash, subject_len, idem_key, status, error)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          nowIso(),
+          String(instanceId),
+          tokenId ? String(tokenId) : null,
+          toDomain ? String(toDomain).slice(0, 253) : null,
+          toHash ? String(toHash).slice(0, 32) : null,
+          Number.isInteger(subjectLength) ? subjectLength : null,
+          idemKey ? String(idemKey).slice(0, 64) : null,
+          String(status),
+          error ? String(error).slice(0, 120) : null
+        );
+      return Number(result.lastInsertRowid) || null;
+    },
+
+    listRelayLog(limit = 50) {
+      return all(
+        "select seq, at, instance_id, to_domain, subject_len, status, error from relay_log order by seq desc limit ?",
+        Math.min(Math.max(Number(limit) || 50, 1), 500)
+      ).map((row) => ({
+        seq: Number(row.seq),
+        at: row.at,
+        instanceId: row.instance_id,
+        toDomain: row.to_domain,
+        subjectLength: row.subject_len,
+        status: row.status,
+        error: row.error,
+      }));
+    },
+
+    pruneRelayLog(days = 30) {
+      const cutoff = new Date(Date.now() - Math.max(1, Number(days) || 30) * 86400000).toISOString();
+      const result = db.prepare("delete from relay_log where at < ?").run(cutoff);
+      return Number(result.changes) || 0;
+    },
+
+    // 进程在发信途中退出会留下 pending 占位。SMTP 超时是 45 秒，15 分钟足够；
+    // 不清掉的话，这条占位会一直占着 24 小时额度。
+    pruneStaleRelayPending(minutes = 15) {
+      const cutoff = new Date(Date.now() - Math.max(1, Number(minutes) || 15) * 60000).toISOString();
+      const result = db
+        .prepare("delete from relay_log where status = 'pending' and at < ?")
+        .run(cutoff);
+      return Number(result.changes) || 0;
     },
 
     events(limit = 50) {

@@ -39,7 +39,7 @@ const view = computed(() => (data.value ? buildView(data.value, { locale: props.
 const groups = computed(() => availableGroups(view.value));
 const filtered = computed(() => filterByGroup(view.value, group.value));
 
-// 有橱窗的节点：卡片里会多一块热点，筛选条也据此出现「只看热点」。
+// 有橱窗的实例：卡片里会多一块热点，筛选条也据此出现「只看热点」。
 // 超过 30 天的橱窗不再算热点，与卡片里的判断同一口径。
 const hasHot = (item) =>
   Array.isArray(item.cards) && item.cards.some((card) => cardState(card.updatedAt, now.value) !== "stale");
@@ -159,7 +159,7 @@ onBeforeUnmount(() => {
       <header class="net-top">
         <a class="brand" :href="`/${locale}/`">
           <BrandMark class="mark" :size="26" />
-          <span class="brand-word">KNOT</span>
+          <span class="brand-word">{{ t("hero.wordmark") }}</span>
           <span class="brand-sep" aria-hidden="true">/</span>
           <span class="brand-name">{{ t("hero.name") }}</span>
         </a>
@@ -640,7 +640,7 @@ h1 {
   line-height: 1.6;
 }
 
-/* 窄屏申请表排在节点目录之后，这里给一个直达入口。 */
+/* 窄屏申请表排在实例目录之后，这里给一个直达入口。 */
 .mast-join {
   display: none;
   align-self: flex-start;

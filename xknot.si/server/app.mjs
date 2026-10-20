@@ -4,13 +4,15 @@
 // 不设 CORS：只接受同源请求，带 Origin 且与 Host 不一致直接拒绝。
 // 静态文件只在本地开发时由这里代管 /admin/，生产交给 nginx。
 
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { checkManifestEntry, toManifestEntry } from "./manifest.mjs";
 import { applicantReviewMail, newApplicationMail } from "./notify.mjs";
+import { RELAY_LIMITS, domainOf, relayMessage, validateRelayRequest } from "./relay.mjs";
 import { ipHash } from "./store.mjs";
 import { LIMITS, validateApplication } from "./validate.mjs";
 
@@ -87,11 +89,16 @@ function createLimiter({ windowMs, max, store = new Map() }) {
 }
 
 function clientIp(req, trustProxy) {
-  if (trustProxy) {
-    const forwarded = req.headers["x-forwarded-for"];
-    if (typeof forwarded === "string" && forwarded.trim()) return forwarded.split(",")[0].trim();
-  }
-  return req.socket.remoteAddress || "unknown";
+  const remote = req.socket.remoteAddress || "unknown";
+  if (!trustProxy) return remote;
+
+  // nginx 用 $proxy_add_x_forwarded_for 把真实来源追加在末尾。客户端自己
+  // 伪造的 X-Forwarded-For 只会出现在前面，取首个地址等于让调用方自选限流桶。
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded !== "string" || !forwarded.trim()) return remote;
+  const parts = forwarded.split(",").map((part) => part.trim()).filter(Boolean);
+  const last = parts[parts.length - 1];
+  return last && isIP(last) ? last : remote;
 }
 
 function sameOrigin(req) {
@@ -102,6 +109,14 @@ function sameOrigin(req) {
   } catch {
     return false;
   }
+}
+
+// 委托发信走 Bearer，不使用 Cookie：实例是服务端调用，不该带浏览器会话。
+function bearerToken(req) {
+  const header = req.headers.authorization;
+  if (typeof header !== "string") return null;
+  const match = /^Bearer\s+(\S+)$/i.exec(header.trim());
+  return match ? match[1] : null;
 }
 
 function cookieHeader(token, { secure, maxAge }) {
@@ -124,7 +139,8 @@ const ADMIN_ASSETS = {
  * }} deps
  */
 export function createApp({ store, config }) {
-  const secret = config.secret || "xknot-dev";
+  // 生产由 index.mjs 注入；测试或嵌入时没给也不能退化成公开的固定密钥。
+  const secret = String(config.secret || "").trim() || randomBytes(32).toString("hex");
   const secureCookies = Boolean(config.secureCookies);
   const trustProxy = Boolean(config.trustProxy);
   const sessionDays = config.sessionDays || 7;
@@ -135,6 +151,22 @@ export function createApp({ store, config }) {
   const mailer = config.mailer || null;
   const adminEmail = String(config.adminEmail || "").trim();
   const origin = String(config.origin || "https://xknot.si").replace(/\/+$/, "");
+
+  // 委托发信：凭据绑定实例，额度按凭据算，另有进程内的分钟级与全站小时级护栏。
+  // 清单可能被 `admin-cli publish` 或人工改动，发信时重新读取，避免暂停/新增要等进程重启。
+  const staticInstances = Array.isArray(config.instances) ? config.instances : [];
+  const readInstances =
+    typeof config.instancesProvider === "function" ? config.instancesProvider : () => staticInstances;
+  function findInstance(id) {
+    const list = readInstances();
+    if (!Array.isArray(list)) return null;
+    return list.find((item) => item?.id === id) || null;
+  }
+  const relayMailer = mailer;
+  const relayEnabled = Boolean(config.relay?.enabled) && Boolean(relayMailer);
+  const relayDefaultLimit = Math.min(Math.max(Number(config.relay?.dailyLimit) || 50, 1), 5000);
+  const relayMinuteLimit = createLimiter({ windowMs: 60_000, max: RELAY_LIMITS.perMinute });
+  const relayHourLimit = createLimiter({ windowMs: 3600_000, max: RELAY_LIMITS.perHour });
 
   // 发信是副作用，不能拖住提交和审核。正文组装和发送都放进 Promise，
   // 任何一步失败只记日志，接口照常返回。
@@ -156,6 +188,107 @@ export function createApp({ store, config }) {
     if (!token) return null;
     const admin = store.sessionAdmin(token);
     return admin ? { ...admin, token } : null;
+  }
+
+  // ---- 委托发信：POST 送一封，GET 查额度 ----
+  // 这是中枢唯一的写入口，但它不写中枢的数据：只把信交给 SMTP，记一条不含正文的日志。
+  async function handleRelay(req, res) {
+    if (!relayEnabled) return send(res, 503, { error: "relay_unavailable" });
+
+    const token = bearerToken(req);
+    if (!token) return send(res, 401, { error: "missing_token" });
+    const grant = store.verifyRelayToken(token);
+    if (grant.error === "revoked") return send(res, 401, { error: "token_revoked" });
+    if (!grant.token) return send(res, 401, { error: "invalid_token" });
+
+    const instance = findInstance(grant.token.instanceId);
+    if (!instance) return send(res, 403, { error: "instance_not_listed" });
+    if (instance.status !== "active") return send(res, 403, { error: "instance_inactive" });
+
+    const limit = Math.min(grant.token.dailyLimit || relayDefaultLimit, relayDefaultLimit);
+    const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+
+    if (req.method === "GET") {
+      const used = store.relayUsage(grant.token.id, since);
+      return send(res, 200, {
+        instance: instance.id,
+        token: { label: grant.token.label, dailyLimit: limit },
+        quota: { windowHours: 24, used, limit, remaining: Math.max(0, limit - used) },
+      });
+    }
+
+    const burst = relayMinuteLimit(grant.token.id);
+    if (!burst.allowed) {
+      return send(res, 429, { error: "rate_limited", retryAfter: burst.retryAfter }, {
+        "retry-after": String(burst.retryAfter),
+      });
+    }
+    const hourly = relayHourLimit("all");
+    if (!hourly.allowed) {
+      return send(res, 429, { error: "rate_limited", scope: "hub", retryAfter: hourly.retryAfter }, {
+        "retry-after": String(hourly.retryAfter),
+      });
+    }
+
+    const body = await readJson(req);
+    if (body.error === "too_large") return send(res, 413, { error: "too_large" });
+    if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+
+    const checked = validateRelayRequest(body, { instance, from: relayMailer.from });
+    if (!checked.ok) return send(res, 400, { error: "invalid", fields: checked.errors });
+    const value = checked.value;
+
+    const meta = {
+      instanceId: instance.id,
+      tokenId: grant.token.id,
+      toDomain: domainOf(value.to),
+      toHash: createHash("sha256").update(value.to.toLowerCase()).digest("hex").slice(0, 16),
+      subjectLength: [...value.subject].length,
+      idemKey: value.idempotencyKey,
+    };
+
+    // 先在同一事务里占额度/占幂等键，再 await 发信。检查和写入之间不能有
+    // await，否则并发请求会同时通过额度检查，同一幂等键也会寄两次。
+    const reserved = store.reserveRelay({
+      ...meta,
+      sinceIso: since,
+      limit,
+    });
+
+    if (reserved.duplicate) {
+      return send(res, 200, {
+        ok: true,
+        duplicate: true,
+        pending: reserved.duplicate.pending || undefined,
+        delivery: reserved.duplicate,
+      });
+    }
+
+    if (reserved.error === "quota_exceeded") {
+      return send(
+        res,
+        429,
+        {
+          error: "quota_exceeded",
+          quota: { windowHours: 24, used: reserved.used, limit: reserved.limit, remaining: 0 },
+        },
+        { "retry-after": "3600" }
+      );
+    }
+
+    try {
+      await relayMailer.send(relayMessage(value, { instance }));
+    } catch (error) {
+      store.finishRelay(reserved.id, { status: "failed", error: error.code || error.message });
+      console.error("relay failed:", instance.id, error.message);
+      return send(res, 502, { error: "smtp_failed" });
+    }
+
+    store.finishRelay(reserved.id, { status: "accepted" });
+    return send(res, 200, {
+      ok: true,
+      delivery: { id: reserved.id, at: reserved.at, toDomain: meta.toDomain },
+    });
   }
 
   async function serveAdminFile(req, res, name) {
@@ -193,7 +326,12 @@ export function createApp({ store, config }) {
     }
 
     if (route === "/api/health") {
-      return send(res, 200, { ok: true, at: new Date().toISOString() });
+      return send(res, 200, {
+        ok: true,
+        service: "xknot-hub",
+        version: "0.1.0",
+        at: new Date().toISOString(),
+      });
     }
 
     if (!route.startsWith("/api/")) return send(res, 404, { error: "not_found" });
@@ -206,6 +344,10 @@ export function createApp({ store, config }) {
     if (req.method === "POST" && !sameOrigin(req)) {
       return send(res, 403, { error: "cross_origin" });
     }
+
+    // ---- 联邦：实例委托发信（Bearer 鉴权，不看 Cookie）----
+
+    if (route === "/api/federation/mail") return handleRelay(req, res);
 
     // ---- 公开：提交申请 ----
 

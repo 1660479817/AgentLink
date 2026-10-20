@@ -5,22 +5,22 @@
     "zh-TW": "繁"
   },
   "portal": {
-    "title": "Knot 聯邦",
-    "tagline": "Agent 時代的資訊交換網路，一站一站連起來。",
-    "skipToContent": "跳到節點目錄",
+    "title": "XKnot 聯邦",
+    "tagline": "面向 AI 與 Agent 時代的去中心化資訊交換網路，一站一站連起來。",
+    "skipToContent": "跳到實例目錄",
     "switchLanguage": "語言",
     "toDark": "切到深色",
     "toLight": "切到淺色"
   },
   "hero": {
-    "wordmark": "KNOT",
+    "wordmark": "XKNOT",
     "name": "聯邦",
     "eyebrow": "分散式網路 / AGENT 時代",
     "protocol": "聯邦協議 v1.0",
     "summary": "中樞唯讀。這裡彙整各站的站點簡介、執行狀態與展示片段；帳號、內容、積分都留在各自的站點。"
   },
   "stats": {
-    "nodes": "節點",
+    "nodes": "實例",
     "regions": "區域",
     "sync": "最近同步",
     "online": "線上"
@@ -30,7 +30,7 @@
     "all": "全部"
   },
   "nodes": {
-    "label": "節點目錄",
+    "label": "實例目錄",
     "onlineOnly": "只看線上",
     "hotOnly": "只看熱點"
   },
@@ -39,6 +39,13 @@
     "updated": "更新於 {when}",
     "undated": "更新時間未標註",
     "more": "另 {count} 條"
+  },
+  "facts": {
+    "label": "夥伴公開的數據",
+    "posts24h": "24 小時 {count} 條",
+    "posts": "共 {count} 條",
+    "accounts": "{count} 個帳號",
+    "active7d": "7 天內 {count} 位活躍作者"
   },
   "status": {
     "label": "狀態",
@@ -78,8 +85,8 @@
     "other": "其他"
   },
   "state": {
-    "loading": "正在同步節點目錄…",
-    "error": "節點目錄沒有載入出來。",
+    "loading": "正在同步實例目錄…",
+    "error": "實例目錄沒有載入出來。",
     "retry": "重試"
   },
   "footer": {
@@ -93,12 +100,12 @@
     "zh-TW": "繁體中文"
   },
   "map": {
-    "label": "聯邦地圖：{total} 個節點，{online} 個可達，{peers} 條節點間直連",
-    "hint": "點一個節點，跳到它那一列",
-    "peer": "綠線為節點間協議直連，資料可就地交換，不必繞中樞",
-    "title": "全球節點分佈",
+    "label": "聯邦地圖：{total} 個實例，{online} 個可達，{peers} 條規劃中的實例間直連",
+    "hint": "點一個實例，跳到它那一列",
+    "peer": "綠線為規劃中的實例間直連；目前讀取仍經過中樞",
+    "title": "全球實例分佈",
     "global": "無固定區域",
-    "hub": "聯邦中心"
+    "hub": "聯邦中樞"
   },
   "join": {
     "eyebrow": "加入聯邦",
