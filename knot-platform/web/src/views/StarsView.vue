@@ -151,6 +151,7 @@ onMounted(load);
     <InformationCard
       v-for="item in items"
       :key="item.id"
+      :post-id="item.id"
       :body="item.body || ''"
       :category="item.kMeta?.category || ''"
       :language="item.kMeta?.language || ''"

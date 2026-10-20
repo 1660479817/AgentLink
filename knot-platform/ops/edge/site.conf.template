@@ -1,12 +1,15 @@
-# Knot 云端边缘。由 ops/scripts/render-config.mjs 从 sites/<站点>/site.env 生成。
-# 不要在这种模板里写死域名、目录或端口；改站点配置。
+# Knot 云端边缘。由 ops/scripts/render-config.mjs 从 sites/<站点>/site.env
+# 叠加 sites/<站点>/edge.<域名>.env 生成。
+# 不要在这两份模板里写死域名、目录或端口；改站点配置。
 #
+# 一份配置服务一个公网入口（KNOT_DOMAIN）。同一实例的其它入口各有一份。
 # 边缘只做三件事：
-#   1. 提供 WebUI 静态文件；
+#   1. 提供 WebUI 静态文件（KNOT_ENTRY_SERVE=static），或整站回源（=proxy）；
 #   2. 把 /api、/help 反代到回源端口（隧道或同机 Backend）；
-#   3. 给 /discover.json 和 /api/web/uploads/ 加缓存。
-
-proxy_cache_path {{KNOT_EDGE_CACHE_DIR}} levels=1:2 keys_zone={{KNOT_EDGE_CACHE_ZONE}}:10m max_size={{KNOT_EDGE_CACHE_SIZE}} inactive=7d use_temp_path=off;
+#   3. 给 /discover.json 和 /api/web/uploads/ 加缓存（仅 static 投放）。
+#
+# 缓存区（proxy_cache_path）不在这里声明：整台边缘只允许一次，放在 cache.conf.template，
+# 由 push-edge.sh 单独装成 knot-cache.conf。多个入口共用同一个 zone。
 
 server {
     server_name {{KNOT_DOMAIN}};
@@ -23,6 +26,7 @@ server {
         return 404 '{"error":"not_found"}';
     }
 
+{{#KNOT_ENTRY_STATIC}}
     # 上传文件（信息流图片 /display、头像、赞助图）：边缘缓存，避免每张图都穿隧道回平台。
     #
     # 缓存键只有 $uri，不含会话，所以「能不能进共享缓存」完全交给后端的 Cache-Control：
@@ -47,6 +51,21 @@ server {
         proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
         add_header X-Knot-Cache $upstream_cache_status;
     }
+{{/KNOT_ENTRY_STATIC}}
+{{^KNOT_ENTRY_STATIC}}
+    # proxy 投放不在这里另开缓存区：同一台 nginx 上同名 zone 不能声明两次，
+    # 而上传文件本来就该由持有数据的实例回，缓存留给 static 入口去做。
+    location ^~ /api/web/uploads/ {
+        proxy_pass http://127.0.0.1:{{KNOT_EDGE_PROXY_PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto {{#KNOT_EDGE_SSL}}https{{/KNOT_EDGE_SSL}}{{^KNOT_EDGE_SSL}}$scheme{{/KNOT_EDGE_SSL}};
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+{{/KNOT_ENTRY_STATIC}}
 
     location /api/ {
         proxy_pass http://127.0.0.1:{{KNOT_EDGE_PROXY_PORT}};
@@ -68,6 +87,7 @@ server {
         proxy_read_timeout 30s;
     }
 
+{{#KNOT_ENTRY_STATIC}}
     location = /index.html {
         root {{KNOT_EDGE_WEB_ROOT}};
         add_header Cache-Control "no-cache";
@@ -117,6 +137,21 @@ server {
         add_header X-Content-Type-Options nosniff always;
         add_header Referrer-Policy strict-origin-when-cross-origin always;
     }
+{{/KNOT_ENTRY_STATIC}}
+{{^KNOT_ENTRY_STATIC}}
+    # proxy 投放：/、/assets/、SPA 兜底、/discover.json、/media/previews/ 全部回源。
+    # 好处是页面与接口永远来自同一次构建，代价是每个静态文件都要穿一次隧道。
+    # 安全头交给 Backend：这里再加一遍，同一个响应会出现两行同名头。
+    location / {
+        proxy_pass http://127.0.0.1:{{KNOT_EDGE_PROXY_PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto {{#KNOT_EDGE_SSL}}https{{/KNOT_EDGE_SSL}}{{^KNOT_EDGE_SSL}}$scheme{{/KNOT_EDGE_SSL}};
+        proxy_read_timeout 30s;
+    }
+{{/KNOT_ENTRY_STATIC}}
 
 {{#KNOT_EDGE_SSL}}
     listen 443 ssl;

@@ -715,6 +715,7 @@ async function dismissSale(item) {
         v-for="item in sales"
         :id="`sale-${item.id}`"
         :key="item.id"
+        :post-id="item.id"
         :body="item.body || ''"
         :category="item.kMeta?.category || ''"
         :topics="item.kMeta?.topics || []"

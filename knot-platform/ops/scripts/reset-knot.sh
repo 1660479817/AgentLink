@@ -10,19 +10,54 @@ if [[ "${1:-}" != "--yes" ]]; then
   exit 1
 fi
 
-KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
 if [[ ! -f "$KNOT_PLATFORM_ENV" ]]; then
-  echo "缺少 $KNOT_PLATFORM_ENV。先跑 ./ops/scripts/deploy-site.sh --site $KNOT_SITE。" >&2
+  echo "缺少 ${KNOT_PLATFORM_ENV}。先跑 ./ops/scripts/deploy-site.sh --site ${KNOT_SITE}。" >&2
   exit 1
 fi
 knot_source_platform_env
 
-UPLOAD_DIR="${UPLOAD_DIR:-$KNOT_HOME/var/uploads}"
+UPLOAD_DIR="${UPLOAD_DIR:-$KNOT_DEPLOY_ROOT/var/uploads}"
 UID_NUM="$(id -u)"
-launchctl bootout "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
+SYSTEMD_UNIT="$KNOT_SYSTEMD_DIR/knot-backend.service"
+PID_FILE="$KNOT_DEPLOY_ROOT/var/run/backend.pid"
+
+stop_backend() {
+  if [[ -f "$PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null || true; fi
+    for _ in $(seq 1 50); do
+      [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    rm -f "$PID_FILE"
+  elif [[ "$(uname -s)" == "Darwin" ]]; then
+    launchctl bootout "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
+  elif [[ -f "$SYSTEMD_UNIT" ]]; then
+    if [[ "$(id -u)" == "0" ]]; then systemctl stop knot-backend 2>/dev/null || true; else sudo systemctl stop knot-backend 2>/dev/null || true; fi
+  fi
+}
+
+restart_backend() {
+  if [[ ! -f "$HOME/Library/LaunchAgents/com.knot.platform.plist" && ! -f "$SYSTEMD_UNIT" ]]; then
+    # 没有服务管理器（deploy-site.sh --runtime none）：后台起一份，pid 记在 var/run。
+    mkdir -p "$KNOT_DEPLOY_ROOT/var/log" "$KNOT_DEPLOY_ROOT/var/run"
+    env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" \
+      KNOT_SITE="$KNOT_SITE" KNOT_DEPLOY_ROOT="$KNOT_DEPLOY_ROOT" \
+      nohup "$KNOT_DEPLOY_ROOT/current/ops/scripts/run-knot-platform.sh" >>"$KNOT_DEPLOY_ROOT/var/log/knot-platform.log" 2>&1 &
+    echo $! >"$PID_FILE"
+  elif [[ "$(uname -s)" == "Darwin" ]]; then
+    launchctl bootstrap "gui/$UID_NUM" "$HOME/Library/LaunchAgents/com.knot.platform.plist" 2>/dev/null || true
+    launchctl kickstart -k "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
+  elif [[ -f "$SYSTEMD_UNIT" ]]; then
+    if [[ "$(id -u)" == "0" ]]; then systemctl restart knot-backend; else sudo systemctl restart knot-backend; fi
+  fi
+}
+
+stop_backend
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 DROP SCHEMA IF EXISTS knot_keep CASCADE;
@@ -111,8 +146,8 @@ CREATE SCHEMA public;
 SQL
 
 echo "==> migrate"
-cd "$KNOT_HOME"
-npm run migrate
+cd "$KNOT_APP_DIR"
+node "$KNOT_APP_DIR/backend/scripts/migrate.js" --reset
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 INSERT INTO users (id, email, display_name, avatar_upload_id, level, entitlements, points_balance, label, locale, created_at, updated_at)
@@ -185,15 +220,11 @@ if [[ -d "$UPLOAD_DIR" ]]; then
   find "$UPLOAD_DIR/blobs" -mindepth 1 -type d -empty -delete 2>/dev/null || true
 fi
 
-if [[ -x "$KNOT_HOME/ops/scripts/ensure-tester.sh" ]]; then
-  "$KNOT_HOME/ops/scripts/ensure-tester.sh"
+if [[ -x "$KNOT_APP_DIR/ops/scripts/ensure-tester.sh" ]]; then
+  "$KNOT_APP_DIR/ops/scripts/ensure-tester.sh"
 fi
 
-# 上面 bootout 已经把服务卸载了。装过 LaunchAgent 就重新拉起来，别让重建后的站点空着。
-PLIST="$HOME/Library/LaunchAgents/com.knot.platform.plist"
-if [[ -f "$PLIST" ]]; then
-  launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>/dev/null || true
-  launchctl kickstart -k "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
-fi
+# 上面已经把服务停了。按装过的运行时把它拉起来，别让重建后的站点空着。
+restart_backend
 
 echo "reset ok, removed files ${removed}"

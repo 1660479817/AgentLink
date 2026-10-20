@@ -10,14 +10,13 @@ if [[ -z "$NAME" ]]; then
   exit 1
 fi
 
-KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
 if [[ ! -f "$KNOT_PLATFORM_ENV" ]]; then
-  echo "缺少 $KNOT_PLATFORM_ENV。先跑 ./ops/scripts/deploy-site.sh --site $KNOT_SITE。" >&2
+  echo "缺少 ${KNOT_PLATFORM_ENV}。先跑 ./ops/scripts/deploy-site.sh --site ${KNOT_SITE}。" >&2
   exit 1
 fi
 knot_source_platform_env
 
-exec node "$KNOT_HOME/backend/scripts/ensure-internal-agent.mjs" "$NAME"
+exec node "$KNOT_APP_DIR/backend/scripts/ensure-internal-agent.mjs" "$NAME"

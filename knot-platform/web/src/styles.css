@@ -158,7 +158,7 @@ a:hover {
   flex-shrink: 0;
 }
 
-/* XKnot 标识固定在代码里：方形浅底 + 六边形 K。站点配置改不到它。 */
+/* XKnot 标识固定在代码里：方形浅底 + 六边形 K。 */
 .xknot-mark {
   display: block;
   width: 2.5rem;
@@ -4327,6 +4327,49 @@ button.information-avatar:hover:not(:disabled) {
   background: #f2f2f2;
 }
 
+.share-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0 0.5rem 0.75rem;
+}
+
+.share-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.share-option:hover:not(:disabled) {
+  background: #e4e6eb;
+}
+
+.share-option:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.share-option svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.share-option.is-done {
+  color: var(--color-accent);
+}
+
+.share-menu-error {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0 0.35rem;
+}
+
 .post-action {
   display: inline-flex;
   flex: 1;
@@ -4952,7 +4995,7 @@ body.is-lightbox {
 }
 
 .gate-auth {
-  margin-top: 1.35rem;
+  margin: 0 0 1.35rem;
 }
 
 .gate-delegate {

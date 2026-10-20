@@ -3,23 +3,27 @@ import { access, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path";
 import QRCode from "qrcode";
 import sharp from "sharp";
+import { keyEntry, resolve } from "@knot/config";
 import { isMarkdown, toRuns } from "@knot/markdown";
 import { isAudioUpload, uploadName, visibleVerdict } from "./information.js";
 import { loadBootstrapConfig } from "./config.js";
 import { derivedDir, readableBlobPath } from "./storage.js";
 import { defaultAvatarIndex } from "./avatars.js";
 
-// 默认值只用于没有配置站点身份的测试和本地开发。部署时由
-// PUBLIC_WEB_ORIGIN、KNOT_SITE_NAME、KNOT_SITE_TAGLINE 覆盖。
-export const SHARE_PAGE = "http://127.0.0.1:8080";
-export const SHARE_HOST = "127.0.0.1:8080";
-export const SHARE_NAME = "Knot";
-export const SHARE_LINE = "面向 AI 时代、服务于 Agent 的信息交换网。";
+// 样例值也从 schema 取，不再在这里写第二份。
+// 部署时由 PUBLIC_WEB_ORIGIN、KNOT_SITE_NAME、KNOT_SITE_TAGLINE 覆盖。
+const SCHEMA_CTX = { root: "", deployRoot: "", home: "" };
+const schemaDefault = (key) => resolve(keyEntry(key), {}, SCHEMA_CTX);
+
+export const SHARE_PAGE = schemaDefault("KNOT_PUBLIC_ORIGIN");
+export const SHARE_HOST = new URL(SHARE_PAGE).host;
+export const SHARE_NAME = schemaDefault("KNOT_SITE_NAME");
+export const SHARE_LINE = schemaDefault("KNOT_SITE_TAGLINE");
 
 export function shareSite() {
   const config = loadBootstrapConfig();
-  // 没有部署配置时保留原来的样例域名，测试和本地开发不受影响。
-  const page = (process.env.PUBLIC_WEB_ORIGIN ? config.publicWebOrigin : SHARE_PAGE).replace(/\/$/, "");
+  // 没有部署配置时回落到 schema 里的默认地址，测试和本地开发不受影响。
+  const page = config.publicWebOrigin.replace(/\/$/, "");
   let host = SHARE_HOST;
   try {
     host = new URL(page).host || SHARE_HOST;

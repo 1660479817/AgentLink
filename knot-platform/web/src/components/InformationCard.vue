@@ -6,13 +6,15 @@ import PhotoGallery from "./PhotoGallery.vue";
 import PhotoLightbox from "./PhotoLightbox.vue";
 import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
-import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, LikeIcon, PaperclipIcon, RemovedIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { AudioIcon, CheckIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, LikeIcon, LinkIcon, PaperclipIcon, RemovedIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { containsImage, isMarkdown, parse, toHtml, toPlain } from "@knot/markdown";
 import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoUrls } from "../packet.js";
 import { expiryOf, hoursLeftAt } from "../record.js";
+import { copyCardLink } from "../share.js";
 import { timeAgo } from "../time.js";
 
 const props = defineProps({
+  postId: { type: String, default: "" },
   body: { type: String, default: "" },
   category: { type: String, default: "" },
   topics: { type: Array, default: () => [] },
@@ -71,6 +73,11 @@ const bodyRef = ref(null);
 const bodyOpen = ref(false);
 const bodyClipped = ref(false);
 const viewer = ref({ open: false, index: 0, photos: [] });
+const shareOpen = ref(false);
+const shareResult = ref("");
+const shareButton = ref(null);
+const shareMenu = ref(null);
+let shareTimer = 0;
 const hasBodyImage = computed(() => containsImage(blocks.value));
 
 function measureBody() {
@@ -98,6 +105,69 @@ function onDownload() {
   if (props.busy) return;
   emit("download");
 }
+
+function closeShare() {
+  shareOpen.value = false;
+  shareResult.value = "";
+}
+
+function toggleShare() {
+  if (props.sharing) return;
+  if (shareOpen.value) {
+    closeShare();
+    return;
+  }
+  shareResult.value = "";
+  shareOpen.value = true;
+  nextTick(() => shareMenu.value?.querySelector("button")?.focus());
+}
+
+function shareImage() {
+  closeShare();
+  if (!props.sharing) emit("share");
+}
+
+async function shareLink() {
+  if (!props.postId) return;
+  shareResult.value = "";
+  try {
+    await copyCardLink(props.postId, window.location.origin);
+    shareResult.value = "done";
+    clearTimeout(shareTimer);
+    shareTimer = setTimeout(closeShare, 1800);
+  } catch {
+    shareResult.value = "failed";
+  }
+}
+
+function onSharePointer(event) {
+  const target = event.target;
+  if (shareMenu.value?.contains(target) || shareButton.value?.contains(target)) return;
+  closeShare();
+}
+
+function onShareKey(event) {
+  if (event.key !== "Escape") return;
+  closeShare();
+  shareButton.value?.focus?.();
+}
+
+watch(shareOpen, (open) => {
+  if (open) {
+    document.addEventListener("pointerdown", onSharePointer);
+    window.addEventListener("keydown", onShareKey);
+    return;
+  }
+  document.removeEventListener("pointerdown", onSharePointer);
+  window.removeEventListener("keydown", onShareKey);
+  clearTimeout(shareTimer);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", onSharePointer);
+  window.removeEventListener("keydown", onShareKey);
+  clearTimeout(shareTimer);
+});
 
 onMounted(() => {
   bodyOpen.value = hasBodyImage.value;
@@ -294,14 +364,36 @@ watch(
         <DownloadIcon aria-hidden="true" />
       </button>
       <button
+        ref="shareButton"
         type="button"
         class="post-action"
         :disabled="sharing"
         :aria-label="t('home.share')"
-        @click="emit('share')"
+        aria-haspopup="menu"
+        :aria-expanded="shareOpen"
+        @click="toggleShare"
       >
         <ShareIcon aria-hidden="true" />
       </button>
+    </div>
+    <div v-if="shareOpen" ref="shareMenu" class="share-menu" role="menu" :aria-label="t('home.shareMenu')">
+      <button type="button" class="share-option" role="menuitem" :disabled="sharing" @click="shareImage">
+        <ImageIcon aria-hidden="true" />
+        <span>{{ t("home.shareAsImage") }}</span>
+      </button>
+      <button
+        type="button"
+        class="share-option"
+        role="menuitem"
+        :class="{ 'is-done': shareResult === 'done' }"
+        :disabled="!postId"
+        @click="shareLink"
+      >
+        <CheckIcon v-if="shareResult === 'done'" aria-hidden="true" />
+        <LinkIcon v-else aria-hidden="true" />
+        <span>{{ shareResult === "done" ? t("home.shareLinkCopied") : t("home.shareAsLink") }}</span>
+      </button>
+      <p v-if="shareResult === 'failed'" class="error share-menu-error" role="alert">{{ t("home.shareLinkFailed") }}</p>
     </div>
     <p v-if="notice" class="error card-notice" role="alert">{{ notice }}</p>
     <PhotoLightbox :photos="viewer.photos" :open="viewer.open" :index="viewer.index" @close="viewer.open = false" />

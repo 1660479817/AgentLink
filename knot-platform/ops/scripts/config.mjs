@@ -7,20 +7,24 @@
 //   node ops/scripts/config.mjs check --platform --site <站点>
 //   node ops/scripts/config.mjs template [--write]
 //   node ops/scripts/config.mjs platform-template [--write]
+//   node ops/scripts/config.mjs xknot-template [--write]
 //   node ops/scripts/config.mjs docs [--write]
-//   node ops/scripts/config.mjs env --site <站点> [--out path] [--root path]
+//   node ops/scripts/config.mjs env --site <站点> [--out path] [--root path] [--deploy-root path]
+//   node ops/scripts/config.mjs join --site <站点> [--in <接入件>] [--out path]
 //   node ops/scripts/config.mjs show --for dev|platform|edge --site <站点>
 //
 // 站点用 --site 选择，也可以用环境变量 KNOT_SITE。只有 sites/ 下恰好一个站点时才自动选中。
 // 变体是 site.<变体>.env 叠加层，用 --variant 选择。
 // check 发现类型错误、缺必填、跨键矛盾时以退出码 1 结束。部署脚本据此在动任何东西之前停下。
 
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   KEYS,
   FORBIDDEN_PLATFORM_KEYS,
+  checkEdgeEntry,
+  checkJoin,
   checkPlatform,
   checkSite,
   formatValue,
@@ -28,24 +32,40 @@ import {
   parseEnv,
   removeEnvKeys,
   renderDocs,
+  renderJoinExample,
+  renderJoinFile,
   renderPlatformExample,
   renderPlatformFile,
   renderSiteExample,
   resolve,
   truthy,
   updateEnvText,
-} from "../config/schema.mjs";
-import { listSites, readSiteEnv, resolveSitePaths, validSiteName } from "../config/sites.mjs";
+} from "../../packages/knot-config/src/schema.mjs";
+import {
+  deployRootOf,
+  listEdgeEntries,
+  listSites,
+  readEdgeEntry,
+  readSiteEnv,
+  resolveSitePaths,
+  validSiteName,
+} from "../config/sites.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REPO = path.resolve(HERE, "../..");
+// APP 是代码目录（源码目录，或 <部署根>/releases/<版本>）；DEPLOY 是部署根，sites/ 在这里。
+// 从暂存区安装时位置推不出部署根，site-config.sh 会用 KNOT_DEPLOY_ROOT 显式给出来。
+const APP = path.resolve(HERE, "../..");
+const DEPLOY = process.env.KNOT_DEPLOY_ROOT
+  ? path.resolve(process.env.KNOT_DEPLOY_ROOT)
+  : deployRootOf(APP);
 
 const PATHS = {
-  sites: path.join(REPO, "sites"),
-  templateDir: path.join(REPO, "sites/_template"),
-  siteTemplate: path.join(REPO, "sites/_template/site.env"),
-  platformTemplate: path.join(REPO, "sites/_template/platform.env"),
-  docs: path.join(REPO, "docs/CONFIG.md"),
+  sites: path.join(DEPLOY, "sites"),
+  templateDir: path.join(DEPLOY, "sites", "_template"),
+  siteTemplate: path.join(DEPLOY, "sites", "_template", "site.env"),
+  platformTemplate: path.join(DEPLOY, "sites", "_template", "platform.env"),
+  xknotTemplate: path.join(DEPLOY, "sites", "_template", "xknot.env"),
+  docs: path.join(APP, "docs", "CONFIG.md"),
 };
 
 function argValue(argv, name, fallback = null) {
@@ -77,7 +97,7 @@ function selectedSite(argv) {
   const site = argValue(argv, "--site", process.env.KNOT_SITE || "");
   const variant = argValue(argv, "--variant", process.env.KNOT_SITE_VARIANT || "");
   const file = argValue(argv, "--site-file", process.env.KNOT_SITE_FILE || "");
-  return resolveSitePaths(REPO, { site, variant, file });
+  return resolveSitePaths(DEPLOY, { site, variant, file });
 }
 
 function report(title, { errors, warnings }) {
@@ -97,6 +117,17 @@ function cmdCheck(argv) {
   const overlayName = paths.overlay ? path.basename(paths.overlay) : "";
   const label = `sites/${paths.name}/site.env${overlayName ? ` + ${overlayName}` : ""}`;
 
+  if (has(argv, "--xknot")) {
+    const joinPath = path.resolve(optionalArgValue(argv, "--xknot", paths.joinEnv));
+    if (!existsSync(joinPath)) {
+      // 没接入联邦是合法状态，不是错误。
+      console.log(`${path.basename(joinPath)} 不存在：这个站点还没有接入 XKnot。`);
+      return 0;
+    }
+    const mode = statSync(joinPath).mode;
+    return report("XKnot 接入配置", checkJoin(readText(joinPath), { mode }));
+  }
+
   if (has(argv, "--platform")) {
     const platformPath = path.resolve(optionalArgValue(argv, "--platform", paths.platformEnv));
     const text = readText(platformPath);
@@ -108,14 +139,95 @@ function cmdCheck(argv) {
     return report(`平台运行时配置 ${path.basename(platformPath)}`, checkPlatform(text, { mode }));
   }
 
-  return report(`站点配置 ${label}`, checkSite(readSiteEnv(paths)));
+  const site = checkSite(readSiteEnv(paths));
+  const entries = checkEntries(paths);
+  const title = entries.count
+    ? `站点配置 ${label}（${entries.count} 个边缘入口）`
+    : `站点配置 ${label}`;
+  return report(title, {
+    errors: [...site.errors, ...entries.errors],
+    warnings: [...site.warnings, ...entries.warnings],
+  });
+}
+
+// 一个实例的多个公网入口逐个校验。
+//
+// 除了单份文件的合法性，还查两件只有看到整个目录才知道的事：
+//   1. 有没有两个入口共用一个静态根或一份 conf（后推的会覆盖前一个）；
+//   2. KNOT_PUBLIC_ORIGIN 与 KNOT_PUBLIC_ALIASES 里写到的域名，是不是都有入口文件。
+function checkEntries(paths) {
+  const entries = listEdgeEntries(paths.dir);
+  const base = readSiteEnv(paths);
+  const errors = [];
+  const warnings = [];
+  const roots = new Map();
+  const confs = new Map();
+
+  for (const entry of entries) {
+    const env = readEdgeEntry(paths, entry);
+    const result = checkEdgeEntry(env, { file: entry.file });
+    const prefix = entry.name;
+    for (const message of result.errors) errors.push(`${prefix}: ${message}`);
+    for (const message of result.warnings) warnings.push(`${prefix}: ${message}`);
+
+    const root = resolve(KEYS.find((k) => k.key === "KNOT_EDGE_WEB_ROOT"), env, {});
+    const conf = resolve(KEYS.find((k) => k.key === "KNOT_EDGE_CONF"), env, {});
+    if (root) {
+      if (roots.has(root) && roots.get(root) !== entry.name) {
+        errors.push(`${prefix} 与 ${roots.get(root)} 共用静态根 ${root}：两个入口会互相覆盖。`);
+      } else {
+        roots.set(root, entry.name);
+      }
+    }
+    if (conf) {
+      if (confs.has(conf) && confs.get(conf) !== entry.name) {
+        errors.push(`${prefix} 与 ${confs.get(conf)} 共用 conf ${conf}：后装的会顶掉前一个。`);
+      } else {
+        confs.set(conf, entry.name);
+      }
+    }
+  }
+
+  // 只开了边缘才要求「每个公网入口都有入口文件」。本机站点两样都空，不适用。
+  if (truthy(base.KNOT_EDGE)) {
+    const hosts = new Set(entries.map((entry) => entry.host));
+    const declared = [];
+    for (const raw of [base.KNOT_PUBLIC_ORIGIN, ...String(base.KNOT_PUBLIC_ALIASES || "").split(",")]) {
+      const value = String(raw || "").trim();
+      if (!value) continue;
+      let host = "";
+      try {
+        host = new URL(value).hostname;
+      } catch {
+        errors.push(`KNOT_PUBLIC_ORIGIN / KNOT_PUBLIC_ALIASES 里有不是一个地址的值：${value}`);
+        continue;
+      }
+      declared.push(host);
+    }
+    for (const host of declared) {
+      if (!hosts.size) {
+        warnings.push(`KNOT_EDGE=1 但 sites/${paths.name}/ 下没有 edge.<域名>.env；边缘上这个入口不会被更新。`);
+        break;
+      }
+      if (!hosts.has(host)) {
+        errors.push(`${host} 写进了对外地址，但没有对应的 edge.${host}.env，边缘上它不会被更新。`);
+      }
+    }
+    for (const host of hosts) {
+      if (!declared.includes(host)) {
+        warnings.push(`edge.${host}.env 有入口文件，但 ${host} 没写进 KNOT_PUBLIC_ORIGIN 或 KNOT_PUBLIC_ALIASES。`);
+      }
+    }
+  }
+
+  return { errors, warnings, count: entries.length };
 }
 
 function writeOut(file, text, mode = 0o644) {
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, text);
   chmodSync(file, mode);
-  console.log(`写入 ${path.relative(REPO, file)}`);
+  console.log(`写入 ${path.relative(DEPLOY, file)}`);
 }
 
 function cmdTemplate(argv) {
@@ -132,6 +244,70 @@ function cmdPlatformTemplate(argv) {
   return 0;
 }
 
+function cmdXknotTemplate(argv) {
+  const text = renderJoinExample();
+  if (has(argv, "--write")) writeOut(PATHS.xknotTemplate, text);
+  else process.stdout.write(text);
+  return 0;
+}
+
+// 写入接入配置：把中枢接入件里的键合并进 sites/<站点>/xknot.env。
+//
+// 只碰这一个文件。接入件里给了的键覆盖旧值，没给的沿用——重领一次不会把中枢地址抹掉。
+// 唯一例外是委托发信凭据：它是一次签发一份，不能拿旧文件的一半去配新件的一半。
+function cmdJoin(argv) {
+  const paths = selectedSite(argv);
+  const outPath = path.resolve(optionalArgValue(argv, "--out", paths.joinEnv));
+  const inPath = argValue(argv, "--in", "");
+  if (inPath && !existsSync(path.resolve(inPath))) {
+    console.error(`错误：找不到接入件 ${inPath}`);
+    return 1;
+  }
+
+  const given = {};
+  if (inPath) {
+    for (const [key, value] of Object.entries(parseEnv(readText(path.resolve(inPath))))) {
+      if (!isBlank(value)) given[key] = String(value).trim();
+    }
+  }
+  if (!Object.keys(given).length) {
+    console.error("接入件里没有可用的键。至少要 XKNOT_INSTANCE_ID；要委托发信再加 XKNOT_HUB_RELAY_TOKEN。");
+    return 1;
+  }
+  // 地址单独出现时不借旧凭据：那会把上一份签发的东西发到新地址去。要换入口，让中枢整份重发。
+  if (Object.hasOwn(given, "XKNOT_HUB_RELAY_URL") && !Object.hasOwn(given, "XKNOT_HUB_RELAY_TOKEN")) {
+    console.error("接入件里写了 XKNOT_HUB_RELAY_URL 却没有 XKNOT_HUB_RELAY_TOKEN；换入口请让中枢重发一整份，不要单独改地址。");
+    return 1;
+  }
+
+  const base = existsSync(outPath) ? readText(outPath) : renderJoinFile({});
+  const existing = parseEnv(base);
+  const merged = { ...given };
+
+  // 凭据单独处理：接入件带新凭据就整份换，旧文件里的发信地址属于上一份签发，一并清掉；
+  // 接入件不带凭据时沿用旧凭据（也沿用旧的地址覆盖），免得重领一份把发信能力弄没。
+  if (Object.hasOwn(given, "XKNOT_HUB_RELAY_TOKEN")) {
+    if (!Object.hasOwn(given, "XKNOT_HUB_RELAY_URL")) merged.XKNOT_HUB_RELAY_URL = "";
+  } else if (!isBlank(existing.XKNOT_HUB_RELAY_TOKEN)) {
+    merged.XKNOT_HUB_RELAY_TOKEN = String(existing.XKNOT_HUB_RELAY_TOKEN).trim();
+    if (!isBlank(existing.XKNOT_HUB_RELAY_URL)) merged.XKNOT_HUB_RELAY_URL = String(existing.XKNOT_HUB_RELAY_URL).trim();
+  }
+
+  // 其余键沿用旧值，避免重领时把实例 id 或中枢地址清空。
+  for (const key of ["XKNOT_INSTANCE_ID", "XKNOT_HUB_ORIGIN", "XKNOT_HUB_ISSUED_AT"]) {
+    if (Object.hasOwn(merged, key)) continue;
+    if (!isBlank(existing[key])) merged[key] = String(existing[key]).trim();
+  }
+
+  // 先校验再落盘：宁可让旧文件留着，也别写进一份半对的接入配置。
+  const text = updateEnvText(base, merged);
+  const check = checkJoin(text, { mode: 0o600 });
+  if (check.errors.length) return report("XKnot 接入配置", check);
+
+  writeOut(outPath, text, 0o600);
+  return report("XKnot 接入配置", check);
+}
+
 function cmdDocs(argv) {
   const text = renderDocs();
   if (has(argv, "--write")) writeOut(PATHS.docs, text);
@@ -140,7 +316,7 @@ function cmdDocs(argv) {
 }
 
 function cmdSites() {
-  const names = listSites(REPO);
+  const names = listSites(DEPLOY);
   if (!names.length) {
     console.log("sites/ 下还没有站点。先跑 node ops/scripts/config.mjs init <站点>。");
     return 0;
@@ -152,8 +328,17 @@ function cmdSites() {
       .filter(Boolean)
       .map((match) => match[1]);
     const platform = existsSync(path.join(dir, "platform.env")) ? "platform.env 已生成" : "还没有 platform.env";
+    // 接入状态单独一列：没有 xknot.env 就是没接入，不是缺配置。
+    const joinFile = path.join(dir, "xknot.env");
+    let join = "未接入";
+    if (existsSync(joinFile)) {
+      const env = parseEnv(readFileSync(joinFile, "utf8"));
+      join = env.XKNOT_INSTANCE_ID ? `已接入 ${env.XKNOT_INSTANCE_ID}` : "xknot.env 缺实例 id";
+    }
     const tail = variants.length ? `，变体 ${variants.join("、")}` : "";
-    console.log(`${name.padEnd(16)} ${platform}${tail}`);
+    const entries = listEdgeEntries(dir).map((entry) => entry.host);
+    const edgeNote = entries.length ? `，入口 ${entries.join("、")}` : "，无边缘入口";
+    console.log(`${name.padEnd(16)} ${platform}${tail}${edgeNote}，${join}`);
   }
   return 0;
 }
@@ -167,7 +352,7 @@ function cmdInit(argv) {
   const dir = path.join(PATHS.sites, name);
   const siteEnv = path.join(dir, "site.env");
   if (existsSync(siteEnv)) {
-    console.error(`已经存在：${path.relative(REPO, siteEnv)}`);
+    console.error(`已经存在：${path.relative(DEPLOY, siteEnv)}`);
     return 1;
   }
   if (!existsSync(PATHS.siteTemplate) || !existsSync(PATHS.platformTemplate)) {
@@ -181,7 +366,7 @@ function cmdInit(argv) {
   if (!existsSync(platform)) copyFileSync(PATHS.platformTemplate, platform);
   chmodSync(siteEnv, 0o600);
   chmodSync(platform, 0o600);
-  console.log(`已创建 ${path.relative(REPO, dir)}/`);
+  console.log(`已创建 ${path.relative(DEPLOY, dir)}/`);
   console.log("接着改 site.env 里的站点名、对外地址、管理员邮箱和部署目标，再跑：");
   console.log(`  node ops/scripts/config.mjs check --site ${name}`);
   return 0;
@@ -194,13 +379,13 @@ function computedValue(key, env, ctx) {
     case "DATABASE_URL": {
       if (!isBlank(process.env.DATABASE_URL)) return process.env.DATABASE_URL;
       if (env.KNOT_DB_MODE === "external") return env.KNOT_DATABASE_URL || "";
-      const port = env.KNOT_PGPORT || 5433;
+      const port = resolve(KEYS.find((entry) => entry.key === "KNOT_PGPORT"), env, ctx);
       return `postgres://knot@127.0.0.1:${port}/knot`;
     }
     case "STATIC_WEB_DIR":
       return path.join(ctx.root, "web/dist");
     case "KNOT_AGENT_ENV_DIR":
-      return path.join(ctx.root, "sites", ctx.site, "agents");
+      return path.join(ctx.deployRoot || ctx.root, "sites", ctx.site, "agents");
     case "KNOT_DISCOVER_PUSH_CMD":
       return truthy(env.KNOT_EDGE) ? path.join(ctx.root, "ops/scripts/push-discover.sh") : "";
     default:
@@ -211,7 +396,9 @@ function computedValue(key, env, ctx) {
 function cmdEnv(argv) {
   const paths = selectedSite(argv);
   const outPath = path.resolve(argValue(argv, "--out", paths.platformEnv));
-  const root = path.resolve(argValue(argv, "--root", REPO));
+  // --root 是代码目录（决定 STATIC_WEB_DIR），--deploy-root 是配置和数据所在的部署根。
+  const root = path.resolve(argValue(argv, "--root", APP));
+  const deployRoot = path.resolve(argValue(argv, "--deploy-root", DEPLOY));
   const home = process.env.HOME || "";
 
   // 部署脚本算出来的值（DATABASE_URL、展开后的目录）通过环境传进来，优先于文件里的字面量。
@@ -220,7 +407,7 @@ function cmdEnv(argv) {
     if (entry.file !== "site") continue;
     if (!isBlank(process.env[entry.key])) env[entry.key] = process.env[entry.key];
   }
-  const ctx = { root, home, expand: true, site: paths.name };
+  const ctx = { root, deployRoot, home, expand: true, site: paths.name };
 
   const always = {};
   for (const entry of KEYS) {
@@ -249,6 +436,26 @@ function cmdEnv(argv) {
     if (cleaned.removed.length) {
       console.error(`警告：从运行时配置里移除了不属于平台主机的键：${cleaned.removed.join("、")}`);
     }
+    // 0.3 之前委托发信凭据写在 platform.env；现在归 xknot.env。迁移一次，别把凭据留成孤儿。
+    const joinKeys = KEYS.filter((entry) => entry.file === "xknot").map((entry) => entry.key);
+    const leftover = {};
+    for (const key of joinKeys) {
+      if (!isBlank(existing[key])) leftover[key] = String(existing[key]).trim();
+    }
+    if (Object.keys(leftover).length) {
+      const joinPath = path.resolve(argValue(argv, "--out-join", paths.joinEnv));
+      const joinText = existsSync(joinPath) ? readText(joinPath) : renderJoinFile({});
+      const joinExisting = parseEnv(joinText);
+      const move = {};
+      for (const [key, value] of Object.entries(leftover)) {
+        if (isBlank(joinExisting[key])) move[key] = value;
+      }
+      if (Object.keys(move).length) writeOut(joinPath, updateEnvText(joinText, move), 0o600);
+      base = removeEnvKeys(base, Object.keys(leftover)).text;
+      console.error(
+        `警告：platform.env 里的 XKnot 接入项已迁到 ${path.relative(DEPLOY, joinPath)}：${Object.keys(leftover).join("、")}。`
+      );
+    }
   }
   // seeds 只含文件里还没有的键，所以合并成一次写入既不会覆盖运维改过的值，也只有一个追加段。
   const text = existsSync(outPath) ? updateEnvText(base, { ...always, ...seeds }) : base;
@@ -260,7 +467,7 @@ function cmdShow(argv) {
   const role = argValue(argv, "--for", "platform");
   const paths = selectedSite(argv);
   const env = readSiteEnv(paths);
-  const ctx = { root: REPO, home: process.env.HOME || "" };
+  const ctx = { root: APP, deployRoot: DEPLOY, home: process.env.HOME || "" };
   for (const entry of KEYS) {
     if (entry.file !== "site") continue;
     if (!entry.scope.includes(role)) continue;
@@ -275,8 +482,10 @@ const COMMANDS = {
   check: cmdCheck,
   template: cmdTemplate,
   "platform-template": cmdPlatformTemplate,
+  "xknot-template": cmdXknotTemplate,
   docs: cmdDocs,
   env: cmdEnv,
+  join: cmdJoin,
   show: cmdShow,
 };
 
@@ -285,7 +494,7 @@ function main(argv) {
   const run = COMMANDS[command];
   if (!run) {
     console.error(
-      "用法：config.mjs <sites|init|check|template|platform-template|docs|env|show> [选项]"
+      "用法：config.mjs <sites|init|check|template|platform-template|xknot-template|docs|env|join|show> [选项]"
     );
     return 2;
   }
@@ -297,6 +506,15 @@ function main(argv) {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) {
   process.exitCode = main(process.argv.slice(2));
 }

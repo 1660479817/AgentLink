@@ -66,6 +66,55 @@ function mailTransport() {
   };
 }
 
+// 委托发信：自己配 SMTP 送达不稳时，把纯文本交给联邦中枢代发（契约见
+// xknot.si/docs/FEDERATION.md 第 7 节）。配了凭据就优先走它，不需要 SMTP 口令。
+//
+// 发信地址是协议的常量，能从 XKNOT_HUB_ORIGIN 推出来；显式写了 XKNOT_HUB_RELAY_URL
+// 时以它为准（换中枢、走内网入口时用）。这样接入件里只有中枢地址和凭据两项。
+export function relayUrl(env = process.env) {
+  const explicit = String(env.XKNOT_HUB_RELAY_URL || "").trim();
+  if (explicit) return explicit;
+  const origin = String(env.XKNOT_HUB_ORIGIN || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (!origin) return "";
+  return `${origin}/api/federation/mail`;
+}
+
+function relayTransport() {
+  const url = relayUrl();
+  const token = String(process.env.XKNOT_HUB_RELAY_TOKEN || "").trim();
+  if (!url || !token) return null;
+  return {
+    from: process.env.MAIL_FROM || process.env.SMTP_FROM || "",
+    transport: {
+      async sendMail(message) {
+        let response;
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+            body: JSON.stringify({ to: message.to, subject: message.subject, text: message.text }),
+            signal: AbortSignal.timeout(30_000),
+          });
+        } catch (cause) {
+          const error = new Error("relay_unreachable");
+          error.code = "relay_unreachable";
+          error.cause = cause;
+          throw error;
+        }
+        if (!response.ok) {
+          const error = new Error(`relay_${response.status}`);
+          error.code = "relay_failed";
+          error.status = response.status;
+          throw error;
+        }
+        return response.json();
+      },
+    },
+  };
+}
+
 export async function requestLoginKey(pool, email, options = {}) {
   const recent = await pool.query(
     `SELECT 1 FROM login_keys WHERE email = $1 AND created_at > now() - interval '60 seconds' LIMIT 1`,
@@ -283,7 +332,7 @@ export function loginKeyMessage(key) {
 }
 
 export async function sendLoginKey(email, key) {
-  const mail = mailTransport();
+  const mail = relayTransport() || mailTransport();
   if (!mail) {
     const error = new Error("mail_unavailable");
     error.code = "mail_unavailable";

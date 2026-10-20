@@ -2,20 +2,25 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-KNOT_HOME="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
 ENV_FILE="$KNOT_PLATFORM_ENV"
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "缺少 $ENV_FILE。先跑 ./ops/scripts/deploy-site.sh --site $KNOT_SITE。" >&2
+  echo "缺少 ${ENV_FILE}。先跑 ./ops/scripts/deploy-site.sh --site ${KNOT_SITE}。" >&2
   exit 1
 fi
 set -a
 # shellcheck source=/dev/null
 source "$ENV_FILE"
+# 接入文件是可选的另一份：中枢签发的东西不进 platform.env。
+# 不存在就是没接入联邦，不影响启动。
+if [[ -f "$KNOT_XKNOT_ENV" ]]; then
+  # shellcheck source=/dev/null
+  source "$KNOT_XKNOT_ENV"
+fi
 set +a
 if [[ -z "${KNOT_AGENT_ENV_DIR:-}" ]]; then
   export KNOT_AGENT_ENV_DIR="$KNOT_SITE_DIR/agents"
 fi
-cd "$KNOT_HOME/backend"
+cd "$KNOT_APP_DIR/backend"
 exec node src/index.js

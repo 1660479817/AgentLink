@@ -1,10 +1,11 @@
 # Knot 配置项
 
-这份文档由 `ops/config/schema.mjs` 生成，不要手改。改配置项请改 schema，再跑：
+这份文档由 `packages/knot-config/src/schema.mjs` 生成，不要手改。改配置项请改 schema，再跑：
 
 ```bash
 node ops/scripts/config.mjs template --write           # sites/_template/site.env
 node ops/scripts/config.mjs platform-template --write  # sites/_template/platform.env
+node ops/scripts/config.mjs xknot-template --write     # sites/_template/xknot.env
 node ops/scripts/config.mjs docs --write               # 重新生成本文
 ```
 
@@ -13,19 +14,25 @@ node ops/scripts/config.mjs docs --write               # 重新生成本文
 | 边界 | 位置 | 放什么 | 能不能进版本库 |
 | --- | --- | --- | --- |
 | 代码 | `backend/` `web/` `packages/` | 真正的默认行为 | 进 |
-| 部署 | `ops/` | 脚本、模板、LaunchAgent。不写站点取值 | 进 |
+| 部署 | `ops/` | 脚本、模板、LaunchAgent、systemd unit。不写站点取值 | 进 |
 | 配置 | `sites/<站点>/` | 站点身份、拓扑、密钥 | 不进（`sites/_template/` 除外） |
 
-环境变量只覆盖代码里的默认值。一个键要么在 schema 里登记，要么就别读。
+环境变量只覆盖代码里的默认值。一个键要么在 `packages/knot-config/src/schema.mjs` 里登记，要么就别读。
+Backend 启动时按同一份登记表校验环境：值不合法直接退出，必填项缺失时管理功能不可用；文件在部署前严格校验未知键。
 
 一个站点一个目录：
 
-| 文件 | 放什么 |
-| --- | --- |
-| `sites/<站点>/site.env` | 域名、主机、端口、路径、边缘。不含密码 |
-| `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。部署脚本生成，权限 600 |
-| `sites/<站点>/site.<变体>.env` | 可选叠加层，用 `--variant <变体>` 选择 |
-| `sites/<站点>/agents/` | Internal Personal Agent 的授权码，权限 700 |
+| 文件 | 放什么 | 谁写 |
+| --- | --- | --- |
+| `sites/<站点>/site.env` | 域名、主机、端口、路径、边缘、隧道。不含密码 | 运维 |
+| `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。权限 600 | 部署脚本 |
+| `sites/<站点>/xknot.env` | 实例 id、中枢地址、签发日期与委托发信凭据。权限 600 | 中枢签发，`join-xknot.sh` 写入 |
+| `sites/<站点>/site.<变体>.env` | 可选叠加层，用 `--variant <变体>` 选择 | 运维 |
+| `sites/<站点>/agents/` | Internal Personal Agent 的授权码，权限 700 | 脚本 |
+
+**部署与接入是两条独立的线。** `deploy-site.sh` 只读 `site.env` 与 `platform.env`；
+`xknot.env` 只在运行时交给 Backend，缺了它站点照样部署和运行，只是不接联邦。
+反过来，重新部署、换机器、回滚都不会动接入凭据。
 
 ## 站点配置（`sites/<站点>/site.env`）
 
@@ -37,7 +44,8 @@ node ops/scripts/config.mjs docs --write               # 重新生成本文
 | `KNOT_SITE_TAGLINE` | `面向 AI 时代、服务于 Agent 的信息交换网。` |  | 一句话介绍。未登录首页和分享图用。 |
 | `KNOT_SITE_LOGO` | （空） |  | 站点自己的 logo，登录卡和未登录首页用。可填 https 地址、站内路径或 data:image/...；留空显示站点名首字。顶栏左上角的 XKnot 标识不读这一项。 |
 | `KNOT_PUBLIC_ORIGIN` | `http://127.0.0.1:8080` |  | 对外访问地址。局域网直连写 http://192.168.1.10:8080；有域名写 https://knot.example.com。 |
-| `KNOT_DOMAIN` | 见说明 |  | 云端域名。留空时从 KNOT_PUBLIC_ORIGIN 取主机名。 |
+| `KNOT_DOMAIN` | 见说明 |  | 规范域名，从 KNOT_PUBLIC_ORIGIN 取主机名。其余入口在 sites/<站点>/edge.<域名>.env 里各自一份。 |
+| `KNOT_PUBLIC_ALIASES` | （空） |  | 同一后端的其它公网入口，逗号分隔。每个都要有对应的 edge.<域名>.env，否则边缘上那个域名不会被更新。 |
 | `KNOT_PORT` | `8080` |  | 平台主机上 Backend 监听的端口。 |
 | `KNOT_BIND_HOST` | `0.0.0.0` |  | Backend 绑定地址。只给本机 nginx 用就写 127.0.0.1。 |
 | `KNOT_SESSION_COOKIE_NAME` | `knot_sid` |  | 会话 Cookie 名。同一个域名下跑多个站点时要各不相同。 |
@@ -54,19 +62,25 @@ node ops/scripts/config.mjs docs --write               # 重新生成本文
 | `KNOT_PGDATA` | `$HOME/knot/pgdata` |  | 本机 Postgres 数据目录。 |
 | `KNOT_PGLOG` | `$HOME/knot/pg.log` |  | 本机 Postgres 日志文件。 |
 | `KNOT_PG_BIN` | `/opt/homebrew/opt/postgresql@16/bin` |  | PostgreSQL 16 的 bin 目录。Apple Silicon Homebrew 是 /opt/homebrew，Intel 改成 /usr/local/opt/postgresql@16/bin。 |
-| `KNOT_UPLOAD_DIR` | 见说明 |  | 上传目录。留空用 <knot-platform>/var/uploads。 |
-| `KNOT_BACKUP_DIR` | （空） |  | 备份目录。留空不备份；配置后 deploy-site.sh 装每天 04:15 的 LaunchAgent。 |
+| `KNOT_UPLOAD_DIR` | 见说明 |  | 上传目录。留空用 <部署根目录>/var/uploads；放在发布包外，升级和回滚都不动它。 |
+| `KNOT_BACKUP_DIR` | （空） |  | 备份目录。留空不备份；配置后 deploy-site.sh 装每天 04:15 的备份任务（launchd 或 systemd timer）。 |
 | `KNOT_BACKUP_KEEP` | `7` |  | 保留最近几份备份。 |
+| `KNOT_BACKUP_SITES` | `1` |  | 1 表示备份也收 sites/<站点>/：platform.env（SMTP 密码、管理令牌）、agents/（智能体凭据）。只备份数据库的话，换台机器邮件登录和智能体就都没了。 |
+| `KNOT_BACKUP_OPENCLAW` | `auto` |  | OpenClaw 状态目录的备份。auto 表示 $HOME/.openclaw 存在就收；1 必须收；0 跳过。只收配置、凭据和 agent 工作区，不含 cache/browser/npm。 |
 | `KNOT_OPENCLAW` | `auto` |  | auto 表示装了 openclaw 才同步；1 必须同步；0 跳过。 |
+| `KNOT_SYSTEMD_DIR` | `/etc/systemd/system` |  | Linux 平台主机上 systemd unit 的安装目录。 |
+| `KNOT_SERVICE_USER` | `knot` |  | Linux 平台主机上跑 Knot Backend 的系统账号。需对该读的目录有权限。 |
 
 ### 从开发机发布
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `KNOT_DEPLOY_SSH` | （空） |  | 平台主机的 ssh 目标，形如 user@host。留空表示就在平台主机上直接跑 deploy-site.sh。 |
-| `KNOT_DEPLOY_DIR` | `~/knot/AgentLink/knot-platform` |  | 平台主机上 knot-platform 的目录。 |
+| `KNOT_DEPLOY_DIR` | `~/knot/AgentLink/knot-platform` |  | 平台主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。 |
 | `KNOT_DEPLOY_SSH_KEY` | （空） |  | 发布用的私钥。留空用 ssh 默认身份。 |
 | `KNOT_DEPLOY_VERIFY_URL` | 见说明 |  | 部署后探活的地址。留空按 http://<平台主机>:<KNOT_PORT>/api/health 推导。 |
+| `KNOT_DEPLOY_KEEP` | `5` |  | 平台主机上保留几个历史发布包。当前版本和回滚目标永远保留，多的按时间清掉。 |
+| `KNOT_ARTIFACT_DIR` | 见说明 |  | 开发机上构建产物（发布包和校验和）的输出目录。留空用 <knot-platform>/artifacts。 |
 
 ### 云端边缘
 
@@ -85,7 +99,7 @@ node ops/scripts/config.mjs docs --write               # 重新生成本文
 | `KNOT_EDGE_MAX_BODY` | `52m` |  | 边缘接受的请求体上限。必须大于后端附件上限，否则大文件在 nginx 就被截断。 |
 | `KNOT_EDGE_PROXY_PORT` | `18080` |  | 边缘回源端口。nginx 把 /api 和 /help 转到这里，隧道再转回平台主机。 |
 | `KNOT_EDGE_SSL` | `1` |  | 1 监听 443 并配证书；0 只监听 80，证书还没签好时用。 |
-| `KNOT_EDGE_CERT` | 见说明 |  | 证书链。留空由 KNOT_DOMAIN 推导。 |
+| `KNOT_EDGE_CERT` | 见说明 |  | 证书链。留空由 KNOT_DOMAIN 推导；入口文件里写自己的域名就各自推导。 |
 | `KNOT_EDGE_KEY` | 见说明 |  | 证书私钥。留空由 KNOT_DOMAIN 推导。 |
 | `KNOT_EDGE_RELOAD_CMD` | `sudo systemctl reload nginx` |  | 改完 nginx 配置后的 reload 命令。非 systemd 的机器改成自己的。 |
 
@@ -187,6 +201,27 @@ node ops/scripts/config.mjs docs --write               # 重新生成本文
 | --- | --- | --- |
 | `KNOT_ADMIN_TOKEN` | （空） | 本机管理接口的令牌。由 ensure-openclaw.sh 写入，运维不要手改。 |
 
+## XKnot 接入配置（`sites/<站点>/xknot.env`）
+
+只放中枢签发的东西，不参与部署推导。文件可以不存在。
+
+键名与语义是联邦契约，见 `xknot.si/docs/FEDERATION.md` 第 7.4 节；`xknot.env` 这个文件名与位置
+是本实现的约定，换个实现只要读同样这几个键即可。
+
+```bash
+./ops/scripts/join-xknot.sh --payload ~/xknot-access.env   # 写入并校验
+./ops/scripts/join-xknot.sh --status                       # 看当前接入状态
+node ops/scripts/config.mjs check --xknot --site <站点>     # 只校验这一个文件
+```
+
+| 变量 | 默认 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `XKNOT_INSTANCE_ID` | （空） | 是 | 中枢清单里的实例 id（小写字母、数字、短横线）。会写进 /api/health 的 instance，供中枢核对身份。 |
+| `XKNOT_HUB_ORIGIN` | `https://xknot.si` |  | 接入的中枢地址。委托发信地址由它推导。 |
+| `XKNOT_HUB_RELAY_URL` | （空） |  | 委托发信的完整地址。留空时按 XKNOT_HUB_ORIGIN 推导，只在换入口时手写。 |
+| `XKNOT_HUB_RELAY_TOKEN` | （空） |  | 中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。 |
+| `XKNOT_HUB_ISSUED_AT` | （空） |  | 接入件签发日期（YYYY-MM-DD）。只作记录，不参与运行。 |
+
 ## 校验
 
 部署前会跑 `node ops/scripts/config.mjs check`，发现问题直接停下，不会部署一半。
@@ -195,6 +230,7 @@ node ops/scripts/config.mjs docs --write               # 重新生成本文
 ```bash
 node ops/scripts/config.mjs check --site <站点>              # 查 site.env
 node ops/scripts/config.mjs check --platform --site <站点>   # 查平台主机的 platform.env
+node ops/scripts/config.mjs check --xknot --site <站点>      # 查接入用的 xknot.env
 node ops/scripts/config.mjs sites                            # 列出已有站点
 ```
 

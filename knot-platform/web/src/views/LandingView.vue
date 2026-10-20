@@ -109,6 +109,12 @@ watch(
 
 <template>
   <section class="gate">
+    <section class="card gate-auth" aria-labelledby="gate-auth-title">
+      <h2 id="gate-auth-title" class="page-title">{{ t("mine.authTitle") }}</h2>
+      <p class="post-body">{{ t("mine.authHint") }}</p>
+      <AuthForm />
+    </section>
+
     <header class="gate-hero">
       <div class="gate-identity">
         <SiteMark class="brand-mark gate-mark" />
@@ -171,11 +177,5 @@ watch(
         <SendIcon class="gate-cta-arrow" aria-hidden="true" />
       </AppButton>
     </div>
-
-    <section class="card gate-auth" aria-labelledby="gate-auth-title">
-      <h2 id="gate-auth-title" class="page-title">{{ t("mine.authTitle") }}</h2>
-      <p class="post-body">{{ t("mine.authHint") }}</p>
-      <AuthForm />
-    </section>
   </section>
 </template>

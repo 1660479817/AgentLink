@@ -1,0 +1,12 @@
+.git
+.gitignore
+node_modules
+artifacts
+web/dist
+sites
+var
+.tmp-*
+*.log
+*.sync-conflict-*
+Dockerfile
+docker-compose.yml

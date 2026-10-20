@@ -18,7 +18,6 @@ const INITIAL_SITE = {
 };
 
 // 站点身份由部署配置决定，顶栏、登录卡和分享文案都用它。
-// XKnot 那一份是固定的联邦标识，不在这份配置里。
 const INITIAL_BRAND = {
   name: "Knot",
   tagline: "",

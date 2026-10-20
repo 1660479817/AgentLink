@@ -206,8 +206,23 @@ export function scheduleDiscoverWrite(env, push) {
 export function pushDiscoverBoard(boardDir) {
   const cmd = process.env.KNOT_DISCOVER_PUSH_CMD;
   if (!cmd || !boardDir) return;
-  const child = spawn(cmd, [boardDir], { stdio: "ignore", detached: true });
-  child.on("error", (error) => console.error(error));
+  // 推送失败过去是彻底静默的（stdio: ignore）：边缘快照停在上一次成功的样子，
+  // 页面照常打开，只是没有新内容——最容易被忽略的一种故障。
+  // 这里只收 stderr 的前一小段，非 0 退出时打一行，别把 rsync 的进度刷进日志。
+  const child = spawn(cmd, [boardDir], { stdio: ["ignore", "ignore", "pipe"], detached: true });
+  let stderr = "";
+  child.stderr?.on("data", (chunk) => {
+    if (stderr.length < 2048) stderr += chunk.toString();
+  });
+  child.on("error", (error) => console.error("discover push failed to start:", error.message));
+  child.on("close", (code, signal) => {
+    if (code === 0) return;
+    const detail = stderr.trim().split("\n").slice(-3).join(" | ");
+    console.error(
+      `discover push failed (${code ?? signal}): the edge keeps serving the previous snapshot.` +
+        (detail ? ` ${detail}` : "")
+    );
+  });
   child.unref();
 }
 

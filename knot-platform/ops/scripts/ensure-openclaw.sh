@@ -6,12 +6,11 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
 knot_source_platform_env
-APPLY="$KNOT_HOME/ops/openclaw/apply-config.mjs"
+APPLY="$KNOT_APP_DIR/ops/openclaw/apply-config.mjs"
 ENV_FILE="$KNOT_PLATFORM_ENV"
 if [[ -z "${KNOT_AGENT_ENV_DIR:-}" ]]; then
   export KNOT_AGENT_ENV_DIR="$KNOT_SITE_DIR/agents"
@@ -70,10 +69,10 @@ if [[ -f "$ENV_FILE" ]]; then
   while IFS= read -r agent_id; do
     [[ -z "$agent_id" ]] && continue
     echo "==> ensure internal agent $agent_id"
-    "$KNOT_HOME/ops/scripts/ensure-internal-agent.sh" "$agent_id"
+    "$KNOT_APP_DIR/ops/scripts/ensure-internal-agent.sh" "$agent_id"
   done < <(node "$APPLY" internal-ids)
 else
-  echo "没有 $ENV_FILE，Internal Personal Agent 账户这次不签发。"
+  echo "没有 ${ENV_FILE}，Internal Personal Agent 账户这次不签发。"
 fi
 
 echo "==> sync prompts and skills"
@@ -156,7 +155,7 @@ ensure_admin_cron() {
 if [[ -f "$ENV_FILE" ]]; then
   ensure_admin_token
 else
-  echo "没有 $ENV_FILE，管理员令牌这次不写。"
+  echo "没有 ${ENV_FILE}，管理员令牌这次不写。"
 fi
 ensure_admin_cron
 
@@ -167,7 +166,7 @@ if [[ "${OPENCLAW_ENABLE_PROCESS:-}" != 1 ]]; then
 fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "缺少 $ENV_FILE，无法写入 OPENCLAW_INTEL_AGENT" >&2
+  echo "缺少 ${ENV_FILE}，无法写入 OPENCLAW_INTEL_AGENT" >&2
   exit 1
 fi
 ensure_line() {

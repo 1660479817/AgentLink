@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adminEmail, defaultDisplayName, feedbackMessage, isAdminUser, loginKeyMessage, newLoginKey, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "./login.js";
+import { adminEmail, defaultDisplayName, feedbackMessage, isAdminUser, loginKeyMessage, newLoginKey, normalizeLoginKey, redeemLoginKey, relayUrl, requestLoginKey, sendLoginKey } from "./login.js";
 import { installSystemPolicy, resetSystemPolicy } from "./system.js";
 
 test("login key is six digits", () => {
@@ -62,6 +62,92 @@ test("the login key email carries the key as HTML and plain text", () => {
   for (const digit of "048291") {
     assert.match(message.html, new RegExp(`>${digit}</div>`));
   }
+});
+
+test("委托发信：配了凭据就走联邦，不碰 SMTP", async () => {
+  const previous = {
+    url: process.env.XKNOT_HUB_RELAY_URL,
+    token: process.env.XKNOT_HUB_RELAY_TOKEN,
+    host: process.env.SMTP_HOST,
+  };
+  process.env.XKNOT_HUB_RELAY_URL = "https://xknot.test/api/federation/mail";
+  process.env.XKNOT_HUB_RELAY_TOKEN = "xkr_wang_test";
+  process.env.SMTP_HOST = "smtp.example.com";
+
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, json: async () => ({ ok: true }) };
+  };
+  try {
+    await sendLoginKey("lin@example.com", "048291");
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of [
+      ["XKNOT_HUB_RELAY_URL", previous.url],
+      ["XKNOT_HUB_RELAY_TOKEN", previous.token],
+      ["SMTP_HOST", previous.host],
+    ]) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://xknot.test/api/federation/mail");
+  assert.equal(calls[0].init.headers.authorization, "Bearer xkr_wang_test");
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.to, "lin@example.com");
+  assert.match(body.text, /048291/);
+  assert.equal(body.html, undefined);
+});
+
+test("委托发信：只给中枢地址和凭据时，发信地址按契约推导", async () => {
+  const previous = {
+    url: process.env.XKNOT_HUB_RELAY_URL,
+    origin: process.env.XKNOT_HUB_ORIGIN,
+    token: process.env.XKNOT_HUB_RELAY_TOKEN,
+    host: process.env.SMTP_HOST,
+  };
+  delete process.env.XKNOT_HUB_RELAY_URL;
+  process.env.XKNOT_HUB_ORIGIN = "https://xknot.test/";
+  process.env.XKNOT_HUB_RELAY_TOKEN = "xkr_wang_test";
+  process.env.SMTP_HOST = "smtp.example.com";
+
+  assert.equal(relayUrl(), "https://xknot.test/api/federation/mail");
+
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, json: async () => ({ ok: true }) };
+  };
+  try {
+    await sendLoginKey("lin@example.com", "048291");
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of [
+      ["XKNOT_HUB_RELAY_URL", previous.url],
+      ["XKNOT_HUB_ORIGIN", previous.origin],
+      ["XKNOT_HUB_RELAY_TOKEN", previous.token],
+      ["SMTP_HOST", previous.host],
+    ]) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://xknot.test/api/federation/mail");
+});
+
+test("显式写了发信地址时以它为准", () => {
+  assert.equal(
+    relayUrl({ XKNOT_HUB_ORIGIN: "https://xknot.test", XKNOT_HUB_RELAY_URL: "http://127.0.0.1:5181/api/federation/mail" }),
+    "http://127.0.0.1:5181/api/federation/mail"
+  );
+  assert.equal(relayUrl({}), "");
 });
 
 test("a complaint letter names the account and keeps the text", () => {

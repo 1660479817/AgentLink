@@ -4,6 +4,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { loadBootstrapConfig, siteBrand } from "./config.js";
+import { assertRuntimeConfig } from "./runtimeConfig.js";
+import { readBuildInfo } from "./buildInfo.js";
 import { bindDiscoverBoard } from "./discoverBoard.js";
 import { getPool } from "./db.js";
 import { createSessionMiddleware } from "./middleware/session.js";
@@ -21,7 +23,11 @@ const SERVICE_VERSION = JSON.parse(
   fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../package.json"), "utf8")
 ).version;
 
+// 先校验环境：值不合法就不启动，免得带着错的端口或连接串跑起来。
+assertRuntimeConfig();
+
 const bootstrap = loadBootstrapConfig();
+const build = readBuildInfo();
 const pool = getPool(bootstrap.databaseUrl);
 
 // 先读系统开关，公开快照的首次写入和下面的内容接口都按它来。
@@ -53,7 +59,19 @@ app.use((req, res, next) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "knot-backend", version: SERVICE_VERSION });
+  const payload = {
+    ok: true,
+    service: "knot-backend",
+    version: SERVICE_VERSION,
+    release: build?.release ?? null,
+    commit: build?.commit ?? null,
+    builtAt: build?.builtAt ?? null,
+  };
+  // 接入标识：中枢用它核对「这个域名后面是不是清单里的那个实例」。
+  // 没接入时不出现，所以老实例的探测行为不变。
+  const instance = String(process.env.XKNOT_INSTANCE_ID || "").trim();
+  if (instance) payload.instance = instance;
+  res.json(payload);
 });
 
 // help.md 与 backend/ 同级，随平台一起发版。

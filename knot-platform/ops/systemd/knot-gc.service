@@ -1,0 +1,12 @@
+[Unit]
+Description=Knot 存储回收报告（只报告，不删）
+
+[Service]
+Type=oneshot
+User=__KNOT_USER__
+Group=__KNOT_USER__
+EnvironmentFile=__KNOT_ENV_FILE__
+WorkingDirectory=__KNOT_CURRENT__
+ExecStart=__KNOT_CURRENT__/ops/scripts/gc-knot-storage.sh
+Nice=10
+IOSchedulingClass=idle

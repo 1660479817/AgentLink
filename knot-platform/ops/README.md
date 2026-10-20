@@ -1,36 +1,61 @@
 # 部署与运维
 
-本目录是**实例侧**的部署层：每台用 `knot-platform` 部署的 Knot 站点（WebUI + Backend + OpenClaw 配套）都从这里发布。联盟门户 `xknot.si` 是另一个项目，它自己的部署在 [`xknot.si/ops/`](../../xknot.si/ops)，与本目录互不引用。
+本目录是**实例侧**的部署层：每台用 `knot-platform` 部署的 Knot 站点（WebUI + Backend + OpenClaw 配套）都从这里发布。
 
 实例的部署分两层，两层都从同一个站点目录读取取值：
 
-- **平台主机**：跑 Knot Backend、PostgreSQL、WebUI，用 macOS 的 LaunchAgent 常驻。
+- **平台主机**：跑 Knot Backend、PostgreSQL、WebUI。macOS 用 LaunchAgent，Linux 用 systemd，也可以用 Docker Compose 整站。
 - **云端边缘（可选）**：一台 Linux + nginx，只放 WebUI 和公开快照，`/api`、`/help` 经隧道回到平台主机。
+
+部署分成三步，互相不掺：
+
+1. **构建**（开发机）：`ops/scripts/build.sh` 产出 `knot-<版本>-<提交>-<平台>.tar.gz`；
+2. **安装**（平台主机）：`deploy-site.sh` 解包、迁移、切换 `current`、重启、探活，不跑 `npm ci`，不跑 `vite build`；
+3. **推送**（开发机一键）：`push-deploy.sh` = 构建 + 传输 + 远程安装 + 验收。
+
+目标机上不需要源码，不需要 git，也不需要构建工具；只需要 Node.js 22+ 和一个数据库。
 
 没有域名也能部署：只跑平台主机，局域网直接访问 `http://<主机>:<端口>/`。需要公网域名时再加边缘。
 
-按对外形态分，常见四种，配置都在 `sites/<站点>/site.env`：
+按对外形态分，常见四种。前三种写在 `sites/<站点>/site.env`；只要走边缘，公网入口在 `sites/<站点>/edge.<域名>.env` 里各写一份：
 
 | 形态 | 什么时候用 | 配置 |
 | --- | --- | --- |
 | 本机 / 局域网 | 自用、内网试用 | `KNOT_PUBLIC_ORIGIN` |
 | 自有域名 + 云主机直连 | 主机有固定公网 IP | 实例自己配 TLS，参考 [`edge/subdomain-fixed-ip.md`](./edge/subdomain-fixed-ip.md) |
-| 自有域名 + 边缘 + 隧道 | 主机在 NAT 后 | [`edge/site.conf.template`](./edge/site.conf.template) + `push-edge.sh` |
-| 联盟子域 `某名.xknot.si` | 拿到联邦子域签发 | [`edge/wang.xknot.si.conf`](./edge/wang.xknot.si.conf) + [`edge/README.md`](./edge/README.md) |
+| 自有域名 + 边缘 + 隧道 | 主机在 NAT 后 | `edge.<域名>.env` + [`edge/site.conf.template`](./edge/site.conf.template) + `push-edge.sh` |
+| 联盟子域 `某名.xknot.si` | 拿到联邦子域签发 | 同上，`KNOT_ENTRY_OWNER=issued` |
 
-最后一种的域名申请、清单登记与验收要求属联盟，见 [`xknot.si/docs/JOIN.md`](../../xknot.si/docs/JOIN.md)；具体怎么在这台机器上落地，仍是本目录的事。
+**一个实例可以有多个入口。** 同一个后端挂自有域名和签发子域是正常形态：规范入口写 `KNOT_PUBLIC_ORIGIN`，其余写 `KNOT_PUBLIC_ALIASES`，每个域名一份 `edge.<域名>.env`，`push-edge.sh` 逐个处理。每个入口的静态根与 conf 必须各不相同，`config.mjs check` 会拦住共用的情况。
+
+联盟子域的申请、清单登记与验收要求见 [`xknot.si/docs/JOIN.md`](../../xknot.si/docs/JOIN.md)；伙伴侧接通流程见 [`xknot.si/docs/HANDOFF.md`](../../xknot.si/docs/HANDOFF.md)。
 
 > 部署脚本里不再写死 IP、域名、目录或端口。代码、部署和配置分开：脚本在 `ops/`，每个站点一个目录 `sites/<站点>/`。模板见 [`sites/_template/site.env`](../sites/_template/site.env)，真实站点目录不进版本库。
 
 ## 1. 配置
 
-一个站点一个目录。先建目录：
+一个站点一个目录，目录里最多三份配置。**部署与接入是两条独立的线**：
+
+| 文件 | 管什么 | 谁写 | 部署读吗 |
+| --- | --- | --- | --- |
+| `sites/<站点>/site.env` | 站点身份与共用拓扑：规范域名、端口、数据库、边缘主机、隧道 | 运维 | 读 |
+| `sites/<站点>/edge.<域名>.env` | 一个公网入口：域名、静态根、conf、证书、投放方式 | 运维 | 读 |
+| `sites/<站点>/platform.env` | 平台主机运行时：SMTP、价格、存储、管理令牌，权限 `600` | `deploy-site.sh` 生成 | 读 |
+| `sites/<站点>/xknot.env` | XKnot 接入：实例 id、中枢地址、签发日期与委托发信凭据，权限 `600` | 中枢签发，`join-xknot.sh` 写入 | 不读，只在运行时交给 Backend |
+
+`edge.<域名>.env` 是叠加层：只写与 `site.env` 不同的项，没写的沿用。文件名必须等于里面的 `KNOT_DOMAIN`。不接边缘的站点不需要这个文件；接边缘的站点按入口数量写一份到多份。
+
+`xknot.env` 可以不存在。没有它站点照样部署、登录、发帖、算积分，只是不接联邦；重新部署、换机器、回滚也都不动它。反过来，接入、换委托发信凭据不需要 `deploy-site.sh`，写完重启 Backend 就行。
+
+先建目录：
 
 ```bash
 node ops/scripts/config.mjs init <站点>
 ```
 
 它从 `sites/_template/` 复制 `site.env` 与 `platform.env`，权限设为 `600`。已有站点直接改 `sites/<站点>/site.env`。
+
+`sites/` 下除 `_template/` 外的内容都不进版本库：每个站点目录属于它自己的实例，开发者自己的实例（如 `bot01`）也不要提交或随发布包分发。
 
 至少改这四项：
 
@@ -49,17 +74,17 @@ node ops/scripts/config.mjs init <站点>
 | --- | --- | --- |
 | `KNOT_SITE_NAME` | 站点名。显示在 WebUI 顶栏正中、浏览器标题和分享图落款；过长时顶栏省略 | `海风情报站` |
 | `KNOT_SITE_TAGLINE` | 一句话介绍，用在未登录首页和分享图 | `只收值得交换的信息。` |
-| `KNOT_SITE_LOGO` | 站点自己的 logo，用在登录卡和未登录首页；可留空。`XKnot` 那个方形标识固定在代码里，不受它影响 | `https://example.com/logo.png` 或 `/logo.png` |
+| `KNOT_SITE_LOGO` | 站点自己的 logo，用在登录卡和未登录首页；可留空。`XKnot` 方形标识固定在代码里 | `https://example.com/logo.png` 或 `/logo.png` |
 
 部署脚本把它们写进 `sites/<站点>/platform.env`，WebUI 从 `GET /api/web/session` 的 `brand` 里读。改了名字或 logo 重新部署一次即可，不用改前端代码。
 
-WebUI 顶栏左上角是固定的 `XKnot` 方形标识，所有站点一致，不读 `KNOT_SITE_NAME` / `KNOT_SITE_LOGO`。站点自己的名字在顶栏正中，站点 logo 用在登录卡和未登录首页。
+WebUI 顶栏左上角是固定的 `XKnot` 方形标识，所有站点一致。站点自己的名字在顶栏正中，站点 logo 用在登录卡和未登录首页。
 
 局域网部署到这里就够了。要加云端边缘，再填 `KNOT_EDGE`、`KNOT_EDGE_SSH`、`KNOT_DOMAIN` 和边缘路径；要从开发机发布，填 `KNOT_DEPLOY_SSH`。
 
 ### 1.1 全部站点参数与默认值
 
-`sites/<站点>/site.env` 里的键，以及没写时脚本用的默认值（`ops/scripts/lib/site-config.sh`）。标「必填」的没有默认值，缺了部署直接停。平台主机自己的运行时键不在这里，见 [`docs/CONFIG.md`](../docs/CONFIG.md)。
+`sites/<站点>/site.env` 里的键，以及没写时脚本用的默认值（`ops/scripts/lib/site-config.sh`）。标「必填」的没有默认值，缺了部署直接停。平台主机自己的运行时键见 [`docs/CONFIG.md`](../docs/CONFIG.md)。
 
 | 分组 | 变量 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -67,7 +92,8 @@ WebUI 顶栏左上角是固定的 `XKnot` 方形标识，所有站点一致，�
 | 站点 | `KNOT_SITE_TAGLINE` | `面向 AI 时代、服务于 Agent 的信息交换网。` | 未登录首页与分享图 |
 | 站点 | `KNOT_SITE_LOGO` | 空 | 登录卡与未登录首页的站点 logo；空则用站名首字 |
 | 站点 | `KNOT_PUBLIC_ORIGIN` | `http://127.0.0.1:$KNOT_PORT` | 对外访问地址，带协议 |
-| 站点 | `KNOT_DOMAIN` | 从 `KNOT_PUBLIC_ORIGIN` 取主机名 | 云端域名，也用于拼证书路径 |
+| 站点 | `KNOT_DOMAIN` | 从 `KNOT_PUBLIC_ORIGIN` 取主机名 | 规范域名；其余入口在自己的 `edge.<域名>.env` 里各写一份 |
+| 站点 | `KNOT_PUBLIC_ALIASES` | 空 | 同一后端的其它公网入口，逗号分隔；每个要有 `edge.<域名>.env` |
 | 站点 | `KNOT_PORT` | `8080` | Backend 监听端口 |
 | 站点 | `KNOT_BIND_HOST` | `0.0.0.0` | Backend 绑定地址 |
 | 站点 | `KNOT_SESSION_COOKIE_NAME` | `knot_sid` | 会话 Cookie 名 |
@@ -78,20 +104,26 @@ WebUI 顶栏左上角是固定的 `XKnot` 方形标识，所有站点一致，�
 | 平台主机 | `KNOT_PGDATA` | `$HOME/knot/pgdata` | 数据目录 |
 | 平台主机 | `KNOT_PGLOG` | `$HOME/knot/pg.log` | 日志文件 |
 | 平台主机 | `KNOT_PG_BIN` | `/opt/homebrew/opt/postgresql@16/bin` | Intel Homebrew 改 `/usr/local/opt/postgresql@16/bin` |
-| 平台主机 | `KNOT_UPLOAD_DIR` | `<knot-platform>/var/uploads` | 上传目录 |
-| 平台主机 | `KNOT_BACKUP_DIR` | 空（不备份） | 配置后装每天 04:15 的备份 LaunchAgent |
+| 平台主机 | `KNOT_UPLOAD_DIR` | `<部署根>/var/uploads` | 上传目录，在发布包外，升级和回滚都不动 |
+| 平台主机 | `KNOT_BACKUP_DIR` | 空（不备份） | 配置后装每天 04:15 的备份任务 |
 | 平台主机 | `KNOT_BACKUP_KEEP` | `7` | 保留几份快照 |
+| 平台主机 | `KNOT_BACKUP_SITES` | `1` | 备份是否收 `sites/<站点>/`：`platform.env` 和 `agents/` 里的密钥 |
+| 平台主机 | `KNOT_BACKUP_OPENCLAW` | `auto` | `auto` 有 `~/.openclaw` 就收；`1` 必须；`0` 跳过 |
 | 平台主机 | `KNOT_OPENCLAW` | `auto` | `auto` 装了才同步；`1` 必须；`0` 跳过 |
+| 平台主机 | `KNOT_SYSTEMD_DIR` | `/etc/systemd/system` | Linux 上 systemd unit 的安装目录 |
+| 平台主机 | `KNOT_SERVICE_USER` | `knot` | Linux 上跑 Backend 的系统账号 |
 | 远程发布 | `KNOT_DEPLOY_SSH` | 空 | 空表示在平台主机本机跑 `deploy-site.sh` |
-| 远程发布 | `KNOT_DEPLOY_DIR` | `~/knot/AgentLink/knot-platform` | 远端仓库目录，`~` 按目标机 home 展开 |
+| 远程发布 | `KNOT_DEPLOY_DIR` | `~/knot/AgentLink/knot-platform` | 远端**部署根**：`sites/`、`releases/`、`current`、`var/` 都在这里 |
 | 远程发布 | `KNOT_DEPLOY_SSH_KEY` | 空 | 空则用 ssh 默认密钥或 `ssh-agent` |
 | 远程发布 | `KNOT_DEPLOY_VERIFY_URL` | `http://<平台主机>:<KNOT_PORT>/api/health` | 发布后验收地址 |
+| 远程发布 | `KNOT_DEPLOY_KEEP` | `5` | 平台主机保留几个历史发布包；当前版本和回滚目标永远保留 |
+| 远程发布 | `KNOT_ARTIFACT_DIR` | `<knot-platform>/artifacts` | 开发机上发布包的输出目录 |
 | 边缘 | `KNOT_EDGE` | `0` | `1` 才推 WebUI 和 nginx 配置 |
 | 边缘 | `KNOT_EDGE_SSH` | 空（开边缘时必填） | `user@edge-host` |
 | 边缘 | `KNOT_EDGE_SSH_KEY` | `$HOME/.ssh/id_rsa` | 开发机推页面用 |
 | 边缘 | `KNOT_EDGE_PUSH_KEY` | `$HOME/.ssh/knot-edge-publish` | 平台主机推公开快照用 |
-| 边缘 | `KNOT_EDGE_WEB_ROOT` | `/var/www/knot` | WebUI 目录 |
-| 边缘 | `KNOT_EDGE_CONF` | `/etc/nginx/conf.d/knot.conf` | nginx 站点配置路径 |
+| 边缘 | `KNOT_EDGE_WEB_ROOT` | `/var/www/knot` | 这个入口的 WebUI 目录；多入口时必须各不相同 |
+| 边缘 | `KNOT_EDGE_CONF` | `/etc/nginx/conf.d/knot.conf` | 这个入口的 nginx 配置路径；多入口时必须各不相同 |
 | 边缘 | `KNOT_EDGE_WEB_OWNER` | `nginx:nginx` | WebUI 目录属主 |
 | 边缘 | `KNOT_EDGE_CACHE_DIR` | `/var/cache/nginx/knot_uploads` | 上传缓存目录 |
 | 边缘 | `KNOT_EDGE_CACHE_ZONE` | `knot_uploads` | 缓存 zone 名 |
@@ -99,9 +131,12 @@ WebUI 顶栏左上角是固定的 `XKnot` 方形标识，所有站点一致，�
 | 边缘 | `KNOT_EDGE_MAX_BODY` | `52m` | 请求体上限 |
 | 边缘 | `KNOT_EDGE_PROXY_PORT` | `18080` | 边缘回源端口 |
 | 边缘 | `KNOT_EDGE_SSL` | `1` | `0` 时只监听 80 |
-| 边缘 | `KNOT_EDGE_CERT` | `/etc/letsencrypt/live/$KNOT_DOMAIN/fullchain.pem` | 证书 |
-| 边缘 | `KNOT_EDGE_KEY` | `/etc/letsencrypt/live/$KNOT_DOMAIN/privkey.pem` | 私钥 |
+| 边缘 | `KNOT_EDGE_CERT` | 按入口自己的 `KNOT_DOMAIN` 推导 | 证书链 |
+| 边缘 | `KNOT_EDGE_KEY` | 按入口自己的 `KNOT_DOMAIN` 推导 | 私钥 |
 | 边缘 | `KNOT_EDGE_RELOAD_CMD` | `sudo systemctl reload nginx` | 非 systemd 机器改这里 |
+| 入口 | `KNOT_ENTRY_SERVE` | `static` | `static` 页面从边缘磁盘出；`proxy` 连首页也回源 |
+| 入口 | `KNOT_ENTRY_OWNER` | `self` | `self` 自有域名；`issued` 是 xknot.si 签发的子域 |
+| 入口 | `KNOT_ENTRY_PUBLISHER` | `staff` | `staff` 部署脚本推 WebUI；`partner` 伙伴自己 rsync，脚本跳过 |
 | 隧道 | `KNOT_TUNNEL` | `1` | 边缘和平台同机时设 `0` |
 | 隧道 | `KNOT_TUNNEL_SSH` | `knot-tunnel@<KNOT_EDGE_SSH 的主机>` | 隧道账号 |
 | 隧道 | `KNOT_TUNNEL_KEY` | `$HOME/.ssh/knot-edge` | 隧道私钥，不进仓库 |
@@ -114,17 +149,54 @@ WebUI 顶栏左上角是固定的 `XKnot` 方形标识，所有站点一致，�
 
 `deploy-site.sh` 把站点、数据库、目录、备份和边缘推送项写进目标机的 `sites/<站点>/platform.env`，权限 `600`。邮件、价格、存储、智能体这些只属于这台机器的键，第一次部署时按 schema 里的默认值补进去，之后归运维，部署不会再改。
 
-完整清单、默认值和必填条件见 [`docs/CONFIG.md`](../docs/CONFIG.md)。那份文档和两个模板文件都由 [`config/schema.mjs`](./config/schema.mjs) 生成，不要手改：
+完整清单、默认值和必填条件见 [`docs/CONFIG.md`](../docs/CONFIG.md)。那份文档和三份模板文件都由 [`packages/knot-config/src/schema.mjs`](../packages/knot-config/src/schema.mjs) 生成，不要手改：
 
 ```bash
 node ops/scripts/config.mjs template --write            # sites/_template/site.env
 node ops/scripts/config.mjs platform-template --write   # sites/_template/platform.env
+node ops/scripts/config.mjs xknot-template --write      # sites/_template/xknot.env
 node ops/scripts/config.mjs docs --write                # docs/CONFIG.md
 ```
 
-加一个配置项：先在 `schema.mjs` 登记，再在代码里读 `process.env` 并给同一个默认值，最后重新生成。测试会检查 schema、模板文件、文档、代码默认值是否一致。
+加一个配置项：先在 schema 里登记，代码从同一份登记表取默认值（`backend/src/config.js` 不再另写常量），最后重新生成。测试会检查 schema、模板文件、文档、代码默认值是否一致。
+
+Backend 启动时会按同一份 schema 校验进程环境：**值不合法直接退出**；必填项缺失给警告（例如没有 `KNOT_ADMIN_EMAIL` 时站点能跑，但没有管理入口）。进程环境里还有部署脚本导出的 `KNOT_DEPLOY_ROOT` 这类脚本变量，所以运行时不对未登记键逐条报警，改由 `checkSite` / `checkPlatform` / `checkJoin` 在部署时校验三份文件。所以部署后如果服务起不来，先看 `var/log/knot-platform.err.log` 里的「配置错误」。
 
 `KNOT_ADMIN_TOKEN`、`KNOT_AGENT_ENV_DIR`、`KNOT_DISCOVER_PUSH_CMD`、`KNOT_EDGE_PUSH_KEY` 由部署脚本或 `ensure-openclaw.sh` 写入，不用手填。价格类键只在还没有价格表时生效；精算师写入 `economy_policy` 后以库里的为准。
+
+### 1.3 接入 XKnot（与部署分开）
+
+接入只写 `sites/<站点>/xknot.env`，来源是中枢签发的接入件。部署脚本不生成、不改写这份文件；`push-deploy.sh` 也不会把它推到目标机——它属于那台机器。
+
+```bash
+# 拿到接入件后（一次领取的明文，别存进聊天记录或版本库）
+./ops/scripts/join-xknot.sh --site <站点> --payload ~/xknot-access.env
+cat ~/xknot-access.env | ./ops/scripts/join-xknot.sh --site <站点> --payload -
+
+./ops/scripts/join-xknot.sh --site <站点> --status    # 看实例 id、中枢、凭据（打码）、权限
+./ops/scripts/join-xknot.sh --site <站点> --remove    # 解除接入，文件删掉
+```
+
+接入件就是一份 env 文件，键名由联邦契约规定（`xknot.si/docs/FEDERATION.md` 第 7.4 节），
+`xknot.env` 只是本实现存放它的位置：
+
+```bash
+XKNOT_INSTANCE_ID=wang
+XKNOT_HUB_ORIGIN=https://xknot.si
+XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
+XKNOT_HUB_ISSUED_AT=2026-10-20
+```
+
+规则：
+
+- 写了文件就要有 `XKNOT_INSTANCE_ID`，否则不知道这份接入属于谁。
+- 委托发信只要有 `XKNOT_HUB_RELAY_TOKEN` 就能用：发信地址按 `XKNOT_HUB_ORIGIN` 推导。写了 `XKNOT_HUB_RELAY_URL` 却没有凭据会被拒绝，也不会拿旧文件里的凭据来凑。
+- 部署键、平台键混进来直接报错，不会悄悄写到别处。
+- 写入后重启 Backend 才生效：launchd 用 `launchctl kickstart -k gui/$(id -u)/com.knot.platform`，systemd 用 `sudo systemctl restart knot-backend`。
+- `0.3` 之前委托发信凭据写在 `platform.env`。`deploy-site.sh` 下次生成时会把它迁到 `xknot.env` 再从 `platform.env` 删掉，并打一行警告。
+
+`XKNOT_INSTANCE_ID` 也决定 `/api/health` 里的 `instance` 字段，中枢拿它与清单 id 核对。
+接入只是本地这一半：清单与名册由中枢登记，域名、证书、隧道账号和端口见 [`xknot.si/docs/HANDOFF.md`](../../xknot.si/docs/HANDOFF.md)。
 
 ## 2. 拓扑
 
@@ -148,52 +220,237 @@ Personal Agent → /api/agent/*
 
 隧道由平台主机主动连出，边缘的 `127.0.0.1:<KNOT_EDGE_PROXY_PORT>` 转到平台主机的 `127.0.0.1:<KNOT_TUNNEL_LOCAL_PORT>`。边缘和平台在同一台机器时把 `KNOT_TUNNEL=0`，并把 `KNOT_EDGE_PROXY_PORT` 设成 `KNOT_PORT`。
 
+### 2.1 三种拓扑
+
+同一个软件，按 `site.env` 里三个开关分成三种拓扑。开发者的默认是最简单的那种。
+
+| 拓扑 | 开关 | 谁在看 | WebUI 从哪来 |
+| --- | --- | --- | --- |
+| **本机**（默认） | `KNOT_EDGE=0`、`KNOT_TUNNEL=0`、`KNOT_BIND_HOST=127.0.0.1`、`KNOT_DEPLOY_SSH=` 空 | 只有这台机器 | Backend 自己 serve `web/dist` |
+| **局域网** | `KNOT_EDGE=0`、`KNOT_TUNNEL=0`、`KNOT_BIND_HOST=0.0.0.0`、`KNOT_PUBLIC_ORIGIN` 写局域网 IP | 同一个局域网里的设备 | 同上 |
+| **公网** | `KNOT_EDGE=1`，要回源再加 `KNOT_TUNNEL=1` | 互联网 | 云端 nginx 的 `KNOT_EDGE_WEB_ROOT` |
+
+「本机」和「局域网」只差绑定地址与对外地址；「公网」不是替代关系——平台主机上的那份 WebUI 仍然在，只是多了一份放在云端给公网用。三种都不改变 Backend、Postgres 和上传目录的位置：它们永远在平台主机上，只有一份。
+
 ## 3. 平台主机
 
-目标机需要 macOS、Homebrew、Node.js 22+ 和 `postgresql@16`。脚本默认用 `/opt/homebrew/opt/postgresql@16/bin`（Intel Homebrew 用 `KNOT_PG_BIN` 指到 `/usr/local/opt/postgresql@16/bin`），不需要 `brew services`。
+### 3.1 目标机要求
 
-已在目标机上：
+| 项 | 要求 |
+| --- | --- |
+| Node.js | 22+。发布包自带生产依赖，但运行时仍要有 `node`。 |
+| 数据库 | macOS：Homebrew `postgresql@16`（`KNOT_DB_MODE=local`）。或任意 PostgreSQL 16（`KNOT_DB_MODE=external` + `KNOT_DATABASE_URL`）。 |
+| 服务管理 | macOS 用 launchd；Linux 用 systemd；也可以用 Docker Compose 整站。 |
+| 不需要 | git、npm 构建工具、vite、源码目录。目标机不跑 `npm ci`，不跑 `vite build`。 |
 
-```bash
-cd <knot-platform 目录>
-node ops/scripts/config.mjs init <站点>   # 第一次
-./ops/scripts/deploy-site.sh --site <站点>
+### 3.2 目录布局
+
+部署根是 `KNOT_DEPLOY_DIR`（默认 `~/knot/AgentLink/knot-platform`）：
+
+```text
+<部署根>/
+├── sites/<站点>/          配置：site.env、platform.env、agents/。升级不动
+├── releases/
+│   ├── knot-0.2.0-abc1234/    代码。一个发布包一份
+│   └── knot-0.1.9-def5678/
+├── current -> releases/knot-0.2.0-abc1234
+├── var/
+│   ├── uploads/           数据。升级和回滚都不动
+│   ├── log/
+│   └── run/backend.pid    没有服务管理器时（--runtime none）记 Backend 进程
+└── deployed.json          当前版本、上一个版本
 ```
 
-它依次做：
+`current` 是唯一的切换点：回滚只改这个符号链接再重启。`sites/` 和 `var/` 在发布包外面，所以换版本不会碰配置和数据。日志、上传目录、`STATIC_WEB_DIR` 都写成经 `current` 的稳定路径。
 
-1. 按 `KNOT_DB_MODE` 启动本机 Postgres（或使用外部 `KNOT_DATABASE_URL`）；
-2. 在本项目根跑 `npm ci`、构建 WebUI；
-3. 停 Backend，跑迁移，搬迁旧上传目录；
-4. 把站点取值写进 `sites/<站点>/platform.env`；
-5. 安装 `com.knot.postgres`、`com.knot.platform`、`com.knot.gc`，配置了 `KNOT_BACKUP_DIR` 时装 `com.knot.backup`，开启边缘和隧道时装 `com.knot.edge-tunnel`；
-6. `KNOT_OPENCLAW` 为 `auto` 时，只有已安装 `openclaw` 才同步智能体；为 `1` 时强制同步；为 `0` 时跳过；
-7. 探一次 `http://127.0.0.1:<KNOT_PORT>/api/health`。
+### 3.3 构建（开发机）
 
-从开发机发布：
+```bash
+./ops/scripts/build.sh
+```
+
+产出在 `artifacts/`：
+
+```text
+knot-<版本>-<提交>[-dirty]-<平台>.tar.gz
+knot-<版本>-<提交>[-dirty]-<平台>.tar.gz.sha256
+```
+
+包里是 `backend/`、`packages/`、`web/dist/`、`help.md`、`ops/`、生产依赖的 `node_modules/` 和 `BUILD.json`；不含 `sites/`、`var/`、`.git`，也不含 `*.test.js` / `*.test.mjs`。`BUILD.json` 记版本、提交、构建时间、平台，`/api/health` 会把它报出来（`release`、`commit`、`builtAt`）。
+
+| 参数 | 作用 |
+| --- | --- |
+| `--skip-test` | 跳过单测（不推荐） |
+| `--skip-install` | 复用现有 `node_modules`，不跑 `npm ci` |
+| `--no-modules` | 不带 `node_modules`，目标机自己装生产依赖 |
+| `--out <目录>` | 换个输出目录（默认 `KNOT_ARTIFACT_DIR`） |
+
+平台标签是 `darwin-arm64`、`linux-x64` 这样的组合。原生模块（`sharp`）不能跨平台，所以发布包只装到同平台的机器上；部署时会校验，确实要混用时加 `--allow-platform-mismatch`。工作区有未提交改动时，包名带 `-dirty`。
+
+### 3.4 本地发布（开发者默认）
+
+目标就是这台机器时，`KNOT_DEPLOY_SSH` 留空。`push-deploy.sh` 会在本地把整条链走完：构建 → 校验 → 解包 → 装服务 → 探活，不 ssh、不 scp。
+
+```bash
+# 第一次：从模板建站点目录，改端口、管理员邮箱和 KNOT_PG_BIN
+node ops/scripts/config.mjs init local
+$EDITOR sites/local/site.env
+node ops/scripts/config.mjs check --site local
+
+# 之后每次
+./ops/scripts/push-deploy.sh --site local
+```
+
+`KNOT_DEPLOY_SSH` 为空时，部署根是仓库本身（`sites/` 在那里），所以 `releases/`、`current`、`deployed.json`、`var/` 都落在 `knot-platform/` 下，都不进版本库。`sites/local/` 也一样只在本地。
+
+本机默认装成 launchd 服务（开机自启、挂了自动拉起），和线上一致。但这样 `npm run dev:platform` 会因为端口被占而失败；改代码用开发模式时先停掉它，或者干脆装成不常驻：
+
+```bash
+./ops/scripts/push-deploy.sh --site local --runtime none   # 后台起，pid 写 var/run/backend.pid
+launchctl bootout gui/$(id -u)/com.knot.platform           # 装成 launchd 后想停掉
+```
+
+`--runtime none` 手动重启时要带上站点名，部署根下有多个站点时它选不出来：
+
+```bash
+KNOT_SITE=local ./current/ops/scripts/run-knot-platform.sh
+```
+
+一台开发机上同时有 `sites/local` 和 `sites/bot01` 时，所有脚本都要显式带 `--site`；只有一个站点时才自动选中。端口按机器现状挑，`8080`、`5433` 这类常用口很容易被别的项目占着：
+
+```bash
+lsof -nP -iTCP:8081 -sTCP:LISTEN      # 空就是没占
+```
+
+`npm run dev:platform` + `npm run dev:web` 是另一条路：源码热更新，不装服务、不切 `current`，适合改代码；`push-deploy.sh --site local` 装的是发布包，和线上跑的是同一份东西，适合验发布和回滚。
+
+本机实例没有 SMTP，邮件登录会返回 `mail_unavailable`。要用本机站点就得直接造一个会话：
+
+```bash
+./ops/scripts/local-login.sh --site local           # 默认是 KNOT_ADMIN_EMAIL 那个管理员
+./ops/scripts/local-login.sh --site local --email someone@example.com
+./ops/scripts/local-login.sh --site local --url     # 只打印带 cookie 的地址
+```
+
+它把用户和会话直接写进本机库，不用等邮件，可重复执行。脚本只认对外地址是回环地址的站点；`KNOT_PUBLIC_ORIGIN` 是公网地址时直接拒绝——能凭空造管理员会话的门不该留在公网上。开发机要发真邮件，就在 `sites/local/platform.env` 里配 `SMTP_*`。
+
+### 3.5 远程发布（推荐）
 
 ```bash
 # sites/<站点>/site.env 里写 KNOT_DEPLOY_SSH=user@platform-host
 ./ops/scripts/push-deploy.sh --site <站点>
 ```
 
-它把本项目同步到 `KNOT_DEPLOY_DIR`（默认 `~/knot/AgentLink/knot-platform`），在目标机执行 `deploy-site.sh`，再按 `KNOT_DEPLOY_VERIFY_URL` 或 `http://<主机>:<端口>/api/health` 验收。`push-deploy.sh --site <站点> --edge` 会在部署后接着推边缘。
+它做四件事：本地构建 → 校验 checksum → 把 tar.gz 和 `site.env`（含变体）传到部署根 → 在目标机解包并运行 `deploy-site.sh` → 按 `KNOT_DEPLOY_VERIFY_URL` 验收。`--edge` 会在装完后接着推云端边缘；`--no-build` 复用最近一次产物；`--dry-run` 只检查不动目标机。
 
-### 3.1 多站点与变体
+**不再同步源码。** 目标机的 `releases/` 里只有解包后的发布包，`sites/` 只收 `site.env` 和变体，`platform.env` 原地保留。
+
+### 3.6 直接在平台主机上安装
+
+```bash
+mkdir -p ~/knot/knot-platform/.incoming
+tar -xzf knot-0.2.0-abc1234-darwin-arm64.tar.gz -C ~/knot/knot-platform/.incoming
+KNOT_DEPLOY_ROOT=~/knot/knot-platform \
+  ~/knot/knot-platform/.incoming/knot-0.2.0-abc1234/ops/scripts/deploy-site.sh --site <站点>
+```
+
+`deploy-site.sh` 也可以直接吃 tar.gz：
+
+```bash
+./ops/scripts/deploy-site.sh --site <站点> --artifact <tar.gz>
+```
+
+在目标机上首次使用前，先把 `sites/<站点>/site.env` 放好（可以从 `sites/_template/` 复制）。
+
+### 3.7 安装时做什么
+
+1. 校验发布包：`BUILD.json`、checksum、平台、Node 版本；
+2. 校验 `sites/<站点>/site.env`（类型、必填、跨键矛盾）；
+3. 解到 `releases/<发布包名>/`，原子替换；
+4. 按 `KNOT_DB_MODE` 启动本机 Postgres（或使用外部 `KNOT_DATABASE_URL`）；
+5. 停 Backend，跑迁移（带 checksum 校验，历史迁移被改过会停下），搬迁旧上传目录；
+6. 切换 `current`，把站点取值写进 `sites/<站点>/platform.env`；
+7. 装服务：`com.knot.postgres`、`com.knot.platform`、`com.knot.gc`，配置了 `KNOT_BACKUP_DIR` 时装 `com.knot.backup`，开启边缘和隧道时装 `com.knot.edge-tunnel`（Linux 对应 systemd unit 与 timer）；`--runtime none` 时改用独立会话在后台起 Backend（见 3.9.1），pid 写 `var/run/backend.pid`；
+8. `KNOT_OPENCLAW` 为 `auto` 时，只有已安装 `openclaw` 才同步智能体；
+9. 探活 `http://127.0.0.1:<KNOT_PORT>/api/health`，并核对正在运行的 `release`（老版本没有这个字段时比 `version`）；
+10. 清理旧发布包（保留 `KNOT_DEPLOY_KEEP` 个，当前版本和上一个版本不动），写 `deployed.json`。
+
+迁移失败时不会切换 `current`，并把旧版本拉回来；探活失败会自动把 `current` 指回上一个版本（`--no-auto-rollback` 可关掉）。**数据库迁移不回滚**，回滚后必要时用 `migrate.js --status` 看差多少。
+
+### 3.8 回滚
+
+```bash
+./ops/scripts/rollback.sh --site <站点> --list      # 看已安装的版本
+./ops/scripts/rollback.sh --site <站点>             # 回到上一个版本
+./ops/scripts/rollback.sh --site <站点> --to knot-0.1.9-def5678
+```
+
+它只改 `current`、重启、探活。迁移是向前的：新版本执行过的迁移不会撤销，旧代码可能读不懂新表。回滚前先看一眼 `migrate.js --status`。用 `--runtime none` 装的站点没有服务管理器，回滚脚本看到 `var/run/backend.pid` 就按同一套方式停旧起新（同样另起会话）。
+
+### 3.9 Linux + systemd
+
+`deploy-site.sh` 会按 `uname` 选运行时。Linux 上要求 `KNOT_DB_MODE=external`（不要用 macOS 的 Homebrew 分支），并安装：
+
+- `knot-backend.service`（`EnvironmentFile=<部署根>/sites/<站点>/platform.env`）
+- `knot-backup.service` / `.timer`（配置了 `KNOT_BACKUP_DIR` 时）
+- `knot-gc.service` / `.timer`（每月出回收报告）
+
+unit 模板在 [`ops/systemd/`](./systemd/)，安装到 `KNOT_SYSTEMD_DIR`（默认 `/etc/systemd/system`），`User`/`Group` 取 `KNOT_SERVICE_USER`。需要 `sudo systemctl` 权限。同机 nginx 反代样例见 [`ops/nginx/knot.conf`](./nginx/knot.conf)。
+
+一个站点一台机器是默认假设：unit 名不带站点后缀，和 launchd 的 label 一致。
+
+`node` 要在 systemd 的默认 `PATH` 里（`/usr/local/bin` 或 `/usr/bin`）。装在 nvm 下的 node 不会被找到，装之前先 `ln -s "$(command -v node)" /usr/local/bin/node`，或者改 unit 的 `ExecStart`。
+
+### 3.9.1 没有服务管理器（`--runtime none`）
+
+容器、CI 冒烟、临时机器上没有 launchd/systemd 时：
+
+```bash
+./ops/scripts/deploy-site.sh --site <站点> --runtime none
+```
+
+它仍然解包、迁移、切 `current`、写 `platform.env`，然后在后台起 Backend，pid 记在 `<部署根>/var/run/backend.pid`，日志追加到 `<部署根>/var/log/knot-platform.log`。启动环境是干净的（`env -i`），只认 `platform.env`，不继承部署脚本导出的 site 键。进程随机器重启不会自己回来，生产环境请用 launchd、systemd 或 Docker。
+
+这个后台进程是**另起一个会话**的（Linux 走 `setsid`，macOS 没有 `setsid`，用 `perl` 的 `fork` + `POSIX::setsid`），不是只套一层 `nohup`。区别在于收尾方式：`nohup` 只挡 `SIGHUP`，而部署脚本被 CI、后台 shell 或终端复用器收掉时，收到的是发给整个**进程组**的 `SIGTERM`/`SIGKILL`，同组的孩子一样会跟着消失——现象是「部署报成功，过一会儿进程没了」。新会话换了会话和进程组，pid 文件里记的是 Backend 本身的 pid，不是启动器的 pid。
+
+### 3.10 Docker Compose
+
+完全不依赖 macOS/Linux 的安装分支，镜像自己带 Node 和依赖：
+
+```bash
+cp .env.example .env       # 改管理员邮箱和站点身份
+docker compose up -d --build
+curl http://127.0.0.1:8080/api/health
+```
+
+`docker-compose.yml` 起 Postgres 16 和 Backend，`uploads`、`pgdata` 两个具名卷；容器启动时先 `migrate.js` 再起服务。这条路径不读 `sites/<站点>/site.env`，站点身份和邮件从 `.env` 来。升级就是重新 `up -d --build`，回滚请给镜像打版本标签后切标签。
+
+### 3.11 多站点与变体
 
 一个站点一个目录，用 `--site` 选择；不写时，只有 `sites/` 下恰好一个站点才会自动选中。
 
 ```bash
 node ops/scripts/config.mjs sites                     # 列出站点、变体和 platform.env 状态
-./ops/scripts/push-deploy.sh --site bot01
-./ops/scripts/push-deploy.sh --site bot01 --variant local
+./ops/scripts/push-deploy.sh --site local             # 这台机器
+./ops/scripts/push-deploy.sh --site bot01             # 192.168.3.91，带云端
+./ops/scripts/push-deploy.sh --site bot01 --variant lan   # 192.168.3.91，不推云端
 ```
 
-变体是 `sites/<站点>/site.<变体>.env`，只覆盖 `site.env` 里同名的键。`bot01` 的 `site.local.env` 是纯本地样例：`KNOT_PUBLIC_ORIGIN=http://192.168.3.91:8080`、`KNOT_EDGE=0`、`KNOT_TUNNEL=0`。不带 `--variant` 重跑就回到 `site.env` 的带云端配置。
+变体是 `sites/<站点>/site.<变体>.env`，只覆盖 `site.env` 里同名的键。仓库自带的只有 `sites/_template/` 两个模板；`bot01`、`local` 这类真实站点目录属于各自的实例（`bot01` 是开发者的线上实例，`local` 是他本机那份），只留在本机，`.gitignore` 会忽略 `sites/` 下除模板以外的全部内容。`bot01` 的 `site.lan.env` 是纯局域网样例：`KNOT_PUBLIC_ORIGIN=http://192.168.3.91:8080`、`KNOT_EDGE=0`、`KNOT_TUNNEL=0`。不带 `--variant` 重跑就回到 `site.env` 的带云端配置。
 
-发布时不会整目录同步 `sites/`，只把选中的 `site.env`（以及变体覆盖文件）拷到目标机同路径，再运行目标机的 `deploy-site.sh`。目标机已有的 `platform.env` 不会被覆盖，邮件和价格键仍归运维。
+站点名和变体名是两件事，别混：
 
-旧入口 `deploy-macos.sh`、`push-deploy-91.sh` 仍在，但只是转发到新脚本。
+| 命令 | 部署到 | 是什么 |
+| --- | --- | --- |
+| `--site local` | 这台机器 | 开发者的本机站点，整套系统在本地，`127.0.0.1` |
+| `--site bot01 --variant lan` | `192.168.3.91` | 线上站点的一份局域网变体，只是不推云端边缘 |
+
+变体名曾经也叫 `local`，和本机站点撞了，所以改成 `lan`：`local` 只指「这台机器」。
+
+
+发布时不会整目录同步 `sites/`，只把选中的 `site.env`（以及变体覆盖文件）拷到目标机同路径，再运行目标机上的 `deploy-site.sh`。目标机已有的 `platform.env` 不会被覆盖，邮件和价格键仍归运维。发布包和容器镜像也不带 `sites/`：`build.sh` 的 rsync 与 `.dockerignore` 都排除了它。
+
+旧入口 `deploy-macos.sh`、`push-deploy-91.sh` 仍在，但只是转发：`deploy-macos.sh` 只能在发布包目录里跑，`push-deploy-91.sh` 走现在的构建 + 传输流程。
 
 ## 4. 云端边缘（可选）
 
@@ -235,9 +492,16 @@ node ops/scripts/config.mjs sites                     # 列出站点、变体和
    ./ops/scripts/push-edge.sh --site <站点>
    ```
 
-   它渲染 [`edge/site.conf.template`](./edge/site.conf.template)、同步 `web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建。`ops/edge/knot.zenheart.net.conf` 是作者站点的生成样例，实际以模板为准。
+   它对 `sites/<站点>/` 下的每个 `edge.<域名>.env` 各跑一次：渲染 [`edge/site.conf.template`](./edge/site.conf.template)、同步 `web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建，`--entry <域名>` 只推一个入口。仓库里不带任何具体域名的 conf——入口由站点配置生成。
 
-同一套边缘也用来给伙伴站点做 `某名.xknot.si` 入口，只是域名与证书不同：单子域模板是 [`edge/wang.xknot.si.conf`](./edge/wang.xknot.si.conf)，固定公网 IP 直连见 [`edge/subdomain-fixed-ip.md`](./edge/subdomain-fixed-ip.md)，总览见 [`edge/README.md`](./edge/README.md)。子域怎么申请、清单怎么登记，归联盟门户 `xknot.si/docs/JOIN.md`，不在本目录。
+同一套边缘也用来给伙伴站点做 `某名.xknot.si` 入口：同一个模板，只是入口文件里 `KNOT_ENTRY_OWNER=issued`、域名与证书不同。两处容易混：
+
+- **实例侧**（本仓库 `ops/edge/`）：模板和步骤，以及已接通伙伴站点的落地记录（[`edge/zjj-tunnel.md`](./edge/zjj-tunnel.md)、[`edge/zjj.xknot.si.conf`](./edge/zjj.xknot.si.conf)）；
+- **中枢侧**（[`xknot.si/docs/HANDOFF.md`](../../xknot.si/docs/HANDOFF.md)）：子域怎么签发、交接、验收，只管契约，不管实现。
+
+`KNOT_ENTRY_SERVE` 决定首页从边缘磁盘出（`static`）还是也走隧道（`proxy`）；固定公网 IP 直连见 [`edge/subdomain-fixed-ip.md`](./edge/subdomain-fixed-ip.md)，总览见 [`edge/README.md`](./edge/README.md)。子域怎么申请、清单怎么登记见 [`JOIN.md`](../../xknot.si/docs/JOIN.md)。
+
+**同机每个子域要有独立的隧道账号和回环端口**，不能共用（`Match` 首条匹配生效，`PermitListen` 只允许一个端口）。多子域的账号与端口分配见 [`xknot.si/federation.json`](../../xknot.si/federation.json) 的 `edge` 段；伙伴侧的落地样例与签发交接流程见 [`edge/zjj-tunnel.md`](./edge/zjj-tunnel.md) 与 [`xknot.si/docs/HANDOFF.md`](../../xknot.si/docs/HANDOFF.md)。
 
 平台主机开启 `KNOT_EDGE=1` 后，`deploy-site.sh` 会装 `com.knot.edge-tunnel`，并由 Backend 在公开内容变化后调用 `push-discover.sh` 推送 `/discover.json`。推页面用的 `KNOT_EDGE_SSH_KEY` 和平台主机推快照用的 `KNOT_EDGE_PUSH_KEY` 可以不是同一把。手动补推：
 
@@ -251,14 +515,22 @@ node ops/scripts/config.mjs sites                     # 列出站点、变体和
 
 ## 5. 检查
 
-在开发机跑单测。覆盖平台、WebUI 和 `ops/` 下的工具，不需要数据库，不连网。中枢门户是另一个项目，测试单独跑。
+在开发机跑单测。覆盖平台、WebUI 和 `ops/` 下的工具，不需要数据库，不连网。
 
 ```bash
 npm test                                # Backend、WebUI、packages 与 ops 工具
 npm test -w web                         # 只跑 WebUI
 npm test -w knot-platform               # 只跑 Backend
-npm --prefix ../xknot.si test           # 中枢门户
 ```
+
+部署前后量访问速度，用同一套数字对比两种投放（本机、边缘静态、边缘反代）：
+
+```bash
+./ops/scripts/speed-check.sh --runs 9 \
+  http://192.168.3.91:8080/ https://wang.xknot.si/ https://wang.xknot.si/api/health
+```
+
+每个地址打 N 次，去掉第一次（连接与 TLS 还没复用），报 `ttfb` 与 `total` 的中位数。默认不走系统代理，免得本机代理把数字算进去；要测代理链路加 `--proxy`。
 
 部署前也可以只查配置，不连数据库：
 
@@ -270,6 +542,17 @@ node ops/scripts/config.mjs show --for edge --site bot01  # 看边缘那台机�
 ```
 
 `deploy-site.sh` 和 `push-deploy.sh` 都会先跑 `check`；类型错、缺必填、跨键矛盾会在动数据库和 LaunchAgent 之前停下。
+
+只想检查发布包和站点配置、不动目标机：
+
+```bash
+./ops/scripts/push-deploy.sh --site bot01 --dry-run
+./ops/scripts/deploy-site.sh --site bot01 --dry-run --artifact artifacts/knot-…tar.gz
+node backend/scripts/migrate.js --status      # 迁移执行到哪一步
+node ops/scripts/config.mjs check --platform --site bot01
+```
+
+`/api/health` 会带上正在运行的版本和提交，发布脚本用它核对：
 
 ```bash
 curl -s http://127.0.0.1:<KNOT_PORT>/api/health
@@ -308,7 +591,7 @@ curl -s -H "Cookie: $COOKIE" "$BASE/api/web/submissions"
 巡检只读，不删文件：
 
 ```bash
-cd <knot-platform 目录>
+cd <部署根>/current
 ./ops/scripts/audit-knot-storage.sh
 ```
 
@@ -334,7 +617,7 @@ node backend/scripts/migrate-storage-layout.mjs --apply
 旧行回填（先只报告，再加 `--apply`）：
 
 ```bash
-set -a; source sites/bot01/platform.env; set +a
+set -a; source <部署根>/sites/bot01/platform.env; set +a
 node backend/scripts/backfill-uploads.mjs
 node backend/scripts/backfill-uploads.mjs --apply
 ```
@@ -342,14 +625,40 @@ node backend/scripts/backfill-uploads.mjs --apply
 备份：
 
 ```bash
-./ops/scripts/backup-knot.sh
+./ops/scripts/backup-knot.sh                 # 数据库 + 上传 + 站点配置 + OpenClaw 状态
+./ops/scripts/backup-knot.sh --config-only   # 只收配置和智能体状态，不碰数据库
 ```
 
-目标目录是环境文件里的 `KNOT_BACKUP_DIR`。留空表示不备份，脚本会直接退出；`KNOT_BACKUP_KEEP` 是保留份数（缺省 7）。每次写一份 `knot-<时间>/`，里面有 `knot.dump`、`uploads/` 和 `manifest.txt`，并用 `latest` 符号链接指向最近一份。`uploads/` 只收 `blobs/`、`derived/extracts/` 和 `board/`；卡片图、下载包、分享图、`tmp/` 和旧的 `previews/` 都能重新生成，不进快照。没变的文件用硬链接复用，不重复占空间。
+目标目录是环境文件里的 `KNOT_BACKUP_DIR`。留空表示不备份，脚本会直接退出；`KNOT_BACKUP_KEEP` 是保留份数（缺省 7）。每次写一份权限 `700` 的 `knot-<时间>/`，并用 `latest` 符号链接指向最近一份。同一秒内跑两次会加 `-1`、`-2` 后缀，不会覆盖上一份。
 
-`deploy-site.sh` 只在 `KNOT_BACKUP_DIR` 非空时安装 LaunchAgent `com.knot.backup`，每天 04:15 执行一次；清空配置后重新部署会把该 LaunchAgent 卸掉。另装 `com.knot.gc`，每月 1 日 04:45 跑一次 `gc-knot-storage.sh`，只写报告到 `var/log/knot-gc.log`，不删文件；要真删得人工执行 `--apply`。
+一份快照里有这些：
+
+| 路径 | 内容 | 开关 |
+| --- | --- | --- |
+| `knot.dump` | `pg_dump -Fc`，可直接 `pg_restore` | 总是收；`--config-only` 除外 |
+| `uploads/` | 只收 `blobs/`、`derived/extracts/` 和 `board/`。卡片图、下载包、分享图、`tmp/` 和旧的 `previews/` 都能重新生成 | 同上 |
+| `sites/` | `sites/<站点>/` 整个目录：`site.env`、`platform.env`、`agents/`。**SMTP 密码、管理令牌、智能体凭据都在这里** | `KNOT_BACKUP_SITES`（缺省 1） |
+| `openclaw/` | `openclaw.json`、`config-journal-fingerprint.key`、`credentials/`、`agents/<名字>/`（skill、AGENTS.md、记忆库 sqlite 与 `-wal`）。`cache/`、`browser/`、`npm/`、`logs/` 能重建，不收 | `KNOT_BACKUP_OPENCLAW`（缺省 `auto`：目录存在就收；`1` 必须收；`0` 跳过） |
+| `manifest.txt` | 各部分文件数、字节数、dump 的 sha256、`sites_status` / `openclaw_status` | — |
+
+`platform.env` 和凭据沿用源文件的 `600`，目录沿用 `700`；快照根目录本身是 `700`。没变的文件用硬链接复用，所以加了 `sites/` 和 `agents/` 之后每天的增量仍然很小。
+
+`deploy-site.sh` 只在 `KNOT_BACKUP_DIR` 非空时安装备份任务（macOS 是 LaunchAgent `com.knot.backup`，Linux 是 `knot-backup.timer`），每天 04:15 执行一次；清空配置后重新部署会把它卸掉。另装每月 1 日 04:45 的 `gc-knot-storage.sh`（macOS `com.knot.gc` / Linux `knot-gc.timer`），只写报告到 `var/log/knot-gc.log`，不删文件；要真删得人工执行 `--apply`。
+
+`KNOT_BACKUP_DIR` 默认在同一块盘上。这只防误删和改坏，不防整机或整盘丢失；要防后者，把 `KNOT_BACKUP_DIR` 指到外挂盘或另一台机器，或者定期把 `latest/` 同步出去。
 
 恢复：先 `launchctl bootout gui/$(id -u)/com.knot.platform` 停 Backend，`pg_restore -d "$DATABASE_URL" --clean --if-exists knot.dump`，再把快照里的 `uploads/` 同步回 `UPLOAD_DIR`，最后重新启动 Backend。
+
+换机器或重装时，配置也要一起放回去，否则库恢复了邮件登录和智能体仍然不可用：
+
+```bash
+# 1. 先把快照里的站点目录放回部署根，权限按 700/600
+rsync -a --chmod=Du=rwx,Dgo=,Fu=rw,Fgo= <备份目录>/latest/sites/ "$KNOT_DEPLOY_ROOT/sites/"
+# 2. OpenClaw 状态放回原处，再跑一次同步
+rsync -a <备份目录>/latest/openclaw/ "$HOME/.openclaw/"
+./ops/scripts/ensure-openclaw.sh
+# 3. 再按上面的步骤恢复数据库和上传目录，最后启动 Backend
+```
 
 不碰生产库的演练（重建一个临时库，对完行数就删）：
 
@@ -360,6 +669,8 @@ pg_restore -h 127.0.0.1 -p <KNOT_PGPORT> -U knot -d knot_restore_drill --no-owne
 psql -h 127.0.0.1 -p <KNOT_PGPORT> -U knot -d knot_restore_drill -Atc "SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM uploads), (SELECT count(*) FROM intel)"
 dropdb -h 127.0.0.1 -p <KNOT_PGPORT> -U knot knot_restore_drill
 ```
+
+`--config-only` 适合在升级或改配置之前留一份：几秒钟，不占多少空间，回滚配置时不用翻历史。
 
 ## 7. 系统复位
 
@@ -372,6 +683,12 @@ dropdb -h 127.0.0.1 -p <KNOT_PGPORT> -U knot knot_restore_drill
 ## 8. 运行环境文件
 
 `sites/<站点>/platform.env` 只在目标机，不进仓库，权限 `600`。它保存运行时设置：数据库地址、邮件、价格、上传配额、备份目录、OpenClaw 智能体名。站点拓扑（域名、主机、边缘、端口）在 `sites/<站点>/site.env`，不要在运行时文件里再写一份。写它的唯一入口是 `config.mjs env`；手工改也可以，下一次部署只会覆盖部署相关的键。
+
+`sites/<站点>/xknot.env` 同样只在目标机、权限 `600`，只装中枢签发的接入项。Backend 启动时先读 `platform.env`，再读它（存在才读）：
+
+- launchd：`run-knot-platform.sh` 里 source 两份文件；
+- systemd：`knot-backend.service` 有两个 `EnvironmentFile`，第二个带 `-`，文件不存在不报错；
+- `--runtime none`：同样走 `run-knot-platform.sh`。
 
 `BIND_HOST` 决定 Backend 监听地址。模型密钥留在 OpenClaw 的本机状态里。
 
@@ -389,6 +706,6 @@ dropdb -h 127.0.0.1 -p <KNOT_PGPORT> -U knot knot_restore_drill
 | 回源端口 | `18080` |
 | 隧道账号 | `knot-tunnel@54.169.33.64` |
 
-同一台机器还托管了联盟门户（`/var/www/xknot`、`/opt/xknot`、`xknot-api`）与其它站点。门户的部署见 [`xknot.si/ops/README-deploy-aws.md`](../../xknot.si/ops/README-deploy-aws.md)；共用主机不是依赖，改 nginx 配置前一律先 `nginx -t`。
+同一台机器还托管了 `/var/www/xknot`、`/opt/xknot`、`xknot-api` 与其它站点；门户的部署见 [`xknot.si/ops/README-deploy-aws.md`](../../xknot.si/ops/README-deploy-aws.md)。改 nginx 配置前一律先 `nginx -t`。
 
-对应配置写在这台机器的 `sites/bot01/site.env` 里，不写进仓库。云端配置样例是 [`edge/knot.zenheart.net.conf`](./edge/knot.zenheart.net.conf)，由同一份模板生成。
+对应配置写在这台机器的 `sites/bot01/site.env` 与 `sites/bot01/edge.<域名>.env` 里，不写进仓库。这份实例有两个入口（`wang.xknot.si` 与 `knot.zenheart.net`），共用同一条隧道，各占一个静态根与一份 conf。

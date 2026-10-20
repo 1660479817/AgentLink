@@ -8,10 +8,12 @@
   <dict>
     <key>KNOT_SITE</key>
     <string>__KNOT_SITE__</string>
+    <key>KNOT_DEPLOY_ROOT</key>
+    <string>__KNOT_HOME__</string>
   </dict>
   <key>ProgramArguments</key>
   <array>
-    <string>__KNOT_HOME__/ops/scripts/gc-knot-storage.sh</string>
+    <string>__KNOT_CURRENT__/ops/scripts/gc-knot-storage.sh</string>
   </array>
   <key>WorkingDirectory</key>
   <string>__KNOT_HOME__</string>

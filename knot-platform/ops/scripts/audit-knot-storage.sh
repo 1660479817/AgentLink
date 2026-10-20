@@ -5,7 +5,6 @@
 #   cd <仓库目录> && ./ops/scripts/audit-knot-storage.sh
 set -euo pipefail
 
-KNOT_HOME="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # PostgreSQL 的 bin 目录可在 site.env 里用 KNOT_PG_BIN 覆盖（Intel Homebrew 用 /usr/local）。
 # shellcheck source=lib/site-config.sh
@@ -13,7 +12,7 @@ source "$SCRIPT_DIR/lib/site-config.sh"
 knot_source_platform_env
 export PATH="$KNOT_PG_BIN:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-UPLOAD_DIR="${UPLOAD_DIR:-$KNOT_HOME/var/uploads}"
+UPLOAD_DIR="${UPLOAD_DIR:-$KNOT_DEPLOY_ROOT/var/uploads}"
 UPLOAD_DIR="$(cd "$UPLOAD_DIR" 2>/dev/null && pwd)" || {
   echo "上传目录不存在：$UPLOAD_DIR" >&2
   exit 1

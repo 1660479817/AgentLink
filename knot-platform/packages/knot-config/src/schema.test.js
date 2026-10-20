@@ -1,24 +1,30 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   GROUPS,
   KEYS,
+  checkEdgeEntry,
+  checkJoin,
   checkPlatform,
+  checkRuntime,
   checkSite,
   formatValue,
   parseEnv,
   renderDocs,
+  renderJoinExample,
   renderPlatformExample,
   renderPlatformFile,
   renderSiteExample,
   resolve,
   updateEnvText,
 } from "./schema.mjs";
-import { clearPriceOverride, economyConfig } from "../../backend/src/points.js";
+import { clearPriceOverride, economyConfig } from "../../../backend/src/points.js";
+import { loadBootstrapConfig } from "../../../backend/src/config.js";
 
-const ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 function read(relative) {
   return readFileSync(`${ROOT}${relative}`, "utf8");
@@ -31,7 +37,7 @@ test("every key is registered once, in a known group and a known file", () => {
     assert.ok(!seen.has(entry.key), `${entry.key} 登记了两次`);
     seen.add(entry.key);
     assert.ok(groups.has(entry.group), `${entry.key} 的分组 ${entry.group} 不存在`);
-    assert.ok(["site", "platform"].includes(entry.file), `${entry.key} 的 file 不对`);
+    assert.ok(["site", "platform", "xknot", "entry"].includes(entry.file), `${entry.key} 的 file 不对`);
     assert.ok(entry.desc && entry.desc.length > 4, `${entry.key} 缺说明`);
     assert.ok(entry.file !== "site" || !entry.runtime || /^[A-Z][A-Z0-9_]*$/.test(entry.runtime));
   }
@@ -40,6 +46,7 @@ test("every key is registered once, in a known group and a known file", () => {
 test("generated example files and docs are committed as generated", () => {
   assert.equal(read("sites/_template/site.env"), renderSiteExample());
   assert.equal(read("sites/_template/platform.env"), renderPlatformExample());
+  assert.equal(read("sites/_template/xknot.env"), renderJoinExample());
   assert.equal(read("docs/CONFIG.md"), renderDocs());
 });
 
@@ -93,6 +100,33 @@ test("unknown site keys are reported as warnings, not errors", () => {
   });
   assert.deepEqual(result.errors, []);
   assert.ok(result.warnings.some((message) => message.includes("KNOT_SITE_NAM")));
+});
+
+test("a loopback-only site is not warned about missing backups", () => {
+  // 开发者本机跑一整套时，不装备份任务是正常的；公网站点才该提醒。
+  const local = checkSite({
+    KNOT_ADMIN_EMAIL: "dev@example.com",
+    KNOT_PUBLIC_ORIGIN: "http://127.0.0.1:8081",
+  });
+  assert.deepEqual(local.errors, []);
+  assert.deepEqual(local.warnings, []);
+
+  const publicSite = checkSite({
+    KNOT_ADMIN_EMAIL: "dev@example.com",
+    KNOT_PUBLIC_ORIGIN: "https://knot.example.com",
+    KNOT_DOMAIN: "knot.example.com",
+  });
+  assert.ok(publicSite.warnings.some((message) => message.includes("KNOT_BACKUP_DIR")));
+});
+
+test("a localhost origin with a domain is still treated as public", () => {
+  // 域名非空说明它在别处有入口，备份提醒要留着。
+  const result = checkSite({
+    KNOT_ADMIN_EMAIL: "dev@example.com",
+    KNOT_PUBLIC_ORIGIN: "http://127.0.0.1:8081",
+    KNOT_DOMAIN: "knot.example.com",
+  });
+  assert.ok(result.warnings.some((message) => message.includes("KNOT_BACKUP_DIR")));
 });
 
 test("a platform runtime file may not carry dev-only keys", () => {
@@ -227,4 +261,186 @@ test("a fresh platform runtime file is written with resolved values and blanks c
   assert.match(text, /^PORT=8080$/m);
   assert.match(text, /^SMTP_PORT=587$/m);
   assert.match(text, /^# SMTP_PASS=$/m);
+});
+
+test("runtime validation rejects bad values and never guesses", () => {
+  const good = checkRuntime({ PORT: "8080", KNOT_ADMIN_EMAIL: "admin@example.com" });
+  assert.deepEqual(good.errors, []);
+
+  const bad = checkRuntime({ PORT: "eighty", KNOT_COUPON_SIGNUP: "7" });
+  assert.match(bad.errors.join("\n"), /PORT/);
+  assert.match(bad.errors.join("\n"), /KNOT_COUPON_SIGNUP/);
+});
+
+test("runtime validation warns on a missing admin email", () => {
+  const result = checkRuntime({});
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.warnings.some((message) => message.includes("KNOT_ADMIN_EMAIL")));
+});
+
+test("runtime validation ignores the deploy keys scripts export into the process", () => {
+  // 部署脚本会 set -a 把 site.env 导出给子进程，KNOT_DEPLOY_ROOT、KNOT_APP_DIR
+  // 这类脚本变量也不是 schema 键。运行时只看值对不对，不逐键报未知。
+  const result = checkRuntime({
+    KNOT_PUBLIC_ORIGIN: "https://knot.example.com",
+    PUBLIC_WEB_ORIGIN: "https://knot.example.com",
+    KNOT_DEPLOY_ROOT: "/srv/knot",
+    KNOT_SITES_DIR: "/srv/knot/sites",
+    KNOT_APP_DIR: "/srv/knot/current",
+    KNOT_ADMIN_EMAIL: "admin@example.com",
+    DATABASE_URL: "postgres://knot@127.0.0.1:5433/knot",
+    SMTP_PORT: "587",
+  });
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.warnings, []);
+});
+
+test("unknown keys are still caught when the file is written", () => {
+  const result = checkPlatform("KNOT_SITE_NAM=typo\n");
+  assert.ok(result.warnings.some((message) => message.includes("KNOT_SITE_NAM")));
+});
+
+// ---- XKnot 接入与部署分开 ----
+
+test("a join file needs an instance id and a token for relay", () => {
+  assert.deepEqual(checkJoin("").errors, []);
+
+  const missing = checkJoin("XKNOT_HUB_ORIGIN=https://xknot.si\n");
+  assert.ok(missing.errors.some((message) => message.includes("XKNOT_INSTANCE_ID")));
+
+  // 地址能从中枢地址推导，所以带凭据不带地址是合法的。
+  const derived = checkJoin("XKNOT_INSTANCE_ID=wang\nXKNOT_HUB_RELAY_TOKEN=xkr_wang_0123456789abcdef\n");
+  assert.deepEqual(derived.errors, []);
+
+  // 反过来，写了地址却没有凭据就发不出去。
+  const orphan = checkJoin("XKNOT_INSTANCE_ID=wang\nXKNOT_HUB_RELAY_URL=https://xknot.si/api/federation/mail\n");
+  assert.ok(orphan.errors.some((message) => message.includes("XKNOT_HUB_RELAY_TOKEN")));
+
+  const good = checkJoin(
+    [
+      "XKNOT_INSTANCE_ID=wang",
+      "XKNOT_HUB_RELAY_URL=https://xknot.si/api/federation/mail",
+      "XKNOT_HUB_RELAY_TOKEN=xkr_wang_0123456789abcdef",
+    ].join("\n")
+  );
+  assert.deepEqual(good.errors, []);
+});
+
+test("a join file rejects bad ids, bad tokens and deployment keys", () => {
+  const bad = checkJoin(
+    [
+      "XKNOT_INSTANCE_ID=Wang_Hub",
+      "XKNOT_HUB_RELAY_TOKEN=not-a-token",
+      "KNOT_DOMAIN=knot.example.com",
+      "SMTP_PASS=hunter2",
+    ].join("\n")
+  );
+  const text = bad.errors.join("\n");
+  assert.match(text, /XKNOT_INSTANCE_ID/);
+  assert.match(text, /XKNOT_HUB_RELAY_TOKEN/);
+  assert.match(text, /KNOT_DOMAIN.*site\.env/);
+  assert.match(text, /SMTP_PASS.*platform\.env/);
+});
+
+test("a join file warns when the credentials are readable by others", () => {
+  const text = "XKNOT_INSTANCE_ID=wang\nXKNOT_HUB_RELAY_TOKEN=xkr_wang_0123456789abcdef\n";
+  assert.deepEqual(checkJoin(text, { mode: 0o600 }).warnings, []);
+  assert.ok(checkJoin(text, { mode: 0o644 }).warnings.some((message) => message.includes("chmod 600")));
+});
+test("deployment files reject keys that belong to the join file", () => {
+  const site = checkSite({ KNOT_ADMIN_EMAIL: "a@example.com", XKNOT_INSTANCE_ID: "wang" });
+  assert.ok(site.errors.some((message) => message.includes("xknot.env")));
+
+  const platform = checkPlatform("XKNOT_HUB_RELAY_TOKEN=xkr_wang_0123456789abcdef\n");
+  assert.ok(platform.errors.some((message) => message.includes("xknot.env")));
+});
+
+test("bootstrap defaults come from the schema instead of a second copy", () => {
+  const envKeys = [
+    "PORT",
+    "BIND_HOST",
+    "DATABASE_URL",
+    "SESSION_COOKIE_NAME",
+    "PUBLIC_WEB_ORIGIN",
+    "STATIC_WEB_DIR",
+    "UPLOAD_DIR",
+    "KNOT_AGENT_ENV_DIR",
+    "KNOT_SITE_NAME",
+    "KNOT_SITE_TAGLINE",
+    "KNOT_SITE_LOGO",
+  ];
+  const saved = new Map(envKeys.map((key) => [key, process.env[key]]));
+  for (const key of envKeys) delete process.env[key];
+  try {
+    const config = loadBootstrapConfig();
+    const byKey = new Map(KEYS.map((entry) => [entry.key, entry]));
+    const expected = (key) => resolve(byKey.get(key), {}, { root: ROOT, deployRoot: ROOT, expand: true });
+    assert.equal(String(config.port), expected("KNOT_PORT"));
+    assert.equal(config.bindHost, expected("KNOT_BIND_HOST"));
+    assert.equal(config.sessionCookieName, expected("KNOT_SESSION_COOKIE_NAME"));
+    assert.equal(config.publicWebOrigin, expected("KNOT_PUBLIC_ORIGIN"));
+    assert.equal(config.siteName, expected("KNOT_SITE_NAME"));
+    assert.equal(config.siteTagline, expected("KNOT_SITE_TAGLINE"));
+    assert.equal(config.uploadDir, path.resolve(expected("KNOT_UPLOAD_DIR")));
+    assert.equal(config.databaseUrl, `postgres://knot@127.0.0.1:${expected("KNOT_PGPORT")}/knot`);
+    // 静态目录由部署脚本写 STATIC_WEB_DIR；没有它就不接管页面。
+    assert.equal(config.staticWebDir, null);
+  } finally {
+    for (const [key, value] of saved) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+// 边缘入口：一个公网入口一份 edge.<域名>.env。入口是叠加层，域名是它的主键。
+test("an edge entry needs a domain that matches its file name", () => {
+  const base = {
+    KNOT_DOMAIN: "wang.example.com",
+    KNOT_EDGE_WEB_ROOT: "/var/www/wang",
+    KNOT_ENTRY_SERVE: "static",
+  };
+  const ok = checkEdgeEntry(base, { file: "/sites/x/edge.wang.example.com.env" });
+  assert.deepEqual(ok.errors, []);
+
+  const mismatched = checkEdgeEntry(base, { file: "/sites/x/edge.other.example.com.env" });
+  assert.ok(mismatched.errors.some((m) => /文件名与 KNOT_DOMAIN 不一致/.test(m)));
+
+  const missing = checkEdgeEntry({ KNOT_EDGE_WEB_ROOT: "/var/www/wang" }, {});
+  assert.ok(missing.errors.some((m) => /必须写 KNOT_DOMAIN/.test(m)));
+});
+
+test("an edge entry rejects a server kind that is neither static nor proxy", () => {
+  const result = checkEdgeEntry(
+    {
+      KNOT_DOMAIN: "wang.example.com",
+      KNOT_EDGE_WEB_ROOT: "/var/www/wang",
+      KNOT_ENTRY_SERVE: "rsync",
+    },
+    {},
+  );
+  assert.ok(result.errors.some((m) => m.includes("KNOT_ENTRY_SERVE")));
+});
+
+test("an edge entry keeps the join and platform keys out", () => {
+  const result = checkEdgeEntry(
+    {
+      KNOT_DOMAIN: "wang.example.com",
+      KNOT_EDGE_WEB_ROOT: "/var/www/wang",
+      XKNOT_HUB_RELAY_TOKEN: "xkr_abcdefgh",
+      KNOT_ADMIN_TOKEN: "secret",
+    },
+    {},
+  );
+  assert.ok(result.errors.some((m) => m.includes("XKNOT_HUB_RELAY_TOKEN")));
+  assert.ok(result.errors.some((m) => m.includes("KNOT_ADMIN_TOKEN")));
+});
+
+// 证书与私钥可以留空由域名推导；推导得出来就不算缺。
+test("an edge entry accepts a certificate derived from its domain", () => {
+  const result = checkEdgeEntry(
+    { KNOT_DOMAIN: "wang.example.com", KNOT_EDGE_WEB_ROOT: "/var/www/wang", KNOT_EDGE_SSL: "1" },
+    {},
+  );
+  assert.deepEqual(result.errors, []);
 });
