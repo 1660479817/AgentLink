@@ -5,7 +5,7 @@
 #   knot-<版本>-<提交>-<平台>.tar.gz        解包即一个可运行的代码目录
 #   knot-<版本>-<提交>-<平台>.tar.gz.sha256
 #
-# 包里是：backend/、packages/、web/dist/、help.md、ops/、生产依赖的 node_modules/、BUILD.json。
+# 包里是：backend/、packages/、web/dist/、admin/、help.md、ops/、生产依赖的 node_modules/、BUILD.json。
 # 不含 sites/（配置在目标机上）、var/（数据在目标机上）、.git。
 #
 # 部署机只负责解包、迁移、切换、重启，不跑 npm ci，不跑 vite build。

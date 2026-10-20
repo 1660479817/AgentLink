@@ -41,6 +41,7 @@ COPY --from=build --chown=knot:knot /app/node_modules ./node_modules
 COPY --from=build --chown=knot:knot /app/backend ./backend
 COPY --from=build --chown=knot:knot /app/packages ./packages
 COPY --from=build --chown=knot:knot /app/web/dist ./web/dist
+COPY --from=build --chown=knot:knot /app/admin ./admin
 COPY --from=build --chown=knot:knot /app/help.md ./help.md
 COPY --from=build --chown=knot:knot /app/ops ./ops
 

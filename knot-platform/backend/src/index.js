@@ -10,6 +10,7 @@ import { bindDiscoverBoard } from "./discoverBoard.js";
 import { getPool } from "./db.js";
 import { createSessionMiddleware } from "./middleware/session.js";
 import { adminRouter } from "./routes/admin.js";
+import { adminPageRouter } from "./routes/adminPage.js";
 import { webRouter } from "./routes/web.js";
 import { loadEconomyPolicy } from "./actuary.js";
 import { resumePendingReviews } from "./market.js";
@@ -105,6 +106,7 @@ app.use(
     token: process.env.KNOT_ADMIN_TOKEN || "",
     uploadDir: bootstrap.uploadDir,
     agentEnvDir: bootstrap.agentEnvDir,
+    publicWebOrigin: bootstrap.publicWebOrigin,
   })
 );
 
@@ -125,6 +127,11 @@ app.get("/discover.json", async (_req, res, next) => {
 app.use("/media/previews", (_req, res, next) => (publicBoardEnabled() ? next() : res.status(404).end()));
 app.use("/media/previews", express.static(discoverBoard.previewDir(), { maxAge: "1d" }));
 app.use("/media/previews", (_req, res) => res.status(404).end());
+
+// 管理后台只在本机回环地址打开，不随公开 WebUI 发布到边缘。
+// 静态文件在源码目录的 admin/，发布包里也在同一层。
+const adminDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../admin");
+app.use("/admin", adminPageRouter({ dir: adminDir }));
 
 if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
   const dir = path.resolve(bootstrap.staticWebDir);

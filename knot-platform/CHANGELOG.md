@@ -27,6 +27,8 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
 - 本地部署目标：`push-deploy.sh` 在 `KNOT_DEPLOY_SSH` 留空时不再要求 ssh，就地完成构建、安装和探活，部署根是仓库本身。开发者的 `sites/local` 用它：`./ops/scripts/push-deploy.sh --site local`。
 - `bot01` 的纯局域网变体从 `--variant local` 改名为 `--variant lan`：`local` 现在只指开发者的本机站点，不再和变体名撞。
 - 本机登录：新增 `ops/scripts/local-login.sh`，直接把用户和会话写进本机库，默认给管理员，不用等邮件。只认回环地址的站点。
+- 本机管理后台：`/admin` 提供静态页面（概览、内容、用户、站点、XKnot），复用 `/api/admin` 的 Bearer 令牌与回环地址限制；云端边缘对 `/admin` 与 `/api/admin` 都返回 404。发布包与容器镜像都带上 `admin/`。
+- 管理后台的 XKnot 栏：只读显示接入件（实例 id、中枢、委托发信、打码凭据、签发日、文件权限）与进程里正在用的值；两边不一致时提示「变更未生效」，并说明中枢会在 `/api/health` 读到什么。新接口 `GET /api/admin/federation`，同样只在本机回环地址、用 `KNOT_ADMIN_TOKEN` 打开。
 - `ensure-tester.sh` 不再假设平台主机上装的是 `postgresql@16`，改用站点的 `KNOT_PG_BIN`。
 - 只绑回环地址、没有域名的站点不再提示「`KNOT_BACKUP_DIR` 为空」和「`KNOT_PUBLIC_ORIGIN` 还是本机地址」——开发者的本机实例本来就不装备份、也没有对外地址。
 - 部署与接入分开：新增 `sites/<站点>/xknot.env`，只放中枢（`xknot.si`）签发的实例 id、中枢地址、签发日期与委托发信凭据，权限 600。`XKNOT_HUB_RELAY_URL` / `XKNOT_HUB_RELAY_TOKEN` 从 `platform.env` 移到这里，旧文件下次 `config.mjs env` 会自动迁移并删掉原键。

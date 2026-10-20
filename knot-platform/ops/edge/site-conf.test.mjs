@@ -53,10 +53,11 @@ test("缓存区单独成一份，整台边缘只声明一次", () => {
   assert.doesNotMatch(cache, /server \{/);
 });
 
-test("两种投放都保留管理接口 404 与 ACME 目录", () => {
+test("两种投放都保留管理接口、管理后台 404 与 ACME 目录", () => {
   for (const flag of ["1", ""]) {
     const text = render({ KNOT_ENTRY_STATIC: flag });
     assert.match(text, /location \^~ \/api\/admin/);
+    assert.match(text, /location \^~ \/admin \{/);
     assert.match(text, /return 404 '\{"error":"not_found"\}'/);
     assert.match(text, /\.well-known\/acme-challenge\//);
   }

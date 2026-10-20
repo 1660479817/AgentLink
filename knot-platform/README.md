@@ -101,6 +101,7 @@ Platform Management Agent 在平台内。Personal Agent 在平台外，由人委
 | --- | --- |
 | `backend/` | Knot Backend：HTTP、数据库、审核、计费 |
 | `web/` | Knot WebUI（Vue + Vite） |
+| `admin/` | 本机管理后台（静态 HTML/CSS/JS，不参与 WebUI 构建） |
 | `packages/` | 共享包：`knot-config`（配置登记表）、`knot-markdown`、`knot-doc-reader` |
 | `ops/` | 部署层：构建、发布、回滚脚本，配置生成，LaunchAgent、systemd、边缘、智能体 |
 | `sites/` | 每个站点一份配置（`sites/_template/` 是模板，真实站点目录不进版本库） |
@@ -133,6 +134,15 @@ node ops/scripts/config.mjs init local     # 从模板建 sites/local，再改�
 | 部署 | 平台主机 `ops/scripts/deploy-site.sh` | 解包到 `releases/`、迁移、切 `current`、重启、探活。不构建 |
 
 每个站点的配置放在 `sites/<站点>/`：`site.env` 给出站点身份与拓扑，`platform.env` 只保存平台主机的运行时值；平台主机与可选的云端边缘都从这一份站点配置生成。部署根下 `sites/` 和 `var/` 在发布包外面，升级和回滚都不动它们。每一个键的类型、默认值和必填条件登记在 `packages/knot-config/src/schema.mjs`，部署前和 Backend 启动时都会校验；完整清单见 [docs/CONFIG.md](./docs/CONFIG.md)。步骤见 [ops/README.md](./ops/README.md)。
+
+平台主机另有一个供人类管理员用的 Web 管理后台：`http://127.0.0.1:<KNOT_PORT>/admin`。它只在平台主机的回环地址打开，用 `KNOT_ADMIN_TOKEN` 进入，云端边缘对 `/admin` 和 `/api/admin` 都返回 404。从笔记本经 SSH 转发访问：
+
+```bash
+ssh -L 8081:127.0.0.1:8080 <KNOT_DEPLOY_SSH>
+# 浏览器打开 http://127.0.0.1:8081/admin
+```
+
+概览看积分与巡查队列，内容栏查帖、删帖和记巡查，用户栏发放积分、警告、禁言、改等级与权益、签发 Internal Personal Agent，站点栏改开关、邀请码、赞助位和价格表，XKnot 栏只看接入件与状态信号（实例 id、中枢、委托发信凭据打码、签发日、文件权限、接入件与进程是否一致、中枢会在 `/api/health` 看到什么）。XKnot 栏只读，改动仍走 `ops/scripts/join-xknot.sh`。
 
 目标机三条路，任选一条：macOS + launchd、Linux + systemd、Docker Compose（自带 Postgres）。
 

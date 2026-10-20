@@ -750,7 +750,7 @@ const PLATFORM_KEYS = [
     type: "string",
     default: "",
     secret: true,
-    desc: "本机管理接口的令牌。由 ensure-openclaw.sh 写入，运维不要手改。",
+    desc: "本机管理接口 /api/admin 和管理后台 /admin 的令牌。由 ensure-openclaw.sh 写入，运维不要手改。",
   },
 ];
 

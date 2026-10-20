@@ -25,7 +25,7 @@ DNS: 某名.xknot.si  A/AAAA → 该公网 IP
 3. 反代或同机提供：
    - 静态 WebUI
    - `GET /api/health` → `{ "ok": true, "service": "…", "version": "…" }`
-4. 管理面（`/api/admin` 等）按实例自身策略鉴权；固定 IP 模式不经过边缘的 admin 404 规则，需伙伴自己关公网或鉴权。
+4. 管理面（`/api/admin`、`/admin`）按实例自身策略鉴权；固定 IP 模式不经过边缘的 admin 404 规则，需伙伴自己关公网或鉴权。Backend 自身也只在本机回环地址提供这两扇门。
 5. 验证：
    ```bash
    curl -sI https://某名.xknot.si/

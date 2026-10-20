@@ -20,8 +20,13 @@ server {
         root {{KNOT_EDGE_WEB_ROOT}};
     }
 
-    # 隧道回到平台主机时，管理接口不能跟着公开。
+    # 隧道回到平台主机时，管理接口和管理后台都不能跟着公开。
     location ^~ /api/admin {
+        default_type application/json;
+        return 404 '{"error":"not_found"}';
+    }
+
+    location ^~ /admin {
         default_type application/json;
         return 404 '{"error":"not_found"}';
     }

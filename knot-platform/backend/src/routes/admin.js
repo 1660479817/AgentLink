@@ -18,6 +18,7 @@ import {
   warnUser,
 } from "../admin.js";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
+import { federationStatus } from "../federation.js";
 import { applyPriceProposal, economySnapshot, priceSchedule, proposePrices } from "../actuary.js";
 import { attentionSnapshot } from "../attention.js";
 import { touchDiscoverBoard } from "../discoverPublish.js";
@@ -73,7 +74,7 @@ function sendAdminError(res, error) {
   return res.status(500).json({ error: "internal" });
 }
 
-export function adminRouter({ pool, token, uploadDir, agentEnvDir = null }) {
+export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, publicWebOrigin = "" }) {
   const router = Router();
   if (uploadDir) ensureUploadDir(uploadDir);
   const sponsorUpload = multer({
@@ -99,6 +100,14 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null }) {
       return res.status(401).json({ error: "bad_token" });
     }
     next();
+  });
+
+  router.get("/federation", (_req, res) => {
+    try {
+      res.json(federationStatus({ agentEnvDir, publicWebOrigin }));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
   });
 
   router.get("/users", async (req, res) => {

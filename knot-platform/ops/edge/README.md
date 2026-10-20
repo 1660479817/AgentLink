@@ -86,7 +86,7 @@ KNOT_ENTRY_PUBLISHER=staff     # 或 partner
 
 `proxy` 的好处是页面与接口永远来自同一次构建，代价是每个静态文件都要穿一次隧道。两种投放的耗时用 `ops/scripts/speed-check.sh` 量，通常差一个数量级。
 
-`/api/admin` 的 404、`/api/web/uploads/` 的缓存、ACME 目录在两种投放里一致，只有「首页与静态资源从哪来」不同。
+`/api/admin` 与 `/admin` 的 404、`/api/web/uploads/` 的缓存、ACME 目录在两种投放里一致，只有「首页与静态资源从哪来」不同。
 
 ## 隧道方式落地（边缘机）
 
@@ -161,6 +161,6 @@ curl -s https://<域名>/api/health
 
 ## 安全
 
-- 边缘对 `/api/admin` 直接 404，不穿隧道。
+- 边缘对 `/api/admin` 和 `/admin` 直接 404，不穿隧道。
 - `PermitOpen none`、`PermitTTY no`、`ForceCommand sleep infinity`：隧道账号不能开 shell，也不能正向转发。
 - 密钥、口令、PEM 只留在各机 `~/.ssh/` 与私有环境，不写进文档与版本库。
