@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Knot 按键
 
-适用于 **`knot-platform/web`**。页面上的操作按键只用 **`knot-platform/web/src/components/AppButton.vue`**。不要给裸 `<button>` 填主色，不要在页面里另写按钮皮肤。
+只适用于 **`knot-platform/web`**。页面上的操作按键只用 **`knot-platform/web/src/components/AppButton.vue`**。不要给裸 `<button>` 填主色，不要在页面里另写按钮皮肤。`xknot.si/web` 是独立门户，按键按它自己的样式走，不套用本规则。
 
 ## 三种变体
 

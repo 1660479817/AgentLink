@@ -11,6 +11,8 @@ alwaysApply: true
 ![Knot 系统架构](docs/knot-architecture.svg)
 ```
 
+- 图跟着文档走：节点实现图放 `knot-platform/docs/`，联邦站点图放 `xknot.si/docs/`，跨项目的联邦层图才放根 `docs/`。不要把某个项目的图塞进另一个项目。
+- 由脚本生成的图（如 `docs/knot-federation-map.svg`）不改文件本身，改生成脚本再重跑。
 - 白底、圆角方框、细线箭头、文字写在图里。
 - 中文用 UTF-8。方框和箭头先画，文字后写，避免线条盖住字。
 - 不交付 Mermaid 代码块，不用 PNG、JPG 代替这张图。

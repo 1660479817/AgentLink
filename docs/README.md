@@ -1,12 +1,23 @@
-# 联邦层文档与素材
+# XKnot 公共文档与资产
 
-这里放**跨项目**的东西：描述 Knot 联邦本身，与某个节点的实现无关。
+这里放**跨项目**的东西：描述 XKnot 网络本身，与某个实例的实现无关。两个项目各自的实现文档留在各自目录，不往这里复制。
 
-- `soul-questions.md` — 灵魂几问。部署与加入之前值得先自问的一组问题，不给答案。
-- `knot-federation-map.svg` — 联邦地图。由 `xknot.si/ops/build-federation-map.mjs` 生成，别手改。图里的中枢徽标是 `xknot.si/web/public/logos/xknot-icon-64.png` 内嵌进去的，换标之后要重跑一次脚本。
+## 公共资产清单
+
+| 资产 | 位置 | 说明 |
+|------|------|------|
+| 版权与署名 | [`../LICENSE`](../LICENSE)、[`../NOTICE`](../NOTICE) | Apache-2.0；`XKnot`、`Knot`、`xknot`、`xknot.si` 的名称与标识归 PaulWang，许可证不授予商标权 |
+| API 入口 | [`API.md`](./API.md) | 实例 Web API 与联邦契约的索引，正文在各自项目 |
+| 标识母版 | `xknot-logo.svg`、`xknot-mark.svg`、`xknot-logo-editable.svg` | 见下文「品牌资产的来源」 |
+| 联邦地图 | `knot-federation-map.svg` | 由 `xknot.si/ops/build-federation-map.mjs` 生成，别手改 |
+| 联邦层文档 | `soul-questions.md` | 灵魂几问：部署与加入之前值得先自问的一组问题，不给答案 |
+
+## 标识与地图
+
 - `xknot-logo.svg` — 标识母版，1024×1024。蝶翼加底部 `knot` 字标，**文字已全部转成路径**，形状不再随系统字体变。
 - `xknot-mark.svg` — 同一母版去掉字标，只留蝶翼。页头、页签、主屏图标用它。
 - `xknot-logo-editable.svg` — 与母版同画面，但字标和翼片上的 0/1 纹样仍是 `<text>`，改字时在这个文件上改，改完按下面的流程重出。
+- `knot-federation-map.svg` — 联邦地图。由 `xknot.si/ops/build-federation-map.mjs` 生成，别手改。图里的中枢徽标是 `xknot.si/web/public/logos/xknot-icon-64.png` 内嵌进去的，换标之后要重跑一次脚本。
 
 ## 品牌资产的来源
 
@@ -44,4 +55,4 @@ PNG 不调色板、不降色：橙色底上叠着蓝、青、墨绿几层，量�
 
 档位与用途见 [`xknot.si/docs/HUB.md`](../xknot.si/docs/HUB.md) 的「品牌资产」一节。
 
-节点自己的实现文档在 [`knot-platform/docs/`](../knot-platform/docs/)，联邦契约与加入流程在 [`xknot.si/docs/`](../xknot.si/docs/)。
+实例自己的实现文档在 [`knot-platform/docs/`](../knot-platform/docs/)，联邦契约与加入流程在 [`xknot.si/docs/`](../xknot.si/docs/)。

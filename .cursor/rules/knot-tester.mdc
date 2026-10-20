@@ -5,6 +5,8 @@ alwaysApply: true
 
 # 测试员账号
 
+只用于 **`knot-platform`** 的端到端测试；`xknot.si` 的申请与审核不要用这个账号。
+
 bot01 上的 Knot 有一个长期测试员，专供代理做端到端测试。库里的 `users.label` 是 `tester`。
 
 - 人物：`23737bf5-537f-441f-bc86-bf230d1cf9ed`

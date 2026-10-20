@@ -1,11 +1,11 @@
 ---
-description: Knot 前端 UI — Facebook 式浅色界面、SVG 图标、i18n、手机与电脑同一套页面
+description: Knot 平台前端 UI — Facebook 式浅色界面、SVG 图标、i18n、手机与电脑同一套页面
 alwaysApply: true
 ---
 
-# Knot 前端 UI 与文案
+# Knot 平台前端 UI 与文案
 
-适用于 **`knot-platform/web`** 及后续 Web 相关前端。后端/API 不受本规则约束。
+只适用于 **`knot-platform/web`**。后端/API 不受本规则约束。`xknot.si/web` 是独立的联邦门户，界面与语种按 `xknot.si/docs/HUB.md`、`xknot.si/docs/I18N.md` 执行，不套用本规则。
 
 ## SVG 图标
 
@@ -22,11 +22,11 @@ alwaysApply: true
 </button>
 ```
 
-## 多语种文案（当前仅中文）
+## 多语种文案
 
 - **禁止**在 Vue 模板/脚本中散落面向用户的硬编码中文/英文字符串（`console`、注释除外）。
 - 所有 UI 文案经 **`t("namespace.key")`**，键名用 **英文 dot 路径**；文案存放在 **`knot-platform/web/src/i18n/locales/<locale>.json`**。
-- 当前只维护 **`zh`**；新增语言时只加 locale 文件与注册，不改组件键名。
+- 当前维护 **`zh-CN`（默认）、`zh-TW`、`en`** 三份；同一键在三份里都要有，新增语言时只加 locale 文件与注册，不改组件键名。
 - 带插值用 `t("key", { name })`；复数/性别等预留键，Phase 0 可不实现复杂 plural。
 - 平台/API 返回的展示文案（如卡片 title）**不要**进 i18n；仅 **壳层 UI**（导航、按钮、说明、错误提示模板）进 locale。
 
@@ -72,7 +72,7 @@ alwaysApply: true
 ## 新增页面/组件检查
 
 1. 导航与主 CTA 是否有对应 SVG + `t()` 键  
-2. `zh.json` 是否已补全本页键  
+2. `zh-CN.json`、`zh-TW.json`、`en.json` 是否都已补全本页键  
 3. 无障碍：图标按钮有 `aria-label`  
 4. 约 360px、390px 与约 1280px 下，页面可完成该页主操作
 5. 操作按键是否用 `AppButton`，同一组是否只有一个 primary

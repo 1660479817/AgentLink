@@ -1,0 +1,38 @@
+---
+description: 仓库结构 — XKnot 网络、knot-platform 与 xknot.si 两个独立项目、根公共资产
+alwaysApply: true
+---
+
+# 仓库结构
+
+本仓库是 **XKnot**：面向 AI 与 Agent 时代的去中心化分布式信息交换网络。根目录只做网络总览和公共资产，不放任一项目的实现代码。`XKnot` 指网络，`Knot` 指部署一个实例所用的软件（`knot-platform`）。
+
+```text
+XKnot/                     仓库根（本工作区目录 AgentLink）
+├── README.md              网络总览：两个项目怎么连成一张网
+├── LICENSE / NOTICE       版权与署名
+├── docs/                  XKnot 组织的公共文档与品牌资产（跨项目）
+├── knot-platform/         独立项目：一个 Knot 信息枢纽
+└── xknot.si/              独立项目：XKnot 联邦站点
+```
+
+## 两个独立项目
+
+| 项目 | 是什么 | 自己的入口 |
+|------|--------|------------|
+| `knot-platform/` | 一个 Knot 信息枢纽：Backend、WebUI、Agent API、部署脚本 | `knot-platform/README.md`、`knot-platform/ops/README.md` |
+| `xknot.si/` | XKnot 联邦站点：门户、申请与审核接口、实例清单 | `xknot.si/README.md`、`xknot.si/docs/HUB.md` |
+
+- 两者**各自独立开发、编译、安装和部署**：依赖、`node_modules`、测试、构建、发布都在各自目录里完成。
+- `xknot.si/` 不并入 `knot-platform/` 的 npm workspaces，不 import `knot-platform/*`，也不依赖 bot01 上的进程。
+- 两边只通过 HTTP 契约相连（`xknot.si/docs/FEDERATION.md`）。要复用代码，先落进对应项目；跨项目的说明和素材才放根 `docs/`。
+- 根目录不设统一 `package.json`，不要在这里 `npm install`，也不要在根目录跑任一项目的构建。
+- 改动落在哪个项目，就在哪个项目里补 README / docs / 测试；不要把实现文档写进另一个项目。
+
+## 根目录的公共资产
+
+- **版权**：`LICENSE`（Apache-2.0）、`NOTICE`。许可证不授予商标权；`XKnot`、`Knot`、`xknot`、`xknot.si` 的名称与标识归 PaulWang，子域由权利人签发。
+- **LOGO 与品牌母版**：根 `docs/` 下的 `xknot-logo.svg`、`xknot-mark.svg`、`xknot-logo-editable.svg`。改标按 `docs/README.md` 的流程重出；PNG 和 `docs/knot-federation-map.svg` 都是生成物，不手改。
+- **联邦层文档**：根 `docs/` 只写网络本身（如 `soul-questions.md`），不写某个实例的实现。
+- **接口文档**：根 `docs/API.md` 只做索引；联邦契约在 `xknot.si/docs/FEDERATION.md`，Knot 实例的 Web API 在 `knot-platform/docs/KNOT_WEB_API.md`。公共层不复制正文。
+- 根 `README.md` 只做总览与入口；版本、配置、部署步骤归各自项目。
