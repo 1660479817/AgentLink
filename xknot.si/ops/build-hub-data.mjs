@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { buildHubData } from "../web/src/lib/snapshot.js";
 import { mergePreview } from "../web/src/lib/preview.js";
 import { mergeCards, readCards, PREVIEW_CARDS_PATH } from "./cards.mjs";
+import { mergeStats, readStats, PREVIEW_STATS_PATH } from "./stats.mjs";
 
 export { buildHubData };
 
@@ -32,17 +33,20 @@ async function main(argv) {
   }
   let health = await readJson(path.join(here, "..", "var", "health.json"), { instances: {} });
   let cards = await readCards(path.join(here, "..", "var", "cards"));
+  let stats = await readStats(path.join(here, "..", "var", "stats"));
 
   // 预览构建：并入 fixtures/ 的样例条目，只影响这一次输出。
   if (process.env.XKNOT_PREVIEW === "1") {
     const samples = await readJson(path.join(here, "..", "fixtures", "preview-instances.json"), null);
     const sampleHealth = await readJson(path.join(here, "..", "fixtures", "preview-health.json"), null);
     const sampleCards = await readJson(path.join(here, "..", PREVIEW_CARDS_PATH), {});
+    const sampleStats = await readJson(path.join(here, "..", PREVIEW_STATS_PATH), {});
     ({ manifest, health } = mergePreview(manifest, health, samples, sampleHealth));
     cards = mergeCards(cards, sampleCards);
+    stats = mergeStats(stats, sampleStats);
   }
 
-  const data = buildHubData(manifest, health, new Date(), cards);
+  const data = buildHubData(manifest, health, new Date(), cards, stats);
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(outPath, `${JSON.stringify(data, null, 2)}\n`);
   console.log(`${outPath}: ${data.instances.length} instance(s)`);

@@ -45,12 +45,32 @@ test("the snapshot carries manifest fields plus the probe result", () => {
     latencyMs: 137,
     version: "0.2.0",
     checkedAt: "2026-10-19T02:30:00.000Z",
+    downSince: null,
+    hidden: false,
   });
 });
 
 test("an instance without a probe result keeps health null", () => {
   const data = buildHubData(MANIFEST, { instances: {} });
   assert.equal(data.instances[0].health, null);
+});
+
+test("a hidden probe result keeps the entry in the snapshot but marks it hidden", () => {
+  // 清单不动，只把隐藏标记带进快照；过滤发生在页面视图。
+  const data = buildHubData(MANIFEST, {
+    checkedAt: "2026-10-19T02:30:00.000Z",
+    instances: {
+      legacy: {
+        status: "down",
+        downSince: "2026-10-11T00:00:00.000Z",
+        hiddenAt: "2026-10-18T00:00:00.000Z",
+        hiddenReason: "down_7d",
+      },
+    },
+  });
+  assert.equal(data.instances.length, 1);
+  assert.equal(data.instances[0].health.hidden, true);
+  assert.equal(data.instances[0].health.downSince, "2026-10-11T00:00:00.000Z");
 });
 
 test("optional fields get stable placeholders", () => {
@@ -81,6 +101,24 @@ test("cards come from var/cards by instance id", () => {
   );
   assert.equal(data.instances[0].cards[0].title, "Note");
   assert.deepEqual(data.instances[1].cards, []);
+});
+
+test("stats come from var/stats, and a missing file reads as null", () => {
+  const data = buildHubData(
+    { instances: [{ id: "a", name: { en: "A" }, url: "https://a.test" }, { id: "b", name: { en: "B" }, url: "https://b.test" }] },
+    {},
+    new Date("2026-10-19T08:00:00Z"),
+    {},
+    {
+      a: {
+        generatedAt: "2026-10-19T06:00:00.000Z",
+        fetchedAt: "2026-10-19T07:00:00.000Z",
+        stats: { posts: { total: 12, last24h: 3 }, accounts: { total: 4 } },
+      },
+    }
+  );
+  assert.deepEqual(data.instances[0].stats.posts, { total: 12, last24h: 3 });
+  assert.equal(data.instances[1].stats, null);
 });
 
 test("logo paths resolve from the site root", () => {

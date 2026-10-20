@@ -6,6 +6,7 @@ import FlameIcon from "../icons/FlameIcon.vue";
 import { cardState, hotCard } from "../lib/cards.js";
 import { dayShift, localTime, utcOffset } from "../lib/clock.js";
 import { formatWhen } from "../lib/i18n.js";
+import { statsHighlights } from "../lib/stats.js";
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -83,6 +84,13 @@ const hotMore = computed(() => {
   if (!hot.value) return 0;
   return props.item.cards.filter((card) => cardState(card.updatedAt, props.now) !== "stale").length - 1;
 });
+
+// 伙伴自报的计数，最多两项；没有数据就整行不出现，不写 0。
+const facts = computed(() =>
+  statsHighlights(props.item.stats)
+    .map(([key, value]) => props.t(`facts.${key}`, { count: value }))
+    .join(" · ")
+);
 </script>
 
 <template>
@@ -123,6 +131,8 @@ const hotMore = computed(() => {
     </header>
 
     <p class="intro">{{ item.intro }}</p>
+
+    <p v-if="facts" class="facts" :title="t('facts.label')">{{ facts }}</p>
 
     <a
       v-if="hot"
@@ -360,9 +370,19 @@ const hotMore = computed(() => {
   -webkit-line-clamp: 2;
 }
 
+/* 伙伴自报的计数：一行小字，窄了省略，不占卡片高度。 */
+.facts {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- 橱窗 ---------- */
-.hot {
-  position: relative;
+.hot {  position: relative;
   z-index: 1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

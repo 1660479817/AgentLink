@@ -5,10 +5,12 @@
 // 不让网页请求直接改它。
 
 import { validateInstance } from "../ops/validate-instances.mjs";
+import { subdomainUrl } from "./validate.mjs";
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/;
 
 // 用站点域名当 id 的底子：伙伴换中文名时 id 也不会变成乱码。
+// 新申请直接用子域标签当 id，这个函数只留给老数据与手工调用。
 export function suggestId(url) {
   let host = "";
   try {
@@ -37,12 +39,14 @@ function localized(text) {
  * @param {{ id?: string, since?: string, tier?: string }} options
  */
 export function toManifestEntry(application, options = {}) {
-  const url = String(application.url || "").replace(/\/$/, "");
+  // 子域是身份：id 与 url 都从它来，不再看申请单上有没有别的地址。
+  const subdomain = String(application.subdomain || "").trim();
+  const url = subdomain ? subdomainUrl(subdomain) : String(application.url || "").replace(/\/$/, "");
   const since = options.since || new Date().toISOString().slice(0, 10);
   const tags = Array.isArray(application.tags) ? application.tags.slice(0, 5) : [];
 
   const entry = {
-    id: options.id || suggestId(url),
+    id: options.id || (ID_RE.test(subdomain) ? subdomain : suggestId(url)),
     name: localized(application.name),
     shortName: localized(application.name.slice(0, 12)),
     logo: null,
@@ -66,7 +70,9 @@ export function toManifestEntry(application, options = {}) {
     since,
     tier: options.tier || "community",
     status: "active",
-    healthUrl: `${url}/api/health`,
+    // 审核通过只代表可以收录，不代表 /api/health 已接通。交接期先留空，
+    // 公网探测通过后再由工作人员填回完整地址（见 docs/HANDOFF.md）。
+    healthUrl: options.healthUrl || null,
     statsUrl: null,
     cardsUrl: null,
   };

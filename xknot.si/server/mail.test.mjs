@@ -123,7 +123,7 @@ test("mail: config reads SMTP_* with MAIL_FROM precedence", () => {
 
 test("mail: message is UTF-8 base64 with an encoded subject and Reply-To", () => {
   const message = buildMessage({
-    from: "Knot 联邦 <notify@mail.xknot.si>",
+    from: "XKnot 联邦 <notify@mail.xknot.si>",
     to: "lin@example.com",
     subject: "新申请 · 北港",
     text: "第一行\n第二行",

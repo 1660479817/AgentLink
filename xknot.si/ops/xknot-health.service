@@ -1,0 +1,15 @@
+[Unit]
+Description=xknot.si health watch (probe, notify, hide)
+After=network.target
+Documentation=file:///opt/xknot/docs/HUB.md
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/xknot
+# 发信凭据与接口共用一份；没有这个文件时照常写状态，只是不发信。
+EnvironmentFile=-/opt/xknot/var/mail.env
+ExecStart=/usr/bin/node /opt/xknot/ops/watch-health.mjs
+NoNewPrivileges=true
+PrivateTmp=true

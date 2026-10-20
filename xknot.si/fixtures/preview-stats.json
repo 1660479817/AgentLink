@@ -1,0 +1,27 @@
+{
+  "nordhavn": {
+    "generatedAt": "2026-10-19T02:00:00.000Z",
+    "fetchedAt": "2026-10-19T02:30:00.000Z",
+    "stats": {
+      "posts": { "total": 1234, "last24h": 12, "last7d": 80 },
+      "accounts": { "total": 300, "last7d": 18 },
+      "authors": { "active7d": 45 }
+    }
+  },
+  "sakura": {
+    "generatedAt": "2026-10-19T01:00:00.000Z",
+    "fetchedAt": "2026-10-19T02:30:00.000Z",
+    "stats": {
+      "posts": { "total": 8612, "last24h": 34 },
+      "accounts": { "total": 2041 }
+    }
+  },
+  "saigon": {
+    "generatedAt": "2026-10-18T22:00:00.000Z",
+    "fetchedAt": "2026-10-19T02:30:00.000Z",
+    "stats": {
+      "posts": { "total": 96 },
+      "authors": { "active7d": 7 }
+    }
+  }
+}

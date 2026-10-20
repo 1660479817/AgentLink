@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from "vue";
 
+import { OPERATOR_EMAIL, OPERATOR_NAME } from "../lib/contact.js";
 import { COUNTRY_CODES, REGION_GROUPS, groupOf } from "../lib/regions.js";
 
 const props = defineProps({
@@ -8,11 +9,12 @@ const props = defineProps({
   t: { type: Function, required: true },
 });
 
-const LIMITS = { name: 40, intro: 60, operator: 80, email: 120, tags: 5 };
+const LIMITS = { name: 40, intro: 60, operator: 80, email: 120, tags: 5, subdomain: 32 };
 
 const form = ref({
   name: "",
-  url: "",
+  subdomain: "",
+  access: "",
   intro: "",
   operator: "",
   email: "",
@@ -77,9 +79,18 @@ const summary = computed(() => {
 function fieldError(key) {
   const code = errors.value[key];
   if (!code) return "";
+  // 先找带错误码的细分文案（subdomain 的 invalid / reserved / taken 不一样），
+  // 再退到这一格的 invalid，最后才是通称。t() 取不到时原样返回键名，正好用来判断。
+  const specific = props.t(`formError.${key}.${code}`);
+  if (specific !== `formError.${key}.${code}`) return specific;
+  const fallback = props.t(`formError.${key}.invalid`);
+  if (fallback !== `formError.${key}.invalid`) return fallback;
   const text = props.t(`formError.${key}`);
-  return text === `formError.${key}` ? props.t("formError.generic") : text;
+  return typeof text === "string" && text !== `formError.${key}` ? text : props.t("formError.generic");
 }
+
+// 与服务端同一套规则：2–32 位小写字母、数字、连字符，首尾不能是连字符。
+const SUBDOMAIN_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])$/;
 
 function check() {
   const next = {};
@@ -87,14 +98,12 @@ function check() {
   const name = [...value.name.trim()].length;
   if (name < 2 || name > LIMITS.name) next.name = "invalid";
 
-  let urlOk = false;
-  try {
-    const url = new URL(value.url.trim());
-    urlOk = url.protocol === "https:" && url.hostname.includes(".");
-  } catch {
-    urlOk = false;
-  }
-  if (!urlOk) next.url = "invalid";
+  // 用户可能连后缀一起粘贴，这里只留标签。
+  const raw = value.subdomain.trim().toLowerCase();
+  const label = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/[/?#].*$/, "").replace(/\.xknot\.si$/, "");
+  if (!SUBDOMAIN_RE.test(label)) next.subdomain = "invalid";
+
+  if (value.access !== "direct" && value.access !== "tunnel") next.access = "required";
 
   if (!value.operator.trim()) next.operator = "required";
   if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(value.email.trim())) next.email = "invalid";
@@ -125,7 +134,8 @@ async function submit() {
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify({
         name: form.value.name.trim(),
-        url: form.value.url.trim(),
+        subdomain: form.value.subdomain.trim(),
+        requestAccess: form.value.access,
         intro: form.value.intro.trim(),
         operator: form.value.operator.trim(),
         email: form.value.email.trim(),
@@ -167,7 +177,8 @@ async function submit() {
 function again() {
   form.value = {
     name: "",
-    url: "",
+    subdomain: "",
+    access: "",
     intro: "",
     operator: "",
     email: "",
@@ -213,6 +224,14 @@ onMounted(() => {
       </li>
     </ol>
 
+    <!-- 人工审核由这个人处理：写上名字和邮箱，申请人不用去别处找联系方式。 -->
+    <p class="contact">
+      <span class="contact-label">{{ t("join.contactLabel") }}</span>
+      <span class="contact-name">{{ OPERATOR_NAME }}</span>
+      <a class="contact-mail" :href="`mailto:${OPERATOR_EMAIL}`">{{ OPERATOR_EMAIL }}</a>
+    </p>
+    <p class="contact-hint">{{ t("join.contactHint") }}</p>
+
     <form v-if="status !== 'done'" class="form" novalidate @submit.prevent="submit">
       <div class="field">
         <label for="join-name">{{ t("form.name") }}</label>
@@ -229,20 +248,48 @@ onMounted(() => {
         <p v-if="errors.name" id="join-name-error" class="field-error">{{ fieldError("name") }}</p>
       </div>
 
+      <!-- 身份就是一个子域：用户只选标签，后缀由中枢固定。 -->
       <div class="field">
-        <label for="join-url">{{ t("form.url") }}</label>
-        <input
-          id="join-url"
-          v-model="form.url"
-          type="url"
-          inputmode="url"
-          autocomplete="url"
-          placeholder="https://example.com"
-          :aria-invalid="Boolean(errors.url)"
-          :aria-describedby="errors.url ? 'join-url-error' : undefined"
-        />
-        <p v-if="errors.url" id="join-url-error" class="field-error">{{ fieldError("url") }}</p>
+        <label for="join-subdomain">{{ t("form.subdomain") }}</label>
+        <div class="host">
+          <input
+            id="join-subdomain"
+            v-model="form.subdomain"
+            type="text"
+            inputmode="url"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+            :maxlength="LIMITS.subdomain + 10"
+            :placeholder="t('form.subdomainPlaceholder')"
+            :aria-invalid="Boolean(errors.subdomain)"
+            :aria-describedby="errors.subdomain ? 'join-subdomain-error' : 'join-subdomain-help'"
+          />
+          <span class="host-suffix" aria-hidden="true">.xknot.si</span>
+        </div>
+        <p v-if="errors.subdomain" id="join-subdomain-error" class="field-error">{{ fieldError("subdomain") }}</p>
+        <p v-else id="join-subdomain-help" class="field-hint">{{ t("form.subdomainHint") }}</p>
       </div>
+
+      <!-- 落点由申请人决定：自家域名/固定 IP，或只有一台能出网的机器。 -->
+      <fieldset class="field access" :aria-invalid="Boolean(errors.access)">
+        <legend>{{ t("form.access") }}</legend>
+        <label class="radio">
+          <input v-model="form.access" type="radio" name="join-access" value="direct" />
+          <span class="radio-body">
+            <span class="radio-title">{{ t("form.accessDirect") }}</span>
+            <span class="radio-desc">{{ t("form.accessDirectHint") }}</span>
+          </span>
+        </label>
+        <label class="radio">
+          <input v-model="form.access" type="radio" name="join-access" value="tunnel" />
+          <span class="radio-body">
+            <span class="radio-title">{{ t("form.accessTunnel") }}</span>
+            <span class="radio-desc">{{ t("form.accessTunnelHint") }}</span>
+          </span>
+        </label>
+        <p v-if="errors.access" class="field-error">{{ fieldError("access") }}</p>
+      </fieldset>
 
       <div class="field">
         <label for="join-intro">
@@ -256,8 +303,9 @@ onMounted(() => {
           :maxlength="LIMITS.intro"
           :placeholder="t('form.introPlaceholder')"
           :aria-invalid="Boolean(errors.intro)"
+          :aria-describedby="errors.intro ? 'join-intro-error' : undefined"
         />
-        <p v-if="errors.intro" class="field-error">{{ fieldError("intro") }}</p>
+        <p v-if="errors.intro" id="join-intro-error" class="field-error">{{ fieldError("intro") }}</p>
       </div>
 
       <div class="pair">
@@ -271,8 +319,9 @@ onMounted(() => {
             :maxlength="LIMITS.operator"
             :placeholder="t('form.operatorPlaceholder')"
             :aria-invalid="Boolean(errors.operator)"
+            :aria-describedby="errors.operator ? 'join-operator-error' : undefined"
           />
-          <p v-if="errors.operator" class="field-error">{{ fieldError("operator") }}</p>
+          <p v-if="errors.operator" id="join-operator-error" class="field-error">{{ fieldError("operator") }}</p>
         </div>
 
         <div class="field">
@@ -285,8 +334,9 @@ onMounted(() => {
             :maxlength="LIMITS.email"
             placeholder="you@example.com"
             :aria-invalid="Boolean(errors.email)"
+            :aria-describedby="errors.email ? 'join-email-error' : undefined"
           />
-          <p v-if="errors.email" class="field-error">{{ fieldError("email") }}</p>
+          <p v-if="errors.email" id="join-email-error" class="field-error">{{ fieldError("email") }}</p>
         </div>
       </div>
 
@@ -297,13 +347,14 @@ onMounted(() => {
             id="join-region"
             v-model="form.region"
             :aria-invalid="Boolean(errors.region)"
+            :aria-describedby="errors.region ? 'join-region-error' : undefined"
           >
             <option value="" disabled>{{ t("form.regionPlaceholder") }}</option>
             <option v-for="option in regionOptions" :key="option.code" :value="option.code">
               {{ option.label }}
             </option>
           </select>
-          <p v-if="errors.region" class="field-error">{{ fieldError("region") }}</p>
+          <p v-if="errors.region" id="join-region-error" class="field-error">{{ fieldError("region") }}</p>
         </div>
 
         <div class="field">
@@ -316,12 +367,13 @@ onMounted(() => {
             autocomplete="off"
             spellcheck="false"
             :aria-invalid="Boolean(errors.timezone)"
+            aria-describedby="join-timezone-help"
           />
           <datalist id="join-timezone-list">
             <option v-for="zone in timezones" :key="zone" :value="zone" />
           </datalist>
-          <p v-if="errors.timezone" class="field-error">{{ fieldError("timezone") }}</p>
-          <p v-else class="field-hint">{{ t("form.timezoneHint") }}</p>
+          <p v-if="errors.timezone" id="join-timezone-help" class="field-error">{{ fieldError("timezone") }}</p>
+          <p v-else id="join-timezone-help" class="field-hint">{{ t("form.timezoneHint") }}</p>
         </div>
       </div>
 
@@ -336,8 +388,9 @@ onMounted(() => {
           type="text"
           :placeholder="t('form.tagsPlaceholder')"
           :aria-invalid="Boolean(errors.tags)"
+          :aria-describedby="errors.tags ? 'join-tags-error' : undefined"
         />
-        <p v-if="errors.tags" class="field-error">{{ fieldError("tags") }}</p>
+        <p v-if="errors.tags" id="join-tags-error" class="field-error">{{ fieldError("tags") }}</p>
       </div>
 
       <!-- 蜜罐：屏幕阅读器与键盘都跳过，填了就说明是脚本。 -->
@@ -471,6 +524,48 @@ h2 {
   line-height: 1.4;
 }
 
+/* 审核人：一行名字与邮箱，第二行说明用途。 */
+.contact {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.1rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.contact-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.contact-name {
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.contact-mail {
+  color: #ffffff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(255, 255, 255, 0.55);
+}
+
+.contact-mail:hover {
+  text-decoration-color: #ffffff;
+}
+
+.contact-hint {
+  margin: -0.2rem 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
 /* 表单 */
 .form {
   display: flex;
@@ -579,6 +674,99 @@ h2 {
 .field-hint {
   color: rgba(255, 255, 255, 0.72);
   font-size: 0.66rem;
+}
+
+/* 子域：输入框 + 固定后缀，视觉上是一条完整地址 */
+.host {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.host input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+}
+
+.host-suffix {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-left: 0;
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.86);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.host input:focus {
+  border-right: 0;
+}
+
+/* 落点：两张卡片式单选项 */
+.access {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: 0.3rem;
+}
+
+.access legend {
+  padding: 0;
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.radio:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.radio input {
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: #ffffff;
+}
+
+.radio-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.radio-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.radio-desc {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.68rem;
+  line-height: 1.4;
 }
 
 .trap {
@@ -788,10 +976,13 @@ h2 {
     gap: 0.46rem;
   }
 
-  .field input,
-  .field textarea,
-  .field select {
-    min-height: 38px;
+  /* 只在桌面窄右栏压缩高度；手机上仍按上面的 44px 触控尺寸。 */
+  @media (min-width: 901px) {
+    .field input,
+    .field textarea,
+    .field select {
+      min-height: 38px;
+    }
   }
 }
 

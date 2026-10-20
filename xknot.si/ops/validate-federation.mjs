@@ -1,0 +1,218 @@
+// 联邦名册校验。名册不过就不发布。
+//
+// 名册（federation.json）记网络本身的成员事实：谁在、什么身份、子域怎么来的、
+// 怎么接入、隧道账号与端口。门户对外展示用的字段（名称、简介、标签）不在这里，
+// 那些仍在 instances.json。两者必须对得上，否则就是脱钩。
+//
+// 用法：
+//   node xknot.si/ops/validate-federation.mjs
+//   node xknot.si/ops/validate-federation.mjs --roster ./federation.json --instances ./instances.json
+
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+export const ROLES = ["founder", "partner"];
+export const STANDINGS = ["permanent", "regular"];
+export const ISSUANCE = ["own-domain", "subdomain-issued", "subdomain-reserved", "none"];
+export const ACCESS = ["direct", "edge-tunnel", "pending"];
+
+const ID_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/;
+const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ACCOUNT_RE = /^[a-z_][a-z0-9_-]{0,31}$/;
+
+function hostOf(value) {
+  try {
+    return new URL(String(value || "")).host.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function checkDate(field, value, errors, { required } = {}) {
+  if (value == null) {
+    if (required) errors.push(`${field}: required`);
+    return;
+  }
+  if (typeof value !== "string" || !DATE_RE.test(value)) errors.push(`${field}: must be YYYY-MM-DD`);
+}
+
+function validateMember(member, index, errors, seen) {
+  const label = member?.id || `#${index}`;
+  const id = member?.id;
+
+  if (typeof id !== "string" || !ID_RE.test(id)) {
+    errors.push("id: must be 2-32 chars, lowercase letters, digits, hyphens");
+  } else if (seen.ids.has(id)) {
+    errors.push(`id: duplicate "${id}"`);
+  } else {
+    seen.ids.add(id);
+  }
+
+  const host = member?.host;
+  if (typeof host !== "string" || !HOST_RE.test(host)) {
+    errors.push("host: must be a lowercase fully-qualified host name");
+  } else if (seen.hosts.has(host)) {
+    errors.push(`host: duplicate "${host}"`);
+  } else {
+    seen.hosts.add(host);
+  }
+
+  if (!ROLES.includes(member?.role)) errors.push(`role: must be one of ${ROLES.join(", ")}`);
+  if (!STANDINGS.includes(member?.standing)) errors.push(`standing: must be one of ${STANDINGS.join(", ")}`);
+  if (!ISSUANCE.includes(member?.issuance)) errors.push(`issuance: must be one of ${ISSUANCE.join(", ")}`);
+  if (!ACCESS.includes(member?.access)) errors.push(`access: must be one of ${ACCESS.join(", ")}`);
+
+  if (typeof member?.listed !== "boolean") errors.push("listed: must be true or false");
+  checkDate("since", member?.since, errors, { required: member?.listed === true });
+
+  if (member?.note != null) {
+    if (typeof member.note !== "string" || member.note.trim() === "") errors.push("note: must be a non-empty string");
+    else if ([...member.note].length > 200) errors.push("note: longer than 200");
+  }
+
+  const tunnel = member?.tunnel;
+  if (tunnel == null) {
+    if (member?.access === "edge-tunnel") errors.push("tunnel: required when access is edge-tunnel");
+  } else {
+    if (typeof tunnel !== "object" || Array.isArray(tunnel)) {
+      errors.push("tunnel: must be null or an object");
+    } else {
+      if (typeof tunnel.account !== "string" || !ACCOUNT_RE.test(tunnel.account)) {
+        errors.push("tunnel.account: must be a lowercase system user name");
+      } else if (seen.accounts.has(tunnel.account)) {
+        errors.push(`tunnel.account: duplicate "${tunnel.account}"`);
+      } else {
+        seen.accounts.add(tunnel.account);
+      }
+
+      const port = tunnel.port;
+      if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+        errors.push("tunnel.port: must be an integer between 1024 and 65535");
+      } else if (seen.ports.has(port)) {
+        errors.push(`tunnel.port: duplicate ${port}`);
+      } else {
+        seen.ports.add(port);
+      }
+    }
+  }
+
+  return label;
+}
+
+export function validateMemberRecord(member, index = 0, seen = { ids: new Set(), hosts: new Set(), accounts: new Set(), ports: new Set() }) {
+  const errors = [];
+  validateMember(member, index, errors, seen);
+  return errors;
+}
+
+export function validateRoster(roster, manifest) {
+  const problems = [];
+  if (!roster || typeof roster !== "object") return [["", ["roster: must be an object"]]];
+  if (!Number.isInteger(roster.version) || roster.version < 1) problems.push(["", ["version: must be an integer >= 1"]]);
+  if (typeof roster.updatedAt !== "string" || !DATE_RE.test(roster.updatedAt)) {
+    problems.push(["", ["updatedAt: must be YYYY-MM-DD"]]);
+  }
+  if (typeof roster.hub !== "string" || !HOST_RE.test(roster.hub)) problems.push(["", ["hub: must be a host name"]]);
+  if (!Array.isArray(roster.members)) return [...problems, ["", ["members: must be an array"]]];
+
+  const seen = { ids: new Set(), hosts: new Set(), accounts: new Set(), ports: new Set() };
+  for (const [index, member] of roster.members.entries()) {
+    const errors = [];
+    const label = validateMember(member, index, errors, seen);
+    if (errors.length) problems.push([label, errors]);
+  }
+
+  // 创始实例：有且只有一个，永久账号，必须已收录。
+  const founders = roster.members.filter((member) => member?.role === "founder");
+  if (founders.length !== 1) {
+    problems.push(["—", [`founder: exactly one member must have role "founder" (found ${founders.length})`]]);
+  } else {
+    const founder = founders[0];
+    if (founder.standing !== "permanent") problems.push([founder.id, ["standing: the founder must be permanent"]]);
+    if (founder.listed !== true) problems.push([founder.id, ["listed: the founder cannot be unlisted"]]);
+  }
+
+  // 名册与清单必须一一对应：名册里 listed 的成员要出现在清单里，清单里每个实例都要在名册里。
+  if (!manifest || !Array.isArray(manifest.instances)) {
+    problems.push(["—", ["instances: cannot cross-check without instances.json"]]);
+    return problems;
+  }
+
+  const byId = new Map(manifest.instances.map((instance) => [instance?.id, instance]));
+  for (const member of roster.members) {
+    const id = member?.id;
+    if (!id) continue;
+    const instance = byId.get(id);
+
+    if (member.listed === true && !instance) {
+      problems.push([id, ["listed: true but the instance is missing from instances.json"]]);
+      continue;
+    }
+    if (member.listed === false && instance) {
+      problems.push([id, ["listed: false but the instance is present in instances.json"]]);
+      continue;
+    }
+    if (!instance) continue;
+
+    const instanceHost = hostOf(instance.url);
+    if (instanceHost && instanceHost !== member.host) {
+      problems.push([id, [`host: "${member.host}" does not match the instance url host "${instanceHost}"`]]);
+    }
+    if (member.role === "founder" && instance.tier !== "partner") {
+      problems.push([id, [`tier: the founder must be tier "partner", got "${instance.tier}"`]]);
+    }
+  }
+
+  const rosterIds = new Set(roster.members.map((member) => member?.id).filter(Boolean));
+  for (const instance of manifest.instances) {
+    if (!rosterIds.has(instance?.id)) {
+      problems.push([instance?.id || "—", ["roster: the instance is not registered in federation.json"]]);
+    }
+  }
+
+  return problems;
+}
+
+async function readJson(file) {
+  return JSON.parse(await readFile(file, "utf8"));
+}
+
+async function main(argv) {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const arg = (name, fallback) => {
+    const index = argv.indexOf(name);
+    return index >= 0 ? argv[index + 1] : fallback;
+  };
+
+  const rosterPath = arg("--roster", path.join(here, "..", "federation.json"));
+  const instancesPath = arg("--instances", path.join(here, "..", "instances.json"));
+
+  const [roster, manifest] = await Promise.all([readJson(rosterPath), readJson(instancesPath)]);
+  const problems = validateRoster(roster, manifest);
+
+  if (!problems.length) {
+    const listed = roster.members.filter((member) => member.listed).length;
+    console.log(`${rosterPath}: ${roster.members.length} member(s), ${listed} listed, ok`);
+    return 0;
+  }
+
+  for (const [id, errors] of problems) {
+    console.error(`${id}:`);
+    for (const error of errors) console.error(`  - ${error}`);
+  }
+  return 1;
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  main(process.argv.slice(2))
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      console.error(error.message);
+      process.exitCode = 1;
+    });
+}

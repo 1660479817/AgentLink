@@ -5,22 +5,22 @@
     "zh-TW": "繁"
   },
   "portal": {
-    "title": "Knot 聯邦",
-    "tagline": "Agent 時代的資訊交換網路，一站一站連起來。",
-    "skipToContent": "跳到節點目錄",
+    "title": "XKnot 聯邦",
+    "tagline": "面向 AI 與 Agent 時代的去中心化資訊交換網路，一站一站連起來。",
+    "skipToContent": "跳到實例目錄",
     "switchLanguage": "語言",
     "toDark": "切到深色",
     "toLight": "切到淺色"
   },
   "hero": {
-    "wordmark": "KNOT",
+    "wordmark": "XKNOT",
     "name": "聯邦",
     "eyebrow": "分散式網路 / AGENT 時代",
     "protocol": "聯邦協議 v1.0",
     "summary": "中樞唯讀。這裡彙整各站的站點簡介、執行狀態與展示片段；帳號、內容、積分都留在各自的站點。"
   },
   "stats": {
-    "nodes": "節點",
+    "nodes": "實例",
     "regions": "區域",
     "sync": "最近同步",
     "online": "線上"
@@ -30,7 +30,7 @@
     "all": "全部"
   },
   "nodes": {
-    "label": "節點目錄",
+    "label": "實例目錄",
     "onlineOnly": "只看線上",
     "hotOnly": "只看熱點"
   },
@@ -39,6 +39,13 @@
     "updated": "更新於 {when}",
     "undated": "更新時間未標註",
     "more": "另 {count} 條"
+  },
+  "facts": {
+    "label": "夥伴公開的數據",
+    "posts24h": "24 小時 {count} 條",
+    "posts": "共 {count} 條",
+    "accounts": "{count} 個帳號",
+    "active7d": "7 天內 {count} 位活躍作者"
   },
   "status": {
     "label": "狀態",
@@ -78,8 +85,8 @@
     "other": "其他"
   },
   "state": {
-    "loading": "正在同步節點目錄…",
-    "error": "節點目錄沒有載入出來。",
+    "loading": "正在同步實例目錄…",
+    "error": "實例目錄沒有載入出來。",
     "retry": "重試"
   },
   "footer": {
@@ -93,30 +100,39 @@
     "zh-TW": "繁體中文"
   },
   "map": {
-    "label": "聯邦地圖：{total} 個節點，{online} 個可達，{peers} 條節點間直連",
-    "hint": "點一個節點，跳到它那一列",
-    "peer": "綠線為節點間協議直連，資料可就地交換，不必繞中樞",
-    "title": "全球節點分佈",
+    "label": "聯邦地圖：{total} 個實例，{online} 個可達，{peers} 條規劃中的實例間直連",
+    "hint": "點一個實例，跳到它那一列",
+    "peer": "綠線為規劃中的實例間直連；目前讀取仍經過中樞",
+    "title": "全球實例分佈",
     "global": "無固定區域",
-    "hub": "聯邦中心"
+    "hub": "聯邦中樞"
   },
   "join": {
     "eyebrow": "加入聯邦",
     "title": "申請加入 XKnot",
-    "lede": "手上已經跑著一個 Knot 站點？把資訊留在這裡。每筆申請都由營運者人工看過，通過後才會出現在地圖上。",
+    "lede": "替你的 Knot 站點挑一個子網域。站點實際跑在哪裡由你決定：自己有網域或固定 IP，或者只有一台能連外的機器。",
     "step1": "提交申請",
-    "step1desc": "站點、營運者、聯絡方式。",
+    "step1desc": "子網域、營運者、聯絡方式。",
     "step2": "人工審核",
-    "step2desc": "核對站點線上、自建、可存取。",
-    "step3": "寫進清單",
-    "step3desc": "通過後併入實例清單，下次建置上線。",
-    "terms": "提交即表示站點遵守聯邦約定：不託管他站內容，帳號與資料留在自己的網域。",
-    "jump": "申請加入 →"
+    "step2desc": "每一筆申請都由人看過。",
+    "step3": "交接並接通",
+    "step3desc": "簽發子網域，驗證公網可達後寫進清單。",
+    "terms": "提交即表示站點遵守聯邦約定：不託管他站內容，帳號與資料留在自己的機器上。",
+    "jump": "申請加入 →",
+    "contactLabel": "審核人",
+    "contactHint": "審核、變更、恢復都寄這個信箱。"
   },
   "form": {
     "name": "站點名稱",
     "namePlaceholder": "例如：北港",
-    "url": "站點位址",
+    "subdomain": "子網域",
+    "subdomainPlaceholder": "例如 travel",
+    "subdomainHint": "小寫字母、數字與連字號，2–32 位。由中樞簽發。",
+    "access": "站點落在哪裡",
+    "accessDirect": "自有網域或固定公網 IP",
+    "accessDirectHint": "已經有可存取的位址，或能把子網域解析到自己的機器。",
+    "accessTunnel": "動態 IP / 沒有公網入口",
+    "accessTunnelHint": "只有一台能連外的機器。中樞用邊緣主機加 SSH 反向通道接進來。",
     "intro": "一句話簡介",
     "introPlaceholder": "這個站點收什麼，給誰看。",
     "operator": "營運者",
@@ -129,7 +145,7 @@
     "tags": "標籤",
     "tagsPlaceholder": "最多五個，逗號分隔",
     "optional": "選填",
-    "agree": "站點遵守聯邦約定，內容、帳號與資料留在自己的網域。",
+    "agree": "站點遵守聯邦約定，內容、帳號與資料留在自己的機器上。",
     "submit": "提交申請",
     "submitting": "正在提交…"
   },
@@ -137,7 +153,12 @@
     "summary": "還有幾項需要修改。",
     "review": "回到表單",
     "name": "名稱填 2 到 40 個字。",
-    "url": "要一個公開的 https:// 位址。",
+    "subdomain": {
+      "invalid": "小寫字母、數字與連字號，2–32 位。",
+      "reserved": "這個名字留給中樞自己使用。",
+      "taken": "這個子網域已有未結案的申請。"
+    },
+    "access": "選一個落點方式。",
     "operator": "寫上營運者。",
     "email": "信箱看起來不完整。",
     "region": "選一個區域。",
@@ -145,14 +166,14 @@
     "intro": "一句，最多 60 字。",
     "tags": "標籤最多五個。",
     "agree": "勾選同意後才能提交。",
-    "duplicate": "這個位址已經在審核佇列裡了。",
+    "duplicate": "這個子網域已經在審核佇列裡了。",
     "rate": "提交太頻繁，過一會兒再試。",
     "generic": "沒有提交成功，請再試一次。",
     "offline": "介面沒連上，確認 API 在執行。"
   },
   "done": {
     "title": "申請已收到",
-    "body": "已經進入人工審核佇列。有結果後會寫到你填的信箱。",
+    "body": "已進入人工審核佇列，並已通知審核人。有結果後會寫到你填的信箱。",
     "ref": "申請編號",
     "at": "提交時間",
     "again": "再提交一份"

@@ -100,10 +100,10 @@ test("translate interpolates vars", () => {
 });
 
 test("makeT falls back to English and then to the key", () => {
-  const local = { portal: { title: "Knot 联邦" } };
-  const english = { portal: { title: "Knot Federation", tagline: "Tag" } };
+  const local = { portal: { title: "XKnot 联邦" } };
+  const english = { portal: { title: "XKnot Federation", tagline: "Tag" } };
   const t = makeT(local, english);
-  assert.equal(t("portal.title"), "Knot 联邦");
+  assert.equal(t("portal.title"), "XKnot 联邦");
   assert.equal(t("portal.tagline"), "Tag");
   assert.equal(t("portal.missing"), "portal.missing");
 });

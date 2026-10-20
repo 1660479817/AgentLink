@@ -4,6 +4,7 @@
 // ops/build-hub-data.mjs 在发布时写文件，web 的开发服务器现算同一份。
 
 import { normalizeCards } from "./cards.js";
+import { normalizeStats } from "./stats.js";
 
 // 清单里的 logo 相对 public/ 写，例如 logos/travel.svg；
 // 页面上无论在多深的路径都要能取到，统一补成根路径。
@@ -19,8 +20,9 @@ export function normalizeAsset(value) {
  * @param {{ instances?: Record<string, unknown> }} health
  * @param {Date} [now]
  * @param {Record<string, unknown>} [cards] var/cards/ 里的橱窗，按实例 id 索引
+ * @param {Record<string, unknown>} [stats] var/stats/ 里的活动数据，按实例 id 索引
  */
-export function buildHubData(manifest, health, now = new Date(), cards = {}) {
+export function buildHubData(manifest, health, now = new Date(), cards = {}, stats = {}) {
   const states = health?.instances || {};
   const instances = Array.isArray(manifest?.instances) ? manifest.instances : [];
 
@@ -52,6 +54,8 @@ export function buildHubData(manifest, health, now = new Date(), cards = {}) {
         status: instance.status,
         // L3 橱窗只带摘要与跳转地址；正文不进门户。
         cards: normalizeCards(cards?.[instance.id]),
+        // L2 活动数据是伙伴自报的计数，缺数据时为 null，页面显示「未公开」。
+        stats: normalizeStats(stats?.[instance.id]),
         health: state
           ? {
               status: state.status,
@@ -59,6 +63,10 @@ export function buildHubData(manifest, health, now = new Date(), cards = {}) {
               latencyMs: state.latencyMs ?? null,
               version: state.version ?? null,
               checkedAt: health?.checkedAt ?? null,
+              // 连续断连满 7 天（或签发后 30 天仍未接通）时，条目暂时不展示。
+              // 清单本身不动，这是渲染时的一次判断。
+              downSince: state.downSince ?? null,
+              hidden: Boolean(state.hiddenAt),
             }
           : null,
       };

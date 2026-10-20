@@ -61,13 +61,26 @@ export function parseMailbox(value) {
   };
 }
 
-export function buildMessage({ from, to, subject, text, replyTo, date = new Date() }) {
+const HEADER_NAME_RE = /^[A-Za-z0-9-]{1,40}$/;
+
+// 自定义头只接受 `Name: value`，名字是 ASCII token，值去掉换行；不合法就丢掉。
+function sanitizeHeader(header) {
+  const raw = typeof header === "string" ? header : "";
+  const index = raw.indexOf(":");
+  if (index <= 0) return null;
+  const name = raw.slice(0, index).trim();
+  const value = stripNewlines(raw.slice(index + 1));
+  if (!HEADER_NAME_RE.test(name) || !value) return null;
+  return `${name}: ${value}`;
+}
+
+export function buildMessage({ from, to, subject, text, replyTo, headers = [], date = new Date() }) {
   const sender = parseMailbox(from);
   const recipient = parseMailbox(to);
   if (!sender) throw new Error("invalid_from");
   if (!recipient) throw new Error("invalid_to");
 
-  const headers = [
+  const lines = [
     `From: ${sender.header}`,
     `To: ${recipient.header}`,
     `Subject: ${encodeHeader(subject)}`,
@@ -79,12 +92,16 @@ export function buildMessage({ from, to, subject, text, replyTo, date = new Date
   ];
 
   const reply = replyTo ? parseMailbox(replyTo) : null;
-  if (reply) headers.push(`Reply-To: ${reply.header}`);
+  if (reply) lines.push(`Reply-To: ${reply.header}`);
+  for (const header of headers || []) {
+    const line = sanitizeHeader(header);
+    if (line) lines.push(line);
+  }
 
   return {
     envelopeFrom: sender.address,
     envelopeTo: recipient.address,
-    data: `${headers.join(CRLF)}${CRLF}${CRLF}${wrapBase64(Buffer.from(String(text ?? ""), "utf8").toString("base64"))}`,
+    data: `${lines.join(CRLF)}${CRLF}${CRLF}${wrapBase64(Buffer.from(String(text ?? ""), "utf8").toString("base64"))}`,
   };
 }
 
@@ -312,6 +329,7 @@ async function deliver(config, message) {
     subject: message.subject,
     text: message.text,
     replyTo: message.replyTo,
+    headers: message.headers,
   });
 
   let socket = config.secure

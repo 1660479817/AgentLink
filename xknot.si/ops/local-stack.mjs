@@ -1,0 +1,401 @@
+// 本地部署：把接口和门户静态站按线上的形态拉起来。
+//
+// 线上是两个进程（systemd 的 xknot-api + nginx）。本地同样是两个：
+//   server/index.mjs   只监听回环，数据放 var/ 下独立目录
+//   ops/local-hub.mjs  静态站 + /api /admin 反代，补同一组安全头
+//
+// 单独跑：
+//   node ops/local-stack.mjs                 # 仓库清单，127.0.0.1:5190，数据在 var/local
+//   node ops/local-stack.mjs --preview       # 门户数据并进 fixtures 样例
+//   node ops/local-stack.mjs --admin paul:correct-horse-battery
+//   node ops/local-stack.mjs --port 8080 --data-dir /tmp/xknot
+//
+// 命令行启动时数据目录保留，重启后申请与审核记录还在。
+// 端到端测试直接 import startStack()，拿到随机端口、临时数据目录和停止函数。
+
+import { spawn, execFile } from "node:child_process";
+import { openSync } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import net from "node:net";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { startEdge } from "./local-hub.mjs";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const SERVER = path.join(ROOT, "server", "index.mjs");
+const CLI = path.join(ROOT, "server", "admin-cli.mjs");
+
+export const DEFAULT_MANIFEST = {
+  version: 3,
+  updatedAt: "2026-01-01",
+  instances: [
+    {
+      id: "e2e-node",
+      name: { en: "E2E Node", "zh-CN": "端到端节点", "zh-TW": "端到端節點" },
+      shortName: { en: "E2E", "zh-CN": "端到端", "zh-TW": "端到端" },
+      logo: null,
+      themeColor: "#1F4E8C",
+      url: "https://e2e-node.example",
+      redirect: null,
+      canonical: "https://e2e-node.example",
+      vertical: "creation",
+      tags: { en: ["testing"], "zh-CN": ["测试"], "zh-TW": ["測試"] },
+      languages: ["en"],
+      regions: ["SG"],
+      timezone: "Asia/Singapore",
+      operator: "E2E",
+      owner: null,
+      contact: "ops@e2e-node.example",
+      intro: {
+        en: "A node that only exists in tests.",
+        "zh-CN": "只在测试里存在的节点。",
+        "zh-TW": "只在測試裡存在的節點。",
+      },
+      since: "2026-01-01",
+      tier: "community",
+      status: "active",
+      healthUrl: null,
+      statsUrl: null,
+      cardsUrl: null,
+      social: [],
+    },
+    {
+      id: "e2e-paused",
+      name: { en: "Paused Node", "zh-CN": "暂停节点", "zh-TW": "暫停節點" },
+      shortName: { en: "Paused", "zh-CN": "暂停", "zh-TW": "暫停" },
+      logo: null,
+      themeColor: "#7A4E2D",
+      url: "https://e2e-paused.example",
+      redirect: null,
+      canonical: "https://e2e-paused.example",
+      vertical: "creation",
+      tags: { en: ["testing"], "zh-CN": ["测试"], "zh-TW": ["測試"] },
+      languages: ["en"],
+      regions: ["DE"],
+      timezone: "Europe/Berlin",
+      operator: "E2E",
+      owner: null,
+      contact: "ops@e2e-paused.example",
+      intro: {
+        en: "A paused node used for relay rejection tests.",
+        "zh-CN": "用于委托发信拒绝测试的暂停节点。",
+        "zh-TW": "用於委託發信拒絕測試的暫停節點。",
+      },
+      since: "2026-01-01",
+      tier: "community",
+      status: "paused",
+      healthUrl: null,
+      statsUrl: null,
+      cardsUrl: null,
+      social: [],
+    },
+  ],
+};
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function cleanEnv(extra) {
+  const env = { ...process.env };
+  // 不把开发机上随手 export 的发信配置带进本地栈，否则 relay 是否可用不可控。
+  for (const name of Object.keys(env)) {
+    if (name.startsWith("SMTP_") || name.startsWith("XKNOT_")) delete env[name];
+  }
+  return { ...env, ...extra };
+}
+
+async function readTail(file, lines = 20) {
+  try {
+    const text = await readFile(file, "utf8");
+    return text.trim().split("\n").slice(-lines).join("\n");
+  } catch {
+    return "";
+  }
+}
+
+async function waitForHealth(apiUrl, { timeoutMs = 15_000, child } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "timeout";
+  while (Date.now() < deadline) {
+    if (child && child.exitCode !== null) throw new Error(`api exited early (code ${child.exitCode})`);
+    try {
+      const response = await fetch(`${apiUrl}/api/health`);
+      if (response.ok) return;
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error.message;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`api did not become healthy: ${lastError}`);
+}
+
+/**
+ * 拉起一套本地部署。
+ *
+ * @param {object} options
+ * @param {boolean} [options.preview] 门户数据并进 fixtures 样例（浏览器测试用）
+ * @param {object} [options.manifest] 写一份测试清单；不传则用仓库 instances.json
+ * @param {Record<string,string>} [options.env] 额外环境变量（如 SMTP_*）
+ * @param {string} [options.distDir] 静态站目录，默认 web/dist
+ * @param {string} [options.dataDir] 数据目录，默认 var/e2e/<随机>
+ * @param {boolean} [options.keep] 停止时保留数据目录
+ */
+export async function startStack(options = {}) {
+  const {
+    preview = false,
+    manifest = null,
+    env = {},
+    distDir = path.join(ROOT, "web", "dist"),
+    dataDir = path.join(ROOT, "var", "e2e", `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    edgePort = 0,
+    admin = null,
+    keep = false,
+  } = options;
+
+  await mkdir(dataDir, { recursive: true });
+  const apiPort = await freePort();
+  const apiUrl = `http://127.0.0.1:${apiPort}`;
+
+  let manifestFile = null;
+  if (manifest) {
+    manifestFile = path.join(dataDir, "instances.json");
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  }
+
+  let dataFile = null;
+  if (!preview && manifest) {
+    // 测试清单也要有对应的快照，否则 /data/hub.json 还停在仓库上次构建的内容。
+    const { buildHubData } = await import("../web/src/lib/snapshot.js");
+    dataFile = path.join(dataDir, "hub.json");
+    await writeFile(
+      dataFile,
+      `${JSON.stringify(buildHubData(manifest, { instances: {} }, new Date()), null, 2)}\n`,
+      "utf8"
+    );
+  }
+  if (preview) {
+    dataFile = path.join(dataDir, "hub.preview.json");
+    await new Promise((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [path.join(ROOT, "ops", "build-hub-data.mjs"), "--out", dataFile],
+        { cwd: ROOT, env: { ...process.env, XKNOT_PREVIEW: "1" } },
+        (error, _stdout, stderr) => (error ? reject(new Error(stderr || error.message)) : resolve())
+      );
+    });
+  }
+
+  const logFile = path.join(dataDir, "api.log");
+  const log = openSync(logFile, "a");
+
+  const api = spawn(process.execPath, [SERVER], {
+    cwd: ROOT,
+    env: cleanEnv({
+      XKNOT_API_HOST: "127.0.0.1",
+      XKNOT_API_PORT: String(apiPort),
+      XKNOT_DATA_DIR: path.join(dataDir, "data"),
+      XKNOT_TRUST_PROXY: "1",
+      XKNOT_PUBLIC_ORIGIN: apiUrl,
+      ...(manifestFile ? { XKNOT_INSTANCES_FILE: manifestFile } : {}),
+      ...env,
+    }),
+    stdio: ["ignore", log, log],
+  });
+
+  try {
+    await waitForHealth(apiUrl, { child: api });
+  } catch (error) {
+    api.kill("SIGKILL");
+    const tail = await readTail(logFile);
+    throw new Error(`${error.message}\n--- api.log ---\n${tail}`);
+  }
+
+  // 起边缘之前的任何失败都要把接口收掉：否则子进程活着，测试进程不会退出，
+  // 报错就变成一条挂住的命令（缺 web/dist 时会这样）。
+  let edge;
+  try {
+    // 管理员在建边缘之前建好：外部（Playwright 的 webServer）以边缘的健康检查
+    // 作为“可以开始”的信号，不能在它之后才建账号。
+    if (admin?.username) {
+      await createAdmin(dataDir, {
+        username: admin.username,
+        password: admin.password,
+        ...(manifestFile ? { XKNOT_INSTANCES_FILE: manifestFile } : {}),
+      });
+    }
+
+    edge = await startEdge({ distDir, apiBase: apiUrl, port: edgePort, dataFile });
+  } catch (error) {
+    api.kill("SIGKILL");
+    if (!keep) await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+
+  let stopped = false;
+  async function stop() {
+    if (stopped) return;
+    stopped = true;
+    await edge.close().catch(() => {});
+    if (api.exitCode === null) {
+      api.kill("SIGTERM");
+      const exited = await Promise.race([
+        new Promise((resolve) => api.once("exit", () => resolve(true))),
+        new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
+      ]);
+      if (!exited) api.kill("SIGKILL");
+    }
+    if (!keep) await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+  }
+
+  async function setManifest(next) {
+    const file = manifestFile || path.join(dataDir, "instances.json");
+    await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    return file;
+  }
+
+  // 端到端要用运维同款命令，并且让 CLI 读同一份测试清单。
+  const cliEnv = manifestFile ? { XKNOT_INSTANCES_FILE: manifestFile } : {};
+
+  return {
+    portalUrl: edge.url,
+    apiUrl,
+    dataDir,
+    distDir,
+    apiPort,
+    apiPid: api.pid,
+    manifestFile,
+    logFile,
+    setManifest,
+    adminCli: (args, extraEnv = {}) => adminCli(dataDir, args, { ...cliEnv, ...extraEnv }),
+    createAdmin: (username, password) => createAdmin(dataDir, { username, password, ...cliEnv }),
+    issueRelayToken: (instance, extraArgs = []) =>
+      issueRelayToken(dataDir, instance, extraArgs, cliEnv),
+    stop,
+  };
+}
+
+/**
+ * 用运维同款命令建管理员。
+ * @param {string} dataDir
+ * @param {{username: string, password: string, XKNOT_INSTANCES_FILE?: string}} options
+ */
+export function createAdmin(dataDir, { username, password, ...extraEnv }) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      [CLI, "create-admin", username],
+      {
+        cwd: ROOT,
+        env: cleanEnv({
+          XKNOT_DATA_DIR: path.join(dataDir, "data"),
+          XKNOT_ADMIN_PASSWORD: password,
+          ...extraEnv,
+        }),
+      },
+      (error, stdout, stderr) => {
+        if (error) return reject(new Error(stderr || stdout || error.message));
+        resolve(stdout.trim());
+      }
+    );
+  });
+}
+
+/**
+ * 用运维同款命令签发委托发信凭据，返回明文令牌。
+ * @param {string} dataDir
+ * @param {string} instance
+ * @param {string[]} [extraArgs]
+ * @param {{XKNOT_INSTANCES_FILE?: string}} [extraEnv]
+ */
+export function issueRelayToken(dataDir, instance, extraArgs = [], extraEnv = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      [CLI, "relay-token", instance, ...extraArgs],
+      { cwd: ROOT, env: cleanEnv({ XKNOT_DATA_DIR: path.join(dataDir, "data"), ...extraEnv }) },
+      (error, stdout, stderr) => {
+        if (error) return reject(new Error(stderr || stdout || error.message));
+        // 输出里还有说明和吊销提示，凭据本身是唯一一行 xkr_ 开头的。
+        const token = stdout
+          .split("\n")
+          .map((line) => line.trim())
+          .find((line) => /^xkr_[a-z0-9-]+_[A-Za-z0-9_-]{16,}$/.test(line));
+        if (!token) return reject(new Error(`unexpected relay-token output:\n${stdout}`));
+        resolve(token);
+      }
+    );
+  });
+}
+
+/** 用运维同款命令执行任意子命令，返回 stdout。 */
+export function adminCli(dataDir, args, extraEnv = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      [CLI, ...args],
+      { cwd: ROOT, env: cleanEnv({ XKNOT_DATA_DIR: path.join(dataDir, "data"), ...extraEnv }) },
+      (error, stdout, stderr) => {
+        if (error) return reject(new Error(stderr || stdout || error.message));
+        resolve(stdout);
+      }
+    );
+  });
+}
+
+async function main(argv) {
+  const preview = argv.includes("--preview");
+  const adminArg = argv.includes("--admin") ? argv[argv.indexOf("--admin") + 1] : null;
+  const portIndex = argv.indexOf("--port");
+  // 命令行是给人用的“部署”，端口与数据目录都给稳定的默认值：
+  // 刷新页面还在、重启后申请与审核记录还在。测试用 startStack() 的随机端口
+  // 与临时目录，互不影响。
+  // 5180 留给 `npm run dev`（Vite），部署默认单独占 5190。
+  const edgePort = portIndex >= 0 ? Number(argv[portIndex + 1]) : 5190;
+  const dataIndex = argv.indexOf("--data-dir");
+  const dataDir = dataIndex >= 0 ? path.resolve(argv[dataIndex + 1]) : path.join(ROOT, "var", "local");
+
+  let admin = null;
+  if (adminArg) {
+    const [username, ...rest] = adminArg.split(":");
+    const password = rest.join(":");
+    if (!username || !password) throw new Error("--admin 格式：<user>:<password>");
+    admin = { username, password };
+  }
+
+  const stack = await startStack({ preview, edgePort, admin, dataDir, keep: true });
+  if (admin) console.log(`admin ${admin.username} ready`);
+
+  console.log("");
+  console.log(`  portal  ${stack.portalUrl}/en/`);
+  console.log(`  admin   ${stack.portalUrl}/admin/`);
+  console.log(`  api     ${stack.apiUrl}/api/health`);
+  console.log(`  data    ${stack.dataDir}`);
+  console.log(`  preview ${preview ? "on (fixtures)" : "off (仓库清单)"}`);
+  console.log("");
+  console.log("Ctrl-C 停止。");
+
+  const stop = async (code = 0) => {
+    await stack.stop();
+    process.exit(code);
+  };
+  process.on("SIGINT", () => stop(0));
+  process.on("SIGTERM", () => stop(0));
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  main(process.argv.slice(2)).catch(async (error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

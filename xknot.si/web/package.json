@@ -1,7 +1,7 @@
 {
   "name": "xknot-hub",
   "version": "0.1.0",
-  "description": "Knot 联邦中枢门户",
+  "description": "XKnot 联邦中枢门户",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",

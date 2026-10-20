@@ -5,22 +5,22 @@
     "zh-TW": "繁"
   },
   "portal": {
-    "title": "Knot 联邦",
-    "tagline": "Agent 时代的信息交换网络，一站一站连起来。",
-    "skipToContent": "跳到节点目录",
+    "title": "XKnot 联邦",
+    "tagline": "面向 AI 与 Agent 时代的去中心化信息交换网络，一站一站连起来。",
+    "skipToContent": "跳到实例目录",
     "switchLanguage": "语言",
     "toDark": "切到深色",
     "toLight": "切到浅色"
   },
   "hero": {
-    "wordmark": "KNOT",
+    "wordmark": "XKNOT",
     "name": "联邦",
     "eyebrow": "分布式网络 / AGENT 时代",
     "protocol": "联邦协议 v1.0",
     "summary": "中枢只读。这里汇总各站的站点简介、运行状态与展示片段；账号、内容、积分都留在各自的站点。"
   },
   "stats": {
-    "nodes": "节点",
+    "nodes": "实例",
     "regions": "区域",
     "sync": "最近同步",
     "online": "在线"
@@ -30,7 +30,7 @@
     "all": "全部"
   },
   "nodes": {
-    "label": "节点目录",
+    "label": "实例目录",
     "onlineOnly": "只看在线",
     "hotOnly": "只看热点"
   },
@@ -39,6 +39,13 @@
     "updated": "更新于 {when}",
     "undated": "更新于未知",
     "more": "另 {count} 条"
+  },
+  "facts": {
+    "label": "伙伴公开的数据",
+    "posts24h": "24 小时 {count} 条",
+    "posts": "共 {count} 条",
+    "accounts": "{count} 个账号",
+    "active7d": "7 天内 {count} 位活跃作者"
   },
   "status": {
     "label": "状态",
@@ -78,8 +85,8 @@
     "other": "其他"
   },
   "state": {
-    "loading": "正在同步节点目录…",
-    "error": "节点目录没有加载出来。",
+    "loading": "正在同步实例目录…",
+    "error": "实例目录没有加载出来。",
     "retry": "重试"
   },
   "footer": {
@@ -93,30 +100,39 @@
     "zh-TW": "繁體中文"
   },
   "map": {
-    "label": "联邦地图：{total} 个节点，{online} 个可达，{peers} 条节点间直连",
-    "hint": "点一个节点，跳到它那一行",
-    "peer": "绿线为节点间协议直连，数据可就地交换，不必绕中枢",
-    "title": "全球节点分布",
+    "label": "联邦地图：{total} 个实例，{online} 个可达，{peers} 条规划中的实例间直连",
+    "hint": "点一个实例，跳到它那一行",
+    "peer": "绿线为规划中的实例间直连；当前读取仍经过中枢",
+    "title": "全球实例分布",
     "global": "无固定区域",
-    "hub": "联邦中心"
+    "hub": "联邦中枢"
   },
   "join": {
     "eyebrow": "加入联邦",
     "title": "申请加入 XKnot",
-    "lede": "手上已经跑着一个 Knot 站点？把信息留在这里。每条申请都由运营者人工看一遍，通过后才会出现在地图上。",
+    "lede": "给你的 Knot 站点挑一个子域。站点实际跑在哪里由你决定：自己有域名或固定 IP，或者只有一台能出网的机器。",
     "step1": "提交申请",
-    "step1desc": "站点、运营者、联系方式。",
+    "step1desc": "子域、运营者、联系方式。",
     "step2": "人工审核",
-    "step2desc": "核对站点在线、自建、可访问。",
-    "step3": "写进清单",
-    "step3desc": "通过后并入实例清单，下次构建上线。",
-    "terms": "提交即表示站点遵守联邦约定：不托管他站内容，账号与数据留在自己的域名。",
-    "jump": "申请加入 →"
+    "step2desc": "每一条申请都由人看一遍。",
+    "step3": "交接并接通",
+    "step3desc": "签发子域，验证公网可达后写入清单。",
+    "terms": "提交即表示站点遵守联邦约定：不托管他站内容，账号与数据留在自己的机器上。",
+    "jump": "申请加入 →",
+    "contactLabel": "审核人",
+    "contactHint": "审核、变更、恢复都发这个邮箱。"
   },
   "form": {
     "name": "站点名称",
     "namePlaceholder": "例如：北港",
-    "url": "站点地址",
+    "subdomain": "子域名",
+    "subdomainPlaceholder": "例如 travel",
+    "subdomainHint": "小写字母、数字与连字符，2–32 位。由中枢签发。",
+    "access": "站点落在哪里",
+    "accessDirect": "自有域名或固定公网 IP",
+    "accessDirectHint": "已经有可访问的地址，或能把子域解析到自己的机器。",
+    "accessTunnel": "动态 IP / 没有公网入口",
+    "accessTunnelHint": "只有一台能出网的机器。中枢用边缘主机加 SSH 反向隧道接进来。",
     "intro": "一句话简介",
     "introPlaceholder": "这个站点收什么，给谁看。",
     "operator": "运营者",
@@ -129,7 +145,7 @@
     "tags": "标签",
     "tagsPlaceholder": "最多五个，逗号分隔",
     "optional": "选填",
-    "agree": "站点遵守联邦约定，内容、账号与数据留在自己的域名。",
+    "agree": "站点遵守联邦约定，内容、账号与数据留在自己的机器上。",
     "submit": "提交申请",
     "submitting": "正在提交…"
   },
@@ -137,7 +153,12 @@
     "summary": "还有几项需要改。",
     "review": "回到表单",
     "name": "名称填 2 到 40 个字。",
-    "url": "要一个公开的 https:// 地址。",
+    "subdomain": {
+      "invalid": "小写字母、数字与连字符，2–32 位。",
+      "reserved": "这个名字留给中枢自己使用。",
+      "taken": "这个子域已有未结案的申请。"
+    },
+    "access": "选一个落点方式。",
     "operator": "写上运营者。",
     "email": "邮箱看起来不完整。",
     "region": "选一个区域。",
@@ -145,14 +166,14 @@
     "intro": "一句，最多 60 字。",
     "tags": "标签最多五个。",
     "agree": "勾选同意后才能提交。",
-    "duplicate": "这个地址已经在审核队列里了。",
+    "duplicate": "这个子域已经在审核队列里了。",
     "rate": "提交太频繁，过一会儿再试。",
     "generic": "没有提交成功，请再试一次。",
     "offline": "接口没连上，确认 API 在运行。"
   },
   "done": {
     "title": "申请已收到",
-    "body": "已经进入人工审核队列。有结果后会写到你填的邮箱。",
+    "body": "已进入人工审核队列，并已通知审核人。有结果后会写到你填的邮箱。",
     "ref": "申请编号",
     "at": "提交时间",
     "again": "再提交一份"

@@ -32,11 +32,14 @@ KEY=~/.ssh/suanli-sg-probe.pem
 | `/opt/xknot/server` | 接口源码 `server/index.mjs` |
 | `/opt/xknot/admin` | 审核台静态 |
 | `/opt/xknot/docs` | 本项目文档（systemd 的 `Documentation=`） |
+| `/opt/xknot/instances.json` | 接口读取的实例清单（委托发信判断实例是否在册、是否 active） |
 | `/opt/xknot/ops/validate-instances.mjs` | 清单校验（`manifest.mjs` 依赖） |
+| `/opt/xknot/ops/{check-health,watch-health,fetch-guard}.mjs` | 定时健康巡检：探测、发信、暂时隐藏 |
 | `/opt/xknot/web/src/lib/{i18n,regions}.js` | 校验依赖 |
 | `/opt/xknot/var` | SQLite / session-secret（`0600`，勿入仓） |
 | `/etc/nginx/conf.d/xknot.si.conf` | 门户 + `/api` `/admin` 反代 |
 | `/etc/systemd/system/xknot-api.service` | 接口常驻 |
+| `/etc/systemd/system/xknot-health.{service,timer}` | 每 15 分钟巡检一次 |
 
 ## 环境变量（systemd）
 
@@ -106,7 +109,7 @@ XKNOT_EDGE=$EDGE XKNOT_SSH_KEY=$KEY ./ops/deploy-hub.sh
 XKNOT_EDGE=$EDGE XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh
 ```
 
-`deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/` 与清单校验依赖，安装 nginx 配置与 systemd unit，`nginx -t` 通过后重启接口并 reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
+`deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/`、`instances.json`、巡检脚本与清单校验依赖，安装 nginx 配置与三个 systemd unit，`nginx -t` 通过后重启接口、启用 `xknot-health.timer` 并 reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
 
 先看会做什么，不连远端：
 
@@ -119,6 +122,7 @@ XKNOT_EDGE=$EDGE ./ops/deploy-api.sh --dry-run
 
 - `xknot.si` / `www.xknot.si`：443 提供门户，`/` 302 到 `/en/`；80 只留 ACME 并 301 到 HTTPS。
 - `/api/`、`/admin/` 反代到 `127.0.0.1:5181`；`/assets/` 长缓存，`/data/hub.json` 用 `no-cache`。
+- 门户带 HSTS、`nosniff`、`Referrer-Policy`、`X-Frame-Options: DENY` 与 CSP；`/admin/` 的严格 CSP 由接口的 `serveAdminFile` 发出，nginx 只补 HSTS。`/assets/` 与 `/data/hub.json` 不要写 `add_header`，否则 nginx 会丢掉 server 级安全头。
 - 没有其它子域。`root.xknot.si` 已删除：DNS 记录、nginx 配置与证书都清理掉了，不要重新加回来。
 - 证书由 Certbot 管理，不动 `ssl_certificate` 那几行。
 
@@ -163,11 +167,13 @@ curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 
 ## instances.json 备注
 
-清单里当前有两个实例：自营旗舰 `wang`（`https://wang.xknot.si`）和社区成员 `zjj`（`https://zjj.xknot.si`）。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
+清单里当前有两个实例：自营旗舰 `wang`（`https://wang.xknot.si`）和社区成员 `zjj`（`https://zjj.xknot.si`）。`zjj` 仍在交接期，`healthUrl` 为 `null`，运行状态显示「未探测」；`/api/health` 验收通过后再填回完整地址（见 `docs/HANDOFF.md`）。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
+
+`zjj` 的子域已签发，但边缘还没有 `/api` 反代，属交接期：清单里 `healthUrl` 暂为 `null`，运行状态 `unknown`。接通后填回 `https://zjj.xknot.si/api/health`。步骤见实例侧的 `knot-platform/ops/edge/zjj-tunnel.md`，交付规则见 `xknot.si/docs/HANDOFF.md`。
 
 ## 实例侧
 
-实例怎么部署、边缘与隧道怎么配，不在本文范围。用 `knot-platform` 部署的站点见仓库根的 `ops/`：`ops/edge/README.md`（隧道与边缘）、`ops/edge/subdomain-fixed-ip.md`（固定 IP 直连）。那边的主机与密钥由各自的 `sites/<站点>/site.env` 给出。
+实例怎么部署、边缘与隧道怎么配，不在本文范围。当前实例实现是 `knot-platform`：边缘与隧道见 `knot-platform/ops/edge/README.md`，固定 IP 直连见 `knot-platform/ops/edge/subdomain-fixed-ip.md`，主机与密钥由各自的 `sites/<站点>/site.env` 给出。换别的实现，本文不需要改——中枢只认 `/api/health` 与接入件。
 
 ## 禁止
 

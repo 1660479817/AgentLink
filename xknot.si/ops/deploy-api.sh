@@ -57,9 +57,9 @@ echo "==> prepare $XKNOT_EDGE:$API_ROOT"
 if [[ "$DRY_RUN" == 1 ]]; then
   echo "(dry-run) mkdir -p $API_ROOT/{server,admin,ops,docs,web/src/lib,var}"
 else
-  ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" \
+    ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" \
     "mkdir -p '$API_ROOT/server' '$API_ROOT/admin' '$API_ROOT/ops' '$API_ROOT/docs' \
-      '$API_ROOT/web/src/lib' && chmod 700 '$API_ROOT/var' 2>/dev/null || true"
+      '$API_ROOT/web/src/lib' '$API_ROOT/var' && chmod 700 '$API_ROOT/var'"
 fi
 
 # 接口运行时需要的东西：server/ 本身，以及 manifest.mjs 校验清单时用到的
@@ -69,44 +69,62 @@ rsync_to "$HUB/server/" "$API_ROOT/server/"
 rsync_to "$HUB/admin/" "$API_ROOT/admin/"
 rsync_to "$HUB/docs/" "$API_ROOT/docs/"
 rsync_to "$HUB/ops/validate-instances.mjs" "$API_ROOT/ops/"
+# 定时巡检（每 15 分钟）在远端直接跑这几个文件；漏了它们，timer 会每 15 分钟失败一次。
+rsync_to "$HUB/ops/check-health.mjs" "$API_ROOT/ops/"
+rsync_to "$HUB/ops/watch-health.mjs" "$API_ROOT/ops/"
+rsync_to "$HUB/ops/fetch-guard.mjs" "$API_ROOT/ops/"
 rsync_to "$HUB/web/src/lib/i18n.js" "$API_ROOT/web/src/lib/"
 rsync_to "$HUB/web/src/lib/regions.js" "$API_ROOT/web/src/lib/"
+# 委托发信要按清单判断实例是否在册、是否 active；漏了这份文件，新实例会被 403。
+rsync_to "$HUB/instances.json" "$API_ROOT/instances.json"
+# `npm run admin` 读的是这份文件；缺了它，运维只能在仓库目录里跑 node。
+rsync_to "$HUB/package.json" "$API_ROOT/package.json"
 
 echo "==> stage config"
 if [[ "$DRY_RUN" == 1 ]]; then
-  echo "(dry-run) copy ops/xknot.si.conf, ops/xknot-api.service → /tmp"
+  echo "(dry-run) copy ops/xknot.si.conf, ops/xknot-api.service, ops/xknot-health.{service,timer} → /tmp"
 else
   scp -q "${SSH_OPTS[@]}" \
     "$HUB/ops/xknot.si.conf" \
     "$HUB/ops/xknot-api.service" \
+    "$HUB/ops/xknot-health.service" \
+    "$HUB/ops/xknot-health.timer" \
     "$XKNOT_EDGE:/tmp/"
 fi
 
 echo "==> install config"
 if [[ "$DRY_RUN" == 1 ]]; then
-  echo "(dry-run) install conf + unit, nginx -t, restart $SERVICE, reload nginx"
+  echo "(dry-run) install conf + units (api + health.service/timer), nginx -t, restart $SERVICE, enable health.timer, reload nginx"
 else
   ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" "
     set -e
     sudo install -m 644 /tmp/xknot.si.conf '$NGINX_CONF'
     sudo install -m 644 /tmp/xknot-api.service '/etc/systemd/system/$SERVICE.service'
+    sudo install -m 644 /tmp/xknot-health.service /etc/systemd/system/xknot-health.service
+    sudo install -m 644 /tmp/xknot-health.timer /etc/systemd/system/xknot-health.timer
     sudo nginx -t
     sudo systemctl daemon-reload
     sudo systemctl enable '$SERVICE'
     sudo systemctl restart '$SERVICE'
+    # timer 只 enable，不立刻补跑：部署时刚探过，马上再跑一次会把同一状态重复写一遍。
+    sudo systemctl enable xknot-health.timer
+    sudo systemctl start xknot-health.timer
     sudo systemctl reload nginx
   "
 fi
 
 echo "==> verify"
 if [[ "$DRY_RUN" == 1 ]]; then
-  echo "(dry-run) curl $XKNOT_EDGE/api/health"
+  echo "(dry-run) curl $XKNOT_EDGE/api/health; check xknot-health.timer"
 else
   for _ in $(seq 1 15); do
     if ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" "curl -sf http://127.0.0.1:5181/api/health >/dev/null"; then
       curl -sf "https://xknot.si/api/health" >/dev/null 2>&1 \
         && echo "OK: https://xknot.si/api/health" \
         || echo "OK: 接口已起；公网地址这次没连上，检查 DNS 与证书。"
+      ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" "systemctl is-enabled xknot-health.timer" >/dev/null 2>&1 \
+        && echo "OK: xknot-health.timer 已启用（每 15 分钟）" \
+        || echo "WARN: xknot-health.timer 未启用，连续断连提醒与隐藏不会发生。"
       exit 0
     fi
     sleep 1

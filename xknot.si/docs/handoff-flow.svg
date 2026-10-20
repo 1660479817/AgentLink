@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 1.2 L 10 5 L 0 8.8 Z" fill="#222"/>
+    </marker>
+    <marker id="arrow-left" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 10 1.2 L 0 5 L 10 8.8 Z" fill="#222"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="780" fill="#ffffff"/>
+
+  <!-- 第一段：签发 -->
+  <rect x="60" y="140" width="300" height="460" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.3">
+    <rect x="80" y="168" width="260" height="84" rx="8"/>
+    <rect x="80" y="272" width="260" height="84" rx="8"/>
+    <rect x="80" y="376" width="260" height="84" rx="8"/>
+  </g>
+
+  <!-- 闸门：交付单与两侧动作 -->
+  <rect x="400" y="140" width="340" height="460" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6" stroke-dasharray="7 5"/>
+  <rect x="420" y="164" width="300" height="80" rx="10" fill="#ffffff" stroke="#0866FF" stroke-width="1.8"/>
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.2">
+    <rect x="416" y="288" width="130" height="56" rx="7"/>
+    <rect x="416" y="352" width="130" height="56" rx="7"/>
+    <rect x="416" y="416" width="130" height="56" rx="7"/>
+    <rect x="416" y="480" width="130" height="56" rx="7"/>
+    <rect x="594" y="288" width="130" height="56" rx="7"/>
+    <rect x="594" y="352" width="130" height="56" rx="7"/>
+    <rect x="594" y="416" width="130" height="56" rx="7"/>
+    <rect x="594" y="480" width="130" height="56" rx="7"/>
+  </g>
+
+  <!-- 第二段：接通 -->
+  <rect x="780" y="140" width="360" height="460" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.3">
+    <rect x="800" y="160" width="320" height="84" rx="8"/>
+    <rect x="800" y="258" width="320" height="84" rx="8"/>
+    <rect x="800" y="356" width="320" height="84" rx="8"/>
+  </g>
+  <rect x="800" y="454" width="320" height="84" rx="8" fill="#ffffff" stroke="#0866FF" stroke-width="1.8"/>
+
+  <!-- 阶段之间的箭头 -->
+  <g fill="none" stroke="#222" stroke-width="1.6">
+    <line x1="360" y1="370" x2="396" y2="370" marker-end="url(#arrow)"/>
+    <line x1="740" y1="370" x2="776" y2="370" marker-end="url(#arrow)"/>
+    <line x1="546" y1="386" x2="590" y2="386" marker-end="url(#arrow)"/>
+    <line x1="594" y1="366" x2="550" y2="366" marker-end="url(#arrow-left)"/>
+    <line x1="546" y1="444" x2="590" y2="444" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- 状态带 -->
+  <rect x="60" y="620" width="520" height="72" rx="10" fill="#ffffff" stroke="#222" stroke-width="1.3"/>
+  <rect x="650" y="620" width="490" height="72" rx="10" fill="#ffffff" stroke="#0866FF" stroke-width="1.8"/>
+  <line x1="586" y1="656" x2="646" y2="656" fill="none" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- 文字 -->
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="60" y="48" font-size="20" font-weight="600" fill="#111">XKnot 联邦 · 子域开通：两段之间的一次交接</text>
+    <text x="60" y="74" font-size="13" fill="#65676B">签发不等于接通。闸门是一张交付单，不是一次口头确认。</text>
+
+    <g text-anchor="middle" font-size="12" font-weight="600">
+      <rect x="60" y="98" width="300" height="26" rx="13" fill="#f4f4f4" stroke="none"/>
+      <text x="210" y="116" fill="#111">第一段 · 签发（工作人员）</text>
+      <rect x="400" y="98" width="340" height="26" rx="13" fill="#f4f4f4" stroke="none"/>
+      <text x="570" y="116" fill="#111">闸门 · 交接（双方）</text>
+      <rect x="780" y="98" width="360" height="26" rx="13" fill="#f4f4f4" stroke="none"/>
+      <text x="960" y="116" fill="#111">第二段 · 接通（工作人员）</text>
+    </g>
+
+    <g text-anchor="middle">
+      <text x="210" y="196" font-size="14" font-weight="600" fill="#111">签发子域</text>
+      <text x="210" y="218" font-size="12" fill="#333">权利人确认，人工执行</text>
+      <text x="210" y="300" font-size="14" font-weight="600" fill="#111">DNS 与证书</text>
+      <text x="210" y="322" font-size="12" fill="#333">A 记录指向边缘，证书续期</text>
+      <text x="210" y="404" font-size="14" font-weight="600" fill="#111">静态占位页</text>
+      <text x="210" y="426" font-size="12" fill="#333">/var/www/&lt;id&gt;，没有 /api</text>
+      <text x="210" y="512" font-size="12" fill="#65676B">此刻 /api/health 返回的是</text>
+      <text x="210" y="532" font-size="12" fill="#65676B">静态页，不是 JSON</text>
+    </g>
+
+    <g text-anchor="middle">
+      <text x="570" y="190" font-size="14" font-weight="600" fill="#0866FF">交付单 HANDOFF.md</text>
+      <text x="570" y="212" font-size="12" fill="#333">账号 · 端口 · 公钥指纹</text>
+      <text x="570" y="230" font-size="12" fill="#333">探测契约 · 清单字段 · 分工</text>
+
+      <text x="481" y="274" font-size="12" font-weight="600" fill="#111">伙伴</text>
+      <text x="659" y="274" font-size="12" font-weight="600" fill="#111">工作人员</text>
+
+      <text x="481" y="310" font-size="12" font-weight="600" fill="#111">部署实例</text>
+      <text x="481" y="328" font-size="11" fill="#333">本机自测通过</text>
+      <text x="481" y="374" font-size="12" font-weight="600" fill="#111">发公钥</text>
+      <text x="481" y="392" font-size="11" fill="#333">ed25519 · 只发 .pub</text>
+      <text x="481" y="438" font-size="12" font-weight="600" fill="#111">起隧道</text>
+      <text x="481" y="456" font-size="11" fill="#333">-R 18081 → 8080</text>
+      <text x="481" y="502" font-size="12" font-weight="600" fill="#111">装常驻</text>
+      <text x="481" y="520" font-size="11" fill="#333">断线自动重连</text>
+
+      <text x="659" y="310" font-size="12" font-weight="600" fill="#111">分端口 · 定账号</text>
+      <text x="659" y="328" font-size="11" fill="#333">写进交付单</text>
+      <text x="659" y="374" font-size="12" font-weight="600" fill="#111">建账号 · 装公钥</text>
+      <text x="659" y="392" font-size="11" fill="#333">authorized_keys 600</text>
+      <text x="659" y="438" font-size="12" font-weight="600" fill="#111">等监听</text>
+      <text x="659" y="456" font-size="11" fill="#333">ss -lntp | grep 18081</text>
+      <text x="659" y="502" font-size="12" font-weight="600" fill="#111">补 /api 反代</text>
+      <text x="659" y="520" font-size="11" fill="#333">nginx -t 后 reload</text>
+
+      <text x="570" y="566" font-size="11" fill="#65676B">公钥先到，账号才建；监听先起，反代才加</text>
+    </g>
+
+    <g text-anchor="middle">
+      <text x="960" y="188" font-size="14" font-weight="600" fill="#111">公网验收</text>
+      <text x="960" y="210" font-size="12" fill="#333">/ 是页面，/api/health 是 JSON</text>
+      <text x="960" y="228" font-size="12" fill="#333">3xx 不跟随，5 秒超时</text>
+      <text x="960" y="286" font-size="14" font-weight="600" fill="#111">填回 healthUrl</text>
+      <text x="960" y="308" font-size="12" fill="#333">从 null 改回完整地址</text>
+      <text x="960" y="326" font-size="12" fill="#333">只在这一步之后</text>
+      <text x="960" y="384" font-size="14" font-weight="600" fill="#111">重跑健康探测</text>
+      <text x="960" y="406" font-size="12" fill="#333">node ops/check-health.mjs</text>
+      <text x="960" y="424" font-size="12" fill="#333">≤2 秒为正常</text>
+      <text x="960" y="490" font-size="15" font-weight="600" fill="#0866FF">运行状态 up</text>
+      <text x="960" y="514" font-size="12" fill="#333">交付完成，可以对外宣告</text>
+    </g>
+
+    <text x="80" y="648" font-size="13" font-weight="600" fill="#111">清单 healthUrl = null</text>
+    <text x="80" y="670" font-size="11" fill="#333">运行状态 unknown，合法；不探测，也不算中断</text>
+    <text x="670" y="648" font-size="13" font-weight="600" fill="#111">清单 healthUrl = https://&lt;子域&gt;/api/health</text>
+    <text x="670" y="670" font-size="11" fill="#333">运行状态 up 或 degraded；只有这时才算接通</text>
+
+    <text x="60" y="742" font-size="12" fill="#65676B">中枢只读：构建时探测一次，不常驻巡检。接通前置 null，接通后填回；清单是唯一的人工入口。</text>
+  </g>
+</svg>

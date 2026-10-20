@@ -30,32 +30,36 @@ export function sortInstances(list) {
 export function buildView(data, { locale }) {
   const list = Array.isArray(data?.instances) ? data.instances : [];
 
-  return sortInstances(list).map((instance) => {
-    const health = instance.health || null;
-    return {
-      id: instance.id,
-      name: pickLocalized(instance.name, locale) || instance.id,
-      shortName: pickLocalized(instance.shortName, locale),
-      intro: pickLocalized(instance.intro?.oneLine, locale),
-      tags: pickLocalized(instance.tags, locale) || [],
-      logo: instance.logo,
-      themeColor: instance.themeColor,
-      url: instance.url,
-      tier: instance.tier,
-      status: instance.status,
-      timezone: instance.timezone || "UTC",
-      regions: Array.isArray(instance.regions) ? instance.regions : [],
-      groups: groupsOf(instance.regions),
-      cards: Array.isArray(instance.cards) ? instance.cards : [],
-      health: {
-        status: health?.status || "unknown",
-        lastOkAt: health?.lastOkAt || null,
-        latencyMs: typeof health?.latencyMs === "number" ? health.latencyMs : null,
-        checkedAt: health?.checkedAt || null,
-        version: health?.version || null,
-      },
-    };
-  });
+  // 连续不可达满 7 天、或签发后 30 天仍未接通，条目暂时不出现在门户。
+  // 判断依据是探测写下的 hiddenAt，不是清单里的 status。
+  return sortInstances(list)
+    .filter((instance) => instance?.health?.hidden !== true)
+    .map((instance) => {
+      const health = instance.health || null;
+      return {
+        id: instance.id,
+        name: pickLocalized(instance.name, locale) || instance.id,
+        shortName: pickLocalized(instance.shortName, locale),
+        intro: pickLocalized(instance.intro?.oneLine, locale),
+        tags: pickLocalized(instance.tags, locale) || [],
+        logo: instance.logo,
+        themeColor: instance.themeColor,
+        url: instance.url,
+        tier: instance.tier,
+        status: instance.status,
+        timezone: instance.timezone || "UTC",
+        regions: Array.isArray(instance.regions) ? instance.regions : [],
+        groups: groupsOf(instance.regions),
+        cards: Array.isArray(instance.cards) ? instance.cards : [],
+        health: {
+          status: health?.status || "unknown",
+          lastOkAt: health?.lastOkAt || null,
+          latencyMs: typeof health?.latencyMs === "number" ? health.latencyMs : null,
+          checkedAt: health?.checkedAt || null,
+          version: health?.version || null,
+        },
+      };
+    });
 }
 
 // 页面上出现的筛选项：全部 + 实际用到的分组，顺序固定。

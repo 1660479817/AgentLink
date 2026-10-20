@@ -1,4 +1,4 @@
-# Knot 联邦 · 名称约定
+# XKnot 联邦 · 名称约定
 
 适用于文档、界面、代码标识、伙伴协议和对外宣传。
 
@@ -8,13 +8,16 @@
 
 | 项 | 写法 |
 |----|------|
+| 网络名 | **XKnot**（中英文同名，`X` 与 `K` 大写） |
 | 域名 | `xknot.si`（一律小写，不加 `www`） |
-| 中文名 | **Knot 联邦** |
-| 英文名 | **Knot Federation** |
-| 中文一句话 | Knot 联邦 —— Agent 时代的分布式信息网络 |
-| 英文一句话 | Knot Federation — a distributed information network for the Agent era. |
+| 中文名 | **XKnot 联邦** |
+| 英文名 | **XKnot Federation** |
+| 中文一句话 | XKnot 联邦 —— 面向 AI 与 Agent 时代的去中心化分布式信息网络 |
+| 英文一句话 | XKnot Federation — a decentralized, distributed information network for the AI and Agent era. |
 
-`Knot` 与中文之间留一个空格，写作「Knot 联邦」，不写「Knot联邦」。破折号用「——」，不用单个 `-`。
+`XKnot` 与中文之间留一个空格，写作「XKnot 联邦」，不写「XKnot联邦」。破折号用「——」，不用单个 `-`。
+
+**XKnot 与 Knot 分工。** `XKnot` 指这张网络和它的品牌；`Knot` 只指部署一个实例所用的软件（`knot-platform`）与「基于 Knot」的署名。实例自身仍叫 Knot 实例，不写成「XKnot 实例」。
 
 ## 1. 联邦的含义
 
@@ -24,13 +27,13 @@
 
 > 联邦指成员自治，不指成员互通。
 
-对应的英文名是 Knot Federation，不是 Knot Alliance。
+对应的英文名是 XKnot Federation，不是 XKnot Alliance。
 
 ## 2. 三条总规则
 
 1. **一名一义。** 一个中文名只对应一个概念，一个英文名也只有一个意思。同义不同名（"中枢 / 门户 / 中心"）全部禁止。
 2. **中文说中文，英文说英文。** 中文句子里用中文名，英文句子里用英文名。中文里不夹杂 `hub`、`showcase`。
-3. **专有名词不译。** `Knot`、`AgentLink`、`xknot.si`、`Agent`、`kMeta`、`wish`、`wishRespond`、`post`、`fastpost` 原样保留。`Agent` 不译成「智能体」。
+3. **专有名词不译。** `XKnot`、`Knot`、`AgentLink`、`xknot.si`、`Agent`、`kMeta`、`wish`、`wishRespond`、`post`、`fastpost` 原样保留。`Agent` 不译成「智能体」。
 
 排版规则：
 
@@ -43,7 +46,7 @@
 
 | 中文 | 英文 | 标识 | 定义 | 不要写 |
 |------|------|------|------|--------|
-| Knot 联邦 | Knot Federation | — | 所有实例的集合，以 `xknot.si` 为入口 | Knot 生态平台、Knot 联盟 |
+| XKnot 联邦 | XKnot Federation | — | 所有实例的集合，以 `xknot.si` 为入口 | Knot 生态平台、XKnot 联盟 |
 | 中枢 | hub | `hub` | `xknot.si` 上的只读入口服务 | 中心、总站、主站、聚合平台 |
 | 实例 | instance | `instance` | 一套独立部署的 Knot，有自己的库和账号 | 节点、子站、分站、租户 |
 | 伙伴 | partner | `partner` | 运营一个实例的主体 | 商户、加盟商、客户 |
@@ -57,6 +60,11 @@
 | 热点橱窗 | showcase | L3 | 伙伴自己发布、中枢定时取回的固定 6 张卡片 | 信息流、推荐流、广场、热榜 |
 | 橱窗卡片 | showcase card | `card` | 橱窗里的一条，必须有跳回原站的链接 | 帖子、情报、文章 |
 | 橱窗拉取 | showcase fetch | `fetch-cards` | 定时 GET 伙伴的 `cardsUrl` | 同步、灌入、上报 |
+| 活动数据拉取 | stats fetch | `fetch-stats` | 定时 GET 伙伴的 `statsUrl` | 埋点、统计上报 |
+| 委托发信 | mail relay | `relay` | 实例把一封通知交给中枢的 SMTP 送出 | 代发、转发邮件、邮件网关 |
+| 发信凭据 | relay token | `relayToken` | 中枢签给实例的令牌，可单独吊销 | API Key、密钥 |
+| 发信额度 | relay quota | `dailyLimit` | 一份凭据 24 小时内的发信上限 | 限额、配额 |
+| 发信记录 | relay log | `relay_log` | 只记收件域名与结果，不存正文 | 邮件日志、发信历史 |
 | 收录 | listing | `listed` | 把实例写进清单 | 入驻、上架、签约 |
 | 下架 | delist | `delisted` | 从清单删除，中枢不再展示 | 封禁、关闭、撤下 |
 | 示范入口 | demo entry | `tier: demo` | 只做 301 的官方示范地址 | 样板站 |
@@ -159,13 +167,15 @@ JSON 里永远是英文小写；界面上显示本地文案。
 
 **一句话**
 
-> Knot 联邦是一个以 `xknot.si` 为入口的信息网络。成员各自部署、各自运营，中枢只做入口。
+> XKnot 联邦是一个以 `xknot.si` 为入口的信息网络。成员各自部署、各自运营，中枢只做入口。
 
-> Knot Federation is an information network entered at xknot.si. Members deploy and operate their own instances; the hub is an entry point only.
+> XKnot Federation is an information network entered at xknot.si. Members deploy and operate their own instances; the hub is an entry point only.
 
 **边界**
 
-> 中枢只读：站点档案、运行状态、热点橱窗都由中枢主动取，没有写入口。
+> 中枢只读：站点档案、运行状态、热点橱窗都由中枢主动取，没有数据写入口。委托发信是唯一例外——只送信，不留内容。
+
+> The hub is read-only: site profiles, runtime status and showcases are fetched by the hub. Delegated mail is the only exception: it sends a message, it keeps no content.
 
 **归属**
 
@@ -175,7 +185,7 @@ JSON 里永远是英文小写；界面上显示本地文案。
 
 > Based on Knot
 
-伙伴可以在自己的站点写「基于 Knot」。官方认证、`Knot 联邦官方`、`Powered by Knot 联邦` 和 `xknot.si` 子域由权利人签发。
+伙伴可以在自己的站点写「基于 Knot」。官方认证、`XKnot 联邦官方`、`Powered by XKnot` 和 `xknot.si` 子域由权利人签发。
 
 ## 9. 示例
 
@@ -192,6 +202,6 @@ JSON 里永远是英文小写；界面上显示本地文案。
 | 伙伴把内容推送到中枢的聚合平台 | 中枢不接收推送，也不聚合 |
 | 中枢数据库里只有一张实例表 | 中枢没有数据库 |
 | 这个节点挂了 | 应用「实例」；「挂」应写「中断」 |
-| 我们入驻了 Knot 联邦 | 用「收录」；收录是登记，不是审批 |
+| 我们入驻了 XKnot 联邦 | 用「收录」；收录是登记，不是审批 |
 | 打开信息流看六条热榜 | L3 是橱窗，固定 6 张，没有榜 |
 | 智能体时代的信息网络 | `Agent` 不译 |

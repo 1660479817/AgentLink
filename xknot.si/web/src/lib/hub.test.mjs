@@ -44,7 +44,8 @@ test("a locale with no variant falls back to English", () => {
   assert.equal(item.name, "Knot Travel SG");
 });
 
-test("a missing health entry reads as unknown, not down", () => {  const [item] = buildView({ instances: [instance({ health: null })] }, { locale: "en" });
+test("a missing health entry reads as unknown, not down", () => {
+  const [item] = buildView({ instances: [instance({ health: null })] }, { locale: "en" });
   assert.equal(item.health.status, "unknown");
   assert.equal(item.health.lastOkAt, null);
 });
@@ -84,6 +85,23 @@ test("demo entries stay in the list", () => {
     view.map((item) => item.id),
     ["core", "travel-sg"]
   );
+});
+
+test("an entry hidden by the health policy drops out of the view", () => {
+  const view = buildView(
+    {
+      instances: [
+        instance({ id: "core", tier: "demo" }),
+        instance({ id: "hidden", health: { status: "down", hidden: true } }),
+      ],
+    },
+    { locale: "en" }
+  );
+  assert.deepEqual(
+    view.map((item) => item.id),
+    ["core"]
+  );
+  assert.equal(summarize(view).nodes, 1, "a hidden entry is not counted");
 });
 
 test("region groups are derived from country codes", () => {

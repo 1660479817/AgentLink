@@ -33,12 +33,19 @@ fi
 
 echo "== validate =="
 node "$HUB/ops/validate-instances.mjs"
+node "$HUB/ops/validate-federation.mjs"
 
 if [ "$OFFLINE" = "1" ]; then
   echo "== probe (skipped) =="
+  echo "== fetch (skipped) =="
 else
   echo "== probe =="
   node "$HUB/ops/check-health.mjs"
+
+  # 伙伴地址取不到时保留上一份，构建照常继续。
+  echo "== fetch =="
+  node "$HUB/ops/fetch-cards.mjs"
+  node "$HUB/ops/fetch-stats.mjs"
 fi
 
 if [ ! -d "$WEB/node_modules" ]; then

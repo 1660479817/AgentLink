@@ -5,11 +5,12 @@ import test from "node:test";
 import { createApp } from "./app.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry } from "./manifest.mjs";
 import { openMemoryStore } from "./store.mjs";
-import { normalizeTags, normalizeUrl, validateApplication } from "./validate.mjs";
+import { normalizeSubdomain, normalizeTags, validateApplication } from "./validate.mjs";
 
 const valid = {
   name: "北港",
-  url: "https://nordhavn.example",
+  subdomain: "nordhavn",
+  requestAccess: "direct",
   operator: "Lin",
   email: "lin@example.com",
   region: "NO",
@@ -29,6 +30,11 @@ async function start(t, options = {}) {
       mailer: options.mailer || null,
       adminEmail: options.adminEmail || "",
       origin: options.origin || "https://xknot.si",
+      replyTo: options.replyTo || "",
+      supportUrl: options.supportUrl || "",
+      instances: options.instances || [],
+      instancesProvider: () => options.instances || [],
+      healthProvider: () => options.health || null,
     },
   });
   const server = createServer((req, res) => {
@@ -43,15 +49,20 @@ async function start(t, options = {}) {
     store.close();
   });
 
-  async function call(path, { method = "GET", body, cookie, origin } = {}) {
+  async function call(path, { method = "GET", body, form, cookie, origin } = {}) {
     const headers = { accept: "application/json" };
-    if (body !== undefined) headers["content-type"] = "application/json";
+    const payload = form !== undefined ? new URLSearchParams(form).toString() : body === undefined ? undefined : JSON.stringify(body);
+    if (payload !== undefined) {
+      headers["content-type"] =
+        form !== undefined ? "application/x-www-form-urlencoded" : "application/json";
+    }
     if (cookie) headers.cookie = cookie;
     if (origin) headers.origin = origin;
     const response = await fetch(base + path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: payload,
+      redirect: "manual",
     });
     const text = await response.text();
     let data = null;
@@ -63,7 +74,16 @@ async function start(t, options = {}) {
     return { status: response.status, data, headers: response.headers };
   }
 
-  return { store, call, base };
+  // 走一遍真实的邮箱确认：令牌从 store 取，POST 到 /api/verify。
+  async function verify(application) {
+    const issued = store.issueVerifyToken({ applicationId: application.id });
+    assert.ok(issued.token, "verify token should be issued");
+    const result = await call("/api/verify", { method: "POST", form: { token: issued.token } });
+    assert.equal(result.status, 200);
+    return result;
+  }
+
+  return { store, call, base, verify };
 }
 
 function adminCookie(result) {
@@ -71,25 +91,46 @@ function adminCookie(result) {
   return raw.split(";")[0];
 }
 
+async function loginAs(call, store, username = "paul", password = "correct-horse-battery") {
+  store.createAdmin({ username, password });
+  const login = await call("/api/admin/login", { method: "POST", body: { username, password } });
+  return adminCookie(login);
+}
+
 test("validate: a complete application passes and is normalized", () => {
   const result = validateApplication(valid);
   assert.equal(result.ok, true);
-  assert.equal(result.value.url, "https://nordhavn.example");
+  assert.equal(result.value.subdomain, "nordhavn");
+  assert.equal(result.value.requestAccess, "direct");
   assert.deepEqual(result.value.tags, ["长文", "设计"]);
   assert.equal(result.value.email, "lin@example.com");
 });
 
 test("validate: missing and malformed fields report per-field codes", () => {
-  const result = validateApplication({ ...valid, url: "nordhavn", email: "lin@", agree: false });
+  const result = validateApplication({ ...valid, subdomain: "nord havn", requestAccess: "", email: "lin@", agree: false });
   assert.equal(result.ok, false);
-  assert.equal(result.errors.url, "invalid_url");
+  assert.equal(result.errors.subdomain, "invalid");
+  assert.equal(result.errors.access, "required");
   assert.equal(result.errors.email, "invalid_email");
   assert.equal(result.errors.agree, "required");
 });
 
+test("validate: the subdomain label is the identity, not a full URL", () => {
+  assert.equal(validateApplication({ ...valid, subdomain: "https://travel.xknot.si/" }).value.subdomain, "travel");
+  assert.equal(validateApplication({ ...valid, subdomain: "Travel" }).value.subdomain, "travel");
+  assert.equal(validateApplication({ ...valid, subdomain: "https://nordhavn.example" }).errors.subdomain, "invalid");
+  assert.equal(validateApplication({ ...valid, subdomain: "a" }).errors.subdomain, "invalid");
+  assert.equal(validateApplication({ ...valid, subdomain: "www" }).errors.subdomain, "reserved");
+  assert.equal(validateApplication({ ...valid, subdomain: "admin" }).errors.subdomain, "reserved");
+  assert.equal(validateApplication({ ...valid, subdomain: "-x" }).errors.subdomain, "invalid");
+  assert.equal(validateApplication({ ...valid, subdomain: "x-" }).errors.subdomain, "invalid");
+  assert.equal(validateApplication({ ...valid, subdomain: "x".repeat(33) }).errors.subdomain, "invalid");
+  // 落点只接受两种明确选择。
+  assert.equal(validateApplication({ ...valid, requestAccess: "unknown" }).errors.access, "required");
+  assert.equal(validateApplication({ ...valid, requestAccess: "tunnel" }).ok, true);
+});
+
 test("validate: non-https, credentials in URL and unknown regions are rejected", () => {
-  assert.equal(validateApplication({ ...valid, url: "ftp://a.example" }).errors.url, "invalid_url");
-  assert.equal(validateApplication({ ...valid, url: "https://u:p@a.example" }).errors.url, "invalid_url");
   assert.equal(validateApplication({ ...valid, region: "ZZ" }).errors.region, "invalid_region");
   assert.equal(validateApplication({ ...valid, region: "GLOBAL" }).ok, true);
   assert.equal(validateApplication({ ...valid, timezone: "Mars/Base" }).errors.timezone, "invalid_timezone");
@@ -104,7 +145,20 @@ test("validate: over-long text is rejected instead of silently cut", () => {
 
 test("normalize: tags split on both comma styles and drop duplicates", () => {
   assert.deepEqual(normalizeTags("Agent，工具 chain, agent"), ["Agent", "工具", "chain"]);
-  assert.equal(normalizeUrl("https://a.example/"), "https://a.example");
+  assert.equal(normalizeSubdomain("https://travel.xknot.si/"), "travel");
+  assert.equal(normalizeSubdomain("travel.xknot.si"), "travel");
+  assert.equal(normalizeSubdomain("travel"), "travel");
+  assert.equal(normalizeSubdomain("BAD_Label"), "");
+});
+
+test("api: health advertises the documented service shape", async (t) => {
+  const { call } = await start(t);
+  const result = await call("/api/health");
+  assert.equal(result.status, 200);
+  assert.equal(result.data.ok, true);
+  assert.equal(result.data.service, "xknot-hub");
+  assert.equal(typeof result.data.version, "string");
+  assert.match(result.data.at, /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test("api: submission returns an id and lands in the pending queue", async (t) => {
@@ -126,7 +180,7 @@ function recordingMailer() {
   };
 }
 
-test("api: a new application emails the admin and replies to the applicant", async (t) => {
+test("api: a new application emails the applicant and the admin", async (t) => {
   const mailer = recordingMailer();
   const { call } = await start(t, { mailer, adminEmail: "admin@example.com" });
   const result = await call("/api/applications", {
@@ -135,13 +189,19 @@ test("api: a new application emails the admin and replies to the applicant", asy
   });
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(mailer.sent.length, 1);
-  const mail = mailer.sent[0];
-  assert.equal(mail.to, "admin@example.com");
-  assert.equal(mail.replyTo, "lin@example.com");
-  assert.match(mail.subject, /新加入申请/);
-  assert.match(mail.text, new RegExp(result.data.application.id));
-  assert.match(mail.text, /https:\/\/xknot\.si\/admin\//);
+  assert.equal(mailer.sent.length, 2);
+  const [partner, admin] = mailer.sent;
+  assert.equal(partner.to, "lin@example.com");
+  assert.match(partner.subject, /application received/);
+  assert.equal(partner.replyTo, "", "partner mail must not accept replies");
+  assert.match(partner.text, /replies are not monitored/);
+  assert.match(partner.text, /\/verify\//);
+  assert.match(partner.text, new RegExp(result.data.application.id));
+
+  assert.equal(admin.to, "admin@example.com");
+  assert.equal(admin.replyTo, "lin@example.com");
+  assert.match(admin.subject, /new application/);
+  assert.match(admin.text, /https:\/\/xknot\.si\/admin\//);
 });
 
 test("api: a broken mailer never fails the submission", async (t) => {
@@ -158,53 +218,59 @@ test("api: a broken mailer never fails the submission", async (t) => {
   assert.equal(store.listApplications({ status: "pending" }).length, 1);
 });
 
-test("api: approval and rejection email the applicant, hold stays internal", async (t) => {
+test("api: approval, rejection and hold email the applicant after verification", async (t) => {
   const mailer = recordingMailer();
-  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
-  store.createAdmin({ username: "paul", password: "correct-horse-battery" });
-  const login = await call("/api/admin/login", {
-    method: "POST",
-    body: { username: "paul", password: "correct-horse-battery" },
-  });
-  const cookie = adminCookie(login);
+  const { call, verify, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const cookie = await loginAs(call, store);
 
   const approved = await call("/api/applications", {
     method: "POST",
     body: { ...valid, locale: "zh-CN" },
   });
-  await call(`/api/admin/applications/${approved.data.application.id}/review`, {
+  await verify(approved.data.application);
+  const approvedReview = await call(`/api/admin/applications/${approved.data.application.id}/review`, {
     method: "POST",
     cookie,
     body: { decision: "approve" },
   });
+  assert.equal(approvedReview.status, 200);
+  assert.equal(approvedReview.data.application.status, "approved");
 
   const rejected = await call("/api/applications", {
     method: "POST",
-    body: { ...valid, url: "https://sakura.example", locale: "en" },
+    body: { ...valid, subdomain: "sakura", locale: "en" },
   });
+  await verify(rejected.data.application);
   await call(`/api/admin/applications/${rejected.data.application.id}/review`, {
     method: "POST",
     cookie,
-    body: { decision: "reject", note: "内部备注，不该出现在信里" },
+    body: { decision: "reject", note: "内部备注，不该出现在信里", reason: "policy" },
   });
 
   const held = await call("/api/applications", {
     method: "POST",
-    body: { ...valid, url: "https://hold.example", locale: "zh-CN" },
+    body: { ...valid, subdomain: "hold", locale: "zh-CN" },
   });
+  await verify(held.data.application);
   await call(`/api/admin/applications/${held.data.application.id}/review`, {
     method: "POST",
     cookie,
-    body: { decision: "hold" },
+    body: { decision: "hold", items: ["site_unreachable", "health_missing"] },
   });
   await new Promise((resolve) => setImmediate(resolve));
 
   const applicantMail = mailer.sent.filter((mail) => mail.to === "lin@example.com");
-  assert.equal(applicantMail.length, 2);
-  assert.match(applicantMail[0].subject, /已通过/);
-  assert.equal(applicantMail[0].replyTo, "admin@example.com");
-  assert.match(applicantMail[1].subject, /application/);
-  assert.ok(!applicantMail[1].text.includes("内部备注"));
+  // received ×3 + verified ×3 + approved + rejected + hold
+  assert.equal(applicantMail.length, 9);
+  const approvedMail = applicantMail.find((mail) => /已通过收录审核/.test(mail.subject));
+  const rejectedMail = applicantMail.find((mail) => /result for|审核结果/.test(mail.subject));
+  const holdMail = applicantMail.find((mail) => /需要补充材料/.test(mail.subject));
+  assert.ok(approvedMail && rejectedMail && holdMail, applicantMail.map((mail) => mail.subject).join(" | "));
+  assert.equal(approvedMail.replyTo, "");
+  assert.ok(!rejectedMail.text.includes("内部备注"));
+  assert.match(rejectedMail.text, /does not fit the federation terms|不符合联邦约定/);
+  assert.match(holdMail.text, /站点地址从公网打不开/);
+  assert.match(holdMail.text, /\/case\//);
 });
 
 test("api: the same site cannot be queued twice", async (t) => {
@@ -249,7 +315,7 @@ test("api: repeated submissions from one address are rate limited", async (t) =>
   for (let index = 0; index < 10; index += 1) {
     last = await call("/api/applications", {
       method: "POST",
-      body: { ...valid, url: `https://site${index}.example` },
+      body: { ...valid, subdomain: `site${index}` },
     });
   }
   assert.equal(last.status, 429);
@@ -259,6 +325,7 @@ test("api: repeated submissions from one address are rate limited", async (t) =>
 test("api: admin endpoints require a session", async (t) => {
   const { call } = await start(t);
   assert.equal((await call("/api/admin/applications")).status, 401);
+  assert.equal((await call("/api/admin/overview")).status, 401);
   assert.equal((await call("/api/admin/session")).status, 401);
 });
 
@@ -270,14 +337,8 @@ test("api: wrong password and unknown user are both rejected", async (t) => {
 });
 
 test("api: an admin reviews an application and gets a valid manifest entry", async (t) => {
-  const { call, store } = await start(t);
-  store.createAdmin({ username: "paul", password: "correct-horse-battery" });
-  const login = await call("/api/admin/login", {
-    method: "POST",
-    body: { username: "paul", password: "correct-horse-battery" },
-  });
-  assert.equal(login.status, 200);
-  const cookie = adminCookie(login);
+  const { call, store, verify } = await start(t);
+  const cookie = await loginAs(call, store);
 
   const submitted = await call("/api/applications", { method: "POST", body: valid });
   const id = submitted.data.application.id;
@@ -286,6 +347,18 @@ test("api: an admin reviews an application and gets a valid manifest entry", asy
   assert.equal(listed.status, 200);
   assert.equal(listed.data.applications.length, 1);
   assert.equal(listed.data.counts.pending, 1);
+
+  // 未经邮箱确认不能直接通过：pending 只能走 verified。
+  const tooEarly = await call(`/api/admin/applications/${id}/review`, {
+    method: "POST",
+    cookie,
+    body: { decision: "approve" },
+  });
+  assert.equal(tooEarly.status, 409);
+  assert.equal(tooEarly.data.error, "invalid_transition");
+
+  await verify(submitted.data.application);
+  assert.equal(store.getApplication(id).status, "verified");
 
   const reviewed = await call(`/api/admin/applications/${id}/review`, {
     method: "POST",
@@ -299,12 +372,96 @@ test("api: an admin reviews an application and gets a valid manifest entry", asy
   const manifest = await call(`/api/admin/applications/${id}/manifest`, { cookie });
   assert.equal(manifest.status, 200);
   const entry = manifest.data.entry;
-  assert.equal(entry.url, "https://nordhavn.example");
+  assert.equal(entry.url, "https://nordhavn.xknot.si");
+  assert.equal(entry.id, "nordhavn");
   assert.deepEqual(entry.regions, ["NO"]);
   assert.equal(entry.tier, "community");
-  assert.equal(entry.healthUrl, "https://nordhavn.example/api/health");
+  assert.equal(entry.healthUrl, null, "approval must not assume /api/health is connected");
   assert.deepEqual(checkManifestEntry(entry), []);
   assert.match(entry.id, /^[a-z0-9][a-z0-9-]*$/);
+});
+
+test("api: overview summarises instances, queue and mail for admins", async (t) => {
+  const downAt = new Date(Date.now() - 3600_000).toISOString();
+  const { call, store } = await start(t, {
+    instances: [
+      {
+        id: "alpha",
+        name: { en: "Alpha", "zh-CN": "甲站" },
+        url: "https://alpha.xknot.si",
+        tier: "partner",
+        status: "active",
+        healthUrl: "https://alpha.xknot.si/api/health",
+        cardsUrl: "https://alpha.xknot.si/knot-cards.json",
+        statsUrl: null,
+        regions: ["SG"],
+      },
+      {
+        id: "beta",
+        name: { en: "Beta", "zh-CN": "乙站" },
+        url: "https://beta.xknot.si",
+        tier: "community",
+        status: "active",
+        healthUrl: null,
+        regions: ["CN"],
+      },
+    ],
+    health: {
+      checkedAt: downAt,
+      instances: {
+        alpha: { status: "down", error: "timeout", lastOkAt: downAt, downSince: downAt },
+      },
+    },
+  });
+
+  const cookie = await loginAs(call, store);
+  await call("/api/applications", { method: "POST", body: { ...valid, subdomain: "gamma" } });
+  store.createRelayToken({ instanceId: "alpha", createdBy: "paul" });
+
+  const result = await call("/api/admin/overview", { cookie });
+  assert.equal(result.status, 200);
+  const data = result.data;
+
+  assert.equal(data.instances.total, 2);
+  assert.equal(data.instances.down, 1);
+  assert.equal(data.instances.unprobed, 1, "no healthUrl means not probed, not down");
+  assert.equal(data.instances.cards, 1);
+  assert.equal(data.instances.checkedAt, downAt);
+  assert.equal(data.instances.rows[0].name, "甲站");
+  assert.equal(data.instances.rows[0].health.error, "timeout");
+  assert.equal(data.instances.rows[1].health.status, "unprobed");
+
+  assert.equal(data.applications.counts.pending, 1);
+  assert.ok(data.applications.oldestOpenAt, "the queue age must be visible");
+  assert.deepEqual(data.applications.approvedNotListed, []);
+  assert.ok(data.events.some((event) => event.kind === "application.submitted"));
+
+  assert.equal(data.mail.enabled, false);
+  assert.equal(data.relay.tokens, 1);
+  assert.equal(data.relay.activeTokens, 1);
+  assert.equal(data.relay.accepted, 0);
+  assert.equal(typeof data.runtime.uptimeSeconds, "number");
+  assert.match(data.runtime.version, /^\d+\.\d+\.\d+$/);
+});
+
+test("api: overview flags approved applications that never reached the manifest", async (t) => {
+  const { call, store, verify } = await start(t);
+  const cookie = await loginAs(call, store);
+  const submitted = await call("/api/applications", { method: "POST", body: valid });
+  await verify(submitted.data.application);
+  await call(`/api/admin/applications/${submitted.data.application.id}/review`, {
+    method: "POST",
+    cookie,
+    body: { decision: "approve" },
+  });
+
+  const result = await call("/api/admin/overview", { cookie });
+  assert.equal(result.status, 200);
+  assert.equal(result.data.instances.total, 0);
+  assert.deepEqual(
+    result.data.applications.approvedNotListed.map((item) => item.subdomain),
+    ["nordhavn"]
+  );
 });
 
 test("api: logout drops the session", async (t) => {
@@ -324,4 +481,202 @@ test("manifest: id comes from the hostname, with a fallback", () => {
   assert.equal(suggestId("https://sakura.example.jp"), "sakura");
   assert.equal(suggestId("https://nord-havn.example"), "nord-havn");
   assert.match(suggestId("https://例子.中国"), /^node-/);
+});
+
+test("manifest: healthUrl is only written after an explicit verified address", () => {
+  const application = {
+    name: "北港",
+    subdomain: "nordhavn",
+    url: "https://nordhavn.xknot.si",
+    region: "NO",
+    timezone: "Europe/Oslo",
+    operator: "Ops",
+    email: "ops@nordhavn.example",
+    intro: "News from the harbour.",
+    tags: [],
+  };
+  assert.equal(toManifestEntry(application).healthUrl, null);
+  assert.equal(toManifestEntry(application).url, "https://nordhavn.xknot.si");
+  assert.equal(toManifestEntry(application).id, "nordhavn");
+  assert.equal(
+    toManifestEntry(application, { healthUrl: "https://nordhavn.xknot.si/api/health" }).healthUrl,
+    "https://nordhavn.xknot.si/api/health"
+  );
+});
+
+// ---- 验证链接、案例页、一次性领取 ----
+
+function tokenFromMail(text, kind) {
+  const match = new RegExp(`/${kind}/([A-Za-z0-9_-]{8,128})`).exec(String(text || ""));
+  return match ? match[1] : null;
+}
+
+test("api: the verify page never consumes the token, the POST does", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const submitted = await call("/api/applications", { method: "POST", body: { ...valid, locale: "en" } });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const token = tokenFromMail(mailer.sent[0].text, "verify");
+  assert.ok(token, "the partner mail must carry a verify link");
+
+  // 邮件安全网关会预取链接：GET 只能渲染页面。
+  const page = await call(`/verify/${token}`);
+  assert.equal(page.status, 200);
+  assert.match(page.data, /Confirm your email/);
+  assert.equal(store.getApplication(submitted.data.application.id).status, "pending");
+
+  const confirmed = await call("/api/verify", { method: "POST", form: { token } });
+  assert.equal(confirmed.status, 200);
+  assert.match(confirmed.data, /Email confirmed/);
+  assert.equal(store.getApplication(submitted.data.application.id).status, "verified");
+
+  const again = await call("/api/verify", { method: "POST", form: { token } });
+  assert.equal(again.status, 200);
+  assert.match(again.data, /already used/);
+
+  const missing = await call("/api/verify", { method: "POST", form: { token: "nope-nope-nope" } });
+  assert.equal(missing.status, 404);
+});
+
+test("api: verification mails the partner once per state version", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  const token = tokenFromMail(mailer.sent[0].text, "verify");
+
+  await call("/api/verify", { method: "POST", form: { token } });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const verifiedMail = mailer.sent.filter((mail) => /已进入审核/.test(mail.subject));
+  assert.equal(verifiedMail.length, 1);
+  const log = store.listNotifyLog(50);
+  assert.ok(log.some((row) => row.event === "partner.verified" && row.status === "sent"));
+  assert.ok(log.some((row) => row.event === "internal.application_verified" && row.status === "sent"));
+});
+
+test("api: the case page shows status and accepts resend and withdraw", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const submitted = await call("/api/applications", { method: "POST", body: valid });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const application = store.getApplication(submitted.data.application.id);
+  const page = await call(`/case/${application.caseKey}`);
+  assert.equal(page.status, 200);
+  assert.match(page.data, new RegExp(application.id));
+  assert.match(page.data, /Resend verification message/i);
+
+  const before = mailer.sent.length;
+  const resent = await call(`/api/case/${application.caseKey}/resend-verify`, { method: "POST" });
+  assert.equal(resent.status, 303);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(mailer.sent.length > before, "resend must send a new verify mail");
+
+  const withdrawn = await call(`/api/case/${application.caseKey}/withdraw`, { method: "POST" });
+  assert.equal(withdrawn.status, 303);
+  assert.equal(store.getApplication(application.id).status, "withdrawn");
+
+  const closed = await call(`/case/${application.caseKey}`);
+  assert.match(closed.data, /withdrawn|撤回/i);
+});
+
+test("api: handoff issues a single-use claim link and the page does not consume it", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store, verify } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const cookie = await loginAs(call, store);
+
+  const submitted = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
+  await verify(submitted.data.application);
+  const id = submitted.data.application.id;
+  await call(`/api/admin/applications/${id}/review`, { method: "POST", cookie, body: { decision: "approve" } });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const handoff = await call(`/api/admin/applications/${id}/handoff`, {
+    method: "POST",
+    cookie,
+    body: { payload: "XKNOT_HUB_RELAY_TOKEN=xkr_wang_secret", ttlHours: 72 },
+  });
+  assert.equal(handoff.status, 200);
+  assert.match(handoff.data.claimUrl, /\/claim\//);
+
+  await new Promise((resolve) => setImmediate(resolve));
+  const handoffMail = mailer.sent.find((mail) => /接入资料已就绪/.test(mail.subject));
+  assert.ok(handoffMail, "handoff mail must be sent");
+  assert.ok(!handoffMail.text.includes("xkr_wang_secret"), "secrets never go into mail");
+
+  const token = tokenFromMail(handoff.data.claimUrl, "claim");
+  const page = await call(`/claim/${token}`);
+  assert.equal(page.status, 200);
+
+  const claimed = await call("/api/claim", { method: "POST", form: { token } });
+  assert.equal(claimed.status, 200);
+  assert.match(claimed.data, /xkr_wang_secret/);
+
+  const second = await call("/api/claim", { method: "POST", form: { token } });
+  assert.equal(second.status, 409);
+  assert.ok(!second.data.includes("xkr_wang_secret"));
+
+  const log = store.listNotifyLog(20);
+  assert.ok(log.some((row) => row.event === "partner.handoff" && row.status === "sent"));
+});
+
+test("api: a repeated review cannot mail twice or leave the state machine", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store, verify } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const cookie = await loginAs(call, store);
+  const submitted = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
+  await verify(submitted.data.application);
+  const id = submitted.data.application.id;
+
+  assert.equal(
+    (await call(`/api/admin/applications/${id}/review`, { method: "POST", cookie, body: { decision: "approve" } })).status,
+    200
+  );
+  const again = await call(`/api/admin/applications/${id}/review`, {
+    method: "POST",
+    cookie,
+    body: { decision: "approve" },
+  });
+  assert.equal(again.status, 409);
+  assert.equal(again.data.error, "invalid_transition");
+
+  await new Promise((resolve) => setImmediate(resolve));
+  const approved = mailer.sent.filter((mail) => /已通过收录审核/.test(mail.subject));
+  assert.equal(approved.length, 1);
+});
+
+test("api: hold carries coded items and resume returns to review", async (t) => {
+  const { call, store, verify } = await start(t);
+  const cookie = await loginAs(call, store);
+  const submitted = await call("/api/applications", { method: "POST", body: valid });
+  await verify(submitted.data.application);
+  const id = submitted.data.application.id;
+
+  const held = await call(`/api/admin/applications/${id}/review`, {
+    method: "POST",
+    cookie,
+    body: { decision: "hold", items: ["health_missing", "not_a_code"] },
+  });
+  assert.equal(held.status, 200);
+  assert.deepEqual(held.data.application.holdItems, ["health_missing"]);
+
+  const resumed = await call(`/api/admin/applications/${id}/review`, {
+    method: "POST",
+    cookie,
+    body: { decision: "resume" },
+  });
+  assert.equal(resumed.status, 200);
+  assert.equal(resumed.data.application.status, "verified");
+});
+
+test("api: locale drives the language of the partner mail", async (t) => {
+  const mailer = recordingMailer();
+  const { call } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-TW" } });
+  await new Promise((resolve) => setImmediate(resolve));
+  const partner = mailer.sent.find((mail) => mail.to === "lin@example.com");
+  assert.match(partner.subject, /已收到加入申請/);
+  assert.match(partner.text, /不接收回覆/);
 });

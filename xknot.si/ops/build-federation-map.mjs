@@ -193,9 +193,9 @@ const pins = placed
 
 const logo = readFileSync(logoPath).toString("base64");
 
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Knot 联邦：各节点汇入 xknot.si 中枢，节点之间另有直连">
-  <title>Knot 联邦</title>
-  <desc>一张等距圆柱投影的世界地图。每个节点朝上方的 xknot.si 中枢连一条橙色虚线，表示按清单登记、由中枢探测与展示；节点之间的绿色实线表示协议直连、可就地交换数据。点的颜色表示探测到的状态。</desc>
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="XKnot 联邦：各实例汇入 xknot.si 中枢，实例之间另有直连">
+  <title>XKnot 联邦</title>
+  <desc>一张等距圆柱投影的世界地图。每个实例朝上方的 xknot.si 中枢连一条橙色虚线，表示按清单登记、由中枢探测与展示；实例之间的绿色实线表示协议直连、可就地交换数据。点的颜色表示探测到的状态。</desc>
   <defs>
     <pattern id="land-dots" width="11" height="11" patternUnits="userSpaceOnUse">
       <circle cx="2.4" cy="2.4" r="1.55" fill="${C.land}"/>
@@ -242,9 +242,9 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
       <circle cx="84" cy="-4" r="3.6" fill="${C.warn}"/><text x="94" y="0" class="legend-text">延迟 ${placed.filter((p) => p.status === "degraded").length}</text>
       <circle cx="164" cy="-4" r="3.6" fill="${C.bad}"/><text x="174" y="0" class="legend-text">不可达 ${placed.filter((p) => p.status === "down").length}</text>
       <line x1="256" y1="-4" x2="282" y2="-4" stroke="${C.link}" stroke-width="1" stroke-dasharray="10 5"/><text x="290" y="0" class="legend-text">登记与探测</text>
-      <line x1="396" y1="-4" x2="422" y2="-4" stroke="${C.peer}" stroke-width="1"/><text x="430" y="0" class="legend-text">节点直连</text>
+      <line x1="396" y1="-4" x2="422" y2="-4" stroke="${C.peer}" stroke-width="1"/><text x="430" y="0" class="legend-text">实例直连</text>
     </g>
-    <text x="0" y="22" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。${esc(placed.length)} 个节点中，${esc(nodes.find((n) => n.id === "wang")?.name || "wang")} 为真实实例，其余来自样例清单。</text>
+    <text x="0" y="22" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。${esc(placed.length)} 个实例中，${esc(nodes.find((n) => n.id === "wang")?.name || "wang")} 为真实实例，其余来自样例清单。</text>
   </g>
 
   <style>
@@ -259,4 +259,4 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 `;
 
 writeFileSync(target, svg, "utf8");
-console.log(`已写入 ${path.relative(root, target)}（${placed.length} 个节点，${peers.length} 条直连）`);
+console.log(`已写入 ${path.relative(root, target)}（${placed.length} 个实例，${peers.length} 条直连）`);
