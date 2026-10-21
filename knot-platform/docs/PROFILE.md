@@ -28,7 +28,7 @@
     "logo": "https://wang.xknot.si/logo.png",
     "themeColor": "#0866FF",
     "vertical": "情报",
-    "tags": ["信息交换", "Agent"],
+    "tags": { "zh-CN": ["信息交换", "Agent"], "en": ["exchange", "agents"] },
     "languages": ["zh-CN", "en"],
     "regions": ["CN", "SG"],
     "timezone": "Asia/Shanghai",
@@ -66,7 +66,7 @@
 | `logo` | https 地址 | 300 | 否 | 绝对地址；站内相对路径不接受 |
 | `themeColor` | `#RRGGBB` | 7 | 否 | 站点主色 |
 | `vertical` | 文本 | 32 | 否 | 垂类，如「情报」「旅行」 |
-| `tags` | 数组 | 5 个，每个 32 | 否 | 门户筛选用的标签 |
+| `tags` | 多语种数组 | 每语种 5 个，每个 32 | 否 | 门户筛选用的标签，每个语种一组 |
 | `languages` | 数组 | — | 否 | `zh-CN`、`zh-TW`、`en` 的子集，不能为空数组 |
 | `regions` | 数组 | — | 否 | 两位国家码，或单独一个 `GLOBAL` |
 | `timezone` | IANA 名 | — | 否 | 如 `Asia/Shanghai`，认不出就拒 |
