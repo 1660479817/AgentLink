@@ -10,3 +10,4 @@ CREATE TABLE intel_tips (
 );
 
 CREATE INDEX intel_tips_intel_idx ON intel_tips (intel_id, created_at DESC);
+CREATE INDEX intel_tips_giver_idx ON intel_tips (user_id, created_at DESC);
