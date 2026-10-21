@@ -12,7 +12,7 @@ const VIEW_LOADERS = {
   content: loadPatrol,
   users: () => {},
   site: loadSite,
-  xknot: loadFederation,
+  xknot: loadXknot,
 };
 
 const PRICE_FIELDS = [
@@ -1079,17 +1079,17 @@ function mailLabel(mail) {
   return "未配置";
 }
 
+function loadXknot() {
+  void loadProfile();
+  if (byId("fed-details")?.open) void loadFederation();
+}
+
 async function loadFederation() {
-  setText("fed-joined", "读取中…");
-  setText("fed-instance", "—");
-  setText("fed-mail", "—");
-  setText("fed-health", "—");
   byId("fed-facts").replaceChildren();
   byId("fed-health-facts").replaceChildren();
   setText("fed-file", "");
   byId("fed-signals").replaceChildren(el("li", { class: "signal", text: "读取中…" }));
   byId("fed-drift-card").hidden = true;
-  void loadProfile();
   try {
     const data = await api("/federation");
     state.federation = data;
@@ -1148,14 +1148,6 @@ function renderFederation() {
   if (!data) return;
   const running = data.running || {};
   const health = data.health || {};
-
-  setText("fed-joined", data.joined ? "已接入" : "未接入");
-  setText("fed-instance", running.instanceId || "—");
-  setText("fed-mail", mailLabel(data.mail));
-  setText(
-    "fed-health",
-    health.reportsInstance ? (health.https ? "带 instance" : "非 https") : "不带 instance"
-  );
 
   const relay = running.relayUrl
     ? `${running.relayUrl}${running.relayUrlSource === "derived" ? "（按中枢地址推导）" : ""}`
@@ -1391,12 +1383,17 @@ function renderIssued(data) {
     fact("档位", issued.tier),
     fact("状态", issued.status)
   );
+  if (!data) {
+    setText("profile-public", "读取中…");
+    return;
+  }
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  byId("profile-public").replaceChildren(
-    fact("档案接口", origin ? `${origin}/api/federation/profile` : "—"),
-    fact("档案状态", data?.profile ? "已填写" : "还没填"),
-    fact("最后更新", data?.updatedAt),
-    fact("语言数", Array.isArray(data?.profile?.languages) ? String(data.profile.languages.length) : "—")
+  const endpoint = `${origin}/api/federation/profile`;
+  setText(
+    "profile-public",
+    issued.id
+      ? `这份自述公开在 ${endpoint}，中枢按实例地址取回，访客也能直接读。`
+      : `还没有接入件，中枢取不到这份自述；接入之后它会出现在 ${endpoint}。`
   );
 }
 
@@ -1436,7 +1433,10 @@ function bindEvents() {
   byId("invites-refresh").addEventListener("click", () => loadInvites());
   byId("sponsors-refresh").addEventListener("click", () => loadSponsors());
   byId("prices-refresh").addEventListener("click", () => loadPrices());
-  byId("federation-refresh").addEventListener("click", () => loadFederation());
+  byId("federation-refresh").addEventListener("click", () => loadXknot());
+  byId("fed-details").addEventListener("toggle", (event) => {
+    if (event.currentTarget.open) void loadFederation();
+  });
   byId("profile-form").addEventListener("submit", saveProfile);
   byId("profile-reload").addEventListener("click", () => renderProfile());
   byId("profile-social-add").addEventListener("click", addSocialRow);

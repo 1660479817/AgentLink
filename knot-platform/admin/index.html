@@ -459,14 +459,15 @@
             <div class="view-head">
               <div>
                 <h2>XKnot</h2>
-                <p class="muted">本站点对外怎么介绍自己由主理人编辑；接入件由中枢签发，只读。</p>
+                <p class="muted">两块：本站点怎么介绍自己，你拥有、随时能改；中枢签发了什么，只读。排障信息收在最后一栏里。</p>
               </div>
               <button id="federation-refresh" class="button ghost" type="button">刷新</button>
             </div>
 
             <article class="card">
               <div class="card-head">
-                <h3>本站点怎么介绍自己</h3>
+                <h3>一 · 本站点怎么介绍自己</h3>
+                <span class="card-tag">可编辑</span>
               </div>
               <p class="muted small">自述区。主理人拥有这一份，中枢只会取回去展示，不需要任何审批。名称与一句话介绍至少填简中。</p>
               <form id="profile-form" class="stack-form" novalidate>
@@ -485,76 +486,55 @@
               </form>
             </article>
 
-            <div class="stat-grid">
-              <article class="stat">
-                <p class="stat-label">接入</p>
-                <p id="fed-joined" class="stat-value small-value">—</p>
-                <p class="stat-note">有没有接入件</p>
-              </article>
-              <article class="stat">
-                <p class="stat-label">实例 id</p>
-                <p id="fed-instance" class="stat-value small-value">—</p>
-                <p class="stat-note">中枢清单里的 id</p>
-              </article>
-              <article class="stat">
-                <p class="stat-label">发信</p>
-                <p id="fed-mail" class="stat-value small-value">—</p>
-                <p class="stat-note">登录密钥怎么寄出</p>
-              </article>
-              <article class="stat">
-                <p class="stat-label">对外探测</p>
-                <p id="fed-health" class="stat-value small-value">—</p>
-                <p class="stat-note">中枢读 /api/health</p>
-              </article>
-            </div>
-
-            <div class="split">
-              <article class="card">
-                <h3>签发区 · 中枢给出</h3>
-                <p class="muted small">id、地址、接入日、档位与状态由中枢签发，端侧改不了。要变更走中枢。</p>
-                <dl id="profile-issued" class="facts"></dl>
-              </article>
-              <article class="card">
-                <h3>接入件与进程</h3>
-                <dl id="fed-facts" class="facts"></dl>
-                <p id="fed-file" class="muted small note-gap"></p>
-              </article>
-            </div>
-
-            <div class="split">
-              <article class="card">
-                <h3>中枢会看到什么</h3>
-                <dl id="fed-health-facts" class="facts"></dl>
-                <p class="muted small note-gap">探测结果存在中枢的 var/health.json；这里只说明这一台会报什么。</p>
-              </article>
-              <article class="card">
-                <h3>对外提供什么</h3>
-                <dl id="profile-public" class="facts"></dl>
-                <p class="muted small note-gap">任何访客都能读这份档案；它只含自述区，不含本机路径与数据库。</p>
-              </article>
-            </div>
-
             <article class="card">
-              <h3>状态信号</h3>
-              <ul id="fed-signals" class="signal-list"></ul>
+              <div class="card-head">
+                <h3>二 · 中枢签发了什么</h3>
+                <span class="card-tag">只读</span>
+              </div>
+              <p class="muted small">签发区。id、地址、接入日、档位与状态由中枢签发，端侧改不了；要变更走中枢。</p>
+              <dl id="profile-issued" class="facts"></dl>
+              <p id="profile-public" class="muted small note-gap"></p>
             </article>
 
-            <article id="fed-drift-card" class="card" hidden>
-              <h3>变更未生效</h3>
-              <p class="muted small">接入件和 Backend 进程里的值不一样；重启 Backend 才会换成文件里的值。</p>
-              <div class="table-wrap">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>键</th>
-                      <th>接入件</th>
-                      <th>进程里正在用</th>
-                    </tr>
-                  </thead>
-                  <tbody id="fed-drift"></tbody>
-                </table>
+            <details id="fed-details" class="card fold">
+              <summary>接入与探测 <span class="muted small">排障时再打开</span></summary>
+              <div class="fold-body">
+                <div class="split">
+                  <section class="fold-block">
+                    <h4>接入件与进程</h4>
+                    <dl id="fed-facts" class="facts"></dl>
+                    <p id="fed-file" class="muted small note-gap"></p>
+                  </section>
+                  <section class="fold-block">
+                    <h4>中枢会看到什么</h4>
+                    <dl id="fed-health-facts" class="facts"></dl>
+                    <p class="muted small note-gap">探测结果存在中枢的 var/health.json。</p>
+                  </section>
+                </div>
+
+                <section class="fold-block">
+                  <h4>状态信号</h4>
+                  <ul id="fed-signals" class="signal-list"></ul>
+                </section>
+
+                <section id="fed-drift-card" class="fold-block" hidden>
+                  <h4>变更未生效</h4>
+                  <p class="muted small">接入件和 Backend 进程里的值不一样；重启 Backend 才会换成文件里的值。</p>
+                  <div class="table-wrap">
+                    <table class="table">
+                      <thead>
+                        <tr>
+                          <th>键</th>
+                          <th>接入件</th>
+                          <th>进程里正在用</th>
+                        </tr>
+                      </thead>
+                      <tbody id="fed-drift"></tbody>
+                    </table>
+                  </div>
+                </section>
               </div>
-            </article>
+            </details>
           </section>
         </main>
       </div>
