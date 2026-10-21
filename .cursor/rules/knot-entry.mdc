@@ -15,6 +15,6 @@ alwaysApply: true
 - 同一台机器上的 ZenHeart 占用 `127.0.0.1:8080`。不要改 `aiugc.conf`，不要把 Knot 隧道绑到 8080。
 - 这台机同时托管联邦站点：`/var/www/xknot`、`/opt/xknot`、`xknot-api`（`127.0.0.1:5181`），以及伙伴站 `wang.xknot.si`、`zjj.xknot.si`。它归 `xknot.si/` 独立项目自己管：门户与接口走 `xknot.si/ops/deploy-hub.sh`、`xknot.si/ops/deploy-api.sh`，别用 `push-entry.sh` 或 Knot 的配置去覆盖；改 `conf.d/` 里任何一份之前先 `nginx -t`。
 - WebUI 目录是 `/var/www/wang`。nginx 配置由 `push-entry.sh` 从 `knot-platform/ops/entry/site.conf.template` 渲染后装到 `/etc/nginx/conf.d/`（如 `wang.xknot.si.conf`），不要在入口主机上手改站点取值。`/api/` 和 `/help` 反代到 `127.0.0.1:18080`。`/api/admin` 在入口返回 404。
-- `/discover.json` 和 `/media/previews/` 也在 `/var/www/wang`，由 bot01 的 `knot-platform/ops/scripts/push-discover.sh` 推上来（Backend 走 `KNOT_DISCOVER_PUSH_CMD`）。入口主机有就先给这一份，缺了用 `try_files` 回落隧道。要改快照逻辑，改推送脚本或 Backend 的组装，不要在入口主机上手改文件。
+- `/discover.json` 也在 `/var/www/wang`，由 bot01 的 `knot-platform/ops/scripts/push-discover.sh` 只推这一份（Backend 走 `KNOT_DISCOVER_PUSH_CMD`）。入口主机有就先给这一份，缺了用 `try_files` 回落隧道。`/media/previews/` 是 0.3.0 之前的拼图目录，已不再写入也不再推送，模板里的 `location` 只为老部署保留回落。要改快照逻辑，改推送脚本或 Backend 的组装，不要在入口主机上手改文件。
 - bot01 的 LaunchAgent `com.knot.entry-tunnel` 执行 `knot-platform/ops/scripts/run-entry-tunnel.sh`：用 `~/.ssh/knot-entry` 以 `knot-tunnel` 连出，把入口主机的 `127.0.0.1:18080` 转到本机 `127.0.0.1:8080`。私钥不进仓库。
 - 端到端：用测试员规则里的 Cookie 打 `E2E_BASE`（如 `https://wang.xknot.si`），提交一条不公开记录后在管理员工作区 `admin posts` 列出、`admin remove` 删除，再到 `/api/web/submissions` 确认 `verdict` 为 `removed`。步骤见 `knot-platform/ops/README.md` 第 5 节。
