@@ -14,8 +14,6 @@ import {
   addCardFriend,
   dismissInformation,
   downloadInformation,
-  downloadShare,
-  likeInformation,
   listInformation,
   listLooks,
   listMyResponses,
@@ -25,7 +23,6 @@ import {
   lookRequest,
   removeCardFriend,
   starInformation,
-  unlikeInformation,
   unstarInformation,
 } from "../api.js";
 import { ATTACHMENT_ACCEPT, errorText, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
@@ -606,18 +603,6 @@ async function toggleSaleStar(item) {
   }
 }
 
-async function toggleSaleLike(item) {
-  if (!session.user) return;
-  const previous = Boolean(item.liked);
-  item.liked = !previous;
-  try {
-    if (item.liked) await likeInformation(item.id);
-    else await unlikeInformation(item.id);
-  } catch {
-    item.liked = previous;
-  }
-}
-
 async function toggleSaleFriend(item) {
   if (!session.user || !item.canFriend) return;
   const previous = Boolean(item.friend);
@@ -627,19 +612,6 @@ async function toggleSaleFriend(item) {
     item.friend = Boolean(data.friend);
   } catch {
     item.friend = previous;
-  }
-}
-
-async function shareSale(item) {
-  if (item.sharing) return;
-  item.sharing = true;
-  item.shareError = "";
-  try {
-    await downloadShare(item.id);
-  } catch {
-    item.shareError = t("error.request_failed");
-  } finally {
-    item.sharing = false;
   }
 }
 
@@ -738,19 +710,13 @@ async function dismissSale(item) {
         :mine="cardIsMine(item, session.user)"
         :starred="Boolean(item.starred)"
         :can-star="Boolean(session.user)"
-        :liked="Boolean(item.liked)"
-        :can-like="Boolean(session.user)"
         :friend="Boolean(item.friend)"
         :can-friend="Boolean(item.canFriend)"
         :busy="Boolean(item.downloading)"
-        :sharing="Boolean(item.sharing)"
-        :notice="item.shareError || ''"
         @dismiss="dismissSale(item)"
         @star="toggleSaleStar(item)"
-        @like="toggleSaleLike(item)"
         @friend="toggleSaleFriend(item)"
         @download="downloadSale(item)"
-        @share="shareSale(item)"
       />
 
       <div v-if="salesLoaded" class="feed-more">

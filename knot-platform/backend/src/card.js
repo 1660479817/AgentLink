@@ -127,7 +127,6 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
     audio,
     videos,
     attachments,
-    previewUrl: "",
     granted: visible,
     starred: Boolean(starred),
     liked: Boolean(liked),

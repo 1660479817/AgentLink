@@ -4,10 +4,10 @@ import { isTruthy, renderTemplate } from "./render-config.mjs";
 
 test("replaces variables from the environment", () => {
   const text = renderTemplate("server_name {{KNOT_DOMAIN}};\nroot {{ROOT}};", {
-    KNOT_DOMAIN: "knot.example.com",
+    KNOT_DOMAIN: "wang.xknot.si",
     ROOT: "/var/www/knot",
   });
-  assert.equal(text, "server_name knot.example.com;\nroot /var/www/knot;");
+  assert.equal(text, "server_name wang.xknot.si;\nroot /var/www/knot;");
 });
 
 test("keeps and drops sections by truthiness", () => {

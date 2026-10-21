@@ -11,7 +11,7 @@ import path from "node:path";
 //     derived/shares/…                分享图，可重建
 //     tmp/                            刚收到、还没入库的文件
 //     board/                          公开快照（沿用旧位置，由 DISCOVER_BOARD_DIR 覆盖）
-//     previews/                       旧版拼图，只读，不再写入
+//     previews/                       历史遗留（0.3.0 起不再写入，gc-uploads --previews 可清）
 
 export const LAYOUT = Object.freeze({
   blobs: "blobs",
@@ -73,6 +73,7 @@ export function boardDir(uploadDir) {
   return path.join(uploadDir, LAYOUT.board);
 }
 
+// 0.3.0 之前的多图拼图目录。只为清理旧机器上的残留保留，新代码不再写入。
 export function legacyPreviewDir(uploadDir) {
   return path.join(uploadDir, "previews");
 }

@@ -3,10 +3,11 @@
 #
 # 一个站点一个目录：
 #
-#   sites/<站点>/site.env            站点身份与拓扑（必填）
-#   sites/<站点>/site.<变体>.env      可选叠加层
-#   sites/<站点>/platform.env        平台主机运行时值（部署脚本生成）
+#   sites/<站点>/site.env            站点拓扑（必填）
+#   sites/<站点>/profile.json        自述区：名称、介绍、logo、主理人（主理人在 /admin 编辑）
+#   sites/<站点>/platform.env        实例主机运行时值（部署脚本生成）
 #   sites/<站点>/xknot.env           XKnot 接入（中枢签发，可选）
+#   sites/<站点>/entry.<标签>.xknot.si.env    xknot.si 子域入口（可选，一个站点一份）
 #
 # 目录布局（部署根 KNOT_DEPLOY_ROOT）：
 #
@@ -25,7 +26,6 @@
 #   1. KNOT_SITE_FILE 指向一份 site.env（测试或特殊布局）；
 #   2. KNOT_SITE 指定站点目录名；
 #   3. sites/ 下恰好一个站点时自动选中。
-#
 # 这里只做四件事：
 #   1. 定位站点目录并读 site.env（不存在的旧机器仍读进程环境变量，保持兼容）；
 #   2. 补默认值，所有站点相关取值都不在脚本里写死；
@@ -42,8 +42,6 @@ if [[ -z "${KNOT_DEPLOY_ROOT:-}" ]]; then
     KNOT_DEPLOY_ROOT="$KNOT_APP_DIR"
   fi
 fi
-# 兼容旧脚本里对 KNOT_REPO_ROOT 的引用：它指代码目录。
-KNOT_REPO_ROOT="$KNOT_APP_DIR"
 KNOT_RELEASES_DIR="$KNOT_DEPLOY_ROOT/releases"
 KNOT_SITES_DIR="$KNOT_DEPLOY_ROOT/sites"
 
@@ -76,7 +74,6 @@ knot_site_name_ok() {
 
 knot_resolve_site() {
   local requested="${KNOT_SITE:-}"
-  local variant="${KNOT_SITE_VARIANT:-}"
   local file="${KNOT_SITE_FILE:-}"
 
   if [[ -n "$file" ]]; then
@@ -115,15 +112,6 @@ EOF
 
   [[ -f "$KNOT_SITE_ENV" ]] || knot_fail "找不到站点配置：$KNOT_SITE_ENV"
 
-  if [[ -n "$variant" ]]; then
-    knot_site_name_ok "$variant" || knot_fail "变体名只能用字母、数字、点、下划线和短横线：$variant"
-    KNOT_SITE_OVERLAY="$KNOT_SITE_DIR/site.$variant.env"
-    [[ -f "$KNOT_SITE_OVERLAY" ]] || knot_fail "找不到变体配置：$KNOT_SITE_OVERLAY"
-  else
-    KNOT_SITE_OVERLAY=""
-  fi
-
-  KNOT_SITE_VARIANT="$variant"
   KNOT_PLATFORM_ENV="${KNOT_ENV:-$KNOT_SITE_DIR/platform.env}"
   # 接入文件由中枢签发，可以不存在：缺了它站点照样部署和运行。
   KNOT_XKNOT_ENV="${KNOT_XKNOT_ENV:-$KNOT_SITE_DIR/xknot.env}"
@@ -131,19 +119,15 @@ EOF
   set -a
   # shellcheck source=/dev/null
   source "$KNOT_SITE_ENV"
-  if [[ -n "$KNOT_SITE_OVERLAY" ]]; then
-    # shellcheck source=/dev/null
-    source "$KNOT_SITE_OVERLAY"
-  fi
   set +a
 
-  export KNOT_SITE KNOT_SITE_DIR KNOT_SITE_ENV KNOT_SITE_OVERLAY
-  export KNOT_SITE_VARIANT KNOT_PLATFORM_ENV KNOT_XKNOT_ENV
+  export KNOT_SITE KNOT_SITE_DIR KNOT_SITE_ENV
+  export KNOT_PLATFORM_ENV KNOT_XKNOT_ENV
 }
 
 knot_resolve_site
 
-# 读平台主机的运行时文件。文件不存在时保持 site.env 与默认值。
+# 读实例主机的运行时文件。文件不存在时保持 site.env 与默认值。
 knot_source_platform_env() {
   [[ -f "$KNOT_PLATFORM_ENV" ]] || return 0
   set -a
@@ -153,12 +137,10 @@ knot_source_platform_env() {
 }
 
 # ---- 站点 ----
-KNOT_SITE_NAME="${KNOT_SITE_NAME:-Knot}"
-KNOT_SITE_TAGLINE="${KNOT_SITE_TAGLINE:-面向 AI 时代、服务于 Agent 的信息交换网。}"
-# 站点自己的 logo 地址，可以留空。
-KNOT_SITE_LOGO="${KNOT_SITE_LOGO:-}"
+# 站点身份（名称、介绍、logo、主理人）不在这里：它在 sites/<站点>/profile.json，
+# 由主理人在 /admin 里编辑。见 docs/PROFILE.md。
 KNOT_PORT="${KNOT_PORT:-8080}"
-KNOT_BIND_HOST="${KNOT_BIND_HOST:-0.0.0.0}"
+KNOT_BIND_HOST="${KNOT_BIND_HOST:-127.0.0.1}"
 KNOT_SESSION_COOKIE_NAME="${KNOT_SESSION_COOKIE_NAME:-knot_sid}"
 KNOT_PUBLIC_ORIGIN="${KNOT_PUBLIC_ORIGIN:-http://127.0.0.1:$KNOT_PORT}"
 
@@ -170,9 +152,9 @@ knot_origin_host() {
   printf '%s' "$value"
 }
 
-KNOT_DOMAIN="${KNOT_DOMAIN:-$(knot_origin_host "$KNOT_PUBLIC_ORIGIN")}"
+KNOT_DOMAIN="${KNOT_DOMAIN:-}"
 
-# ---- 平台主机 ----
+# ---- 实例主机 ----
 KNOT_DB_MODE="${KNOT_DB_MODE:-local}"
 KNOT_DATABASE_URL="${KNOT_DATABASE_URL:-${DATABASE_URL:-}}"
 KNOT_PGPORT="${KNOT_PGPORT:-5433}"
@@ -197,46 +179,45 @@ KNOT_DEPLOY_VERIFY_URL="${KNOT_DEPLOY_VERIFY_URL:-}"
 KNOT_DEPLOY_KEEP="${KNOT_DEPLOY_KEEP:-5}"
 KNOT_ARTIFACT_DIR="${KNOT_ARTIFACT_DIR:-$KNOT_APP_DIR/artifacts}"
 
-# ---- 云端边缘 ----
-KNOT_EDGE="${KNOT_EDGE:-0}"
-KNOT_EDGE_SSH="${KNOT_EDGE_SSH:-}"
+# ---- 公网入口 ----
+KNOT_ENTRY_ENABLED="${KNOT_ENTRY_ENABLED:-0}"
+KNOT_ENTRY_SSH="${KNOT_ENTRY_SSH:-}"
 # 从开发机推页面用的私钥
-KNOT_EDGE_SSH_KEY="${KNOT_EDGE_SSH_KEY:-$HOME/.ssh/id_rsa}"
-# 平台主机上推公开快照用的私钥（和开发机不是同一把）
-KNOT_EDGE_PUSH_KEY="${KNOT_EDGE_PUSH_KEY:-$HOME/.ssh/knot-edge-publish}"
-KNOT_EDGE_WEB_OWNER="${KNOT_EDGE_WEB_OWNER:-nginx:nginx}"
-KNOT_EDGE_CACHE_DIR="${KNOT_EDGE_CACHE_DIR:-/var/cache/nginx/knot_uploads}"
-KNOT_EDGE_CACHE_ZONE="${KNOT_EDGE_CACHE_ZONE:-knot_uploads}"
-KNOT_EDGE_CACHE_SIZE="${KNOT_EDGE_CACHE_SIZE:-2g}"
-KNOT_EDGE_MAX_BODY="${KNOT_EDGE_MAX_BODY:-52m}"
-KNOT_EDGE_PROXY_PORT="${KNOT_EDGE_PROXY_PORT:-18080}"
-KNOT_EDGE_RELOAD_CMD="${KNOT_EDGE_RELOAD_CMD:-sudo systemctl reload nginx}"
-KNOT_EDGE_HOST="${KNOT_EDGE_SSH#*@}"
+KNOT_ENTRY_SSH_KEY="${KNOT_ENTRY_SSH_KEY:-$HOME/.ssh/id_rsa}"
+# 实例主机上推公开快照用的私钥（和开发机不是同一把）
+KNOT_ENTRY_PUSH_KEY="${KNOT_ENTRY_PUSH_KEY:-$HOME/.ssh/knot-entry-publish}"
+KNOT_ENTRY_WEB_OWNER="${KNOT_ENTRY_WEB_OWNER:-nginx:nginx}"
+KNOT_ENTRY_CACHE_DIR="${KNOT_ENTRY_CACHE_DIR:-/var/cache/nginx/knot_uploads}"
+KNOT_ENTRY_CACHE_ZONE="${KNOT_ENTRY_CACHE_ZONE:-knot_uploads}"
+KNOT_ENTRY_CACHE_SIZE="${KNOT_ENTRY_CACHE_SIZE:-2g}"
+KNOT_ENTRY_MAX_BODY="${KNOT_ENTRY_MAX_BODY:-52m}"
+KNOT_ENTRY_PROXY_PORT="${KNOT_ENTRY_PROXY_PORT:-18080}"
+KNOT_ENTRY_RELOAD_CMD="${KNOT_ENTRY_RELOAD_CMD:-sudo systemctl reload nginx}"
+KNOT_ENTRY_HOST="${KNOT_ENTRY_SSH#*@}"
 
-# 边缘项的默认值与推导。
+# 入口项的默认值与推导。
 #
-# 单独成函数，是因为一个实例的每个入口都要重跑一次：入口文件覆盖了 KNOT_DOMAIN，
-# 证书就要跟着这个入口的域名重新推导，不能沿用上一个入口算出来的值。
-knot_edge_defaults() {
-  KNOT_EDGE_WEB_ROOT="${KNOT_EDGE_WEB_ROOT:-/var/www/knot}"
-  KNOT_EDGE_CONF="${KNOT_EDGE_CONF:-/etc/nginx/conf.d/knot.conf}"
-  KNOT_EDGE_SSL="${KNOT_EDGE_SSL:-1}"
+# 单独成函数，是因为入口文件会覆盖 KNOT_DOMAIN，证书要跟着这个入口的域名重新推导。
+knot_entry_defaults() {
+  KNOT_ENTRY_WEB_ROOT="${KNOT_ENTRY_WEB_ROOT:-/var/www/knot}"
+  KNOT_ENTRY_CONF="${KNOT_ENTRY_CONF:-/etc/nginx/conf.d/knot.conf}"
+  KNOT_ENTRY_SSL="${KNOT_ENTRY_SSL:-1}"
   if [[ -n "${KNOT_DOMAIN:-}" ]]; then
-    KNOT_EDGE_CERT="${KNOT_EDGE_CERT:-/etc/letsencrypt/live/$KNOT_DOMAIN/fullchain.pem}"
-    KNOT_EDGE_KEY="${KNOT_EDGE_KEY:-/etc/letsencrypt/live/$KNOT_DOMAIN/privkey.pem}"
+    KNOT_ENTRY_CERT="${KNOT_ENTRY_CERT:-/etc/letsencrypt/live/$KNOT_DOMAIN/fullchain.pem}"
+    KNOT_ENTRY_KEY="${KNOT_ENTRY_KEY:-/etc/letsencrypt/live/$KNOT_DOMAIN/privkey.pem}"
   else
-    KNOT_EDGE_CERT="${KNOT_EDGE_CERT:-}"
-    KNOT_EDGE_KEY="${KNOT_EDGE_KEY:-}"
+    KNOT_ENTRY_CERT="${KNOT_ENTRY_CERT:-}"
+    KNOT_ENTRY_KEY="${KNOT_ENTRY_KEY:-}"
   fi
 }
-knot_edge_defaults
+knot_entry_defaults
 
 # ---- 隧道 ----
-KNOT_TUNNEL="${KNOT_TUNNEL:-1}"
-KNOT_TUNNEL_SSH="${KNOT_TUNNEL_SSH:-knot-tunnel@$KNOT_EDGE_HOST}"
-KNOT_TUNNEL_KEY="${KNOT_TUNNEL_KEY:-$HOME/.ssh/knot-edge}"
+KNOT_TUNNEL="${KNOT_TUNNEL:-0}"
+KNOT_TUNNEL_SSH="${KNOT_TUNNEL_SSH:-knot-tunnel@$KNOT_ENTRY_HOST}"
+KNOT_TUNNEL_KEY="${KNOT_TUNNEL_KEY:-$HOME/.ssh/knot-entry}"
 KNOT_TUNNEL_LOCAL_PORT="${KNOT_TUNNEL_LOCAL_PORT:-$KNOT_PORT}"
-KNOT_TUNNEL_REMOTE_PORT="${KNOT_TUNNEL_REMOTE_PORT:-$KNOT_EDGE_PROXY_PORT}"
+KNOT_TUNNEL_REMOTE_PORT="${KNOT_TUNNEL_REMOTE_PORT:-$KNOT_ENTRY_PROXY_PORT}"
 KNOT_TUNNEL_USER="${KNOT_TUNNEL_USER:-${KNOT_TUNNEL_SSH%%@*}}"
 
 # ---- 工具 ----
@@ -262,42 +243,6 @@ knot_expand_path() {
     "~/"*) printf '%s/%s' "$HOME" "${1#\~/}" ;;
     *) printf '%s' "$1" ;;
   esac
-}
-
-# 用 ops/scripts/render-config.mjs 渲染 {{VAR}} 与 {{#VAR}}…{{/VAR}}。
-knot_render() {
-  local template="$1"
-  local dest="${2:--}"
-  node "$KNOT_REPO_ROOT/ops/scripts/render-config.mjs" "$template" "$dest"
-}
-
-# 改写 env 文件里的一行，保留其他行和注释。
-# 值里有空格、$、引号等 shell 特殊字符时用单引号包起来，
-# 否则 run-knot-platform.sh / backup-knot.sh source 时会拆词或展开。
-knot_env_set() {
-  local file="$1"
-  local key="$2"
-  local value="$3"
-  local out
-  value="${value//$'\n'/ }"
-  case "$value" in
-    "" | *[!A-Za-z0-9_./:@%+=,-]*)
-      value="${value//\'/\'\\\'\'}"
-      out="'$value'"
-      ;;
-    *) out="$value" ;;
-  esac
-  local tmp="${file}.tmp.$$"
-  touch "$file"
-  awk -v key="$key" -v value="$out" '
-    BEGIN { done = 0 }
-    index($0, key "=") == 1 { print key "=" value; done = 1; next }
-    { print }
-    END { if (!done) print key "=" value }
-  ' "$file" >"$tmp"
-  mv "$tmp" "$file"
-  # 运行时文件里有 SMTP 密码和管理令牌，只给属主读写。
-  chmod 600 "$file"
 }
 
 knot_env_get() {
@@ -352,7 +297,7 @@ knot_bootout_launchd() {
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
 }
 
-# 渲染一个 systemd unit 并装到 KNOT_SYSTEMD_DIR。Linux 平台主机用。
+# 渲染一个 systemd unit 并装到 KNOT_SYSTEMD_DIR。Linux 实例主机用。
 knot_install_systemd_unit() {
   local src="$1"
   local name="$2"
@@ -381,37 +326,25 @@ knot_systemctl() {
   fi
 }
 
-# 读某个边缘入口文件里的一个键。
+# 读某个公网入口文件里的一个键。
 #
 # 入口文件是叠加层：同一个键在 site.env 里有、入口里也有时，入口的赢。
-# 用子 shell 读，调用者的环境不会被上一个入口的覆盖值污染。
 knot_entry_value() {
   local entry_file="$1" key="$2"
   (
     set -a
     # shellcheck source=/dev/null
     source "$KNOT_SITE_ENV"
-    if [[ -n "${KNOT_SITE_OVERLAY:-}" ]]; then
-      # shellcheck source=/dev/null
-      source "$KNOT_SITE_OVERLAY"
-    fi
     # shellcheck source=/dev/null
     source "$entry_file"
     # 与渲染时一致：入口换了 KNOT_DOMAIN，证书等默认值按这个域名重新推导。
-    knot_edge_defaults
+    knot_entry_defaults
     set +a
     printf '%s' "${!key:-}"
   )
 }
 
-# 规范入口的域名：KNOT_DOMAIN，留空时取 KNOT_PUBLIC_ORIGIN 的主机名。
-knot_canonical_entry() {
-  local host
-  host="$(knot_origin_host "${KNOT_PUBLIC_ORIGIN:-}")"
-  [[ -n "$host" ]] || return 0
-  printf '%s' "$KNOT_SITE_DIR/edge.$host.env"
-}
-
+# 规范入口的域名来自 KNOT_DOMAIN（local 为空，xknot.si 为签发的二级子域）。
 # 在后台起一个进程，并让它脱离调用者的会话和进程组。
 #
 # 只 nohup 是不够的：nohup 只挡 SIGHUP。调用者（CI、后台 shell、终端复用器）

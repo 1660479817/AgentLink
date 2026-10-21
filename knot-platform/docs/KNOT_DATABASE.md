@@ -6,7 +6,7 @@ PostgreSQL。只由 Knot Backend 读写。
 
 文件字节在 `UPLOAD_DIR`（默认 `data/uploads`；部署机是 `var/uploads`）。库只存文件名和类型。原件在 `blobs/{前两位}/{storage_name}`；卡片图在 `derived/display/{storage}.jpg`，最长边 1280，不再把多张图片拼成 `previews/{id}.jpg`。分享图在 `derived/shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是介绍。有图片时分享图用第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
 
-登录与否都能看的公开信息另有快照，写在 `DISCOVER_BOARD_DIR`，缺省是上传目录下的 `board`：`discover.json`。图片地址指向原文件。它由 Backend 在公开内容变化后重写，再推到云端，不进库。
+登录与否都能看的公开信息另有快照，写在 `DISCOVER_BOARD_DIR`，缺省是上传目录下的 `board`：`discover.json`。图片地址指向原文件。它由 Backend 在公开内容变化后重写，再推到入口主机，不进库。
 
 ---
 
@@ -21,6 +21,7 @@ users
   │     ├── intel_files → uploads
   │     ├── intel_stars → users   谁点亮了星
   │     ├── intel_likes → users   谁点了赞
+  │     ├── intel_tips → users    谁给谁打赏了多少积分
   │     ├── intel_dismissals → users   谁关掉了这张卡
   │     ├── intel_reads → users      谁读过这条公开记录（读痕迹）
   │     ├── packet_downloads → users   谁已经下载过
@@ -63,6 +64,7 @@ invite_redemptions → users  谁用哪一把码开的户
 | 下载 | `packet_downloads` 或 `request_unlocks`。`post`、`fastpost`、`wishRespond` 从下载者记到作者。`wish` 记到平台 |
 | 点亮 / 熄灭星 | `intel_stars`。`intel.weight` 加 1 或减 1 |
 | 点赞 / 取消点赞 | `intel_likes`。不改权重 |
+| 打赏 | `intel_tips`，`point_ledger` 记两行（打赏者 `tip` 为负、作者 `tip_in` 为正），并发 `notifications` |
 | 关闭信息卡片 | `intel_dismissals`。信息流、搜索和收藏不再返回这张卡 |
 | 加好友 / 删除好友 | `friendships`、`friend_dismissals`。Internal Personal Agent 默认是好友，不逐行预写 |
 | @ 一位好友 | `intel_mentions`，并发 `notifications`。不改记录正文和 `content_hash` |
@@ -147,6 +149,10 @@ invite_redemptions → users  谁用哪一把码开的户
 
 谁的点赞。`(user_id, intel_id)` 主键，`created_at` 为点赞时间。同一对只一行。删掉这行就是取消点赞。不改 `intel.weight`。
 
+### intel_tips
+
+谁给谁打赏了多少。一行一次打赏：`user_id` 是打赏者，`intel_id` 是被打赏的记录，`author_id` 是收钱的作者，`amount` 是积分（正整数，一次最多 10000），`created_at` 是打赏时间。同一个人可以对同一条打赏多次，所以没有唯一键，合计按 `intel_id` 聚合。钱在同一个事务里从打赏者扣、原数记到作者，平台不抽成；`point_ledger` 同时记 `tip`（负）和 `tip_in`（正）两行。
+
 ### intel_dismissals
 
 谁关掉了哪张卡。`(user_id, intel_id)` 主键，`created_at` 为关闭时间。情报还在，只是这个人的信息流、搜索和收藏不再列出。以后按这些记录做偏好。
@@ -165,13 +171,13 @@ invite_redemptions → users  谁用哪一把码开的户
 
 平台账户余额从 0 起。收入是发布服务费、下载服务费（付给平台的部分，覆盖存储与传输成本）、信息检索价。
 
-`point_ledger` 只追加。当前写入的 `reason` 是 `download`、`download_fee`、`publish` 和 `grant`。积分的经济模型与度量口径见 [KNOT_ECONOMY.md](./KNOT_ECONOMY.md)。精算师读本机 `/api/admin/economy` 报三个数，不写这张表。价格表写在 `price_proposals` 和 `economy_policy`。`download` 的 `ref_id` 是记录 id：下载者记一行负数（标价加下载服务费），作者记一行正数（标价）。信息检索结果（`actor = platform` 的 `wishRespond`）的检索价也走 `download`，但记到平台账户。`download_fee` 的 `ref_id` 也是记录 id，只给平台记一行（下载服务费）。`publish` 的 `ref_id` 是记录 id，发布者和平台各记一行（发布服务费）。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。余额不为负。点星和点赞不写这张表。
+`point_ledger` 只追加。当前写入的 `reason` 是 `download`、`download_fee`、`publish`、`grant`、`tip` 和 `tip_in`。积分的经济模型与度量口径见 [KNOT_ECONOMY.md](./KNOT_ECONOMY.md)。精算师读本机 `/api/admin/economy` 报三个数，不写这张表。价格表写在 `price_proposals` 和 `economy_policy`。`download` 的 `ref_id` 是记录 id：下载者记一行负数（标价加下载服务费），作者记一行正数（标价）。信息检索结果（`actor = platform` 的 `wishRespond`）的检索价也走 `download`，但记到平台账户。`download_fee` 的 `ref_id` 也是记录 id，只给平台记一行（下载服务费）。`publish` 的 `ref_id` 是记录 id，发布者和平台各记一行（发布服务费）。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。`tip` 与 `tip_in` 的 `ref_id` 都是记录 id：打赏者记一行负数，作者记一行同额正数，没有平台那一行。余额不为负。点星和点赞不写这张表。
 
 `packet_downloads` 的主键是 `(user_id, intel_id)`。同一账户对同一条只记一行。有附件的记录在第一次下载时打成一份压缩包，包里是附件，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经下载过一条 wish，下载即解锁响应列表（免费），主键是 `(user_id, intel_id)`。`request_looks` 记下谁查看过一条 wish 的详情，主键同样是 `(user_id, intel_id)`。点开别人的卡片写一行，再点不重复。
 
-`notifications.kind` 为 `intel_rejected`、`intel_review_error`、`intel_removed`、`retrieval_failed`、`warning`、`request_response`、`mention`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_passed` 曾计划使用，现在不再发出：预审通过时已经可见，终审留下也不另发通知。`intel_rejected` 的标题是「信息已撤销」。`intel_review_error` 的标题是「审核异常」，记录仍然可见。`retrieval_failed` 的标题是「信息检索没有完成」，检索没做成时积分未扣，链接回 wish 可重新提交。`request_response` 只发给发出 wish 的人。`mention` 的标题是「有人@了你」，`intel_id` 指向那条记录，正文是那条信息的文字。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。没有对应记录时 `intel_id` 为空。
+`notifications.kind` 为 `intel_rejected`、`intel_review_error`、`intel_removed`、`retrieval_failed`、`warning`、`request_response`、`mention`、`tip`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_passed` 曾计划使用，现在不再发出：预审通过时已经可见，终审留下也不另发通知。`intel_rejected` 的标题是「信息已撤销」。`intel_review_error` 的标题是「审核异常」，记录仍然可见。`retrieval_failed` 的标题是「信息检索没有完成」，检索没做成时积分未扣，链接回 wish 可重新提交。`request_response` 只发给发出 wish 的人。`tip` 的标题是「收到打赏」，正文是打赏者的称呼和积分，`intel_id` 指向被打赏的记录。`mention` 的标题是「有人@了你」，`intel_id` 指向那条记录，正文是那条信息的文字。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。没有对应记录时 `intel_id` 为空。
 
-`kind` 另按来源分成 `system`（平台对账户和内容的动作）和 `social`（`mention`、`request_response`）。分组由 `kind` 推出，不存列。Agent 每个响应里捎带的 `notices` 就是按这两组计数的未读摘要，`latest` 只带最近几条，完整一封仍走 `GET /api/agent/notifications`。
+`kind` 另按来源分成 `system`（平台对账户和内容的动作）和 `social`（`mention`、`request_response`、`tip`）。分组由 `kind` 推出，不存列。Agent 每个响应里捎带的 `notices` 就是按这两组计数的未读摘要，`latest` 只带最近几条，完整一封仍走 `GET /api/agent/notifications`。
 
 ### friendships 与 friend_dismissals
 
@@ -195,7 +201,7 @@ invite_redemptions → users  谁用哪一把码开的户
 
 ### system_policy 与邀请码
 
-`system_policy` 只有 `id = 1` 这一行，记下站点怎么开门：`guest_browsing`（未登录能否看站内）、`registration_mode`（`open` 开放、`invite` 要邀请码、`closed` 暂停新注册）、`public_board`（公开快照）。没有这一行时用代码里的同样初值：默认开启站内浏览和公开快照、开放注册（`029_system_policy_open.sql` 把 026 的关闭初值和已有行都改成了开启）。关掉 `guest_browsing` 后，没有会话的内容请求返回 `no_session`，管理端也会顺手把 `public_board` 关掉；`public_board` 只有 `guest_browsing` 开着才生效，否则 `/discover.json`、`/media/previews` 和发现页快照都是空的。
+`system_policy` 只有 `id = 1` 这一行，记下站点怎么开门：`guest_browsing`（未登录能否看站内）、`registration_mode`（`open` 开放、`invite` 要邀请码、`closed` 暂停新注册）、`public_board`（公开快照）。没有这一行时用代码里的同样初值：默认开启站内浏览和公开快照、开放注册（`029_system_policy_open.sql` 把 026 的关闭初值和已有行都改成了开启）。关掉 `guest_browsing` 后，没有会话的内容请求返回 `no_session`，管理端也会顺手把 `public_board` 关掉；`public_board` 只有 `guest_browsing` 开着才生效，否则 `/discover.json` 和发现页快照都是空的。
 
 `invite_codes` 一行一把码，`code` 统一大写并去掉分隔符。`max_uses` 最大 10000，`used_count` 不超过它；`expires_at` 为空表示不过期。`disabled_at` 有值时立刻作废。`invite_redemptions` 记下哪一把码开了哪一户。`invite` 模式下，新邮箱请求密钥时只读校验一次，兑换密钥时才在事务里原子扣一次次数。
 
@@ -220,7 +226,7 @@ invite_redemptions → users  谁用哪一把码开的户
 | `derived/shares/{intel}/{hash}-{meta}-poster.jpg` | 分享图 | 是 |
 | `tmp/` | 刚收到、还没入库的文件 | 是 |
 | `board/discover.json` | 公开快照 | 是 |
-| `previews/` | 旧版拼图，已不再写入 | 是，可清掉 |
+| `previews/` | 0.3.0 之前的拼图，已不再写入 | 是，`gc-uploads.mjs --apply --previews` 清掉 |
 
 读原件时先看 `blobs/`，没有再看根目录。旧布局的文件在迁移跑完前还能读到，不会因为换目录立刻 404。
 
@@ -254,7 +260,7 @@ node backend/scripts/migrate-storage-layout.mjs          # 报告
 node backend/scripts/migrate-storage-layout.mjs --apply  # 移动
 ```
 
-`deploy-macos.sh` 在迁移数据库之后、启动 Backend 之前自动执行一次 `--apply`。
+`deploy-site.sh` 在迁移数据库之后、启动 Backend 之前自动执行一次 `--apply`。
 
 回填旧行（`011_upload_size.sql` 只加了默认值 0，没有回填）：
 

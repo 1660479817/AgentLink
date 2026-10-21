@@ -14,10 +14,13 @@ import { relayUrl } from "./login.js";
 
 const KEYS = [
   { key: "XKNOT_INSTANCE_ID", label: "实例 id" },
+  { key: "XKNOT_ISSUED_URL", label: "签发地址" },
+  { key: "XKNOT_ISSUED_AT", label: "签发日" },
+  { key: "XKNOT_TIER", label: "层级" },
+  { key: "XKNOT_STATUS", label: "状态" },
   { key: "XKNOT_HUB_ORIGIN", label: "中枢地址" },
   { key: "XKNOT_HUB_RELAY_URL", label: "委托发信地址" },
   { key: "XKNOT_HUB_RELAY_TOKEN", label: "委托发信凭据" },
-  { key: "XKNOT_HUB_ISSUED_AT", label: "签发日" },
 ];
 
 const LEVEL_ORDER = { error: 0, warn: 1, info: 2, ok: 3 };
@@ -68,10 +71,14 @@ function configView(source) {
   const token = text(source.XKNOT_HUB_RELAY_TOKEN);
   return {
     instanceId,
+    issuedUrl: text(source.XKNOT_ISSUED_URL).replace(/\/+$/, ""),
     hubOrigin,
     relayUrl: relayUrl(source),
     relayUrlSource: explicitRelay ? "explicit" : hubOrigin ? "derived" : "none",
-    issuedAt: text(source.XKNOT_HUB_ISSUED_AT),
+    issuedAt: text(source.XKNOT_ISSUED_AT),
+    tier: text(source.XKNOT_TIER),
+    status: text(source.XKNOT_STATUS),
+
     relayToken: {
       present: Boolean(token),
       masked: maskSecret(token),

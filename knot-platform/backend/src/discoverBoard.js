@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import { access, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { toRecord } from "./card.js";
 import { setDiscoverPublisher } from "./discoverPublish.js";
@@ -123,7 +123,7 @@ export async function listActivePeople(pool, limit = 20) {
 }
 
 export async function assembleDiscoverBoard(pool) {
-  // 公开快照关掉时写一份空板，云端下一次推送就会把旧内容清掉。
+  // 公开快照关掉时写一份空板，入口主机下一次推送就会把旧内容清掉。
   if (!publicBoardEnabled()) {
     return { information: [], requests: [], people: [], facets: { categories: [], topics: [] } };
   }
@@ -165,15 +165,8 @@ function jsonPath(boardDir) {
   return path.join(boardDir, "discover.json");
 }
 
-export function previewDir(boardDir) {
-  return path.join(boardDir, "media", "previews");
-}
-
 export async function writeDiscoverBoard(env, deps = {}) {
   const board = await assembleDiscoverBoard(env.pool);
-  const dir = previewDir(env.boardDir);
-  const existing = await readdir(dir).catch(() => []);
-  for (const name of existing) await rm(path.join(dir, name), { force: true });
   const dest = jsonPath(env.boardDir);
   const tmp = `${dest}.${randomUUID()}.tmp`;
   await mkdir(env.boardDir, { recursive: true });
@@ -206,7 +199,7 @@ export function scheduleDiscoverWrite(env, push) {
 export function pushDiscoverBoard(boardDir) {
   const cmd = process.env.KNOT_DISCOVER_PUSH_CMD;
   if (!cmd || !boardDir) return;
-  // 推送失败过去是彻底静默的（stdio: ignore）：边缘快照停在上一次成功的样子，
+  // 推送失败过去是彻底静默的（stdio: ignore）：入口快照停在上一次成功的样子，
   // 页面照常打开，只是没有新内容——最容易被忽略的一种故障。
   // 这里只收 stderr 的前一小段，非 0 退出时打一行，别把 rsync 的进度刷进日志。
   const child = spawn(cmd, [boardDir], { stdio: ["ignore", "ignore", "pipe"], detached: true });
@@ -219,7 +212,7 @@ export function pushDiscoverBoard(boardDir) {
     if (code === 0) return;
     const detail = stderr.trim().split("\n").slice(-3).join(" | ");
     console.error(
-      `discover push failed (${code ?? signal}): the edge keeps serving the previous snapshot.` +
+      `discover push failed (${code ?? signal}): the entry keeps serving the previous snapshot.` +
         (detail ? ` ${detail}` : "")
     );
   });
@@ -255,12 +248,10 @@ export function bindDiscoverBoard({ pool, uploadDir, boardDir }) {
     boardDir: path.resolve(boardDir || process.env.DISCOVER_BOARD_DIR || path.join(uploadDir, "board")),
   };
   setDiscoverPublisher(() => scheduleDiscoverWrite(env, pushDiscoverBoard));
-  fs.mkdirSync(previewDir(env.boardDir), { recursive: true });
   scheduleDiscoverWrite(env, pushDiscoverBoard);
   startWishSweep(env);
   return {
     dir: env.boardDir,
-    previewDir: () => previewDir(env.boardDir),
     file: async () => {
       const file = jsonPath(env.boardDir);
       try {

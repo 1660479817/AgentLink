@@ -5,17 +5,16 @@
 # 如果新版本已经写过新的迁移，旧代码可能读不懂新表，回滚前先看 migrate --status。
 #
 # 用法：
-#   ./ops/scripts/rollback.sh --site bot01 --list
-#   ./ops/scripts/rollback.sh --site bot01              # 回到上一个版本
-#   ./ops/scripts/rollback.sh --site bot01 --to knot-0.1.9-abc1234
-#   ./ops/scripts/rollback.sh --site bot01 --dry-run
+#   ./ops/scripts/rollback.sh --site wang --list
+#   ./ops/scripts/rollback.sh --site wang              # 回到上一个版本
+#   ./ops/scripts/rollback.sh --site wang --to knot-0.1.9-abc1234
+#   ./ops/scripts/rollback.sh --site wang --dry-run
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 SITE_ARG=""
-VARIANT_ARG=""
 TARGET_ARG=""
 LIST_ONLY=0
 DRY_RUN=0
@@ -24,11 +23,6 @@ while [[ $# -gt 0 ]]; do
     --site)
       [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--site 后面要跟站点名" >&2; exit 2; }
       SITE_ARG="$2"
-      shift 2
-      ;;
-    --variant | --profile)
-      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "$1 后面要跟变体名" >&2; exit 2; }
-      VARIANT_ARG="$2"
       shift 2
       ;;
     --to)
@@ -51,7 +45,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$SITE_ARG" ]] && export KNOT_SITE="$SITE_ARG"
-[[ -n "$VARIANT_ARG" ]] && export KNOT_SITE_VARIANT="$VARIANT_ARG"
 
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"

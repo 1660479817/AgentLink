@@ -98,6 +98,11 @@ export const ImageIcon = knotIcon([
   h("circle", { cx: 9, cy: 10, r: 1.5 }),
   h("path", { d: "m4.5 15.5 4.2-3.4 3.6 3 2.2-1.8 5 3.7" }),
 ]);
+// 长图：竖着的一张图带几行字，和横版 ImageIcon 区分开，分享弹窗里用它。
+export const LongImageIcon = knotIcon([
+  h("rect", { x: 7, y: 3.5, width: 10, height: 17, rx: 2 }),
+  h("path", { d: "M9.6 7.4h4.8M9.6 10.4h4.8M9.6 13.4h3.2" }),
+]);
 export const VideoIcon = knotIcon([
   h("rect", { x: 3.5, y: 6, width: 17, height: 12, rx: 2 }),
   h("path", { d: "m10 9.5 5 2.5-5 2.5V9.5Z" }),
@@ -123,10 +128,6 @@ export const RefreshIcon = knotIcon([
   h("path", { d: "M4 12a8 8 0 0 0 8 8 8.7 8.7 0 0 0 6-2.5L20 16" }),
   h("path", { d: "M16 16h4v4" }),
 ]);
-export const LikeIcon = knotIcon([
-  h("path", { d: "M8 10.5v8.2a1 1 0 0 1-1 1H5.6A1.6 1.6 0 0 1 4 18.1v-6a1.6 1.6 0 0 1 1.6-1.6H8Z" }),
-  h("path", { d: "M8 10.6 11.2 4.8a1.7 1.7 0 0 1 3.1 1.1V9.2h4.2a1.8 1.8 0 0 1 1.8 2.1l-1.1 6.4a1.8 1.8 0 0 1-1.8 1.5H8" }),
-]);
 export const StarIcon = knotIcon([
   h("path", { d: "M12 3.2 14.2 8.7l5.9.5-4.5 3.9 1.4 5.7L12 16.2 7 18.8l1.4-5.7L3.9 9.2l5.9-.5Z" }),
 ]);
@@ -136,9 +137,11 @@ export const DownloadIcon = knotIcon([
   h("path", { d: "M5 19h14" }),
 ]);
 export const ShareIcon = knotIcon([
-  h("path", { d: "M12 16V5" }),
-  h("path", { d: "m8 8 4-4 4 4" }),
-  h("path", { d: "M6 12.5V18a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-5.5" }),
+  h("circle", { cx: 18, cy: 5.5, r: 2.6 }),
+  h("circle", { cx: 6, cy: 12, r: 2.6 }),
+  h("circle", { cx: 18, cy: 18.5, r: 2.6 }),
+  h("path", { d: "m8.4 10.8 7.2-4" }),
+  h("path", { d: "m8.4 13.2 7.2 4" }),
 ]);
 export const ClockIcon = knotIcon([
   h("circle", { cx: 12, cy: 12, r: 8 }),
@@ -148,6 +151,12 @@ export const CoinIcon = knotIcon([
   h("circle", { cx: 12, cy: 12, r: 8 }),
   h("circle", { cx: 12, cy: 12, r: 5.1 }),
   h("path", { d: "M12 8.6v6.8" }),
+]);
+// 打赏：硬币投进去。和标价用的 CoinIcon 形状不同，卡片底栏不会和报价看混。
+export const TipIcon = knotIcon([
+  h("circle", { cx: 12, cy: 12, r: 7.8 }),
+  h("circle", { cx: 12, cy: 12, r: 4.7 }),
+  h("path", { d: "M12 9.6v4.8M9.6 12h4.8" }),
 ]);
 export const PassedIcon = knotIcon([
   h("circle", { cx: 12, cy: 12, r: 8 }),

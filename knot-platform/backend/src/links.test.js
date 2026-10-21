@@ -73,7 +73,6 @@ test("a card shows a stored image", () => {
   assert.deepEqual(record.kMeta.commerce, { price: 10, fee: 0, payee: "author" });
   assert.equal(record.images[0].url, `/api/web/uploads/${ID}`);
   assert.equal(record.images[0].stored, true);
-  assert.equal(record.previewUrl, "");
   assert.equal(record.kMeta.note, "");
 });
 

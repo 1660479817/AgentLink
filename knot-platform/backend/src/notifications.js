@@ -57,6 +57,7 @@ const NOTICE_GROUPS = {
   level_changed: "system",
   mention: "social",
   request_response: "social",
+  tip: "social",
 };
 
 const SYSTEM_KINDS = Object.keys(NOTICE_GROUPS).filter((kind) => NOTICE_GROUPS[kind] === "system");

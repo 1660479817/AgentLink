@@ -13,7 +13,7 @@
       <form id="login-form" class="login-card" autocomplete="off">
         <p class="eyebrow">Knot</p>
         <h1>管理后台</h1>
-        <p class="login-lead">这一页只在本机回环地址打开。粘贴平台主机上的管理令牌后进入。</p>
+        <p class="login-lead">这一页只在实例主机自己或同一内网打开。粘贴实例主机上的管理令牌后进入。</p>
         <label class="field">
           <span>管理令牌</span>
           <input
@@ -41,7 +41,7 @@
           <span class="brand-mark">K</span>
           <div>
             <h1>Knot 管理后台</h1>
-            <p id="topbar-note" class="topbar-note">仅本机可用</p>
+            <p id="topbar-note" class="topbar-note">仅内网可用</p>
           </div>
         </div>
         <div class="topbar-actions">
@@ -459,10 +459,31 @@
             <div class="view-head">
               <div>
                 <h2>XKnot</h2>
-                <p class="muted">这一台在联邦里的接入件与对外状态信号。只读；改动走 ops/scripts/join-xknot.sh。</p>
+                <p class="muted">本站点对外怎么介绍自己由主理人编辑；接入件由中枢签发，只读。</p>
               </div>
               <button id="federation-refresh" class="button ghost" type="button">刷新</button>
             </div>
+
+            <article class="card">
+              <div class="card-head">
+                <h3>本站点怎么介绍自己</h3>
+              </div>
+              <p class="muted small">自述区。主理人拥有这一份，中枢只会取回去展示，不需要任何审批。名称与一句话介绍至少填简中。</p>
+              <form id="profile-form" class="stack-form" novalidate>
+                <div id="profile-fields" class="form-grid"></div>
+                <fieldset class="profile-social">
+                  <legend>社交链接 <span class="muted small">可选，最多 5 条，以 https 开头</span></legend>
+                  <div id="profile-social-rows" class="stack-form"></div>
+                  <button id="profile-social-add" class="button ghost" type="button">加一条</button>
+                </fieldset>
+                <p id="profile-note" class="muted small"></p>
+                <p id="profile-problems" class="muted small" hidden></p>
+                <div class="button-row">
+                  <button id="profile-save" class="button primary" type="submit">保存档案</button>
+                  <button id="profile-reload" class="button ghost" type="button">放弃改动</button>
+                </div>
+              </form>
+            </article>
 
             <div class="stat-grid">
               <article class="stat">
@@ -489,14 +510,27 @@
 
             <div class="split">
               <article class="card">
+                <h3>签发区 · 中枢给出</h3>
+                <p class="muted small">id、地址、接入日、档位与状态由中枢签发，端侧改不了。要变更走中枢。</p>
+                <dl id="profile-issued" class="facts"></dl>
+              </article>
+              <article class="card">
                 <h3>接入件与进程</h3>
                 <dl id="fed-facts" class="facts"></dl>
                 <p id="fed-file" class="muted small note-gap"></p>
               </article>
+            </div>
+
+            <div class="split">
               <article class="card">
                 <h3>中枢会看到什么</h3>
                 <dl id="fed-health-facts" class="facts"></dl>
                 <p class="muted small note-gap">探测结果存在中枢的 var/health.json；这里只说明这一台会报什么。</p>
+              </article>
+              <article class="card">
+                <h3>对外提供什么</h3>
+                <dl id="profile-public" class="facts"></dl>
+                <p class="muted small note-gap">任何访客都能读这份档案；它只含自述区，不含本机路径与数据库。</p>
               </article>
             </div>
 

@@ -1,8 +1,8 @@
 // Knot 管理后台。纯浏览器模块，不打包，不含任何业务逻辑：
-// 所有写操作都走同一条本机 /api/admin，由 Backend 校验令牌、做校验、写库和记账。
+// 所有写操作都走同一条内网 /api/admin，由 Backend 校验令牌、做校验、写库和记账。
 //
 // 安全约定：
-// - 令牌只放在 sessionStorage，关闭标签页就没了；页面只在本机回环地址提供；
+// - 令牌只放在 sessionStorage，关闭标签页就没了；页面只在实例主机自己或同一内网提供；
 // - 所有来自接口的文字一律用 textContent 写进 DOM，不拼 innerHTML；
 // - 页面不写内联脚本和内联样式，CSP 锁在 'self'。
 
@@ -29,7 +29,7 @@ const PRICE_FIELDS = [
 const HINTS = {
   bad_token: "令牌不对，或已经换过。",
   admin_unconfigured: "Backend 进程里还没有 KNOT_ADMIN_TOKEN。",
-  unreachable: "连不上管理接口。确认 Backend 在运行，并且是从本机打开这一页。",
+  unreachable: "连不上管理接口。确认 Backend 在运行，并且是从内网打开这一页。",
   bad_response: "管理接口没有返回 JSON。",
   no_session: "没有会话。",
   bad_user: "账户要对上唯一的一位，用邮箱、称呼或用户 id。",
@@ -80,6 +80,7 @@ const state = {
   prices: null,
   editingSponsor: null,
   federation: null,
+  profile: null,
   toastTimer: null,
 };
 
@@ -189,7 +190,7 @@ function verifyMessage(error) {
   if (error.code === "bad_token" || error.status === 401) return HINTS.bad_token;
   if (error.code === "admin_unconfigured") return HINTS.admin_unconfigured;
   if (error.status === 404) {
-    return "管理接口只接受本机访问。请在平台主机上用 http://127.0.0.1:<端口>/admin 打开。";
+    return "管理接口只接受内网访问。请在实例主机自己或同一内网，用 http://<实例主机>:<端口>/admin 打开。";
   }
   return humanError(error);
 }
@@ -198,7 +199,7 @@ function humanError(error) {
   if (!error) return "请求没有完成。";
   const hint = HINTS[error.code];
   if (hint) return hint;
-  if (error.status === 404) return "没有找到；确认这一页是从本机 127.0.0.1 打开的。";
+  if (error.status === 404) return "没有找到；确认这一页是从实例主机或同一内网打开的。";
   return `请求没有完成（${error.code || error.message || "unknown"}）。`;
 }
 
@@ -250,6 +251,8 @@ async function api(pathname, options = {}) {
     const error = new Error(data.error || response.statusText || "request_failed");
     error.code = data.error || `http_${response.status}`;
     error.status = response.status;
+    // 档案校验失败会带上逐条问题，表单直接照着显示。
+    if (Array.isArray(data.problems)) error.problems = data.problems;
     if (response.status === 401) {
       state.token = "";
       sessionStorage.removeItem(TOKEN_KEY);
@@ -273,7 +276,7 @@ function showLogin(message = "") {
 function showApp() {
   byId("login-view").hidden = true;
   byId("admin-view").hidden = false;
-  setText("topbar-note", "仅本机可用 · 令牌已载入");
+  setText("topbar-note", "仅内网可用 · 令牌已载入");
   setView("overview");
 }
 
@@ -1086,6 +1089,7 @@ async function loadFederation() {
   setText("fed-file", "");
   byId("fed-signals").replaceChildren(el("li", { class: "signal", text: "读取中…" }));
   byId("fed-drift-card").hidden = true;
+  void loadProfile();
   try {
     const data = await api("/federation");
     state.federation = data;
@@ -1181,6 +1185,241 @@ function renderFederation() {
   renderDrift(Array.isArray(data.drift) ? data.drift : []);
 }
 
+/* 站点档案：自述区在这里编辑，签发区只读 */
+// 字段清单只写一次：表单、填表、保存都从这两张表走，避免三处各记一套名字。
+const PROFILE_LOCALES = [
+  ["zh-CN", "简中"],
+  ["zh-TW", "繁中"],
+  ["en", "EN"],
+];
+
+const PROFILE_LOCALE_FIELDS = [
+  { key: "name", label: "名称", hint: "顶栏和门户卡片上的站点名，必填", max: 40 },
+  { key: "shortName", label: "简称", hint: "窄屏或标识里用的短名", max: 12 },
+  { key: "intro.oneLine", label: "一句话介绍", hint: "访客看到的第一句，必填", max: 60 },
+  { key: "intro.long", label: "详细介绍", hint: "点开站点介绍后的一段话", max: 800, multiline: true },
+  { key: "owner", label: "主理人", hint: "这个站点背后的人，点站点名时看到", max: 40 },
+  { key: "operator", label: "运营方", hint: "与主理人不是同一个时再填", max: 80 },
+  { key: "tags", label: "标签", hint: "逗号分隔，每种语言最多 5 个", max: 200, list: true },
+];
+
+const PROFILE_PLAIN_FIELDS = [
+  { key: "contact", label: "联系方式", hint: "公开的邮箱或主页，可不填", max: 120 },
+  { key: "logo", label: "Logo 地址", hint: "https 开头的图片地址，可不填", max: 300 },
+  { key: "themeColor", label: "主题色", hint: "形如 #0866FF，可不填", max: 7 },
+  { key: "languages", label: "语种", hint: "zh-CN、zh-TW、en，逗号分隔", max: 60, list: true },
+  { key: "regions", label: "地区", hint: "两位国家码如 CN、SG，或 GLOBAL", max: 60, list: true },
+  { key: "timezone", label: "时区", hint: "如 Asia/Shanghai", max: 40 },
+  { key: "vertical", label: "垂类", hint: "如 旅行、二手房、招聘，可不填", max: 32 },
+];
+
+function fieldLabel(label, hint) {
+  return el(
+    "span",
+    {},
+    label,
+    hint ? el("span", { class: "field-hint", text: ` · ${hint}` }) : null
+  );
+}
+
+function profileInput(field, locale) {
+  const input = el(field.multiline ? "textarea" : "input", {
+    type: field.multiline ? null : "text",
+    maxlength: field.max,
+    dataset: { profileKey: field.key, ...(locale ? { locale } : {}) },
+  });
+  if (field.list) input.dataset.list = "yes";
+  const localeLabel = locale ? PROFILE_LOCALES.find(([id]) => id === locale)?.[1] || locale : "";
+  return el(
+    "label",
+    { class: "field" },
+    localeLabel ? fieldLabel(localeLabel) : fieldLabel(field.label, field.hint),
+    input
+  );
+}
+
+function renderProfileForm() {
+  const container = byId("profile-fields");
+  if (!container) return;
+  const localeFields = PROFILE_LOCALE_FIELDS.map((field) =>
+    el(
+      "div",
+      { class: "field field-wide" },
+      fieldLabel(field.label, field.hint),
+      el(
+        "div",
+        { class: "form-grid locale-row" },
+        ...PROFILE_LOCALES.map(([locale]) => profileInput(field, locale))
+      )
+    )
+  );
+  container.replaceChildren(...localeFields, ...PROFILE_PLAIN_FIELDS.map((field) => profileInput(field, null)));
+}
+
+function getPath(source, key) {
+  return key.split(".").reduce((node, part) => (node && typeof node === "object" ? node[part] : null), source);
+}
+
+function setPath(target, key, value) {
+  const parts = key.split(".");
+  let node = target;
+  for (const part of parts.slice(0, -1)) {
+    if (!node[part] || typeof node[part] !== "object") node[part] = {};
+    node = node[part];
+  }
+  node[parts[parts.length - 1]] = value;
+}
+
+function collectProfile() {
+  const profile = {};
+  for (const input of document.querySelectorAll("[data-profile-key]")) {
+    const key = input.dataset.profileKey;
+    const value = input.value.trim();
+    if (!value) continue;
+    if (input.dataset.locale) {
+      const map = getPath(profile, key) || {};
+      map[input.dataset.locale] = input.dataset.list === "yes" ? splitList(value) : value;
+      setPath(profile, key, map);
+    } else if (input.dataset.list === "yes") {
+      setPath(profile, key, splitList(value));
+    } else {
+      setPath(profile, key, value);
+    }
+  }
+  const social = [];
+  for (const row of document.querySelectorAll(".profile-social-row")) {
+    const label = row.querySelector("[data-social-label]").value.trim();
+    const url = row.querySelector("[data-social-url]").value.trim();
+    if (label || url) social.push({ label, url });
+  }
+  if (social.length) profile.social = social;
+  return profile;
+}
+
+function fillProfileForm(profile) {
+  for (const input of document.querySelectorAll("[data-profile-key]")) {
+    const value = getPath(profile, input.dataset.profileKey);
+    const own = input.dataset.locale ? value?.[input.dataset.locale] : value;
+    if (Array.isArray(own)) input.value = own.join(", ");
+    else input.value = typeof own === "string" ? own : "";
+  }
+  const rows = byId("profile-social-rows");
+  rows.replaceChildren(...((Array.isArray(profile?.social) ? profile.social : []).map(socialRow)));
+  if (!rows.children.length) rows.append(socialRow());
+  syncSocialAdd();
+}
+
+function socialRow(item = {}) {
+  const row = el(
+    "div",
+    { class: "profile-social-row" },
+    el(
+      "label",
+      { class: "field" },
+      el("span", { text: "名称" }),
+      el("input", { type: "text", maxlength: "32", dataset: { socialLabel: "" }, value: item.label || "" })
+    ),
+    el(
+      "label",
+      { class: "field" },
+      el("span", { text: "链接" }),
+      el("input", { type: "url", maxlength: "300", dataset: { socialUrl: "" }, value: item.url || "" })
+    )
+  );
+  const remove = el("button", { class: "button ghost", type: "button", text: "移除" });
+  remove.addEventListener("click", () => {
+    row.remove();
+    if (!byId("profile-social-rows").children.length) byId("profile-social-rows").append(socialRow());
+    syncSocialAdd();
+  });
+  row.append(remove);
+  return row;
+}
+
+function syncSocialAdd() {
+  const rows = byId("profile-social-rows");
+  const add = byId("profile-social-add");
+  if (!rows || !add) return;
+  add.disabled = rows.children.length >= 5;
+}
+
+function addSocialRow() {
+  const rows = byId("profile-social-rows");
+  if (!rows || rows.children.length >= 5) return;
+  rows.append(socialRow());
+  syncSocialAdd();
+}
+
+async function loadProfile() {
+  setText("profile-note", "读取中…");
+  renderIssued(null);
+  try {
+    const data = await api("/profile");
+    state.profile = data;
+    renderProfile();
+  } catch (error) {
+    if (handleAuth(error)) return;
+    showBanner(humanError(error));
+    setText("profile-note", humanError(error));
+  }
+}
+
+function renderProfile() {
+  const data = state.profile;
+  if (!data) return;
+  renderIssued(data);
+  fillProfileForm(data.profile);
+
+  const problems = Array.isArray(data.problems) ? data.problems : [];
+  setAlert(byId("profile-problems"), problems.join("；"), "error");
+  // 这个接口的 file 是路径字符串；federation 那边是 { path, permissions }，别混。
+  const filePath = typeof data.file === "string" ? data.file : data.file?.path || "";
+  setText(
+    "profile-note",
+    data.file
+      ? `文件 ${filePath || "（路径未知）"} · 最后更新 ${data.updatedAt || "还没保存过"}`
+      : "这台机器还没有站点目录（KNOT_AGENT_ENV_DIR / KNOT_PROFILE_FILE），档案改不了。"
+  );
+}
+
+function renderIssued(data) {
+  const issued = data?.issued || {};
+  byId("profile-issued").replaceChildren(
+    fact("实例 id", issued.id),
+    fact("地址", issued.url),
+    fact("接入日", issued.since),
+    fact("档位", issued.tier),
+    fact("状态", issued.status)
+  );
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  byId("profile-public").replaceChildren(
+    fact("档案接口", origin ? `${origin}/api/federation/profile` : "—"),
+    fact("档案状态", data?.profile ? "已填写" : "还没填"),
+    fact("最后更新", data?.updatedAt),
+    fact("语言数", Array.isArray(data?.profile?.languages) ? String(data.profile.languages.length) : "—")
+  );
+}
+
+async function saveProfile(event) {
+  event.preventDefault();
+  const button = byId("profile-save");
+  button.disabled = true;
+  setAlert(byId("profile-problems"), "", "error");
+  try {
+    const data = await api("/profile", { method: "PUT", body: { profile: collectProfile() } });
+    state.profile = data;
+    renderProfile();
+    toast("档案已保存。", "ok");
+  } catch (error) {
+    if (handleAuth(error)) return;
+    const problems = Array.isArray(error.problems) ? error.problems : [];
+    if (problems.length) setAlert(byId("profile-problems"), problems.join("；"), "error");
+    else toast(humanError(error), "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 /* 事件绑定 */
 
 function bindEvents() {
@@ -1198,6 +1437,9 @@ function bindEvents() {
   byId("sponsors-refresh").addEventListener("click", () => loadSponsors());
   byId("prices-refresh").addEventListener("click", () => loadPrices());
   byId("federation-refresh").addEventListener("click", () => loadFederation());
+  byId("profile-form").addEventListener("submit", saveProfile);
+  byId("profile-reload").addEventListener("click", () => renderProfile());
+  byId("profile-social-add").addEventListener("click", addSocialRow);
   byId("user-clear").addEventListener("click", () => {
     state.selectedUser = null;
     renderUserList();
@@ -1237,6 +1479,7 @@ function bindEvents() {
 
 function boot() {
   bindEvents();
+  renderProfileForm();
   // 令牌只从这个标签页的 sessionStorage 读；不接 URL 里的令牌，
   // 免得它留在浏览历史、代理日志或截图里。
   const saved = sessionStorage.getItem(TOKEN_KEY) || "";

@@ -204,6 +204,7 @@ if [[ -d "$UPLOAD_DIR" ]]; then
   rm -rf "$UPLOAD_DIR/derived" "$UPLOAD_DIR/tmp" "$UPLOAD_DIR/packets" "$UPLOAD_DIR/previews" "$UPLOAD_DIR/shares" "$UPLOAD_DIR/extracts"
   # 快照是按旧库拍出来的，重建后先撤掉，等下一次内容变动再生成。
   rm -f "$UPLOAD_DIR/board/discover.json"
+  # 0.3.0 之前放在快照目录里的拼图，一并清掉。
   rm -rf "$UPLOAD_DIR/board/media/previews"
   # blobs 分片里的原件按库里的保留清单再扫一遍，刚被删的帖子才真正落下。
   if [[ -d "$UPLOAD_DIR/blobs" ]]; then

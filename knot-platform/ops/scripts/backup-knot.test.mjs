@@ -35,7 +35,6 @@ function scaffold(options = {}) {
   write(
     path.join(deploy, "sites", "demo", "site.env"),
     [
-      "KNOT_SITE_NAME=Demo",
       "KNOT_ADMIN_EMAIL=admin@example.com",
       `KNOT_BACKUP_DIR=${backups}`,
       ...(options.siteEnv ?? []),

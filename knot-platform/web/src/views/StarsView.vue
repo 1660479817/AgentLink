@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import { StarIcon } from "../icons/index.js";
-import { addCardFriend, dismissInformation, downloadInformation, downloadShare, likeInformation, listStars, removeCardFriend, unlikeInformation, unstarInformation } from "../api.js";
+import { addCardFriend, dismissInformation, downloadInformation, listStars, removeCardFriend, unstarInformation } from "../api.js";
 import { acceptDownload } from "../download/consent.js";
 import { cardIsMine } from "../discoverBoard.js";
 import { feeOf, priceOf } from "../record.js";
@@ -23,19 +23,6 @@ function filterByAuthor(item) {
   const id = item?.author?.id;
   if (!id) return;
   router.push({ name: "discover", query: { author: id } });
-}
-
-async function shareItem(item) {
-  if (item.sharing) return;
-  item.sharing = true;
-  item.shareError = "";
-  try {
-    await downloadShare(item.id);
-  } catch {
-    item.shareError = t("error.request_failed");
-  } finally {
-    item.sharing = false;
-  }
 }
 
 async function downloadItem(item) {
@@ -74,17 +61,6 @@ async function toggleStar(item) {
     await unstarInformation(item.id);
   } catch (error) {
     if (error.status !== 401) items.value = previous;
-  }
-}
-
-async function toggleLike(item) {
-  const previous = Boolean(item.liked);
-  item.liked = !previous;
-  try {
-    if (item.liked) await likeInformation(item.id);
-    else await unlikeInformation(item.id);
-  } catch {
-    item.liked = previous;
   }
 }
 
@@ -172,19 +148,14 @@ onMounted(load);
       :expires-at="item.kMeta?.expiresAt || ''"
       :mine="cardIsMine(item, session.user)"
       :starred="true"
-      :liked="Boolean(item.liked)"
       :friend="Boolean(item.friend)"
       :can-friend="Boolean(item.canFriend)"
       :busy="Boolean(item.downloading)"
-      :sharing="Boolean(item.sharing)"
-      :notice="item.shareError || ''"
       @author="filterByAuthor(item)"
       @friend="toggleFriend(item)"
       @dismiss="dismissItem(item)"
       @star="toggleStar(item)"
-      @like="toggleLike(item)"
       @download="downloadItem(item)"
-      @share="shareItem(item)"
     />
     <p v-if="items.length === 0" class="muted empty-line">
       <StarIcon class="empty-icon" aria-hidden="true" />

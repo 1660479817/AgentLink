@@ -3,7 +3,7 @@
 #
 # 用法：
 #   ./ops/scripts/speed-check.sh https://wang.xknot.si/ https://wang.xknot.si/api/health
-#   ./ops/scripts/speed-check.sh --runs 9 http://192.168.3.91:8080/
+#   ./ops/scripts/speed-check.sh --runs 9 http://127.0.0.1:8080/
 #
 # 每一项都打 N 次，去掉第一次（TLS 握手、DNS、连接复用还没建立），取中位数。
 # 输出两列时间：

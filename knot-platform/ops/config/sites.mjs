@@ -2,12 +2,13 @@
 //
 // 一个站点一个目录：
 //
-//   sites/<站点>/site.env          站点身份与拓扑（部署）
-//   sites/<站点>/site.<变体>.env   可选叠加层
-//   sites/<站点>/platform.env      平台主机运行时值（部署脚本生成）
+//   sites/<站点>/site.env          站点拓扑（部署）
+//   sites/<站点>/profile.json      自述区：名称、介绍、logo、主理人（主理人在 /admin 编辑）
+//   sites/<站点>/platform.env      实例主机运行时值（部署脚本生成）
 //   sites/<站点>/xknot.env         XKnot 接入（中枢签发，可选）
+//   sites/<站点>/entry.<标签>.xknot.si.env  xknot.si 子域入口（可选，一个站点一份）
 //
-// 部署脚本只读前两个（含叠加层）；接入文件只在运行时交给 Backend。
+// 部署脚本只读 site.env、platform.env 和入口文件；接入文件只在运行时交给 Backend，profile.json 由 Backend 启动时读。
 //
 // 这里只做文件系统上的事，不解释每个键的含义；键在 packages/knot-config 里登记。
 
@@ -52,10 +53,9 @@ export function listSites(root) {
     .sort();
 }
 
-// 定位一个站点的三个文件。site 留空时，只有恰好一个站点才自动选中。
-export function resolveSitePaths(root, { site, variant, file } = {}) {
+// 定位一个站点的两个部署文件。site 留空时，只有恰好一个站点才自动选中。
+export function resolveSitePaths(root, { site, file } = {}) {
   const siteName = String(site || "").trim();
-  const variantName = String(variant || "").trim();
   const filePath = String(file || "").trim();
   let dir;
   let name;
@@ -87,35 +87,25 @@ export function resolveSitePaths(root, { site, variant, file } = {}) {
     }
   }
 
-  if (variantName && !validSiteName(variantName)) {
-    throw new Error(`变体名只能用字母、数字、点、下划线和短横线：${variantName}`);
-  }
-
   const siteEnv = path.join(dir, "site.env");
-  const overlay = variantName ? path.join(dir, `site.${variantName}.env`) : "";
   const platformEnv = path.join(dir, "platform.env");
   const joinEnv = path.join(dir, "xknot.env");
 
   if (!existsSync(siteEnv)) {
     throw new Error(`找不到站点配置：${path.relative(root, siteEnv)}`);
   }
-  if (overlay && !existsSync(overlay)) {
-    throw new Error(`找不到变体配置：${path.relative(root, overlay)}`);
-  }
 
-  return { name, dir, siteEnv, overlay, platformEnv, joinEnv };
+  return { name, dir, siteEnv, platformEnv, joinEnv };
 }
 
-// site.env 与可选的叠加层合成一份视图。叠加层里写空的键也会覆盖。
+// site.env 合成一份视图。
 export function readSiteEnv(paths) {
-  const env = { ...parseEnv(readFileSync(paths.siteEnv, "utf8")) };
-  if (paths.overlay) Object.assign(env, parseEnv(readFileSync(paths.overlay, "utf8")));
-  return env;
+  return { ...parseEnv(readFileSync(paths.siteEnv, "utf8")) };
 }
 
-// 一个实例可以有多个公网入口，一个入口一份 edge.<域名>.env。
-// 入口文件同样是叠加层：只写与 site.env 不同的项，其余沿用。
-export function listEdgeEntries(dir) {
+// 一个站点最多一个 xknot.si 子域入口：sites/<站点>/entry.<标签>.xknot.si.env。
+// 返回 { file, name, host }；没有入口文件时返回 null。多于一份让调用方报错。
+export function listEntryFiles(dir) {
   let names;
   try {
     names = readdirSync(dir);
@@ -123,17 +113,17 @@ export function listEdgeEntries(dir) {
     return [];
   }
   return names
-    .filter((name) => name.startsWith("edge.") && name.endsWith(".env") && name.length > "edge..env".length)
+    .filter((name) => name.startsWith("entry.") && name.endsWith(".env") && name.length > "entry..env".length)
     .sort()
     .map((name) => ({
       file: path.join(dir, name),
       name,
-      host: name.slice("edge.".length, -".env".length),
+      host: name.slice("entry.".length, -".env".length),
     }));
 }
 
-// 把某个入口叠加到站点视图上。传入的 paths 已经是站点 + 变体，这里再压一层入口。
-export function readEdgeEntry(paths, entry) {
+// 把入口叠加到站点视图上。传入的 paths 是站点配置，这里再压一层入口。
+export function readEntryFile(paths, entry) {
   const env = readSiteEnv(paths);
   return { ...env, ...parseEnv(readFileSync(entry.file, "utf8")) };
 }

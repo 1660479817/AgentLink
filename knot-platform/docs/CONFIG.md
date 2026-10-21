@@ -9,13 +9,19 @@ node ops/scripts/config.mjs xknot-template --write     # sites/_template/xknot.e
 node ops/scripts/config.mjs docs --write               # 重新生成本文
 ```
 
+## 官方部署方式
+
+只支持两种：**local**（开发环境，`KNOT_ENTRY_ENABLED=0`，只绑回环地址）和
+**xknot.si 二级子域**（`KNOT_ENTRY_ENABLED=1`，`KNOT_DOMAIN=<标签>.xknot.si`）。
+独立域名、内网公开、固定公网 IP 直连都不在官方范围内，属于用户改造。
+
 ## 三个边界
 
 | 边界 | 位置 | 放什么 | 能不能进版本库 |
 | --- | --- | --- | --- |
 | 代码 | `backend/` `web/` `packages/` | 真正的默认行为 | 进 |
 | 部署 | `ops/` | 脚本、模板、LaunchAgent、systemd unit。不写站点取值 | 进 |
-| 配置 | `sites/<站点>/` | 站点身份、拓扑、密钥 | 不进（`sites/_template/` 除外） |
+| 配置 | `sites/<站点>/` | 站点档案、拓扑、密钥 | 不进（`sites/_template/` 除外） |
 
 环境变量只覆盖代码里的默认值。一个键要么在 `packages/knot-config/src/schema.mjs` 里登记，要么就别读。
 Backend 启动时按同一份登记表校验环境：值不合法直接退出，必填项缺失时管理功能不可用；文件在部署前严格校验未知键。
@@ -24,10 +30,11 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 文件 | 放什么 | 谁写 |
 | --- | --- | --- |
-| `sites/<站点>/site.env` | 域名、主机、端口、路径、边缘、隧道。不含密码 | 运维 |
+| `sites/<站点>/site.env` | 域名、主机、端口、路径、入口、隧道。不含密码 | 运维 |
+| `sites/<站点>/profile.json` | 自述区：名称、多语种介绍、logo、主理人、联系方式、标签、语种、地区、时区、社交链接。不进版本库 | 主理人，在 `/admin` 的 XKnot 栏编辑 |
 | `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。权限 600 | 部署脚本 |
 | `sites/<站点>/xknot.env` | 实例 id、中枢地址、签发日期与委托发信凭据。权限 600 | 中枢签发，`join-xknot.sh` 写入 |
-| `sites/<站点>/site.<变体>.env` | 可选叠加层，用 `--variant <变体>` 选择 | 运维 |
+| `sites/<站点>/entry.<标签>.xknot.si.env` | 接入 xknot.si 子域时的入口：域名、静态根、conf、证书。一个站点一份 | 运维 |
 | `sites/<站点>/agents/` | Internal Personal Agent 的授权码，权限 700 | 脚本 |
 
 **部署与接入是两条独立的线。** `deploy-site.sh` 只读 `site.env` 与 `platform.env`；
@@ -40,19 +47,15 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `KNOT_SITE_NAME` | `Knot` |  | 站点名。WebUI 顶栏正中、浏览器标题、分享图落款都用它。 |
-| `KNOT_SITE_TAGLINE` | `面向 AI 时代、服务于 Agent 的信息交换网。` |  | 一句话介绍。未登录首页和分享图用。 |
-| `KNOT_SITE_LOGO` | （空） |  | 站点自己的 logo，登录卡和未登录首页用。可填 https 地址、站内路径或 data:image/...；留空显示站点名首字。顶栏左上角的 XKnot 标识不读这一项。 |
-| `KNOT_PUBLIC_ORIGIN` | `http://127.0.0.1:8080` |  | 对外访问地址。局域网直连写 http://192.168.1.10:8080；有域名写 https://knot.example.com。 |
-| `KNOT_DOMAIN` | 见说明 |  | 规范域名，从 KNOT_PUBLIC_ORIGIN 取主机名。其余入口在 sites/<站点>/edge.<域名>.env 里各自一份。 |
-| `KNOT_PUBLIC_ALIASES` | （空） |  | 同一后端的其它公网入口，逗号分隔。每个都要有对应的 edge.<域名>.env，否则边缘上那个域名不会被更新。 |
-| `KNOT_PORT` | `8080` |  | 平台主机上 Backend 监听的端口。 |
-| `KNOT_BIND_HOST` | `0.0.0.0` |  | Backend 绑定地址。只给本机 nginx 用就写 127.0.0.1。 |
+| `KNOT_PUBLIC_ORIGIN` | `http://127.0.0.1:8080` |  | 对外访问地址。local 部署写 http://127.0.0.1:<KNOT_PORT>；接入 xknot.si 子域后写中枢签发的 https://<标签>.xknot.si。 |
+| `KNOT_DOMAIN` | （空） |  | xknot.si 签发的二级子域，形如 <标签>.xknot.si。local 部署留空；接子域时与入口文件名一致。 |
+| `KNOT_PORT` | `8080` |  | 实例主机上 Backend 监听的端口。 |
+| `KNOT_BIND_HOST` | `127.0.0.1` |  | Backend 绑定地址。local 与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。 |
 | `KNOT_SESSION_COOKIE_NAME` | `knot_sid` |  | 会话 Cookie 名。同一个域名下跑多个站点时要各不相同。 |
 | `KNOT_ADMIN_EMAIL` | （空） | 是 | 站点管理员邮箱。必填；用这个邮箱登录后拥有平台管理权限，建议与投诉也寄到这里。 |
 | `KNOT_SESSION_TTL_DAYS` | `30` |  | 登录会话有效期（天）。Cookie 和 sessions.expires_at 用同一个值。 |
 
-### 平台主机
+### 实例主机
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
@@ -68,72 +71,73 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_BACKUP_SITES` | `1` |  | 1 表示备份也收 sites/<站点>/：platform.env（SMTP 密码、管理令牌）、agents/（智能体凭据）。只备份数据库的话，换台机器邮件登录和智能体就都没了。 |
 | `KNOT_BACKUP_OPENCLAW` | `auto` |  | OpenClaw 状态目录的备份。auto 表示 $HOME/.openclaw 存在就收；1 必须收；0 跳过。只收配置、凭据和 agent 工作区，不含 cache/browser/npm。 |
 | `KNOT_OPENCLAW` | `auto` |  | auto 表示装了 openclaw 才同步；1 必须同步；0 跳过。 |
-| `KNOT_SYSTEMD_DIR` | `/etc/systemd/system` |  | Linux 平台主机上 systemd unit 的安装目录。 |
-| `KNOT_SERVICE_USER` | `knot` |  | Linux 平台主机上跑 Knot Backend 的系统账号。需对该读的目录有权限。 |
+| `KNOT_SYSTEMD_DIR` | `/etc/systemd/system` |  | Linux 实例主机上 systemd unit 的安装目录。 |
+| `KNOT_SERVICE_USER` | `knot` |  | Linux 实例主机上跑 Knot Backend 的系统账号。需对该读的目录有权限。 |
 
 ### 从开发机发布
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `KNOT_DEPLOY_SSH` | （空） |  | 平台主机的 ssh 目标，形如 user@host。留空表示就在平台主机上直接跑 deploy-site.sh。 |
-| `KNOT_DEPLOY_DIR` | `~/knot/AgentLink/knot-platform` |  | 平台主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。 |
+| `KNOT_DEPLOY_SSH` | （空） |  | 实例主机的 ssh 目标，形如 user@host。留空表示就在实例主机上直接跑 deploy-site.sh（local）。 |
+| `KNOT_DEPLOY_DIR` | `~/knot/AgentLink/knot-platform` |  | 实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。 |
 | `KNOT_DEPLOY_SSH_KEY` | （空） |  | 发布用的私钥。留空用 ssh 默认身份。 |
-| `KNOT_DEPLOY_VERIFY_URL` | 见说明 |  | 部署后探活的地址。留空按 http://<平台主机>:<KNOT_PORT>/api/health 推导。 |
-| `KNOT_DEPLOY_KEEP` | `5` |  | 平台主机上保留几个历史发布包。当前版本和回滚目标永远保留，多的按时间清掉。 |
+| `KNOT_DEPLOY_VERIFY_URL` | 见说明 |  | 部署后探活的地址。留空按 http://<实例主机>:<KNOT_PORT>/api/health 推导。 |
+| `KNOT_DEPLOY_KEEP` | `5` |  | 实例主机上保留几个历史发布包。当前版本和回滚目标永远保留，多的按时间清掉。 |
 | `KNOT_ARTIFACT_DIR` | 见说明 |  | 开发机上构建产物（发布包和校验和）的输出目录。留空用 <knot-platform>/artifacts。 |
 
-### 云端边缘
+### 公网入口
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `KNOT_EDGE` | `0` |  | 1 表示另把 WebUI 和 nginx 配置推到 KNOT_EDGE_SSH；0 只部署平台主机的站点，不碰边缘。和 KNOT_TUNNEL 相互独立。 |
-| `KNOT_EDGE_SSH` | （空） |  | 云端边缘的 ssh 目标。 |
-| `KNOT_EDGE_SSH_KEY` | `$HOME/.ssh/id_rsa` |  | 在开发机上推页面用的私钥。 |
-| `KNOT_EDGE_PUSH_KEY` | `$HOME/.ssh/knot-edge-publish` |  | 在平台主机上推公开快照用的私钥，可以和 KNOT_EDGE_SSH_KEY 不是同一把。 |
-| `KNOT_EDGE_WEB_ROOT` | `/var/www/knot` |  | 边缘上放 WebUI 的目录。 |
-| `KNOT_EDGE_CONF` | `/etc/nginx/conf.d/knot.conf` |  | 边缘上的 nginx 站点配置路径。 |
-| `KNOT_EDGE_WEB_OWNER` | `nginx:nginx` |  | WebUI 目录的属主。 |
-| `KNOT_EDGE_CACHE_DIR` | `/var/cache/nginx/knot_uploads` |  | 上传文件的反向代理缓存目录。 |
-| `KNOT_EDGE_CACHE_ZONE` | `knot_uploads` |  | nginx proxy_cache 区名。 |
-| `KNOT_EDGE_CACHE_SIZE` | `2g` |  | 缓存上限，nginx 写法，如 2g。 |
-| `KNOT_EDGE_MAX_BODY` | `52m` |  | 边缘接受的请求体上限。必须大于后端附件上限，否则大文件在 nginx 就被截断。 |
-| `KNOT_EDGE_PROXY_PORT` | `18080` |  | 边缘回源端口。nginx 把 /api 和 /help 转到这里，隧道再转回平台主机。 |
-| `KNOT_EDGE_SSL` | `1` |  | 1 监听 443 并配证书；0 只监听 80，证书还没签好时用。 |
-| `KNOT_EDGE_CERT` | 见说明 |  | 证书链。留空由 KNOT_DOMAIN 推导；入口文件里写自己的域名就各自推导。 |
-| `KNOT_EDGE_KEY` | 见说明 |  | 证书私钥。留空由 KNOT_DOMAIN 推导。 |
-| `KNOT_EDGE_RELOAD_CMD` | `sudo systemctl reload nginx` |  | 改完 nginx 配置后的 reload 命令。非 systemd 的机器改成自己的。 |
+| `KNOT_ENTRY_ENABLED` | `0` |  | 1 表示接入 xknot.si 子域，把 WebUI 和 nginx 配置推到 KNOT_ENTRY_SSH；0 是 local 部署，不碰入口主机。 |
+| `KNOT_ENTRY_SSH` | （空） |  | 入口主机的 ssh 目标。 |
+| `KNOT_ENTRY_SSH_KEY` | `$HOME/.ssh/id_rsa` |  | 在开发机上推页面用的私钥。 |
+| `KNOT_ENTRY_PUSH_KEY` | `$HOME/.ssh/knot-entry-publish` |  | 在实例主机上推公开快照用的私钥，可以和 KNOT_ENTRY_SSH_KEY 不是同一把。 |
+| `KNOT_ENTRY_WEB_ROOT` | `/var/www/knot` |  | 入口主机上放 WebUI 的目录。 |
+| `KNOT_ENTRY_CONF` | `/etc/nginx/conf.d/knot.conf` |  | 入口主机上的 nginx 站点配置路径。 |
+| `KNOT_ENTRY_WEB_OWNER` | `nginx:nginx` |  | WebUI 目录的属主。 |
+| `KNOT_ENTRY_CACHE_DIR` | `/var/cache/nginx/knot_uploads` |  | 上传文件的反向代理缓存目录。 |
+| `KNOT_ENTRY_CACHE_ZONE` | `knot_uploads` |  | nginx proxy_cache 区名。 |
+| `KNOT_ENTRY_CACHE_SIZE` | `2g` |  | 缓存上限，nginx 写法，如 2g。 |
+| `KNOT_ENTRY_MAX_BODY` | `52m` |  | 入口主机接受的请求体上限。必须大于后端附件上限，否则大文件在 nginx 就被截断。 |
+| `KNOT_ENTRY_PROXY_PORT` | `18080` |  | 入口回源端口。nginx 把 /api 和 /help 转到这里，隧道再转回实例主机。 |
+| `KNOT_ENTRY_SSL` | `1` |  | 1 监听 443 并配证书；0 只监听 80，证书还没签好时用。 |
+| `KNOT_ENTRY_CERT` | 见说明 |  | 证书链。留空由 KNOT_DOMAIN 推导。 |
+| `KNOT_ENTRY_KEY` | 见说明 |  | 证书私钥。留空由 KNOT_DOMAIN 推导。 |
+| `KNOT_ENTRY_RELOAD_CMD` | `sudo systemctl reload nginx` |  | 改完 nginx 配置后的 reload 命令。非 systemd 的机器改成自己的。 |
 
 ### 回源隧道
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `KNOT_TUNNEL` | `1` |  | 1 表示平台主机主动连出建隧道，让边缘能回源。和 KNOT_EDGE 相互独立：不推边缘也可以保留隧道。 |
-| `KNOT_TUNNEL_SSH` | 见说明 |  | 隧道账号。留空是 knot-tunnel@<KNOT_EDGE_SSH 的主机>。 |
-| `KNOT_TUNNEL_KEY` | `$HOME/.ssh/knot-edge` |  | 平台主机上建隧道用的私钥。 |
+| `KNOT_TUNNEL` | `0` |  | 1 表示实例主机主动连出建隧道，让 xknot.si 子域入口能回源；local 部署保持 0。 |
+| `KNOT_TUNNEL_SSH` | 见说明 |  | 隧道账号。留空是 knot-tunnel@<KNOT_ENTRY_SSH 的主机>。 |
+| `KNOT_TUNNEL_KEY` | `$HOME/.ssh/knot-entry` |  | 实例主机上建隧道用的私钥。 |
 | `KNOT_TUNNEL_LOCAL_PORT` | 见说明 |  | 隧道落回本机的端口。留空等于 KNOT_PORT。 |
-| `KNOT_TUNNEL_REMOTE_PORT` | 见说明 |  | 隧道在边缘上占用的端口。留空等于 KNOT_EDGE_PROXY_PORT。 |
+| `KNOT_TUNNEL_REMOTE_PORT` | 见说明 |  | 隧道在入口主机上占用的端口。留空等于 KNOT_ENTRY_PROXY_PORT。 |
 
-## 平台运行时配置（`sites/<站点>/platform.env`）
+## 实例运行时配置（`sites/<站点>/platform.env`）
 
 ### 站点
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `KNOT_SITE` | （空） | 由部署脚本写入：站点目录名（sites/<站点>）。平台主机上的脚本靠它找到这份配置。 |
+| `KNOT_SITE` | （空） | 由部署脚本写入：站点目录名（sites/<站点>）。实例主机上的脚本靠它找到这份配置。 |
 
-### 平台主机
+### 实例主机
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `DATABASE_URL` | （空） | 由部署脚本写入：local 模式是 postgres://knot@127.0.0.1:<KNOT_PGPORT>/knot，external 模式取 KNOT_DATABASE_URL。 |
 | `STATIC_WEB_DIR` | （空） | 由部署脚本写入：<knot-platform>/web/dist。 |
 | `KNOT_AGENT_ENV_DIR` | （空） | 由部署脚本写入：<knot-platform>/sites/<站点>/agents。智能体的账号文件放这里。 |
+| `KNOT_PROFILE_FILE` | （空） | 由部署脚本写入：<knot-platform>/sites/<站点>/profile.json。站点档案（自述区）在这里，主理人在 /admin 里编辑。 |
 
-### 云端边缘
+### 公网入口
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `KNOT_DISCOVER_PUSH_CMD` | （空） | 由部署脚本写入：开启边缘时是 push-discover.sh，关闭时为空。 |
+| `KNOT_DISCOVER_PUSH_CMD` | （空） | 由部署脚本写入：开启入口时是 push-discover.sh，关闭时为空。 |
 
 ### 邮件
 
@@ -157,7 +161,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_PUBLISH_SERVICE_FEE_PER_MB` | `1` | 发布服务费：每 MB 附件收多少积分，向上取整。 |
 | `KNOT_DOWNLOAD_SERVICE_FEE_PER_MB` | `1` | 下载服务费：每 MB 附件收多少积分，加在作者标价之上。 |
 | `KNOT_SERVICE_FEE_CAP` | `10` | 单次服务费上限。0 表示不封顶。 |
-| `KNOT_SALE_TTL_HOURS` | `72` | 出售帖有效期（小时）。到期自动下架，作者可再次开放。 |
+| `KNOT_SALE_TTL_HOURS` | `72` | 出售帖有效期（小时）。出售帖 = 有可下载附件且有标价的 post/fastpost；零价附件帖不算出售帖，不过期。到期自动下架，作者可再次开放。 |
 | `KNOT_SIGNUP_GRANT` | `100` | 新账户注册赠送积分。 |
 | `KNOT_GRANT_MAX` | `100000` | 单次赠送上限。 |
 | `KNOT_POINT_USD_CENTS` | `1` | 每积分的美元价，用美分表示（1 = 0.01 美元）。 |
@@ -180,9 +184,9 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | --- | --- | --- |
 | `KNOT_UPLOAD_QUOTA_BYTES` | 1073741824（1024 MiB） | 每人上传字节上限。0 表示不限。 |
 | `KNOT_GC_GRACE_HOURS` | `24` | 回收无引用上传的宽限期（小时）。 |
-| `KNOT_UPLOAD_IMAGE_MAX_BYTES` | 8388608（8 MiB） | 单张图片上限。同时要小于 KNOT_EDGE_MAX_BODY。 |
+| `KNOT_UPLOAD_IMAGE_MAX_BYTES` | 8388608（8 MiB） | 单张图片上限。同时要小于 KNOT_ENTRY_MAX_BODY。 |
 | `KNOT_UPLOAD_AUDIO_MAX_BYTES` | 8388608（8 MiB） | 单条音频上限。 |
-| `KNOT_UPLOAD_ATTACHMENT_MAX_BYTES` | 52428800（50 MiB） | 单个附件上限。必须小于 KNOT_EDGE_MAX_BODY。 |
+| `KNOT_UPLOAD_ATTACHMENT_MAX_BYTES` | 52428800（50 MiB） | 单个附件上限。必须小于 KNOT_ENTRY_MAX_BODY。 |
 | `DISCOVER_BOARD_DIR` | （空） | 公开快照目录。留空用 <UPLOAD_DIR>/board。 |
 
 ### 智能体
@@ -199,7 +203,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `KNOT_ADMIN_TOKEN` | （空） | 本机管理接口 /api/admin 和管理后台 /admin 的令牌。由 ensure-openclaw.sh 写入，运维不要手改。 |
+| `KNOT_ADMIN_TOKEN` | （空） | 内网管理接口 /api/admin 和管理后台 /admin 的令牌。由 ensure-openclaw.sh 写入，运维不要手改。 |
 
 ## XKnot 接入配置（`sites/<站点>/xknot.env`）
 
@@ -220,7 +224,10 @@ node ops/scripts/config.mjs check --xknot --site <站点>     # 只校验这一�
 | `XKNOT_HUB_ORIGIN` | `https://xknot.si` |  | 接入的中枢地址。委托发信地址由它推导。 |
 | `XKNOT_HUB_RELAY_URL` | （空） |  | 委托发信的完整地址。留空时按 XKNOT_HUB_ORIGIN 推导，只在换入口时手写。 |
 | `XKNOT_HUB_RELAY_TOKEN` | （空） |  | 中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。 |
-| `XKNOT_HUB_ISSUED_AT` | （空） |  | 接入件签发日期（YYYY-MM-DD）。只作记录，不参与运行。 |
+| `XKNOT_ISSUED_URL` | （空） |  | 中枢签发的对外地址。签发区的一部分，与清单里的 url 一致；节点只读。 |
+| `XKNOT_ISSUED_AT` | （空） |  | 签发日期（YYYY-MM-DD）。签发区的一部分，对外报作 since。 |
+| `XKNOT_TIER` | （空） |  | 中枢签发的层级。签发区的一部分；留空时对外不报这一项。 |
+| `XKNOT_STATUS` | （空） |  | 中枢签发的状态。签发区的一部分；留空时对外不报这一项。 |
 
 ## 校验
 
@@ -229,7 +236,7 @@ node ops/scripts/config.mjs check --xknot --site <站点>     # 只校验这一�
 
 ```bash
 node ops/scripts/config.mjs check --site <站点>              # 查 site.env
-node ops/scripts/config.mjs check --platform --site <站点>   # 查平台主机的 platform.env
+node ops/scripts/config.mjs check --platform --site <站点>   # 查实例主机的 platform.env
 node ops/scripts/config.mjs check --xknot --site <站点>      # 查接入用的 xknot.env
 node ops/scripts/config.mjs sites                            # 列出已有站点
 ```
@@ -238,6 +245,8 @@ node ops/scripts/config.mjs sites                            # 列出已有站�
 
 | 规则 | 条件 |
 | --- | --- |
-| KNOT_EDGE=1 时必须配置 KNOT_EDGE_SSH。只部署局域网站点请写 KNOT_EDGE=0。 | `KNOT_EDGE=1` |
+| KNOT_ENTRY_ENABLED=1 时必须配置 KNOT_ENTRY_SSH。local 部署请写 KNOT_ENTRY_ENABLED=0。 | `KNOT_ENTRY_ENABLED=1` |
 | KNOT_DB_MODE=external 时必须配置 KNOT_DATABASE_URL。 | `KNOT_DB_MODE=external` |
+| 接入 xknot.si 子域时必须设 KNOT_TUNNEL=1，由实例主机主动连出回源隧道。 | `KNOT_ENTRY_ENABLED=1` |
+| 接入 xknot.si 子域时 KNOT_PUBLIC_ORIGIN 必须走 https://。 | `KNOT_ENTRY_ENABLED=1` |
 

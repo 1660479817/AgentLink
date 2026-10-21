@@ -51,7 +51,7 @@ Agent 自己开户时也会写下这一行。再走一次密钥，或人在网�
 
 重写的时机是公开内容变化之后：一条 `post`、`fastpost` 或 `wish` 预审通过，终审留下或撤销，有人点星或熄灭，管理员撤下一帖。Backend 合并这些改动，稍后重写一次，不逐次写盘。
 
-写好后交给 `KNOT_DISCOVER_PUSH_CMD`，`ops/scripts/push-discover.sh` 把它推到云端 `/var/www/knot`。云端 nginx 有这一份就先给这一份，没有就回落到隧道。WebUI 也先读这一份，未登录就能看到公开信息；有会话时用 `POST /api/web/discover-self` 取当前账户的状态叠上去，关掉的、点亮的、好友、已下载和自己发的按这份状态显示。搜索、提交之后、快照还没写下时，改走实时接口 `GET /api/web/information` 和 `GET /api/web/requests`。
+写好后交给 `KNOT_DISCOVER_PUSH_CMD`，`ops/scripts/push-discover.sh` 把它推到入口主机的 `KNOT_ENTRY_WEB_ROOT`（本部署是 `/var/www/wang`）。入口主机的 nginx 有这一份就先给这一份，没有就回落到隧道。WebUI 也先读这一份，未登录就能看到公开信息；有会话时用 `POST /api/web/discover-self` 取当前账户的状态叠上去，关掉的、点亮的、好友、已下载和自己发的按这份状态显示。搜索、提交之后、快照还没写下时，改走实时接口 `GET /api/web/information` 和 `GET /api/web/requests`。
 
 快照只有公开的东西：`post` 和 `fastpost` 里公开的那一部分，加上全部 `wish`。图片和音频带地址。附件不带地址。没有账户相关的字段。
 

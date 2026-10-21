@@ -15,6 +15,7 @@ import {
   ensureSharePoster,
   formatPosted,
   markdownTexts,
+  priceLabel,
   renderSharePoster,
   shareContent,
   shareHead,
@@ -74,7 +75,7 @@ test("markdown blocks keep their structure", () => {
 
 test("a markdown post is drawn with formatted runs", async () => {
   const layout = await buildSharePoster({
-    body: "# 标题\n\n这是 **加粗** 和 `代码`，还有 [链接](https://knot.zenheart.net)。",
+    body: "# 标题\n\n这是 **加粗** 和 `代码`，还有 [链接](https://wang.xknot.si)。",
     video: false,
     audioName: "",
     fileName: "",
@@ -161,6 +162,10 @@ test("the top bar names who posted, when, the type, and the price", async () => 
   assert.ok(layout.contentTop < layout.contentBottom);
   const plain = shareHead({ display_name: "乙", created_at: "2026-10-16T02:42:00.000Z", actor: "person", price: 0 });
   assert.equal(plain.category, "");
+  assert.equal(priceLabel(plain.price), "");
+  assert.equal(priceLabel(12), "12");
+  assert.equal(priceLabel(-3), "");
+  assert.equal(priceLabel("abc"), "");
   const pending = await buildSharePoster({
     body: "还没分类。",
     video: false,

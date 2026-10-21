@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import {
   bearerToken,
-  isLoopbackAddress,
+  isIntranetAddress,
   grantPoints,
   listPosts,
   muteUser,
@@ -29,6 +29,9 @@ import { tmpDir } from "../storage.js";
 
 function sendAdminError(res, error) {
   const code = error.code || "internal";
+  if (code === "bad_profile") {
+    return res.status(400).json({ error: code, problems: error.problems || [] });
+  }
   if (
     code === "bad_user" ||
     code === "bad_name" ||
@@ -63,6 +66,7 @@ function sendAdminError(res, error) {
   if (code === "env_unconfigured" || code === "env_failed") {
     return res.status(503).json({ error: code });
   }
+  if (code === "profile_unconfigured") return res.status(503).json({ error: "profile_unconfigured" });
   if (code === "not_found") return res.status(404).json({ error: code });
   if (code === "not_pending") return res.status(409).json({ error: code });
   if (code === "name_taken") return res.status(409).json({ error: code });
@@ -74,7 +78,7 @@ function sendAdminError(res, error) {
   return res.status(500).json({ error: "internal" });
 }
 
-export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, publicWebOrigin = "" }) {
+export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, publicWebOrigin = "", profile = null }) {
   const router = Router();
   if (uploadDir) ensureUploadDir(uploadDir);
   const sponsorUpload = multer({
@@ -90,7 +94,7 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
   });
 
   router.use((req, res, next) => {
-    if (!isLoopbackAddress(req.socket?.remoteAddress)) {
+    if (!isIntranetAddress(req.socket?.remoteAddress)) {
       return res.status(404).json({ error: "not_found" });
     }
     if (!String(token || "").trim()) {
@@ -105,6 +109,39 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
   router.get("/federation", (_req, res) => {
     try {
       res.json(federationStatus({ agentEnvDir, publicWebOrigin }));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  // 站点档案：签发区只读、来自接入件；自述区可编辑，写 sites/<站点>/profile.json。
+  router.get("/profile", (_req, res) => {
+    const status = federationStatus({ agentEnvDir, publicWebOrigin });
+    const state = profile?.view() || { profile: null, updatedAt: null, problems: [] };
+    res.json({
+      issued: {
+        id: status.running.instanceId || "",
+        url: status.running.issuedUrl || String(publicWebOrigin || "").replace(/\/+$/, ""),
+        since: status.running.issuedAt || "",
+        tier: status.running.tier || "",
+        status: status.running.status || "",
+      },
+      profile: state.profile,
+      updatedAt: state.updatedAt,
+      problems: state.problems,
+      file: profile?.file || null,
+    });
+  });
+
+  router.put("/profile", async (req, res) => {
+    try {
+      const state = await profile.save({ profile: req.body?.profile });
+      res.json({
+        profile: state.profile,
+        updatedAt: state.updatedAt,
+        problems: state.problems,
+        file: profile.file || null,
+      });
     } catch (error) {
       sendAdminError(res, error);
     }

@@ -463,11 +463,12 @@ export async function createIntel(pool, input) {
     attachments: fileUrls.map((url) => ({ url })),
   };
   const listed = kind === "post" || kind === "fastpost" ? publicOf(isPublic) : false;
-  // 出售帖 = post/fastpost 且有可下载附件。与 HAS_ATTACHMENT 同口径，平台时长、用户不可填。
-  const isSale = (kind === "post" || kind === "fastpost") && owned.some(isDownloadableFile);
-  const expiresAt = wishExpiry ?? (isSale ? saleExpiresAt() : null);
   const billable = owned.filter((row) => isAttachmentUpload({ originalname: row.original_name }));
   const priced = kind === "wish" ? 0 : actor === "platform" ? servicePrice(price) : packetPrice(billable.length, price);
+  // 出售帖 = post/fastpost 且有可下载附件、且标价大于 0。与 SALE_POST 同口径，平台时长、用户不可填。
+  // 零价附件帖只是「附带全文」，不设有效期。
+  const isSale = (kind === "post" || kind === "fastpost") && priced > 0 && owned.some(isDownloadableFile);
+  const expiresAt = wishExpiry ?? (isSale ? saleExpiresAt() : null);
   let intelId;
   const client = await pool.connect();
   try {
@@ -605,7 +606,9 @@ function filterSql(filters, params) {
   return sql;
 }
 
-// 出售 = 有可下载附件（非图片、非音频）的 post/fastpost。这些记录离开信息流，归入市场的出售区。
+// 出售 = 有可下载附件（非图片、非音频）**且标价大于 0** 的 post/fastpost。
+// 有附件但标价 0 的是「附带全文」的普通帖，留在信息流，也不写 expires_at。
+// 出售帖离开信息流，归入市场的出售区。
 //
 // 「可下载附件」是唯一口径，三处必须一致，改一处同步其余：
 //   - HAS_ATTACHMENT（SQL，列表 / reopen 用）
@@ -618,6 +621,9 @@ const HAS_ATTACHMENT = `EXISTS (
     AND u.mime NOT LIKE 'image/%'
     AND NOT (u.mime LIKE 'audio/%' OR u.original_name ~* '\\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$')
 )`;
+
+// 出售帖 = 可下载附件 + 标价。零价帖不卖，留在信息流。
+const SALE_POST = `(${HAS_ATTACHMENT} AND i.price > 0)`;
 
 export function isDownloadableFile(row) {
   if (String(row.mime || "").startsWith("image/")) return false;
@@ -689,11 +695,11 @@ export async function listPublicIntel(pool, limit = 30, userId = null, authorId 
     sql += ` AND i.user_id = $${params.length}`;
   }
   sql += filterSql(filters, params);
-  // 信息流只放免费内容；出售（有附件）归市场。sales=true 时反过来只取出售，且只留仍在有效期内的。
+  // 信息流只放不卖的；出售（有可下载附件且有标价）归市场。sales=true 时反过来只取出售，且只留仍在有效期内的。
   if (filters.sales === true) {
-    sql += ` AND ${HAS_ATTACHMENT} AND ${saleLive("i")}`;
+    sql += ` AND ${SALE_POST} AND ${saleLive("i")}`;
   } else {
-    sql += ` AND NOT ${HAS_ATTACHMENT}`;
+    sql += ` AND NOT ${SALE_POST}`;
   }
   if (before) {
     // 键集分页：只取排在锚点（上一页最后一条）之后的内容，避免偏移翻页的重复与漏条。
@@ -762,12 +768,15 @@ export async function presentIntelRows(pool, rows) {
 
 // 按 id 读一条公开记录，带当前账户的 star/like/granted/friend 个人态。读不到返回 null。
 // 读到即记一次读痕迹（只记不扣费），供「回音室」可观测和未来注意力计价。
+//
+// 地址按「帖子」算，不按版本：深链和分享图里可能还是首版或中间版的 id，
+// 这里先归一到一个修订链，再取其中最新的可见版本。这样作者改一版重发，旧链接不会停在旧稿上。
 export async function loadPublicIntel(pool, userId, id) {
   const params = [userId, id];
-  const sql = `${PUBLIC_INTEL_SQL} AND i.id = $2::uuid`;
+  const sql = `${PUBLIC_INTEL_SQL} AND COALESCE(i.origin_id, i.id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $2::uuid)`;
   const { rows } = await pool.query(sql, params);
   if (!rows.length) return null;
-  recordIntelRead(pool, userId, id).catch(() => {});
+  recordIntelRead(pool, userId, rows[0].id).catch(() => {});
   const [record] = await presentIntelRows(pool, rows);
   return record;
 }
@@ -1010,7 +1019,7 @@ export async function downloadPacket(pool, userId, intelId, uploadDir, { zip = f
   };
 }
 
-// 再次开放到期的出售帖：仅作者，仅 post/fastpost 且有可下载附件。免费，只把 expires_at 重置为 now + 平台时长。
+// 再次开放到期的出售帖：仅作者，仅 post/fastpost 且有可下载附件、标价大于 0。免费，只把 expires_at 重置为 now + 平台时长。
 export async function reopenSale(pool, userId, intelId) {
   const { rows } = await pool.query(
     `SELECT i.id
@@ -1020,7 +1029,7 @@ export async function reopenSale(pool, userId, intelId) {
        AND i.kind IN ('post', 'fastpost')
        AND i.is_public
        AND ${visibleVerdict("i.verdict")}
-       AND ${HAS_ATTACHMENT}`,
+       AND ${SALE_POST}`,
     [intelId, userId]
   );
   if (!rows.length) {

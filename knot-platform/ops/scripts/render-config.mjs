@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 部署模板渲染。
 //
-//   node ops/scripts/render-config.mjs ops/edge/site.conf.template /tmp/site.conf
+//   node ops/scripts/render-config.mjs ops/entry/site.conf.template /tmp/site.conf
 //
 // 只支持两种语法，故意保持很小：
 //   {{NAME}}              替换成环境变量 NAME

@@ -1,13 +1,10 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { keyEntry, resolve } from "@knot/config";
+import { profileFilePath } from "./profile.js";
 
 // 代码目录：源码目录，或发布包里的 <部署根>/releases/<版本>。
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-
-// 只接受能直接放进 <img src> 的地址：http(s)、站内路径、内联图片。
-// 这是安全过滤，不是默认值；默认值仍然只在 schema 里写一份。
-const SITE_LOGO_PATTERN = /^(https?:\/\/|\/|data:image\/)/i;
 
 function resolved(key, source, ctx) {
   const entry = keyEntry(key);
@@ -19,28 +16,18 @@ function context(env) {
   return { root: APP_ROOT, deployRoot: APP_ROOT, home: env.HOME || "", expand: true };
 }
 
-// 站点身份是双品牌里的个人品牌：名称、介绍、自己的 logo。
-// 留空时回落到 schema 里的默认值；长度由界面自己截断，不在这里裁剪。
-export function siteBrand(env = process.env) {
-  const ctx = context(env);
-  const rawLogo = resolved("KNOT_SITE_LOGO", env, ctx);
-  return {
-    name: resolved("KNOT_SITE_NAME", env, ctx),
-    tagline: resolved("KNOT_SITE_TAGLINE", env, ctx),
-    logo: SITE_LOGO_PATTERN.test(rawLogo) ? rawLogo : "",
-  };
-}
-
 // 进程环境 → Backend 的启动配置。
 // 默认值不在这里另写：全部从 packages/knot-config/src/schema.mjs 取，
 // 站点配置里的键名（KNOT_PORT）和运行时环境里的键名（PORT）的映射也按登记表来。
+//
+// 站点身份（名称、介绍、logo、主理人）不在这里：它由主理人在 /admin 里写
+// sites/<站点>/profile.json，见 backend/src/profile.js 与 docs/PROFILE.md。
 export function loadBootstrapConfig(env = process.env) {
   const ctx = context(env);
   const pgPort = resolved("KNOT_PGPORT", {}, ctx);
   // 本地 Postgres 用 trust 认证，连接串里不带密码；external 模式由部署脚本写 DATABASE_URL。
   const databaseUrl = String(env.DATABASE_URL || "").trim() || `postgres://knot@127.0.0.1:${pgPort}/knot`;
   const agentEnvDir = String(env.KNOT_AGENT_ENV_DIR || "").trim() || null;
-  const brand = siteBrand(env);
 
   return {
     port: Number(resolved("KNOT_PORT", { KNOT_PORT: env.PORT }, ctx)),
@@ -52,7 +39,7 @@ export function loadBootstrapConfig(env = process.env) {
     staticWebDir: String(env.STATIC_WEB_DIR || "").trim() || null,
     uploadDir: resolved("KNOT_UPLOAD_DIR", { KNOT_UPLOAD_DIR: env.UPLOAD_DIR }, ctx),
     agentEnvDir,
-    siteName: brand.name,
-    siteTagline: brand.tagline,
+    // 自述区所在文件；没有部署目录时（单测、本地直跑）为 null，改用内存里的空档案。
+    profileFile: profileFilePath(env, agentEnvDir),
   };
 }

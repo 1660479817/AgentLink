@@ -70,7 +70,7 @@ function mailTransport() {
 // xknot.si/docs/FEDERATION.md 第 7 节）。配了凭据就优先走它，不需要 SMTP 口令。
 //
 // 发信地址是协议的常量，能从 XKNOT_HUB_ORIGIN 推出来；显式写了 XKNOT_HUB_RELAY_URL
-// 时以它为准（换中枢、走内网入口时用）。这样接入件里只有中枢地址和凭据两项。
+// 时以它为准（换中枢时用）。这样接入件里只有中枢地址和凭据两项。
 export function relayUrl(env = process.env) {
   const explicit = String(env.XKNOT_HUB_RELAY_URL || "").trim();
   if (explicit) return explicit;

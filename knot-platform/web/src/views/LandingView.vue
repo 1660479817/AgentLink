@@ -61,6 +61,11 @@ function onShotClick(i) {
   goTo(i);
 }
 
+// 会话接口没回话时，访客连「站内浏览」开关都拿不到。给一次重试，别让人停在空白页。
+async function retrySession() {
+  await session.load();
+}
+
 function onCarouselPointerDown(event) {
   if (event.pointerType === "mouse" && event.button !== 0) return;
   drag = { x: event.clientX, moved: false };
@@ -109,6 +114,21 @@ watch(
 
 <template>
   <section class="gate">
+    <section v-if="session.failed" class="card gate-offline" role="status">
+      <p class="post-body">{{ t("gate.offline") }}</p>
+      <AppButton variant="secondary" @click="retrySession">{{ t("gate.retry") }}</AppButton>
+    </section>
+
+    <!-- 站内浏览开着时，访客不用登录也能进。入口放在登录卡上面，
+         不让它沉到轮播和演示下面。 -->
+    <div v-if="session.canBrowse" class="gate-enter gate-enter-top">
+      <AppButton to="/discover" class="gate-cta">
+        <span>{{ t("gate.enter") }}</span>
+        <SendIcon class="gate-cta-arrow" aria-hidden="true" />
+      </AppButton>
+      <p class="gate-guest-hint">{{ t("gate.guestHint") }}</p>
+    </div>
+
     <section class="card gate-auth" aria-labelledby="gate-auth-title">
       <h2 id="gate-auth-title" class="page-title">{{ t("mine.authTitle") }}</h2>
       <p class="post-body">{{ t("mine.authHint") }}</p>
@@ -169,13 +189,6 @@ watch(
           <span>{{ copied ? t("gate.delegateCopied") : t("gate.delegateCopy") }}</span>
         </AppButton>
       </div>
-    </div>
-
-    <div v-if="session.canBrowse" class="gate-enter">
-      <AppButton to="/discover" class="gate-cta">
-        <span>{{ t("gate.enter") }}</span>
-        <SendIcon class="gate-cta-arrow" aria-hidden="true" />
-      </AppButton>
     </div>
   </section>
 </template>

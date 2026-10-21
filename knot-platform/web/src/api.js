@@ -133,12 +133,16 @@ export function unstarInformation(id) {
   return request(`/api/web/intel/${id}/star`, { method: "DELETE" });
 }
 
-export function likeInformation(id) {
-  return request(`/api/web/intel/${id}/like`, { method: "POST", body: "{}" });
+// 打赏：摘要公开，打赏要会话。金额上限与「不能打赏自己」在后端判。
+export function getTips(id) {
+  return request(`/api/web/intel/${encodeURIComponent(String(id || "").trim())}/tips`);
 }
 
-export function unlikeInformation(id) {
-  return request(`/api/web/intel/${id}/like`, { method: "DELETE" });
+export function tipInformation(id, amount) {
+  return request(`/api/web/intel/${encodeURIComponent(String(id || "").trim())}/tip`, {
+    method: "POST",
+    body: JSON.stringify({ amount }),
+  });
 }
 
 export function listFriends() {

@@ -1,8 +1,9 @@
 import express from "express";
 import { existsSync } from "node:fs";
-import { isLoopbackAddress } from "../admin.js";
+import { isIntranetAddress } from "../admin.js";
 
-// 管理后台只在本机回环地址提供。它不是 /api/admin：这里发的是静态页，
+// 管理后台只在内网提供：实例主机自己（回环）与同一内网的机器。
+// 它不是 /api/admin：这里发的是静态页，
 // 页面里再用 Bearer 令牌调 /api/admin。两处各自把关，任何一处漏了都还有另一处。
 //
 // 页面只用外部 admin.css / admin.js，不写内联脚本和内联样式；
@@ -20,7 +21,7 @@ export const ADMIN_CSP = [
 ].join("; ");
 
 export function adminPageGuard(req, res, next) {
-  if (!isLoopbackAddress(req.socket?.remoteAddress)) {
+  if (!isIntranetAddress(req.socket?.remoteAddress)) {
     return res.status(404).type("text/plain; charset=utf-8").send("not_found");
   }
   res.setHeader("Content-Security-Policy", ADMIN_CSP);

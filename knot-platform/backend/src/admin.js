@@ -31,6 +31,31 @@ export function isLoopbackAddress(address) {
   return ip === "127.0.0.1" || ip === "::1";
 }
 
+// 管理面只给「自己这台机器」和「同一内网」：回环，加 IPv4 私有地址
+// （10/8、172.16/12、192.168/16）、链路本地（169.254/16），
+// 以及 IPv6 的唯一本地地址（fc00::/7）与链路本地（fe80::/10）。
+// 公网地址一律不放行；公网入口还有一层 nginx 直接 404。
+export function isIntranetAddress(address) {
+  const ip = String(address || "").trim().toLowerCase().replace(/^::ffff:/, "").replace(/%.*$/, "");
+  if (isLoopbackAddress(ip)) return true;
+
+  if (ip.includes(":")) {
+    const head = Number.parseInt(ip.split(":")[0] || "", 16);
+    if (!Number.isFinite(head)) return false;
+    return (head & 0xfe00) === 0xfc00 || (head & 0xffc0) === 0xfe80;
+  }
+
+  const parts = ip.split(".");
+  if (parts.length !== 4) return false;
+  const octets = parts.map((part) => (/^\d{1,3}$/.test(part) ? Number(part) : NaN));
+  if (octets.some((octet) => !(octet >= 0 && octet <= 255))) return false;
+  const [first, second] = octets;
+  if (first === 10) return true;
+  if (first === 192 && second === 168) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+  return first === 169 && second === 254;
+}
+
 export function bearerToken(header) {
   const match = String(header || "").match(/^Bearer\s+(\S+)\s*$/i);
   return match ? match[1] : "";

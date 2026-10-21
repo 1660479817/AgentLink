@@ -39,18 +39,20 @@ function runGuard(remoteAddress) {
   return { status, body, next, headers };
 }
 
-test("the admin page only opens from the machine itself", () => {
-  for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
+test("the admin page opens to the machine and its intranet, not to the public", () => {
+  for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "192.168.3.91", "::ffff:192.168.3.91", "fd00::7"]) {
     const result = runGuard(address);
-    assert.equal(result.next, true);
+    assert.equal(result.next, true, address);
     assert.equal(result.headers["Content-Security-Policy"], ADMIN_CSP);
     assert.equal(result.headers["X-Frame-Options"], "DENY");
   }
-  const remote = runGuard("192.168.3.91");
-  assert.equal(remote.next, false);
-  assert.equal(remote.status, 404);
-  assert.equal(remote.body, "not_found");
-  assert.equal(remote.headers["Content-Security-Policy"], undefined);
+  for (const address of ["203.0.113.9", "8.8.8.8", "2001:db8::1"]) {
+    const remote = runGuard(address);
+    assert.equal(remote.next, false, address);
+    assert.equal(remote.status, 404);
+    assert.equal(remote.body, "not_found");
+    assert.equal(remote.headers["Content-Security-Policy"], undefined);
+  }
 });
 
 test("the admin page serves its own files and falls through to 404", async () => {

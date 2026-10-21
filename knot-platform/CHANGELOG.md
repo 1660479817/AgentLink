@@ -8,6 +8,17 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
 - **内容修订序号**：`kMeta.version`，一条内容在它修订链里的序号，从 1 起。
 - **修订 lineage**：`kMeta.originId` 指向首版，同一篇的多个版本串成一条链。
 
+## [Unreleased]
+
+### 变更
+
+- **站点档案拆成签发区与自述区**。签发区（`id`、`url`、`since`、`tier`、`status`）只来自中枢签发的接入件；自述区（名称、多语种介绍、logo、主理人、联系方式、标签、语种、地区、时区、社交链接）由主理人在 `/admin` 的 XKnot 栏编辑，写 `sites/<站点>/profile.json`，通过新的公开接口 `GET /api/federation/profile` 对外，中枢按地址取回副本。`site.env` 里的 `KNOT_SITE_NAME`、`KNOT_SITE_TAGLINE`、`KNOT_SITE_LOGO`、`KNOT_SITE_OWNER`、`KNOT_SITE_OWNER_NOTE`、`KNOT_SITE_OWNER_CONTACT` 六项取消；旧站点跑一次 `ops/scripts/migrate-profile.mjs` 即可迁移。`GET /api/web/session` 的 `brand` 改为多语种映射，WebUI 按界面语种取用并在切语言时立即生效。字段与规则见 `docs/PROFILE.md`。
+- 新增 `GET /api/admin/profile` 与 `PUT /api/admin/profile`：一次返回签发区与自述区，保存前整份校验，校验不过返回逐条 `problems` 且不落盘。
+- 卡片底栏的点赞换成硬币图标，功能改为打赏。点开小弹窗选金额（1、5、10、20 或自填 1–10000 的整数），积分从读者余额原数转给作者，平台不抽成；弹窗显示余额、这条累计收到的打赏和自己已经给过多少。新增 `GET /api/web/intel/:id/tips`、`POST /api/web/intel/:id/tip` 与迁移 `031_intel_tips.sql`；`point_ledger` 记 `tip` 与 `tip_in` 两行，作者收到一条 `tip` 通知。
+- 标价为 0 时卡片头不再显示「0」角标，分享长图的卡片头也一样：现在发布不收费，这个数字没有信息量。
+- 分享按键是社交软件常见的节点图标。弹窗里不再摆三格大按钮：标题和一句摘要下面是一行左对齐的小按钮（44px 可点区域 + 图标 + 小字），依次是复制链接、保存长图，支持 Web Share 的浏览器再多一项「其他应用」。复制成功按钮变「已复制」并打勾；浏览器拒绝剪贴板时补一行可选中地址。长图、系统面板这两个说法换成「保存长图」「其他应用」。弹窗统一挂在 `AppShell`，卡片只把这条记录交出去，以后加分享去向只改弹窗，不动卡片。
+- 管理后台的打开范围改成「实例主机自己 + 同一内网」：`/admin` 与 `/api/admin` 放行回环、IPv4 私有地址（10/8、172.16/12、192.168/16）、链路本地（169.254/16）与 IPv6 唯一本地/链路本地（fc00::/7、fe80::/10）；公网地址仍返回 404，公网入口对 `/admin` 与 `/api/admin` 照旧直接 404。站点绑定 `0.0.0.0` 时，局域网里可直接打开 `http://<实例主机>:<KNOT_PORT>/admin`。
+
 ## [0.3.0] — 2026-10-20
 
 主题：把「代码 / 构建 / 部署」拆开，发布按版本号走。
@@ -21,15 +32,14 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
 - `packages/knot-config`：配置登记表移到代码层，Backend 与部署脚本共用同一份默认值；新增 `checkRuntime`。
 - Backend 启动时校验进程环境：值不合法直接退出，缺失必填项给警告（未登记变量不由运行时逐键报警，文件在部署时校验）。
 - Linux + systemd 部署：`ops/systemd/` 的 backend、backup、gc unit 与 timer；`deploy-site.sh` 按 `uname` 选运行时；没有服务管理器时用 `--runtime none` 后台起，pid 写 `var/run/backend.pid`。
-- Docker：`Dockerfile`、`docker-compose.yml`、`.dockerignore`、`.env.example`。
 - `GET /api/health` 增加 `release`、`commit` 与 `builtAt`，部署脚本按 `release` 核对正在运行的版本。
 - 备份覆盖重装所需的全部内容：`backup-knot.sh` 新增 `sites/`（`platform.env` 里的 SMTP 密码、管理令牌，`agents/` 里的智能体凭据）和 `$HOME/.openclaw` 的配置、凭据与 agent 工作区；新增 `--config-only` 只收配置。配套 `KNOT_BACKUP_SITES`、`KNOT_BACKUP_OPENCLAW` 与 `ops/scripts/backup-knot.test.mjs`。
 - 本地部署目标：`push-deploy.sh` 在 `KNOT_DEPLOY_SSH` 留空时不再要求 ssh，就地完成构建、安装和探活，部署根是仓库本身。开发者的 `sites/local` 用它：`./ops/scripts/push-deploy.sh --site local`。
-- `bot01` 的纯局域网变体从 `--variant local` 改名为 `--variant lan`：`local` 现在只指开发者的本机站点，不再和变体名撞。
+- `--variant` 叠加层取消（`site.<变体>.env` 不再读取）：一个站点目录只描述一种部署方式，只能是 local 或 xknot.si 二级子域。
 - 本机登录：新增 `ops/scripts/local-login.sh`，直接把用户和会话写进本机库，默认给管理员，不用等邮件。只认回环地址的站点。
-- 本机管理后台：`/admin` 提供静态页面（概览、内容、用户、站点、XKnot），复用 `/api/admin` 的 Bearer 令牌与回环地址限制；云端边缘对 `/admin` 与 `/api/admin` 都返回 404。发布包与容器镜像都带上 `admin/`。
+- 本机管理后台：`/admin` 提供静态页面（概览、内容、用户、站点、XKnot），复用 `/api/admin` 的 Bearer 令牌与回环地址限制；公网入口对 `/admin` 与 `/api/admin` 都返回 404。发布包带着 `admin/`。
 - 管理后台的 XKnot 栏：只读显示接入件（实例 id、中枢、委托发信、打码凭据、签发日、文件权限）与进程里正在用的值；两边不一致时提示「变更未生效」，并说明中枢会在 `/api/health` 读到什么。新接口 `GET /api/admin/federation`，同样只在本机回环地址、用 `KNOT_ADMIN_TOKEN` 打开。
-- `ensure-tester.sh` 不再假设平台主机上装的是 `postgresql@16`，改用站点的 `KNOT_PG_BIN`。
+- `ensure-tester.sh` 不再假设实例主机上装的是 `postgresql@16`，改用站点的 `KNOT_PG_BIN`。
 - 只绑回环地址、没有域名的站点不再提示「`KNOT_BACKUP_DIR` 为空」和「`KNOT_PUBLIC_ORIGIN` 还是本机地址」——开发者的本机实例本来就不装备份、也没有对外地址。
 - 部署与接入分开：新增 `sites/<站点>/xknot.env`，只放中枢（`xknot.si`）签发的实例 id、中枢地址、签发日期与委托发信凭据，权限 600。`XKNOT_HUB_RELAY_URL` / `XKNOT_HUB_RELAY_TOKEN` 从 `platform.env` 移到这里，旧文件下次 `config.mjs env` 会自动迁移并删掉原键。
 - 接入件键名升为联邦契约（`xknot.si/docs/FEDERATION.md` 7.4）：发信地址由 `XKNOT_HUB_ORIGIN` 推导，`XKNOT_HUB_RELAY_URL` 只在换入口时才写；`XKNOT_HUB_RELAY_TOKEN` 单独存在即可发信。`checkJoin` 不再要求地址与凭据成对，只拒绝「有地址没凭据」。
@@ -47,12 +57,27 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
 - 探活失败自动把代码回滚到上一个版本（`--no-auto-rollback` 关闭）。
 - `KNOT_UPLOAD_DIR` 默认改为 `<部署根>/var/uploads`。
 - 新增站点键：`KNOT_DEPLOY_KEEP`、`KNOT_ARTIFACT_DIR`、`KNOT_SYSTEMD_DIR`、`KNOT_SERVICE_USER`。
-- 一个实例可以有多个公网入口：`sites/<站点>/edge.<域名>.env` 每个入口一份，`KNOT_PUBLIC_ALIASES` 列出其余地址。入口文件是叠加层，只写与 `site.env` 不同的项；文件名必须等于里面的 `KNOT_DOMAIN`。
-- 新增入口键 `KNOT_ENTRY_SERVE`（`static` / `proxy`）、`KNOT_ENTRY_OWNER`（`self` / `issued`）、`KNOT_ENTRY_PUBLISHER`（`staff` / `partner`）。`push-edge.sh` 逐入口渲染、装机、reload，`--entry <域名>` 只推一个。
-- 上传缓存区改为单独一份 `ops/edge/cache.conf.template`，整台边缘只声明一次：多个入口各写一份会让 `nginx -t` 报 zone 重复。证书与私钥按**入口自己的**域名推导，不再一律用 `KNOT_PUBLIC_ORIGIN`。
-- `config.mjs check` 增加入口校验：域名与文件名一致、两个入口不得共用静态根或 conf、`KNOT_PUBLIC_ORIGIN` / `KNOT_PUBLIC_ALIASES` 里的域名都要有对应的 `edge.<域名>.env`。`show --for edge` 逐入口打印。
-- `push-discover.sh` 把快照推到**每个** staff 发布、static 投放的入口，不再只推规范入口。原来非规范入口的 `try_files` 会优先命中磁盘上的旧快照，永远不回落——`knot.zenheart.net` 的首页就是这样空着的。
-- `ops/edge/` 不再放任何具体域名的 conf（`wang.xknot.si.conf`、`knot.zenheart.net.conf` 等删除）：入口由站点配置生成，模板是 [`ops/edge/site.conf.template`](./ops/edge/site.conf.template)。
+- 一个实例一个 xknot.si 子域入口：`sites/<站点>/entry.<标签>.xknot.si.env`。它是 `site.env` 的叠加层，只写与站点不同的项；文件名必须等于里面的 `KNOT_DOMAIN`。`config.mjs check` 拦住非 xknot.si 域名、多份入口文件、入口与站点对不上的情况。
+- 新增入口键 `KNOT_ENTRY_SERVE`（`static` / `proxy`）：`static` 的页面从入口主机磁盘出，`proxy` 连首页也回源。`push-entry.sh` 渲染 `site.conf.template`、按 `KNOT_ENTRY_SERVE` 同步 `web/dist`、装配置、`nginx -t` 后 reload。
+- 上传缓存区改为单独一份 `ops/entry/cache.conf.template`，同一台入口主机只声明一次；证书与私钥按入口自己的 `KNOT_DOMAIN` 推导，不再一律用 `KNOT_PUBLIC_ORIGIN`。
+- `push-discover.sh` 按入口的 `KNOT_ENTRY_WEB_ROOT` 只推 `/discover.json`，`try_files` 缺失时回落隧道。
+- `ops/entry/` 不再放任何具体域名的 conf（`wang.xknot.si.conf`、`knot.zenheart.net.conf` 等删除）：入口由站点配置生成，模板是 [`ops/entry/site.conf.template`](./ops/entry/site.conf.template)。
+- 入口按范围分两处，规则写进 `xknot.si/docs/NAMING.md` 与 [`../docs/concepts.md`](../docs/concepts.md)：**可复用的模板**留 `knot-platform/ops/entry/`；**中枢替伙伴装的成品 conf 与接通 runbook** 放 [`../xknot.si/ops/entry/`](../xknot.si/ops/entry/)（`zjj.xknot.si.conf`、`zjj-tunnel.md`），因为装它们的是中枢工作人员。判断标准：换个实例还能用就是前者。
+- 删除 `ops/nginx/knot.conf`：它是一份没人引用的「同机 nginx 反代样例」，与 `ops/entry/site.conf.template` 重复；官方拓扑里实例自己不跑 nginx。
+- 删除 `ops/entry/subdomain-fixed-ip.md`：名册只有 `own-domain` 与 `subdomain`，「签发子域 + DNS 指到伙伴固定 IP」两头都不算，`validate-federation.mjs` 会拒绝。保留一份不能上线的 runbook 只会误导；要固定 IP 就用伙伴自己的域名走 `own-domain`。
+
+### 术语与标识改名
+
+「边缘」这个词退休。它既像 CDN 边缘节点，又常在物理上和中枢同机，读者分不清说的是中枢还是入口。机器角色现在是三个：**中枢主机**（跑 `xknot.si`）、**实例主机**（跑 Backend 与数据库）、**入口主机**（跑 nginx 与证书）。概念与归属见 [`../docs/concepts.md`](../docs/concepts.md)。
+
+- 环境变量：`KNOT_EDGE` → `KNOT_ENTRY_ENABLED`，`KNOT_EDGE_*` → `KNOT_ENTRY_*`。`KNOT_TUNNEL_*` 不变。
+- 目录与脚本：`ops/edge/` → `ops/entry/`，`push-edge.sh` → `push-entry.sh`，`run-edge-tunnel.sh` → `run-entry-tunnel.sh`。
+- 常驻服务：LaunchAgent `com.knot.edge-tunnel` → `com.knot.entry-tunnel`（日志同名换为 `entry-tunnel.log`）。
+- 站点入口文件：`sites/<站点>/edge.<域名>.env` → `entry.<域名>.env`；模板 `sites/_template/entry.example.env`。
+- 命令行开关：`push-deploy.sh --edge` → `--entry`。
+- 配置项 `show --for edge` → `show --for entry`。
+- 私钥默认路径：`~/.ssh/knot-edge` → `~/.ssh/knot-entry`，`~/.ssh/knot-edge-publish` → `~/.ssh/knot-entry-publish`。
+- 文档里的「平台主机」统一写成「实例主机」，与联邦术语对齐；`platform.env` 这个文件名与 `KNOT_PLATFORM_*` 标识保持不动。
 
 ### 修复
 
@@ -63,10 +88,29 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
 - 发布包不再带 `*.test.js` / `*.test.mjs`；旧发布包按安装时间清理，不再按版本名字典序。
 - `reset-knot.sh` 在 Linux 上先停 systemd 再重建，`ensure-tester.sh` 的路径改为按当前发布包解析。
 - `backup-knot.sh` 不再依赖 BSD 的 `stat -f%z` 与 `shasum`，Linux 也能跑；同一秒内跑两次时加后缀而不是覆盖上一份，`latest` 始终指向最新一份。
+- 出售帖口径加上标价：有可下载附件但标价 0 的 `post`/`fastpost` 现在算普通帖，留在信息流，也不再写 `expires_at`。之前这类帖（例如带一份 `.md` 全文的日刊）会被当成出售帖，从首页和 `/discover.json` 里消失，只在 `/wish` 的「出售」栏出现，72 小时后连那栏也看不到。`030_zero_price_feed.sql` 收回存量行的 `expires_at`。
 
 ### 升级
 
 现有 macOS 部署：先 `./ops/scripts/build.sh`，再 `./ops/scripts/push-deploy.sh --site <站点>`。第一次会建 `releases/` 与 `current`；`sites/`、`var/` 原地不动。
+
+0.3.0 改了入口相关标识，升级前在本机与实例主机各做一次改名：
+
+```bash
+# 1. 站点目录：入口文件改名，键名换成 KNOT_ENTRY_*
+cd sites/<站点>
+for f in edge.*.env; do mv "$f" "entry.${f#edge.}"; done
+perl -pi -e 's/^KNOT_EDGE=/KNOT_ENTRY_ENABLED=/; s/\bKNOT_EDGE_/KNOT_ENTRY_/g' site.env site.*.env entry.*.env
+
+# 2. 实例主机：隧道与快照私钥（不装入口的站点可跳过）
+mv ~/.ssh/knot-edge ~/.ssh/knot-entry
+mv ~/.ssh/knot-edge-publish ~/.ssh/knot-entry-publish
+
+# 3. 确认
+./ops/scripts/config.mjs check --site <站点>
+```
+
+LaunchAgent 会在下次 `deploy-site.sh` 时装成 `com.knot.entry-tunnel`，旧的 `com.knot.edge-tunnel` 同时被卸载。
 
 ## [0.2.0] — 2026-10-18
 

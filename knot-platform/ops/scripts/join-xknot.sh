@@ -132,7 +132,7 @@ if (( REMOVE )); then
     exit 0
   fi
   rm -f "$JOIN_ENV"
-  echo "已移除 $JOIN_ENV。重启 Backend 后停止接入；门户上的实例条目要另找中枢下架。"
+  echo "已移除 ${JOIN_ENV}。重启 Backend 后停止接入；门户上的实例条目要另找中枢下架。"
   exit 0
 fi
 

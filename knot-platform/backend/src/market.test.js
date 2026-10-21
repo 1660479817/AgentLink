@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { saveReviewExtract } from "./extracts.js";
-import { compareByWeight, deleteOwnPost, isDownloadableFile, listPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
+import { compareByWeight, deleteOwnPost, isDownloadableFile, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
 import { serviceFee, packetPrice, policyConfig } from "./points.js";
 
 const AUTHOR = "33333333-3333-4333-8333-333333333333";
@@ -98,10 +98,13 @@ test("the public feed excludes sales and can be flipped to sales only", async ()
     },
   };
   await listPublicIntel(pool, 30, null);
-  assert.match(calls[0].sql, /AND NOT EXISTS \(\s*SELECT 1 FROM intel_files f/);
+  // 零价附件帖留在信息流：只有「有可下载附件且有标价」的才算出售帖被排除。
+  assert.match(calls[0].sql, /AND NOT \(\s*EXISTS \(\s*SELECT 1 FROM intel_files f/);
+  assert.match(calls[0].sql, /i\.price > 0/);
   await listPublicIntel(pool, 30, null, null, null, { sales: true });
-  assert.match(calls[1].sql, /AND EXISTS \(\s*SELECT 1 FROM intel_files f/);
-  assert.doesNotMatch(calls[1].sql, /AND NOT EXISTS \(\s*SELECT 1 FROM intel_files f/);
+  assert.match(calls[1].sql, /AND \(\s*EXISTS \(\s*SELECT 1 FROM intel_files f/);
+  assert.match(calls[1].sql, /i\.price > 0/);
+  assert.doesNotMatch(calls[1].sql, /AND NOT \(\s*EXISTS \(\s*SELECT 1 FROM intel_files f/);
   // 出售栏只留仍在有效期内的记录。
   assert.match(calls[1].sql, /i\.expires_at/);
   assert.match(calls[1].sql, /> now\(\)/);
@@ -294,6 +297,22 @@ test("service fee rounds attachment bytes up per MB and caps", () => {
   assert.equal(serviceFee(1024 * 1024 * 50, 1, 10), 10); // 封顶
   assert.equal(serviceFee(1024 * 1024 * 2, 0, 10), 0); // 费率 0 免费
   assert.equal(serviceFee(1024 * 1024 * 5, 2, 10), 10); // 5MB×2=10 正好
+});
+
+test("a deep link finds the post through its revision chain, not by exact id", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+  const ID = "11111111-1111-4111-8111-111111111111";
+  assert.equal(await loadPublicIntel(pool, null, ID), null);
+  // 地址认的是整条修订链：旧版本的 id 也落到最新那一版上。
+  assert.match(calls[0].sql, /COALESCE\(i\.origin_id, i\.id\) = \(SELECT COALESCE\(origin_id, id\) FROM intel WHERE id = \$2::uuid\)/);
+  assert.doesNotMatch(calls[0].sql, /AND i\.id = \$2::uuid/);
+  assert.deepEqual(calls[0].params, [null, ID]);
 });
 
 test("a sale lasts 72 hours by default, overridable by env", () => {

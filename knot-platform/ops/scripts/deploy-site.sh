@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 在一个已经装好 Node.js 的平台主机上安装一份**已经构建好的** Knot 发布包。
+# 在一个已经装好 Node.js 的实例主机上安装一份**已经构建好的** Knot 发布包。
 #
 # 这里不做构建：不跑 npm ci，不跑 vite build。构建在开发机做（ops/scripts/build.sh），
 # 产物是一个 tar.gz，解包后就是一个可运行的代码目录。
@@ -13,14 +13,13 @@
 #   deployed.json       当前版本、上一个版本
 #
 # 用法：
-#   ./ops/scripts/deploy-site.sh --site bot01                    # 在发布包目录里
-#   ./ops/scripts/deploy-site.sh --site bot01 --artifact <tar.gz>
-#   ./ops/scripts/deploy-site.sh --site bot01 --variant lan
-#   ./ops/scripts/deploy-site.sh --site bot01 --dry-run          # 只检查，不动手
+#   ./ops/scripts/deploy-site.sh --site wang                    # 在发布包目录里
+#   ./ops/scripts/deploy-site.sh --site wang --artifact <tar.gz>
+#   ./ops/scripts/deploy-site.sh --site wang --dry-run          # 只检查，不动手
 #   ./ops/scripts/deploy-site.sh --site local --artifact <tar.gz> --deploy-root "$PWD"
-#                                                                # 目标就是本机时（开发者的 local 站点）
-#   ./ops/scripts/deploy-site.sh --site bot01 --runtime systemd  # Linux
-#   ./ops/scripts/deploy-site.sh --site bot01 --runtime none     # 没有服务管理器时后台起
+#                                                                # local：目标就是本机
+#   ./ops/scripts/deploy-site.sh --site wang --runtime systemd  # Linux 实例主机
+#   ./ops/scripts/deploy-site.sh --site wang --runtime none     # 没有服务管理器时后台起
 #
 # 从开发机一步完成构建、传输和部署用 ./ops/scripts/push-deploy.sh。
 set -euo pipefail
@@ -29,7 +28,6 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 SITE_ARG=""
-VARIANT_ARG=""
 ARTIFACT_ARG=""
 DEPLOY_ROOT_ARG=""
 RUNTIME_ARG=""
@@ -41,11 +39,6 @@ while [[ $# -gt 0 ]]; do
     --site)
       [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--site 后面要跟站点名" >&2; exit 2; }
       SITE_ARG="$2"
-      shift 2
-      ;;
-    --variant | --profile)
-      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "$1 后面要跟变体名" >&2; exit 2; }
-      VARIANT_ARG="$2"
       shift 2
       ;;
     --artifact)
@@ -82,14 +75,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$SITE_ARG" ]] && export KNOT_SITE="$SITE_ARG"
-[[ -n "$VARIANT_ARG" ]] && export KNOT_SITE_VARIANT="$VARIANT_ARG"
 # 从解包出来的临时目录安装时，部署根还没法从脚本位置推出来，先显式给它。
 [[ -n "$DEPLOY_ROOT_ARG" ]] && export KNOT_DEPLOY_ROOT="$DEPLOY_ROOT_ARG"
 
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
 CONFIG_ARGS=(--site "$KNOT_SITE")
-[[ -n "$KNOT_SITE_VARIANT" ]] && CONFIG_ARGS+=(--variant "$KNOT_SITE_VARIANT")
 
 # ---- 0. 发布包 ----
 # 允许 --artifact 指 tar.gz：解到暂存区，再把代码目录切过去。
@@ -106,7 +97,7 @@ if [[ -n "$ARTIFACT_ARG" ]]; then
   [[ -e "$ARTIFACT_ARG" ]] || knot_fail "找不到发布包：$ARTIFACT_ARG"
   if [[ -d "$ARTIFACT_ARG" ]]; then
     KNOT_APP_DIR="$(cd "$ARTIFACT_ARG" && pwd -P)"
-    export KNOT_APP_DIR KNOT_REPO_ROOT="$KNOT_APP_DIR"
+    export KNOT_APP_DIR
   else
     command -v node >/dev/null 2>&1 || knot_fail "需要 node 来校验发布包。"
     node "$SCRIPT_DIR/artifact.mjs" verify "$ARTIFACT_ARG" >/dev/null ||
@@ -116,7 +107,7 @@ if [[ -n "$ARTIFACT_ARG" ]]; then
     APP_IN_TAR="$(find "$STAGING" -maxdepth 1 -mindepth 1 -type d | head -n 1)"
     [[ -n "$APP_IN_TAR" ]] || knot_fail "发布包里没有目录：$ARTIFACT_ARG"
     KNOT_APP_DIR="$(cd "$APP_IN_TAR" && pwd -P)"
-    export KNOT_APP_DIR KNOT_REPO_ROOT="$KNOT_APP_DIR"
+    export KNOT_APP_DIR
   fi
 fi
 
@@ -137,12 +128,12 @@ REL_PLATFORM="$(node "$SCRIPT_DIR/artifact.mjs" field platform "$MANIFEST")"
 HOST_PLATFORM="$(node "$SCRIPT_DIR/artifact.mjs" platform)"
 if [[ "$REL_PLATFORM" != "$HOST_PLATFORM" && "$ALLOW_PLATFORM_MISMATCH" != 1 ]]; then
   knot_fail "发布包是 ${REL_PLATFORM}，这台机器是 ${HOST_PLATFORM}。
-原生模块（如 sharp）不能跨平台。要么在 $HOST_PLATFORM 上重新构建，要么用 Docker 部署。
+   原生模块（如 sharp）不能跨平台。请在这台机器同平台的环境里重新构建。
 确知没问题时加 --allow-platform-mismatch。"
 fi
 
 # ---- 1. 站点配置 ----
-echo "==> check sites/$KNOT_SITE/site.env${KNOT_SITE_VARIANT:+ + site.$KNOT_SITE_VARIANT.env}"
+echo "==> check sites/$KNOT_SITE/site.env"
 node "$SCRIPT_DIR/config.mjs" check "${CONFIG_ARGS[@]}"
 
 RUNTIME="${RUNTIME_ARG:-}"
@@ -160,7 +151,7 @@ esac
 
 if [[ "$RUNTIME" == "systemd" && "$KNOT_DB_MODE" == "local" ]]; then
   knot_fail "KNOT_DB_MODE=local 只支持 macOS + Homebrew Postgres。
-Linux 平台主机请用 KNOT_DB_MODE=external 接已有数据库，或用 docker-compose.yml 起整站。"
+Linux 实例主机请用 KNOT_DB_MODE=external 接已有数据库。"
 fi
 if [[ "$RUNTIME" == "launchd" ]] && [[ "$KNOT_DB_MODE" == "local" && ! -x "$KNOT_PG_BIN/pg_ctl" ]]; then
   knot_fail "缺少 postgresql@16：brew install postgresql@16（或把 KNOT_PG_BIN 指向它的 bin 目录）。也可用 KNOT_DB_MODE=external 接已有数据库。"
@@ -228,24 +219,24 @@ case "$(knot_origin_host "$KNOT_PUBLIC_ORIGIN")" in
       127.0.0.1 | localhost | ::1 | "")
         ;;
       *)
-        knot_warn "KNOT_PUBLIC_ORIGIN 还是本机地址；分享图和二维码会指向 ${KNOT_PUBLIC_ORIGIN}。局域网部署请改成 http://<本机 IP>:${KNOT_PORT}。"
+        knot_warn "KNOT_PUBLIC_ORIGIN 还是本机地址；分享图和二维码会指向 ${KNOT_PUBLIC_ORIGIN}。要让别人访问，请走 xknot.si 子域部署。"
         ;;
     esac
     ;;
 esac
 
-if knot_enabled KNOT_EDGE; then
-  knot_require KNOT_EDGE_SSH "KNOT_EDGE=1 时要配置 KNOT_EDGE_SSH=user@edge-host。只部署本机请设 KNOT_EDGE=0。"
+if knot_enabled KNOT_ENTRY_ENABLED; then
+  knot_require KNOT_ENTRY_SSH "KNOT_ENTRY_ENABLED=1 时要配置 KNOT_ENTRY_SSH=user@entry-host。只部署本机请设 KNOT_ENTRY_ENABLED=0。"
   if knot_enabled KNOT_TUNNEL; then
-    knot_require KNOT_TUNNEL_SSH "KNOT_TUNNEL=1 时要有隧道账号；留空会自动用 knot-tunnel@<边缘主机>。"
+    knot_require KNOT_TUNNEL_SSH "KNOT_TUNNEL=1 时要有隧道账号；留空会自动用 knot-tunnel@<入口主机>。"
     TUNNEL_KEY="$(knot_expand_path "$KNOT_TUNNEL_KEY")"
     if [[ ! -f "$TUNNEL_KEY" ]]; then
-      knot_warn "隧道私钥不存在：${TUNNEL_KEY}。先把公钥装到边缘的 $KNOT_TUNNEL_USER 账号，否则隧道起不来。"
+      knot_warn "隧道私钥不存在：${TUNNEL_KEY}。先把公钥装到入口主机的 $KNOT_TUNNEL_USER 账号，否则隧道起不来。"
     fi
   fi
-  PUSH_KEY="$(knot_expand_path "$KNOT_EDGE_PUSH_KEY")"
+  PUSH_KEY="$(knot_expand_path "$KNOT_ENTRY_PUSH_KEY")"
   if [[ ! -f "$PUSH_KEY" ]]; then
-    knot_warn "快照推送私钥不存在：${PUSH_KEY}。没有它，/discover.json 不会被推到边缘。"
+    knot_warn "快照推送私钥不存在：${PUSH_KEY}。没有它，/discover.json 不会被推到入口主机。"
   fi
 fi
 
@@ -288,8 +279,7 @@ else
 fi
 # 后面所有步骤都用装好的那一份，不用暂存区。
 KNOT_APP_DIR="$(cd "$REL_DIR" && pwd -P)"
-KNOT_REPO_ROOT="$KNOT_APP_DIR"
-export KNOT_APP_DIR KNOT_REPO_ROOT
+export KNOT_APP_DIR
 
 VENV_SCRIPTS="$KNOT_APP_DIR/ops/scripts"
 mkdir -p "$KNOT_DEPLOY_ROOT/var/log" "$KNOT_DEPLOY_ROOT/var/uploads" "$KNOT_SITE_DIR/agents"
@@ -398,11 +388,15 @@ case "$RUNTIME" in
     fi
     # 每月 1 日 04:45 只出回收报告，不删。要真删得人工加 --apply。
     knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.gc.plist" com.knot.gc
-    if knot_enabled KNOT_EDGE && knot_enabled KNOT_TUNNEL; then
-      echo "==> install edge tunnel LaunchAgent"
-      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.edge-tunnel.plist" com.knot.edge-tunnel
+    # 0.3.0 之前这个常驻服务叫 com.knot.edge-tunnel。改名后必须把旧 job 和 plist 清掉，
+    # 否则它会反复去执行已不存在的 run-edge-tunnel.sh。
+    knot_bootout_launchd com.knot.edge-tunnel
+    rm -f "$HOME/Library/LaunchAgents/com.knot.edge-tunnel.plist"
+    if knot_enabled KNOT_ENTRY_ENABLED && knot_enabled KNOT_TUNNEL; then
+      echo "==> install entry tunnel LaunchAgent"
+      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.entry-tunnel.plist" com.knot.entry-tunnel
     else
-      knot_bootout_launchd com.knot.edge-tunnel
+      knot_bootout_launchd com.knot.entry-tunnel
     fi
     ;;
   systemd)

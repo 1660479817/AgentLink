@@ -411,6 +411,56 @@ textarea:focus {
   width: 100%;
 }
 
+/* 站点档案：一行三份语种，行标签单独占一格。 */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.form-grid .field-wide {
+  grid-column: 1 / -1;
+}
+
+.form-grid .field-hint {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* 三份语种固定一行；窄屏才竖着排。 */
+.locale-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 560px) {
+  .locale-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.profile-social {
+  width: 100%;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+}
+
+.profile-social legend {
+  padding: 0 6px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.profile-social-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.6fr) minmax(180px, 2fr) auto;
+  gap: 8px;
+  align-items: end;
+  width: 100%;
+}
+
 .check {
   display: flex;
   align-items: flex-start;

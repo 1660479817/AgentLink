@@ -5,7 +5,7 @@ import InformationCard from "../components/InformationCard.vue";
 import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { addCardFriend, closeInformation, discoverSelf, dismissInformation, downloadInformation, downloadShare, fetchFacets, getInformation, likeInformation, listInformation, listPeople, removeCardFriend, searchInformation, starInformation, unlikeInformation, unstarInformation } from "../api.js";
+import { addCardFriend, closeInformation, discoverSelf, dismissInformation, downloadInformation, fetchFacets, getInformation, listInformation, listPeople, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
 import FilterBar from "../components/FilterBar.vue";
 import { applyDiscoverSelf, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
 import { errorText, nameMark } from "../composers/packet.js";
@@ -120,14 +120,19 @@ function showPainted(painted) {
 }
 
 async function focusPost() {
-  const id = postQ.value;
+  let id = postQ.value;
   if (!id) return;
   if (!items.value.some((item) => item.id === id)) {
     try {
       const info = await getInformation(id);
-      if (info && info.id === id) {
-        items.value = [info, ...items.value.filter((row) => row.id !== id)];
+      if (info && info.id) {
+        items.value = [info, ...items.value.filter((row) => row.id !== info.id)];
         feedReady.value = true;
+        // 旧地址会解到最新一版：把地址栏换成当前这条，复制出去的链接才不会又递出旧 id。
+        if (info.id !== id) {
+          id = info.id;
+          router.replace({ query: { ...route.query, post: id } });
+        }
       }
     } catch {
       /* 帖子可能已下架，保留当前信息流 */
@@ -455,18 +460,6 @@ async function toggleStar(item) {
   }
 }
 
-async function toggleLike(item) {
-  if (!session.user) return;
-  const previous = Boolean(item.liked);
-  item.liked = !previous;
-  try {
-    if (item.liked) await likeInformation(item.id);
-    else await unlikeInformation(item.id);
-  } catch {
-    item.liked = previous;
-  }
-}
-
 async function toggleFriend(item) {
   if (!session.user || !item.canFriend) return;
   const previous = Boolean(item.friend);
@@ -477,19 +470,6 @@ async function toggleFriend(item) {
     await friends.load();
   } catch {
     item.friend = previous;
-  }
-}
-
-async function shareItem(item) {
-  if (item.sharing) return;
-  item.sharing = true;
-  item.shareError = "";
-  try {
-    await downloadShare(item.id);
-  } catch {
-    item.shareError = t("error.request_failed");
-  } finally {
-    item.sharing = false;
   }
 }
 
@@ -629,13 +609,10 @@ async function downloadItem(item) {
     :mine="cardIsMine(item, session.user)"
     :starred="Boolean(item.starred)"
     :can-star="Boolean(session.user)"
-    :liked="Boolean(item.liked)"
-    :can-like="Boolean(session.user)"
     :friend="Boolean(item.friend)"
     :can-friend="Boolean(item.canFriend)"
     :busy="Boolean(item.downloading) || (Boolean(session.user) && item.personal === false)"
-    :sharing="Boolean(item.sharing)"
-    :notice="item.closeError || item.shareError || ''"
+    :notice="item.closeError || ''"
     :can-close="Boolean(session.user?.admin)"
     :closing="Boolean(item.closing)"
     @author="filterByAuthor(item)"
@@ -643,10 +620,8 @@ async function downloadItem(item) {
     @topic="filterByTopic"
     @dismiss="dismissItem(item)"
     @star="toggleStar(item)"
-    @like="toggleLike(item)"
     @friend="toggleFriend(item)"
     @download="downloadItem(item)"
-    @share="shareItem(item)"
     @close="closeItem(item)"
   />
   <p v-if="feedReady && items.length === 0" class="muted feed-empty">

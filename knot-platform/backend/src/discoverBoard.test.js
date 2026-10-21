@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -87,7 +87,6 @@ test("the public board drops personal fields and keeps the wish author", async (
   assert.equal(card.author.id, AUTHOR);
   assert.equal(card.author.name, "甲");
   assert.equal(card.user_id, undefined);
-  assert.equal(card.previewUrl, "");
   assert.equal(card.images[0].url, `/api/web/uploads/${FILE}/display`);
   assert.equal(card.audio[0].url, "/api/web/uploads/sound");
   assert.equal(board.requests[0].authorId, AUTHOR);
@@ -123,17 +122,11 @@ test("a personal patch lists dismissals, stars, likes, and friends", () => {
   assert.equal(self.wishes[WISH].responseCount, 2);
 });
 
-test("writing the board keeps image addresses and drops old collages", async () => {
+test("writing the board keeps image addresses", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "knot-board-"));
-  const previews = path.join(dir, "media", "previews");
-  const { mkdir } = await import("node:fs/promises");
-  await mkdir(previews, { recursive: true });
-  await writeFile(path.join(previews, "stale.jpg"), "old");
   try {
     const board = await writeDiscoverBoard({ pool: pool(), uploadDir: dir, boardDir: dir });
-    assert.equal(board.information[0].previewUrl, "");
     assert.equal(board.information[0].images[0].url, `/api/web/uploads/${FILE}/display`);
-    await assert.rejects(readFile(path.join(previews, "stale.jpg")));
     const saved = JSON.parse(await readFile(path.join(dir, "discover.json"), "utf8"));
     assert.equal(saved.information[0].granted, false);
     assert.equal(saved.requests[0].authorId, AUTHOR);

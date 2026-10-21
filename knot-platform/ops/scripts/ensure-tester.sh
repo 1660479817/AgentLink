@@ -26,7 +26,7 @@ if [[ -z "${TESTER_SID:-}" ]]; then
   exit 1
 fi
 
-# 用站点自己配的 Postgres 版本，别假设平台主机上装的是 16。
+# 用站点自己配的 Postgres 版本，别假设实例主机上装的是 16。
 PSQL="psql"
 [[ -x "${KNOT_PG_BIN:-}/psql" ]] && PSQL="$KNOT_PG_BIN/psql"
 command -v "$PSQL" >/dev/null 2>&1 || { echo "找不到 psql。装 postgresql 或把 KNOT_PG_BIN 指向它的 bin 目录。" >&2; exit 1; }

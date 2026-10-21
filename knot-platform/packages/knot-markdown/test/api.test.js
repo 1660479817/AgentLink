@@ -18,7 +18,7 @@ test("markdown is detected only when a real marker is present", () => {
   assert.equal(isMarkdown("# 标题"), true);
   assert.equal(isMarkdown("**重点**"), true);
   assert.equal(isMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |"), true);
-  assert.equal(isMarkdown("https://knot.zenheart.net/discover"), true);
+  assert.equal(isMarkdown("https://wang.xknot.si/discover"), true);
 });
 
 test("raw html is text, not markup", () => {

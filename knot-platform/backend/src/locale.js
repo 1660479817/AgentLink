@@ -6,7 +6,7 @@ export function parseLocale(value) {
   return LOCALES.includes(text) ? text : null;
 }
 
-/** Cloudflare country code, or "" when the edge did not send one. */
+/** Cloudflare country code, or "" when the entry did not send one. */
 export function countryFromRequest(req) {
   return String(req.get?.("cf-ipcountry") || "").trim().toUpperCase();
 }

@@ -1,0 +1,126 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { renderTemplate } from "../scripts/render-config.mjs";
+
+// 入口模板只有一个 source，两种投放靠 KNOT_ENTRY_STATIC 分叉。
+// 这里直接渲染真模板，盯住两件事：static 才声明缓存区，proxy 把首页也回源。
+
+const TEMPLATE = readFileSync(fileURLToPath(new URL("./site.conf.template", import.meta.url)), "utf8");
+
+const BASE = {
+  KNOT_DOMAIN: "wang.xknot.si",
+  KNOT_ENTRY_WEB_ROOT: "/var/www/wang",
+  KNOT_ENTRY_MAX_BODY: "52m",
+  KNOT_ENTRY_PROXY_PORT: "18080",
+  KNOT_ENTRY_CACHE_DIR: "/var/cache/nginx/knot_uploads",
+  KNOT_ENTRY_CACHE_ZONE: "knot_uploads",
+  KNOT_ENTRY_CACHE_SIZE: "2g",
+  KNOT_ENTRY_SSL: "1",
+  KNOT_ENTRY_CERT: "/etc/letsencrypt/live/wang.xknot.si/fullchain.pem",
+  KNOT_ENTRY_KEY: "/etc/letsencrypt/live/wang.xknot.si/privkey.pem",
+};
+
+const render = (overrides) => renderTemplate(TEMPLATE, { ...BASE, ...overrides });
+
+test("static 投放：首页从磁盘出，缓存区不在这份文件里声明", () => {
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  assert.match(text, /root \/var\/www\/wang;/);
+  assert.match(text, /try_files \$uri \$uri\/ \/index\.html;/);
+  assert.match(text, /proxy_cache knot_uploads;/);
+  // 缓存区同一台入口主机只允许一次，放在 cache.conf.template。
+  assert.doesNotMatch(text, /^proxy_cache_path/m);
+  // 静态兜底在那里，但 / 不应该整段回源。
+  assert.doesNotMatch(text, /location \/ \{\n\s*proxy_pass/);
+});
+
+test("proxy 投放：不声明缓存区，首页整段回源", () => {
+  const text = render({ KNOT_ENTRY_STATIC: "" });
+  assert.doesNotMatch(text, /^proxy_cache_path/m);
+  assert.match(text, /location \/ \{\n\s*proxy_pass http:\/\/knot_entry_18080;/);
+  // 上传也回源，但不带缓存键，避免和同机 static 入口抢同一个 zone。
+  assert.doesNotMatch(text, /proxy_cache knot_uploads/);
+});
+
+test("缓存区单独成一份，同一台入口主机只声明一次", () => {
+  const cache = renderTemplate(
+    readFileSync(fileURLToPath(new URL("./cache.conf.template", import.meta.url)), "utf8"),
+    BASE,
+  );
+  assert.match(cache, /^proxy_cache_path \/var\/cache\/nginx\/knot_uploads/m);
+  assert.equal(cache.match(/proxy_cache_path/g).length, 1);
+  assert.doesNotMatch(cache, /server \{/);
+});
+
+test("static 投放：发现页快照先看磁盘，缺了才回源", () => {
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  assert.match(text, /location = \/discover\.json \{[\s\S]*?try_files \/discover\.json @knot_origin;/);
+  assert.match(text, /Cache-Control "public, max-age=0, must-revalidate"/);
+});
+
+test("两种投放都保留管理接口、管理后台 404 与 ACME 目录", () => {
+  for (const flag of ["1", ""]) {
+    const text = render({ KNOT_ENTRY_STATIC: flag });
+    assert.match(text, /location \^~ \/api\/admin/);
+    assert.match(text, /location \^~ \/admin \{/);
+    assert.match(text, /return 404 '\{"error":"not_found"\}'/);
+    assert.match(text, /\.well-known\/acme-challenge\//);
+  }
+});
+
+test("两种投放都开 gzip，且只压文本类", () => {
+  for (const flag of ["1", ""]) {
+    const text = render({ KNOT_ENTRY_STATIC: flag });
+    assert.match(text, /^\s*gzip on;$/m);
+    assert.match(text, /^\s*gzip_vary on;$/m);
+    // 穿过隧道的 /api JSON 也要压。
+    assert.match(text, /^\s*gzip_proxied any;$/m);
+    assert.match(text, /gzip_types[^;]*application\/json/);
+    assert.match(text, /gzip_types[^;]*text\/css/);
+    // 图片与字体已经压过，不要再走一遍。
+    assert.doesNotMatch(text, /gzip_types[^;]*image\/(jpeg|png)/);
+  }
+});
+
+test("入口的 server_name 来自 KNOT_DOMAIN", () => {
+  const text = render({
+    KNOT_DOMAIN: "zjj.xknot.si",
+    KNOT_ENTRY_CERT: "/etc/letsencrypt/live/zjj.xknot.si/fullchain.pem",
+    KNOT_ENTRY_KEY: "/etc/letsencrypt/live/zjj.xknot.si/privkey.pem",
+    KNOT_ENTRY_STATIC: "1",
+  });
+  assert.match(text, /server_name zjj\.xknot\.si;/);
+  assert.match(text, /ssl_certificate \/etc\/letsencrypt\/live\/zjj\.xknot\.si\/fullchain\.pem;/);
+});
+
+test("回源复用长连接：upstream 按端口命名，所有反代都带 Connection 空值", () => {
+  for (const flag of ["1", ""]) {
+    const text = render({ KNOT_ENTRY_STATIC: flag });
+    // 名字带端口，同一台入口主机上多个子域各有各的 upstream。
+    assert.match(text, /^upstream knot_entry_18080 \{$/m);
+    assert.match(text, /^\s*server 127\.0\.0\.1:18080;$/m);
+    assert.match(text, /^\s*keepalive 16;$/m);
+    // keepalive 必须配 HTTP/1.1 和空的 Connection，否则复用不了。
+    const passes = text.match(/proxy_pass http:\/\/knot_entry_18080;/g) ?? [];
+    const conns = text.match(/proxy_set_header Connection "";/g) ?? [];
+    assert.equal(passes.length, conns.length);
+    assert.ok(passes.length >= 3);
+    // 不要再有直连 127.0.0.1 的 proxy_pass，否则那条路径复用不到连接。
+    assert.doesNotMatch(text, /proxy_pass http:\/\/127\.0\.0\.1:18080/);
+  }
+});
+
+test("KNOT_ENTRY_SSL=1 时开 HTTP/2", () => {
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  assert.match(text, /^\s*listen 443 ssl;$/m);
+  assert.match(text, /^\s*http2 on;$/m);
+});
+
+test("KNOT_ENTRY_SSL=0 时只监听 80，不写证书，也不开 HTTP/2", () => {
+  const text = render({ KNOT_ENTRY_SSL: "0", KNOT_ENTRY_STATIC: "1" });
+  assert.doesNotMatch(text, /listen 443/);
+  assert.doesNotMatch(text, /ssl_certificate/);
+  assert.doesNotMatch(text, /http2 on;/);
+  assert.match(text, /listen 80;/);
+});

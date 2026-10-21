@@ -4,7 +4,7 @@ import { cardImageUrl } from "./uploads.js";
 //   "public"  未登录也能读（公开帖子上的图、wish 的图）
 //   "private" 只有当事人能读（作者本人、wish 的收件人）
 //   null      都读不到
-// 有「private」这个中间档，是因为缓存头要跟着可见范围走：公开的可以给边缘缓存，
+// 有「private」这个中间档，是因为缓存头要跟着可见范围走：公开的可以给入口缓存，
 // 当事人专属的只能给浏览器缓存，不能进共享缓存。
 export const MEDIA_PUBLIC = "public";
 export const MEDIA_PRIVATE = "private";

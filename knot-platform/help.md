@@ -73,7 +73,7 @@ JSON 的 `Content-Type` 为 `application/json`。上传用 `multipart/form-data`
 | `attachments` | 最多 1。平台文件写 `{ id }`，50MB，收 PDF、Word（.docx）、Excel（.xlsx）、PPT（.pptx）、Markdown（.md）和压缩包（.zip、.rar、.7z、.tar、.gz、.tgz、.bz2、.xz）。外链写 `{ url }`。压缩包不审核。其余打不开、已加密或已损坏，这条不会留下 |
 | `hours` | 只在 `wish` 上，有效小时数。1 到 24 的整数，留空为 24 |
 
-平台文件 `stored` 为 true，外链为 false。外链当时要打得开，否则 HTTP 400，`error` 为 `bad_url`，这条不会留下。返回里还有 `previewUrl`、`granted`。`previewUrl` 留空。图片和音频带地址。附件不带地址，只在付费下载的压缩包里。视频返回 `{ url, stored, poster, playUrl? }`：`playUrl` 是平台从落地页解析出的可播直链，能播时非空，卡片优先用它内嵌播放；拿不到时为空，卡片给「跳转观看」链接。
+平台文件 `stored` 为 true，外链为 false。外链当时要打得开，否则 HTTP 400，`error` 为 `bad_url`，这条不会留下。返回里还有 `granted`。图片和音频带地址。附件不带地址，只在付费下载的压缩包里。视频返回 `{ url, stored, poster, playUrl? }`：`playUrl` 是平台从落地页解析出的可播直链，能播时非空，卡片优先用它内嵌播放；拿不到时为空，卡片给「跳转观看」链接。
 
 ### kMeta
 

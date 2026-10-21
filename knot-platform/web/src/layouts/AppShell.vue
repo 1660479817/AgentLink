@@ -2,9 +2,12 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
+import CardShareDialog from "../components/CardShareDialog.vue";
+import CardTipDialog from "../components/CardTipDialog.vue";
 import LocaleSwitch from "../components/LocaleSwitch.vue";
 import OutboxNotice from "../components/OutboxNotice.vue";
 import RememberLoginCard from "../components/RememberLoginCard.vue";
+import SiteOwnerDialog from "../components/SiteOwnerDialog.vue";
 import XknotMark from "../components/XknotMark.vue";
 import { downloadConsent } from "../download/consent.js";
 import { BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
@@ -34,6 +37,7 @@ const query = ref("");
 const searchInput = ref(null);
 const history = ref(readHistory());
 const sponsors = ref([]);
+const ownerDialog = ref(null);
 
 function readHistory() {
   try {
@@ -50,11 +54,16 @@ function remember(q) {
   history.value = next;
 }
 
+// 搜索入口暂时从顶栏收起，弹层和检索逻辑仍然保留，供窄屏之外再放入口时复用。
 async function openSearch() {
   history.value = readHistory();
   searchOpen.value = true;
   await nextTick();
   searchInput.value?.focus({ preventScroll: true });
+}
+
+function openOwner() {
+  ownerDialog.value?.open();
 }
 
 function closeSearch() {
@@ -80,7 +89,8 @@ function sponsorMark(title) {
 }
 
 function brandHref() {
-  return session.user ? "/discover" : "/";
+  // 标识就回首页：能浏览的人回信息流，不能浏览的访客回登录页。
+  return session.canBrowse ? "/discover" : "/";
 }
 
 function refreshBrand(event) {
@@ -183,27 +193,20 @@ onUnmounted(() => {
             <div class="header-locale">
               <LocaleSwitch variant="menu" />
             </div>
-            <AppButton
-              v-if="session.canBrowse"
-              variant="icon"
-              :aria-label="t('nav.search')"
-              @click="openSearch"
-            >
-              <SearchIcon class="nav-icon" weight="header" aria-hidden="true" />
-            </AppButton>
           </div>
-          <a
+          <button
+            type="button"
             class="site-title"
-            :href="brandHref()"
             :title="siteName"
-            :aria-label="t('nav.home', { name: siteName })"
-            @click="refreshBrand"
-          >{{ siteName }}</a>
+            :aria-label="t('owner.open', { name: siteName })"
+            aria-haspopup="dialog"
+            @click="openOwner"
+          >{{ siteName }}</button>
           <div class="header-side header-side-end">
             <AppButton v-if="session.canBrowse" variant="icon" to="/wish" :aria-label="t('nav.market')">
               <ChatIcon class="nav-icon" weight="header" aria-hidden="true" />
             </AppButton>
-            <AppButton v-if="session.canBrowse" variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
+            <AppButton v-if="session.user" variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
               <BellIcon class="nav-icon" weight="header" aria-hidden="true" />
               <span v-if="notifications.unread > 0" class="nav-badge">{{
                 notifications.unread > 99 ? "99+" : notifications.unread
@@ -240,6 +243,9 @@ onUnmounted(() => {
         </form>
       </div>
     </header>
+    <SiteOwnerDialog ref="ownerDialog" />
+    <CardShareDialog />
+    <CardTipDialog />
     <div v-if="updateReady" class="release-note" role="status">
       <p>{{ t("release.ready") }}</p>
       <AppButton variant="secondary" @click="reloadPage">{{ t("release.reload") }}</AppButton>

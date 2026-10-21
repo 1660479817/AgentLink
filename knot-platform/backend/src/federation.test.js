@@ -17,7 +17,7 @@ const JOINED = [
   "XKNOT_INSTANCE_ID=wang",
   "XKNOT_HUB_ORIGIN=https://xknot.si",
   `XKNOT_HUB_RELAY_TOKEN=${TOKEN}`,
-  "XKNOT_HUB_ISSUED_AT=2026-10-20",
+  "XKNOT_ISSUED_AT=2026-10-20",
 ].join("\n");
 
 function envOf(overrides = {}) {
@@ -25,7 +25,7 @@ function envOf(overrides = {}) {
     XKNOT_INSTANCE_ID: "wang",
     XKNOT_HUB_ORIGIN: "https://xknot.si",
     XKNOT_HUB_RELAY_TOKEN: TOKEN,
-    XKNOT_HUB_ISSUED_AT: "2026-10-20",
+    XKNOT_ISSUED_AT: "2026-10-20",
     ...overrides,
   };
 }

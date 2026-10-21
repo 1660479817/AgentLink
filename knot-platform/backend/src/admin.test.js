@@ -6,6 +6,7 @@ import {
   bearerToken,
   clipText,
   hoursWithin,
+  isIntranetAddress,
   isLoopbackAddress,
   grantPoints,
   issueInternalAgent,
@@ -38,6 +39,36 @@ test("loopback is the machine itself", () => {
   assert.equal(tokensMatch("secret", "other"), false);
   assert.equal(tokensMatch("", ""), false);
   assert.equal(clipText("  a   b  ", 10), "a b");
+});
+
+test("the admin door opens to the intranet, never to the public", () => {
+  for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
+    assert.equal(isIntranetAddress(address), true, address);
+  }
+  for (const address of [
+    "192.168.3.91",
+    "10.1.2.3",
+    "172.16.0.9",
+    "172.31.255.254",
+    "169.254.10.4",
+    "::ffff:192.168.3.91",
+    "fd00::12",
+    "fe80::1%en0",
+  ]) {
+    assert.equal(isIntranetAddress(address), true, address);
+  }
+  for (const address of [
+    "8.8.8.8",
+    "172.15.0.1",
+    "172.32.0.1",
+    "203.0.113.9",
+    "2001:db8::1",
+    "2606:4700::1111",
+    "",
+    "not-an-address",
+  ]) {
+    assert.equal(isIntranetAddress(address), false, address);
+  }
 });
 
 test("remove records the reason and tells the author", async () => {

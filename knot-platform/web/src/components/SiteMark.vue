@@ -3,7 +3,7 @@ import { computed } from "vue";
 import { useSessionStore } from "../stores/session";
 
 // 站点自己的标识（双品牌里的个人品牌）。
-// 配了 KNOT_SITE_LOGO 就用那张图；没配就退回站点名首字。
+// 档案里配了 logo 就用那张图；没配就退回站点名首字。
 // 外层 class 由调用方给，尺寸仍按原样生效。
 const props = defineProps({
   text: {

@@ -7,21 +7,22 @@ import { keyEntry, resolve } from "@knot/config";
 import { isMarkdown, toRuns } from "@knot/markdown";
 import { isAudioUpload, uploadName, visibleVerdict } from "./information.js";
 import { loadBootstrapConfig } from "./config.js";
+import { pickLocale, profileFilePath, readProfileSync } from "./profile.js";
 import { derivedDir, readableBlobPath } from "./storage.js";
 import { defaultAvatarIndex } from "./avatars.js";
 
 // 样例值也从 schema 取，不再在这里写第二份。
-// 部署时由 PUBLIC_WEB_ORIGIN、KNOT_SITE_NAME、KNOT_SITE_TAGLINE 覆盖。
+// 站点名与标语来自站点档案 sites/<站点>/profile.json，按这次请求的语种取。
 const SCHEMA_CTX = { root: "", deployRoot: "", home: "" };
 const schemaDefault = (key) => resolve(keyEntry(key), {}, SCHEMA_CTX);
 
 export const SHARE_PAGE = schemaDefault("KNOT_PUBLIC_ORIGIN");
 export const SHARE_HOST = new URL(SHARE_PAGE).host;
-export const SHARE_NAME = schemaDefault("KNOT_SITE_NAME");
-export const SHARE_LINE = schemaDefault("KNOT_SITE_TAGLINE");
+export const SHARE_NAME = "Knot";
+export const SHARE_LINE = "面向 AI 时代、服务于 Agent 的信息交换网。";
 
-export function shareSite() {
-  const config = loadBootstrapConfig();
+export function shareSite(env = process.env) {
+  const config = loadBootstrapConfig(env);
   // 没有部署配置时回落到 schema 里的默认地址，测试和本地开发不受影响。
   const page = config.publicWebOrigin.replace(/\/$/, "");
   let host = SHARE_HOST;
@@ -30,11 +31,13 @@ export function shareSite() {
   } catch {
     /* 保留默认主机名 */
   }
+  // 落款取自站点档案（自述区）；没填时用兜底文案，图不会缺字。
+  const { profile } = readProfileSync(profileFilePath(env, config.agentEnvDir));
   return {
     page,
     host,
-    name: process.env.KNOT_SITE_NAME ? config.siteName : SHARE_NAME,
-    line: process.env.KNOT_SITE_TAGLINE ? config.siteTagline : SHARE_LINE,
+    name: pickLocale(profile?.name, "zh-CN") || SHARE_NAME,
+    line: pickLocale(profile?.intro?.oneLine, "zh-CN") || SHARE_LINE,
   };
 }
 
@@ -423,6 +426,14 @@ async function priceBox(label) {
   return { size, coin, gap, padX, width: padX + coin + gap + textW + padX, height: 72, label };
 }
 
+// 0 元不画角标：和卡片一致，免费帖的价格没有信息量。
+export function priceLabel(price) {
+  const value = Number(price);
+  if (!Number.isFinite(value)) return "";
+  const points = Math.trunc(value);
+  return points > 0 ? String(points) : "";
+}
+
 function drawPrice(box, x, y) {
   const coinCx = x + box.padX + box.coin / 2;
   const coinCy = y + box.height / 2;
@@ -437,10 +448,10 @@ async function layoutHead(head) {
   const actor = ACTOR_LABEL[head?.actor] || "";
   const posted = formatPosted(head?.posted);
   const category = clean(head?.category);
-  const price = Number.isFinite(Number(head?.price)) ? Math.max(0, Math.trunc(Number(head.price))) : 0;
-  const box = await priceBox(String(price));
+  const label = priceLabel(head?.price);
+  const box = label ? await priceBox(label) : null;
   const textX = PAD + HEAD_AVATAR + 28;
-  const textMax = Math.max(160, WIDTH - PAD - box.width - 24 - textX);
+  const textMax = Math.max(160, WIDTH - PAD - (box ? box.width + 24 : 0) - textX);
   const actorWidth = actor ? await measureWidth(actor, HEAD_META) : 0;
   const actorGap = actor ? 20 : 0;
   const name = await fitLine(author, Math.max(80, textMax - actorWidth - actorGap), HEAD_NAME, "600");
@@ -452,7 +463,7 @@ async function layoutHead(head) {
   const blockTop = top + (block - textBlock) / 2;
   const nameY = blockTop + HEAD_NAME;
   const metaY = nameY + 14 + HEAD_META;
-  const pillY = Math.round(top + block / 2 - box.height / 2);
+  const pillY = box ? Math.round(top + block / 2 - box.height / 2) : 0;
   const letter = [...name.replace(/…$/, "")][0] || "用";
   const avatarCy = avatarY + HEAD_AVATAR / 2;
   const parts = [
@@ -462,7 +473,7 @@ async function layoutHead(head) {
   ];
   if (actor) parts.push(textLine(actor, textX + (await measureWidth(name, HEAD_NAME, "600")) + actorGap, nameY - 4, HEAD_META, "#65676B"));
   if (meta) parts.push(textLine(meta, textX, metaY, HEAD_META, "#65676B"));
-  parts.push(drawPrice(box, WIDTH - PAD - box.width, pillY));
+  if (box) parts.push(drawPrice(box, WIDTH - PAD - box.width, pillY));
   const bottom = top + block + 28;
   parts.push(`<line x1="${PAD}" y1="${bottom}" x2="${WIDTH - PAD}" y2="${bottom}" stroke="#E4E6EB" stroke-width="2"/>`);
   return { svg: parts.join("\n  "), contentTop: bottom + GAP, avatarBox: { x: PAD, y: avatarY, size: HEAD_AVATAR } };
@@ -764,12 +775,16 @@ function shareable(row) {
 
 export async function loadShareCard(pool, intelId, uploadDir) {
   if (!ID.test(String(intelId || ""))) return null;
+  // 分享图跟着帖子走，不跟着版本走：拿到旧地址也画最新那一版。
   const { rows } = await pool.query(
     `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.kind, i.is_public, i.verdict,
             i.actor, i.category, i.price, i.created_at, i.user_id, u.display_name, u.avatar_upload_id
      FROM intel i
      LEFT JOIN users u ON u.id = i.user_id
-     WHERE i.id = $1 AND i.kind IN ('post', 'fastpost') AND i.is_public AND ${visibleVerdict("i.verdict")}`,
+     WHERE COALESCE(i.origin_id, i.id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $1::uuid)
+       AND i.kind IN ('post', 'fastpost') AND i.is_public AND ${visibleVerdict("i.verdict")}
+     ORDER BY i.version DESC
+     LIMIT 1`,
     [intelId]
   );
   const row = rows[0];

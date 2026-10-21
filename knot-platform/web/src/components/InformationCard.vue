@@ -6,11 +6,11 @@ import PhotoGallery from "./PhotoGallery.vue";
 import PhotoLightbox from "./PhotoLightbox.vue";
 import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
-import { AudioIcon, CheckIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, LikeIcon, LinkIcon, PaperclipIcon, RemovedIcon, ShareIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, PaperclipIcon, RemovedIcon, ShareIcon, StarIcon, TipIcon, UserIcon } from "../icons/index.js";
 import { containsImage, isMarkdown, parse, toHtml, toPlain } from "@knot/markdown";
 import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoUrls } from "../packet.js";
 import { expiryOf, hoursLeftAt } from "../record.js";
-import { copyCardLink } from "../share.js";
+import { useCardActionsStore } from "../stores/cardActions.js";
 import { timeAgo } from "../time.js";
 
 const props = defineProps({
@@ -40,18 +40,18 @@ const props = defineProps({
   mine: { type: Boolean, default: false },
   starred: { type: Boolean, default: false },
   canStar: { type: Boolean, default: true },
-  liked: { type: Boolean, default: false },
-  canLike: { type: Boolean, default: true },
   friend: { type: Boolean, default: false },
   canFriend: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
-  sharing: { type: Boolean, default: false },
   notice: { type: String, default: "" },
   canClose: { type: Boolean, default: false },
   closing: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["author", "category", "topic", "dismiss", "star", "like", "download", "friend", "share", "close"]);
+const emit = defineEmits(["author", "category", "topic", "dismiss", "star", "download", "friend", "close"]);
+
+// 底栏的打赏与分享都交给弹窗：卡片只把这条记录递出去，弹窗里再加功能不用回头改这里。
+const cardActions = useCardActionsStore();
 
 const photos = computed(() => photoUrls(props.images));
 const pendingImages = computed(() => lockedImages(props.images));
@@ -64,6 +64,8 @@ const blocks = computed(() => (markdown.value ? parse(props.body) : []));
 const bodyPlain = computed(() => (markdown.value ? toPlain(props.body) : props.body));
 const bodyHtml = computed(() => toHtml(blocks.value));
 const posted = computed(() => timeAgo(props.createdAt));
+// 现在发布不收费，价格总是 0；0 元的角标没有信息量，干脆不画。
+const showPrice = computed(() => Number(props.price) > 0);
 // 时效只给作者自己看：一条已经取到的记录，算一次剩余小时，不发额外请求。
 // null 表示这条不会因时间失效（免费帖），0 表示已经到期。
 const expiryLeft = computed(() => (props.mine ? hoursLeftAt(expiryOf({ kMeta: { kind: props.kind, expiresAt: props.expiresAt } })) : null));
@@ -73,11 +75,6 @@ const bodyRef = ref(null);
 const bodyOpen = ref(false);
 const bodyClipped = ref(false);
 const viewer = ref({ open: false, index: 0, photos: [] });
-const shareOpen = ref(false);
-const shareResult = ref("");
-const shareButton = ref(null);
-const shareMenu = ref(null);
-let shareTimer = 0;
 const hasBodyImage = computed(() => containsImage(blocks.value));
 
 function measureBody() {
@@ -106,68 +103,25 @@ function onDownload() {
   emit("download");
 }
 
-function closeShare() {
-  shareOpen.value = false;
-  shareResult.value = "";
-}
-
-function toggleShare() {
-  if (props.sharing) return;
-  if (shareOpen.value) {
-    closeShare();
-    return;
-  }
-  shareResult.value = "";
-  shareOpen.value = true;
-  nextTick(() => shareMenu.value?.querySelector("button")?.focus());
-}
-
-function shareImage() {
-  closeShare();
-  if (!props.sharing) emit("share");
-}
-
-async function shareLink() {
+function openTip() {
   if (!props.postId) return;
-  shareResult.value = "";
-  try {
-    await copyCardLink(props.postId, window.location.origin);
-    shareResult.value = "done";
-    clearTimeout(shareTimer);
-    shareTimer = setTimeout(closeShare, 1800);
-  } catch {
-    shareResult.value = "failed";
-  }
+  cardActions.openTip({
+    id: props.postId,
+    authorId: props.authorId,
+    authorName: props.authorName,
+    avatarUrl: props.avatarUrl,
+    body: props.body,
+  });
 }
 
-function onSharePointer(event) {
-  const target = event.target;
-  if (shareMenu.value?.contains(target) || shareButton.value?.contains(target)) return;
-  closeShare();
+function openShare() {
+  if (!props.postId) return;
+  cardActions.openShare({
+    id: props.postId,
+    authorName: props.authorName,
+    body: props.body,
+  });
 }
-
-function onShareKey(event) {
-  if (event.key !== "Escape") return;
-  closeShare();
-  shareButton.value?.focus?.();
-}
-
-watch(shareOpen, (open) => {
-  if (open) {
-    document.addEventListener("pointerdown", onSharePointer);
-    window.addEventListener("keydown", onShareKey);
-    return;
-  }
-  document.removeEventListener("pointerdown", onSharePointer);
-  window.removeEventListener("keydown", onShareKey);
-  clearTimeout(shareTimer);
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("pointerdown", onSharePointer);
-  window.removeEventListener("keydown", onShareKey);
-  clearTimeout(shareTimer);
-});
 
 onMounted(() => {
   bodyOpen.value = hasBodyImage.value;
@@ -248,7 +202,7 @@ watch(
           <FriendRemoveIcon class="information-friend-off" aria-hidden="true" />
         </template>
       </AppButton>
-      <span class="information-price" :aria-label="t('home.usePrice', { n: price })">
+      <span v-if="showPrice" class="information-price" :aria-label="t('home.usePrice', { n: price })">
         <CoinIcon aria-hidden="true" />
         <span>{{ price }}</span>
       </span>
@@ -332,15 +286,14 @@ watch(
     </ul>
     <div class="post-actions">
       <button
-        v-if="canLike"
+        v-if="postId && authorId && !mine"
         type="button"
         class="post-action"
-        :class="{ 'is-on': liked }"
-        :aria-pressed="liked"
-        :aria-label="liked ? t('home.unlike') : t('home.like')"
-        @click="emit('like')"
+        :aria-label="t('home.tip')"
+        aria-haspopup="dialog"
+        @click="openTip"
       >
-        <LikeIcon :filled="liked" aria-hidden="true" />
+        <TipIcon aria-hidden="true" />
       </button>
       <button
         v-if="canStar"
@@ -364,36 +317,14 @@ watch(
         <DownloadIcon aria-hidden="true" />
       </button>
       <button
-        ref="shareButton"
         type="button"
         class="post-action"
-        :disabled="sharing"
         :aria-label="t('home.share')"
-        aria-haspopup="menu"
-        :aria-expanded="shareOpen"
-        @click="toggleShare"
+        aria-haspopup="dialog"
+        @click="openShare"
       >
         <ShareIcon aria-hidden="true" />
       </button>
-    </div>
-    <div v-if="shareOpen" ref="shareMenu" class="share-menu" role="menu" :aria-label="t('home.shareMenu')">
-      <button type="button" class="share-option" role="menuitem" :disabled="sharing" @click="shareImage">
-        <ImageIcon aria-hidden="true" />
-        <span>{{ t("home.shareAsImage") }}</span>
-      </button>
-      <button
-        type="button"
-        class="share-option"
-        role="menuitem"
-        :class="{ 'is-done': shareResult === 'done' }"
-        :disabled="!postId"
-        @click="shareLink"
-      >
-        <CheckIcon v-if="shareResult === 'done'" aria-hidden="true" />
-        <LinkIcon v-else aria-hidden="true" />
-        <span>{{ shareResult === "done" ? t("home.shareLinkCopied") : t("home.shareAsLink") }}</span>
-      </button>
-      <p v-if="shareResult === 'failed'" class="error share-menu-error" role="alert">{{ t("home.shareLinkFailed") }}</p>
     </div>
     <p v-if="notice" class="error card-notice" role="alert">{{ notice }}</p>
     <PhotoLightbox :photos="viewer.photos" :open="viewer.open" :index="viewer.index" @close="viewer.open = false" />

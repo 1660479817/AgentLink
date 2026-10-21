@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.knot.edge-tunnel</string>
+  <string>com.knot.entry-tunnel</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>KNOT_SITE</key>
@@ -13,7 +13,7 @@
   </dict>
   <key>ProgramArguments</key>
   <array>
-    <string>__KNOT_CURRENT__/ops/scripts/run-edge-tunnel.sh</string>
+    <string>__KNOT_CURRENT__/ops/scripts/run-entry-tunnel.sh</string>
   </array>
   <key>WorkingDirectory</key>
   <string>__KNOT_HOME__</string>
@@ -24,8 +24,8 @@
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>__KNOT_HOME__/var/log/edge-tunnel.log</string>
+  <string>__KNOT_HOME__/var/log/entry-tunnel.log</string>
   <key>StandardErrorPath</key>
-  <string>__KNOT_HOME__/var/log/edge-tunnel.err.log</string>
+  <string>__KNOT_HOME__/var/log/entry-tunnel.err.log</string>
 </dict>
 </plist>

@@ -3,7 +3,9 @@ import cookieParser from "cookie-parser";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { loadBootstrapConfig, siteBrand } from "./config.js";
+import { loadBootstrapConfig } from "./config.js";
+import { createProfileStore } from "./profile.js";
+import { federationRouter } from "./routes/federation.js";
 import { assertRuntimeConfig } from "./runtimeConfig.js";
 import { readBuildInfo } from "./buildInfo.js";
 import { bindDiscoverBoard } from "./discoverBoard.js";
@@ -30,6 +32,11 @@ assertRuntimeConfig();
 const bootstrap = loadBootstrapConfig();
 const build = readBuildInfo();
 const pool = getPool(bootstrap.databaseUrl);
+
+// 站点身份（自述区）来自 sites/<站点>/profile.json，启动时读一次；
+// /admin 保存后由同一个 store 更新内存里的那份。
+const profile = createProfileStore({ file: bootstrap.profileFile });
+await profile.reload();
 
 // 先读系统开关，公开快照的首次写入和下面的内容接口都按它来。
 await loadSystemPolicy(pool);
@@ -95,10 +102,18 @@ app.use(
     pool,
     sessionCookieName: bootstrap.sessionCookieName,
     uploadDir: bootstrap.uploadDir,
-    brand: siteBrand(),
+    profile,
   })
 );
 app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir }));
+app.use(
+  "/api/federation",
+  federationRouter({
+    profile,
+    agentEnvDir: bootstrap.agentEnvDir,
+    publicWebOrigin: bootstrap.publicWebOrigin,
+  })
+);
 app.use(
   "/api/admin",
   adminRouter({
@@ -107,6 +122,7 @@ app.use(
     uploadDir: bootstrap.uploadDir,
     agentEnvDir: bootstrap.agentEnvDir,
     publicWebOrigin: bootstrap.publicWebOrigin,
+    profile,
   })
 );
 
@@ -124,11 +140,7 @@ app.get("/discover.json", async (_req, res, next) => {
   }
 });
 
-app.use("/media/previews", (_req, res, next) => (publicBoardEnabled() ? next() : res.status(404).end()));
-app.use("/media/previews", express.static(discoverBoard.previewDir(), { maxAge: "1d" }));
-app.use("/media/previews", (_req, res) => res.status(404).end());
-
-// 管理后台只在本机回环地址打开，不随公开 WebUI 发布到边缘。
+// 管理后台只在实例主机自己或同一内网打开，不随公开 WebUI 发布到入口。
 // 静态文件在源码目录的 admin/，发布包里也在同一层。
 const adminDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../admin");
 app.use("/admin", adminPageRouter({ dir: adminDir }));

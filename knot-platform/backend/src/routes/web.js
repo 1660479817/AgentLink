@@ -22,6 +22,7 @@ import { clearSessionCookie, setSessionCookie, sessionTtlMs } from "../middlewar
 import { MEDIA_PUBLIC, mediaAudience } from "../preview.js";
 import { ensureSharePoster } from "../sharePoster.js";
 import { listPublicSponsors } from "../sponsors.js";
+import { loadTipSummary, tipIntel } from "../tips.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
 import { parseLocale, regionForRequest } from "../locale.js";
@@ -30,7 +31,7 @@ import { acceptAvatar, ensureCardImage, ensureUploadDir, newStorageName } from "
 import { readableBlobPath, tmpDir } from "../storage.js";
 import { storeUploadedFile } from "../uploadStore.js";
 import { sendUploadError } from "./uploadError.js";
-import { siteBrand } from "../config.js";
+import { brandView } from "../profile.js";
 
 const MiB = 1024 * 1024;
 
@@ -82,6 +83,8 @@ function httpError(res, error) {
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
   if (code === "muted") return res.status(403).json({ error: "muted" });
   if (code === "bad_mention") return res.status(400).json({ error: "bad_mention" });
+  if (code === "bad_amount") return res.status(400).json({ error: "bad_amount" });
+  if (code === "tip_self") return res.status(400).json({ error: "tip_self" });
   if (code === "unreadable_file") return res.status(400).json({ error: "unreadable_file" });
   if (code === "not_found") return res.status(404).json({ error: "not_found" });
   console.error(error);
@@ -115,10 +118,11 @@ async function withUploads(pool, rows) {
   return rows.map((row) => ({ ...row, attachments: byId.get(row.id) || [] }));
 }
 
-export function webRouter({ pool, sessionCookieName, uploadDir, brand }) {
+export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   // 站点身份只用于展示：顶栏名称和分享文案。系统开关仍在 session.site。
-  const identity = brand && typeof brand === "object" ? brand : siteBrand();
+  // name / tagline / owner 都是多语种映射，由 WebUI 按当前语种取一个值。
   ensureUploadDir(uploadDir);
+
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, tmpDir(uploadDir)),
     filename: (_req, file, cb) => cb(null, newStorageName(file.originalname)),
@@ -184,6 +188,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, brand }) {
     const policy = policyConfig();
     const region = regionForRequest(req);
     const site = siteConfig();
+    const identity = brandView(profile?.view().profile);
     if (!req.user) return res.json({ user: null, policy, region, site, brand: identity });
     const user = await loadUser(pool, req.user.id);
     res.json({ user, policy, region, site, brand: identity });
@@ -349,8 +354,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir, brand }) {
   });
 
   // 内容媒体的缓存头跟着可见范围走。只有「未登录也能读」且站点确实开着访客浏览时，
-  // 才允许写进共享缓存（边缘按 $uri 缓存，不看会话）；其余一律 private，只进浏览器缓存。
-  // 站点关上访客浏览后，新响应不再进边缘，旧的最多再分发到缓存到期（边缘上设 1 天）。
+  // 才允许写进共享缓存（入口按 $uri 缓存，不看会话）；其余一律 private，只进浏览器缓存。
+  // 站点关上访客浏览后，新响应不再进入口，旧的最多再分发到缓存到期（入口主机上设 1 天）。
   function mediaCacheControl(audience) {
     if (audience === MEDIA_PUBLIC && guestBrowsing()) return "public, max-age=86400";
     return "private, max-age=600";
@@ -406,7 +411,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, brand }) {
     const opened = await readableUpload(req);
     if (!opened) return res.status(404).end();
     // 头像和赞助图是公开、不随内容变动而换地址的：换头像生成新 upload，URL 也就变了。
-    // 给它们缓存头，让浏览器和边缘缓存，避免每次刷新都穿过隧道重新拉一遍。
+    // 给它们缓存头，让浏览器和入口缓存，避免每次刷新都穿过隧道重新拉一遍。
     // 内容原图跟着可见范围走，理由见 mediaCacheControl。
     res.set(
       "Cache-Control",
@@ -604,6 +609,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, brand }) {
   });
 
   // 分享海报二维码深链：按帖子 id 取一条公开信息。
+  // 旧地址（首版或中间版）也解到修订链里最新的那一版，链接不会停在旧稿上。
   router.get("/intel/:id", contentGate, async (req, res) => {
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
@@ -612,7 +618,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir, brand }) {
               u.display_name, u.avatar_upload_id
        FROM intel i
        JOIN users u ON u.id = i.user_id
-       WHERE i.id = $1 AND i.kind IN ('post', 'fastpost') AND i.is_public AND ${visibleVerdict("i.verdict")}`,
+       WHERE COALESCE(i.origin_id, i.id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $1::uuid)
+         AND i.kind IN ('post', 'fastpost') AND i.is_public AND ${visibleVerdict("i.verdict")}
+       ORDER BY i.version DESC
+       LIMIT 1`,
       [id]
     );
     if (!rows.length) return res.status(404).json({ error: "not_found" });
@@ -704,6 +713,28 @@ export function webRouter({ pool, sessionCookieName, uploadDir, brand }) {
 
   router.post("/intel/:id/like", (req, res) => writeLike(req, res, true));
   router.delete("/intel/:id/like", (req, res) => writeLike(req, res, false));
+
+  // 打赏：摘要公开，打赏要会话。金额、余额、不能打赏自己都在 tips.js 里判。
+  router.get("/intel/:id/tips", async (req, res) => {
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json(await loadTipSummary(pool, req.user?.id || null, id));
+    } catch (error) {
+      httpError(res, error);
+    }
+  });
+
+  router.post("/intel/:id/tip", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json(await tipIntel(pool, req.user.id, id, req.body?.amount));
+    } catch (error) {
+      httpError(res, error);
+    }
+  });
 
   router.get("/stars", async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "no_session" });

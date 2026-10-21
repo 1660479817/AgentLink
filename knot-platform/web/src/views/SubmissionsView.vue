@@ -45,11 +45,12 @@ function statusKey(status) {
   return "submissions.statusPending";
 }
 
-// 出售帖 = post/fastpost 且有存储的下载附件。与后端 HAS_ATTACHMENT 同口径：
+// 出售帖 = post/fastpost、有存储的下载附件、且标价大于 0。与后端 SALE_POST 同口径：
 // item.attachments 已是「非图片、非音频」的分类（card.toRecord），stored=true 表示上传的。
 function isSale(item) {
   const kind = item.kMeta?.kind;
   if (kind !== "post" && kind !== "fastpost") return false;
+  if (!(Number(item.kMeta?.commerce?.price) > 0)) return false;
   return (item.attachments || []).some((file) => file?.stored);
 }
 
