@@ -14,6 +14,9 @@ venv/
 *.log
 var/
 data/uploads/
+# 开发日志只在本机写、只发到 wang.xknot.si，不进 GitHub
+blog/
+
 # 本地截图与预览产物，只在本机看，不进仓库
 .tmp-review/
 # 同步工具产生的冲突副本与手工备份，只留本机
@@ -21,7 +24,7 @@ data/uploads/
 *.bak
 *.bak-*
 # 站点配置：只有模板进版本库。真实站点目录（bot01 这类开发者自己的实例）
-# 和所有 *.local.env 覆盖层只留在本机，不进仓库、不进发布包。
+# 只留在本机，不进仓库、不进发布包；本机服务覆盖写 *.local.env。
 # xknot.env 是中枢签发的接入凭据，同样只留本机。
 knot-platform/sites/*
 !knot-platform/sites/_template/
@@ -29,7 +32,7 @@ knot-platform/sites/_template/*
 !knot-platform/sites/_template/site.env
 !knot-platform/sites/_template/platform.env
 !knot-platform/sites/_template/xknot.env
-!knot-platform/sites/_template/edge.example.env
+!knot-platform/sites/_template/entry.example.env
 *.local.env
 
 # 发布包只留本机

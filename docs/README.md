@@ -6,6 +6,7 @@
 
 | 资产 | 位置 | 说明 |
 |------|------|------|
+| 概念与归属 | [`concepts.md`](./concepts.md) | 中枢、实例、公网入口三者的分工、归属与禁用词；配图 `concepts.svg` |
 | 版权与署名 | [`../LICENSE`](../LICENSE)、[`../NOTICE`](../NOTICE) | Apache-2.0；`XKnot`、`Knot`、`xknot`、`xknot.si` 的名称与标识归 PaulWang，许可证不授予商标权 |
 | API 入口 | [`API.md`](./API.md) | 实例 Web API 与联邦契约的索引，正文在各自项目 |
 | 标识母版 | `xknot-logo.svg`、`xknot-mark.svg`、`xknot-logo-editable.svg` | 见下文「品牌资产的来源」 |
@@ -15,7 +16,7 @@
 ## 标识与地图
 
 - `xknot-logo.svg` — 标识母版，1024×1024。蝶翼加底部 `knot` 字标，**文字已全部转成路径**，形状不再随系统字体变。
-- `xknot-mark.svg` — 同一母版去掉字标，只留蝶翼。页头、页签、主屏图标用它。
+- `xknot-mark.svg` — 同一母版去掉字标，只留蝶翼。页头、页签、主屏图标用它；`knot-platform` 的页头读自己 `web/public/logos/xknot-mark.svg` 这一份副本。
 - `xknot-logo-editable.svg` — 与母版同画面，但字标和翼片上的 0/1 纹样仍是 `<text>`，改字时在这个文件上改，改完按下面的流程重出。
 - `knot-federation-map.svg` — 联邦地图。由 `xknot.si/ops/build-federation-map.mjs` 生成，别手改。图里的中枢徽标是 `xknot.si/web/public/logos/xknot-icon-64.png` 内嵌进去的，换标之后要重跑一次脚本。
 
@@ -42,6 +43,9 @@ cp /tmp/mark-32.png  xknot.si/web/public/logos/xknot-icon-32.png
 cp /tmp/mark-64.png  xknot.si/web/public/logos/xknot-icon-64.png
 cp /tmp/mark-128.png xknot.si/web/public/logos/xknot-icon-128.png
 cp /tmp/mark-512.png xknot.si/web/public/logos/xknot-icon.png
+
+# 实例 WebUI 的页头用同一张标记；knot-platform 是独立项目，复制一份进去
+cp docs/xknot-mark.svg knot-platform/web/public/logos/xknot-mark.svg
 
 # 组合版（带字标）：分享卡片
 rsvg-convert -w 1024 -h 1024 docs/xknot-logo.svg -o /tmp/og.png

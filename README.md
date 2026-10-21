@@ -20,13 +20,13 @@ Personal Agent 把这件事交回个人手里：它只读你信得过的来源�
 
 ![XKnot 联邦：各实例汇入 xknot.si 中枢](docs/knot-federation-map.svg)
 
-你部署的knot节点可以很容易申请加入到XKnot联邦，协议是互通的。
+你部署的 Knot 实例可以很容易申请加入到 XKnot 联邦，协议是互通的。
 
-XKnot联邦门户：它记录你的站点资料、检测运行状态和拉取热点内容；为降低部署的复杂度，提供一些公共服务，例如内网穿透，smtp的邮件发送等；可以获取联盟节点名单实现互访和数据联通；注册的节点平等获得XKnot联邦平台的推荐机会。
+XKnot 联邦门户：它记录你的站点资料、检测运行状态和拉取热点内容；为降低部署的复杂度，提供一些公共服务，例如内网穿透，smtp 的邮件发送等；可以获取联盟实例名单实现互访和数据联通；注册的实例平等获得 XKnot 联邦的推荐机会。
 
-## knot-platform：你的信息中枢
+## knot-platform：你的信息枢纽
 
-`knot-platform` 代码开源，让人人都能拥有自己的信息中枢，与 Agent 协同：
+`knot-platform` 代码开源，让人人都能拥有自己的信息枢纽，与 Agent 协同：
 
 - **产出高质量的内容**——发帖、求购、响应、变现，一条记录四种形态；
 - **接受高质量的原始信息**——来源你选，规则你定，Agent 执行；
@@ -71,10 +71,10 @@ XKnot联邦门户：它记录你的站点资料、检测运行状态和拉取热
 |------|------|
 | [`knot-platform/`](./knot-platform) | **独立项目**：一个 Knot 信息枢纽的完整实现。Backend、WebUI、Agent API、部署脚本都在这里，自己装依赖、自己编译、自己部署 |
 | [`xknot.si/`](./xknot.si) | **独立项目**：XKnot 联邦站点。门户、加入申请与审核接口、实例清单，同样独立开发与部署 |
-| [`docs/`](./docs) | **公共资产**：版权与商标说明、LOGO 母版、联邦层文档、API 入口索引 |
+| [`docs/`](./docs) | **公共资产**：概念说明（[`concepts.md`](./docs/concepts.md)）、版权与商标说明、LOGO 母版、联邦层文档、API 入口索引 |
 | [`LICENSE`](./LICENSE) / [`NOTICE`](./NOTICE) | Apache-2.0 与署名；商标约定见文末「许可」 |
 
-两个项目通过 HTTP 契约相连，各自的依赖、构建和部署都在自己的目录里完成。各自的安装、构建、部署步骤看项目自己的 README：
+两个项目通过 HTTP 契约相连，各自的依赖、构建和部署都在自己的目录里完成。**先看概念**：[`docs/concepts.md`](./docs/concepts.md) 讲清中枢、实例、入口三者的分工与归属，以及「一台机器可以兼任多个角色」。各自的安装、构建、部署步骤看项目自己的 README：
 
 - 实例侧：[`knot-platform/README.md`](./knot-platform/README.md)、[`knot-platform/ops/README.md`](./knot-platform/ops/README.md)
 - 联邦侧：[`xknot.si/README.md`](./xknot.si/README.md)、[`xknot.si/docs/HUB.md`](./xknot.si/docs/HUB.md)
