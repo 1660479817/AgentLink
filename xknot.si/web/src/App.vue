@@ -434,9 +434,6 @@ onBeforeUnmount(() => {
   width: 26px;
   height: 26px;
   flex-shrink: 0;
-  border-radius: 7px;
-  object-fit: cover;
-  box-shadow: 0 0 0 1px var(--line-strong);
 }
 
 .brand-word {

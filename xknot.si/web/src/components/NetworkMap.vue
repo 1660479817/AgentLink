@@ -532,9 +532,6 @@ function activate(id) {
   display: block;
   width: 24px;
   height: 24px;
-  border-radius: 6px;
-  object-fit: cover;
-  box-shadow: 0 0 0 1px var(--line);
 }
 
 .hub-text {

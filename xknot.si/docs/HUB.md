@@ -258,21 +258,21 @@ npm run test     # 纯逻辑单元测试
 
 ### 品牌资产
 
-标识的矢量母版在仓库根的 `docs/xknot-logo.svg`，`web/public/` 里只放由它栅格化出来的成品，不引用外站。
+标识的矢量母版在仓库根的 `docs/xknot-mark.svg`，`web/public/` 里只放由它栅格化出来的成品，不引用外站。
 
 | 文件 | 分辨率 | 用途 |
 |------|--------|------|
-| `logos/xknot.jpg` | 1024×1024 | 组合版（蝶翼 + 字标），分享卡片 `og:image` |
-| `logos/xknot-icon.png` | 512×512 | 标记版母版，生成下面三档 |
+| `logos/xknot.jpg` | 1024×1024 | 分享卡片 `og:image`：深橙底 + 白色标识 |
+| `logos/xknot-icon.png` | 512×512 | 大档母版 |
 | `logos/xknot-icon-32.png` | 32×32（小） | 1× 屏幕的页头与地图徽标 |
 | `logos/xknot-icon-64.png` | 64×64（中） | 2× 屏幕、审核台页头 |
 | `logos/xknot-icon-128.png` | 128×128（大） | 3× 及以上屏幕，兼作 src 回落 |
 | `favicon-32.png` / `favicon-16.png` | 32、16 | 浏览器页签 |
-| `apple-touch-icon.png` | 180×180 | iOS 主屏 |
+| `apple-touch-icon.png` | 180×180 | iOS 主屏（白底，主屏图标不要透明） |
 
 页头与地图徽标都由 `components/BrandMark.vue` 出图：`srcset` 用 `1x / 2x / 3x` 描述指向 32 / 64 / 128 三档，浏览器按设备像素比取一档，高分屏不再把小图放大。审核台页头用同一组 `srcset`。
 
-组合版底部有 `knot` 字标，26px 的页头徽标里它小到无法辨认，所以页头、页签、主屏图标都用**标记版**（去掉字标），只有 `og:image` 与文档配图用组合版。两版都从同一份矢量母版出，配方见 `docs/README.md`。
+全站只有一个标识版本：透明底的深橙几何标，没有字标。图形自带留白，页头不再给它加圆角或描边；`og:image` 是唯一反白的一处。档位与重出命令见 `docs/README.md`。
 
 ### 实例目录与热点橱窗
 

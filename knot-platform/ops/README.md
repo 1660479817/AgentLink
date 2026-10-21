@@ -74,7 +74,7 @@ node ops/scripts/config.mjs init <站点>
 
 从 0.4 之前的版本迁移：`node ops/scripts/migrate-profile.mjs --site <站点>` 把旧的 `KNOT_SITE_*` 六项搬进 `profile.json`，再从 `site.env` 删掉。
 
-WebUI 顶栏左上角是固定的 `XKnot` 蝶翼标识（`public/logos/xknot-mark.svg`），所有站点一致。站点自己的名字在顶栏正中，站点 logo 用在登录卡和未登录首页。顶栏不设搜索按钮；点站点名打开主理人弹窗。
+WebUI 顶栏左上角是固定的 `XKnot` 标识（`public/logos/xknot-mark.svg`），所有站点一致。站点自己的名字在顶栏正中，站点 logo 用在登录卡和未登录首页。顶栏不设搜索按钮；点站点名打开主理人弹窗。
 
 local 部署到这里就够了。要接入 xknot.si 子域，再填 `KNOT_ENTRY_ENABLED=1`、`KNOT_ENTRY_SSH`、`KNOT_DOMAIN` 和 `KNOT_PUBLIC_ORIGIN`；要从开发机发布，填 `KNOT_DEPLOY_SSH`。
 

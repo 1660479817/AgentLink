@@ -32,7 +32,7 @@ XKnot/                     仓库根（本工作区目录 AgentLink）
 ## 根目录的公共资产
 
 - **版权**：`LICENSE`（Apache-2.0）、`NOTICE`。许可证不授予商标权；`XKnot`、`Knot`、`xknot`、`xknot.si` 的名称与标识归 PaulWang，子域由权利人签发。
-- **LOGO 与品牌母版**：根 `docs/` 下的 `xknot-logo.svg`、`xknot-mark.svg`、`xknot-logo-editable.svg`。改标按 `docs/README.md` 的流程重出；PNG 和 `docs/knot-federation-map.svg` 都是生成物，不手改。
+- **LOGO 与品牌母版**：根 `docs/` 下的 `xknot-mark.svg`（唯一母版，透明底正方形几何标）。改标按 `docs/README.md` 的流程重出；PNG 和 `docs/knot-federation-map.svg` 都是生成物，不手改。
 - **联邦层文档**：根 `docs/` 只写网络本身（如 `soul-questions.md`），不写某个实例的实现。
 - **接口文档**：根 `docs/API.md` 只做索引；联邦契约在 `xknot.si/docs/FEDERATION.md`，Knot 实例的 Web API 在 `knot-platform/docs/KNOT_WEB_API.md`。公共层不复制正文。
 - 根 `README.md` 只做总览与入口；版本、配置、部署步骤归各自项目。
