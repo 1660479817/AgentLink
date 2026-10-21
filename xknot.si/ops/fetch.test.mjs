@@ -262,12 +262,14 @@ const profileInstance = { id: "nordhavn", url: "https://nordhavn.example", statu
 
 function profilePayload(overrides = {}) {
   return {
-    formatVersion: 1,
+    formatVersion: 2,
     issued: { id: "nordhavn", url: "https://nordhavn.example", since: "2026-10-19", tier: "partner", status: "active" },
-    profile: {
-      name: { en: "Nordhavn", "zh-CN": "北港" },
-      intro: { oneLine: { en: "Slow reading." } },
+    site: {
+      name: "北港",
+      tagline: "Slow reading.",
       contact: "hello@nordhavn.example",
+      region: "SE",
+      tags: ["长文", "设计"],
     },
     ...overrides,
   };
@@ -276,7 +278,7 @@ function profilePayload(overrides = {}) {
 test("profile: a matching document is accepted and normalized", () => {
   const checked = cleanProfilePayload(profilePayload(), { instance: profileInstance });
   assert.equal(checked.ok, true, checked.problems.join("; "));
-  assert.equal(checked.payload.profile.name["zh-CN"], "北港");
+  assert.equal(checked.payload.site.name, "北港");
   assert.equal(checked.payload.issued.id, "nordhavn");
 });
 
@@ -295,9 +297,9 @@ test("profile: a mismatched id or host keeps the previous copy", () => {
   assert.equal(wrongHost.ok, false);
 });
 
-test("profile: a wrong formatVersion or a missing profile is rejected", () => {
+test("profile: a wrong formatVersion or a missing site is rejected", () => {
   assert.equal(cleanProfilePayload({ formatVersion: 9 }, { instance: profileInstance }).ok, false);
-  assert.equal(cleanProfilePayload(profilePayload({ profile: {} }), { instance: profileInstance }).ok, false);
+  assert.equal(cleanProfilePayload(profilePayload({ site: {} }), { instance: profileInstance }).ok, false);
 });
 
 test("run: the profile is fetched into var/profiles and 304 keeps it", async () => {
@@ -310,7 +312,7 @@ test("run: the profile is fetched into var/profiles and 304 keeps it", async () 
   const ok = await runProfiles({ instancesPath, outDir, resolve, fetchImpl: async () => jsonResponse(profilePayload(), '"p1"') });
   assert.equal(ok[0].status, "ok");
   const stored = JSON.parse(await readFile(path.join(outDir, "nordhavn.json"), "utf8"));
-  assert.equal(stored.profile.name.en, "Nordhavn");
+  assert.equal(stored.site.name, "北港");
   assert.equal(stored.etag, '"p1"');
   assert.equal(stored.issued.tier, "partner");
 
@@ -357,7 +359,7 @@ test("run: an invalid profile is reported and nothing is written", async () => {
     instancesPath,
     outDir,
     resolve: async () => ["1.2.3.4"],
-    fetchImpl: async () => jsonResponse({ formatVersion: 1, issued: { id: "nordhavn", url: "https://nordhavn.example" }, profile: {} }),
+    fetchImpl: async () => jsonResponse({ formatVersion: 2, issued: { id: "nordhavn", url: "https://nordhavn.example" }, site: {} }),
   });
   assert.equal(results[0].status, "invalid");
   await assert.rejects(readFile(path.join(outDir, "nordhavn.json"), "utf8"));

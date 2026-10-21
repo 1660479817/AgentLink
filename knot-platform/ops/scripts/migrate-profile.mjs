@@ -52,8 +52,11 @@ function args(argv, name) {
 
 const text = (value) => String(value ?? "").trim();
 
-/** 旧配置只有一份文案，按简中写入；其余语种留给主理人在 /admin 里补。 */
-export function profileFromLegacy(env) {
+/**
+ * 旧配置只有一份文案，直接当成 v2 的字符串。
+ * 旧版 profile.json（formatVersion 1）按简中优先取一份，其余语种落不下来。
+ */
+export function siteFromLegacy(env) {
   const name = text(env.KNOT_SITE_NAME);
   const tagline = text(env.KNOT_SITE_TAGLINE);
   const logo = text(env.KNOT_SITE_LOGO);
@@ -61,18 +64,57 @@ export function profileFromLegacy(env) {
   const note = text(env.KNOT_SITE_OWNER_NOTE);
   const contact = text(env.KNOT_SITE_OWNER_CONTACT);
 
-  const profile = {
-    name: { "zh-CN": name || "Knot" },
-    languages: ["zh-CN"],
-    intro: { oneLine: { "zh-CN": tagline || name || "Knot" } },
-  };
+  const site = { name: name || "Knot" };
+  if (tagline) site.tagline = tagline.slice(0, 60);
+  if (note) site.intro = note.slice(0, 800);
   // logo 只接受 https 地址：站内相对路径在新契约里没有意义（中枢可能不在这台机器上）。
-  if (/^https:\/\//i.test(logo)) profile.logo = logo;
-  if (note) profile.intro.long = { "zh-CN": note };
-  if (owner) profile.owner = { "zh-CN": owner };
-  if (contact) profile.contact = contact;
+  if (/^https:\/\//i.test(logo)) site.logo = logo;
+  if (owner) site.owner = owner;
+  if (contact) site.contact = contact;
 
-  return profile;
+  return site;
+}
+
+function firstOf(value) {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return "";
+  for (const key of ["zh-CN", "en", "zh-TW"]) {
+    if (typeof value[key] === "string" && value[key].trim()) return value[key].trim();
+  }
+  const first = Object.values(value).find((item) => typeof item === "string" && item.trim());
+  return first ? first.trim() : "";
+}
+
+/** v1 的档案（多语种映射）转成 v2 的扁平字段；转不出来就返回 null。 */
+export function siteFromV1(profile) {
+  if (!profile || typeof profile !== "object") return null;
+  const site = { name: firstOf(profile.name) };
+  if (!site.name) return null;
+  const tagline = firstOf(profile.intro?.oneLine);
+  const intro = firstOf(profile.intro?.long);
+  const owner = firstOf(profile.owner);
+  if (tagline) site.tagline = tagline;
+  if (intro) site.intro = intro;
+  if (owner) site.owner = owner;
+  if (typeof profile.contact === "string" && profile.contact.trim()) site.contact = profile.contact.trim();
+  if (typeof profile.logo === "string" && /^https:\/\//i.test(profile.logo)) site.logo = profile.logo;
+  const region = Array.isArray(profile.regions) ? profile.regions[0] : null;
+  if (typeof region === "string" && (region === "GLOBAL" || /^[A-Z]{2}$/.test(region))) site.region = region;
+  if (typeof profile.timezone === "string" && profile.timezone.trim()) site.timezone = profile.timezone.trim();
+  const tags = Array.isArray(profile.tags) ? profile.tags : [];
+  const seen = new Set();
+  const clean = [];
+  for (const tag of tags) {
+    if (typeof tag !== "string" || !tag.trim()) continue;
+    const value = tag.trim().slice(0, 16);
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push(value);
+    if (clean.length >= 9) break;
+  }
+  if (clean.length) site.tags = clean;
+  return site;
 }
 
 /** 删掉旧键，保留注释与其余配置。 */
@@ -118,16 +160,26 @@ export function main(argv) {
     return 1;
   }
 
-  let exists = false;
+  let existing = null;
   try {
-    readFileSync(profileFile, "utf8");
-    exists = true;
+    existing = JSON.parse(readFileSync(profileFile, "utf8"));
   } catch {
-    /* 不存在，继续 */
+    /* 不存在或读不动，按没有档案处理 */
   }
 
   const env = parseEnv(source);
-  const payload = { formatVersion: FORMAT_VERSION, updatedAt: new Date().toISOString().slice(0, 10), profile: profileFromLegacy(env) };
+  // v1 档案先就地升级：能转就转，转不出来才用 site.env 里的旧值。
+  let migrated = null;
+  if (existing?.formatVersion === 1) {
+    migrated = siteFromV1(existing.profile);
+    if (migrated) console.log(`${profileFile} 是 v1 档案，按简中优先升级到 v${FORMAT_VERSION}。`);
+  }
+  const payload = {
+    formatVersion: FORMAT_VERSION,
+    updatedAt: new Date().toISOString().slice(0, 10),
+    site: migrated || siteFromLegacy(env),
+  };
+  const exists = Boolean(existing);
   const stripped = stripLegacyKeys(source);
 
   // 部署脚本生成的 platform.env 也带着这几项。档案已经有了也要清掉，
@@ -157,8 +209,9 @@ export function main(argv) {
     }
   };
 
-  if (exists) {
-    console.log(`${profileFile} 已存在，不覆盖。`);
+  // v2 档案已经在位就只清旧键；v1 档案在上面已经转成 v2，走的是写入分支。
+  if (existing?.formatVersion === FORMAT_VERSION) {
+    console.log(`${profileFile} 已存在（v${FORMAT_VERSION}），不覆盖。`);
     if (stripped === source) {
       writeCompanions();
       return 0;

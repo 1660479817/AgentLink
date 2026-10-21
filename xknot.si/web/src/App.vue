@@ -13,7 +13,7 @@ import SunIcon from "./icons/SunIcon.vue";
 import { cardState } from "./lib/cards.js";
 import { localTime } from "./lib/clock.js";
 import { formatWhen } from "./lib/i18n.js";
-import { availableGroups, buildView, filterByGroup, summarize } from "./lib/hub.js";
+import { availableGroups, availableTags, buildView, filterByGroup, filterByTag, summarize } from "./lib/hub.js";
 
 const props = defineProps({
   locale: { type: String, required: true },
@@ -24,6 +24,7 @@ const data = ref(null);
 const error = ref(false);
 const loading = ref(true);
 const group = ref("all");
+const tag = ref("");
 const onlineOnly = ref(false);
 const hotOnly = ref(false);
 const highlight = ref(null);
@@ -35,9 +36,10 @@ const now = ref(Date.now());
 let ticker = null;
 let flashTimer = null;
 
-const view = computed(() => (data.value ? buildView(data.value, { locale: props.locale }) : []));
+const view = computed(() => (data.value ? buildView(data.value) : []));
 const groups = computed(() => availableGroups(view.value));
-const filtered = computed(() => filterByGroup(view.value, group.value));
+const tags = computed(() => availableTags(view.value));
+const filtered = computed(() => filterByTag(filterByGroup(view.value, group.value), tag.value));
 
 // 有橱窗的实例：卡片里会多一块热点，筛选条也据此出现「只看热点」。
 // 超过 30 天的橱窗不再算热点，与卡片里的判断同一口径。
@@ -75,14 +77,23 @@ const chips = computed(() => [
   })),
 ]);
 
+// 自由文本标签：值原样上屏，不翻译；只在真有站点用标签时出现。
+const tagChips = computed(() => [
+  { key: "", label: props.t("filter.all"), count: view.value.length },
+  ...tags.value.map((value) => ({
+    key: value,
+    label: value,
+    count: view.value.filter((item) => item.tags.includes(value)).length,
+  })),
+]);
+
 // 地图上的点与目录用同一份数据；被筛掉的点变暗但仍可点。
 const mapItems = computed(() =>
   view.value.map((item) => ({
     id: item.id,
     name: item.name,
-    shortName: item.shortName,
     status: item.health.status,
-    regions: item.regions,
+    regions: item.region ? [item.region] : [],
     groupLabel: item.groups.length ? props.t(`region.${item.groups[0]}`) : props.t("region.other"),
     localTime: localTime(item.timezone, props.locale, new Date(now.value)) || "—",
     visible: visible.value.some((row) => row.id === item.id),
@@ -109,6 +120,7 @@ async function focusNode(id) {
   const reachable = visible.value.some((item) => item.id === id);
   if (!reachable) {
     group.value = "all";
+    tag.value = "";
     onlineOnly.value = false;
     hotOnly.value = false;
     await nextTick();
@@ -278,6 +290,21 @@ onBeforeUnmount(() => {
                   :class="{ active: group === chip.key }"
                   :aria-pressed="group === chip.key"
                   @click="group = chip.key"
+                >
+                  <span>{{ chip.label }}</span>
+                  <span class="chip-count">{{ chip.count }}</span>
+                </button>
+              </div>
+
+              <div v-if="tagChips.length > 1" class="chips" role="group" :aria-label="t('tag.label')">
+                <button
+                  v-for="chip in tagChips"
+                  :key="chip.key || 'all'"
+                  type="button"
+                  class="chip"
+                  :class="{ active: tag === chip.key }"
+                  :aria-pressed="tag === chip.key"
+                  @click="tag = chip.key"
                 >
                   <span>{{ chip.label }}</span>
                   <span class="chip-count">{{ chip.count }}</span>

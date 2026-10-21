@@ -1,6 +1,6 @@
 {
   "nordhavn": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "nordhavn",
@@ -9,81 +9,23 @@
       "tier": "partner",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Nordhavn",
-        "zh-CN": "北港",
-        "zh-TW": "北港"
-      },
-      "shortName": {
-        "en": "Nordhavn",
-        "zh-CN": "北港",
-        "zh-TW": "北港"
-      },
-      "themeColor": "#1F4E8C",
-      "vertical": "creation",
-      "tags": {
-        "en": [
-          "long-form",
-          "design",
-          "shipping"
-        ],
-        "zh-CN": [
-          "长文",
-          "设计",
-          "航运"
-        ],
-        "zh-TW": [
-          "長文",
-          "設計",
-          "航運"
-        ]
-      },
-      "languages": [
-        "en",
-        "zh-CN",
-        "zh-TW"
-      ],
-      "regions": [
-        "SE",
-        "NO",
-        "DK",
-        "FI"
-      ],
-      "timezone": "Europe/Stockholm",
-      "operator": {
-        "en": "Nordhavn Collective",
-        "zh-CN": "北港合作社",
-        "zh-TW": "北港合作社"
-      },
-      "owner": {
-        "en": "Linnea Ost",
-        "zh-CN": "林内娅",
-        "zh-TW": "林內婭"
-      },
+    "site": {
+      "name": "北港",
+      "tagline": "北海沿岸的慢阅读与长文笔记。",
+      "intro": "由哥德堡与奥斯陆的四个人维护的阅读室。随笔、字体样张与港口日志，写完才发。",
+      "owner": "林内娅",
       "contact": "hello@nordhavn.xknot.si",
-      "social": [
-        {
-          "label": "Mastodon",
-          "url": "https://mastodon.social/@nordhavn"
-        }
-      ],
-      "intro": {
-        "oneLine": {
-          "en": "Slow reading and long-form notes from the North Sea coast.",
-          "zh-CN": "北海沿岸的慢阅读与长文笔记。",
-          "zh-TW": "北海沿岸的慢閱讀與長文筆記。"
-        },
-        "long": {
-          "en": "A reading room run by four people in Gothenburg and Oslo. Essays, type specimens and harbour logs, published when they are finished.",
-          "zh-CN": "由哥德堡与奥斯陆的四个人维护的阅读室。随笔、字体样张与港口日志，写完才发。",
-          "zh-TW": "由哥德堡與奧斯陸的四個人維護的閱讀室。隨筆、字體樣張與港口日誌，寫完才發。"
-        }
-      }
+      "region": "SE",
+      "timezone": "Europe/Stockholm",
+      "tags": [
+        "长文",
+        "设计",
+        "航运"
+      ]
     }
   },
   "sakura": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "sakura",
@@ -92,78 +34,23 @@
       "tier": "partner",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Sakura",
-        "zh-CN": "樱",
-        "zh-TW": "櫻"
-      },
-      "shortName": {
-        "en": "Sakura",
-        "zh-CN": "樱",
-        "zh-TW": "櫻"
-      },
-      "themeColor": "#B23A5B",
-      "vertical": "ai",
-      "tags": {
-        "en": [
-          "agents",
-          "tooling",
-          "cli"
-        ],
-        "zh-CN": [
-          "Agent",
-          "工具链",
-          "命令行"
-        ],
-        "zh-TW": [
-          "Agent",
-          "工具鏈",
-          "命令列"
-        ]
-      },
-      "languages": [
-        "en",
-        "zh-CN",
-        "zh-TW"
-      ],
-      "regions": [
-        "JP"
-      ],
-      "timezone": "Asia/Tokyo",
-      "operator": {
-        "en": "Sakura Lab",
-        "zh-CN": "樱实验室",
-        "zh-TW": "櫻實驗室"
-      },
-      "owner": {
-        "en": "Aoi Mori",
-        "zh-CN": "森葵",
-        "zh-TW": "森葵"
-      },
+    "site": {
+      "name": "樱",
+      "tagline": "东京小型 Agent 团队的工具笔记。",
+      "intro": "五个工程师记录什么坏了、换成了什么、花了多久。以命令行与提示词管道为主。",
+      "owner": "森葵",
       "contact": "hi@sakura.xknot.si",
-      "social": [
-        {
-          "label": "GitHub",
-          "url": "https://github.com/sakura-lab"
-        }
-      ],
-      "intro": {
-        "oneLine": {
-          "en": "Tooling notes for small agent teams in Tokyo.",
-          "zh-CN": "东京小型 Agent 团队的工具笔记。",
-          "zh-TW": "東京小型 Agent 團隊的工具筆記。"
-        },
-        "long": {
-          "en": "Five engineers who write down what broke, what they replaced it with, and how long it took. Mostly command-line and prompt plumbing.",
-          "zh-CN": "五个工程师记录什么坏了、换成了什么、花了多久。以命令行与提示词管道为主。",
-          "zh-TW": "五個工程師記錄什麼壞了、換成了什麼、花了多久。以命令列與提示詞管道為主。"
-        }
-      }
+      "region": "JP",
+      "timezone": "Asia/Tokyo",
+      "tags": [
+        "Agent",
+        "工具链",
+        "命令行"
+      ]
     }
   },
   "meridian": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "meridian",
@@ -172,73 +59,23 @@
       "tier": "partner",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Meridian",
-        "zh-CN": "子午",
-        "zh-TW": "子午"
-      },
-      "shortName": {
-        "en": "Meridian",
-        "zh-CN": "子午",
-        "zh-TW": "子午"
-      },
-      "themeColor": "#0F6B5C",
-      "vertical": "creation",
-      "tags": {
-        "en": [
-          "climate",
-          "archives",
-          "data"
-        ],
-        "zh-CN": [
-          "气候",
-          "档案",
-          "数据"
-        ],
-        "zh-TW": [
-          "氣候",
-          "檔案",
-          "資料"
-        ]
-      },
-      "languages": [
-        "en",
-        "zh-CN"
-      ],
-      "regions": [
-        "GB",
-        "IE",
-        "FR"
-      ],
-      "timezone": "Europe/London",
-      "operator": {
-        "en": "Meridian Trust",
-        "zh-CN": "子午基金会",
-        "zh-TW": "子午基金會"
-      },
-      "owner": {
-        "en": "Ruth Adeyemi",
-        "zh-CN": "露丝",
-        "zh-TW": "露絲"
-      },
+    "site": {
+      "name": "子午",
+      "tagline": "气候数据与开放档案的共享笔记。",
+      "intro": "我们保存那些从未写成论文的小数据集：潮位、空气质量、建筑能耗。每篇都链回原始文件。",
+      "owner": "露丝",
       "contact": "post@meridian.xknot.si",
-      "intro": {
-        "oneLine": {
-          "en": "A shared notebook on climate data and open archives.",
-          "zh-CN": "气候数据与开放档案的共享笔记。",
-          "zh-TW": "氣候資料與開放檔案的共享筆記。"
-        },
-        "long": {
-          "en": "We keep the small datasets that never get a paper: tide gauges, air quality, building energy. Every note links to its source file.",
-          "zh-CN": "我们保存那些从未写成论文的小数据集：潮位、空气质量、建筑能耗。每篇都链回原始文件。",
-          "zh-TW": "我們保存那些從未寫成論文的小資料集：潮位、空氣品質、建築能耗。每篇都連回原始檔案。"
-        }
-      }
+      "region": "GB",
+      "timezone": "Europe/London",
+      "tags": [
+        "气候",
+        "档案",
+        "数据"
+      ]
     }
   },
   "khaleej": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "khaleej",
@@ -247,72 +84,23 @@
       "tier": "partner",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Khaleej",
-        "zh-CN": "海湾",
-        "zh-TW": "海灣"
-      },
-      "shortName": {
-        "en": "Khaleej",
-        "zh-CN": "海湾",
-        "zh-TW": "海灣"
-      },
-      "themeColor": "#8A5B14",
-      "vertical": "travel",
-      "tags": {
-        "en": [
-          "logistics",
-          "ports",
-          "trade"
-        ],
-        "zh-CN": [
-          "物流",
-          "港口",
-          "贸易"
-        ],
-        "zh-TW": [
-          "物流",
-          "港口",
-          "貿易"
-        ]
-      },
-      "languages": [
-        "en",
-        "zh-CN"
-      ],
-      "regions": [
-        "AE",
-        "SA"
-      ],
-      "timezone": "Asia/Dubai",
-      "operator": {
-        "en": "Khaleej Media",
-        "zh-CN": "海湾媒体",
-        "zh-TW": "海灣媒體"
-      },
-      "owner": {
-        "en": "Hessa Al Nuaimi",
-        "zh-CN": "海萨",
-        "zh-TW": "海薩"
-      },
+    "site": {
+      "name": "海湾",
+      "tagline": "航线、港口与物流的记录。",
+      "intro": "船期、港口延误以及背后的单证。对运集装箱的人有用，对其他人无聊。",
+      "owner": "海萨",
       "contact": "desk@khaleej.xknot.si",
-      "intro": {
-        "oneLine": {
-          "en": "Trade routes, ports and logistics, written down.",
-          "zh-CN": "航线、港口与物流的记录。",
-          "zh-TW": "航線、港口與物流的紀錄。"
-        },
-        "long": {
-          "en": "Shipping schedules, port delays and the paperwork behind them. Useful for anyone moving a container, dull for everyone else.",
-          "zh-CN": "船期、港口延误以及背后的单证。对运集装箱的人有用，对其他人无聊。",
-          "zh-TW": "船期、港口延誤以及背後的單證。對運貨櫃的人有用，對其他人無聊。"
-        }
-      }
+      "region": "AE",
+      "timezone": "Asia/Dubai",
+      "tags": [
+        "物流",
+        "港口",
+        "贸易"
+      ]
     }
   },
   "saigon": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "saigon",
@@ -321,72 +109,23 @@
       "tier": "community",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Saigon",
-        "zh-CN": "西贡",
-        "zh-TW": "西貢"
-      },
-      "shortName": {
-        "en": "Saigon",
-        "zh-CN": "西贡",
-        "zh-TW": "西貢"
-      },
-      "themeColor": "#C2410C",
-      "vertical": "travel",
-      "tags": {
-        "en": [
-          "city",
-          "food",
-          "photo"
-        ],
-        "zh-CN": [
-          "城市",
-          "小吃",
-          "照片"
-        ],
-        "zh-TW": [
-          "城市",
-          "小吃",
-          "照片"
-        ]
-      },
-      "languages": [
-        "en",
-        "zh-CN"
-      ],
-      "regions": [
-        "VN",
-        "TH"
-      ],
-      "timezone": "Asia/Ho_Chi_Minh",
-      "operator": {
-        "en": "Saigon Open",
-        "zh-CN": "西贡开放",
-        "zh-TW": "西貢開放"
-      },
-      "owner": {
-        "en": "Tran Mai",
-        "zh-CN": "陈梅",
-        "zh-TW": "陳梅"
-      },
+    "site": {
+      "name": "西贡",
+      "tagline": "西贡的街头小吃、摩托与城市笔记。",
+      "intro": "由骑手和厨师记录的街区日志。早上六点去哪吃、哪条巷子会淹、周日谁修化油器。",
+      "owner": "陈梅",
       "contact": "chao@saigon.xknot.si",
-      "intro": {
-        "oneLine": {
-          "en": "Street food, motorbikes and city notes from Saigon.",
-          "zh-CN": "西贡的街头小吃、摩托与城市笔记。",
-          "zh-TW": "西貢的街頭小吃、摩托與城市筆記。"
-        },
-        "long": {
-          "en": "A neighbourhood log kept by riders and cooks. Where to eat at 6am, which alley floods, who fixes a carburettor on a Sunday.",
-          "zh-CN": "由骑手和厨师记录的街区日志。早上六点去哪吃、哪条巷子会淹、周日谁修化油器。",
-          "zh-TW": "由騎手和廚師記錄的街區日誌。早上六點去哪吃、哪條巷子會淹、週日誰修化油器。"
-        }
-      }
+      "region": "VN",
+      "timezone": "Asia/Ho_Chi_Minh",
+      "tags": [
+        "城市",
+        "小吃",
+        "照片"
+      ]
     }
   },
   "bengaluru": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "bengaluru",
@@ -395,71 +134,23 @@
       "tier": "community",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Bengaluru",
-        "zh-CN": "班加罗尔",
-        "zh-TW": "班加羅爾"
-      },
-      "shortName": {
-        "en": "Bengaluru",
-        "zh-CN": "班加罗尔",
-        "zh-TW": "班加羅爾"
-      },
-      "themeColor": "#4C1D95",
-      "vertical": "creation",
-      "tags": {
-        "en": [
-          "hardware",
-          "notes",
-          "repair"
-        ],
-        "zh-CN": [
-          "硬件",
-          "笔记",
-          "维修"
-        ],
-        "zh-TW": [
-          "硬體",
-          "筆記",
-          "維修"
-        ]
-      },
-      "languages": [
-        "en"
-      ],
-      "regions": [
-        "IN",
-        "LK"
-      ],
-      "timezone": "Asia/Kolkata",
-      "operator": {
-        "en": "Bengaluru Guild",
-        "zh-CN": "班加罗尔行会",
-        "zh-TW": "班加羅爾行會"
-      },
-      "owner": {
-        "en": "Naveen Rao",
-        "zh-CN": "纳文",
-        "zh-TW": "納文"
-      },
+    "site": {
+      "name": "班加罗尔",
+      "tagline": "班加罗尔的工程笔记与硬件拆解。",
+      "intro": "路由器、逆变器与实验设备的拆解，附手绘原理图。停产件会写清用什么替代。",
+      "owner": "纳文",
       "contact": "guild@bengaluru.xknot.si",
-      "intro": {
-        "oneLine": {
-          "en": "Engineering notes and hardware teardowns from Bengaluru.",
-          "zh-CN": "班加罗尔的工程笔记与硬件拆解。",
-          "zh-TW": "班加羅爾的工程筆記與硬體拆解。"
-        },
-        "long": {
-          "en": "Teardowns of routers, inverters and lab gear, with the schematic redrawn by hand. If a part is obsolete, we list what replaced it.",
-          "zh-CN": "路由器、逆变器与实验设备的拆解，附手绘原理图。停产件会写清用什么替代。",
-          "zh-TW": "路由器、逆變器與實驗設備的拆解，附手繪原理圖。停產件會寫清用什麼替代。"
-        }
-      }
+      "region": "IN",
+      "timezone": "Asia/Kolkata",
+      "tags": [
+        "硬件",
+        "笔记",
+        "维修"
+      ]
     }
   },
   "aurora": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "aurora",
@@ -468,71 +159,23 @@
       "tier": "partner",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Aurora",
-        "zh-CN": "极光",
-        "zh-TW": "極光"
-      },
-      "shortName": {
-        "en": "Aurora",
-        "zh-CN": "极光",
-        "zh-TW": "極光"
-      },
-      "themeColor": "#155E75",
-      "vertical": "creation",
-      "tags": {
-        "en": [
-          "sky",
-          "photography",
-          "software"
-        ],
-        "zh-CN": [
-          "天空",
-          "摄影",
-          "软件"
-        ],
-        "zh-TW": [
-          "天空",
-          "攝影",
-          "軟體"
-        ]
-      },
-      "languages": [
-        "en"
-      ],
-      "regions": [
-        "CA",
-        "US"
-      ],
-      "timezone": "America/Toronto",
-      "operator": {
-        "en": "Aurora Field",
-        "zh-CN": "极光田野",
-        "zh-TW": "極光田野"
-      },
-      "owner": {
-        "en": "Dana Whitfield",
-        "zh-CN": "戴娜",
-        "zh-TW": "戴娜"
-      },
+    "site": {
+      "name": "极光",
+      "tagline": "北极天空与安静软件的田野笔记。",
+      "intro": "两个人、一台相机、一间上行很慢的小屋。冬天写天象预报，夏天做小型离线工具。",
+      "owner": "戴娜",
       "contact": "field@aurora.xknot.si",
-      "intro": {
-        "oneLine": {
-          "en": "Field notes on the northern sky and quiet software.",
-          "zh-CN": "北极天空与安静软件的田野笔记。",
-          "zh-TW": "北極天空與安靜軟體的田野筆記。"
-        },
-        "long": {
-          "en": "Two people, one camera, a cabin with a slow uplink. Sky forecasts in winter, small offline tools in summer.",
-          "zh-CN": "两个人、一台相机、一间上行很慢的小屋。冬天写天象预报，夏天做小型离线工具。",
-          "zh-TW": "兩個人、一台相機、一間上行很慢的小屋。冬天寫天象預報，夏天做小型離線工具。"
-        }
-      }
+      "region": "CA",
+      "timezone": "America/Toronto",
+      "tags": [
+        "天空",
+        "摄影",
+        "软件"
+      ]
     }
   },
   "pampa": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "pampa",
@@ -541,73 +184,23 @@
       "tier": "community",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Pampa",
-        "zh-CN": "潘帕",
-        "zh-TW": "潘帕"
-      },
-      "shortName": {
-        "en": "Pampa",
-        "zh-CN": "潘帕",
-        "zh-TW": "潘帕"
-      },
-      "themeColor": "#166534",
-      "vertical": "creation",
-      "tags": {
-        "en": [
-          "journalism",
-          "land",
-          "music"
-        ],
-        "zh-CN": [
-          "新闻",
-          "土地",
-          "音乐"
-        ],
-        "zh-TW": [
-          "新聞",
-          "土地",
-          "音樂"
-        ]
-      },
-      "languages": [
-        "en",
-        "zh-TW"
-      ],
-      "regions": [
-        "AR",
-        "CL",
-        "UY"
-      ],
-      "timezone": "America/Argentina/Buenos_Aires",
-      "operator": {
-        "en": "Pampa Sur",
-        "zh-CN": "南方潘帕",
-        "zh-TW": "南方潘帕"
-      },
-      "owner": {
-        "en": "Mateo Ferreyra",
-        "zh-CN": "马特奥",
-        "zh-TW": "馬特奧"
-      },
+    "site": {
+      "name": "潘帕",
+      "tagline": "南方的草原、马黛茶与慢新闻。",
+      "intro": "来自潘帕斯与巴塔哥尼亚之间小镇的报道，以及和报道一起出现的音乐。",
+      "owner": "马特奥",
       "contact": "hola@pampa.xknot.si",
-      "intro": {
-        "oneLine": {
-          "en": "Grassland, mate and slow journalism from the south.",
-          "zh-CN": "南方的草原、马黛茶与慢新闻。",
-          "zh-TW": "南方的草原、馬黛茶與慢新聞。"
-        },
-        "long": {
-          "en": "Reported pieces from small towns between the pampas and Patagonia, plus the music that comes with them.",
-          "zh-CN": "来自潘帕斯与巴塔哥尼亚之间小镇的报道，以及和报道一起出现的音乐。",
-          "zh-TW": "來自潘帕斯與巴塔哥尼亞之間小鎮的報導，以及和報導一起出現的音樂。"
-        }
-      }
+      "region": "AR",
+      "timezone": "America/Argentina/Buenos_Aires",
+      "tags": [
+        "新闻",
+        "土地",
+        "音乐"
+      ]
     }
   },
   "koru": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "koru",
@@ -616,71 +209,23 @@
       "tier": "partner",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Koru",
-        "zh-CN": "银蕨",
-        "zh-TW": "銀蕨"
-      },
-      "shortName": {
-        "en": "Koru",
-        "zh-CN": "银蕨",
-        "zh-TW": "銀蕨"
-      },
-      "themeColor": "#0F766E",
-      "vertical": "travel",
-      "tags": {
-        "en": [
-          "coast",
-          "surf",
-          "weather"
-        ],
-        "zh-CN": [
-          "海岸",
-          "冲浪",
-          "天气"
-        ],
-        "zh-TW": [
-          "海岸",
-          "衝浪",
-          "天氣"
-        ]
-      },
-      "languages": [
-        "en"
-      ],
-      "regions": [
-        "NZ",
-        "AU"
-      ],
-      "timezone": "Pacific/Auckland",
-      "operator": {
-        "en": "Koru Collective",
-        "zh-CN": "银蕨合作社",
-        "zh-TW": "銀蕨合作社"
-      },
-      "owner": {
-        "en": "Ana Rangi",
-        "zh-CN": "安娜",
-        "zh-TW": "安娜"
-      },
+    "site": {
+      "name": "银蕨",
+      "tagline": "海岸步道、浪况与岛屿天气。",
+      "intro": "由当天早上走过的人写下的路线状况。潮汐、涌浪，以及哪间小屋还有水箱。",
+      "owner": "安娜",
       "contact": "kiaora@koru.xknot.si",
-      "intro": {
-        "oneLine": {
-          "en": "Coastal walks, surf reports and island weather.",
-          "zh-CN": "海岸步道、浪况与岛屿天气。",
-          "zh-TW": "海岸步道、浪況與島嶼天氣。"
-        },
-        "long": {
-          "en": "Track conditions written by people who walked them that morning. Tides, swell, and which hut still has a water tank.",
-          "zh-CN": "由当天早上走过的人写下的路线状况。潮汐、涌浪，以及哪间小屋还有水箱。",
-          "zh-TW": "由當天早上走過的人寫下的路線狀況。潮汐、湧浪，以及哪間小屋還有水箱。"
-        }
-      }
+      "region": "NZ",
+      "timezone": "Pacific/Auckland",
+      "tags": [
+        "海岸",
+        "冲浪",
+        "天气"
+      ]
     }
   },
   "atlas": {
-    "formatVersion": 1,
+    "formatVersion": 2,
     "fetchedAt": "2026-10-18T06:00:00.000Z",
     "issued": {
       "id": "atlas",
@@ -689,68 +234,19 @@
       "tier": "community",
       "status": "active"
     },
-    "profile": {
-      "name": {
-        "en": "Atlas",
-        "zh-CN": "阿特拉斯",
-        "zh-TW": "阿特拉斯"
-      },
-      "shortName": {
-        "en": "Atlas",
-        "zh-CN": "阿特拉斯",
-        "zh-TW": "阿特拉斯"
-      },
-      "themeColor": "#7C2D12",
-      "vertical": "travel",
-      "tags": {
-        "en": [
-          "desert",
-          "roads",
-          "archive"
-        ],
-        "zh-CN": [
-          "沙漠",
-          "公路",
-          "档案"
-        ],
-        "zh-TW": [
-          "沙漠",
-          "公路",
-          "檔案"
-        ]
-      },
-      "languages": [
-        "en",
-        "zh-CN"
-      ],
-      "regions": [
-        "MA",
-        "TN"
-      ],
-      "timezone": "Africa/Casablanca",
-      "operator": {
-        "en": "Atlas Field",
-        "zh-CN": "阿特拉斯田野",
-        "zh-TW": "阿特拉斯田野"
-      },
-      "owner": {
-        "en": "Yasmine Bennis",
-        "zh-CN": "雅斯敏",
-        "zh-TW": "雅斯敏"
-      },
+    "site": {
+      "name": "阿特拉斯",
+      "tagline": "北非的山路与沙漠档案。",
+      "intro": "阿特拉斯山脉的路线书、取水点与旅店账本扫描件，保留原本的语言。",
+      "owner": "雅斯敏",
       "contact": "salam@atlas.xknot.si",
-      "intro": {
-        "oneLine": {
-          "en": "Mountain roads and desert archives across North Africa.",
-          "zh-CN": "北非的山路与沙漠档案。",
-          "zh-TW": "北非的山路與沙漠檔案。"
-        },
-        "long": {
-          "en": "Scanned route books, water points and guesthouse ledgers from the Atlas ranges, kept in the language they were written in.",
-          "zh-CN": "阿特拉斯山脉的路线书、取水点与旅店账本扫描件，保留原本的语言。",
-          "zh-TW": "阿特拉斯山脈的路線書、取水點與旅店帳本掃描件，保留原本的語言。"
-        }
-      }
+      "region": "MA",
+      "timezone": "Africa/Casablanca",
+      "tags": [
+        "沙漠",
+        "公路",
+        "档案"
+      ]
     }
   }
 }

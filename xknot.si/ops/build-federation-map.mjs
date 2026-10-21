@@ -75,11 +75,11 @@ const nodes = [
   ...(preview.instances || []).filter((item) => item.id && !taken.has(item.id)),
 ].map((item) => {
   const state = health.instances?.[item.id];
-  const profile = profileOf(item.id)?.profile || {};
+  const site = profileOf(item.id)?.site || {};
   return {
     id: item.id,
-    name: profile.shortName?.en || profile.name?.en || item.id,
-    regions: profile.regions || [],
+    name: site.name || item.id,
+    regions: site.region ? [site.region] : [],
     status: state?.status || "unknown",
   };
 });

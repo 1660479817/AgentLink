@@ -19,6 +19,7 @@ import {
 } from "../admin.js";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
 import { federationStatus } from "../federation.js";
+import { checkSubdomain, hubOriginOf, submitApplication } from "../xknotJoin.js";
 import { applyPriceProposal, economySnapshot, priceSchedule, proposePrices } from "../actuary.js";
 import { attentionSnapshot } from "../attention.js";
 import { touchDiscoverBoard } from "../discoverPublish.js";
@@ -114,10 +115,58 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
     }
   });
 
+  // 第一次接入：先问中枢一个子域能不能签。规则与结论都在中枢，
+  // 这里不判断，只把请求转过去；端侧显示的文字也来自同一份结论。
+  router.get("/xknot/subdomain", async (req, res) => {
+    try {
+      const status = federationStatus({ agentEnvDir, publicWebOrigin });
+      const checked = await checkSubdomain({
+        label: req.query.label,
+        hubOrigin: hubOriginOf({ status }),
+      });
+      if (checked.error) {
+        const code = checked.error;
+        return res.status(code === "hub_rate_limited" ? 429 : 502).json({ error: code });
+      }
+      res.json(checked.result);
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  // 把自述区与选定的子域交给中枢。第一次接入与补交用的是同一个入口；
+  // 已经是成员时中枢会按地址判重，这里不另做判断。
+  router.post("/xknot/apply", async (req, res) => {
+    try {
+      const status = federationStatus({ agentEnvDir, publicWebOrigin });
+      const state = profile?.view() || { site: null };
+      const result = await submitApplication({
+        site: state.site || {},
+        subdomain: req.body?.subdomain,
+        email: req.body?.email,
+        locale: req.body?.locale,
+        hubOrigin: hubOriginOf({ status }),
+      });
+
+      if (result.ok) return res.status(201).json({ application: result.application });
+      if (result.error === "incomplete") {
+        return res.status(400).json({ error: "incomplete", fields: result.fields });
+      }
+      if (result.error === "invalid") {
+        return res.status(400).json({ error: "invalid", fields: result.fields });
+      }
+      if (result.error === "duplicate") return res.status(409).json({ error: "duplicate" });
+      if (result.error === "rate_limited") return res.status(429).json({ error: "rate_limited" });
+      return res.status(502).json({ error: result.error });
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
   // 站点档案：签发区只读、来自接入件；自述区可编辑，写 sites/<站点>/profile.json。
   router.get("/profile", (_req, res) => {
     const status = federationStatus({ agentEnvDir, publicWebOrigin });
-    const state = profile?.view() || { profile: null, updatedAt: null, problems: [] };
+    const state = profile?.view() || { site: null, updatedAt: null, problems: [] };
     res.json({
       issued: {
         id: status.running.instanceId || "",
@@ -126,7 +175,7 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
         tier: status.running.tier || "",
         status: status.running.status || "",
       },
-      profile: state.profile,
+      site: state.site,
       updatedAt: state.updatedAt,
       problems: state.problems,
       file: profile?.file || null,
@@ -135,9 +184,9 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
 
   router.put("/profile", async (req, res) => {
     try {
-      const state = await profile.save({ profile: req.body?.profile });
+      const state = await profile.save({ site: req.body?.site });
       res.json({
-        profile: state.profile,
+        site: state.site,
         updatedAt: state.updatedAt,
         problems: state.problems,
         file: profile.file || null,

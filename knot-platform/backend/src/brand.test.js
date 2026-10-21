@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import express from "express";
-import { brandView, cleanProfile, createProfileStore, pickLocale, profileFilePath } from "./profile.js";
+import { brandView, cleanSite, createProfileStore, profileFilePath } from "./profile.js";
 import { webRouter } from "./routes/web.js";
 
 function listen(app) {
@@ -25,30 +25,32 @@ test("a missing profile is not an error: the site simply has no self-description
   try {
     const store = createProfileStore({ file: path.join(dir, "profile.json") });
     const state = await store.reload();
-    assert.equal(state.profile, null);
+    assert.equal(state.site, null);
     assert.deepEqual(state.problems, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("the brand view keeps every locale instead of choosing one on the server", () => {
-  const { profile } = cleanProfile({
-    name: { en: "Knot · wang", "zh-CN": "Knot · wang" },
-    intro: { oneLine: { en: "Exchange", "zh-CN": "交换" }, long: { en: "Long text." } },
-    owner: { en: "PaulWang" },
+test("the brand view keeps the flat strings and drops what the site does not render", () => {
+  const { site } = cleanSite({
+    name: "Knot · wang",
+    tagline: "收发一手情报",
+    intro: "一段长介绍。",
+    owner: "PaulWang",
     contact: "owner@example.com",
     logo: "https://wang.xknot.si/logo.png",
-    themeColor: "#0866FF",
+    region: "CN",
+    timezone: "Asia/Shanghai",
+    tags: ["旅行", "Agent"],
   });
-  assert.deepEqual(brandView(profile), {
-    name: { en: "Knot · wang", "zh-CN": "Knot · wang" },
-    tagline: { en: "Exchange", "zh-CN": "交换" },
+  assert.deepEqual(brandView(site), {
+    name: "Knot · wang",
+    tagline: "收发一手情报",
     logo: "https://wang.xknot.si/logo.png",
-    owner: { en: "PaulWang" },
-    intro: { en: "Long text." },
+    owner: "PaulWang",
+    intro: "一段长介绍。",
     contact: "owner@example.com",
-    themeColor: "#0866FF",
   });
   assert.deepEqual(brandView(null), {
     name: null,
@@ -57,17 +59,22 @@ test("the brand view keeps every locale instead of choosing one on the server", 
     owner: null,
     intro: null,
     contact: "",
-    themeColor: "",
   });
 });
 
-test("pickLocale falls back through en, zh-CN, zh-TW, then any value", () => {
-  const map = { en: "Site", "zh-CN": "站点", "zh-TW": "站點" };
-  assert.equal(pickLocale(map, "zh-TW"), "站點");
-  assert.equal(pickLocale(map, "en"), "Site");
-  assert.equal(pickLocale({ "zh-CN": "站点" }, "en"), "站点");
-  assert.equal(pickLocale({ fr: "Site" }, "en"), "Site");
-  assert.equal(pickLocale(null, "en"), "");
+test("tags are plain text, deduplicated by case, capped at nine, trimmed at sixteen", () => {
+  const nine = ["a", "b", "c", "d", "e", "f", "g", "h", "i"];
+  assert.deepEqual(cleanSite({ name: "站点", tags: nine }).site.tags, nine);
+  assert.ok(cleanSite({ name: "站点", tags: [...nine, "j"] }).problems.includes("tags: more than 9"));
+  assert.deepEqual(cleanSite({ name: "站点", tags: ["Travel", "travel", "旅行"] }).site.tags, ["Travel", "旅行"]);
+  assert.equal(cleanSite({ name: "站点", tags: [] }).site.tags, undefined);
+  assert.equal(cleanSite({ name: "站点", tags: ["x".repeat(17)] }).site.tags[0].length, 16);
+});
+
+test("region is normalized to an upper-case code, and a malformed one is refused", () => {
+  assert.equal(cleanSite({ name: "站点", region: "cn" }).site.region, "CN");
+  assert.equal(cleanSite({ name: "站点", region: "GLOBAL" }).site.region, "GLOBAL");
+  assert.ok(cleanSite({ name: "站点", region: "中国" }).problems.includes("region: must be a two-letter country code, or GLOBAL"));
 });
 
 test("a saved profile is written in the documented shape and reloads", async () => {
@@ -78,9 +85,9 @@ test("a saved profile is written in the documented shape and reloads", async () 
     await store.reload();
     await store.save(
       {
-        profile: {
-          name: { en: "Knot" },
-          intro: { oneLine: { en: "Exchange" } },
+        site: {
+          name: "Knot",
+          tagline: "Exchange",
           contact: "ops@example.com",
         },
       },
@@ -88,7 +95,10 @@ test("a saved profile is written in the documented shape and reloads", async () 
     );
     const state = store.view();
     assert.equal(state.updatedAt, "2026-10-21");
-    assert.equal(state.profile.name.en, "Knot");
+    assert.equal(state.site.name, "Knot");
+    const onDisk = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(onDisk.formatVersion, 2);
+    assert.equal(onDisk.site.tagline, "Exchange");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -96,18 +106,34 @@ test("a saved profile is written in the documented shape and reloads", async () 
 
 test("an invalid profile is rejected and the previous file is kept", async () => {
   const { dir, file } = profileFile({
-    formatVersion: 1,
+    formatVersion: 2,
     updatedAt: "2026-10-20",
-    profile: { name: { en: "Old" }, intro: { oneLine: { en: "Old" } }, contact: "old@example.com" },
+    site: { name: "Old", contact: "old@example.com" },
   });
   try {
     const store = createProfileStore({ file });
     await store.reload();
     await assert.rejects(
-      () => store.save({ profile: { name: { en: "New" } } }),
-      (error) => error.code === "bad_profile" && error.problems.includes("intro: required")
+      () => store.save({ site: { tagline: "没有名字" } }),
+      (error) => error.code === "bad_profile" && error.problems.includes("name: required")
     );
-    assert.equal(store.view().profile.name.en, "Old");
+    assert.equal(store.view().site.name, "Old");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a v1 file is refused instead of half-read", async () => {
+  const { dir, file } = profileFile({
+    formatVersion: 1,
+    updatedAt: "2026-10-20",
+    profile: { name: { "zh-CN": "旧站点" } },
+  });
+  try {
+    const store = createProfileStore({ file });
+    const state = await store.reload();
+    assert.equal(state.site, null);
+    assert.deepEqual(state.problems, ["formatVersion: must be 2"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -125,13 +151,13 @@ test("the profile file sits next to xknot.env, and can be pointed at explicitly"
 test("the session payload carries the site identity for the header", async () => {
   const uploadDir = mkdtempSync(path.join(tmpdir(), "knot-brand-"));
   const { dir, file } = profileFile({
-    formatVersion: 1,
+    formatVersion: 2,
     updatedAt: "2026-10-21",
-    profile: {
-      name: { en: "Observatory", "zh-CN": "观测站" },
-      intro: { oneLine: { en: "Intel only.", "zh-CN": "只收情报" } },
+    site: {
+      name: "观测站",
+      tagline: "只收情报",
       logo: "https://example.test/logo.png",
-      owner: { en: "PaulWang" },
+      owner: "PaulWang",
       contact: "owner@example.com",
     },
   });
@@ -154,10 +180,10 @@ test("the session payload carries the site identity for the header", async () =>
     const response = await fetch(`${base}/api/web/session`);
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.deepEqual(body.brand.name, { en: "Observatory", "zh-CN": "观测站" });
-    assert.deepEqual(body.brand.tagline, { en: "Intel only.", "zh-CN": "只收情报" });
+    assert.equal(body.brand.name, "观测站");
+    assert.equal(body.brand.tagline, "只收情报");
     assert.equal(body.brand.logo, "https://example.test/logo.png");
-    assert.deepEqual(body.brand.owner, { en: "PaulWang" });
+    assert.equal(body.brand.owner, "PaulWang");
     assert.equal(body.brand.contact, "owner@example.com");
     assert.equal(body.user, null);
   } finally {

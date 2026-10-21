@@ -15,7 +15,7 @@ import {
   safeGetJson,
   writeJsonAtomic,
 } from "./fetch-guard.mjs";
-import { cleanProfile, FORMAT_VERSION, isHttpsUrl } from "./profile-schema.mjs";
+import { cleanSite, FORMAT_VERSION, isHttpsUrl } from "./profile-schema.mjs";
 
 export { FORMAT_VERSION };
 
@@ -52,9 +52,9 @@ export function cleanProfilePayload(payload, { instance } = {}) {
   }
   if (problems.length) return { ok: false, problems };
 
-  const cleaned = cleanProfile(payload.profile);
-  if (!cleaned.profile) {
-    return { ok: false, problems: [...cleaned.problems, "profile: no usable profile, keeping the previous copy"] };
+  const cleaned = cleanSite(payload.site);
+  if (!cleaned.site) {
+    return { ok: false, problems: [...cleaned.problems, "site: no usable profile, keeping the previous copy"] };
   }
   if (!cleaned.ok) {
     // 字段级问题不拦整份：能用的字段照收，问题记下来给运营看。
@@ -73,7 +73,7 @@ export function cleanProfilePayload(payload, { instance } = {}) {
         tier: typeof issued.tier === "string" ? issued.tier : instance.tier,
         status: typeof issued.status === "string" ? issued.status : instance.status,
       },
-      profile: cleaned.profile,
+      site: cleaned.site,
     },
   };
 }

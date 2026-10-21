@@ -459,7 +459,7 @@
             <div class="view-head">
               <div>
                 <h2>XKnot</h2>
-                <p class="muted">两块：本站点怎么介绍自己，你拥有、随时能改；中枢签发了什么，只读。排障信息收在最后一栏里。</p>
+                <p class="muted">三块：本站点怎么介绍自己，你拥有、随时能改；接入 XKnot 提交一次；中枢签发了什么，只读。排障信息收在最后一栏里。</p>
               </div>
               <button id="federation-refresh" class="button ghost" type="button">刷新</button>
             </div>
@@ -469,14 +469,9 @@
                 <h3>一 · 本站点怎么介绍自己</h3>
                 <span class="card-tag">可编辑</span>
               </div>
-              <p class="muted small">自述区。主理人拥有这一份，中枢只会取回去展示，不需要任何审批。名称与一句话介绍至少填简中。</p>
+              <p class="muted small">自述区。主理人拥有这一份，中枢只会取回去展示，不需要任何审批。只有名称必填。</p>
               <form id="profile-form" class="stack-form" novalidate>
                 <div id="profile-fields" class="form-grid"></div>
-                <fieldset class="profile-social">
-                  <legend>社交链接 <span class="muted small">可选，最多 5 条，以 https 开头</span></legend>
-                  <div id="profile-social-rows" class="stack-form"></div>
-                  <button id="profile-social-add" class="button ghost" type="button">加一条</button>
-                </fieldset>
                 <p id="profile-note" class="muted small"></p>
                 <p id="profile-problems" class="muted small" hidden></p>
                 <div class="button-row">
@@ -486,9 +481,47 @@
               </form>
             </article>
 
-            <article class="card">
+            <article id="join-card" class="card" hidden>
               <div class="card-head">
-                <h3>二 · 中枢签发了什么</h3>
+                <h3>二 · 接入 XKnot</h3>
+                <span class="card-tag">提交一次</span>
+              </div>
+              <p class="muted small">
+                第一次接入要先选一个二级域名。先检查，能签再提交；审核通过后中枢会发信开通。
+                提交用的是上面那份自述，改完记得先保存档案。
+              </p>
+              <form id="join-form" class="stack-form" novalidate>
+                <div class="field">
+                  <span>二级域名</span>
+                  <div class="host-row">
+                    <input
+                      id="join-subdomain"
+                      type="text"
+                      maxlength="40"
+                      autocomplete="off"
+                      autocapitalize="none"
+                      spellcheck="false"
+                      placeholder="your-site"
+                    />
+                    <span class="host-suffix">.xknot.si</span>
+                    <button id="join-check" class="button ghost" type="button">检查</button>
+                  </div>
+                  <p id="join-subdomain-note" class="muted small">至少 6 个字符；短号留给以后。</p>
+                </div>
+                <label class="field">
+                  <span>联系邮箱 · 开通与变更都寄这里</span>
+                  <input id="join-email" type="email" maxlength="120" autocomplete="email" placeholder="you@example.com" />
+                </label>
+                <p id="join-result" class="muted small"></p>
+                <div class="button-row">
+                  <button id="join-submit" class="button primary" type="submit" disabled>提交申请</button>
+                </div>
+              </form>
+            </article>
+
+            <article id="issued-card" class="card">
+              <div class="card-head">
+                <h3>三 · 中枢签发了什么</h3>
                 <span class="card-tag">只读</span>
               </div>
               <p class="muted small">签发区。id、地址、接入日、档位与状态由中枢签发，端侧改不了；要变更走中枢。</p>

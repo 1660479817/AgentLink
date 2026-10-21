@@ -37,7 +37,7 @@
 | 文件 | 管什么 | 谁写 | 部署读吗 |
 | --- | --- | --- | --- |
 | `sites/<站点>/site.env` | 站点拓扑：对外地址、端口、数据库、入口主机、隧道 | 运维 | 读 |
-| `sites/<站点>/profile.json` | 自述区：名称、多语种介绍、logo、主理人、联系方式、标签、语种、地区、时区、社交链接 | 主理人在 `/admin` 编辑 | 不读，Backend 启动时读 |
+| `sites/<站点>/profile.json` | 自述区：名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（九项扁平字段） | 主理人在 `/admin` 编辑 | 不读，Backend 启动时读 |
 | `sites/<站点>/entry.<标签>.xknot.si.env` | xknot.si 子域入口：域名、静态根、conf、证书、投放方式 | 运维 | 读 |
 | `sites/<站点>/platform.env` | 实例主机运行时：SMTP、价格、存储、管理令牌，权限 `600` | `deploy-site.sh` 生成 | 读 |
 | `sites/<站点>/xknot.env` | XKnot 接入：实例 id、中枢地址、签发日期与委托发信凭据，权限 `600` | 中枢签发，`join-xknot.sh` 写入 | 不读，只在运行时交给 Backend |
@@ -68,7 +68,7 @@ node ops/scripts/config.mjs init <站点>
 
 `KNOT_PG_BIN` 默认是 Apple Silicon Homebrew 的 `/opt/homebrew/opt/postgresql@16/bin`；Intel 机器改成 `/usr/local/opt/postgresql@16/bin`。
 
-站点身份不在 `site.env` 里。它是一份单独的档案 `sites/<站点>/profile.json`：名称、多语种介绍、logo、主理人、联系方式、标签、语种、地区、时区、社交链接。主理人在实例主机的 `/admin` → **XKnot** 栏里编辑并保存，不用重新部署，也不用改前端代码。字段与校验规则见 [`docs/PROFILE.md`](../docs/PROFILE.md)。
+站点身份不在 `site.env` 里。它是一份单独的档案 `sites/<站点>/profile.json`：名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签，九项扁平字符串，不按语种分键。主理人在实例主机的 `/admin` → **XKnot** 栏里编辑并保存，不用重新部署，也不用改前端代码。字段与校验规则见 [`docs/PROFILE.md`](../docs/PROFILE.md)。
 
 部署脚本把档案路径写进 `platform.env` 的 `KNOT_PROFILE_FILE`；WebUI 从 `GET /api/web/session` 的 `brand` 里读，中枢从公开的 `GET /api/federation/profile` 取回。
 
@@ -512,7 +512,7 @@ ssh -L 8081:127.0.0.1:8080 <KNOT_DEPLOY_SSH>
 - **内容**：按账户、正文片段和时间窗查帖；删除并写原因（作者收到通知）；处理巡查队列并记下本轮巡查。
 - **用户**：发放积分、警告、禁言与解除、改等级、更新权益、签发 Internal Personal Agent 账户。
 - **站点**：站内浏览、公开快照、注册方式三个开关；邀请码签发与停用；右侧赞助位的增删改和排序；价格表提议与写入。
-- **XKnot**：上半是**自述区**，主理人在这里写站点名（简中、繁中、EN）、一句话介绍、详细介绍、主理人、联系方式、logo、标签、语种、地区、时区与社交链接，点「保存档案」写入 `sites/<站点>/profile.json`；校验不过逐条显示在表单下面，一个字节都不写。下半是**签发区**与接入件：实例 id、中枢、签发地址与日期、档位、状态、打码后的委托发信凭据、文件路径与权限，以及进程里正在用的同一组值和状态信号。接入件与进程不一致时列出「变更未生效」，提示重启 Backend；并说明中枢会在 `/api/health` 里读到什么、是否带 `instance`、是不是 https。
+- **XKnot**：上半是**自述区**，主理人在这里写站点名、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区与标签，点「保存档案」写入 `sites/<站点>/profile.json`；校验不过逐条显示在表单下面，一个字节都不写。下半是**签发区**与接入件：实例 id、中枢、签发地址与日期、档位、状态、打码后的委托发信凭据、文件路径与权限，以及进程里正在用的同一组值和状态信号。接入件与进程不一致时列出「变更未生效」，提示重启 Backend；并说明中枢会在 `/api/health` 里读到什么、是否带 `instance`、是不是 https。
 
 XKnot 栏读本机的 `/api/admin/profile` 与 `/api/admin/federation`，和其他栏一样受内网地址与 `KNOT_ADMIN_TOKEN` 保护；凭据只返回前后各一小段。档案字段与接口见 [`docs/PROFILE.md`](../docs/PROFILE.md)。
 

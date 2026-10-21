@@ -31,7 +31,7 @@ function snapshot(ids) {
     instances: ids.map((id) => ({
       id,
       url: `https://${id}.xknot.si`,
-      name: { en: `Site ${id}` },
+      name: `Site ${id}`,
       profileFetchedAt: "2026-10-19T02:00:00.000Z",
     })),
   };
@@ -64,7 +64,7 @@ test("fixture ids are allowed when the fixture manifest is passed", () => {
 });
 
 test("a site whose profile was never fetched is reported", () => {
-  const data = { instances: [{ id: "wang", url: "https://wang.xknot.si", name: { en: "wang" }, profileFetchedAt: null }] };
+  const data = { instances: [{ id: "wang", url: "https://wang.xknot.si", name: "wang", profileFetchedAt: null }] };
   const problems = verifyHubData({ data, manifest: manifest(["wang"]) });
   assert.ok(problems.some((line) => line.includes("no profile name")));
   assert.ok(problems.some((line) => line.includes("has never been fetched")));
@@ -119,10 +119,10 @@ function profilesFor(manifest) {
   const out = {};
   for (const instance of manifest.instances || []) {
     out[instance.id] = {
-      formatVersion: 1,
+      formatVersion: 2,
       fetchedAt: "2026-10-19T02:00:00.000Z",
       issued: instance,
-      profile: { name: { en: `Site ${instance.id}` }, intro: { oneLine: { en: "Hi" } }, contact: "hi@example.test" },
+      site: { name: `Site ${instance.id}`, tagline: "Hi", contact: "hi@example.test" },
     };
   }
   return out;

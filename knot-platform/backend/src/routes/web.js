@@ -188,7 +188,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     const policy = policyConfig();
     const region = regionForRequest(req);
     const site = siteConfig();
-    const identity = brandView(profile?.view().profile);
+    const identity = brandView(profile?.view().site);
     if (!req.user) return res.json({ user: null, policy, region, site, brand: identity });
     const user = await loadUser(pool, req.user.id);
     res.json({ user, policy, region, site, brand: identity });

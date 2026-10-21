@@ -298,7 +298,7 @@ function activate(id) {
       >
         <span class="dot" aria-hidden="true"><span class="halo" /></span>
         <span class="tag" :class="{ flip: point.x > VIEW.width * 0.78 }" aria-hidden="true">
-          {{ point.shortName || point.name }}
+          {{ point.name }}
         </span>
         <span class="tip" :class="tipClass(point)" aria-hidden="true">
           <span class="tip-name">{{ point.name }}</span>

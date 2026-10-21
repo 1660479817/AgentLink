@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { run } from "./check-health.mjs";
+import { readProfiles } from "./profiles.mjs";
 import { mailConfigFromEnv, sendMail } from "../server/mail.mjs";
 import { ALERT_LABELS, buildMail } from "../server/notify.mjs";
 
@@ -34,38 +35,39 @@ async function readJson(file, fallback) {
 }
 
 // 清单一律是本地化的名字；信里取英文，没有就用 id。
-function nameOf(instance) {
-  const name = instance?.name;
-  if (typeof name === "string") return name;
-  return name?.en || name?.["zh-CN"] || instance?.id || "";
+// 收件人与语种取自两处：实例自报的档案副本（var/profiles/<id>.json）和申请单。
+// 清单 instances.json 只有签发区，不能往那里塞联系方式。
+function siteOf(profiles, id) {
+  return profiles?.[id]?.site || {};
 }
 
-function callIt(instance) {
-  return Array.isArray(instance?.regions) && instance.regions.length
-    ? instance.regions[0]
-    : "GLOBAL";
+function applicationOf(applications, instance) {
+  if (!Array.isArray(applications)) return null;
+  const url = String(instance?.url || "").replace(/\/$/, "");
+  return (
+    applications.find((item) => item?.subdomain && item.subdomain === instance?.id) ||
+    applications.find((item) => item?.url && String(item.url).replace(/\/$/, "") === url) ||
+    null
+  );
 }
 
-function localeOf(instance) {
-  const list = Array.isArray(instance?.languages) ? instance.languages : [];
-  if (list.includes("zh-CN")) return "zh-CN";
-  if (list.includes("zh-TW")) return "zh-TW";
-  return "en";
-}
-
-// buildMail 要一份「申请单形状」的对象；清单条目补齐所需字段就够了。
-function asApplication(instance) {
+// buildMail 要一份「申请单形状」的对象；档案副本与申请单补齐所需字段。
+function asApplication(instance, { profiles = {}, applications = null } = {}) {
+  const site = siteOf(profiles, instance.id);
+  const application = applicationOf(applications, instance);
   return {
     id: instance.id,
-    name: nameOf(instance),
+    name: site.name || instance.id,
     url: instance.url,
-    operator: nameOf(instance),
-    email: instance.contact || "",
-    region: callIt(instance),
-    timezone: instance.timezone || "UTC",
-    intro: "",
-    tags: [],
-    locale: localeOf(instance),
+    operator: site.owner || site.name || instance.id,
+    // 优先用申请单里的邮箱：那是申请人自己填的、经过验证的渠道。
+    email: application?.email || site.contact || "",
+    region: site.region || "GLOBAL",
+    timezone: site.timezone || "UTC",
+    intro: site.intro || "",
+    tags: Array.isArray(site.tags) ? site.tags : [],
+    // 申请单上申请人选的语种；没有就按门户默认的英文发。
+    locale: application?.locale || "en",
     since: instance.since,
   };
 }
@@ -81,6 +83,8 @@ const ROUTES = {
 export async function watch(options = {}) {
   const {
     instancesPath = path.join(ROOT, "instances.json"),
+    profilesDir = path.join(ROOT, "var", "profiles"),
+    applications = null,
     healthPath = path.join(ROOT, "var", "health.json"),
     dryRun = false,
     mail = true,
@@ -95,6 +99,7 @@ export async function watch(options = {}) {
     throw new Error(`cannot read instances: ${instancesPath}`);
   }
 
+  const profiles = await readProfiles(profilesDir);
   // --dry-run 不写状态：否则一次预览就会把 notified 标记吃掉，真正的那封信再也发不出去。
   const result = await check({
     instancesPath,
@@ -114,7 +119,9 @@ export async function watch(options = {}) {
     if (!instance || !route) continue;
 
     const state = result.instances?.[notice.id] || {};
-    const application = asApplication(instance);
+    const application = asApplication(instance, { profiles, applications });
+    // 伙伴信按申请人填的语种发；给运营自己的提醒固定用中文，免得运营收到英文。
+    if (route.audience !== "partner") application.locale = "zh-CN";
     const vars = {
       origin: config?.origin || "https://xknot.si",
       adminEmail: config?.adminEmail || "",
@@ -174,7 +181,15 @@ function parseArgs(argv) {
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const args = parseArgs(process.argv.slice(2));
-  watch({ ...args, log: (line) => console.log(line) })
+  // 收件人优先取申请单（申请人自己填的邮箱与语种），读不到就只用档案副本里的联系方式。
+  let applications = null;
+  try {
+    const { openStore } = await import("../server/store.mjs");
+    applications = openStore(path.join(ROOT, "var", "xknot.db")).listApplications({ limit: 500 });
+  } catch (error) {
+    console.log(`读不到申请单（${error.code || error.message}），收件人只看站点档案。`);
+  }
+  watch({ ...args, applications, log: (line) => console.log(line) })
     .then((result) => {
       const states = Object.values(result.instances || {});
       const hidden = states.filter((state) => state.hiddenAt).length;

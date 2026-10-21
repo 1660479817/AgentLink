@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -41,6 +41,9 @@ async function start(t, options = {}) {
       healthProvider: () => options.health || null,
       instancesFile: options.instancesFile || null,
       federationFile: options.federationFile || null,
+      profilesDir: options.profilesDir || null,
+      statsDir: options.statsDir || null,
+      cardsDir: options.cardsDir || null,
     },
   });
   const server = createServer((req, res) => {
@@ -826,4 +829,161 @@ test("api: admin edits instance config and both files are validated", async (t) 
     body: { instance: { status: "active" } },
   });
   assert.equal(anonymous.status, 401);
+});
+
+/* ---- 成员入口与子域查询 ---- */
+
+const MEMBER_INSTANCE = {
+  id: "nordhavn",
+  url: "https://nordhavn.xknot.si",
+  since: "2026-10-01",
+  tier: "community",
+  status: "active",
+};
+
+function memberFixture() {
+  const dir = mkdtempSync(path.join(tmpdir(), "xknot-member-"));
+  for (const name of ["profiles", "stats", "cards"]) mkdirSync(path.join(dir, name), { recursive: true });
+  writeFileSync(
+    path.join(dir, "profiles", "nordhavn.json"),
+    JSON.stringify({
+      formatVersion: 2,
+      updatedAt: "2026-10-20",
+      site: { name: "北港", tagline: "北海沿岸的慢阅读与长文笔记。" },
+      fetchedAt: "2026-10-20T08:00:00.000Z",
+    })
+  );
+  writeFileSync(
+    path.join(dir, "stats", "nordhavn.json"),
+    JSON.stringify({
+      posts: { total: 42, last24h: 3 },
+      accounts: { total: 7 },
+      fetchedAt: "2026-10-20T09:00:00.000Z",
+    })
+  );
+  writeFileSync(path.join(dir, "cards", "nordhavn.json"), JSON.stringify({ cards: [{}, {}] }));
+  return dir;
+}
+
+async function startMember(t) {
+  const dir = memberFixture();
+  const sent = [];
+  const mailer = {
+    send: async (message) => {
+      sent.push(message);
+      return { ok: true };
+    },
+  };
+  const health = {
+    instances: { nordhavn: { status: "up", latencyMs: 42, lastOkAt: "2026-10-21T06:00:00.000Z" } },
+    checkedAt: "2026-10-21T06:05:00.000Z",
+  };
+  const app = await start(t, {
+    mailer,
+    instances: [MEMBER_INSTANCE],
+    health,
+    profilesDir: path.join(dir, "profiles"),
+    statsDir: path.join(dir, "stats"),
+    cardsDir: path.join(dir, "cards"),
+  });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const application = app.store.createApplication({ ...valid, email: "lin@example.com" });
+  app.store.markEmailVerified(application.id);
+  app.store.transition({ id: application.id, to: "approved" });
+  return { ...app, sent, mailer };
+}
+
+test("member: 非成员与成员拿到同一句回执，只有成员收得到信", async (t) => {
+  const { call, sent } = await startMember(t);
+
+  const outsider = await call("/api/member/code", {
+    method: "POST",
+    body: { email: "nobody@example.com" },
+  });
+  assert.equal(outsider.status, 202);
+  assert.equal(sent.length, 0, "非成员不发信");
+
+  const member = await call("/api/member/code", {
+    method: "POST",
+    body: { email: "LIN@example.com" },
+  });
+  assert.equal(member.status, 202);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, "lin@example.com");
+  assert.match(sent[0].text, /\b\d{6}\b/);
+});
+
+test("member: 授权码只能用一次，登录后能看到本站的健康、计数与橱窗", async (t) => {
+  const { call, sent } = await startMember(t);
+
+  await call("/api/member/code", { method: "POST", body: { email: "lin@example.com" } });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const code = sent[0].text.match(/\b(\d{6})\b/)[1];
+
+  const login = await call("/api/member/session", {
+    method: "POST",
+    body: { email: "lin@example.com", code },
+  });
+  assert.equal(login.status, 200);
+  assert.equal(login.data.session.instanceId, "nordhavn");
+  assert.equal(login.data.overview.site.name, "北港");
+  assert.equal(login.data.overview.health.status, "up");
+  assert.equal(login.data.overview.health.latencyMs, 42);
+  assert.equal(login.data.overview.stats.posts.total, 42);
+  assert.equal(login.data.overview.stats.posts.last24h, 3);
+  assert.equal(login.data.overview.cards, 2);
+  assert.equal(login.data.overview.listed, true);
+
+  const cookie = (login.headers.get("set-cookie") || "").split(";")[0];
+  assert.match(cookie, /^xknot_member=/);
+
+  const again = await call("/api/member/session", { method: "POST", body: { email: "lin@example.com", code } });
+  assert.equal(again.status, 401, "同一枚码不能用第二次");
+
+  const current = await call("/api/member/session", { cookie });
+  assert.equal(current.status, 200);
+  assert.equal(current.data.overview.member.email, "lin@example.com");
+
+  const out = await call("/api/member/logout", { method: "POST", cookie, body: {} });
+  assert.equal(out.status, 200);
+  assert.equal((await call("/api/member/session", { cookie })).status, 401);
+});
+
+test("member: 同一邮箱十分钟内最多要三枚码", async (t) => {
+  const { call } = await startMember(t);
+  for (let i = 0; i < 3; i += 1) {
+    assert.equal((await call("/api/member/code", { method: "POST", body: { email: "lin@example.com" } })).status, 202);
+  }
+  const fourth = await call("/api/member/code", { method: "POST", body: { email: "lin@example.com" } });
+  assert.equal(fourth.status, 429);
+  assert.equal(fourth.data.error, "rate_limited");
+});
+
+test("subdomain: 太短、保留词、已占用与可用各给一个理由", async (t) => {
+  const { call, store } = await startMember(t);
+
+  const short = await call("/api/subdomains/check?label=abc");
+  assert.equal(short.status, 200);
+  assert.equal(short.data.available, false);
+  assert.equal(short.data.reason, "too_short");
+  assert.equal(short.data.min, 6);
+
+  assert.equal((await call("/api/subdomains/check?label=status")).data.reason, "reserved");
+
+  // 名册里的实例占着自己的标签
+  assert.equal((await call("/api/subdomains/check?label=nordhavn")).data.reason, "taken");
+
+  // 还在审核里的申请也占着
+  store.createApplication({ ...valid, subdomain: "pending-one", email: "other@example.com" });
+  assert.equal((await call("/api/subdomains/check?label=pending-one")).data.reason, "taken");
+
+  const free = await call("/api/subdomains/check?label=Hello-World");
+  assert.equal(free.data.available, true);
+  assert.equal(free.data.label, "hello-world");
+
+  const whole = await call("/api/subdomains/check?label=https://hello-world.xknot.si/");
+  assert.equal(whole.data.label, "hello-world");
+  assert.equal(whole.data.available, true);
 });

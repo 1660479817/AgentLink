@@ -460,6 +460,41 @@ textarea:focus {
   width: 100%;
 }
 
+/* 子域输入：输入框 + 固定后缀 + 检查键，视觉上是一条完整地址。 */
+.host-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+}
+
+.host-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+}
+
+.host-suffix {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-left: 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: #f5f6f7;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.host-row .button {
+  flex: 0 0 auto;
+}
+
 /* 站点档案：一行三份语种，行标签单独占一格。 */
 .form-grid {
   display: grid;
@@ -478,37 +513,7 @@ textarea:focus {
   font-weight: 400;
 }
 
-/* 三份语种固定一行；窄屏才竖着排。 */
-.locale-row {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-@media (max-width: 560px) {
-  .locale-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.profile-social {
-  width: 100%;
-  padding: 12px;
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--radius-sm);
-}
-
-.profile-social legend {
-  padding: 0 6px;
-  color: var(--text);
-  font-weight: 600;
-}
-
-.profile-social-row {
-  display: grid;
-  grid-template-columns: minmax(90px, 0.6fr) minmax(180px, 2fr) auto;
-  gap: 8px;
-  align-items: end;
-  width: 100%;
-}
+/* 表单 */
 
 .check {
   display: flex;

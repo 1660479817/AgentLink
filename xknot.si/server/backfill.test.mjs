@@ -13,12 +13,11 @@ const manifest = {
 };
 
 const profile = {
-  profile: {
-    name: { "zh-CN": "王家小站", en: "Wang's Place" },
-    owner: { "zh-CN": "PaulWang" },
-    intro: { oneLine: { "zh-CN": "只收值得换的信息。" } },
-    languages: ["zh-CN"],
-    regions: ["CN"],
+  site: {
+    name: "王家小站",
+    owner: "PaulWang",
+    tagline: "只收值得换的信息。",
+    region: "CN",
     timezone: "Asia/Shanghai",
     tags: ["exchange"],
   },
@@ -60,8 +59,8 @@ test("the backfilled application carries the signer's facts and says where it ca
   assert.equal(app.name, "王家小站");
   assert.equal(app.operator, "PaulWang");
   assert.equal(app.intro, "只收值得换的信息。");
+  assert.equal(app.region, "CN");
   assert.equal(app.timezone, "Asia/Shanghai");
-  assert.equal(app.locale, "zh-CN");
   assert.deepEqual(app.tags, ["exchange"]);
   // 签发日取自清单，不是补记这天。
   assert.equal(app.verifiedAt, "2026-10-19T00:00:00.000Z");

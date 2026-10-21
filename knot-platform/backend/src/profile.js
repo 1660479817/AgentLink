@@ -1,80 +1,50 @@
-// 站点档案：主理人自己写的那一半（自述区）。
+// 站点档案：主理人自己写的那一份（自述区）。
 //
-// 文件在 sites/<站点>/profile.json，结构见 docs/PROFILE.md：
-//   { "formatVersion": 1, "updatedAt": "YYYY-MM-DD", "profile": { ... } }
+// 文件在 sites/<站点>/profile.json：
+//   { "formatVersion": 2, "updatedAt": "YYYY-MM-DD", "site": { ... } }
 //
-// 另一半（签发区：id、url、since、tier、status）由中枢决定，写在
-// sites/<站点>/xknot.env，这里只读它、不写。两半合起来就是
-// GET /api/federation/profile 返回的那一份，也是中枢取回的输入。
+// 九项全是扁平的字符串（tags 是字符串数组），不按语种拆分：主理人填什么，
+// 本站就显示什么，中枢原样取回。另一半（签发区：id、url、since、tier、status）
+// 由中枢决定，写在 sites/<站点>/xknot.env，这里只读、不写。
 //
-// 校验规则以 xknot.si/ops/profile-schema.mjs 为准。实例侧只做同一套规则的
-// 最小实现：多语种白名单、长度上限、https 地址、时区与地区码。
+// 校验规则以 xknot.si/ops/profile-schema.mjs 为准，这里是同一套规则的最小实现。
+// 两份实现都不做「取当前语种」这一步：v2 起没有多语种字段。
 
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-export const FORMAT_VERSION = 1;
-export const LOCALE_IDS = ["zh-CN", "zh-TW", "en"];
+export const FORMAT_VERSION = 2;
 
 export const LIMITS = {
   name: 40,
-  shortName: 12,
-  operator: 80,
+  tagline: 60,
+  intro: 800,
+  logo: 300,
   owner: 40,
-  oneLine: 60,
-  long: 800,
-  tag: 32,
-  tags: 5,
   contact: 120,
-  url: 300,
-  color: 7,
-  vertical: 32,
-  social: 5,
-  socialLabel: 32,
+  region: 2,
+  timezone: 40,
+  tag: 16,
+  tags: 9,
 };
 
-const FIELDS = [
-  "name",
-  "shortName",
-  "logo",
-  "themeColor",
-  "vertical",
-  "tags",
-  "languages",
-  "regions",
-  "timezone",
-  "operator",
-  "owner",
-  "intro",
-  "contact",
-  "social",
-  "termsUrl",
-  "privacyUrl",
-  "moderationUrl",
-];
-
-const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+export const FIELDS = ["name", "tagline", "intro", "logo", "owner", "contact", "region", "timezone", "tags"];
 
 /** 站点没交档案时用它：留空，让 WebUI 用自己的兜底。 */
-export const EMPTY_PROFILE = Object.freeze({
+export const EMPTY_SITE = Object.freeze({
   name: null,
+  tagline: null,
   intro: null,
-  contact: null,
+  logo: "",
+  owner: null,
+  contact: "",
+  region: null,
+  timezone: null,
+  tags: [],
 });
 
-/**
- * 自述区文件的位置：和接入件 xknot.env 放在同一个站点目录。
- * 部署脚本把 KNOT_AGENT_ENV_DIR 写成 <部署根>/sites/<站点>/agents，
- * 它的上级目录就是站点目录；也可以用 KNOT_PROFILE_FILE 直接指定。
- */
-export function profileFilePath(env = process.env, agentEnvDir = null) {
-  const explicit = String(env.KNOT_PROFILE_FILE || "").trim();
-  if (explicit) return path.resolve(explicit);
-  const dir = String(agentEnvDir || "").trim();
-  if (dir) return path.join(path.dirname(dir), "profile.json");
-  return null;
-}
+const REGION_RE = /^[A-Z]{2}$/;
 
 export function isHttpsUrl(value) {
   if (typeof value !== "string" || !value.trim()) return false;
@@ -95,253 +65,132 @@ function validTimeZone(value) {
   }
 }
 
-function isCountryCode(value) {
-  return typeof value === "string" && /^[A-Z]{2}$/.test(value);
-}
-
 function lengthOf(text) {
   return [...text].length;
 }
 
 function cleanText(value, max) {
   if (typeof value !== "string") return null;
+  // 控制字符换成空格；零宽字符不算内容，靠后面的 trim 收掉。
   const text = value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ").trim();
   if (!text) return null;
   return lengthOf(text) > max ? [...text].slice(0, max).join("").trimEnd() : text;
 }
 
-function cleanLocaleMap(value, max, { required = false, field, problems }) {
-  if (value == null) {
-    if (required) problems.push(`${field}: required`);
-    return null;
-  }
-  if (typeof value !== "object" || Array.isArray(value)) {
-    problems.push(`${field}: must be a locale map, not a plain value`);
-    return null;
-  }
-  const out = {};
-  for (const [key, raw] of Object.entries(value)) {
-    if (!LOCALE_IDS.includes(key)) {
-      problems.push(`${field}.${key}: unknown locale`);
-      continue;
-    }
-    const text = cleanText(raw, max);
-    if (!text) {
-      problems.push(`${field}.${key}: empty string, omit the key instead`);
-      continue;
-    }
-    out[key] = text;
-  }
-  if (!Object.keys(out).length) {
-    if (required) problems.push(`${field}: required`);
-    return null;
-  }
-  return out;
-}
-
-function cleanTags(value, problems) {
-  if (value == null) return null;
-  if (typeof value !== "object" || Array.isArray(value)) {
-    problems.push("tags: must be a locale map of string arrays");
-    return null;
-  }
-  const out = {};
-  for (const [key, list] of Object.entries(value)) {
-    if (!LOCALE_IDS.includes(key)) {
-      problems.push(`tags.${key}: unknown locale`);
-      continue;
-    }
-    if (!Array.isArray(list)) {
-      problems.push(`tags.${key}: must be an array`);
-      continue;
-    }
-    const tags = list.map((raw) => cleanText(raw, LIMITS.tag)).filter(Boolean);
-    if (tags.length > LIMITS.tags) {
-      problems.push(`tags.${key}: more than ${LIMITS.tags}`);
-      continue;
-    }
-    if (tags.length) out[key] = tags;
-  }
-  return Object.keys(out).length ? out : null;
-}
-
-function cleanSocial(value, problems) {
-  if (value == null) return null;
-  if (!Array.isArray(value)) {
-    problems.push("social: must be an array");
-    return null;
-  }
-  if (value.length > LIMITS.social) {
-    problems.push(`social: more than ${LIMITS.social}`);
-    return null;
-  }
-  const out = [];
-  for (const [index, item] of value.entries()) {
-    const label = cleanText(item?.label, LIMITS.socialLabel);
-    const url = typeof item?.url === "string" ? item.url.trim() : "";
-    if (!label) problems.push(`social[${index}].label: required`);
-    if (!isHttpsUrl(url)) problems.push(`social[${index}].url: must be https`);
-    if (!label || !isHttpsUrl(url)) continue;
-    out.push({ label, url });
-  }
-  return out.length ? out : null;
-}
-
-function cleanNullableUrl(value, field, problems) {
+function cleanUrl(value, field, problems) {
   if (value == null || value === "") return null;
   if (!isHttpsUrl(value)) {
-    problems.push(`${field}: must be https, or null`);
+    problems.push(`${field}: must be https, or omit it`);
     return null;
   }
-  if (lengthOf(String(value)) > LIMITS.url) {
-    problems.push(`${field}: longer than ${LIMITS.url}`);
+  if (lengthOf(String(value)) > LIMITS.logo) {
+    problems.push(`${field}: longer than ${LIMITS.logo}`);
     return null;
   }
   return String(value).trim();
 }
 
+function cleanRegion(value, problems) {
+  if (value == null || value === "") return null;
+  const code = String(value).trim().toUpperCase();
+  if (code === "GLOBAL") return code;
+  // 中枢拿这张表分区域；这里只拦形状，认不出的码在中枢归入「其他」。
+  if (!REGION_RE.test(code)) {
+    problems.push("region: must be a two-letter country code, or GLOBAL");
+    return null;
+  }
+  return code;
+}
+
+// 自由文本标签：去空白、忽略大小写去重（保留第一次出现的写法）。
+// 顺序是主理人排的，不重排。空数组等于没填。
+function cleanTags(value, problems) {
+  if (value == null) return null;
+  if (!Array.isArray(value)) {
+    problems.push("tags: must be an array of strings");
+    return null;
+  }
+  const out = [];
+  const seen = new Set();
+  for (const raw of value) {
+    const tag = cleanText(raw, LIMITS.tag);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  if (out.length > LIMITS.tags) {
+    problems.push(`tags: more than ${LIMITS.tags}`);
+    return null;
+  }
+  return out.length ? out : null;
+}
+
 /**
  * 清洗一份自述区。有问题的字段被丢掉，问题列在 problems 里。
  * @param {unknown} input
- * @returns {{ ok: boolean, problems: string[], profile: object | null }}
+ * @returns {{ ok: boolean, problems: string[], site: object | null }}
  */
-export function cleanProfile(input) {
+export function cleanSite(input) {
   const problems = [];
-  if (input == null) return { ok: true, problems, profile: null };
+  if (input == null) return { ok: true, problems, site: null };
   if (typeof input !== "object" || Array.isArray(input)) {
-    return { ok: false, problems: ["profile: must be a JSON object"], profile: null };
+    return { ok: false, problems: ["site: must be a JSON object"], site: null };
   }
 
   for (const key of Object.keys(input)) {
     if (!FIELDS.includes(key)) problems.push(`${key}: unknown field, remove it`);
   }
 
-  const profile = {};
+  const site = {};
 
-  const name = cleanLocaleMap(input.name, LIMITS.name, { required: true, field: "name", problems });
-  if (name) profile.name = name;
+  const name = cleanText(input.name, LIMITS.name);
+  if (name) site.name = name;
 
-  const shortName = cleanLocaleMap(input.shortName, LIMITS.shortName, { field: "shortName", problems });
-  if (shortName) profile.shortName = shortName;
+  const tagline = cleanText(input.tagline, LIMITS.tagline);
+  if (tagline) site.tagline = tagline;
 
-  const operator = cleanLocaleMap(input.operator, LIMITS.operator, { field: "operator", problems });
-  if (operator) profile.operator = operator;
+  const intro = cleanText(input.intro, LIMITS.intro);
+  if (intro) site.intro = intro;
 
-  const owner = cleanLocaleMap(input.owner, LIMITS.owner, { field: "owner", problems });
-  if (owner) profile.owner = owner;
+  const logo = cleanUrl(input.logo, "logo", problems);
+  if (logo) site.logo = logo;
 
-  const intro = input.intro && typeof input.intro === "object" && !Array.isArray(input.intro) ? input.intro : {};
-  for (const key of Object.keys(intro)) {
-    if (key !== "oneLine" && key !== "long") problems.push(`intro.${key}: unknown field, remove it`);
-  }
-  const oneLine = cleanLocaleMap(intro.oneLine, LIMITS.oneLine, {
-    required: true,
-    field: "intro.oneLine",
-    problems,
-  });
-  const long = cleanLocaleMap(intro.long, LIMITS.long, { field: "intro.long", problems });
-  if (oneLine || long) profile.intro = { ...(oneLine ? { oneLine } : {}), ...(long ? { long } : {}) };
+  const owner = cleanText(input.owner, LIMITS.owner);
+  if (owner) site.owner = owner;
 
-  const logo = cleanNullableUrl(input.logo, "logo", problems);
-  if (logo) profile.logo = logo;
+  const contact = cleanText(input.contact, LIMITS.contact);
+  if (contact) site.contact = contact;
 
-  if (input.themeColor != null) {
-    const color = String(input.themeColor).trim();
-    if (!COLOR_RE.test(color)) problems.push("themeColor: must be #RRGGBB");
-    else profile.themeColor = color;
-  }
+  const region = cleanRegion(input.region, problems);
+  if (region) site.region = region;
 
-  if (input.vertical != null) {
-    const vertical = cleanText(input.vertical, LIMITS.vertical);
-    if (!vertical) problems.push("vertical: must be a short string");
-    else profile.vertical = vertical;
+  if (input.timezone != null && input.timezone !== "") {
+    const timezone = String(input.timezone).trim();
+    if (!validTimeZone(timezone)) problems.push(`timezone: unknown "${timezone}"`);
+    else site.timezone = timezone;
   }
 
   const tags = cleanTags(input.tags, problems);
-  if (tags) profile.tags = tags;
+  if (tags) site.tags = tags;
 
-  if (input.languages != null) {
-    if (!Array.isArray(input.languages) || !input.languages.length) {
-      problems.push("languages: must be a non-empty array");
-    } else {
-      const languages = [];
-      for (const tag of input.languages) {
-        if (!LOCALE_IDS.includes(tag)) problems.push(`languages: unknown locale "${tag}"`);
-        else if (!languages.includes(tag)) languages.push(tag);
-      }
-      if (languages.length) profile.languages = languages;
-    }
-  }
+  // 顶栏、登录卡、分享图都要一个名字；其余都可以空着。
+  if (!site.name) problems.push("name: required");
 
-  if (input.regions != null) {
-    if (!Array.isArray(input.regions) || !input.regions.length) {
-      problems.push("regions: must be a non-empty array");
-    } else {
-      const regions = [];
-      for (const code of input.regions) {
-        if (!isCountryCode(code) && code !== "GLOBAL") problems.push(`regions: unknown code "${code}"`);
-        else if (!regions.includes(code)) regions.push(code);
-      }
-      if (regions.includes("GLOBAL") && regions.length > 1) problems.push("regions: GLOBAL must be used alone");
-      else if (regions.length) profile.regions = regions;
-    }
-  }
-
-  if (input.timezone != null) {
-    const timezone = String(input.timezone).trim();
-    if (!validTimeZone(timezone)) problems.push(`timezone: unknown "${timezone}"`);
-    else profile.timezone = timezone;
-  }
-
-  if (input.contact != null) {
-    const contact = cleanText(input.contact, LIMITS.contact);
-    if (!contact) problems.push("contact: must be a non-empty string, or omit it");
-    else profile.contact = contact;
-  }
-
-  const social = cleanSocial(input.social, problems);
-  if (social) profile.social = social;
-
-  for (const field of ["termsUrl", "privacyUrl", "moderationUrl"]) {
-    const url = cleanNullableUrl(input[field], field, problems);
-    if (url) profile[field] = url;
-  }
-
-  // 门户必须能显示一个名字和一句介绍；联系方式可选。
-  for (const field of ["name", "intro"]) {
-    if (!profile[field]) problems.push(`${field}: required`);
-  }
-
-  return { ok: problems.length === 0, problems, profile: problems.length ? null : profile };
+  return { ok: problems.length === 0, problems, site: problems.length ? null : site };
 }
 
-/**
- * 把档案里的多语种字段按当前语种取一个字符串，回退链见 docs/I18N.md：
- * 当前语种 → en → zh-CN → 任意有值的语种。
- * @param {Record<string, string> | null | undefined} map
- * @param {string} locale
- */
-export function pickLocale(map, locale) {
-  if (!map || typeof map !== "object") return "";
-  const order = [locale, "en", "zh-CN", "zh-TW"];
-  for (const key of order) {
-    const value = map[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  const first = Object.values(map).find((value) => typeof value === "string" && value.trim());
-  return first ? first.trim() : "";
-}
-
-/** WebUI 与分享图要的站点身份：名称、标语、logo、主理人、联系与长介绍。 */export function brandView(profile) {
-  const source = profile || {};
+/** WebUI 与分享图要的站点身份。九项里只有这六项会出现在本站界面上。 */
+export function brandView(site) {
+  const source = site || {};
   return {
     name: source.name || null,
-    tagline: source.intro?.oneLine || null,
+    tagline: source.tagline || null,
     logo: source.logo || "",
     owner: source.owner || null,
-    intro: source.intro?.long || null,
+    intro: source.intro || null,
     contact: source.contact || "",
-    themeColor: source.themeColor || "",
   };
 }
 
@@ -350,18 +199,29 @@ export function pickLocale(map, locale) {
  * @param {string | null} file
  */
 export function readProfileSync(file, { readFile = readFileSync } = {}) {
-  if (!file) return { profile: null, updatedAt: null };
+  if (!file) return { site: null, updatedAt: null };
   try {
     const payload = JSON.parse(readFile(file, "utf8"));
-    if (payload?.formatVersion !== FORMAT_VERSION) return { profile: null, updatedAt: null };
-    const cleaned = cleanProfile(payload.profile);
+    if (payload?.formatVersion !== FORMAT_VERSION) return { site: null, updatedAt: null };
+    const cleaned = cleanSite(payload.site);
     return {
-      profile: cleaned.profile || (cleaned.problems.length ? payload.profile : null),
+      site: cleaned.site || (cleaned.problems.length ? partialSite(payload.site) : null),
       updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : null,
     };
   } catch {
-    return { profile: null, updatedAt: null };
+    return { site: null, updatedAt: null };
   }
+}
+
+// 清洗失败时仍尽量给出一份可显示的档案：只做类型过滤，不抛错。
+function partialSite(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out = {};
+  for (const key of ["name", "tagline", "intro", "logo", "owner", "contact", "region", "timezone"]) {
+    if (typeof raw[key] === "string" && raw[key].trim()) out[key] = raw[key].trim();
+  }
+  if (Array.isArray(raw.tags)) out.tags = raw.tags.filter((tag) => typeof tag === "string" && tag.trim());
+  return Object.keys(out).length ? out : null;
 }
 
 /**
@@ -369,11 +229,11 @@ export function readProfileSync(file, { readFile = readFileSync } = {}) {
  * @param {{ file: string | null }} options
  */
 export function createProfileStore({ file = null } = {}) {
-  let state = { profile: null, updatedAt: null, problems: [], loaded: false };
+  let state = { site: null, updatedAt: null, problems: [], loaded: false };
 
   async function reload() {
     if (!file) {
-      state = { profile: null, updatedAt: null, problems: [], loaded: true };
+      state = { site: null, updatedAt: null, problems: [], loaded: true };
       return state;
     }
     let text;
@@ -381,56 +241,37 @@ export function createProfileStore({ file = null } = {}) {
       text = await readFile(file, "utf8");
     } catch (error) {
       if (error.code === "ENOENT") {
-        state = { profile: null, updatedAt: null, problems: [], loaded: true };
+        state = { site: null, updatedAt: null, problems: [], loaded: true };
         return state;
       }
-      state = { profile: null, updatedAt: null, problems: [`profile: ${error.code || "read_failed"}`], loaded: true };
+      state = { site: null, updatedAt: null, problems: [`profile: ${error.code || "read_failed"}`], loaded: true };
       return state;
     }
     let payload;
     try {
       payload = JSON.parse(text);
     } catch {
-      state = { profile: null, updatedAt: null, problems: ["profile: file is not valid JSON"], loaded: true };
+      state = { site: null, updatedAt: null, problems: ["profile: file is not valid JSON"], loaded: true };
       return state;
     }
     if (payload?.formatVersion !== FORMAT_VERSION) {
       state = {
-        profile: null,
+        site: null,
         updatedAt: null,
         problems: [`formatVersion: must be ${FORMAT_VERSION}`],
         loaded: true,
       };
       return state;
     }
-    const cleaned = cleanProfile(payload.profile);
+    const cleaned = cleanSite(payload.site);
     state = {
       // 有字段级问题时也保留能用的部分，页面不至于整块空白。
-      profile: cleaned.problems.length ? partialProfile(payload.profile) : cleaned.profile,
+      site: cleaned.problems.length ? partialSite(payload.site) : cleaned.site,
       updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : null,
       problems: cleaned.problems,
       loaded: true,
     };
     return state;
-  }
-
-  // 清洗失败时仍尽量给出一份可显示的档案：只做类型过滤，不抛错。
-  function partialProfile(raw) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-    const out = {};
-    for (const key of ["name", "shortName", "operator", "owner"]) {
-      if (raw[key] && typeof raw[key] === "object" && !Array.isArray(raw[key])) out[key] = raw[key];
-    }
-    if (raw.intro && typeof raw.intro === "object") {
-      out.intro = {};
-      if (raw.intro.oneLine && typeof raw.intro.oneLine === "object") out.intro.oneLine = raw.intro.oneLine;
-      if (raw.intro.long && typeof raw.intro.long === "object") out.intro.long = raw.intro.long;
-    }
-    if (typeof raw.logo === "string") out.logo = raw.logo;
-    if (typeof raw.contact === "string") out.contact = raw.contact;
-    if (typeof raw.themeColor === "string") out.themeColor = raw.themeColor;
-    if (Array.isArray(raw.social)) out.social = raw.social;
-    return out;
   }
 
   function view() {
@@ -439,25 +280,25 @@ export function createProfileStore({ file = null } = {}) {
 
   /**
    * 整份替换自述区。校验不过一个字节都不写。
-   * @param {{ profile: unknown, updatedAt?: string }} input
+   * @param {{ site: unknown }} input
    */
   async function save(input, { now = () => new Date() } = {}) {
+    const cleaned = cleanSite(input?.site);
+    if (!cleaned.ok || !cleaned.site) {
+      const error = new Error("bad_profile");
+      error.code = "bad_profile";
+      error.problems = cleaned.problems.length ? cleaned.problems : ["site: required"];
+      throw error;
+    }
     if (!file) {
       const error = new Error("profile_unconfigured");
       error.code = "profile_unconfigured";
       throw error;
     }
-    const cleaned = cleanProfile(input?.profile);
-    if (!cleaned.ok || !cleaned.profile) {
-      const error = new Error("bad_profile");
-      error.code = "bad_profile";
-      error.problems = cleaned.problems.length ? cleaned.problems : ["profile: required"];
-      throw error;
-    }
     const payload = {
       formatVersion: FORMAT_VERSION,
       updatedAt: now().toISOString().slice(0, 10),
-      profile: cleaned.profile,
+      site: cleaned.site,
     };
     await mkdir(path.dirname(file), { recursive: true });
     const tmp = `${file}.${process.pid}.tmp`;
@@ -468,4 +309,17 @@ export function createProfileStore({ file = null } = {}) {
   }
 
   return { reload, view, save, file };
+}
+
+/**
+ * 自述区文件的位置：和接入件 xknot.env 放在同一个站点目录。
+ * 部署脚本把 KNOT_AGENT_ENV_DIR 写成 <部署根>/sites/<站点>/agents，
+ * 它的上级目录就是站点目录；也可以用 KNOT_PROFILE_FILE 直接指定。
+ */
+export function profileFilePath(env = process.env, agentEnvDir = null) {
+  const explicit = String(env.KNOT_PROFILE_FILE || "").trim();
+  if (explicit) return path.resolve(explicit);
+  const dir = String(agentEnvDir || "").trim();
+  if (dir) return path.join(path.dirname(dir), "profile.json");
+  return null;
 }

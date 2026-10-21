@@ -13,7 +13,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { updateInstanceConfig } from "./edit.mjs";
+import { checkLabel, suggestLabels, SUBDOMAIN_MIN } from "../ops/subdomain.mjs";
 import { checkManifestEntry, toManifestEntry } from "./manifest.mjs";
+import { memberCodeMail } from "./member-mail.mjs";
 import { probeEnabled, probeTargetOf } from "../ops/probe-target.mjs";
 import {
   ALL_EVENTS,
@@ -36,6 +38,10 @@ import { LIMITS, validateApplication } from "./validate.mjs";
 
 const BODY_LIMIT = 16 * 1024;
 const COOKIE = "xknot_admin";
+// 成员会话与管理员会话用两个 Cookie：同一个人可能同时是访客和运营者。
+const MEMBER_COOKIE = "xknot_member";
+const MEMBER_CODE_TTL = 10; // 分钟
+const MEMBER_SESSION_DAYS = 30;
 
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
@@ -167,8 +173,8 @@ function bearerToken(req) {
   return match ? match[1] : null;
 }
 
-function cookieHeader(token, { secure, maxAge }) {
-  const parts = [`${COOKIE}=${token}`, "Path=/", "HttpOnly", "SameSite=Strict", `Max-Age=${maxAge}`];
+function cookieHeader(token, { secure, maxAge, name = COOKIE }) {
+  const parts = [`${name}=${token}`, "Path=/", "HttpOnly", "SameSite=Strict", `Max-Age=${maxAge}`];
   if (secure) parts.push("Secure");
   return parts.join("; ");
 }
@@ -241,6 +247,14 @@ export function createApp({ store, config }) {
   const partnerDomainLimit = createLimiter({ windowMs: 86400_000, max: PARTNER_MAIL_LIMITS.domain });
   const partnerGlobalLimit = createLimiter({ windowMs: 86400_000, max: PARTNER_MAIL_LIMITS.global });
   const pageLimit = createLimiter({ windowMs: 900_000, max: 60 });
+  // 子域查询是公开接口：给一个按 IP 的宽松上限，够一个人反复敲名字，
+  // 又不足以把整个空间枚举一遍。
+  const subdomainLimit = createLimiter({ windowMs: 60_000, max: 30 });
+  // 登录：一个邮箱 10 分钟最多要 3 枚码，一个 IP 一小时最多 10 次；
+  // 换码不等于换 IP，所以 IP 这层挡的是「拿字典刷不同邮箱」。
+  const memberCodeLimit = createLimiter({ windowMs: 600_000, max: 3 });
+  const memberCodeIpLimit = createLimiter({ windowMs: 3600_000, max: 10 });
+  const memberLoginLimit = createLimiter({ windowMs: 900_000, max: 12 });
   const mailer = config.mailer || null;
   const adminEmail = String(config.adminEmail || "").trim();
   const origin = String(config.origin || "https://xknot.si").replace(/\/+$/, "");
@@ -272,6 +286,8 @@ export function createApp({ store, config }) {
     instancesFile: typeof config.instancesFile === "string" ? config.instancesFile : null,
     federationFile: typeof config.federationFile === "string" ? config.federationFile : null,
     profilesDir: typeof config.profilesDir === "string" ? config.profilesDir : null,
+    statsDir: typeof config.statsDir === "string" ? config.statsDir : null,
+    cardsDir: typeof config.cardsDir === "string" ? config.cardsDir : null,
   };
   const startedAt = Date.now();
 
@@ -306,18 +322,131 @@ export function createApp({ store, config }) {
     }
   }
 
-  function cachedText(map) {
-    if (!map || typeof map !== "object") return "";
-    return map["zh-CN"] || map.en || map["zh-TW"] || "";
+  function cachedText(value) {
+    return typeof value === "string" ? value.trim() : "";
   }
 
-  // 一个实例的运营配置：名册里的账号信息 + 清单里的签发区与拉取入口。
-  // 名称、介绍、联系方式不在这里：那是主理人的自述区，中枢只存取回的副本。
+  // 委托发信要用实例的公开联系邮箱做默认回信地址。联系方式属于自述区，
+  // 清单里只有签发区，所以取回副本时把它拼进判断用的那份实例上。
+  function withSite(instance) {
+    const site = readCachedProfile(instance?.id)?.site;
+    if (!site || typeof site !== "object") return instance;
+    return { ...instance, contact: site.contact || null, name: site.name || null };
+  }
+
+  function readCachedJson(dir, id) {
+    if (!dir || !id) return null;
+    try {
+      const payload = JSON.parse(readFileSync(path.join(dir, `${id}.json`), "utf8"));
+      return payload && typeof payload === "object" && !Array.isArray(payload) ? payload : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 一个标签只要签发过、或正在审核里，就不能再给别人。
+  // 拒绝与撤回的单子释放标签：那两个状态下中枢不会去配 DNS。
+  function takenLabels() {
+    const taken = new Set();
+    for (const instance of Array.isArray(readInstances()) ? readInstances() : []) {
+      const host = hostOf(instance?.url);
+      if (host.endsWith(".xknot.si")) taken.add(host.slice(0, -".xknot.si".length));
+    }
+    for (const label of store.takenSubdomains()) taken.add(label);
+    return taken;
+  }
+
+  function instanceOfApplication(application) {
+    const list = Array.isArray(readInstances()) ? readInstances() : [];
+    const target = String(application?.url || "").replace(/\/+$/, "");
+    if (target) {
+      const byUrl = list.find((item) => String(item?.url || "").replace(/\/+$/, "") === target);
+      if (byUrl) return byUrl;
+    }
+    const label = String(application?.subdomain || "").trim();
+    if (!label) return null;
+    return list.find((item) => hostOf(item?.url) === `${label}.xknot.si`) || null;
+  }
+
+  // 成员身份只认审核通过、邮箱已验证的申请单：那是站点对外的正式联系地址。
+  // 一个邮箱可能交过几张单（换地址、补服务），取第一张还在册的。
+  function memberOf(email) {
+    for (const application of store.memberApplications(email)) {
+      const instance = instanceOfApplication(application);
+      if (instance) return { application, instance };
+    }
+    return null;
+  }
+
+  function normalizeEmail(value) {
+    const email = String(value || "").trim().toLowerCase();
+    if (email.length > 120) return "";
+    return /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email) ? email : "";
+  }
+
+  // 登录后看到的东西：本站的公开状态、自报的活动计数与橱窗条数。
+  // 全部来自中枢已经取回的副本，不再反向请求实例——门户不能借登录拿一份新的探测权。
+  function memberOverview({ email, instanceId }) {
+    const instance = findInstance(instanceId);
+    if (!instance) return null;
+    const site = readCachedProfile(instance.id)?.site || {};
+    const health = readHealth();
+    const probe =
+      health?.instances && typeof health.instances[instance.id] === "object" ? health.instances[instance.id] : null;
+    const stats = readCachedJson(settings.statsDir, instance.id);
+    const cards = readCachedJson(settings.cardsDir, instance.id);
+    const status = instance.status || "active";
+
+    return {
+      member: {
+        email,
+        instanceId: instance.id,
+        since: instance.since || null,
+        tier: instance.tier || "community",
+        status,
+      },
+      site: {
+        name: cachedText(site.name) || instance.id,
+        tagline: cachedText(site.tagline) || null,
+        intro: cachedText(site.intro) || null,
+        logo: cachedText(site.logo) || null,
+        url: instance.url || "",
+        region: cachedText(site.region) || null,
+        timezone: cachedText(site.timezone) || null,
+        tags: Array.isArray(site.tags) ? site.tags : [],
+      },
+      // pending 还没验收，没有任何探测结果可看；suspended / retired 由运营方决定，不展示在线态。
+      health: {
+        status:
+          status === "pending"
+            ? "pending"
+            : status !== "active"
+              ? status
+              : probe?.status || "unknown",
+        latencyMs: status === "active" ? probe?.latencyMs ?? null : null,
+        lastOkAt: status === "active" ? probe?.lastOkAt ?? null : null,
+        version: status === "active" ? probe?.version ?? null : null,
+        checkedAt: health?.checkedAt ?? null,
+      },
+      stats: stats
+        ? {
+            posts: stats.posts || null,
+            accounts: stats.accounts || null,
+            authors: stats.authors || null,
+            fetchedAt: stats.fetchedAt || null,
+          }
+        : null,
+      cards: Array.isArray(cards?.cards) ? cards.cards.length : 0,
+      listed: status === "active",
+    };
+  }
+
+  // 一个实例的运营配置：名册里的账号信息 + 清单里的签发区与拉取入口。  // 名称、介绍、联系方式不在这里：那是主理人的自述区，中枢只存取回的副本。
   function instanceConfig(instance, member) {
     const tunnel = member?.tunnel && typeof member.tunnel === "object" ? member.tunnel : null;
     const cached = readCachedProfile(instance.id);
     return {
-      name: cachedText(cached?.profile?.name) || instance.id || "",
+      name: cachedText(cached?.site?.name) || instance.id || "",
       tier: instance.tier || "community",
       status: instance.status || "active",
       host: member?.host || hostOf(instance.url) || "",
@@ -372,11 +501,11 @@ export function createApp({ store, config }) {
       return {
         id: instance.id,
         // 名字来自实例自述的副本；还没取回时显示 id。
-        name: cachedText(cached?.profile?.name) || instanceName(instance),
+        name: cachedText(cached?.site?.name) || instanceName(instance),
         url: instance.url || "",
         tier: instance.tier || "community",
         status: instance.status || "active",
-        regions: Array.isArray(cached?.profile?.regions) ? cached.profile.regions : [],
+        regions: cachedText(cached?.site?.region) ? [cachedText(cached.site.region)] : [],
         profileFetchedAt: cached?.fetchedAt || null,
         services: {
           cards: Boolean(instance.cardsUrl),
@@ -560,6 +689,13 @@ export function createApp({ store, config }) {
     return admin ? { ...admin, token } : null;
   }
 
+  function currentMember(req) {
+    const token = parseCookies(req.headers.cookie)[MEMBER_COOKIE];
+    if (!token) return null;
+    const session = store.memberSession(token);
+    return session ? { ...session, token } : null;
+  }
+
   async function serveAdminFile(req, res, name) {
     if (!adminDir) return send(res, 404, { error: "not_found" });
     const file = name === "" || name === "/" ? "index.html" : name.replace(/^\//, "");
@@ -593,9 +729,10 @@ export function createApp({ store, config }) {
     if (grant.error === "revoked") return send(res, 401, { error: "token_revoked" });
     if (!grant.token) return send(res, 401, { error: "invalid_token" });
 
-    const instance = findInstance(grant.token.instanceId);
-    if (!instance) return send(res, 403, { error: "instance_not_listed" });
-    if (instance.status !== "active") return send(res, 403, { error: "instance_inactive" });
+    const listed = findInstance(grant.token.instanceId);
+    if (!listed) return send(res, 403, { error: "instance_not_listed" });
+    if (listed.status !== "active") return send(res, 403, { error: "instance_inactive" });
+    const instance = withSite(listed);
 
     const limit = Math.min(grant.token.dailyLimit || relayDefaultLimit, relayDefaultLimit);
     const since = new Date(Date.now() - 24 * 3600_000).toISOString();
@@ -739,6 +876,176 @@ export function createApp({ store, config }) {
     // ---- 联邦：实例委托发信（Bearer 鉴权，不看 Cookie）----
 
     if (route === "/api/federation/mail") return handleRelay(req, res);
+
+    // ---- 公开：一个子域标签能不能签 ----
+    //
+    // 端侧只展示这个结论。查重把清单与未结案的申请单一起算：审核中的标签
+    // 如果显示「可用」，用户会以为还有机会，提交后却被拒。
+
+    if (route === "/api/subdomains/check" && method === "GET") {
+      const hit = subdomainLimit(ipHash(clientIp(req, trustProxy), secret));
+      if (!hit.allowed) {
+        return send(
+          res,
+          429,
+          { error: "rate_limited", retryAfter: hit.retryAfter },
+          { "retry-after": String(hit.retryAfter) }
+        );
+      }
+      const input = url.searchParams.get("label") || "";
+      const taken = takenLabels();
+      const result = checkLabel(input, { taken });
+      return send(res, 200, {
+        label: result.label,
+        available: result.available,
+        reason: result.reason,
+        min: SUBDOMAIN_MIN,
+        suggestions: result.available ? [] : suggestLabels(input, { taken }),
+      });
+    }
+
+    // ---- 成员入口：邮箱 + 一次性授权码 ----
+
+    if (route === "/api/member/code" && method === "POST") {
+      // 没有发信能力时明确说一句：否则用户会一直等一封不会来的信。
+      if (!mailer) return send(res, 503, { error: "mail_unavailable" });
+
+      const ip = clientIp(req, trustProxy);
+      const ipHit = memberCodeIpLimit(ipHash(ip, secret));
+      if (!ipHit.allowed) {
+        return send(
+          res,
+          429,
+          { error: "rate_limited", retryAfter: ipHit.retryAfter },
+          { "retry-after": String(ipHit.retryAfter) }
+        );
+      }
+
+      const body = await readBody(req);
+      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
+      if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+
+      const email = normalizeEmail(body.email);
+      if (!email) return send(res, 400, { error: "invalid_email" });
+
+      const emailHit = memberCodeLimit(ipHash(`email:${email}`, secret));
+      if (!emailHit.allowed) {
+        return send(
+          res,
+          429,
+          { error: "rate_limited", retryAfter: emailHit.retryAfter },
+          { "retry-after": String(emailHit.retryAfter) }
+        );
+      }
+
+      // 不是成员也回同一句话：这个接口不能变成「某某邮箱是不是成员」的探测器。
+      const match = memberOf(email);
+      if (match) {
+        const issued = store.issueMemberCode({
+          email,
+          instanceId: match.instance.id,
+          ttlMinutes: MEMBER_CODE_TTL,
+        });
+        if (!issued.error) {
+          const message = memberCodeMail({
+            email,
+            code: issued.code,
+            ttlMinutes: MEMBER_CODE_TTL,
+            locale: body.locale || match.application.locale || "zh-CN",
+          });
+          Promise.resolve()
+            .then(() => mailer.send(message))
+            .catch((error) => console.error("member code mail failed:", error.message));
+        }
+      }
+
+      return send(res, 202, { status: "sent", ttlMinutes: MEMBER_CODE_TTL });
+    }
+
+    if (route === "/api/member/session" && method === "POST") {
+      const ip = clientIp(req, trustProxy);
+      const hit = memberLoginLimit(ipHash(ip, secret));
+      if (!hit.allowed) {
+        return send(
+          res,
+          429,
+          { error: "rate_limited", retryAfter: hit.retryAfter },
+          { "retry-after": String(hit.retryAfter) }
+        );
+      }
+
+      const body = await readBody(req);
+      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
+      if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+
+      const email = normalizeEmail(body.email);
+      const code = String(body.code || "").replace(/\s+/g, "");
+      if (!email || !/^[0-9]{6}$/.test(code)) return send(res, 400, { error: "invalid_code" });
+
+      const result = store.consumeMemberCode({ email, code });
+      if (result.error === "expired") return send(res, 401, { error: "invalid_code", reason: "expired" });
+      if (result.error === "too_many_attempts") {
+        return send(res, 429, { error: "invalid_code", reason: "too_many_attempts" });
+      }
+      if (result.error) return send(res, 401, { error: "invalid_code", reason: "mismatch" });
+
+      const overview = memberOverview(result);
+      if (!overview) return send(res, 403, { error: "not_member" });
+
+      store.pruneMemberSessions();
+      const session = store.createMemberSession({
+        email: result.email,
+        instanceId: result.instanceId,
+        days: MEMBER_SESSION_DAYS,
+      });
+      return send(
+        res,
+        200,
+        {
+          session: { email: result.email, instanceId: result.instanceId, expiresAt: session.expiresAt },
+          overview,
+        },
+        {
+          "set-cookie": cookieHeader(session.token, {
+            secure: secureCookies,
+            maxAge: MEMBER_SESSION_DAYS * 86400,
+            name: MEMBER_COOKIE,
+          }),
+        }
+      );
+    }
+
+    if (route === "/api/member/session" && method === "GET") {
+      const member = currentMember(req);
+      if (!member) return send(res, 401, { error: "unauthenticated" });
+      const overview = memberOverview(member);
+      if (!overview) {
+        // 站点被移出名册后，旧会话不该继续显示一份冻结的数据。
+        store.deleteMemberSession(member.token);
+        return send(res, 401, { error: "unauthenticated" });
+      }
+      return send(res, 200, {
+        session: { email: member.email, instanceId: member.instanceId, expiresAt: member.expiresAt },
+        overview,
+      });
+    }
+
+    if (route === "/api/member/logout" && method === "POST") {
+      const member = currentMember(req);
+      if (member) store.deleteMemberSession(member.token);
+      return send(
+        res,
+        200,
+        { ok: true },
+        {
+          "set-cookie": cookieHeader("", {
+            secure: secureCookies,
+            maxAge: 0,
+            name: MEMBER_COOKIE,
+          }),
+        }
+      );
+    }
 
     // ---- 伙伴：确认邮箱（GET 只给页面，POST 才消费）----
 

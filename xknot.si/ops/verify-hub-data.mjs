@@ -100,9 +100,8 @@ export function verifyHubData({ data, manifest, fixtures = null, requireProfile 
     // 名称来自实例自述的副本；没有副本时 buildHubData 会退回 id。
     // 门户能显示，但等于没有站点介绍 —— 让它在发布前露出来。
     if (requireProfile) {
-      const name = item?.name && typeof item.name === "object" ? item.name : {};
-      const named = Object.values(name).some((value) => typeof value === "string" && value && value !== id);
-      if (!named) problems.push(`${id}: no profile name, the portal would show the id`);
+      const name = typeof item?.name === "string" ? item.name.trim() : "";
+      if (!name || name === id) problems.push(`${id}: no profile name, the portal would show the id`);
       if (!item?.profileFetchedAt) {
         problems.push(`${id}: profile has never been fetched (run ops/fetch-profile.mjs)`);
       }

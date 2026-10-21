@@ -1,7 +1,5 @@
 import { defineStore } from "pinia";
 import { confirmLoginKey, endSession, getDelegation, getSession, requestLoginKey } from "../api.js";
-import { pickLocale } from "../brand.js";
-import { locale } from "../i18n/index.js";
 
 const INITIAL_POLICY = {
   defaultPrice: 10,
@@ -20,7 +18,7 @@ const INITIAL_SITE = {
 };
 
 // 站点身份来自 sites/<站点>/profile.json（主理人在 /admin 里编辑）。
-// 多语种字段是 { "zh-CN": … } 这样的表，按当前界面语种取一个字符串。
+// v2 起是九项扁平字段，没有多语种映射：填什么就显示什么。
 const INITIAL_BRAND = {
   name: null,
   tagline: null,
@@ -29,7 +27,6 @@ const INITIAL_BRAND = {
   owner: null,
   intro: null,
   contact: "",
-  themeColor: "",
 };
 
 let loading = null;
@@ -50,16 +47,16 @@ export const useSessionStore = defineStore("session", {
   getters: {
     // 未登录能不能进站内。登录的人永远可以；访客看系统开关。
     canBrowse: (state) => Boolean(state.user) || state.site.guestBrowsing,
-    // 站点名：按界面语种取，没填时回落到默认名。
-    brandName: (state) => pickLocale(state.brand?.name, locale.value) || "Knot",
+    // 站点名：主理人填的原文，没填时回落到默认名。
+    brandName: (state) => String(state.brand?.name || "").trim() || "Knot",
     // 一句话介绍，弹窗和登录卡用。
-    brandTagline: (state) => pickLocale(state.brand?.tagline, locale.value),
+    brandTagline: (state) => String(state.brand?.tagline || "").trim(),
     // 站点自己的 logo。没配就留空，由界面退回站点名首字。
     siteLogo: (state) => String(state.brand?.logo || "").trim(),
     // 主理人：名字、站点长介绍、联系方式，三项都可能为空，界面按项显示。
     owner: (state) => ({
-      name: pickLocale(state.brand?.owner, locale.value),
-      note: pickLocale(state.brand?.intro, locale.value),
+      name: String(state.brand?.owner || "").trim(),
+      note: String(state.brand?.intro || "").trim(),
       contact: String(state.brand?.contact || "").trim(),
     }),
   },

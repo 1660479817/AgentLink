@@ -1,227 +1,179 @@
 <script setup>
-import { computed, nextTick, onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import { OPERATOR_EMAIL, OPERATOR_NAME } from "../lib/contact.js";
-import { COUNTRY_CODES, REGION_GROUPS, groupOf } from "../lib/regions.js";
 
 const props = defineProps({
   locale: { type: String, required: true },
   t: { type: Function, required: true },
 });
 
-const LIMITS = { name: 40, intro: 60, operator: 80, email: 120, tags: 5, subdomain: 32, domain: 253 };
+// 部署入口与默认管理地址。地址不随语种变，所以不进 locale 文件。
+const REPO_URL = "https://github.com/manwjh/AgentLink/tree/main/knot-platform";
+const ADMIN_URL = "http://127.0.0.1:8080/admin";
 
-const form = ref({
-  name: "",
-  mode: "",
-  domain: "",
-  subdomain: "",
-  intro: "",
-  operator: "",
-  email: "",
-  region: "",
-  timezone: "",
-  tags: "",
-  agree: false,
-  website: "", // 蜜罐，正常用户看不见
+// ---- 登录 ----
+
+const step = ref("email"); // email | code | member
+const email = ref("");
+const code = ref("");
+const overview = ref(null);
+const notice = ref(""); // 一句提示，成功或失败都用它
+const noticeKind = ref("info"); // info | error
+const busy = ref(false);
+const emailError = ref(false);
+const codeError = ref(false);
+
+const member = computed(() => overview.value?.member || null);
+const site = computed(() => overview.value?.site || null);
+const health = computed(() => overview.value?.health || null);
+const stats = computed(() => overview.value?.stats || null);
+
+const statusKey = computed(() => {
+  const status = member.value?.status;
+  if (status === "pending") return "status.pending";
+  if (status === "suspended") return "status.suspended";
+  if (status === "retired") return "status.retired";
+  return "status.active";
 });
 
-const errors = ref({});
-const status = ref("idle"); // idle | busy | done
-const failure = ref("");
-const reference = ref("");
-const submittedAt = ref("");
+const healthKey = computed(() => `status.${health.value?.status || "unknown"}`);
 
-const busy = computed(() => status.value === "busy");
-
-// 国家名交给 Intl，语种切换后自动跟着变；取不到就退回代码。
-const regionOptions = computed(() => {
-  let names = null;
-  try {
-    names = new Intl.DisplayNames([props.locale], { type: "region" });
-  } catch {
-    names = null;
-  }
-  const order = new Map(REGION_GROUPS.map((key, index) => [key, index]));
-  return [...COUNTRY_CODES]
-    .map((code) => ({
-      code,
-      group: code === "GLOBAL" ? "global" : groupOf(code),
-      label: code === "GLOBAL" ? props.t("region.global") : names?.of(code) || code,
-    }))
-    .sort((a, b) => {
-      const byGroup = order.get(a.group) - order.get(b.group);
-      if (byGroup !== 0) return byGroup;
-      return a.label.localeCompare(b.label, props.locale);
-    });
-});
-
-const timezones = computed(() => {
-  try {
-    return Intl.supportedValuesOf?.("timeZone") || [];
-  } catch {
-    return [];
-  }
-});
-
-const introCount = computed(() => [...form.value.intro].length);
-const tagCount = computed(() =>
-  form.value.tags
-    .split(/[,，、\s]+/)
-    .map((tag) => tag.trim())
-    .filter(Boolean).length
-);
-
-const summary = computed(() => {
-  if (failure.value) return failure.value;
-  return Object.keys(errors.value).length ? props.t("formError.summary") : "";
-});
-
-function fieldError(key) {
-  const code = errors.value[key];
-  if (!code) return "";
-  // 先找带错误码的细分文案（subdomain 的 invalid / reserved / taken 不一样），
-  // 再退到这一格的 invalid，最后才是通称。t() 取不到时原样返回键名，正好用来判断。
-  const specific = props.t(`formError.${key}.${code}`);
-  if (specific !== `formError.${key}.${code}`) return specific;
-  const fallback = props.t(`formError.${key}.invalid`);
-  if (fallback !== `formError.${key}.invalid`) return fallback;
-  const text = props.t(`formError.${key}`);
-  return typeof text === "string" && text !== `formError.${key}` ? text : props.t("formError.generic");
+function when(value) {
+  if (!value) return "—";
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "—";
+  return at.toLocaleString(props.locale, { dateStyle: "short", timeStyle: "short" });
 }
 
-// 与服务端同一套规则：2–32 位小写字母、数字、连字符，首尾不能是连字符。
-const SUBDOMAIN_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])$/;
-
-// 自有域名：至少要有一个点、不能是中枢域名。完整校验仍在服务端。
-function looksLikeOwnDomain(value) {
-  const raw = value.trim().toLowerCase();
-  if (!raw) return false;
-  const host = raw
-    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
-    .replace(/[/?#].*$/, "")
-    .replace(/:\d+$/, "");
-  return /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(host)
-    && host !== "xknot.si"
-    && !host.endsWith(".xknot.si");
+function number(value) {
+  return typeof value === "number" ? value.toLocaleString(props.locale) : "—";
 }
 
-function check() {
-  const next = {};
-  const value = form.value;
-  const name = [...value.name.trim()].length;
-  if (name < 2 || name > LIMITS.name) next.name = "invalid";
-
-  if (value.mode !== "own-domain" && value.mode !== "subdomain") next.mode = "required";
-
-  if (value.mode === "own-domain" && !looksLikeOwnDomain(value.domain)) {
-    next.domain = "invalid";
-  }
-
-  if (value.mode === "subdomain") {
-    // 用户可能连后缀一起粘贴，这里只留标签。
-    const raw = value.subdomain.trim().toLowerCase();
-    const label = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/[/?#].*$/, "").replace(/\.xknot\.si$/, "");
-    if (!SUBDOMAIN_RE.test(label)) next.subdomain = "invalid";
-  }
-
-  if (!value.operator.trim()) next.operator = "required";
-  if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(value.email.trim())) next.email = "invalid";
-  if (!value.region) next.region = "required";
-  if (!value.timezone.trim()) next.timezone = "required";
-
-  const intro = [...value.intro.trim()].length;
-  if (!intro || intro > LIMITS.intro) next.intro = "invalid";
-  if (tagCount.value > LIMITS.tags) next.tags = "invalid";
-  if (!value.agree) next.agree = "required";
-
-  errors.value = next;
-  return Object.keys(next).length === 0;
+function say(text, kind = "info") {
+  notice.value = text;
+  noticeKind.value = kind;
 }
 
-async function submit() {
-  failure.value = "";
-  if (!check()) {
-    await nextTick();
-    document.querySelector("[aria-invalid='true']")?.focus();
+async function post(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(payload),
+    credentials: "same-origin",
+  });
+  const data = await response.json().catch(() => null);
+  return { response, data };
+}
+
+function mailFailure(response) {
+  if (response.status === 503) return props.t("join.mailOff");
+  if (response.status === 429) return props.t("join.rate");
+  return props.t("join.generic");
+}
+
+async function sendCode() {
+  if (busy.value) return;
+  // 空值先拦下来：让用户知道是这一格没填，而不是「系统没反应」。
+  const value = email.value.trim();
+  emailError.value = !value || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(value);
+  if (emailError.value) {
+    say(props.t("join.emailInvalid"), "error");
     return;
   }
 
-  status.value = "busy";
+  busy.value = true;
   try {
-    const response = await fetch("/api/applications", {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({
-        name: form.value.name.trim(),
-        mode: form.value.mode,
-        domain: form.value.mode === "own-domain" ? form.value.domain.trim() : "",
-        subdomain: form.value.mode === "subdomain" ? form.value.subdomain.trim() : "",
-        intro: form.value.intro.trim(),
-        operator: form.value.operator.trim(),
-        email: form.value.email.trim(),
-        region: form.value.region,
-        timezone: form.value.timezone.trim(),
-        tags: form.value.tags,
-        agree: form.value.agree,
-        website: form.value.website,
-        locale: props.locale,
-      }),
-    });
-
-    const data = await response.json().catch(() => null);
-
-    if (response.status === 201 && data?.application) {
-      reference.value = data.application.id;
-      submittedAt.value = data.application.createdAt || new Date().toISOString();
-      status.value = "done";
+    const { response } = await post("/api/member/code", { email: value, locale: props.locale });
+    if (!response.ok) {
+      say(mailFailure(response), "error");
       return;
     }
-
-    status.value = "idle";
-    if (response.status === 400 && data?.fields) {
-      errors.value = data.fields;
-      failure.value = "";
-    } else if (response.status === 409) {
-      failure.value = props.t("formError.duplicate");
-    } else if (response.status === 429) {
-      failure.value = props.t("formError.rate");
-    } else {
-      failure.value = props.t("formError.generic");
-    }
+    step.value = "code";
+    code.value = "";
+    codeError.value = false;
+    say(props.t("join.codeSent", { ttl: props.t("join.ttl") }), "info");
+    requestAnimationFrame(() => document.getElementById("member-code")?.focus());
   } catch {
-    status.value = "idle";
-    failure.value = props.t("formError.offline");
+    say(props.t("join.offline"), "error");
+  } finally {
+    busy.value = false;
   }
 }
 
-function again() {
-  form.value = {
-    name: "",
-    mode: "",
-    domain: "",
-    subdomain: "",
-    intro: "",
-    operator: "",
-    email: "",
-    region: "",
-    timezone: form.value.timezone,
-    tags: "",
-    agree: false,
-    website: "",
-  };
-  errors.value = {};
-  failure.value = "";
-  reference.value = "";
-  status.value = "idle";
+async function login() {
+  if (busy.value) return;
+  const value = code.value.replace(/\s+/g, "");
+  codeError.value = !/^[0-9]{6}$/.test(value);
+  if (codeError.value) {
+    say(props.t("join.codeInvalid"), "error");
+    return;
+  }
+
+  busy.value = true;
+  try {
+    const { response, data } = await post("/api/member/session", {
+      email: email.value.trim(),
+      code: value,
+    });
+    if (response.ok && data?.overview) {
+      overview.value = data.overview;
+      step.value = "member";
+      notice.value = "";
+      return;
+    }
+    if (data?.reason === "expired" || data?.reason === "too_many_attempts") {
+      say(props.t("join.codeExpired"), "error");
+    } else if (response.status === 403) {
+      say(props.t("join.notMember"), "error");
+    } else {
+      say(props.t("join.badCode"), "error");
+    }
+  } catch {
+    say(props.t("join.offline"), "error");
+  } finally {
+    busy.value = false;
+  }
 }
 
-onMounted(() => {
-  // 时区先按访客浏览器取，运营者可以在表单里改。
+function changeEmail() {
+  step.value = "email";
+  code.value = "";
+  notice.value = "";
+  emailError.value = false;
+  codeError.value = false;
+}
+
+async function logout() {
+  if (busy.value) return;
+  busy.value = true;
   try {
-    form.value.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    await post("/api/member/logout", {});
   } catch {
-    form.value.timezone = "UTC";
+    /* 清不掉 Cookie 也让界面先退出去，下一次请求还是有效会话的话会自己回来。 */
+  } finally {
+    overview.value = null;
+    step.value = "email";
+    notice.value = "";
+    busy.value = false;
+  }
+}
+
+onMounted(async () => {
+  // 已有会话就直接进：用户从门户回来不该再收一次授权码。
+  try {
+    const response = await fetch("/api/member/session", {
+      headers: { accept: "application/json" },
+      credentials: "same-origin",
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (data?.overview) {
+      overview.value = data.overview;
+      step.value = "member";
+    }
+  } catch {
+    /* 离线时保持登录表单，用户自己会看到发不出去。 */
   }
 });
 </script>
@@ -236,246 +188,160 @@ onMounted(() => {
     <h2>{{ t("join.title") }}</h2>
     <p class="lede">{{ t("join.lede") }}</p>
 
+    <!-- 已登录：本站的公开状态与自报计数。不提供任何修改入口。 -->
+    <section v-if="step === 'member' && overview" class="member" aria-live="polite">
+      <div class="member-head">
+        <div class="member-id">
+          <p class="member-name">{{ site.name }}</p>
+          <a class="member-url" :href="site.url" target="_blank" rel="noopener">{{ site.url }}</a>
+        </div>
+        <span class="pill" :data-tone="member.status">{{ t(statusKey) }}</span>
+      </div>
+
+      <p v-if="site.tagline" class="member-tagline">{{ site.tagline }}</p>
+
+      <dl class="member-facts">
+        <div>
+          <dt>{{ t("join.health") }}</dt>
+          <dd>
+            <span class="dot" :data-health="health.status" aria-hidden="true" />
+            {{ t(healthKey) }}
+            <span v-if="health.latencyMs != null" class="muted"> · {{ health.latencyMs }} ms</span>
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t("join.posts") }}</dt>
+          <dd>
+            {{ stats?.posts?.total == null ? "—" : number(stats.posts.total) }}
+            <span v-if="stats?.posts?.last24h != null" class="muted">
+              · {{ t("join.last24h") }} {{ number(stats.posts.last24h) }}
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t("join.accounts") }}</dt>
+          <dd>{{ stats?.accounts?.total == null ? "—" : number(stats.accounts.total) }}</dd>
+        </div>
+        <div>
+          <dt>{{ t("join.cards") }}</dt>
+          <dd>{{ number(overview.cards) }}</dd>
+        </div>
+      </dl>
+
+      <p class="member-note">
+        {{ t("join.checkedAt", { when: when(health.checkedAt) }) }}
+        <template v-if="stats?.fetchedAt"> · {{ t("join.statsAt", { when: when(stats.fetchedAt) }) }}</template>
+        <template v-if="!stats"> · {{ t("join.noStats") }}</template>
+      </p>
+      <p v-if="member.status === 'pending'" class="member-note warn">{{ t("join.pendingNote") }}</p>
+
+      <div class="member-actions">
+        <a class="member-link" :href="site.url" target="_blank" rel="noopener">{{ t("join.openSite") }}</a>
+        <button type="button" class="quiet" :disabled="busy" @click="logout">{{ t("join.logout") }}</button>
+      </div>
+    </section>
+
+    <!-- 未登录：邮箱 → 授权码。两格，没有密码。 -->
+    <form v-else class="login" novalidate @submit.prevent="step === 'email' ? sendCode() : login()">
+      <div class="field">
+        <label for="member-email">{{ t("join.email") }}</label>
+        <input
+          id="member-email"
+          v-model="email"
+          type="email"
+          inputmode="email"
+          autocomplete="email"
+          autocapitalize="none"
+          spellcheck="false"
+          maxlength="120"
+          :readonly="step === 'code'"
+          :placeholder="t('join.emailPlaceholder')"
+          :aria-invalid="emailError"
+          :aria-describedby="emailError ? 'member-email-error' : 'member-email-help'"
+        />
+        <p v-if="emailError" id="member-email-error" class="field-error">{{ t("join.emailInvalid") }}</p>
+        <p v-else id="member-email-help" class="field-hint">{{ t("join.emailHint") }}</p>
+      </div>
+
+      <div v-if="step === 'code'" class="field">
+        <label for="member-code">
+          {{ t("join.code") }}
+          <button type="button" class="inline-link" @click="changeEmail">{{ t("join.changeEmail") }}</button>
+        </label>
+        <input
+          id="member-code"
+          v-model="code"
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength="6"
+          placeholder="000000"
+          :aria-invalid="codeError"
+          :aria-describedby="codeError ? 'member-code-error' : 'member-code-help'"
+        />
+        <p v-if="codeError" id="member-code-error" class="field-error">{{ t("join.codeInvalid") }}</p>
+        <p v-else id="member-code-help" class="field-hint">{{ t("join.codeHint") }}</p>
+      </div>
+
+      <p v-if="notice" class="notice" :class="noticeKind" role="status">{{ notice }}</p>
+
+      <div class="login-actions">
+        <button class="submit" type="submit" :disabled="busy">
+          {{ busy ? t("join.working") : step === "email" ? t("join.sendCode") : t("join.login") }}
+        </button>
+        <button v-if="step === 'code'" type="button" class="quiet" :disabled="busy" @click="sendCode">
+          {{ t("join.resend") }}
+        </button>
+      </div>
+    </form>
+
+    <p class="how-rule" aria-hidden="true" />
+
+    <!-- 加入方式：门户不再收申请表，入口在节点自己的管理页。 -->
+    <h2 class="how-title">{{ t("join.how") }}</h2>
+    <p class="lede">{{ t("join.howLede") }}</p>
+
     <ol class="steps">
-      <li v-for="step in 3" :key="step">
-        <span class="step-no" aria-hidden="true">0{{ step }}</span>
+      <li>
+        <span class="step-no" aria-hidden="true">01</span>
         <span class="step-copy">
-          <span class="step-title">{{ t(`join.step${step}`) }}</span>
-          <span class="step-desc">{{ t(`join.step${step}desc`) }}</span>
+          <span class="step-title">{{ t("join.step1") }}</span>
+          <span class="step-desc">{{ t("join.step1desc") }}</span>
+          <a class="step-link" :href="REPO_URL" target="_blank" rel="noopener">manwjh/AgentLink · knot-platform</a>
+        </span>
+      </li>
+      <li>
+        <span class="step-no" aria-hidden="true">02</span>
+        <span class="step-copy">
+          <span class="step-title">{{ t("join.step2") }}</span>
+          <span class="step-desc">
+            <code class="inline-code">{{ ADMIN_URL }}</code>
+            {{ t("join.step2desc") }}
+          </span>
+        </span>
+      </li>
+      <li>
+        <span class="step-no" aria-hidden="true">03</span>
+        <span class="step-copy">
+          <span class="step-title">{{ t("join.step3") }}</span>
+          <span class="step-desc">{{ t("join.step3desc") }}</span>
+        </span>
+      </li>
+      <li>
+        <span class="step-no" aria-hidden="true">04</span>
+        <span class="step-copy">
+          <span class="step-title">{{ t("join.step4") }}</span>
+          <span class="step-desc">{{ t("join.step4desc") }}</span>
         </span>
       </li>
     </ol>
 
-    <!-- 人工审核由这个人处理：写上名字和邮箱，申请人不用去别处找联系方式。 -->
     <p class="contact">
       <span class="contact-label">{{ t("join.contactLabel") }}</span>
       <span class="contact-name">{{ OPERATOR_NAME }}</span>
       <a class="contact-mail" :href="`mailto:${OPERATOR_EMAIL}`">{{ OPERATOR_EMAIL }}</a>
     </p>
     <p class="contact-hint">{{ t("join.contactHint") }}</p>
-
-    <form v-if="status !== 'done'" class="form" novalidate @submit.prevent="submit">
-      <div class="field">
-        <label for="join-name">{{ t("form.name") }}</label>
-        <input
-          id="join-name"
-          v-model="form.name"
-          type="text"
-          autocomplete="organization"
-          :maxlength="LIMITS.name"
-          :placeholder="t('form.namePlaceholder')"
-          :aria-invalid="Boolean(errors.name)"
-          :aria-describedby="errors.name ? 'join-name-error' : undefined"
-        />
-        <p v-if="errors.name" id="join-name-error" class="field-error">{{ fieldError("name") }}</p>
-      </div>
-
-      <!-- 只有两种接入模式，模式决定地址：自有域名直接用，没有才由中枢签发。 -->
-      <fieldset class="field mode" :aria-invalid="Boolean(errors.mode)">
-        <legend>{{ t("form.mode") }}</legend>
-        <label class="radio">
-          <input v-model="form.mode" type="radio" name="join-mode" value="own-domain" />
-          <span class="radio-body">
-            <span class="radio-title">{{ t("form.modeOwnDomain") }}</span>
-            <span class="radio-desc">{{ t("form.modeOwnDomainHint") }}</span>
-          </span>
-        </label>
-        <label class="radio">
-          <input v-model="form.mode" type="radio" name="join-mode" value="subdomain" />
-          <span class="radio-body">
-            <span class="radio-title">{{ t("form.modeSubdomain") }}</span>
-            <span class="radio-desc">{{ t("form.modeSubdomainHint") }}</span>
-          </span>
-        </label>
-        <p v-if="errors.mode" class="field-error">{{ fieldError("mode") }}</p>
-      </fieldset>
-
-      <!-- 自有域名：地址就是它，中枢不签发、不跳转。 -->
-      <div v-if="form.mode === 'own-domain'" class="field">
-        <label for="join-domain">{{ t("form.domain") }}</label>
-        <input
-          id="join-domain"
-          v-model="form.domain"
-          type="url"
-          inputmode="url"
-          autocomplete="url"
-          autocapitalize="none"
-          spellcheck="false"
-          :maxlength="LIMITS.domain"
-          :placeholder="t('form.domainPlaceholder')"
-          :aria-invalid="Boolean(errors.domain)"
-          :aria-describedby="errors.domain ? 'join-domain-error' : 'join-domain-help'"
-        />
-        <p v-if="errors.domain" id="join-domain-error" class="field-error">{{ fieldError("domain") }}</p>
-        <p v-else id="join-domain-help" class="field-hint">{{ t("form.domainHint") }}</p>
-      </div>
-
-      <!-- 无域名：只选标签，后缀由中枢固定。 -->
-      <div v-else-if="form.mode === 'subdomain'" class="field">
-        <label for="join-subdomain">{{ t("form.subdomain") }}</label>
-        <div class="host">
-          <input
-            id="join-subdomain"
-            v-model="form.subdomain"
-            type="text"
-            inputmode="url"
-            autocomplete="off"
-            autocapitalize="none"
-            spellcheck="false"
-            :maxlength="LIMITS.subdomain + 10"
-            :placeholder="t('form.subdomainPlaceholder')"
-            :aria-invalid="Boolean(errors.subdomain)"
-            :aria-describedby="errors.subdomain ? 'join-subdomain-error' : 'join-subdomain-help'"
-          />
-          <span class="host-suffix" aria-hidden="true">.xknot.si</span>
-        </div>
-        <p v-if="errors.subdomain" id="join-subdomain-error" class="field-error">{{ fieldError("subdomain") }}</p>
-        <p v-else id="join-subdomain-help" class="field-hint">{{ t("form.subdomainHint") }}</p>
-      </div>
-
-      <div class="field">
-        <label for="join-intro">
-          {{ t("form.intro") }}
-          <span class="counter">{{ introCount }}/{{ LIMITS.intro }}</span>
-        </label>
-        <textarea
-          id="join-intro"
-          v-model="form.intro"
-          rows="2"
-          :maxlength="LIMITS.intro"
-          :placeholder="t('form.introPlaceholder')"
-          :aria-invalid="Boolean(errors.intro)"
-          :aria-describedby="errors.intro ? 'join-intro-error' : undefined"
-        />
-        <p v-if="errors.intro" id="join-intro-error" class="field-error">{{ fieldError("intro") }}</p>
-      </div>
-
-      <div class="pair">
-        <div class="field">
-          <label for="join-operator">{{ t("form.operator") }}</label>
-          <input
-            id="join-operator"
-            v-model="form.operator"
-            type="text"
-            autocomplete="name"
-            :maxlength="LIMITS.operator"
-            :placeholder="t('form.operatorPlaceholder')"
-            :aria-invalid="Boolean(errors.operator)"
-            :aria-describedby="errors.operator ? 'join-operator-error' : undefined"
-          />
-          <p v-if="errors.operator" id="join-operator-error" class="field-error">{{ fieldError("operator") }}</p>
-        </div>
-
-        <div class="field">
-          <label for="join-email">{{ t("form.email") }}</label>
-          <input
-            id="join-email"
-            v-model="form.email"
-            type="email"
-            autocomplete="email"
-            :maxlength="LIMITS.email"
-            placeholder="you@example.com"
-            :aria-invalid="Boolean(errors.email)"
-            :aria-describedby="errors.email ? 'join-email-error' : undefined"
-          />
-          <p v-if="errors.email" id="join-email-error" class="field-error">{{ fieldError("email") }}</p>
-        </div>
-      </div>
-
-      <div class="pair">
-        <div class="field">
-          <label for="join-region">{{ t("form.region") }}</label>
-          <select
-            id="join-region"
-            v-model="form.region"
-            :aria-invalid="Boolean(errors.region)"
-            :aria-describedby="errors.region ? 'join-region-error' : undefined"
-          >
-            <option value="" disabled>{{ t("form.regionPlaceholder") }}</option>
-            <option v-for="option in regionOptions" :key="option.code" :value="option.code">
-              {{ option.label }}
-            </option>
-          </select>
-          <p v-if="errors.region" id="join-region-error" class="field-error">{{ fieldError("region") }}</p>
-        </div>
-
-        <div class="field">
-          <label for="join-timezone">{{ t("form.timezone") }}</label>
-          <input
-            id="join-timezone"
-            v-model="form.timezone"
-            type="text"
-            list="join-timezone-list"
-            autocomplete="off"
-            spellcheck="false"
-            :aria-invalid="Boolean(errors.timezone)"
-            aria-describedby="join-timezone-help"
-          />
-          <datalist id="join-timezone-list">
-            <option v-for="zone in timezones" :key="zone" :value="zone" />
-          </datalist>
-          <p v-if="errors.timezone" id="join-timezone-help" class="field-error">{{ fieldError("timezone") }}</p>
-          <p v-else id="join-timezone-help" class="field-hint">{{ t("form.timezoneHint") }}</p>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="join-tags">
-          {{ t("form.tags") }}
-          <span class="counter">{{ t("form.optional") }}</span>
-        </label>
-        <input
-          id="join-tags"
-          v-model="form.tags"
-          type="text"
-          :placeholder="t('form.tagsPlaceholder')"
-          :aria-invalid="Boolean(errors.tags)"
-          :aria-describedby="errors.tags ? 'join-tags-error' : undefined"
-        />
-        <p v-if="errors.tags" id="join-tags-error" class="field-error">{{ fieldError("tags") }}</p>
-      </div>
-
-      <!-- 蜜罐：屏幕阅读器与键盘都跳过，填了就说明是脚本。 -->
-      <div class="trap" aria-hidden="true">
-        <label for="join-website">website</label>
-        <input id="join-website" v-model="form.website" type="text" tabindex="-1" autocomplete="off" />
-      </div>
-
-      <label class="agree" :class="{ invalid: errors.agree }">
-        <input v-model="form.agree" type="checkbox" />
-        <span>{{ t("form.agree") }}</span>
-      </label>
-
-      <p v-if="summary" class="summary" role="alert">
-        {{ summary }}
-        <a href="#join-name" class="summary-link">{{ t("formError.review") }}</a>
-      </p>
-
-      <button class="submit" type="submit" :disabled="busy">
-        {{ busy ? t("form.submitting") : t("form.submit") }}
-      </button>
-    </form>
-
-    <div v-else class="done" role="status">
-      <span class="done-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="m5 12.5 4.5 4.5L19 7.5" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </span>
-      <h3>{{ t("done.title") }}</h3>
-      <p>{{ t("done.body") }}</p>
-      <dl class="done-meta">
-        <div>
-          <dt>{{ t("done.ref") }}</dt>
-          <dd>{{ reference }}</dd>
-        </div>
-        <div>
-          <dt>{{ t("done.at") }}</dt>
-          <dd>{{ new Date(submittedAt).toLocaleString(locale) }}</dd>
-        </div>
-      </dl>
-      <button type="button" class="again" @click="again">{{ t("done.again") }}</button>
-    </div>
 
     <p class="terms">{{ t("join.terms") }}</p>
   </div>
@@ -516,6 +382,10 @@ h2 {
   letter-spacing: -0.015em;
 }
 
+.how-title {
+  font-size: clamp(1.3rem, 1.1rem + 1vw, 1.7rem);
+}
+
 .lede {
   max-width: 46ch;
   color: rgba(255, 255, 255, 0.86);
@@ -523,103 +393,12 @@ h2 {
   line-height: 1.6;
 }
 
-/* 三步：一条横排，省下纵向高度 */
-.steps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+/* 登录：两格，纵向排 */
+.login {
+  display: flex;
+  flex-direction: column;
   gap: 0.55rem;
-  margin: 0.35rem 0 0.1rem;
-  padding: 0.55rem 0 0;
-  list-style: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.22);
-}
-
-.steps li {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-}
-
-.step-no {
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.step-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.step-title {
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.step-desc {
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 0.7rem;
-  line-height: 1.4;
-}
-
-/* 审核人：一行名字与邮箱，第二行说明用途。 */
-.contact {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  margin: 0.1rem 0 0;
-  font-size: 0.74rem;
-  line-height: 1.4;
-}
-
-.contact-label {
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.contact-name {
-  font-weight: 600;
-  color: #ffffff;
-}
-
-.contact-mail {
-  color: #ffffff;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  text-decoration-color: rgba(255, 255, 255, 0.55);
-}
-
-.contact-mail:hover {
-  text-decoration-color: #ffffff;
-}
-
-.contact-hint {
-  margin: -0.2rem 0 0;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 0.68rem;
-  line-height: 1.45;
-}
-
-/* 表单 */
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.52rem;
-  margin-top: 0.2rem;
-}
-
-.pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.52rem;
+  margin-top: 0.3rem;
 }
 
 .field {
@@ -639,231 +418,105 @@ h2 {
   color: rgba(255, 255, 255, 0.95);
 }
 
-.counter {
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.field input,
-.field textarea,
-.field select {
+.field input {
   width: 100%;
-  min-height: 40px;
+  min-height: 42px;
   padding: 0.4rem 0.6rem;
   border: 1px solid rgba(255, 255, 255, 0.34);
   border-radius: 6px;
   background: rgba(58, 20, 0, 0.18);
   color: #ffffff;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   transition:
     border-color 150ms ease,
     background 150ms ease;
 }
 
-.field textarea {
-  min-height: 62px;
-  resize: vertical;
-  line-height: 1.45;
-}
-
-.field select {
-  color-scheme: light;
-  appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, rgba(255, 255, 255, 0.8) 50%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.8) 50%, transparent 50%);
-  background-position:
-    calc(100% - 16px) 18px,
-    calc(100% - 11px) 18px;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 1.8rem;
-}
-
-.field select option {
-  color: #1b1208;
-  background: #ffffff;
-}
-
-.field input::placeholder,
-.field textarea::placeholder {
+.field input::placeholder {
   color: rgba(255, 255, 255, 0.8);
 }
 
-.field input:focus,
-.field textarea:focus,
-.field select:focus {
+.field input:focus {
   outline: 2px solid rgba(255, 255, 255, 0.85);
   outline-offset: 1px;
   border-color: transparent;
   background: rgba(58, 20, 0, 0.3);
 }
 
-.field input[aria-invalid="true"],
-.field textarea[aria-invalid="true"],
-.field select[aria-invalid="true"] {
+.field input[readonly] {
+  background: rgba(58, 20, 0, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.field input[aria-invalid="true"] {
   border-color: #ffd7b0;
-  background: rgba(58, 20, 0, 0.3);
+}
+
+#member-code {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  letter-spacing: 0.24em;
 }
 
 .field-error {
   color: #fff0dd;
   font-size: 0.7rem;
   font-weight: 600;
-  letter-spacing: 0.01em;
 }
 
 .field-hint {
   color: rgba(255, 255, 255, 0.72);
   font-size: 0.66rem;
+  line-height: 1.45;
 }
 
-/* 子域：输入框 + 固定后缀，视觉上是一条完整地址 */
-.host {
-  display: flex;
-  align-items: stretch;
-  min-width: 0;
-}
-
-.host input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-  border-right: 0;
-}
-
-.host-suffix {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  padding: 0 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  border-left: 0;
-  border-top-right-radius: 6px;
-  border-bottom-right-radius: 6px;
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.86);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
-
-.host input:focus {
-  border-right: 0;
-}
-
-/* 接入模式：两张卡片式单选项 */
-.mode {
-  margin: 0;
+.inline-link,
+.quiet {
   padding: 0;
   border: 0;
-  gap: 0.3rem;
-}
-
-.mode legend {
-  padding: 0;
-  margin-bottom: 0.2rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.95);
-}
-
-.radio {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.45rem 0.55rem;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 6px;
+  background: none;
+  color: #ffffff;
+  font: inherit;
   cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(255, 255, 255, 0.5);
 }
 
-.radio:hover {
-  background: rgba(255, 255, 255, 0.08);
+.inline-link {
+  font-size: 0.66rem;
 }
 
-.radio input {
-  width: 15px;
-  height: 15px;
-  min-height: 0;
-  margin: 0.15rem 0 0;
-  padding: 0;
-  flex: 0 0 auto;
-  accent-color: #ffffff;
+.quiet:disabled {
+  opacity: 0.55;
+  cursor: progress;
 }
 
-.radio-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.radio-title {
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.radio-desc {
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 0.68rem;
-  line-height: 1.4;
-}
-
-.trap {
-  position: absolute;
-  left: -9999px;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-}
-
-.agree {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.45rem;
-  min-height: 44px;
-  margin-top: 0.15rem;
-  padding-block: 0.6rem;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.76rem;
-  line-height: 1.45;
-  cursor: pointer;
-}
-
-.agree.invalid {
-  color: #fff0dd;
-}
-
-.agree input {
-  width: 16px;
-  height: 16px;
-  margin: 0.1rem 0 0;
-  accent-color: #ffffff;
-  flex: 0 0 auto;
-}
-
-.summary {
+.notice {
   padding: 0.42rem 0.55rem;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 5px;
   background: rgba(90, 26, 0, 0.18);
   color: #fff4e6;
   font-size: 0.75rem;
+  line-height: 1.45;
 }
 
-.summary-link {
-  margin-left: 0.35rem;
-  color: #ffffff;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+.notice.error {
+  border-color: rgba(255, 215, 176, 0.8);
+  font-weight: 600;
+}
+
+.login-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.1rem;
 }
 
 .submit {
-  width: 100%;
+  flex: 1 1 auto;
   min-height: 46px;
-  margin-top: 0.25rem;
   padding: 0.5rem 1rem;
   border: 0;
   border-radius: 7px;
@@ -891,98 +544,268 @@ h2 {
   cursor: progress;
 }
 
-/* 提交成功 */
-.done {
+/* 已登录 */
+.member {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  margin-top: 0.4rem;
-  padding: 1.1rem 1.1rem 1.2rem;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  margin-top: 0.35rem;
+  padding: 0.9rem 0.95rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.32);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.1);
 }
 
-.done-mark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: #ffffff;
-  color: #c2500c;
+.member-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
 }
 
-.done-mark svg {
-  width: 20px;
-  height: 20px;
+.member-id {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
 }
 
-.done h3 {
+.member-name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   font-weight: 650;
+  line-height: 1.25;
 }
 
-.done p {
-  color: rgba(255, 255, 255, 0.84);
-  font-size: 0.82rem;
-  line-height: 1.55;
+.member-url {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.82);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.done-meta {
-  display: flex;
-  gap: 1.4rem;
-  flex-wrap: wrap;
-  margin: 0.3rem 0 0;
-}
-
-.done-meta dt {
+.pill {
+  flex: 0 0 auto;
+  padding: 0.16rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 999px;
   font-family: var(--font-mono);
   font-size: 0.6rem;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.76);
 }
 
-.done-meta dd {
-  margin: 0.1rem 0 0;
+.pill[data-tone="active"] {
+  background: #ffffff;
+  color: #b53f08;
+  border-color: #ffffff;
+}
+
+.pill[data-tone="pending"] {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.member-tagline {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.member-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.7rem;
+  margin: 0.15rem 0 0;
+}
+
+.member-facts dt {
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.member-facts dd {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0.12rem 0 0;
+  font-size: 0.86rem;
   font-variant-numeric: tabular-nums;
 }
 
-.again {
-  align-self: flex-start;
-  margin-top: 0.35rem;
-  min-height: 36px;
-  padding: 0.2rem 0;
-  border: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
-  background: none;
+.muted {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.72rem;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.dot[data-health="up"] {
+  background: #9ae6b4;
+}
+
+.dot[data-health="degraded"] {
+  background: #fbd38d;
+}
+
+.dot[data-health="down"] {
+  background: #ffb3a7;
+}
+
+.member-note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.member-note.warn {
+  color: #fff0dd;
+  font-weight: 600;
+}
+
+.member-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-top: 0.15rem;
+}
+
+.member-link {
   color: #ffffff;
   font-size: 0.78rem;
-  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(255, 255, 255, 0.55);
+}
+
+/* 如何加入 */
+.how-rule {
+  height: 1px;
+  margin: 0.55rem 0 0.35rem;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  display: flex;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.step-no {
+  flex: 0 0 auto;
+  padding-top: 0.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.step-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.step-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.step-desc {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.step-link {
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(255, 255, 255, 0.5);
+  overflow-wrap: anywhere;
+}
+
+.inline-code {
+  padding: 0.05rem 0.25rem;
+  border-radius: 4px;
+  background: rgba(58, 20, 0, 0.28);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.contact {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.3rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.contact-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.contact-name {
+  font-weight: 600;
+}
+
+.contact-mail {
+  color: #ffffff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(255, 255, 255, 0.55);
+}
+
+.contact-hint {
+  margin: -0.2rem 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.68rem;
+  line-height: 1.45;
 }
 
 .terms {
-  margin-top: 0.15rem;
+  margin-top: 0.3rem;
   color: rgba(255, 255, 255, 0.82);
   font-size: 0.7rem;
   line-height: 1.55;
 }
 
 @media (max-width: 900px) {
-  .join {
-    gap: 0.6rem;
-  }
-
-  .field input,
-  .field textarea,
-  .field select {
+  .field input {
     min-height: 44px;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
   }
 
   .submit {
@@ -990,47 +813,19 @@ h2 {
   }
 }
 
-/* 右栏被压窄（1024 桌面）时收掉步骤说明，保证提交键还在首屏。 */
+/* 右栏被压窄时收掉说明的第二行，保证登录键与四步都在首屏。 */
 @container (max-width: 400px) {
-  h2 {
-    font-size: 1.5rem;
-  }
-
   .lede {
     font-size: 0.82rem;
     line-height: 1.55;
   }
 
-  .steps {
-    gap: 0.4rem;
-    padding-top: 0.45rem;
-  }
-
   .step-desc {
-    display: none;
+    font-size: 0.7rem;
   }
 
-  .step-title {
-    font-size: 0.76rem;
-  }
-
-  .form {
-    gap: 0.46rem;
-  }
-
-  /* 只在桌面窄右栏压缩高度；手机上仍按上面的 44px 触控尺寸。 */
-  @media (min-width: 901px) {
-    .field input,
-    .field textarea,
-    .field select {
-      min-height: 38px;
-    }
-  }
-}
-
-@media (max-width: 520px) {
-  .pair {
-    grid-template-columns: minmax(0, 1fr);
+  .member-facts {
+    gap: 0.4rem 0.5rem;
   }
 }
 </style>

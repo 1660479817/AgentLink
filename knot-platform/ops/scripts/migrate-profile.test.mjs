@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { main, profileFromLegacy, stripLegacyKeys } from "./migrate-profile.mjs";
+import { main, siteFromLegacy, stripLegacyKeys } from "./migrate-profile.mjs";
 
 const siteEnv = `# ---- 站点 ----
 # 站点名。WebUI 顶栏正中、浏览器标题、分享图落款都用它。
@@ -31,19 +31,18 @@ function site() {
   return dir;
 }
 
-test("the legacy keys become one self-described profile", () => {
-  assert.deepEqual(profileFromLegacy({ KNOT_SITE_NAME: "王家小站", KNOT_SITE_TAGLINE: "只收值得换的信息。" }), {
-    name: { "zh-CN": "王家小站" },
-    languages: ["zh-CN"],
-    intro: { oneLine: { "zh-CN": "只收值得换的信息。" } },
+test("the legacy keys become one flat self-described site", () => {
+  assert.deepEqual(siteFromLegacy({ KNOT_SITE_NAME: "王家小站", KNOT_SITE_TAGLINE: "只收值得换的信息。" }), {
+    name: "王家小站",
+    tagline: "只收值得换的信息。",
   });
 });
 
 test("a logo must be https, because the hub reads it from another machine", () => {
-  assert.equal(profileFromLegacy({ KNOT_SITE_NAME: "Knot", KNOT_SITE_LOGO: "/logo.png" }).logo, undefined);
-  assert.equal(profileFromLegacy({ KNOT_SITE_NAME: "Knot", KNOT_SITE_LOGO: "http://example.test/l.png" }).logo, undefined);
+  assert.equal(siteFromLegacy({ KNOT_SITE_NAME: "Knot", KNOT_SITE_LOGO: "/logo.png" }).logo, undefined);
+  assert.equal(siteFromLegacy({ KNOT_SITE_NAME: "Knot", KNOT_SITE_LOGO: "http://example.test/l.png" }).logo, undefined);
   assert.equal(
-    profileFromLegacy({ KNOT_SITE_NAME: "Knot", KNOT_SITE_LOGO: "https://example.test/l.png" }).logo,
+    siteFromLegacy({ KNOT_SITE_NAME: "Knot", KNOT_SITE_LOGO: "https://example.test/l.png" }).logo,
     "https://example.test/l.png",
   );
 });
@@ -66,18 +65,53 @@ test("the first run writes profile.json, later runs only clean up", () => {
 
   assert.equal(main(["--dir", dir, "--env", envFile]), 0);
   const profile = JSON.parse(readFileSync(path.join(dir, "profile.json"), "utf8"));
-  assert.equal(profile.profile.name["zh-CN"], "王家小站");
-  assert.equal(profile.profile.contact, "paul@example.test");
+  assert.equal(profile.formatVersion, 2);
+  assert.equal(profile.site.name, "王家小站");
+  assert.equal(profile.site.contact, "paul@example.test");
   assert.ok(!readFileSync(path.join(dir, "site.env"), "utf8").includes("KNOT_SITE_"));
   assert.ok(!readFileSync(envFile, "utf8").includes("KNOT_SITE_"));
 
   // 主理人后来在 /admin 改过档案：再跑一次不能覆盖。
-  const edited = { ...profile, profile: { ...profile.profile, shortName: { en: "Wang's" } } };
+  const edited = { ...profile, site: { ...profile.site, owner: "Paul" } };
   writeFileSync(path.join(dir, "profile.json"), JSON.stringify(edited));
   writeFileSync(path.join(dir, "site.env"), `KNOT_SITE_NAME="旧名字"\nPORT=8081\n`);
   assert.equal(main(["--dir", dir]), 0);
   assert.deepEqual(JSON.parse(readFileSync(path.join(dir, "profile.json"), "utf8")), edited);
   assert.ok(!readFileSync(path.join(dir, "site.env"), "utf8").includes("KNOT_SITE_NAME"));
+});
+
+test("a v1 profile is upgraded in place, keeping the Chinese wording", () => {
+  const dir = site();
+  const v1 = {
+    formatVersion: 1,
+    updatedAt: "2026-10-20",
+    profile: {
+      name: { "zh-CN": "王家小站", en: "Wang's Place" },
+      intro: { oneLine: { "zh-CN": "只收值得换的信息。" }, long: { en: "Nightly notes." } },
+      owner: { en: "PaulWang" },
+      contact: "paul@example.test",
+      logo: "https://example.test/logo.png",
+      regions: ["CN", "SG"],
+      timezone: "Asia/Shanghai",
+      tags: ["信息交换", "Agent", "信息交换"],
+    },
+  };
+  writeFileSync(path.join(dir, "profile.json"), JSON.stringify(v1));
+
+  assert.equal(main(["--dir", dir]), 0);
+  const upgraded = JSON.parse(readFileSync(path.join(dir, "profile.json"), "utf8"));
+  assert.equal(upgraded.formatVersion, 2);
+  assert.deepEqual(upgraded.site, {
+    name: "王家小站",
+    tagline: "只收值得换的信息。",
+    intro: "Nightly notes.",
+    logo: "https://example.test/logo.png",
+    owner: "PaulWang",
+    contact: "paul@example.test",
+    region: "CN",
+    timezone: "Asia/Shanghai",
+    tags: ["信息交换", "Agent"],
+  });
 });
 
 test("a dry run prints the plan and leaves every file alone", () => {

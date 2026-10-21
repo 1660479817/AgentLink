@@ -3,7 +3,6 @@
 // 输入是 build-hub-data.mjs 写出的 hub.json，输出是页面直接可渲染的条目。
 // 这里只做纯计算：不回退到默认语种之外的翻译，不排序之外的猜测。
 
-import { pickLocalized } from "./i18n.js";
 import { groupsOf, REGION_GROUPS } from "./regions.js";
 
 const TIER_ORDER = { demo: 0, partner: 1, community: 2 };
@@ -27,7 +26,7 @@ export function sortInstances(list) {
  * @param {{ instances?: unknown[] }} data hub.json
  * @param {{ locale: string }} options
  */
-export function buildView(data, { locale }) {
+export function buildView(data) {
   const list = Array.isArray(data?.instances) ? data.instances : [];
 
   // 连续不可达满 7 天、或签发后 30 天仍未接通，条目暂时不出现在门户。
@@ -36,20 +35,23 @@ export function buildView(data, { locale }) {
     .filter((instance) => instance?.health?.hidden !== true)
     .map((instance) => {
       const health = instance.health || null;
+      const region = typeof instance.region === "string" ? instance.region : null;
       return {
         id: instance.id,
-        name: pickLocalized(instance.name, locale) || instance.id,
-        shortName: pickLocalized(instance.shortName, locale),
-        intro: pickLocalized(instance.intro?.oneLine, locale),
-        tags: pickLocalized(instance.tags, locale) || [],
+        // 自述区已经是扁平字符串，门户不再按语种取一次：填什么就显示什么。
+        name: instance.name || instance.id,
+        tagline: instance.tagline || "",
+        intro: instance.intro || "",
         logo: instance.logo,
-        themeColor: instance.themeColor,
+        owner: instance.owner || "",
+        contact: instance.contact || "",
+        tags: Array.isArray(instance.tags) ? instance.tags.filter((tag) => typeof tag === "string" && tag) : [],
         url: instance.url,
         tier: instance.tier,
         status: instance.status,
         timezone: instance.timezone || "UTC",
-        regions: Array.isArray(instance.regions) ? instance.regions : [],
-        groups: groupsOf(instance.regions),
+        region,
+        groups: groupsOf(region ? [region] : []),
         cards: Array.isArray(instance.cards) ? instance.cards : [],
         health: {
           status: health?.status || "unknown",
@@ -87,4 +89,17 @@ export function summarize(view, generatedAt = null) {
 export function filterByGroup(view, group) {
   if (!group || group === "all") return view;
   return view.filter((item) => item.groups.includes(group));
+}
+
+// 页面上出现的标签：全部 + 实际用到的，按首次出现排序，不做词频统计。
+export function availableTags(view) {
+  const seen = new Set();
+  for (const item of view) for (const tag of item.tags) seen.add(tag);
+  return [...seen];
+}
+
+// 自由文本标签：原样比较，只看是否包含。没有标签的条目在任何标签下都不出现。
+export function filterByTag(view, tag) {
+  if (!tag) return view;
+  return view.filter((item) => item.tags.includes(tag));
 }

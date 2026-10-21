@@ -27,64 +27,47 @@ const SERVER = path.join(ROOT, "server", "index.mjs");
 const CLI = path.join(ROOT, "server", "admin-cli.mjs");
 
 export const DEFAULT_MANIFEST = {
-  version: 3,
+  version: 4,
   updatedAt: "2026-01-01",
   instances: [
     {
       id: "e2e-node",
-      name: { en: "E2E Node", "zh-CN": "端到端节点", "zh-TW": "端到端節點" },
-      shortName: { en: "E2E", "zh-CN": "端到端", "zh-TW": "端到端" },
-      logo: null,
-      themeColor: "#1F4E8C",
       url: "https://e2e-node.example",
-      vertical: "creation",
-      tags: { en: ["testing"], "zh-CN": ["测试"], "zh-TW": ["測試"] },
-      languages: ["en"],
-      regions: ["SG"],
-      timezone: "Asia/Singapore",
-      operator: "E2E",
-      owner: null,
-      contact: "ops@e2e-node.example",
-      intro: {
-        en: "A node that only exists in tests.",
-        "zh-CN": "只在测试里存在的节点。",
-        "zh-TW": "只在測試裡存在的節點。",
-      },
       since: "2026-01-01",
       tier: "community",
       status: "active",
-      statsUrl: null,
-      cardsUrl: null,
-      social: [],
     },
     {
       id: "e2e-paused",
-      name: { en: "Paused Node", "zh-CN": "暂停节点", "zh-TW": "暫停節點" },
-      shortName: { en: "Paused", "zh-CN": "暂停", "zh-TW": "暫停" },
-      logo: null,
-      themeColor: "#7A4E2D",
       url: "https://e2e-paused.example",
-      vertical: "creation",
-      tags: { en: ["testing"], "zh-CN": ["测试"], "zh-TW": ["測試"] },
-      languages: ["en"],
-      regions: ["DE"],
-      timezone: "Europe/Berlin",
-      operator: "E2E",
-      owner: null,
-      contact: "ops@e2e-paused.example",
-      intro: {
-        en: "A paused node used for relay rejection tests.",
-        "zh-CN": "用于委托发信拒绝测试的暂停节点。",
-        "zh-TW": "用於委託發信拒絕測試的暫停節點。",
-      },
       since: "2026-01-01",
       tier: "community",
       status: "suspended",
-      statsUrl: null,
-      cardsUrl: null,
-      social: [],
     },
   ],
+};
+
+// 测试清单的站点自述：名称与联系邮箱属于自述区，清单里只留签发区。
+// 这两个 id 之外的自述由调用方自己往 dataDir/profiles 里放。
+export const DEFAULT_SITES = {
+  "e2e-node": {
+    name: "端到端节点",
+    tagline: "只在测试里存在的节点。",
+    owner: "E2E",
+    contact: "ops@e2e-node.example",
+    region: "SG",
+    timezone: "Asia/Singapore",
+    tags: ["测试"],
+  },
+  "e2e-paused": {
+    name: "暂停节点",
+    tagline: "用于委托发信拒绝测试的暂停节点。",
+    owner: "E2E",
+    contact: "ops@e2e-paused.example",
+    region: "DE",
+    timezone: "Europe/Berlin",
+    tags: ["测试"],
+  },
 };
 
 function freePort() {
@@ -176,7 +159,23 @@ export async function startStack(options = {}) {
     // 测试清单也要有对应的快照，否则 /data/hub.json 还停在仓库上次构建的内容。
     const { buildHubData } = await import("../web/src/lib/snapshot.js");
     const { readProfiles } = await import("./profiles.mjs");
-    const profiles = await readProfiles(path.join(dataDir, "profiles"));
+    const profilesDir = path.join(dataDir, "profiles");
+    await mkdir(profilesDir, { recursive: true });
+    // 名称、联系邮箱属于自述区：默认清单的两条各配一份副本，界面上才有名字可显示。
+    for (const instance of manifest.instances || []) {
+      const site = DEFAULT_SITES[instance?.id];
+      if (!site) continue;
+      await writeFile(
+        path.join(profilesDir, `${instance.id}.json`),
+        `${JSON.stringify(
+          { formatVersion: 2, fetchedAt: new Date().toISOString(), issued: instance, site },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+    }
+    const profiles = await readProfiles(profilesDir);
     dataFile = path.join(dataDir, "hub.json");
     await writeFile(
       dataFile,
@@ -205,6 +204,8 @@ export async function startStack(options = {}) {
       XKNOT_API_HOST: "127.0.0.1",
       XKNOT_API_PORT: String(apiPort),
       XKNOT_DATA_DIR: path.join(dataDir, "data"),
+      // 自述区副本跟这次测试走，别读到仓库里上次取回的那一份。
+      XKNOT_PROFILES_DIR: path.join(dataDir, "profiles"),
       XKNOT_TRUST_PROXY: "1",
       XKNOT_PUBLIC_ORIGIN: apiUrl,
       ...(manifestFile ? { XKNOT_INSTANCES_FILE: manifestFile } : {}),

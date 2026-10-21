@@ -3,7 +3,7 @@
 // 用 Node 自带的 node:sqlite，不留外部依赖；库文件放在 var/，不入版本库。
 // 这一层只做读写，不判断业务，也不碰 HTTP。
 
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -155,6 +155,32 @@ create table if not exists relay_log (
 
 create index if not exists relay_log_instance on relay_log(instance_id, at);
 create index if not exists relay_log_token on relay_log(token_id, at);
+
+-- 成员入口：邮箱收一次性授权码，10 分钟有效。库里只留哈希，明文只在信里。
+-- 一个邮箱同时只有最新一枚有效码：重新发信会把上一枚作废。
+create table if not exists member_codes (
+  code_hash   text primary key,
+  email       text not null,
+  instance_id text not null,
+  created_at  text not null,
+  expires_at  text not null,
+  attempts    integer not null default 0,
+  used_at     text
+);
+
+create index if not exists member_codes_email on member_codes(email, created_at);
+
+-- 成员会话与管理员会话分开：浏览器可能同时是访客和运营者，
+-- 一个 Cookie 失效不该把另一个踢掉。
+create table if not exists member_sessions (
+  token_hash  text primary key,
+  email       text not null,
+  instance_id text not null,
+  created_at  text not null,
+  expires_at  text not null
+);
+
+create index if not exists member_sessions_email on member_sessions(email, created_at);
 `;
 
 // 依赖迁移补出来的列的索引，必须在 migrate() 之后建：
@@ -1101,11 +1127,120 @@ export function openStore(file) {
       return Number(result.changes) || 0;
     },
 
+    // ---- 成员入口 ----
+    //
+    // 只认审核通过且邮箱已验证的申请：那是这个站点对外的正式联系地址。
+    // 一个邮箱可能对应多条历史申请，按时间倒序全部返回，由接口层挑在册的那条。
+    memberApplications(email) {
+      const address = String(email || "").trim().toLowerCase();
+      if (!address) return [];
+      return all(
+        "select * from applications where lower(email) = ? and status = 'approved' order by created_at desc",
+        address
+      ).map(rowToApplication);
+    },
+
+    // 六位数字码，明文只在返回值里出现一次，库里是 SHA-256。
+    // 同一邮箱重新发信时把上一枚标成已用：同时只有一枚有效，用户不会输错窗口。
+    issueMemberCode({ email, instanceId, ttlMinutes = 10 }) {
+      const address = String(email || "").trim().toLowerCase();
+      const id = String(instanceId || "").trim();
+      if (!address || !id) return { error: "invalid" };
+      const createdAt = new Date();
+      const expiresAt = new Date(createdAt.getTime() + ttlMinutes * 60_000);
+      db.prepare("update member_codes set used_at = ? where email = ? and used_at is null").run(
+        nowIso(),
+        address
+      );
+      const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+      db.prepare(
+        `insert into member_codes (code_hash, email, instance_id, created_at, expires_at)
+         values (?, ?, ?, ?, ?)`
+      ).run(
+        sha256(`${address}|${code}`),
+        address,
+        id,
+        createdAt.toISOString(),
+        expiresAt.toISOString()
+      );
+      return { code, expiresAt: expiresAt.toISOString() };
+    },
+
+    consumeMemberCode({ email, code, maxAttempts = 5 }) {
+      const address = String(email || "").trim().toLowerCase();
+      const value = String(code || "").replace(/\s+/g, "");
+      if (!address || !/^[0-9]{6}$/.test(value)) return { error: "invalid" };
+      const row = get(
+        "select * from member_codes where email = ? and used_at is null order by created_at desc limit 1",
+        address
+      );
+      if (!row) return { error: "not_found" };
+      if (Date.parse(row.expires_at) <= Date.now()) return { error: "expired" };
+      if (Number(row.attempts) >= maxAttempts) return { error: "too_many_attempts" };
+
+      const hash = sha256(`${address}|${value}`);
+      const match =
+        hash.length === row.code_hash.length &&
+        timingSafeEqual(Buffer.from(hash, "utf8"), Buffer.from(row.code_hash, "utf8"));
+      if (!match) {
+        db.prepare("update member_codes set attempts = attempts + 1 where code_hash = ?").run(row.code_hash);
+        return { error: "mismatch" };
+      }
+      db.prepare("update member_codes set used_at = ? where code_hash = ?").run(nowIso(), row.code_hash);
+      return { email: row.email, instanceId: row.instance_id };
+    },
+
+    createMemberSession({ email, instanceId, days = 30 }) {
+      const token = randomBytes(32).toString("base64url");
+      const createdAt = new Date();
+      const expiresAt = new Date(createdAt.getTime() + days * 86400000);
+      db.prepare(
+        `insert into member_sessions (token_hash, email, instance_id, created_at, expires_at)
+         values (?, ?, ?, ?, ?)`
+      ).run(
+        sha256(token),
+        String(email || "").trim().toLowerCase(),
+        String(instanceId || "").trim(),
+        createdAt.toISOString(),
+        expiresAt.toISOString()
+      );
+      return { token, expiresAt: expiresAt.toISOString() };
+    },
+
+    memberSession(token) {
+      if (!token) return null;
+      const row = get("select * from member_sessions where token_hash = ?", sha256(token));
+      if (!row) return null;
+      if (Date.parse(row.expires_at) <= Date.now()) {
+        db.prepare("delete from member_sessions where token_hash = ?").run(row.token_hash);
+        return null;
+      }
+      return { email: row.email, instanceId: row.instance_id, expiresAt: row.expires_at };
+    },
+
+    deleteMemberSession(token) {
+      if (!token) return;
+      db.prepare("delete from member_sessions where token_hash = ?").run(sha256(token));
+    },
+
+    pruneMemberSessions() {
+      db.prepare("delete from member_sessions where expires_at <= ?").run(nowIso());
+      db.prepare("delete from member_codes where expires_at <= ?").run(nowIso());
+    },
+
+    // 一个标签只要签发过或还在审核里就算占用；拒绝与撤回会释放它。
+    takenSubdomains() {
+      return all(
+        `select subdomain from applications
+          where subdomain is not null and subdomain <> ''
+            and status not in ('rejected', 'withdrawn', 'expired')`
+      ).map((row) => row.subdomain);
+    },
+
     // 审核台自己的写操作也要留痕；内部 event() 只在库内使用。
     recordEvent(kind, ref, detail) {
       event(kind, ref, detail);
     },
-
     events(limit = 50) {
       return all("select * from events order by seq desc limit ?", Math.min(Number(limit) || 50, 200));
     },

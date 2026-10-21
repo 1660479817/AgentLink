@@ -18,16 +18,16 @@ const MANIFEST = {
 
 const PROFILES = {
   legacy: {
-    formatVersion: 1,
+    formatVersion: 2,
     fetchedAt: "2026-10-19T02:00:00.000Z",
     issued: { id: "legacy", url: "https://legacy.example.com", since: "2026-10-19", tier: "demo", status: "active" },
-    profile: {
-      name: { en: "Knot" },
-      languages: ["en", "zh-CN"],
-      regions: ["GLOBAL"],
+    site: {
+      name: "Knot",
+      tagline: "An information exchange network.",
+      region: "GLOBAL",
       timezone: "Asia/Shanghai",
       contact: "hi@legacy.example.com",
-      intro: { oneLine: { en: "An information exchange network." } },
+      tags: ["交换", "Agent"],
     },
   },
 };
@@ -46,9 +46,11 @@ test("the snapshot merges issued fields, the cached profile and the probe result
 
   const [legacy] = data.instances;
   assert.equal(legacy.id, "legacy");
-  assert.equal(legacy.name.en, "Knot");
+  assert.equal(legacy.name, "Knot");
+  assert.equal(legacy.tagline, "An information exchange network.");
   assert.equal(legacy.url, "https://legacy.example.com");
-  assert.deepEqual(legacy.regions, ["GLOBAL"]);
+  assert.equal(legacy.region, "GLOBAL");
+  assert.deepEqual(legacy.tags, ["交换", "Agent"]);
   assert.equal(legacy.contact, "hi@legacy.example.com");
   assert.equal(legacy.profileFetchedAt, "2026-10-19T02:00:00.000Z");
   assert.deepEqual(legacy.health, {
@@ -65,7 +67,7 @@ test("the snapshot merges issued fields, the cached profile and the probe result
 test("a site that has never been fetched still renders, using its id as the name", () => {
   const data = buildHubData(MANIFEST, {}, new Date("2026-10-19T03:00:00Z"));
   const [legacy] = data.instances;
-  assert.deepEqual(legacy.name, { en: "legacy", "zh-CN": "legacy", "zh-TW": "legacy" });
+  assert.equal(legacy.name, "legacy");
   assert.equal(legacy.profileFetchedAt, null);
   assert.equal(legacy.intro, null);
 });
@@ -119,9 +121,9 @@ test("a hidden probe result keeps the entry in the snapshot but marks it hidden"
 test("optional fields get stable placeholders", () => {
   const data = buildHubData({ instances: [{ id: "x", url: "https://x.test" }] }, {});
   const [item] = data.instances;
-  assert.deepEqual(item.languages, []);
-  assert.deepEqual(item.regions, []);
-  assert.deepEqual(item.social, []);
+  assert.equal(item.name, "x");
+  assert.equal(item.region, null);
+  assert.deepEqual(item.tags, []);
   assert.equal(item.timezone, "UTC");
   assert.equal(item.health, null);
 });
@@ -173,9 +175,9 @@ test("logo is an absolute https url or nothing", () => {
     {},
     {},
     {
-      a: { profile: { name: { en: "A" }, logo: "https://cdn.test/a.png" } },
+      a: { site: { name: "A", logo: "https://cdn.test/a.png" } },
       // 相对路径不再是合法值：门户不猜站点根目录长什么样。
-      b: { profile: { name: { en: "B" }, logo: "/logos/b.svg" } },
+      b: { site: { name: "B", logo: "/logos/b.svg" } },
     }
   );
   assert.deepEqual(

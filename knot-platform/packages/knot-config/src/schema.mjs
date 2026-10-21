@@ -99,6 +99,15 @@ const SITE_KEYS = [
     example: "wang.xknot.si",
   },
   {
+    key: "KNOT_HUB_ORIGIN",
+    runtime: "KNOT_HUB_ORIGIN",
+    group: "site",
+    type: "url",
+    default: "https://xknot.si",
+    desc: "第一次接入时把申请提交到哪个中枢。默认联邦入口 xknot.si；本机联调可以指向 dev 中枢。",
+    example: "https://xknot.si",
+  },
+  {
     key: "KNOT_PORT",
     runtime: "PORT",
     group: "site",

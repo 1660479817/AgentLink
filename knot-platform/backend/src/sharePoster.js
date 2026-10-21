@@ -7,12 +7,12 @@ import { keyEntry, resolve } from "@knot/config";
 import { isMarkdown, toRuns } from "@knot/markdown";
 import { isAudioUpload, uploadName, visibleVerdict } from "./information.js";
 import { loadBootstrapConfig } from "./config.js";
-import { pickLocale, profileFilePath, readProfileSync } from "./profile.js";
+import { profileFilePath, readProfileSync } from "./profile.js";
 import { derivedDir, readableBlobPath } from "./storage.js";
 import { defaultAvatarIndex } from "./avatars.js";
 
 // 样例值也从 schema 取，不再在这里写第二份。
-// 站点名与标语来自站点档案 sites/<站点>/profile.json，按这次请求的语种取。
+// 站点名与标语来自站点档案 sites/<站点>/profile.json。
 const SCHEMA_CTX = { root: "", deployRoot: "", home: "" };
 const schemaDefault = (key) => resolve(keyEntry(key), {}, SCHEMA_CTX);
 
@@ -32,12 +32,12 @@ export function shareSite(env = process.env) {
     /* 保留默认主机名 */
   }
   // 落款取自站点档案（自述区）；没填时用兜底文案，图不会缺字。
-  const { profile } = readProfileSync(profileFilePath(env, config.agentEnvDir));
+  const { site } = readProfileSync(profileFilePath(env, config.agentEnvDir));
   return {
     page,
     host,
-    name: pickLocale(profile?.name, "zh-CN") || SHARE_NAME,
-    line: pickLocale(profile?.intro?.oneLine, "zh-CN") || SHARE_LINE,
+    name: site?.name || SHARE_NAME,
+    line: site?.tagline || SHARE_LINE,
   };
 }
 

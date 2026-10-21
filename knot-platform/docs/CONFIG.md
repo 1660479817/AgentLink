@@ -49,6 +49,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | --- | --- | --- | --- |
 | `KNOT_PUBLIC_ORIGIN` | `http://127.0.0.1:8080` |  | 对外访问地址。local 部署写 http://127.0.0.1:<KNOT_PORT>；接入 xknot.si 子域后写中枢签发的 https://<标签>.xknot.si。 |
 | `KNOT_DOMAIN` | （空） |  | xknot.si 签发的二级子域，形如 <标签>.xknot.si。local 部署留空；接子域时与入口文件名一致。 |
+| `KNOT_HUB_ORIGIN` | `https://xknot.si` |  | 第一次接入时把申请提交到哪个中枢。默认联邦入口 xknot.si；本机联调可以指向 dev 中枢。 |
 | `KNOT_PORT` | `8080` |  | 实例主机上 Backend 监听的端口。 |
 | `KNOT_BIND_HOST` | `127.0.0.1` |  | Backend 绑定地址。local 与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。 |
 | `KNOT_SESSION_COOKIE_NAME` | `knot_sid` |  | 会话 Cookie 名。同一个域名下跑多个站点时要各不相同。 |

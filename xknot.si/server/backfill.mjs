@@ -25,16 +25,9 @@ export function modeOf(entry) {
   return label && !label.includes(".") ? { mode: "subdomain", subdomain: label } : { mode: "own-domain", subdomain: null };
 }
 
-/** 自述区里的一个语种取一个字符串，顺序与站点一致。 */
-function pick(text, locale = "zh-CN") {
-  if (typeof text === "string") return text.trim();
-  if (!text || typeof text !== "object") return "";
-  for (const key of [locale, "en", "zh-CN", "zh-TW"]) {
-    const value = text[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  const first = Object.values(text).find((value) => typeof value === "string" && value.trim());
-  return first ? first.trim() : "";
+/** 自述区字段都是扁平字符串，只做去空白。 */
+function text(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 /**
@@ -61,14 +54,14 @@ export function backfillApplication({ store, manifest, instanceId, profile = nul
 
   const { mode, subdomain } = modeOf(entry);
   const url = mode === "subdomain" ? subdomainUrl(subdomain) : String(entry.url).replace(/\/+$/, "");
-  const body = profile?.profile || {};
-  const name = pick(body.name) || pick(body.shortName) || id;
-  const operator = pick(body.operator) || pick(body.owner) || name;
-  const intro = pick(body.intro?.oneLine) || "";
-  const region = Array.isArray(body.regions) && body.regions.length ? String(body.regions[0]) : "全球";
-  const timezone = String(body.timezone || "").trim() || "UTC";
-  const locale = Array.isArray(body.languages) && body.languages.length ? String(body.languages[0]) : null;
-  const tags = Array.isArray(body.tags) ? body.tags.map(String).slice(0, 5) : [];
+  const body = profile?.site || {};
+  const name = text(body.name) || id;
+  const operator = text(body.owner) || name;
+  const intro = text(body.tagline);
+  const region = text(body.region) || "GLOBAL";
+  const timezone = text(body.timezone) || "UTC";
+  const locale = null;
+  const tags = Array.isArray(body.tags) ? body.tags.map(String).slice(0, 9) : [];
 
   const today = now.toISOString().slice(0, 10);
   const since = String(entry.since || today).slice(0, 10);

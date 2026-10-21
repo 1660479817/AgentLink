@@ -53,6 +53,10 @@ const HINTS = {
   bad_invite_expiry: "有效期写 24h、7d、2w 这类，最长 366d。",
   bad_invite_note: "备注最多 200 字。",
   bad_href: "链接要以 http(s) 开头，或以 / 开头的站内路径。",
+  hub_unreachable: "连不上中枢。检查这台机器的出网，或者 KNOT_HUB_ORIGIN 是否写对。",
+  hub_timeout: "中枢 8 秒内没有回应，稍后再试。",
+  hub_error: "中枢返回了看不懂的响应，稍后再试。",
+  hub_rate_limited: "查询太频繁，过一会儿再试。",
   bad_image: "图片地址不合法。",
   bad_position: "赞助位顺序是正整数。",
   sponsor_full: "赞助位最多 8 条。",
@@ -1178,31 +1182,24 @@ function renderFederation() {
 }
 
 /* 站点档案：自述区在这里编辑，签发区只读 */
-// 字段清单只写一次：表单、填表、保存都从这两张表走，避免三处各记一套名字。
-const PROFILE_LOCALES = [
-  ["zh-CN", "简中"],
-  ["zh-TW", "繁中"],
-  ["en", "EN"],
-];
-
-const PROFILE_LOCALE_FIELDS = [
+// 字段清单只写一次：表单、填表、保存都从这张表走，避免三处各记一套名字。
+// v2 起没有多语种：一项一个输入框，填什么就存什么。
+const PROFILE_FIELDS = [
   { key: "name", label: "名称", hint: "顶栏和门户卡片上的站点名，必填", max: 40 },
-  { key: "shortName", label: "简称", hint: "窄屏或标识里用的短名", max: 12 },
-  { key: "intro.oneLine", label: "一句话介绍", hint: "访客看到的第一句，必填", max: 60 },
-  { key: "intro.long", label: "详细介绍", hint: "点开站点介绍后的一段话", max: 800, multiline: true },
-  { key: "owner", label: "主理人", hint: "这个站点背后的人，点站点名时看到", max: 40 },
-  { key: "operator", label: "运营方", hint: "与主理人不是同一个时再填", max: 80 },
-  { key: "tags", label: "标签", hint: "逗号分隔，每种语言最多 5 个", max: 200, list: true },
-];
-
-const PROFILE_PLAIN_FIELDS = [
-  { key: "contact", label: "联系方式", hint: "公开的邮箱或主页，可不填", max: 120 },
+  { key: "tagline", label: "一句话介绍", hint: "访客看到的第一句", max: 60 },
+  { key: "intro", label: "详细介绍", hint: "点开站点介绍后的一段话", max: 800, multiline: true },
   { key: "logo", label: "Logo 地址", hint: "https 开头的图片地址，可不填", max: 300 },
-  { key: "themeColor", label: "主题色", hint: "形如 #0866FF，可不填", max: 7 },
-  { key: "languages", label: "语种", hint: "zh-CN、zh-TW、en，逗号分隔", max: 60, list: true },
-  { key: "regions", label: "地区", hint: "两位国家码如 CN、SG，或 GLOBAL", max: 60, list: true },
-  { key: "timezone", label: "时区", hint: "如 Asia/Shanghai", max: 40 },
-  { key: "vertical", label: "垂类", hint: "如 旅行、二手房、招聘，可不填", max: 32 },
+  { key: "owner", label: "主理人", hint: "这个站点背后的人，点站点名时看到", max: 40 },
+  { key: "contact", label: "联系方式", hint: "公开的邮箱或主页，可不填", max: 120 },
+  { key: "region", label: "地区", hint: "两位国家码如 CN，或 GLOBAL · 只在 xknot.si 上显示", max: 2 },
+  { key: "timezone", label: "时区", hint: "如 Asia/Shanghai · 只在 xknot.si 上显示", max: 40 },
+  {
+    key: "tags",
+    label: "标签",
+    hint: "逗号分隔，最多 9 个 · 只在 xknot.si 上显示",
+    max: 160,
+    list: true,
+  },
 ];
 
 function fieldLabel(label, hint) {
@@ -1214,132 +1211,44 @@ function fieldLabel(label, hint) {
   );
 }
 
-function profileInput(field, locale) {
+function profileInput(field) {
   const input = el(field.multiline ? "textarea" : "input", {
     type: field.multiline ? null : "text",
     maxlength: field.max,
-    dataset: { profileKey: field.key, ...(locale ? { locale } : {}) },
+    dataset: { profileKey: field.key, ...(field.list ? { list: "yes" } : {}) },
   });
-  if (field.list) input.dataset.list = "yes";
-  const localeLabel = locale ? PROFILE_LOCALES.find(([id]) => id === locale)?.[1] || locale : "";
-  return el(
-    "label",
-    { class: "field" },
-    localeLabel ? fieldLabel(localeLabel) : fieldLabel(field.label, field.hint),
-    input
-  );
+  return el("label", { class: "field" }, fieldLabel(field.label, field.hint), input);
 }
 
 function renderProfileForm() {
   const container = byId("profile-fields");
   if (!container) return;
-  const localeFields = PROFILE_LOCALE_FIELDS.map((field) =>
-    el(
-      "div",
-      { class: "field field-wide" },
-      fieldLabel(field.label, field.hint),
-      el(
-        "div",
-        { class: "form-grid locale-row" },
-        ...PROFILE_LOCALES.map(([locale]) => profileInput(field, locale))
-      )
+  container.replaceChildren(
+    ...PROFILE_FIELDS.map((field) =>
+      field.multiline
+        ? el("div", { class: "field field-wide" }, profileInput(field))
+        : profileInput(field)
     )
   );
-  container.replaceChildren(...localeFields, ...PROFILE_PLAIN_FIELDS.map((field) => profileInput(field, null)));
-}
-
-function getPath(source, key) {
-  return key.split(".").reduce((node, part) => (node && typeof node === "object" ? node[part] : null), source);
-}
-
-function setPath(target, key, value) {
-  const parts = key.split(".");
-  let node = target;
-  for (const part of parts.slice(0, -1)) {
-    if (!node[part] || typeof node[part] !== "object") node[part] = {};
-    node = node[part];
-  }
-  node[parts[parts.length - 1]] = value;
 }
 
 function collectProfile() {
-  const profile = {};
+  const site = {};
   for (const input of document.querySelectorAll("[data-profile-key]")) {
-    const key = input.dataset.profileKey;
     const value = input.value.trim();
     if (!value) continue;
-    if (input.dataset.locale) {
-      const map = getPath(profile, key) || {};
-      map[input.dataset.locale] = input.dataset.list === "yes" ? splitList(value) : value;
-      setPath(profile, key, map);
-    } else if (input.dataset.list === "yes") {
-      setPath(profile, key, splitList(value));
-    } else {
-      setPath(profile, key, value);
-    }
+    const key = input.dataset.profileKey;
+    site[key] = input.dataset.list === "yes" ? splitList(value) : value;
   }
-  const social = [];
-  for (const row of document.querySelectorAll(".profile-social-row")) {
-    const label = row.querySelector("[data-social-label]").value.trim();
-    const url = row.querySelector("[data-social-url]").value.trim();
-    if (label || url) social.push({ label, url });
-  }
-  if (social.length) profile.social = social;
-  return profile;
+  return site;
 }
 
-function fillProfileForm(profile) {
+function fillProfileForm(site) {
   for (const input of document.querySelectorAll("[data-profile-key]")) {
-    const value = getPath(profile, input.dataset.profileKey);
-    const own = input.dataset.locale ? value?.[input.dataset.locale] : value;
-    if (Array.isArray(own)) input.value = own.join(", ");
-    else input.value = typeof own === "string" ? own : "";
+    const value = site?.[input.dataset.profileKey];
+    if (Array.isArray(value)) input.value = value.join(", ");
+    else input.value = typeof value === "string" ? value : "";
   }
-  const rows = byId("profile-social-rows");
-  rows.replaceChildren(...((Array.isArray(profile?.social) ? profile.social : []).map(socialRow)));
-  if (!rows.children.length) rows.append(socialRow());
-  syncSocialAdd();
-}
-
-function socialRow(item = {}) {
-  const row = el(
-    "div",
-    { class: "profile-social-row" },
-    el(
-      "label",
-      { class: "field" },
-      el("span", { text: "名称" }),
-      el("input", { type: "text", maxlength: "32", dataset: { socialLabel: "" }, value: item.label || "" })
-    ),
-    el(
-      "label",
-      { class: "field" },
-      el("span", { text: "链接" }),
-      el("input", { type: "url", maxlength: "300", dataset: { socialUrl: "" }, value: item.url || "" })
-    )
-  );
-  const remove = el("button", { class: "button ghost", type: "button", text: "移除" });
-  remove.addEventListener("click", () => {
-    row.remove();
-    if (!byId("profile-social-rows").children.length) byId("profile-social-rows").append(socialRow());
-    syncSocialAdd();
-  });
-  row.append(remove);
-  return row;
-}
-
-function syncSocialAdd() {
-  const rows = byId("profile-social-rows");
-  const add = byId("profile-social-add");
-  if (!rows || !add) return;
-  add.disabled = rows.children.length >= 5;
-}
-
-function addSocialRow() {
-  const rows = byId("profile-social-rows");
-  if (!rows || rows.children.length >= 5) return;
-  rows.append(socialRow());
-  syncSocialAdd();
 }
 
 async function loadProfile() {
@@ -1360,7 +1269,8 @@ function renderProfile() {
   const data = state.profile;
   if (!data) return;
   renderIssued(data);
-  fillProfileForm(data.profile);
+  renderJoin(data);
+  fillProfileForm(data.site);
 
   const problems = Array.isArray(data.problems) ? data.problems : [];
   setAlert(byId("profile-problems"), problems.join("；"), "error");
@@ -1372,6 +1282,134 @@ function renderProfile() {
       ? `文件 ${filePath || "（路径未知）"} · 最后更新 ${data.updatedAt || "还没保存过"}`
       : "这台机器还没有站点目录（KNOT_AGENT_ENV_DIR / KNOT_PROFILE_FILE），档案改不了。"
   );
+}
+
+/* 第一次接入：检查子域、提交申请。规则在中枢，这里只显示结论。 */
+
+const JOIN_REASONS = {
+  empty: "先填一个子域名。",
+  too_short: "至少 6 个字符；短号留给以后。",
+  too_long: "最多 32 个字符。",
+  format: "只能用小写字母、数字和连字符，首尾不能是连字符。",
+  reserved: "这个名字被中枢保留了，换一个。",
+  taken: "已经被占用了，换一个。",
+};
+
+const joinState = { available: false, label: "" };
+
+function joinHint(min = 6) {
+  setText("join-subdomain-note", `至少 ${min} 个字符；短号留给以后。`);
+}
+
+// 已接入就把「提交」收起来，没接入就只显示提交那一张。
+// 自述区与提交是两条线：改了档案不会自动重交，避免每存一次就发一张单。
+function renderJoin(data) {
+  const card = byId("join-card");
+  const issuedCard = byId("issued-card");
+  if (!card) return;
+  const joined = Boolean(data?.issued?.id);
+  card.hidden = joined;
+  if (issuedCard) issuedCard.hidden = !joined;
+  if (joined) return;
+
+  const email = byId("join-email");
+  const contact = String(data?.site?.contact || "").trim();
+  if (email && !email.value && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(contact)) {
+    email.value = contact;
+  }
+}
+
+function resetJoinCheck() {
+  joinState.available = false;
+  joinState.label = "";
+  const submit = byId("join-submit");
+  if (submit) submit.disabled = true;
+}
+
+async function checkJoinSubdomain() {
+  const input = byId("join-subdomain");
+  const label = input.value.trim();
+  resetJoinCheck();
+  setAlert(byId("join-result"), "", "error");
+  if (!label) {
+    setAlert(byId("join-result"), "先填一个子域名，再点检查。", "error");
+    return;
+  }
+
+  setText("join-subdomain-note", "正在问中枢…");
+  try {
+    const data = await api(`/xknot/subdomain?label=${encodeURIComponent(label)}`);
+    joinHint(Number(data.min) || 6);
+    if (data.available) {
+      joinState.available = true;
+      joinState.label = data.label;
+      input.value = data.label;
+      const submit = byId("join-submit");
+      if (submit) submit.disabled = false;
+      setAlert(byId("join-result"), `${data.label}.xknot.si 可以签。`, "ok");
+      return;
+    }
+    const reason = JOIN_REASONS[data.reason] || "这个名字不能签。";
+    const suggestions = Array.isArray(data.suggestions) && data.suggestions.length
+      ? `试试：${data.suggestions.slice(0, 3).join("、")}。`
+      : "";
+    setAlert(byId("join-result"), `${reason}${suggestions}`, "error");
+  } catch (error) {
+    if (handleAuth(error)) return;
+    joinHint();
+    setAlert(byId("join-result"), humanError(error), "error");
+  }
+}
+
+async function submitJoin(event) {
+  event.preventDefault();
+  if (!joinState.available) {
+    setAlert(byId("join-result"), "先检查子域名，可用再提交。", "error");
+    return;
+  }
+
+  const button = byId("join-submit");
+  button.disabled = true;
+  setAlert(byId("join-result"), "正在提交…", "ok");
+  try {
+    const data = await api("/xknot/apply", {
+      method: "POST",
+      body: {
+        subdomain: joinState.label,
+        email: byId("join-email").value.trim(),
+        locale: "zh-CN",
+      },
+    });
+    const application = data.application || {};
+    const result = byId("join-result");
+    result.replaceChildren(
+      el("span", { text: `已提交，申请编号 ${application.id || "（中枢没返回）"}。` }),
+      application.caseUrl
+        ? el("a", {
+            href: application.caseUrl,
+            target: "_blank",
+            rel: "noopener",
+            text: " · 查看进度",
+          })
+        : null
+    );
+    result.classList.remove("is-error");
+    result.classList.add("is-ok");
+    result.hidden = false;
+    // 成功之后不再允许重复点：同一地址再交一张会被中枢判重。
+    resetJoinCheck();
+    button.hidden = true;
+  } catch (error) {
+    if (handleAuth(error)) return;
+    const message =
+      error.code === "incomplete"
+        ? "档案还缺名称、主理人、一句话介绍或联系邮箱。先在上面补好并保存，再提交。"
+        : error.code === "duplicate"
+          ? "这个地址或子域已经有一张未结案的申请了。"
+          : humanError(error);
+    setAlert(byId("join-result"), message, "error");
+    button.disabled = false;
+  }
 }
 
 function renderIssued(data) {
@@ -1403,7 +1441,7 @@ async function saveProfile(event) {
   button.disabled = true;
   setAlert(byId("profile-problems"), "", "error");
   try {
-    const data = await api("/profile", { method: "PUT", body: { profile: collectProfile() } });
+    const data = await api("/profile", { method: "PUT", body: { site: collectProfile() } });
     state.profile = data;
     renderProfile();
     toast("档案已保存。", "ok");
@@ -1439,7 +1477,13 @@ function bindEvents() {
   });
   byId("profile-form").addEventListener("submit", saveProfile);
   byId("profile-reload").addEventListener("click", () => renderProfile());
-  byId("profile-social-add").addEventListener("click", addSocialRow);
+  byId("join-check").addEventListener("click", () => void checkJoinSubdomain());
+  byId("join-form").addEventListener("submit", submitJoin);
+  byId("join-subdomain").addEventListener("input", () => {
+    // 查过之后又改了名字，之前的「可用」就不再算数。
+    resetJoinCheck();
+    setAlert(byId("join-result"), "", "error");
+  });
   byId("user-clear").addEventListener("click", () => {
     state.selectedUser = null;
     renderUserList();

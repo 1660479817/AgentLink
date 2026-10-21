@@ -28,7 +28,7 @@ export function federationRouter({ profile, agentEnvDir = null, publicWebOrigin 
         tier: running.tier || null,
         status: running.status || null,
       },
-      profile: state.profile,
+      site: state.site,
       updatedAt: state.updatedAt,
     });
   });

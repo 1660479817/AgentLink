@@ -187,6 +187,9 @@ const { handle } = createApp({
     profilesDir: process.env.XKNOT_PROFILES_DIR
       ? path.resolve(process.env.XKNOT_PROFILES_DIR)
       : path.join(root, "var", "profiles"),
+    // 成员入口展示的活动数据与橱窗条数，同样只读构建时取回的副本。
+    statsDir: path.join(dataDir, "stats"),
+    cardsDir: path.join(dataDir, "cards"),
     relay: {
       enabled: relayEnabled,
       dailyLimit: Number(process.env.XKNOT_RELAY_DAILY_LIMIT || 50),

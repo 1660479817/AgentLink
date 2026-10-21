@@ -27,6 +27,11 @@ const region = computed(() =>
   props.item.groups.length ? props.t(`region.${props.item.groups[0]}`) : null
 );
 
+// 自由文本标签：主理人写的原文，不翻译、不截断、不重排。
+const tags = computed(() =>
+  Array.isArray(props.item.tags) ? props.item.tags.filter((tag) => typeof tag === "string" && tag) : []
+);
+
 // 失败时 latencyMs 记的是探测耗时（常常就是 5 秒超时），不是响应时间，不展示。
 const latency = computed(() => {
   if (status.value !== "up" && status.value !== "degraded") return null;
@@ -64,14 +69,17 @@ const clockTitle = computed(() => {
 
 const bars = computed(() => ({ up: 4, degraded: 3, down: 1, unknown: 0 })[status.value] ?? 0);
 
-// 每个站一个字母/单字徽记，底色取自清单里的 themeColor，没配就用主色。
+// 每个站一个字母/单字徽记。档案里不存主题色，底色由 id 稳定推出：
+// 同一个站在任何时候、任何语种下都是同一个色，换一份快照也不会跳。
 // 有 logo 时用 logo，加载失败退回徽记。
 const initial = computed(() => (props.item.name || "?").trim().slice(0, 1).toUpperCase());
 const logoFailed = ref(false);
 const logo = computed(() => (props.item.logo && !logoFailed.value ? props.item.logo : null));
-const nodeStyle = computed(() => ({
-  "--node-color": props.item.themeColor || "var(--accent)",
-}));
+const nodeStyle = computed(() => {
+  let hash = 0;
+  for (const char of String(props.item.id || "")) hash = (hash * 31 + char.codePointAt(0)) % 360;
+  return { "--node-color": `hsl(${hash} 58% 45%)` };
+});
 
 // 橱窗取第一条没过期的。卡片语言由伙伴决定，页面不翻译正文。
 const hot = computed(() => hotCard(props.item.cards, props.now));
@@ -131,6 +139,10 @@ const facts = computed(() =>
     </header>
 
     <p class="intro">{{ item.intro }}</p>
+
+    <ul v-if="tags.length" class="tags" :aria-label="t('tag.label')">
+      <li v-for="tag in tags" :key="tag" class="tag">{{ tag }}</li>
+    </ul>
 
     <p v-if="facts" class="facts" :title="t('facts.label')">{{ facts }}</p>
 
@@ -240,7 +252,7 @@ const facts = computed(() =>
   min-width: 0;
 }
 
-/* 站点徽记：有 themeColor 就用它，没有落到主色。 */
+/* 站点徽记：底色来自按 id 推出的色相。 */
 .badge {
   display: inline-flex;
   flex: 0 0 auto;
@@ -368,6 +380,26 @@ const facts = computed(() =>
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* 站点自己写的标签：一行小胶囊，窄了换行，不参与筛选以外的判断。 */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 /* 伙伴自报的计数：一行小字，窄了省略，不占卡片高度。 */

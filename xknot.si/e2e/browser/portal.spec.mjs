@@ -61,6 +61,31 @@ test.describe("门户", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 
+  test("标签筛选按站点自己写的原文收窄目录", async ({ page, request }) => {
+    await page.goto("/en/");
+    const data = await hubData(request);
+    const key = en.tag.label.toUpperCase();
+
+    // 第一行是区域，第二行是标签；只有站点真的填了标签才出现。
+    const rows = page.locator(".chips");
+    if ((await rows.count()) < 2) return;
+    const tags = rows.nth(1);
+    await expect(tags).toHaveAttribute("aria-label", key);
+    const chip = tags.locator(".chip").nth(1);
+    const label = await chip.locator("span").first().innerText();
+    const count = Number(await chip.locator(".chip-count").innerText());
+
+    await chip.click();
+    await expect(chip).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("#nodes article.card")).toHaveCount(count);
+    for (const card of await page.locator("#nodes article.card").all()) {
+      await expect(card.locator(".tag", { hasText: label }).first()).toBeVisible();
+    }
+
+    await tags.locator(".chip").first().click();
+    await expect(page.locator("#nodes article.card")).toHaveCount(data.instances.length);
+  });
+
   test("区域筛选与「只看在线」按同一份数据收窄目录", async ({ page, request }) => {
     await page.goto("/en/");
     const data = await hubData(request);
@@ -118,31 +143,19 @@ test.describe("门户", () => {
     }
   });
 
-  test("键盘可达：跳转链接先落焦点，目录与表单控件都有名字", async ({ page }) => {
+  test("键盘可达：跳转链接先落焦点，登录与加入步骤都有名字", async ({ page }) => {
     await page.goto("/en/");
     await page.keyboard.press("Tab");
     const skip = page.locator("a.skip");
     await expect(skip).toBeFocused();
     await expect(skip).toHaveAttribute("href", "#nodes");
 
-    // 表单控件都有 label 或 aria-label，不靠 placeholder 充数。
-    // 地址栏随模式切换：先选签发子域，再选自有域名，两边的 label 都要在。
-    await page.locator('input[name="join-mode"][value="subdomain"]').check();
-    for (const id of [
-      "join-name",
-      "join-subdomain",
-      "join-intro",
-      "join-operator",
-      "join-email",
-      "join-region",
-      "join-timezone",
-      "join-tags",
-    ]) {
-      await expect(page.locator(`label[for="${id}"]`)).toHaveCount(1);
-    }
-
-    await page.locator('input[name="join-mode"][value="own-domain"]').check();
-    await expect(page.locator('label[for="join-domain"]')).toHaveCount(1);
+    // 右栏不再收申请表：登录只有邮箱与授权码两格，加入方式是四步说明。
+    // 两格都要有 label，不靠 placeholder 充数。
+    await expect(page.locator('label[for="member-email"]')).toHaveCount(1);
+    await expect(page.locator("#member-email")).toHaveAttribute("type", "email");
+    await expect(page.locator("#join ol.steps li")).toHaveCount(4);
+    await expect(page.locator('a[href*="github.com/manwjh/AgentLink"]').first()).toBeVisible();
     await expect(page.locator("a.admin-link")).toHaveAttribute("href", "/admin/");
   });
 });

@@ -5,8 +5,8 @@
 //
 // 一条门户条目由两部分拼成：
 //   * 签发区 —— instances.json 里的 id、url、since、tier、status；
-//   * 自述区 —— var/profiles/{id}.json 里的 name、intro、contact 等，
-//     由实例通过 GET /api/federation/profile 自报，中枢只缓存。
+//   * 自述区 —— var/profiles/{id}.json 里的 name、tagline、region 等，
+//     由实例通过 GET /api/federation/profile 自报，中枢只缓存、不改写。
 
 import { normalizeCards } from "./cards.js";
 import { normalizeStats } from "./stats.js";
@@ -42,28 +42,20 @@ export function buildHubData(manifest, health, now = new Date(), cards = {}, sta
       .map((instance) => {
         const state = states[instance?.id] || null;
         const cached = profiles?.[instance.id] || null;
-        const profile = cached?.profile || {};
+        const site = cached?.site || {};
         return {
           id: instance.id,
           // 还在自述的条目也要能显示：名称缺了就退回 id，介绍缺了就是空。
-          name: profile.name ?? { en: instance.id, "zh-CN": instance.id, "zh-TW": instance.id },
-          shortName: profile.shortName ?? null,
-          logo: normalizeAsset(profile.logo),
-          themeColor: profile.themeColor ?? null,
+          name: site.name || instance.id,
+          tagline: site.tagline ?? null,
+          intro: site.intro ?? null,
+          logo: normalizeAsset(site.logo),
+          owner: site.owner ?? null,
+          contact: site.contact ?? null,
+          region: site.region ?? null,
+          timezone: site.timezone ?? "UTC",
+          tags: Array.isArray(site.tags) ? site.tags : [],
           url: instance.url,
-          vertical: profile.vertical ?? null,
-          tags: profile.tags ?? null,
-          languages: profile.languages ?? [],
-          regions: profile.regions ?? [],
-          timezone: profile.timezone ?? "UTC",
-          operator: profile.operator ?? null,
-          owner: profile.owner ?? null,
-          intro: profile.intro ?? null,
-          contact: profile.contact ?? null,
-          social: profile.social ?? [],
-          termsUrl: profile.termsUrl ?? null,
-          privacyUrl: profile.privacyUrl ?? null,
-          moderationUrl: profile.moderationUrl ?? null,
           // 自述区最近一次取回的时刻。null 表示还没收到过这个站点的档案。
           profileFetchedAt: cached?.fetchedAt ?? null,
           since: instance.since ?? null,

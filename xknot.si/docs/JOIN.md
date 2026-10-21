@@ -11,7 +11,7 @@
 
 | 问题 | 结论 |
 |------|------|
-| 怎么加入 | 门户右侧填表 → 邮件确认邮箱 → 运营者在 `/admin/` 人工审核 → 通过后由人写进 `instances.json` → 接通验收 → 重新构建门户。**申请不会自动上线。** |
+| 怎么加入 | 先在本机部署实例 → 打开 `/admin` → 填自述、选子域标签并提交 → 邮件确认邮箱 → 运营者在 `/admin/` 人工审核 → 通过后由人写进 `instances.json` → 接通验收 → 重新构建门户。**申请不会自动上线。** |
 | 要提供域名吗 | 看模式：**有自有域名**就用它当身份，地址是 `https://example.com`；**没有**才由中枢签发 `<标签>.xknot.si`。 |
 | 身份是什么 | 清单里的 `url`，只有这一个地址。自有域名模式就是伙伴的域名；子域模式是签发出来的子域。换机器、换 IP 只改解析，不改 `url`。 |
 | 接入模式 | 二选一：**有自有域名**（`own-domain`）或**无自有域名**（`subdomain`）。写在名册 `federation.json` 的 `mode` 里，不签发第二份地址，不做 301。 |
@@ -55,12 +55,14 @@
 
 ### 1.1 申请
 
-- 入口：中枢门户右栏「申请加入」（`web/src/components/JoinPanel.vue`）。
-- 接口：`POST /api/applications`（`server/app.mjs`）。
+- 入口：实例自己的 `/admin`，「接入 XKnot」一块（`knot-platform/admin/index.html`），由实例代交中枢的 `POST /api/admin/xknot/apply`。
+- 中枢门户右栏不再收申请表：那里是「登录你的 XKnot」与四步加入指引（部署 → `/admin` → 选子域提交 → 等回信），已经开通的主理人从这里看本站状态、健康与活动计数。
+- 接口：`POST /api/applications`（`server/app.mjs`）。直接调也可以，字段与从实例代交时一致。
+- 子域先查一次：`GET /api/subdomains/check?label=` 返回 `available`、`reason`（`too_short` / `too_long` / `format` / `reserved` / `taken` / `ok`）与候选建议。实例的 `/admin` 里就是「检查」按钮。
 - 字段（与 `server/validate.mjs` 一致）：
   - **接入模式** `mode`：`own-domain` 或 `subdomain`，必选。
   - `own-domain` 要填 **自有域名** `domain`：完整主机名，统一收成 `https://` 开头的 origin；不接受 IP、`localhost`、带账号密码或查询串的地址，也不接受 `xknot.si` 及其子域。
-  - `subdomain` 要填 **子域标签** `subdomain`：2–32 位小写字母、数字与连字符，首尾不能是连字符。系统保留名（`www`、`api`、`admin`、`mail`、`xknot` 等）不签发。
+  - `subdomain` 要填 **子域标签** `subdomain`：**6–32 位**小写字母、数字与连字符，首尾不能是连字符。少于 6 位一律不签：短号留给以后，不当第一批发出去。系统保留名（`www`、`api`、`admin`、`mail`、`xknot` 等）不签发。
   - 站点名称、一句话简介、运营者、联系邮箱、区域、时区、标签、同意勾选。这些只用于审核与联系：**不写进清单**。上线后由主理人在自己实例的 `/admin` 里填进站点档案（自述区），中枢按 `GET /api/federation/profile` 取回。
 - 申请阶段中枢**不抓取**任何站点；自有域名也只当字符串校验，不解析、不探测。
 - 同一地址（同一自有域名或同一标签）在 `pending` / `verified` / `hold` 时再次提交返回 `409 duplicate`；结案后可以再交一张单，用于补服务或变更模式。
@@ -287,7 +289,9 @@ npm run build                                    # 校验、探测、构建
 | 项 | 状态 |
 |----|------|
 | 邮箱确认 / 案例页 / 一次性领取页 | **已实现**：`/verify/<token>`、`/case/<caseKey>`、`/claim/<token>` |
-| 两种模式的地址校验 | **已实现**：`server/validate.mjs`（自有域名规范化、子域标签 2–32 位与保留名、同地址查重） |
+| 两种模式的地址校验 | **已实现**：`server/validate.mjs`（自有域名规范化、子域标签 6–32 位与保留名、同地址查重） |
+| 子域标签预检 | **已实现**：`GET /api/subdomains/check`；`ops/subdomain.mjs` 判长度、保留名、占用，并给候选 |
+| 成员登录（邮箱 + 授权码） | **已实现**：`/api/member/code`、`/api/member/session`、`/api/member/logout`；门户右栏显示本站状态、健康、活动计数与橱窗条数 |
 | 断连提醒与暂时隐藏 | **已实现**：`ops/watch-health.mjs` + `ops/check-health.mjs` |
 | 申请通过后自动签发 DNS | **未实现**；人工确认 + 权利人签发 |
 | 传统 DDNS（客户端改 A 到当前出口 IP） | **不做**；NAT 场景用入口 + SSH 反向隧道 |

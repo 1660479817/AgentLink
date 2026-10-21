@@ -7,9 +7,9 @@
 | 部件 | 形态 | 说明 |
 |------|------|------|
 | 门户 | Vue 静态站 | Vue 3 + Vite，三语入口，运行时读取 `/data/hub.json` |
-| 接口 | Node 常驻进程 | `POST /api/applications` 收加入申请，`/api/admin/*` 供审核台使用，`/api/federation/mail` 代实例发信 |
+| 接口 | Node 常驻进程 | `POST /api/applications` 收加入申请，`/api/subdomains/check` 回答标签能不能签，`/api/member/*` 供成员入口使用，`/api/admin/*` 供审核台使用，`/api/federation/mail` 代实例发信 |
 | 审核台 | 静态页 + 接口 | `/admin/`，管理员登录后先看总览（实例与探测、申请队列、发信、最近事件），再做审核、取清单条目 |
-| 申请存储 | SQLite | `var/xknot.db`，表 `applications`、`admins`、`sessions`、`events`、`relay_tokens`、`relay_log` |
+| 申请存储 | SQLite | `var/xknot.db`，表 `applications`、`admins`、`sessions`、`member_codes`、`member_sessions`、`events`、`relay_tokens`、`relay_log` |
 | 健康探测 | 构建步骤 + 定时巡检 | 构建时探测一次；`ops/watch-health.mjs` 每 15 分钟一次，写 `var/health.json` 并按连续时长发信 |
 | 活动数据拉取 | 构建步骤 | 构建时拉取 `statsUrl`，写 `var/stats/{id}.json` |
 | 站点档案取回 | 构建步骤 | 构建时拉取 `url` + `/api/federation/profile`，写 `var/profiles/{id}.json` |
@@ -200,10 +200,12 @@ npm run test     # 纯逻辑单元测试
   "instances": [
     {
       "id": "wang",
-      "name": { "en": "Knot · wang", "zh-CN": "Knot · wang", "zh-TW": "Knot · wang" },
+      "name": "Knot · wang",
+      "tagline": "面向 AI 时代、服务于 Agent 的信息交换网。",
       "url": "https://wang.xknot.si",
-      "regions": ["CN"],
+      "region": "CN",
       "timezone": "Asia/Shanghai",
+      "tags": ["信息交换", "Agent"],
       "tier": "partner",
       "status": "active",
       "health": { "status": "up", "lastOkAt": "2026-10-19T02:30:00.000Z", "version": "0.2.0" }
@@ -212,7 +214,7 @@ npm run test     # 纯逻辑单元测试
 }
 ```
 
-上面的 `name`、`regions`、`timezone` 来自该实例的自述区副本；`id`、`url`、`tier`、`status` 来自清单；`health` 来自探测。缺少自述区时门户只显示签发区字段。
+上面的 `name`、`tagline`、`region`、`timezone`、`tags` 来自该实例的自述区副本；`id`、`url`、`tier`、`status` 来自清单；`health` 来自探测。缺少自述区时门户只显示签发区字段。
 
 构建流程：
 
@@ -278,8 +280,9 @@ npm run test     # 纯逻辑单元测试
 
 目录是一列卡片网格（`repeat(auto-fill, minmax(272px, 1fr))`，约 750px 起两列，更宽到三列），每张卡片是一个站点：
 
-- 头部：站点徽记（有 `logo` 用 logo，否则用站名首字，底色取清单里的 `themeColor`）、站名（整张卡片可点的入口）、分级徽章、进入箭头；站名下一行是实例自己时区的当前时刻、区域与 `UTC±X`。
-- 正文：一句话简介，最多两行。
+- 头部：站点徽记（有 `logo` 用 logo，否则用站名首字，底色用默认主色）、站名（整张卡片可点的入口）、分级徽章、进入箭头；站名下一行是实例自己时区的当前时刻、区域与 `UTC±X`。
+- 正文：一句话简介（`site.tagline`），最多两行；没有就空着，不留占位文案。
+- 标签：`site.tags` 逐个渲染成小胶囊，主理人写的原文，不翻译、不重排。
 - 橱窗位：有 L3 卡片时显示第一条，火焰标 + 原标题（伙伴的语言，不翻译）+「更新于 X」+ 语言码 +「另 N 条」。点它直接去伙伴站点的那一篇，与卡片本身的入口分开。
 - 页脚：信号条与状态、延迟。延迟只在 `up`、`degraded` 时显示；`down` 时显示上次正常的时间，避免把探测耗时当成响应时间。
 
@@ -293,11 +296,13 @@ npm run test     # 纯逻辑单元测试
 
 分级的排序规则不变：`demo` → `partner` → `community`，同级按 `since`，再按 `id`。
 
+标签筛选：只在有站点用了标签时出现，跟在区域那行下面；选项是全部加实际出现过的标签值，按首次出现排序，点一个就只看带这个标签的站点。
+
 区域筛选：全部，加上清单里实际出现过的分组，顺序固定为全球、东亚、东南亚、南亚、中亚、中东、欧洲、北美、拉美、非洲、大洋洲、其他。没有条目的分组不显示，避免点开是空列表。
 
 M2 的拉取步骤落地后，`ops/fetch-cards.mjs` 把每个 `cardsUrl` 取回写 `var/cards/{id}.json`；构建（`ops/build-hub-data.mjs`）与开发服务器（`web/vite.config.js`）都通过 `ops/cards.mjs` 读这个目录，条目形状与页面渲染在这一步就固定下来。`fixtures/preview-cards.json` 提供样例橱窗，含多种语言与非拉丁标题。样例里的 `generatedAt` 是固定时间，所以样例热点会随真实时间变旧；要长期保持预览里的热点，改样例里的日期即可。
 
-页面不提供注册、登录、搜索和站内阅读。唯一的表单是加入申请：它只写中枢的申请队列，不创建账号、不改已有实例。橱窗正文只作摘要，点开回原站。
+页面不提供注册与站内搜索。右栏分两段：上面是「登录你的 XKnot」，成员用邮箱收一次性授权码进来，看到本站的上架状态、健康、活动计数与橱窗条数；下面是「如何加入」，四步写清部署、`/admin`、选子域提交、等回信。这里没有申请表：申请由实例自己的管理页代交。申请只写中枢的队列，不创建账号、不改已有实例。橱窗正文只作摘要，点开回原站。
 
 ### 4.1 路径
 
@@ -310,6 +315,8 @@ M2 的拉取步骤落地后，`ops/fetch-cards.mjs` 把每个 `cardsUrl` 取回�
 | `/data/hub.json` | 运行时快照，`no-cache` |
 | `/admin/` | 审核台，需要管理员会话才能读数据 |
 | `/api/applications` | 加入申请，`POST` |
+| `/api/subdomains/check` | 子域标签能不能签，`GET` |
+| `/api/member/*` | 成员登录、会话与本站概览 |
 | `/api/admin/*` | 登录、会话、申请列表、审核、清单条目 |
 
 语言切换是普通链接，回到同一页面。页面不读取访客 IP，不发起 GeoIP 请求。
@@ -607,6 +614,8 @@ M3：加入申请
 | `notify_log` | 发信记录：事件、案例、状态版本、语种、收件域名、地址哈希、模板版本、结果；不含正文 |
 | `relay_tokens` | 委托发信凭据：实例、标签、令牌 SHA-256、每日上限、签发与吊销时间 |
 | `relay_log` | 发信记录：实例、收件域名、地址哈希、主题长度、结果；不含正文 |
+| `member_codes` | 成员登录授权码：邮箱、实例、码的 SHA-256、签发/过期/使用时间、试错次数 |
+| `member_sessions` | 成员会话：令牌的 SHA-256、邮箱、实例、签发与过期时间 |
 
 申请状态与迁移：
 
@@ -622,15 +631,22 @@ pending ──▶ verified ──▶ hold ──▶ verified
 
 `pending` 表示等邮箱确认，不能直接审核；`approved` 只代表「可以收录」，与实例是否接通无关。同一地址在 `pending`、`verified`、`hold` 时再次提交返回 `409 duplicate`；`approved` 之后放行，补服务或变更模式要能再交一张单。
 
-申请只有两种模式：`mode` 为 `own-domain` 时必填 `domain`（完整主机名，统一收成 `https://` origin，不接受 IP、`localhost`、账号密码、查询串，也不接受 `xknot.si` 及其子域）；`mode` 为 `subdomain` 时必填 `subdomain` 标签（2–32 位小写字母、数字、连字符，保留名不签发），`url` 由它拼成 `https://<标签>.xknot.si`。归属验证（DNS TXT / well-known）已从申请流程移除——签发前没有可验证的域名，验收改为接通后的公网 `/api/health`。
+申请只有两种模式：`mode` 为 `own-domain` 时必填 `domain`（完整主机名，统一收成 `https://` origin，不接受 IP、`localhost`、账号密码、查询串，也不接受 `xknot.si` 及其子域）；`mode` 为 `subdomain` 时必填 `subdomain` 标签（**6–32 位**小写字母、数字、连字符，保留名不签发），`url` 由它拼成 `https://<标签>.xknot.si`。少于 6 位的标签一律不签：短号留给以后，不当第一批发出去。归属验证（DNS TXT / well-known）已从申请流程移除——签发前没有可验证的域名，验收改为接通后的公网 `/api/health`。
 
-申请表上方写明审核人姓名与邮箱（`web/src/lib/contact.js`，默认 `PaulWang` / `manwjh@gmail.com`，可在构建前用 `VITE_XKNOT_OPERATOR_NAME`、`VITE_XKNOT_OPERATOR_EMAIL` 覆盖）。提交时除给申请人的回执外，还会给 `XKNOT_ADMIN_EMAIL` 寄一封内部提醒。
+门户右栏不再收申请表。访客看到的是「登录你的 XKnot」与四步加入指引：部署实例 → 打开 `/admin` → 在实例里选子域并提交 → 等中枢回信。申请表由实例自己的管理页代交，中枢这一侧的校验、判重与审核流程完全不变。
+
+右栏「如何加入」的末尾写明审核人姓名与邮箱（`web/src/lib/contact.js`，默认 `PaulWang` / `manwjh@gmail.com`，可在构建前用 `VITE_XKNOT_OPERATOR_NAME`、`VITE_XKNOT_OPERATOR_EMAIL` 覆盖）。提交时除给申请人的回执外，还会给 `XKNOT_ADMIN_EMAIL` 寄一封内部提醒。
 
 ### 9.2 接口
 
 | 方法与路径 | 权限 | 说明 |
 |------------|------|------|
 | `POST /api/applications` | 公开 | 提交申请，201 返回编号；字段错误 400 带 `fields`；限流 429 |
+| `GET /api/subdomains/check?label=` | 公开 | 一个标签能不能签：`{ label, available, reason, min, suggestions }`；`reason` 取 `too_short` / `too_long` / `format` / `reserved` / `taken` / `ok`；按 IP 每分钟 30 次 |
+| `POST /api/member/code` | 公开 | 成员邮箱收一次性授权码（6 位、10 分钟、一次有效）。不是成员也回同样的 202，只有成员收得到信；单邮箱 10 分钟 3 次、单 IP 每小时 10 次 |
+| `POST /api/member/session` | 公开 | `{ email, code }` 换会话，种 30 天的 `xknot_member` Cookie，返回 `{ session, overview }`；码不对 401 `invalid_code`（`reason` 为 `mismatch` 或 `expired`），同一枚码错满 5 次 429，按 IP 15 分钟 12 次 |
+| `GET /api/member/session` | 成员会话 | 当前成员与本站概览：名称、地址、上架状态、探测结果、活动计数、橱窗条数 |
+| `POST /api/member/logout` | 成员会话 | 删除当前成员会话 |
 | `POST /api/admin/login` | 公开 | 用户名 + 口令，成功后种 `xknot_admin` Cookie |
 | `POST /api/admin/logout` | 会话 | 删除当前会话 |
 | `GET /api/admin/session` | 会话 | 当前管理员 |
@@ -757,6 +773,26 @@ node server/admin-cli.mjs access XK-2026-XXXXXX --id wang
 `var/xknot.db` 与 `var/session-secret` 要跟 `instances.json` 一起备份。数据库是普通 SQLite 文件，停机复制即可；WAL 模式下同时复制 `-wal` 与 `-shm`，或先执行 `sqlite3 var/xknot.db 'pragma wal_checkpoint(truncate)'`。
 
 `npm run test` 覆盖提交、重复、限流、跨源、登录、审核、清单生成、退出登录与邮件通知；测试用内存库和一个本地假 SMTP，不碰 `var/`，也不发真信。
+
+### 9.7 成员入口
+
+门户右栏第一条是「登录你的 XKnot」：成员填开通时确认过的邮箱，收一枚 6 位授权码，换一个 30 天的 `xknot_member` Cookie。没有口令，也没有注册入口——只有审核通过且邮箱已验证的申请单才认。
+
+登录后只读，显示四样东西，全部来自中枢已有的副本，不为了登录去反向请求实例：
+
+| 项 | 来源 | 说明 |
+|----|------|------|
+| 上架状态 | `instances.json` 的 `status` | `pending` 是待验收，`active` 是已上架 |
+| 健康 | `var/health.json` | 状态、延迟、最近可达时间 |
+| 活动计数 | `var/stats/{id}.json` | 帖子总数与 24 小时数、账户数；没报过就显示「还没有」 |
+| 橱窗 | `var/cards/{id}.json` | 条数 |
+
+两条边界：
+
+- 不是成员时 `/api/member/code` 也回 `202`，不发信。这个接口不能变成「某邮箱是不是成员」的探测器。
+- 站点被移出名册后，旧会话在下一次 `GET /api/member/session` 就会被删掉并返回 401，不显示一份冻结的数据。
+
+授权码信不进 `notify.mjs` 的事件表：那是审核流程可以手动补发的事件，登录码只由登录动作触发，也不该出现在补发列表里。文案见 `server/member-mail.mjs`。
 
 ## 10. 运维
 

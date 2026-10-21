@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,24 +14,43 @@ const ENV = {
   XKNOT_PUBLIC_ORIGIN: "https://xknot.si",
 };
 
+// 清单只有签发区；联系人、名称、语种来自站点自述的副本和申请单。
 const INSTANCE = {
   id: "wang",
   status: "active",
   url: "https://wang.xknot.si",
-  name: { en: "Wang", "zh-CN": "王" },
-  contact: "wang@example.test",
-  languages: ["zh-CN"],
-  regions: ["EAST_ASIA"],
-  timezone: "Asia/Shanghai",
   since: "2026-09-01",
 };
 
-async function fixture(instances = [INSTANCE]) {
+const SITE = {
+  name: "王",
+  contact: "wang@example.test",
+  region: "CN",
+  timezone: "Asia/Shanghai",
+};
+
+const APPLICATION = {
+  id: "XK-2026-WANG",
+  subdomain: "wang",
+  url: "https://wang.xknot.si",
+  email: "wang@example.test",
+  locale: "zh-CN",
+};
+
+async function fixture(instances = [INSTANCE], { site = SITE, applications = [APPLICATION] } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "knot-watch-"));
   const instancesPath = path.join(dir, "instances.json");
   const healthPath = path.join(dir, "var", "health.json");
+  const profilesDir = path.join(dir, "var", "profiles");
+  await mkdir(profilesDir, { recursive: true });
   await writeFile(instancesPath, JSON.stringify({ version: 2, instances }, null, 2));
-  return { dir, instancesPath, healthPath };
+  for (const instance of instances) {
+    await writeFile(
+      path.join(profilesDir, `${instance.id}.json`),
+      JSON.stringify({ formatVersion: 2, fetchedAt: "2026-10-20T00:00:00.000Z", issued: instance, site }, null, 2)
+    );
+  }
+  return { dir, instancesPath, healthPath, profilesDir, applications };
 }
 
 // check-health 的结果形状；只给 watch 关心的字段。
@@ -169,8 +188,8 @@ test("a missing SMTP config is reported and does not throw", async () => {
 });
 
 test("a suspended entry is never probed or mailed", async () => {
-  const suspended = { ...INSTANCE, id: "old", status: "suspended", contact: "old@example.test" };
-  const paths = await fixture([suspended]);
+  const suspended = { ...INSTANCE, id: "old", status: "suspended" };
+  const paths = await fixture([suspended], { site: { ...SITE, contact: "old@example.test" } });
   const sent = [];
   await watch({
     ...paths,

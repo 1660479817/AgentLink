@@ -94,7 +94,7 @@ L1 装在两处，按谁有权改划分：
 | 区 | 字段 | 存在哪 | 谁写 |
 |----|------|--------|------|
 | **签发区** | `id`、`url`、`since`、`tier`、`status`、`cardsUrl`、`statsUrl` | `xknot.si/instances.json` | 中枢 |
-| **自述区** | 名称、介绍、logo、主题色、标签、语种、地区、时区、运营方、主理人、联系方式、社交链接、条款地址 | 实例的 `sites/<站点>/profile.json` | 主理人，在实例 `/admin` 里编辑 |
+| **自述区** | `name`、`tagline`、`intro`、`logo`、`owner`、`contact`、`region`、`timezone`、`tags` | 实例的 `sites/<站点>/profile.json` | 主理人，在实例 `/admin` 里编辑 |
 
 中枢不接收写入：签发区改清单、提交、发布；自述区由主理人在自己站点改，中枢下次构建时按 `url` 取回。两区合起来才是门户上的一条档案。
 
@@ -118,23 +118,39 @@ L1 装在两处，按谁有权改划分：
 
 主理人在实例的 `/admin` → **XKnot** 里编辑，落在 `sites/<站点>/profile.json`；实例通过 `GET /api/federation/profile` 公开它。字段、上限、必填项与校验规则见 [`knot-platform/docs/PROFILE.md`](../../knot-platform/docs/PROFILE.md)；两边的实现是 `ops/profile-schema.mjs` 与 `knot-platform/backend/src/profile.js`，以本仓库的 `ops/profile-schema.mjs` 为准。
 
+格式是 `{ "formatVersion": 2, "updatedAt": "YYYY-MM-DD", "site": { … } }`，九项扁平字段：
+
+| 字段 | 类型 | 上限 | 必填 | 门户上出现在哪 |
+|------|------|------|------|---------------|
+| `name` | 字符串 | 40 | 是 | 卡片名称、地图标点 |
+| `tagline` | 字符串 | 60 | 否 | 卡片的一句话 |
+| `intro` | 字符串 | 800 | 否 | 卡片正文 |
+| `logo` | https 地址 | 300 | 否 | 卡片徽记 |
+| `owner` | 字符串 | 40 | 否 | 卡片页脚的主理人 |
+| `contact` | 字符串 | 120 | 否 | 只存在副本里，不直接上屏 |
+| `region` | 两位国家码或 `GLOBAL` | 2 | 否 | 区域分组与地图定位 |
+| `timezone` | IANA 名 | 40 | 否 | 卡片上的当地钟点 |
+| `tags` | 字符串数组 | 9 个 × 16 | 否 | 卡片标签与标签筛选 |
+
 要点：
 
-- 多语种字段是 `{ "zh-CN": "…", "zh-TW": "…", "en": "…" }`，只有这三个键；取用时回退链见 [I18N.md](I18N.md)。
-- `name` 与 `intro.oneLine` 必填；`contact` 可选，主理人不想公开就不写。
+- **没有多语种映射**：主理人用哪种语种写，门户就显示哪种。中枢不翻译，也不按界面语种挑一份。
+- `tags` 是自由文本：不预设词表、不按语义合并、不翻译；只做去空白、忽略大小写去重、保留主理人排的顺序。
 - `logo` 是 https 绝对地址。自述区里的图片只存地址，不进中枢的二进制。
-- 空的字符串不要写：清掉一项就整键省略。
+- 空的字符串不要写：清掉一项就整键省略。不认识的键整份被拒（见 `ops/profile-schema.mjs` 的 `SITE_FIELDS`）。
 
 ### 4.3 取回与缓存
 
 构建时 `ops/fetch-profile.mjs` 对每个 `status: active` 的条目取 `url` + `/api/federation/profile`：
 
 - 校验 `formatVersion`、`issued.id` 等于清单 id、`issued.url` 与清单 `url` 同主机；
-- 自述区过 `cleanProfile`：字段级问题照收，整份不可用则保留上一份；
+- 自述区过 `cleanSite`（`ops/profile-schema.mjs`）：整份不合法则保留上一份，取回结果仍带 `site`；
 - 响应上限 64KB，带 ETag，`304` 视为未变化；
 - 写 `var/profiles/{id}.json`，带 `fetchedAt` 与 `source`；取不到时不清旧文件。
 
 门户只用这份副本：缺字段时用签发区字段与兜底文案补齐，不会因此把条目算成 down（那是 L2 的事）。
+
+**升级顺序：先实例，后门户。** 取回时 `formatVersion` 不是 2 的响应会被整份拒绝、保留上一份副本；旧副本没有 `site`，门户对这条只显示 id。所以 `0.3.0` 之前部署的实例要先把 `knot-platform` 升上去、让 `/api/federation/profile` 吐出 v2，再跑一次 `npm run fetch:profile` 后重建中枢。`deploy-hub.sh` 前的 `ops/verify-hub-data.mjs` 会把「有签发区但没有自述区名称」判成问题并挡住发布，正是为了让这个顺序显式发生。
 
 ### 4.4 规则
 
@@ -545,11 +561,12 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 
 ## 10. 收录与下架
 
-加入是申请制：站点在门户右侧提交表单，运营者人工审核，通过后才写进清单。审核不是自动入驻，也不改变实例自治。
+加入是申请制：主理人在自己站点的 `/admin` 里提交，运营者人工审核，通过后才写进清单。审核不是自动入驻，也不改变实例自治。
 
 | 阶段 | 发生什么 |
 |------|----------|
-| 提交 | `POST /api/applications`，字段为接入模式、自有域名或子域标签、名称、简介、运营者、邮箱、区域、时区、标签 |
+| 提交 | 主理人在实例 `/admin` 的「接入 XKnot」里填子域标签与联系邮箱，由实例代交 `POST /api/applications`，字段为接入模式、自有域名或子域标签、名称、简介、运营者、邮箱、区域、时区、标签；也可以直接调中枢接口 |
+| 查标签 | 提交前先问 `GET /api/subdomains/check?label=`。少于 6 位的标签不签，保留名与已占用的不签；不通过时给出候选 |
 | 排队 | 同一地址只保留一条未结案申请；来源地址哈希后限流 |
 | 审核 | 运营者在 `/admin/` 看记录，核对申请信息与地址是否可行，标记通过、拒绝或搁置 |
 | 写清单 | 通过后由 `server/admin-cli.mjs publish <id>` 生成条目并写入 `instances.json`，状态为 `pending`；或手工粘贴 |
