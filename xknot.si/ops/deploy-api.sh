@@ -44,6 +44,7 @@ rsync_to() {
     return
   fi
   rsync -az --itemize-changes \
+    --exclude '*.test.mjs' \
     -e "ssh ${SSH_OPTS[*]}" \
     "$src" "$XKNOT_HUB_SSH:$dest"
 }
@@ -70,17 +71,12 @@ echo "==> sync api"
 rsync_to "$HUB/server/" "$API_ROOT/server/"
 rsync_to "$HUB/admin/" "$API_ROOT/admin/"
 rsync_to "$HUB/docs/" "$API_ROOT/docs/"
-rsync_to "$HUB/ops/validate-instances.mjs" "$API_ROOT/ops/"
-rsync_to "$HUB/ops/validate-federation.mjs" "$API_ROOT/ops/"
-# 清单校验按签发区/自述区拆分后，validate-instances.mjs 从 profile-schema.mjs 取字段表；
-# 少了它，server/ 一 import validate-instances 就起不来。
-rsync_to "$HUB/ops/profile-schema.mjs" "$API_ROOT/ops/"
-# 定时巡检（每 15 分钟）在远端直接跑这几个文件；漏了它们，timer 会每 15 分钟失败一次。
-# probe-target.mjs 决定探哪儿、探不探：server/app.mjs 与两个巡检脚本都 import 它。
-rsync_to "$HUB/ops/check-health.mjs" "$API_ROOT/ops/"
-rsync_to "$HUB/ops/watch-health.mjs" "$API_ROOT/ops/"
-rsync_to "$HUB/ops/probe-target.mjs" "$API_ROOT/ops/"
-rsync_to "$HUB/ops/fetch-guard.mjs" "$API_ROOT/ops/"
+# 整个 ops/ 一起同步，不再一份份列举。
+# 逐份列举漏过一个模块，接口就起不来：server/app.mjs import 的 subdomain.mjs
+# 曾经不在名单里，部署后 ERR_MODULE_NOT_FOUND，进程一直重启，门户 502。
+# 定时巡检（每 15 分钟）也直接在远端跑这里的文件，同样是一漏就整轮失败。
+# 单测不进远端：那边没有跑测试的场景，留着只会让 /opt/xknot 越来越像仓库。
+rsync_to "$HUB/ops/" "$API_ROOT/ops/"
 rsync_to "$HUB/web/src/lib/i18n.js" "$API_ROOT/web/src/lib/"
 rsync_to "$HUB/web/src/lib/regions.js" "$API_ROOT/web/src/lib/"
 
