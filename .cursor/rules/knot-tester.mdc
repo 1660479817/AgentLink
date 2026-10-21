@@ -12,9 +12,9 @@ bot01 上的 Knot 有一个长期测试员，专供代理做端到端测试。�
 - 人物：`23737bf5-537f-441f-bc86-bf230d1cf9ed`
 - 站点：`http://192.168.3.91:8080`
 - Cookie 名：`knot_sid`
-- Cookie 值：`a6dcf3f58d4efdf6f2edb220036bf57d03300f324a83f093`
+- Cookie 值：**不写进仓库**。读本机的 `knot-platform/sites/bot01/tester.env` 里的 `TESTER_SID`（该文件被 `.gitignore` 忽略，权限 600）。读不到就问用户要，不要用匿名会话代替。
 
-请求带上 `Cookie: knot_sid=a6dcf3f58d4efdf6f2edb220036bf57d03300f324a83f093`。不要再建一个匿名会话来代替这个账号。
+请求带上 `Cookie: knot_sid=<TESTER_SID>`。仓库是公开的，会话 cookie 等同于密码，任何 `git commit` 前先确认没有把它写进受版本控制的文件。
 
 会话到期或库被重建时，在 bot01 的仓库里执行 `./knot-platform/ops/scripts/ensure-tester.sh`。它会补上这个人和一条十年会话，不会改已有积分。
 
