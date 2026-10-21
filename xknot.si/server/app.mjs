@@ -1,18 +1,20 @@
 // xknot 中枢的接口层。
 //
-// 写操作只有五类：访客提交加入申请、确认邮箱、在案例页补材料、一次性领取交付资料、
-// 管理员审核。其余都是读。
+// 写操作只有六类：访客提交加入申请、确认邮箱、在案例页补材料、一次性领取交付资料、
+// 管理员审核、管理员改实例配置。其余都是读。
 // 不设 CORS：只接受同源请求，带 Origin 且与 Host 不一致直接拒绝。
 // 静态文件只在本地开发时由这里代管 /admin/，生产交给 nginx。
 
 import { createHash, randomBytes } from "node:crypto";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { updateInstanceConfig } from "./edit.mjs";
 import { checkManifestEntry, toManifestEntry } from "./manifest.mjs";
+import { probeEnabled, probeTargetOf } from "../ops/probe-target.mjs";
 import {
   ALL_EVENTS,
   HOLD_ITEM_CODES,
@@ -264,6 +266,13 @@ export function createApp({ store, config }) {
   const relayMinuteLimit = createLimiter({ windowMs: 60_000, max: RELAY_LIMITS.perMinute });
   const relayHourLimit = createLimiter({ windowMs: 3600_000, max: RELAY_LIMITS.perHour });
   const healthProvider = typeof config.healthProvider === "function" ? config.healthProvider : () => null;
+  const federationProvider =
+    typeof config.federationProvider === "function" ? config.federationProvider : () => null;
+  const settings = {
+    instancesFile: typeof config.instancesFile === "string" ? config.instancesFile : null,
+    federationFile: typeof config.federationFile === "string" ? config.federationFile : null,
+    profilesDir: typeof config.profilesDir === "string" ? config.profilesDir : null,
+  };
   const startedAt = Date.now();
 
   function readHealth() {
@@ -275,29 +284,105 @@ export function createApp({ store, config }) {
     }
   }
 
+  // 联邦名册只给审核台看：账号身份、接入模式、隧道账号与端口。
+  function readFederation() {
+    try {
+      const value = federationProvider();
+      return value && typeof value === "object" ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 站点自述的副本，由 ops/fetch-profile.mjs 写在 var/profiles/{id}.json。
+  // 审核台只读它来显示名字；写内容要去实例自己的 /admin。
+  function readCachedProfile(id) {
+    if (!settings.profilesDir || !id) return null;
+    try {
+      const payload = JSON.parse(readFileSync(path.join(settings.profilesDir, `${id}.json`), "utf8"));
+      return payload && typeof payload === "object" ? payload : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function cachedText(map) {
+    if (!map || typeof map !== "object") return "";
+    return map["zh-CN"] || map.en || map["zh-TW"] || "";
+  }
+
+  // 一个实例的运营配置：名册里的账号信息 + 清单里的签发区与拉取入口。
+  // 名称、介绍、联系方式不在这里：那是主理人的自述区，中枢只存取回的副本。
+  function instanceConfig(instance, member) {
+    const tunnel = member?.tunnel && typeof member.tunnel === "object" ? member.tunnel : null;
+    const cached = readCachedProfile(instance.id);
+    return {
+      name: cachedText(cached?.profile?.name) || instance.id || "",
+      tier: instance.tier || "community",
+      status: instance.status || "active",
+      host: member?.host || hostOf(instance.url) || "",
+      account: member?.id || instance.id || "",
+      role: member?.role || null,
+      standing: member?.standing || null,
+      mode: member?.mode || null,
+      tunnel: tunnel
+        ? { account: tunnel.account || "", port: Number.isInteger(tunnel.port) ? tunnel.port : null }
+        : null,
+      listed: member ? Boolean(member.listed) : null,
+      since: member?.since || instance.since || null,
+      note: member?.note || "",
+      // 只读：探测地址由 url 推出，不用手填。编辑表单不提供这一项。
+      probeUrl: probeTargetOf(instance, member).url,
+      // 只读：自述区的取回入口。内容在实例自己的 /admin 里改。
+      profileUrl: instance.url ? `${String(instance.url).replace(/\/$/, "")}/api/federation/profile` : "",
+      // 自述区最近一次取回的时刻；null 表示还没收到过。
+      profileFetchedAt: cached?.fetchedAt || null,
+      statsUrl: instance.statsUrl || null,
+      cardsUrl: instance.cardsUrl || null,
+    };
+  }
+
   // 总览：一次请求把运营最常看的几组数字拼好，页面不再逐个接口取。
   // 只读清单、探测结果、申请库与发信记录，不碰实例自己的数据。
   function buildOverview() {
     const list = Array.isArray(readInstances()) ? readInstances() : [];
     const health = readHealth();
     const checks = health.instances && typeof health.instances === "object" ? health.instances : {};
+    const federation = readFederation();
+    const members = Array.isArray(federation?.members) ? federation.members : [];
+    const memberById = new Map(members.map((member) => [String(member?.id || ""), member]));
+    const memberByHost = new Map(
+      members
+        .map((member) => [String(member?.host || "").toLowerCase(), member])
+        .filter(([host]) => host)
+    );
 
     const rows = list.map((instance) => {
       const probe =
         checks[instance.id] && typeof checks[instance.id] === "object" ? checks[instance.id] : null;
-      const paused = instance.status !== "active";
-      const probeStatus = paused ? "paused" : !instance.healthUrl ? "unprobed" : probe?.status || "unknown";
+      const pending = instance.status === "pending";
+      const paused = instance.status !== "active" && !pending;
+      const member =
+        memberById.get(String(instance.id)) || memberByHost.get(hostOf(instance.url)) || null;
+      // 清单里还是 pending 就是「已收录、未验收」，不拿探测结果说话。
+      // 名册里没有这个账号（校验本应拦住）也按未接通展示，避免把脱钩当成在线。
+      const probed = Boolean(member) && probeEnabled(instance);
+      const probeStatus = pending ? "pending" : paused ? "paused" : probed ? probe?.status || "unknown" : "unprobed";
+      const cached = readCachedProfile(instance.id);
       return {
         id: instance.id,
-        name: instanceName(instance),
+        // 名字来自实例自述的副本；还没取回时显示 id。
+        name: cachedText(cached?.profile?.name) || instanceName(instance),
         url: instance.url || "",
         tier: instance.tier || "community",
         status: instance.status || "active",
-        regions: Array.isArray(instance.regions) ? instance.regions : [],
+        regions: Array.isArray(cached?.profile?.regions) ? cached.profile.regions : [],
+        profileFetchedAt: cached?.fetchedAt || null,
         services: {
           cards: Boolean(instance.cardsUrl),
           stats: Boolean(instance.statsUrl),
         },
+        config: instanceConfig(instance, member),
         health: {
           status: probeStatus,
           latencyMs: probe?.latencyMs ?? null,
@@ -313,7 +398,8 @@ export function createApp({ store, config }) {
     const instances = {
       total: rows.length,
       active: rows.filter((row) => row.status === "active").length,
-      paused: rows.filter((row) => row.status !== "active").length,
+      pending: rows.filter((row) => row.status === "pending").length,
+      paused: rows.filter((row) => row.status !== "active" && row.status !== "pending").length,
       up: countBy("up"),
       degraded: countBy("degraded"),
       down: countBy("down"),
@@ -339,7 +425,8 @@ export function createApp({ store, config }) {
       .map((application) => ({
         id: application.id,
         name: application.name,
-        subdomain: application.subdomain,
+        mode: application.mode,
+        address: application.url,
       }));
 
     const since = new Date(Date.now() - 24 * 3600_000).toISOString();
@@ -353,6 +440,11 @@ export function createApp({ store, config }) {
         dbBytes: statSize(store.file),
       },
       instances,
+      federation: {
+        hub: federation?.hub || null,
+        updatedAt: federation?.updatedAt || null,
+        members: members.length,
+      },
       applications: {
         counts,
         total: Object.values(counts).reduce((sum, value) => sum + value, 0),
@@ -759,10 +851,12 @@ export function createApp({ store, config }) {
       const checked = validateApplication(body);
       if (!checked.ok) return send(res, 400, { error: "invalid", fields: checked.errors });
 
-      // 子域是身份，未结案时一个标签只能有一条申请。
-      if (store.findOpenBySubdomain(checked.value.subdomain)) {
-        return send(res, 409, { error: "duplicate" });
-      }
+      // 两种模式各自按地址查重：未结案时同一个地址只能有一条申请。
+      const duplicate =
+        checked.value.mode === "own-domain"
+          ? store.findOpenByDomain(checked.value.domain)
+          : store.findOpenBySubdomain(checked.value.subdomain);
+      if (duplicate) return send(res, 409, { error: "duplicate" });
 
       const services = tokensFrom(body.services).filter((item) =>
         ["relay", "cards", "stats"].includes(item)
@@ -842,6 +936,33 @@ export function createApp({ store, config }) {
     // 审核台首页用的汇总：实例与探测、申请队列、发信与最近事件。
     if (route === "/api/admin/overview" && method === "GET") {
       return send(res, 200, buildOverview());
+    }
+
+    // 改实例配置：清单字段与名册字段一起提交，先校验整份文件再原子写回。
+    const instanceConfig = /^\/api\/admin\/instances\/([a-z0-9][a-z0-9-]{0,30}[a-z0-9])\/config$/.exec(route);
+    if (instanceConfig && method === "POST") {
+      const body = await readBody(req);
+      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
+      if (body.error) return send(res, 400, { error: "bad_json" });
+
+      const result = await updateInstanceConfig({
+        instancesFile: settings.instancesFile,
+        federationFile: settings.federationFile,
+        id: instanceConfig[1],
+        instance: body.instance,
+        member: body.member,
+      });
+      if (result.error === "editing_unavailable") {
+        return send(res, 503, { error: "editing_unavailable" });
+      }
+      if (result.error === "manifest_unreadable" || result.error === "roster_unreadable") {
+        return send(res, 500, { error: result.error });
+      }
+      if (result.error === "not_found") return send(res, 404, { error: "not_found" });
+      if (result.error === "invalid") return send(res, 400, { error: "invalid", fields: result.fields });
+
+      store.recordEvent("instance.updated", instanceConfig[1], admin.username);
+      return send(res, 200, { ok: true });
     }
 
     if (route === "/api/admin/applications" && method === "GET") {

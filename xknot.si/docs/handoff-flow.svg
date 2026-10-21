@@ -1,133 +1,148 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="740" viewBox="0 0 1200 740">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M 0 1.2 L 10 5 L 0 8.8 Z" fill="#222"/>
     </marker>
-    <marker id="arrow-left" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-      <path d="M 10 1.2 L 0 5 L 10 8.8 Z" fill="#222"/>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 1.2 L 10 5 L 0 8.8 Z" fill="#0866FF"/>
     </marker>
   </defs>
 
-  <rect width="1200" height="780" fill="#ffffff"/>
+  <rect width="1200" height="740" fill="#ffffff"/>
 
-  <!-- 第一段：签发 -->
-  <rect x="60" y="140" width="300" height="460" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
-  <g fill="#f4f4f4" stroke="#222" stroke-width="1.3">
-    <rect x="80" y="168" width="260" height="84" rx="8"/>
-    <rect x="80" y="272" width="260" height="84" rx="8"/>
-    <rect x="80" y="376" width="260" height="84" rx="8"/>
+  <!-- 四个阶段的框 -->
+  <rect x="40" y="140" width="240" height="400" rx="12" fill="#ffffff" stroke="#222" stroke-width="1.5"/>
+  <rect x="304" y="140" width="330" height="400" rx="12" fill="#ffffff" stroke="#222" stroke-width="1.5"/>
+  <rect x="658" y="140" width="240" height="400" rx="12" fill="#ffffff" stroke="#0866FF" stroke-width="2"/>
+  <rect x="922" y="140" width="238" height="400" rx="12" fill="#ffffff" stroke="#222" stroke-width="1.5"/>
+
+  <!-- 阶段 0 的条目 -->
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.1">
+    <rect x="58" y="182" width="204" height="62" rx="7"/>
+    <rect x="58" y="256" width="204" height="62" rx="7"/>
+    <rect x="58" y="330" width="204" height="74" rx="7"/>
+    <rect x="58" y="416" width="204" height="62" rx="7"/>
   </g>
 
-  <!-- 闸门：交付单与两侧动作 -->
-  <rect x="400" y="140" width="340" height="460" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6" stroke-dasharray="7 5"/>
-  <rect x="420" y="164" width="300" height="80" rx="10" fill="#ffffff" stroke="#0866FF" stroke-width="1.8"/>
-  <g fill="#f4f4f4" stroke="#222" stroke-width="1.2">
-    <rect x="416" y="288" width="130" height="56" rx="7"/>
-    <rect x="416" y="352" width="130" height="56" rx="7"/>
-    <rect x="416" y="416" width="130" height="56" rx="7"/>
-    <rect x="416" y="480" width="130" height="56" rx="7"/>
-    <rect x="594" y="288" width="130" height="56" rx="7"/>
-    <rect x="594" y="352" width="130" height="56" rx="7"/>
-    <rect x="594" y="416" width="130" height="56" rx="7"/>
-    <rect x="594" y="480" width="130" height="56" rx="7"/>
+  <!-- 阶段 1 的条目 -->
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.1">
+    <rect x="322" y="180" width="294" height="60" rx="7"/>
+    <rect x="322" y="250" width="294" height="60" rx="7"/>
+    <rect x="322" y="320" width="294" height="60" rx="7"/>
+    <rect x="322" y="390" width="294" height="60" rx="7"/>
+    <rect x="322" y="460" width="294" height="60" rx="7"/>
   </g>
 
-  <!-- 第二段：接通 -->
-  <rect x="780" y="140" width="360" height="460" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
-  <g fill="#f4f4f4" stroke="#222" stroke-width="1.3">
-    <rect x="800" y="160" width="320" height="84" rx="8"/>
-    <rect x="800" y="258" width="320" height="84" rx="8"/>
-    <rect x="800" y="356" width="320" height="84" rx="8"/>
-  </g>
-  <rect x="800" y="454" width="320" height="84" rx="8" fill="#ffffff" stroke="#0866FF" stroke-width="1.8"/>
+  <!-- 交换点 A 的两向 -->
+  <rect x="676" y="196" width="204" height="112" rx="8" fill="#eef3ff" stroke="#0866FF" stroke-width="1.6"/>
+  <rect x="676" y="374" width="204" height="112" rx="8" fill="#ffffff" stroke="#0866FF" stroke-width="1.6" stroke-dasharray="7 5"/>
 
-  <!-- 阶段之间的箭头 -->
+  <!-- 阶段 2 的条目 -->
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.1">
+    <rect x="940" y="182" width="202" height="70" rx="7"/>
+    <rect x="940" y="266" width="202" height="70" rx="7"/>
+    <rect x="940" y="350" width="202" height="70" rx="7"/>
+  </g>
+
+  <!-- 阶段之间 -->
   <g fill="none" stroke="#222" stroke-width="1.6">
-    <line x1="360" y1="370" x2="396" y2="370" marker-end="url(#arrow)"/>
-    <line x1="740" y1="370" x2="776" y2="370" marker-end="url(#arrow)"/>
-    <line x1="546" y1="386" x2="590" y2="386" marker-end="url(#arrow)"/>
-    <line x1="594" y1="366" x2="550" y2="366" marker-end="url(#arrow-left)"/>
-    <line x1="546" y1="444" x2="590" y2="444" marker-end="url(#arrow)"/>
+    <line x1="280" y1="340" x2="300" y2="340" marker-end="url(#arrow)"/>
+    <line x1="634" y1="340" x2="654" y2="340" marker-end="url(#arrow)"/>
+    <line x1="898" y1="340" x2="918" y2="340" marker-end="url(#arrow)"/>
+  </g>
+  <!-- A 内部双向 -->
+  <g fill="none" stroke="#0866FF" stroke-width="1.5">
+    <line x1="778" y1="308" x2="778" y2="366" marker-end="url(#arrow-blue)"/>
   </g>
 
-  <!-- 状态带 -->
-  <rect x="60" y="620" width="520" height="72" rx="10" fill="#ffffff" stroke="#222" stroke-width="1.3"/>
-  <rect x="650" y="620" width="490" height="72" rx="10" fill="#ffffff" stroke="#0866FF" stroke-width="1.8"/>
-  <line x1="586" y1="656" x2="646" y2="656" fill="none" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)"/>
-
-  <!-- 文字 -->
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
-    <text x="60" y="48" font-size="20" font-weight="600" fill="#111">XKnot 联邦 · 子域开通：两段之间的一次交接</text>
-    <text x="60" y="74" font-size="13" fill="#65676B">签发不等于接通。闸门是一张交付单，不是一次口头确认。</text>
+    <text x="40" y="46" font-size="20" font-weight="600" fill="#111">XKnot 收录交付：中枢先把能做的做完，然后只见一次面</text>
+    <text x="40" y="72" font-size="13" fill="#65676B">没有域名也能加入。申请时就交公钥，所以前置阶段不需要等伙伴；A 之后两边各做各的。</text>
 
+    <!-- 阶段标题 -->
     <g text-anchor="middle" font-size="12" font-weight="600">
-      <rect x="60" y="98" width="300" height="26" rx="13" fill="#f4f4f4" stroke="none"/>
-      <text x="210" y="116" fill="#111">第一段 · 签发（工作人员）</text>
-      <rect x="400" y="98" width="340" height="26" rx="13" fill="#f4f4f4" stroke="none"/>
-      <text x="570" y="116" fill="#111">闸门 · 交接（双方）</text>
-      <rect x="780" y="98" width="360" height="26" rx="13" fill="#f4f4f4" stroke="none"/>
-      <text x="960" y="116" fill="#111">第二段 · 接通（工作人员）</text>
+      <rect x="40" y="98" width="240" height="26" rx="13" fill="#f4f4f4"/>
+      <text x="160" y="116" fill="#111">0 · 申请（伙伴）</text>
+      <rect x="304" y="98" width="330" height="26" rx="13" fill="#f4f4f4"/>
+      <text x="469" y="116" fill="#111">1 · 前置（中枢一人做完，没有来回）</text>
+      <rect x="658" y="98" width="240" height="26" rx="13" fill="#0866FF"/>
+      <text x="778" y="116" fill="#ffffff">A · 交换点（唯一一次碰面）</text>
+      <rect x="922" y="98" width="238" height="26" rx="13" fill="#f4f4f4"/>
+      <text x="1041" y="116" fill="#111">2 · 收尾（各做各的）</text>
     </g>
 
+    <!-- 阶段 0 文字 -->
     <g text-anchor="middle">
-      <text x="210" y="196" font-size="14" font-weight="600" fill="#111">签发子域</text>
-      <text x="210" y="218" font-size="12" fill="#333">权利人确认，人工执行</text>
-      <text x="210" y="300" font-size="14" font-weight="600" fill="#111">DNS 与证书</text>
-      <text x="210" y="322" font-size="12" fill="#333">A 记录指向边缘，证书续期</text>
-      <text x="210" y="404" font-size="14" font-weight="600" fill="#111">静态占位页</text>
-      <text x="210" y="426" font-size="12" fill="#333">/var/www/&lt;id&gt;，没有 /api</text>
-      <text x="210" y="512" font-size="12" fill="#65676B">此刻 /api/health 返回的是</text>
-      <text x="210" y="532" font-size="12" fill="#65676B">静态页，不是 JSON</text>
+      <text x="160" y="207" font-size="13" font-weight="600" fill="#111">填表</text>
+      <text x="160" y="226" font-size="11" fill="#333">模式 + 自有域名或子域标签</text>
+      <text x="160" y="281" font-size="13" font-weight="600" fill="#111">确认邮箱</text>
+      <text x="160" y="300" font-size="11" fill="#333">/verify/&lt;token&gt;，30 天有效</text>
+      <text x="160" y="357" font-size="13" font-weight="600" fill="#111">贴公钥（关键）</text>
+      <text x="160" y="376" font-size="11" fill="#333">/case/&lt;caseKey&gt; 里贴 .pub</text>
+      <text x="160" y="394" font-size="11" fill="#65676B">私钥不出本机</text>
+      <text x="160" y="441" font-size="13" font-weight="600" fill="#111">人工审核</text>
+      <text x="160" y="460" font-size="11" fill="#333">通过 / 拒绝 / 搁置</text>
     </g>
 
+    <!-- 阶段 1 文字 -->
+    <g text-anchor="start">
+      <text x="340" y="204" font-size="12.5" font-weight="600" fill="#111">① 写清单 pending + 名册成员</text>
+      <text x="340" y="224" font-size="11" fill="#333">instances.json 与 federation.json 各一条，id 对齐</text>
+
+      <text x="340" y="274" font-size="12.5" font-weight="600" fill="#111">② 分配账号与端口 · DNS · 证书</text>
+      <text x="340" y="294" font-size="11" fill="#333">knot-tunnel-&lt;id&gt; + 1808x；A 记录指入口；certbot</text>
+
+      <text x="340" y="344" font-size="12.5" font-weight="600" fill="#111">③ 静态根与占位页</text>
+      <text x="340" y="364" font-size="11" fill="#333">/var/www/&lt;id&gt;，此刻公网能打开一张页</text>
+
+      <text x="340" y="414" font-size="12.5" font-weight="600" fill="#111">④ 子域 conf（只静态，先不加 /api）</text>
+      <text x="340" y="434" font-size="11" fill="#333">nginx -t 通过后 reload</text>
+
+      <text x="340" y="484" font-size="12.5" font-weight="600" fill="#111">⑤ 建账号 · 装公钥 · sshd 与交付信</text>
+      <text x="340" y="504" font-size="11" fill="#333">authorized_keys 600；接入件与领取链接一并备好</text>
+    </g>
+
+    <!-- 交换点 A 文字 -->
     <g text-anchor="middle">
-      <text x="570" y="190" font-size="14" font-weight="600" fill="#0866FF">交付单 HANDOFF.md</text>
-      <text x="570" y="212" font-size="12" fill="#333">账号 · 端口 · 公钥指纹</text>
-      <text x="570" y="230" font-size="12" fill="#333">探测契约 · 清单字段 · 分工</text>
+      <text x="778" y="220" font-size="12" font-weight="600" fill="#0866FF">中枢 → 伙伴</text>
+      <text x="778" y="242" font-size="11" fill="#222">隧道账号 · 专属端口</text>
+      <text x="778" y="260" font-size="11" fill="#222">入口主机 · 领取链接</text>
+      <text x="778" y="278" font-size="11" fill="#222">已装公钥的指纹</text>
+      <text x="778" y="296" font-size="11" fill="#65676B">都是只有中枢才有的</text>
 
-      <text x="481" y="274" font-size="12" font-weight="600" fill="#111">伙伴</text>
-      <text x="659" y="274" font-size="12" font-weight="600" fill="#111">工作人员</text>
-
-      <text x="481" y="310" font-size="12" font-weight="600" fill="#111">部署实例</text>
-      <text x="481" y="328" font-size="11" fill="#333">本机自测通过</text>
-      <text x="481" y="374" font-size="12" font-weight="600" fill="#111">发公钥</text>
-      <text x="481" y="392" font-size="11" fill="#333">ed25519 · 只发 .pub</text>
-      <text x="481" y="438" font-size="12" font-weight="600" fill="#111">起隧道</text>
-      <text x="481" y="456" font-size="11" fill="#333">-R 18081 → 8080</text>
-      <text x="481" y="502" font-size="12" font-weight="600" fill="#111">装常驻</text>
-      <text x="481" y="520" font-size="11" fill="#333">断线自动重连</text>
-
-      <text x="659" y="310" font-size="12" font-weight="600" fill="#111">分端口 · 定账号</text>
-      <text x="659" y="328" font-size="11" fill="#333">写进交付单</text>
-      <text x="659" y="374" font-size="12" font-weight="600" fill="#111">建账号 · 装公钥</text>
-      <text x="659" y="392" font-size="11" fill="#333">authorized_keys 600</text>
-      <text x="659" y="438" font-size="12" font-weight="600" fill="#111">等监听</text>
-      <text x="659" y="456" font-size="11" fill="#333">ss -lntp | grep 18081</text>
-      <text x="659" y="502" font-size="12" font-weight="600" fill="#111">补 /api 反代</text>
-      <text x="659" y="520" font-size="11" fill="#333">nginx -t 后 reload</text>
-
-      <text x="570" y="566" font-size="11" fill="#65676B">公钥先到，账号才建；监听先起，反代才加</text>
+      <text x="778" y="398" font-size="12" font-weight="600" fill="#0866FF">伙伴 → 中枢</text>
+      <text x="778" y="420" font-size="11" fill="#222">本机自测一行输出</text>
+      <text x="778" y="438" font-size="10.5" font-family="JetBrains Mono, monospace" fill="#333">{"ok":true,...}</text>
+      <text x="778" y="460" font-size="11" fill="#65676B">实例在内网，只有伙伴能测</text>
+      <text x="778" y="476" font-size="11" fill="#b3261e">ok 不是 true 就不起隧道</text>
     </g>
 
+    <!-- 阶段 2 文字 -->
     <g text-anchor="middle">
-      <text x="960" y="188" font-size="14" font-weight="600" fill="#111">公网验收</text>
-      <text x="960" y="210" font-size="12" fill="#333">/ 是页面，/api/health 是 JSON</text>
-      <text x="960" y="228" font-size="12" fill="#333">3xx 不跟随，5 秒超时</text>
-      <text x="960" y="286" font-size="14" font-weight="600" fill="#111">填回 healthUrl</text>
-      <text x="960" y="308" font-size="12" fill="#333">从 null 改回完整地址</text>
-      <text x="960" y="326" font-size="12" fill="#333">只在这一步之后</text>
-      <text x="960" y="384" font-size="14" font-weight="600" fill="#111">重跑健康探测</text>
-      <text x="960" y="406" font-size="12" fill="#333">node ops/check-health.mjs</text>
-      <text x="960" y="424" font-size="12" fill="#333">≤2 秒为正常</text>
-      <text x="960" y="490" font-size="15" font-weight="600" fill="#0866FF">运行状态 up</text>
-      <text x="960" y="514" font-size="12" fill="#333">交付完成，可以对外宣告</text>
+      <text x="1041" y="209" font-size="12.5" font-weight="600" fill="#111">伙伴：起隧道 + 常驻</text>
+      <text x="1041" y="229" font-size="11" fill="#333">断线自动重连</text>
+      <text x="1041" y="243" font-size="11" fill="#65676B">入口出现 1808x 监听</text>
+
+      <text x="1041" y="293" font-size="12.5" font-weight="600" fill="#111">中枢：补 /api 反代</text>
+      <text x="1041" y="313" font-size="11" fill="#333">/api/、/help；/api/admin 404</text>
+      <text x="1041" y="327" font-size="11" fill="#65676B">nginx -t 后 reload</text>
+
+      <text x="1041" y="377" font-size="12.5" font-weight="600" fill="#111">中枢：探测 → active</text>
+      <text x="1041" y="397" font-size="11" fill="#333">check-health → build → live</text>
+      <text x="1041" y="411" font-size="11" fill="#65676B">门户出现条目</text>
     </g>
 
-    <text x="80" y="648" font-size="13" font-weight="600" fill="#111">清单 healthUrl = null</text>
-    <text x="80" y="670" font-size="11" fill="#333">运行状态 unknown，合法；不探测，也不算中断</text>
-    <text x="670" y="648" font-size="13" font-weight="600" fill="#111">清单 healthUrl = https://&lt;子域&gt;/api/health</text>
-    <text x="670" y="670" font-size="11" fill="#333">运行状态 up 或 degraded；只有这时才算接通</text>
+    <!-- 底部状态带 -->
+    <rect x="40" y="574" width="858" height="70" rx="10" fill="#ffffff" stroke="#222" stroke-width="1.3"/>
+    <rect x="922" y="574" width="238" height="70" rx="10" fill="#ffffff" stroke="#0866FF" stroke-width="1.8"/>
+    <line x1="900" y1="609" x2="918" y2="609" fill="none" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)"/>
 
-    <text x="60" y="742" font-size="12" fill="#65676B">中枢只读：构建时探测一次，不常驻巡检。接通前置 null，接通后填回；清单是唯一的人工入口。</text>
+    <text x="60" y="602" font-size="13" font-weight="600" fill="#111">清单 status = pending</text>
+    <text x="60" y="624" font-size="11" fill="#333">不探测、不上门户；公网 /api/health 此时返回 SPA 兜底，属正常</text>
+    <text x="942" y="602" font-size="13" font-weight="600" fill="#0866FF">status = active</text>
+    <text x="942" y="624" font-size="11" fill="#333">探测 up / degraded</text>
+
+    <text x="40" y="684" font-size="12" fill="#65676B">前置规则：凡是中枢不用等伙伴就能做的，全部放在 A 之前做完。A 之前没有来回，A 之后也不用再等答复。</text>
+    <text x="40" y="708" font-size="12" fill="#65676B">探测器只认清单 url + /api/health，不写进清单；探不探只看 status，与接入模式无关。</text>
   </g>
 </svg>

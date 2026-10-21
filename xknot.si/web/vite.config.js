@@ -7,6 +7,7 @@ import path from "node:path";
 import { buildHubData } from "./src/lib/snapshot.js";
 import { mergePreview } from "./src/lib/preview.js";
 import { mergeCards, readCards, PREVIEW_CARDS_PATH } from "../ops/cards.mjs";
+import { mergeProfiles, readProfiles, PREVIEW_PROFILES_PATH } from "../ops/profiles.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const hubDir = path.join(root, "..");
@@ -32,18 +33,21 @@ function hubDataPlugin() {
         let manifest = await readJson(path.join(hubDir, "instances.json"), { instances: [] });
         let health = await readJson(path.join(hubDir, "var", "health.json"), { instances: {} });
         let cards = await readCards(path.join(hubDir, "var", "cards"));
+        let profiles = await readProfiles(path.join(hubDir, "var", "profiles"));
 
         if (preview) {
           const samples = await readJson(path.join(hubDir, "fixtures", "preview-instances.json"), null);
           const sampleHealth = await readJson(path.join(hubDir, "fixtures", "preview-health.json"), null);
           const sampleCards = await readJson(path.join(hubDir, PREVIEW_CARDS_PATH), {});
+          const sampleProfiles = await readJson(path.join(hubDir, PREVIEW_PROFILES_PATH), {});
           ({ manifest, health } = mergePreview(manifest, health, samples, sampleHealth));
           cards = mergeCards(cards, sampleCards);
+          profiles = mergeProfiles(profiles, sampleProfiles);
         }
 
         res.setHeader("content-type", "application/json; charset=utf-8");
         res.setHeader("cache-control", "no-store");
-        res.end(JSON.stringify(buildHubData(manifest, health, new Date(), cards)));
+        res.end(JSON.stringify(buildHubData(manifest, health, new Date(), cards, {}, profiles)));
       });
     },
   };

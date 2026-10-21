@@ -19,8 +19,8 @@ const ADMIN = "e2e-partner-admin";
 
 const APPLICATION = {
   name: "Partners E2E",
+  mode: "subdomain",
   subdomain: "partner-e2e",
-  requestAccess: "direct",
   operator: "Lin",
   email: "partner@partner-e2e.example",
   region: "NO",
@@ -202,8 +202,8 @@ test("join: 审核通过后交接发一次性领取链接，领取页不消费�
   // 上一条测试把申请撤回（结案）了，这里重新走一条完整链路。
   const application = {
     ...APPLICATION,
-    subdomain: "partner-claim",
-    requestAccess: "tunnel",
+      mode: "subdomain",
+      subdomain: "partner-claim",
     email: "claim@partner-e2e.example",
   };
   const submitted = await request("/api/applications", {
@@ -257,7 +257,7 @@ test("join: 审核通过后交接发一次性领取链接，领取页不消费�
 
   const manifest = await request(`/api/admin/applications/${id}/manifest`, { cookie: adminCookie });
   assert.equal(manifest.status, 200);
-  assert.equal(manifest.data.entry.status, "active");
+  assert.equal(manifest.data.entry.status, "pending", "交接期先收录，/api/health 验收后才上线");
   assert.equal(manifest.data.entry.url, `https://${application.subdomain}.xknot.si`);
   assert.equal(manifest.data.entry.id, application.subdomain, "the subdomain label is the id");
 });

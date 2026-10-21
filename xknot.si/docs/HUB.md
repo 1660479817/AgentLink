@@ -12,12 +12,13 @@
 | 申请存储 | SQLite | `var/xknot.db`，表 `applications`、`admins`、`sessions`、`events`、`relay_tokens`、`relay_log` |
 | 健康探测 | 构建步骤 + 定时巡检 | 构建时探测一次；`ops/watch-health.mjs` 每 15 分钟一次，写 `var/health.json` 并按连续时长发信 |
 | 活动数据拉取 | 构建步骤 | 构建时拉取 `statsUrl`，写 `var/stats/{id}.json` |
-| 数据快照 | 构建步骤 | 合并清单、探测、活动数据与橱窗，写 `dist/data/hub.json` |
+| 站点档案取回 | 构建步骤 | 构建时拉取 `url` + `/api/federation/profile`，写 `var/profiles/{id}.json` |
+| 数据快照 | 构建步骤 | 合并清单（签发区）、档案副本（自述区）、探测、活动数据与橱窗，写 `dist/data/hub.json` |
 | 橱窗拉取 | 构建步骤 | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
 
 门户本身仍然是静态文件，所有实例数据在构建时写入。数据侧唯一的写入口是加入申请：它不写 `instances.json`，只进审核队列；审核通过后由人或命令行把条目写进清单，再重新构建。申请接口不能改变任何已上线的条目。
 
-对外展示字段与网络成员事实分开存放：`instances.json` 供门户渲染，`federation.json` 记创始实例、子域来源、接入方式与隧道账号端口。后者不参与渲染，只在构建前与前者交叉校验。
+三份数据各管一段：`instances.json` 只放签发区（`id`、`url`、`since`、`tier`、`status`、`statsUrl`、`cardsUrl`），由人提交；`var/profiles/{id}.json` 是各实例自述区的副本，由主理人在自己站点的 `/admin` 里写、中枢按 `url` 取回；`federation.json` 记创始实例、接入模式与隧道账号端口。名册不参与渲染，只在构建前与清单交叉校验。
 
 接口侧另有一条委托发信（`POST /api/federation/mail`），它不写清单也不写快照，只把一封信交给中枢的 SMTP；见 [FEDERATION.md](FEDERATION.md) 第 7 节。
 
@@ -29,8 +30,8 @@
 xknot.si/
 ├── README.md              联邦入口
 ├── package.json           本项目的脚本：dev / build / test / deploy / admin
-├── instances.json         实例清单（唯一的人工编辑入口）
-├── federation.json        联邦名册：成员身份、子域来源、接入方式、隧道账号与端口
+├── instances.json         实例清单：签发区字段（构建与发布以这份为准；审核台只改这一段）
+├── federation.json        联邦名册：成员身份、接入模式、隧道账号与端口
 ├── fixtures/              版式样例：十条伙伴条目、探测与橱窗样例，只在 --preview 下并入
 ├── server/
 │   ├── index.mjs          接口进程入口，只监听 127.0.0.1:5181
@@ -38,6 +39,7 @@ xknot.si/
 │   ├── store.mjs          SQLite：申请、状态机、验证/领取令牌、发信日志、管理员与会话
 │   ├── validate.mjs       申请表字段校验（纯函数）
 │   ├── manifest.mjs       申请 → instances.json 条目，生成后自检
+│   ├── edit.mjs           审核台改实例配置：两份文件整份校验后原子写回
 │   ├── relay.mjs          委托发信的字段校验与消息组装（纯函数）
 │   ├── mail.mjs           SMTP 客户端（net/tls，无外部依赖）与邮件组装
 │   ├── notify.mjs         伙伴与内部邮件模板注册表（11 + 3，三语）
@@ -72,6 +74,9 @@ xknot.si/
 │   ├── fetch-guard.mjs          拉取守卫：https、DNS、超时、大小、原子写
 │   ├── fetch-cards.mjs          橱窗拉取，写 var/cards/{id}.json
 │   ├── fetch-stats.mjs          活动数据拉取，写 var/stats/{id}.json
+│   ├── fetch-profile.mjs        档案拉取：读 /api/federation/profile，写 var/profiles/{id}.json
+│   ├── profile-schema.mjs       自述区的字段契约与清洗（门户与拉取共用）
+│   ├── profiles.mjs             读 var/profiles/ 的副本
 │   ├── build-hub.sh             本机构建：校验、探测、拉取、构建、写快照
 │   ├── verify-hub-data.mjs      发布前守卫：快照里的 id 必须与清单一致
 │   ├── deploy-hub.sh            可选的静态站同步（目标由环境变量给出）
@@ -136,9 +141,8 @@ npm run test          # 单元测试（清单、名册、页面逻辑、接口�
 | `members[].host` | 主机名 | 必须等于清单 `url` 的主机 |
 | `members[].role` | `founder` / `partner` | 有且只有一个 `founder` |
 | `members[].standing` | `permanent` / `regular` | `founder` 必须是 `permanent`，且不能 `listed: false` |
-| `members[].issuance` | `own-domain` / `subdomain-issued` / `subdomain-reserved` / `none` | 子域从哪来 |
-| `members[].access` | `edge-tunnel` / `direct` / `pending` | 接入方式；`edge-tunnel` 必须带 `tunnel` |
-| `members[].tunnel` | `null` 或 `{ account, port }` | 账号与端口全名册唯一 |
+| `members[].mode` | `own-domain` / `subdomain` | 接入模式，决定 `url` 的形态 |
+| `members[].tunnel` | `null` 或 `{ account, port }` | `subdomain` 必填，`own-domain` 必须为 `null`；账号与端口全名册唯一 |
 | `members[].listed` | `true` / `false` | 是否已收录；决定是否要在清单里出现 |
 | `members[].since` | `YYYY-MM-DD` / `null` | `listed: true` 时必填 |
 | `members[].note` | ≤200 字 | 给工作人员看的一句话 |
@@ -182,9 +186,9 @@ npm run test     # 纯逻辑单元测试
 
 ### 3.1 版式样例
 
-`fixtures/preview-instances.json` 放了十条伙伴条目（nordhavn、sakura、meridian、khaleej、saigon、bengaluru、aurora、pampa、koru、atlas），`fixtures/preview-health.json` 放它们的探测样例。用途只有一个：让目录看起来像真的有十来个成员，便于判断版式。
+`fixtures/preview-instances.json` 放十条伙伴的签发区，`fixtures/preview-profiles.json` 放对应的自述区，`fixtures/preview-health.json` 放探测样例。用途只有一个：让目录看起来像真的有十来个成员，便于判断版式。
 
-- 两个文件都是样例，**不是成员名单**。真实成员记在 `federation.json`（名册）与 `instances.json`（对外字段）里，样例不写进这两份文件。
+- 三个文件都是样例，**不是成员名单**。真实成员记在 `federation.json`（名册）、`instances.json`（签发区）与各实例自己的档案里，样例不写进这些文件。
 - 只在 `XKNOT_PREVIEW=1` 时并入内存与本次构建；真实清单里已有同 id 时以真实条目为准，真实探测结果也优先。
 - `ops/verify-hub-data.mjs` 在每次构建后复核：生产快照里的 id 必须与 `instances.json` 完全一致，多一条少一条都让构建失败；预览构建只放行 `fixtures/` 里的 id。`ops/deploy-hub.sh` 同步前会再核一次。
 - `npm run validate:fixtures` 校验样例本身合法，`preview.test.mjs` 覆盖合并规则。
@@ -198,7 +202,6 @@ npm run test     # 纯逻辑单元测试
       "id": "wang",
       "name": { "en": "Knot · wang", "zh-CN": "Knot · wang", "zh-TW": "Knot · wang" },
       "url": "https://wang.xknot.si",
-      "redirect": null,
       "regions": ["CN"],
       "timezone": "Asia/Shanghai",
       "tier": "partner",
@@ -209,14 +212,16 @@ npm run test     # 纯逻辑单元测试
 }
 ```
 
+上面的 `name`、`regions`、`timezone` 来自该实例的自述区副本；`id`、`url`、`tier`、`status` 来自清单；`health` 来自探测。缺少自述区时门户只显示签发区字段。
+
 构建流程：
 
 ```bash
-./xknot.si/ops/build-hub.sh            # 校验、探测、构建、写快照
+./xknot.si/ops/build-hub.sh            # 校验、探测、取档案、构建、写快照
 ./xknot.si/ops/build-hub.sh --offline  # 跳过探测，复用 var/health.json
 ```
 
-脚本顺序固定：校验清单 → 探测健康 → 安装依赖（仅首次）→ 构建 → 写 `dist/data/hub.json`。全程在本机完成，不连接远端。
+脚本顺序固定：校验清单 → 探测健康 → 取回档案 → 安装依赖（仅首次）→ 构建 → 写 `dist/data/hub.json`。全程在本机完成，不连接远端。
 
 页面取数规则：
 
@@ -329,8 +334,9 @@ M2 的拉取步骤落地后，`ops/fetch-cards.mjs` 把每个 `cardsUrl` 取回�
 
 `ops/check-health.mjs`：
 
-- 读 `instances.json`。
-- 并发探测每个 `healthUrl`，超时 5 秒，不跟随重定向。
+- 读 `instances.json` 与 `federation.json`。
+- 每个实例的探测地址恒为 `url` + `/api/health`（`ops/probe-target.mjs` 推出）；清单 `status` 为 `active` 才探，`pending` / `suspended` / `retired` 都不探。
+- 并发探测这些地址，超时 5 秒，不跟随重定向。
 - 合并上一次的 `checks`、`ok`、`since`，累加。
 - 原子写入 `var/health.json`。
 
@@ -347,8 +353,8 @@ M2 的拉取步骤落地后，`ops/fetch-cards.mjs` 把每个 `cardsUrl` 取回�
 | `down` 连续 24 小时 | 给实例 `contact` 寄 `partner.unreachable_24h` |
 | `down` 连续 7 天 | 寄 `partner.hidden_7d`，门户不再展示该条目 |
 | 任一探测 `up` / `degraded` | 清空 `downSince` 与隐藏标记，自动回到门户 |
-| `healthUrl` 为空且 `since` 已 14 天 | 内部提醒运营方 |
-| `healthUrl` 为空且 `since` 已 30 天 | 门户暂时隐藏 |
+| 清单 `status` 仍为 `pending` 且 `since` 已 14 天 | 内部提醒运营方 |
+| 清单 `status` 仍为 `pending` 且 `since` 已 30 天 | 门户暂时隐藏 |
 
 - 状态写在 `var/health.json` 的 `downSince`、`notified`、`hiddenAt`、`hiddenReason`；每条通知只发一次。
 - 同一个 id 重新签发（清单 `since` 变了）时，旧状态作废，不继承隐藏标记与断连计时。
@@ -423,7 +429,8 @@ npm run preview  # 预览构建产物（在 web/ 内执行）
 | `XKNOT_API_PORT` | `5181` | 监听端口 |
 | `XKNOT_API_HOST` | `127.0.0.1` | 监听地址，不要改成 `0.0.0.0` |
 | `XKNOT_DATA_DIR` | `var/` | 库文件、会话密钥 |
-| `XKNOT_INSTANCES_FILE` | `instances.json` | 清单路径。本地联调与端到端指向临时清单，接口与 `admin-cli`（含 `publish`）一起生效，不动仓库里的实例表 |
+| `XKNOT_INSTANCES_FILE` | `instances.json` | 清单路径。本地联调与端到端指向临时清单，接口、审核台的「编辑」与 `admin-cli`（含 `publish`）一起生效，不动仓库里的实例表 |
+| `XKNOT_FEDERATION_FILE` | `federation.json` | 名册路径。总览里实例的账号配置从这里读，审核台「编辑」也写回这份文件；按 `mtime` 缓存，改完不必重启 |
 | `XKNOT_SESSION_SECRET` | 自动生成 | 首次启动写到 `var/session-secret`，`0600` |
 | `XKNOT_SECURE_COOKIE` | 关 | 生产置 `1`，会话 Cookie 加 `Secure` |
 | `XKNOT_TRUST_PROXY` | 关 | 生产置 `1`，限流取 `X-Forwarded-For` 的末尾地址（nginx 追加的真实来源），不取可伪造的首个地址 |
@@ -456,17 +463,17 @@ npm run preview  # 预览构建产物（在 web/ 内执行）
 构建完成后，如需同步，使用：
 
 ```bash
-XKNOT_EDGE=user@host ./xknot.si/ops/deploy-hub.sh --dry-run
-XKNOT_EDGE=user@host ./xknot.si/ops/deploy-hub.sh
+XKNOT_HUB_SSH=user@host ./xknot.si/ops/deploy-hub.sh --dry-run
+XKNOT_HUB_SSH=user@host ./xknot.si/ops/deploy-hub.sh
 ```
 
-`XKNOT_EDGE` 必填，脚本不写死主机；`XKNOT_TARGET`（默认 `/var/www/xknot`）和 `XKNOT_SSH_KEY` 可覆盖。这一步由执行构建的机器直接发起，与 bot01 无关。
+`XKNOT_HUB_SSH` 必填，脚本不写死主机；`XKNOT_TARGET`（默认 `/var/www/xknot`）和 `XKNOT_SSH_KEY` 可覆盖。这一步由执行构建的机器直接发起，与 bot01 无关。
 
-接口、审核台与站点配置用 `ops/deploy-api.sh`，同样只认 `XKNOT_EDGE`：
+接口、审核台与站点配置用 `ops/deploy-api.sh`，同样只认 `XKNOT_HUB_SSH`：
 
 ```bash
-XKNOT_EDGE=user@host ./xknot.si/ops/deploy-api.sh --dry-run
-XKNOT_EDGE=user@host ./xknot.si/ops/deploy-api.sh
+XKNOT_HUB_SSH=user@host ./xknot.si/ops/deploy-api.sh --dry-run
+XKNOT_HUB_SSH=user@host ./xknot.si/ops/deploy-api.sh
 ```
 
 它同步 `server/`、`admin/`、`docs/` 和清单校验依赖，安装 nginx 配置与 systemd unit，`nginx -t` 后重启接口并 reload nginx。静态站与接口分开部署，互不覆盖。
@@ -575,6 +582,7 @@ M3：加入申请
 - [ ] 站点地址不是 `https://`、邮箱不完整、简介超过 60 字时拒绝提交
 - [ ] 未登录访问 `/api/admin/applications` 返回 401
 - [ ] 审核台登录后能看到申请，通过/拒绝/搁置都会更新状态与审核人
+- [ ] 总览里点实例就地展开配置，不跳站；点「编辑」能改并写回两份 JSON，非法值返回 400 且文件不变
 - [ ] 已通过的申请能生成清单条目，`validateInstance` 无错误
 - [ ] `publish` 写回 `instances.json` 后重新构建，条目出现在地图与目录
 - [ ] 接口进程重启后申请与账号仍在
@@ -590,7 +598,7 @@ M3：加入申请
 
 | 表 | 内容 |
 |----|------|
-| `applications` | 申请：名称、子域标签、运营者、邮箱、区域、时区、简介、标签、状态、落点方式、案例键、状态版本、验证与审核记录 |
+| `applications` | 申请：名称、接入模式、自有域名或子域标签、运营者、邮箱、区域、时区、简介、标签、状态、案例键、状态版本、验证与审核记录 |
 | `admins` | 管理员：用户名、scrypt 口令、创建时间、最近登录 |
 | `sessions` | 会话：令牌的 SHA-256、管理员、过期时间 |
 | `events` | 审计：提交、验证、通过、拒绝、搁置、撤回、过期、建号、删号、凭据签发与吊销 |
@@ -612,9 +620,9 @@ pending ──▶ verified ──▶ hold ──▶ verified
    └──▶ expired（30 天未确认）
 ```
 
-`pending` 表示等邮箱确认，不能直接审核；`approved` 只代表「可以收录」，与实例是否接通无关。同一子域在 `pending`、`verified`、`hold` 时再次提交返回 `409 duplicate`；`approved` 之后放行，补服务或变更落点要能再交一张单。
+`pending` 表示等邮箱确认，不能直接审核；`approved` 只代表「可以收录」，与实例是否接通无关。同一地址在 `pending`、`verified`、`hold` 时再次提交返回 `409 duplicate`；`approved` 之后放行，补服务或变更模式要能再交一张单。
 
-申请只按子域走：`subdomain` 是标签（2–32 位小写字母、数字、连字符，保留名不签发），`url` 由它拼成 `https://<标签>.xknot.si`；`requestAccess` 是 `direct` 或 `tunnel`，必选。归属验证（DNS TXT / well-known）已从申请流程移除——签发前没有可验证的域名，验收改为接通后的公网 `/api/health`。
+申请只有两种模式：`mode` 为 `own-domain` 时必填 `domain`（完整主机名，统一收成 `https://` origin，不接受 IP、`localhost`、账号密码、查询串，也不接受 `xknot.si` 及其子域）；`mode` 为 `subdomain` 时必填 `subdomain` 标签（2–32 位小写字母、数字、连字符，保留名不签发），`url` 由它拼成 `https://<标签>.xknot.si`。归属验证（DNS TXT / well-known）已从申请流程移除——签发前没有可验证的域名，验收改为接通后的公网 `/api/health`。
 
 申请表上方写明审核人姓名与邮箱（`web/src/lib/contact.js`，默认 `PaulWang` / `manwjh@gmail.com`，可在构建前用 `VITE_XKNOT_OPERATOR_NAME`、`VITE_XKNOT_OPERATOR_EMAIL` 覆盖）。提交时除给申请人的回执外，还会给 `XKNOT_ADMIN_EMAIL` 寄一封内部提醒。
 
@@ -626,7 +634,8 @@ pending ──▶ verified ──▶ hold ──▶ verified
 | `POST /api/admin/login` | 公开 | 用户名 + 口令，成功后种 `xknot_admin` Cookie |
 | `POST /api/admin/logout` | 会话 | 删除当前会话 |
 | `GET /api/admin/session` | 会话 | 当前管理员 |
-| `GET /api/admin/overview` | 会话 | 总览汇总：实例与探测、申请队列、24 小时发信与最近事件 |
+| `GET /api/admin/overview` | 会话 | 总览汇总：实例与逐个账号的配置、探测、申请队列、24 小时发信与最近事件 |
+| `POST /api/admin/instances/:id/config` | 会话 | 改实例配置：`{ instance, member }` 两份补丁，整份校验通过后原子写回 `instances.json` 与 `federation.json`；不合法返回 400 + `fields[]` |
 | `GET /api/admin/applications?status=` | 会话 | 列表与各状态计数 |
 | `POST /api/admin/applications/:id/review` | 会话 | `approve` / `reject` / `hold` / `resume`；`hold` 带 `items[]`，`reject` 带 `reason` |
 | `POST /api/admin/applications/:id/verify` | 会话 | 验证信寄不到时人工确认邮箱 |
@@ -681,8 +690,13 @@ pending ──▶ verified ──▶ hold ──▶ verified
 
 `/admin/` 是一个不参与构建的静态页：
 
-- 登录后默认是**总览**：四个数字（实例、待审核申请、24 小时发信、委托发信），实例与探测列表，申请队列，以及最近事件。数据来自 `GET /api/admin/overview`，只读，不改任何状态。
+- 登录后默认是**总览**：四个数字（实例、待审核申请、24 小时发信、委托发信），实例与探测列表，申请队列，以及最近事件。数据来自 `GET /api/admin/overview`。
 - 实例行显示名称、地址、分级、在线/离线/未探测、延迟或断连时长；有橱窗或活动数据的实例带标记。
+- 点一行在下面展开这个账号的配置，不跳站点：名册身份、席位、接入模式、隧道账号与端口、清单列出、加入时间、时区、语言、运营者、所有者、联系邮箱、对外地址、探测地址、橱窗与统计入口，以及名册备注。地址类字段单独给链接，跳站是明确动作，点整行只展开。
+- 配置里的身份字段来自 `federation.json`，地址类字段来自 `instances.json`；两边都按文件 `mtime` 读，改完刷新总览就能看到，不用重启接口。清单里有、名册里没有的实例会显示「未进名册」。
+- 展开后点「编辑」可以就地改配置，不跳页：名称（简/英）、对外地址、分级、状态、加入时间、时区、联系邮箱、橱窗与统计地址，以及名册侧的域名、角色、席位、接入模式、隧道账号与端口、是否写进清单、备注。
+- 保存走 `POST /api/admin/instances/:id/config`：先整份跑 `validateInstances` 与 `validateRoster`，通过才用临时文件 + rename 写回两份 JSON；不通过时错误列在表单里，输入不丢，文件一个字节也不改。模式改成 `own-domain` 时 `tunnel` 一并清空；改成 `subdomain` 时必须同时填账号与端口。
+- 名册里还没有的账号，表单会按默认身份补一条（`role: partner`、`standing: regular`、`mode: subdomain`、`listed: true`）；保存前会检查名册里已有成员，不会出现两个创始席位。
 - 申请队列按状态列出数量，点一行直接切到对应的申请分类；「已通过但未写进清单」会单独提示。
 - 「申请审核」按状态分栏（待审、搁置、已通过、已拒绝、全部），左侧列表、右侧详情。
 - 详情显示站点、运营者、邮箱、区域、时区、简介、标签与提交时间。
@@ -698,7 +712,7 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug
 
 `publish` 只接受 `approved` 的申请，按站点域名推出 `id`（punycode 与非法字符退回 `node-...`），补齐清单必填字段，用发布前的同一套 `validateInstance` 自检，再写回 `instances.json`。已存在同一地址或同一 `id` 时拒绝写入。
 
-`publish` 不写名册。写进清单之后必须在 `federation.json` 补一条同名 `id` 的成员：`host`、`role`、`standing`、`issuance`、`access`，隧道模式还要 `tunnel.account` 与 `tunnel.port`（同机唯一）。漏了这一步，`npm run validate:federation` 会报「the instance is not registered in federation.json」，构建停下。
+`publish` 不写名册。写进清单之后必须在 `federation.json` 补一条同名 `id` 的成员：`host`、`role`、`standing`、`mode`，`subdomain` 模式还要 `tunnel.account` 与 `tunnel.port`（同机唯一）。漏了这一步，`npm run validate:federation` 会报「the instance is not registered in federation.json」，构建停下。
 
 接口按清单文件的 `mtime` 缓存并重新读取，`publish` 新增条目或把 `status` 改成 `suspended` 后，下一次委托发信请求立即生效，不需要重启进程。
 
@@ -707,16 +721,38 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug
 | 字段 | 取值 |
 |------|------|
 | `tier` | `community` |
-| `status` | `active` |
+| `status` | `pending`（验收后人工改 `active`） |
 | `since` | 审核当天 |
 | `languages` | `["en"]` |
 | `regions` | 申请里选的国家代码（或 `GLOBAL`） |
-| `healthUrl` | `null`（交接期）；公网 `/api/health` 验收通过后填完整地址 |
 | `name`、`intro`、`operator` | 同一段文字填进三个语种，后续可在清单里改 |
+
+清单没有探测地址字段：它恒为 `url` + `/api/health`。收录时 `status` 是 `pending`，不探测也不上门户；验收通过后改成 `active`。
 
 审核通过不会自动上线，也不会自动部署。写清单、重新构建、同步 `dist` 仍是三步人工操作。
 
-### 9.5 备份与清理
+### 9.5 补记缺失的申请单
+
+早期先签发子域、后把实例写进 `instances.json` 的站点，库里没有对应的申请单。少了它，`admin-cli access <申请编号>` 找不到编号，每次只能手工拼接入件。
+
+```bash
+node server/admin-cli.mjs backfill wang --email owner@example.com --admin paul
+node server/admin-cli.mjs backfill wang --dry-run     # 只看会不会补
+```
+
+`backfill` 只把清单里已有的事实抄成一条 `approved` 申请：`url`、`since`、`tier`、`status` 取自 `instances.json`；名称、运营者、简介、区域、时区、标签取自 `var/profiles/<id>.json`（没有就用实例 id）。走同一条状态机 `pending → verified → approved`，审阅注记里写明「按 instances.json 补记」与来源。
+
+- 它不签发新地址、不改清单、不发信，也不伪造当时的审核人：`reviewedBy` 只是执行补记的账号。
+- 同一地址已有申请单（任何状态）时直接跳过，重复执行没有副作用。
+- 联系邮箱必须显式给：`--email`，或环境里的 `XKNOT_ADMIN_EMAIL`。没有邮箱的单不成立，脚本不会替你编一个。
+
+补记之后就该用编号走正常流程：
+
+```bash
+node server/admin-cli.mjs access XK-2026-XXXXXX --id wang
+```
+
+### 9.6 备份与清理
 
 `var/xknot.db` 与 `var/session-secret` 要跟 `instances.json` 一起备份。数据库是普通 SQLite 文件，停机复制即可；WAL 模式下同时复制 `-wal` 与 `-shm`，或先执行 `sqlite3 var/xknot.db 'pragma wal_checkpoint(truncate)'`。
 
@@ -726,7 +762,7 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug
 
 | 场景 | 操作 |
 |------|------|
-| 新增实例 | 审核通过 → `npm run admin -- publish <id>` → 在 `federation.json` 补同名成员 → `npm run build` |
+| 新增实例 | 审核通过 → `npm run admin -- publish <id>`（`status: pending`）→ 在 `federation.json` 补同名成员 → 前置（账号、端口、DNS、证书、静态页、conf、公钥、`access` 领取链接）→ 交换点 A → 验收后把 `status` 改 `active` → `npm run build`。顺序见 [HANDOFF.md](HANDOFF.md) |
 | 暂停实例 | `status` 改 `suspended`，保留上次健康结果 |
 | 实例失联 | 构建时探测失败即显示 `down`，连续 30 天再决定是否删除 |
 | 橱窗违规 | 删除 `var/cards/{id}.json`，从清单移除 `cardsUrl`，重新构建 |

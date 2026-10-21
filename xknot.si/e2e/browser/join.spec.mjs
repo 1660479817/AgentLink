@@ -4,8 +4,8 @@ import { uniqueSite, watchErrors, zhCN } from "./constants.mjs";
 
 async function fillForm(page, site) {
   await page.locator("#join-name").fill(site.name);
+  await page.locator('input[name="join-mode"][value="subdomain"]').check();
   await page.locator("#join-subdomain").fill(site.subdomain);
-  await page.locator('.access input[value="direct"]').check();
   await page.locator("#join-intro").fill(site.intro);
   await page.locator("#join-operator").fill(site.operator);
   await page.locator("#join-email").fill(site.email);
@@ -59,6 +59,9 @@ test.describe("加入申请", () => {
 
     await page.locator("button.again").click();
     await expect(page.locator("#join-name")).toHaveValue("");
+    // 模式也一起清空：没选模式时不显示地址栏。
+    await expect(page.locator('input[name="join-mode"]:checked')).toHaveCount(0);
+    await page.locator('input[name="join-mode"][value="subdomain"]').check();
     await expect(page.locator("#join-subdomain")).toHaveValue("");
     // 时区是刻意的例外：下次还按浏览器/上次填的来。
     await expect(page.locator("#join-timezone")).toHaveValue(site.timezone);

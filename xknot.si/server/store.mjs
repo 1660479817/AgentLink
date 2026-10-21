@@ -8,14 +8,19 @@ import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { subdomainOfUrl, subdomainUrl } from "./validate.mjs";
+import { subdomainUrl } from "./validate.mjs";
 
 const SCHEMA = `
 create table if not exists applications (
   id           text primary key,
   name         text not null,
-  -- 申请只按子域走：subdomain 是标签，url 由它拼出来，老库里可能只有 url。
+  -- 两种接入模式：own-domain（自有域名）或 subdomain（中枢签发）。
+  mode         text,
+  -- 自有域名模式的地址（https://example.com）；subdomain 模式为 NULL。
+  domain       text,
+  -- subdomain 模式的标签；own-domain 模式为 NULL。
   subdomain    text,
+  -- 对外地址，创建时由模式推出，之后不再变。
   url          text not null,
   operator     text not null,
   email        text not null,
@@ -30,9 +35,7 @@ create table if not exists applications (
   reviewed_by  text,
   review_note  text,
   ip_hash      text,
-  -- 申请单上的接入意向。老库由 migrate() 补齐，读的时候一律给默认值。
-  request_kind     text,
-  request_access   text,
+  -- 可选服务（委托发信、橱窗、统计）。不影响接入模式。
   request_services text,
   proof_method     text,
   proof_at         text,
@@ -52,7 +55,6 @@ create table if not exists applications (
 
 create index if not exists applications_status on applications(status, created_at);
 create index if not exists applications_url on applications(url);
-create index if not exists applications_case on applications(case_key);
 
 -- 邮箱验证令牌：库里只有 SHA-256，明文随信发出，24~720 小时过期，用一次作废。
 create table if not exists verify_tokens (
@@ -155,6 +157,12 @@ create index if not exists relay_log_instance on relay_log(instance_id, at);
 create index if not exists relay_log_token on relay_log(token_id, at);
 `;
 
+// 依赖迁移补出来的列的索引，必须在 migrate() 之后建：
+// 老库先跑这一段会报 no such column: case_key，库就打不开了。
+const INDEXES = `
+create index if not exists applications_case on applications(case_key);
+`;
+
 export const STATUSES = [
   "pending",
   "verified",
@@ -191,9 +199,9 @@ const APPLICATION_PATCH_COLUMNS = {
 // 老库是 create table if not exists 建出来的，新列不会自己长出来。
 // 这里只做加法：加列、补索引，不动已有数据。
 const APPLICATION_COLUMNS = [
+  ["mode", "text"],
+  ["domain", "text"],
   ["subdomain", "text"],
-  ["request_kind", "text"],
-  ["request_access", "text"],
   ["request_services", "text"],
   ["proof_method", "text"],
   ["proof_at", "text"],
@@ -222,6 +230,20 @@ function migrate(db) {
   for (const row of missing) fill.run(randomBytes(9).toString("base64url"), row.id);
   // state_version 在旧行上是 NULL 时也给个 0，幂等键才稳定。
   db.exec("update applications set state_version = 0 where state_version is null");
+  // 旧库只有 url 与 subdomain 的区分：有标签就是 subdomain 模式，否则是自有域名。
+  db.exec(`
+    update applications
+       set mode = case when subdomain is not null and subdomain <> '' then 'subdomain' else 'own-domain' end
+     where mode is null or mode = ''
+  `);
+  db.exec(`
+    update applications
+       set domain = url
+     where (domain is null or domain = '')
+       and mode = 'own-domain'
+       and url is not null
+       and url not like 'https://%.xknot.si'
+  `);
 }
 
 function nowIso() {
@@ -289,6 +311,7 @@ export function openStore(file) {
   db.exec("pragma foreign_keys = on");
   db.exec(SCHEMA);
   migrate(db);
+  db.exec(INDEXES);
 
   const get = (sql, ...params) => db.prepare(sql).get(...params);
   const all = (sql, ...params) => db.prepare(sql).all(...params);
@@ -304,13 +327,17 @@ export function openStore(file) {
 
   function rowToApplication(row) {
     if (!row) return null;
-    // 老申请只有 url，读的时候补出标签；新申请两者都有。
-    const subdomain = row.subdomain || subdomainOfUrl(row.url) || null;
+    // 老库没有 mode 列：有标签按 subdomain，没有就是自有域名。
+    const mode = row.mode || (row.subdomain ? "subdomain" : "own-domain");
+    const subdomain = mode === "subdomain" ? row.subdomain || null : null;
+    const domain = mode === "own-domain" ? row.domain || row.url : null;
     return {
       id: row.id,
       name: row.name,
+      mode,
+      domain,
       subdomain,
-      url: subdomain ? subdomainUrl(subdomain) : row.url,
+      url: mode === "subdomain" ? subdomainUrl(subdomain) : domain,
       operator: row.operator,
       email: row.email,
       region: row.region,
@@ -323,13 +350,8 @@ export function openStore(file) {
       reviewedAt: row.reviewed_at,
       reviewedBy: row.reviewed_by,
       reviewNote: row.review_note,
-      // ---- 接入意向与状态机 ----
-      // 申请只按子域走；requestKind 保留给老数据，读出来一律是 subdomain。
-      requestKind: "subdomain",
-      requestAccess: row.request_access || "unknown",
+      // ---- 接入模式与状态机 ----
       requestServices: jsonList(row.request_services),
-      proofMethod: row.proof_method || null,
-      proofAt: row.proof_at || null,
       publicKey: row.public_key || null,
       caseKey: row.case_key || null,
       stateVersion: Number(row.state_version) || 0,
@@ -351,11 +373,8 @@ export function openStore(file) {
 
     // ---- 申请 ----
 
-    // 同一个子域只允许一条未结案的申请。approved 之后放行：
-    // 伙伴要加代发信、换落点时得能再交一张单，旧实现把 approved
-    // 也算未结案，等于永久锁死。
-    //
-    // 老库里可能只有 url 没有 subdomain，两条都查，避免升级后又能重复占名。
+    // 同一个地址只允许一条未结案的申请。approved 之后放行：
+    // 伙伴要补服务或换地址时得能再交一张单。
     findOpenBySubdomain(subdomain) {
       const label = String(subdomain || "").trim();
       if (!label) return null;
@@ -371,9 +390,19 @@ export function openStore(file) {
       );
     },
 
-    // 兼容旧调用：传整条地址也能查到。
-    findOpenByUrl(url) {
-      return this.findOpenBySubdomain(subdomainOfUrl(url) || "");
+    findOpenByDomain(domain) {
+      const url = String(domain || "").trim();
+      if (!url) return null;
+      return rowToApplication(
+        get(
+          `select * from applications
+            where (mode = 'own-domain' or mode is null)
+              and url = ?
+              and status in ('pending', 'verified', 'hold')
+            order by created_at desc limit 1`,
+          url
+        )
+      );
     },
 
     findByCaseKey(caseKey) {
@@ -382,21 +411,35 @@ export function openStore(file) {
       return rowToApplication(get("select * from applications where case_key = ?", key));
     },
 
+    // 任意状态的申请都算。补记历史实例时用它判断「这张单是不是已经有了」，
+    // 已结案的也要算：再补一张会让同一个站点有两份申请。
+    findByUrl(url) {
+      const target = String(url || "").trim().replace(/\/+$/, "");
+      if (!target) return null;
+      return rowToApplication(
+        get("select * from applications where url = ? or url = ? order by created_at desc limit 1", target, `${target}/`)
+      );
+    },
+
     createApplication(input) {
       const createdAt = nowIso();
       const id = newApplicationId(new Date(createdAt));
       const caseKey = randomBytes(9).toString("base64url");
-      const subdomain = String(input.subdomain || "").trim();
-      const url = input.url || subdomainUrl(subdomain);
+      const mode = input.mode === "own-domain" ? "own-domain" : "subdomain";
+      const subdomain = mode === "subdomain" ? String(input.subdomain || "").trim() : null;
+      const domain = mode === "own-domain" ? String(input.domain || "").trim() : null;
+      const url = input.url || (mode === "subdomain" ? subdomainUrl(subdomain) : domain);
       db.prepare(
         `insert into applications
-          (id, name, subdomain, url, operator, email, region, timezone, intro, tags, locale, status, created_at, ip_hash,
-           request_kind, request_access, request_services, case_key, state_version, open_until)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 'subdomain', ?, ?, ?, 0, ?)`
+          (id, name, mode, domain, subdomain, url, operator, email, region, timezone, intro, tags, locale, status, created_at, ip_hash,
+           request_services, case_key, state_version, open_until)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 0, ?)`
       ).run(
         id,
         input.name,
-        subdomain || null,
+        mode,
+        domain,
+        subdomain,
         url,
         input.operator,
         input.email,
@@ -407,7 +450,6 @@ export function openStore(file) {
         input.locale || null,
         createdAt,
         input.ipHash || null,
-        input.requestAccess || "unknown",
         JSON.stringify(input.requestServices || []),
         caseKey,
         addDays(30)
@@ -1057,6 +1099,11 @@ export function openStore(file) {
         .prepare("delete from relay_log where status = 'pending' and at < ?")
         .run(cutoff);
       return Number(result.changes) || 0;
+    },
+
+    // 审核台自己的写操作也要留痕；内部 event() 只在库内使用。
+    recordEvent(kind, ref, detail) {
+      event(kind, ref, detail);
     },
 
     events(limit = 50) {

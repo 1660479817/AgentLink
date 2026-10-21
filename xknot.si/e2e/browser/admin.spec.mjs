@@ -73,8 +73,8 @@ test.describe("审核台", () => {
     const entry = JSON.parse(await pre.innerText());
     expect(entry.url).toBe(site.url);
     expect(entry.id).toMatch(/^[a-z0-9][a-z0-9-]*$/);
-    expect(entry.status).toBe("active");
-    expect(entry.healthUrl).toBeNull();
+    expect(entry.status).toBe("pending");
+    expect(entry.healthUrl).toBeUndefined();
 
     await page.locator("header.top button", { hasText: "退出" }).click();
     await expect(page.locator("#username")).toBeVisible();
@@ -100,6 +100,87 @@ test.describe("审核台", () => {
     await page.locator(".queue-row", { hasText: "待审核" }).click();
     await expect(page.locator(".tabs")).toBeVisible();
     await expect(page.locator("nav.views button.active")).toContainText("申请审核");
+
+    expect(errors, errors.join("\n")).toEqual([]);
+  });
+
+  test("点实例展开这个账号的配置，不跳站点", async ({ page }) => {
+    const errors = watchErrors(page);
+    await page.goto("/admin/");
+    await login(page);
+
+    const row = page.locator(".inst-row").first();
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute("aria-expanded", "false");
+
+    const before = page.url();
+    await row.click();
+
+    // 点的是行本身：地址不能变，站点也不能被打开。
+    await expect(page).toHaveURL(before);
+    await expect(page.context().pages()).toHaveLength(1);
+    await expect(row).toHaveAttribute("aria-expanded", "true");
+
+    const config = page.locator(".inst-config");
+    await expect(config).toBeVisible();
+    for (const label of ["账号", "名册身份", "接入模式", "隧道", "探测地址"]) {
+      await expect(config).toContainText(label);
+    }
+    // 探测地址是推导值：展示出来，但不给输入框。
+    await expect(config).toContainText("/api/health");
+
+    // 再点一次收起，回到列表本身。
+    await row.click();
+    await expect(page.locator(".inst-config")).toHaveCount(0);
+    await expect(row).toHaveAttribute("aria-expanded", "false");
+
+    expect(errors, errors.join("\n")).toEqual([]);
+  });
+
+  test("实例配置可以就地编辑，校验失败不丢草稿也不落盘", async ({ page }) => {
+    const errors = watchErrors(page);
+    await page.goto("/admin/");
+    await login(page);
+
+    const row = page.locator(".inst-row", { hasText: "wang" }).first();
+    await expect(row).toBeVisible();
+    await row.click();
+
+    const config = page.locator(".inst-config");
+    await expect(config).toBeVisible();
+    await config.locator("button", { hasText: "编辑" }).click();
+
+    const form = page.locator(".cfg-form");
+    await expect(form).toBeVisible();
+    const urlBefore = page.url();
+
+    const noteInput = form.locator(".cfg-field", { hasText: "备注" }).locator("input");
+    const urlInput = form.locator(".cfg-field", { hasText: "对外地址" }).locator("input");
+    // 探测地址由对外地址推出，表单里不再有这一项。
+    await expect(form.locator(".cfg-field", { hasText: "探测地址" })).toHaveCount(0);
+    await expect(form.locator(".cfg-field", { hasText: "健康探测" })).toHaveCount(0);
+    const note = `审核台改过的备注 ${Date.now()}`;
+    await noteInput.fill(note);
+
+    // 先交一个非 https 地址：错误留在卡片里，输入不丢，文件也不该被写坏。
+    const goodUrl = await urlInput.inputValue();
+    await urlInput.fill("http://plain.example");
+    await form.locator("button", { hasText: "保存" }).click();
+    await expect(form.locator(".cfg-errors")).toContainText("url");
+    await expect(noteInput).toHaveValue(note);
+    await expect(urlInput).toHaveValue("http://plain.example");
+
+    await urlInput.fill(goodUrl);
+    await form.locator("button", { hasText: "保存" }).click();
+    await expect(page.locator(".cfg-form")).toHaveCount(0);
+    await expect(page.locator(".inst-config")).toContainText(note);
+    await expect(page).toHaveURL(urlBefore);
+    await expect(page.context().pages()).toHaveLength(1);
+
+    // 刷新后再展开，读的是写回去的文件，不是内存里的草稿。
+    await page.reload();
+    await page.locator(".inst-row", { hasText: "wang" }).first().click();
+    await expect(page.locator(".inst-config")).toContainText(note);
 
     expect(errors, errors.join("\n")).toEqual([]);
   });

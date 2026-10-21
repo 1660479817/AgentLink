@@ -5,11 +5,11 @@
 # 目标机器和目录都通过环境变量给出，脚本里不写死任何主机。
 #
 # 用法：
-#   XKNOT_EDGE=user@host ./ops/deploy-hub.sh
-#   XKNOT_EDGE=user@host XKNOT_TARGET=/var/www/xknot ./ops/deploy-hub.sh --dry-run
+#   XKNOT_HUB_SSH=user@host ./ops/deploy-hub.sh
+#   XKNOT_HUB_SSH=user@host XKNOT_TARGET=/var/www/xknot ./ops/deploy-hub.sh --dry-run
 #
 # 可覆盖的变量：
-#   XKNOT_EDGE      必填，如 user@192.0.2.10
+#   XKNOT_HUB_SSH      必填，如 user@192.0.2.10
 #   XKNOT_TARGET    远端目录，默认 /var/www/xknot
 #   XKNOT_SSH_KEY   私钥路径，默认 ~/.ssh/id_rsa
 
@@ -27,7 +27,7 @@ fi
 echo "== verify =="
 node "$HUB/ops/verify-hub-data.mjs" --data "$DIST/data/hub.json" --instances "$HUB/instances.json"
 
-: "${XKNOT_EDGE:?set XKNOT_EDGE=user@host}"
+: "${XKNOT_HUB_SSH:?set XKNOT_HUB_SSH=user@host}"
 TARGET="${XKNOT_TARGET:-/var/www/xknot}"
 KEY="${XKNOT_SSH_KEY:-$HOME/.ssh/id_rsa}"
 
@@ -40,5 +40,5 @@ if [ "${1:-}" = "--dry-run" ]; then
 fi
 
 echo "== deploy =="
-echo "$DIST/ -> $XKNOT_EDGE:$TARGET/"
-rsync "${RSYNC_ARGS[@]}" "$DIST/" "$XKNOT_EDGE:$TARGET/"
+echo "$DIST/ -> $XKNOT_HUB_SSH:$TARGET/"
+rsync "${RSYNC_ARGS[@]}" "$DIST/" "$XKNOT_HUB_SSH:$TARGET/"

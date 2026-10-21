@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // 浏览器端到端跑在本地部署上：
-//   ops/local-stack.mjs 起接口 + 本机边缘（复刻 nginx 的路径与响应头）
+//   ops/local-stack.mjs 起接口 + 本机入口（复刻 nginx 的路径与响应头）
 //   数据用 fixtures 样例（--preview），不依赖外网与伙伴站点
 //   管理员用 --admin 在同一次启动里建好，密码与 browser/constants.mjs 一致
 //
@@ -42,7 +42,8 @@ export default defineConfig({
   ],
   webServer: {
     // 每次跑都用新的数据目录：否则第二次运行会因为管理员已存在而起不来。
-    command: `node ../ops/local-stack.mjs --preview --port ${PORT} --data-dir "$(mktemp -d -t xknot-ui)" --admin e2e-admin:e2e-correct-horse-battery`,
+    // 清单与名册也用临时副本：审核台里的「编辑」会写回文件，不能改到仓库里的真清单。
+    command: `D="$(mktemp -d -t xknot-ui)"; cp ../instances.json "$D/instances.json"; cp ../federation.json "$D/federation.json"; node ../ops/local-stack.mjs --preview --port ${PORT} --data-dir "$D/data" --instances "$D/instances.json" --federation "$D/federation.json" --admin e2e-admin:e2e-correct-horse-battery`,
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

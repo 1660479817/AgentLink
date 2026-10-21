@@ -4,6 +4,8 @@
 // 环境变量：
 //   XKNOT_API_PORT       默认 5181
 //   XKNOT_DATA_DIR       默认 <项目>/var
+//   XKNOT_INSTANCES_FILE 清单路径，默认 <项目>/instances.json
+//   XKNOT_FEDERATION_FILE 名册路径，默认 <项目>/federation.json
 //   XKNOT_SESSION_SECRET 未设置时生成并写入 var/session-secret
 //   XKNOT_SECURE_COOKIE  生产置 1，Cookie 加 Secure
 //   XKNOT_TRUST_PROXY    生产置 1，取 X-Forwarded-For 的末尾地址（代理追加的真实来源）
@@ -118,6 +120,27 @@ function loadInstances() {
   }
 }
 
+// 总览里点开实例要看到账号配置：身份、接入模式、隧道账号与端口。
+// 名册同样按 mtime/size 缓存，改完下次请求就生效。
+const federationFile = process.env.XKNOT_FEDERATION_FILE
+  ? path.resolve(process.env.XKNOT_FEDERATION_FILE)
+  : path.join(root, "federation.json");
+
+let federationCache = { key: "", value: null };
+function loadFederation() {
+  try {
+    const stat = statSync(federationFile);
+    const key = `${stat.mtimeMs}:${stat.size}`;
+    if (key === federationCache.key) return federationCache.value;
+    const parsed = JSON.parse(readFileSync(federationFile, "utf8"));
+    federationCache = { key, value: parsed };
+    return parsed;
+  } catch (error) {
+    console.error("federation.json unreadable:", error.message);
+    return federationCache.value;
+  }
+}
+
 // 总览要显示上一次探测结果。health.json 由 check-health/watch-health 原子写入，
 // 按 mtime/size 缓存，巡检写完下一次请求就能看到，不必重启接口。
 const healthFile = path.join(dataDir, "health.json");
@@ -155,7 +178,15 @@ const { handle } = createApp({
     supportUrl: String(process.env.XKNOT_SUPPORT_URL || "").trim(),
     reviewSla: String(process.env.XKNOT_REVIEW_SLA || "").trim(),
     instancesProvider: loadInstances,
+    federationProvider: loadFederation,
     healthProvider: loadHealth,
+    // 审核台改配置要写回这两份文件；写之前会整份校验，见 server/edit.mjs。
+    instancesFile,
+    federationFile,
+    // 站点自述的副本目录，由 ops/fetch-profile.mjs 写。审核台只读。
+    profilesDir: process.env.XKNOT_PROFILES_DIR
+      ? path.resolve(process.env.XKNOT_PROFILES_DIR)
+      : path.join(root, "var", "profiles"),
     relay: {
       enabled: relayEnabled,
       dailyLimit: Number(process.env.XKNOT_RELAY_DAILY_LIMIT || 50),

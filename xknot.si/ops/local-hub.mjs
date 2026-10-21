@@ -1,4 +1,4 @@
-// 本机边缘：把构建好的门户静态站和接口接在同一个源上。
+// 本机入口：把构建好的门户静态站和接口接在同一个源上。
 //
 // 线上这个角色由 nginx 担任（ops/xknot.si.conf）。本地部署与端到端要验证
 // “同源、同样的路径、同样的响应头”，所以这里按那份配置复刻，不依赖 nginx：
@@ -201,7 +201,7 @@ async function serveStatic(req, res, { distDir, pathname, dataFile }) {
   return createReadStream(file).pipe(res);
 }
 
-export async function startEdge({
+export async function startEntry({
   distDir = path.join(ROOT, "web", "dist"),
   apiBase,
   port = 0,
@@ -210,7 +210,7 @@ export async function startEdge({
 } = {}) {
   const dist = path.resolve(distDir);
   const api = String(apiBase || "").replace(/\/+$/, "");
-  if (!api) throw new Error("startEdge: apiBase is required");
+  if (!api) throw new Error("startEntry: apiBase is required");
   // 没有构建产物时每个页面都 404，测试只会看到“某条断言不成立”。
   // 在起服务前说清楚缺什么，省掉一轮排查。
   if (!existsSync(path.join(dist, "index.html"))) {
@@ -280,7 +280,7 @@ export async function startEdge({
     Promise.resolve()
       .then(() => route(req, res))
       .catch((error) => {
-        console.error("edge error:", error.message);
+        console.error("entry error:", error.message);
         if (!res.headersSent) notFound(res);
         else res.end();
       });
@@ -316,11 +316,11 @@ async function main(argv) {
   const host = argValue(argv, "--host", "127.0.0.1");
   const data = argValue(argv, "--data", null);
 
-  const edge = await startEdge({ distDir: dist, apiBase: api, port, host, dataFile: data });
-  console.log(`local edge on ${edge.url}  (dist: ${path.resolve(dist)}, api: ${api})`);
+  const entry = await startEntry({ distDir: dist, apiBase: api, port, host, dataFile: data });
+  console.log(`local entry on ${entry.url}  (dist: ${path.resolve(dist)}, api: ${api})`);
 
   const stop = async () => {
-    await edge.close();
+    await entry.close();
     process.exit(0);
   };
   process.on("SIGINT", stop);

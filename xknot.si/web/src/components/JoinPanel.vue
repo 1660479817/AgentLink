@@ -9,12 +9,13 @@ const props = defineProps({
   t: { type: Function, required: true },
 });
 
-const LIMITS = { name: 40, intro: 60, operator: 80, email: 120, tags: 5, subdomain: 32 };
+const LIMITS = { name: 40, intro: 60, operator: 80, email: 120, tags: 5, subdomain: 32, domain: 253 };
 
 const form = ref({
   name: "",
+  mode: "",
+  domain: "",
   subdomain: "",
-  access: "",
   intro: "",
   operator: "",
   email: "",
@@ -92,18 +93,37 @@ function fieldError(key) {
 // 与服务端同一套规则：2–32 位小写字母、数字、连字符，首尾不能是连字符。
 const SUBDOMAIN_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])$/;
 
+// 自有域名：至少要有一个点、不能是中枢域名。完整校验仍在服务端。
+function looksLikeOwnDomain(value) {
+  const raw = value.trim().toLowerCase();
+  if (!raw) return false;
+  const host = raw
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
+    .replace(/[/?#].*$/, "")
+    .replace(/:\d+$/, "");
+  return /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(host)
+    && host !== "xknot.si"
+    && !host.endsWith(".xknot.si");
+}
+
 function check() {
   const next = {};
   const value = form.value;
   const name = [...value.name.trim()].length;
   if (name < 2 || name > LIMITS.name) next.name = "invalid";
 
-  // 用户可能连后缀一起粘贴，这里只留标签。
-  const raw = value.subdomain.trim().toLowerCase();
-  const label = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/[/?#].*$/, "").replace(/\.xknot\.si$/, "");
-  if (!SUBDOMAIN_RE.test(label)) next.subdomain = "invalid";
+  if (value.mode !== "own-domain" && value.mode !== "subdomain") next.mode = "required";
 
-  if (value.access !== "direct" && value.access !== "tunnel") next.access = "required";
+  if (value.mode === "own-domain" && !looksLikeOwnDomain(value.domain)) {
+    next.domain = "invalid";
+  }
+
+  if (value.mode === "subdomain") {
+    // 用户可能连后缀一起粘贴，这里只留标签。
+    const raw = value.subdomain.trim().toLowerCase();
+    const label = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/[/?#].*$/, "").replace(/\.xknot\.si$/, "");
+    if (!SUBDOMAIN_RE.test(label)) next.subdomain = "invalid";
+  }
 
   if (!value.operator.trim()) next.operator = "required";
   if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(value.email.trim())) next.email = "invalid";
@@ -134,8 +154,9 @@ async function submit() {
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify({
         name: form.value.name.trim(),
-        subdomain: form.value.subdomain.trim(),
-        requestAccess: form.value.access,
+        mode: form.value.mode,
+        domain: form.value.mode === "own-domain" ? form.value.domain.trim() : "",
+        subdomain: form.value.mode === "subdomain" ? form.value.subdomain.trim() : "",
         intro: form.value.intro.trim(),
         operator: form.value.operator.trim(),
         email: form.value.email.trim(),
@@ -177,8 +198,9 @@ async function submit() {
 function again() {
   form.value = {
     name: "",
+    mode: "",
+    domain: "",
     subdomain: "",
-    access: "",
     intro: "",
     operator: "",
     email: "",
@@ -248,8 +270,48 @@ onMounted(() => {
         <p v-if="errors.name" id="join-name-error" class="field-error">{{ fieldError("name") }}</p>
       </div>
 
-      <!-- 身份就是一个子域：用户只选标签，后缀由中枢固定。 -->
-      <div class="field">
+      <!-- 只有两种接入模式，模式决定地址：自有域名直接用，没有才由中枢签发。 -->
+      <fieldset class="field mode" :aria-invalid="Boolean(errors.mode)">
+        <legend>{{ t("form.mode") }}</legend>
+        <label class="radio">
+          <input v-model="form.mode" type="radio" name="join-mode" value="own-domain" />
+          <span class="radio-body">
+            <span class="radio-title">{{ t("form.modeOwnDomain") }}</span>
+            <span class="radio-desc">{{ t("form.modeOwnDomainHint") }}</span>
+          </span>
+        </label>
+        <label class="radio">
+          <input v-model="form.mode" type="radio" name="join-mode" value="subdomain" />
+          <span class="radio-body">
+            <span class="radio-title">{{ t("form.modeSubdomain") }}</span>
+            <span class="radio-desc">{{ t("form.modeSubdomainHint") }}</span>
+          </span>
+        </label>
+        <p v-if="errors.mode" class="field-error">{{ fieldError("mode") }}</p>
+      </fieldset>
+
+      <!-- 自有域名：地址就是它，中枢不签发、不跳转。 -->
+      <div v-if="form.mode === 'own-domain'" class="field">
+        <label for="join-domain">{{ t("form.domain") }}</label>
+        <input
+          id="join-domain"
+          v-model="form.domain"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          autocapitalize="none"
+          spellcheck="false"
+          :maxlength="LIMITS.domain"
+          :placeholder="t('form.domainPlaceholder')"
+          :aria-invalid="Boolean(errors.domain)"
+          :aria-describedby="errors.domain ? 'join-domain-error' : 'join-domain-help'"
+        />
+        <p v-if="errors.domain" id="join-domain-error" class="field-error">{{ fieldError("domain") }}</p>
+        <p v-else id="join-domain-help" class="field-hint">{{ t("form.domainHint") }}</p>
+      </div>
+
+      <!-- 无域名：只选标签，后缀由中枢固定。 -->
+      <div v-else-if="form.mode === 'subdomain'" class="field">
         <label for="join-subdomain">{{ t("form.subdomain") }}</label>
         <div class="host">
           <input
@@ -270,26 +332,6 @@ onMounted(() => {
         <p v-if="errors.subdomain" id="join-subdomain-error" class="field-error">{{ fieldError("subdomain") }}</p>
         <p v-else id="join-subdomain-help" class="field-hint">{{ t("form.subdomainHint") }}</p>
       </div>
-
-      <!-- 落点由申请人决定：自家域名/固定 IP，或只有一台能出网的机器。 -->
-      <fieldset class="field access" :aria-invalid="Boolean(errors.access)">
-        <legend>{{ t("form.access") }}</legend>
-        <label class="radio">
-          <input v-model="form.access" type="radio" name="join-access" value="direct" />
-          <span class="radio-body">
-            <span class="radio-title">{{ t("form.accessDirect") }}</span>
-            <span class="radio-desc">{{ t("form.accessDirectHint") }}</span>
-          </span>
-        </label>
-        <label class="radio">
-          <input v-model="form.access" type="radio" name="join-access" value="tunnel" />
-          <span class="radio-body">
-            <span class="radio-title">{{ t("form.accessTunnel") }}</span>
-            <span class="radio-desc">{{ t("form.accessTunnelHint") }}</span>
-          </span>
-        </label>
-        <p v-if="errors.access" class="field-error">{{ fieldError("access") }}</p>
-      </fieldset>
 
       <div class="field">
         <label for="join-intro">
@@ -711,15 +753,15 @@ h2 {
   border-right: 0;
 }
 
-/* 落点：两张卡片式单选项 */
-.access {
+/* 接入模式：两张卡片式单选项 */
+.mode {
   margin: 0;
   padding: 0;
   border: 0;
   gap: 0.3rem;
 }
 
-.access legend {
+.mode legend {
   padding: 0;
   margin-bottom: 0.2rem;
   font-size: 0.72rem;

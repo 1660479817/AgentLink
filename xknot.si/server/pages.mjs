@@ -6,7 +6,7 @@
 // 没有构建步骤、没有前端脚本：只发内联样式的 HTML 和普通表单。
 // 所有用户数据都经过 escapeHtml，申请内容不会当 HTML 执行。
 
-import { ACCESS_LABEL, normalizeLocale } from "./notify.mjs";
+import { MODE_LABEL, normalizeLocale } from "./notify.mjs";
 
 const PAGE_STYLE = `
   :root { color-scheme: light; }
@@ -75,7 +75,7 @@ const TEXT = {
     status: "状态",
     site: "站点",
     url: "地址",
-    access: "落点",
+    mode: "接入模式",
     submitted: "提交时间",
     holdItems: "需要补充",
     reason: "原因",
@@ -117,7 +117,7 @@ const TEXT = {
     status: "狀態",
     site: "站點",
     url: "位址",
-    access: "落點",
+    mode: "接入模式",
     submitted: "提交時間",
     holdItems: "需要補充",
     reason: "原因",
@@ -159,7 +159,7 @@ const TEXT = {
     status: "Status",
     site: "Site",
     url: "URL",
-    access: "Landing",
+    mode: "Mode",
     submitted: "Submitted",
     holdItems: "Still needed",
     reason: "Reason",
@@ -197,8 +197,8 @@ function statusLabel(status, locale) {
   return entry[normalizeLocale(locale)] || entry.en;
 }
 
-function pickAccess(value, locale) {
-  const entry = ACCESS_LABEL[value] || ACCESS_LABEL.unknown;
+function pickMode(value, locale) {
+  const entry = MODE_LABEL[value] || MODE_LABEL.unknown;
   return entry[normalizeLocale(locale)] || entry.en;
 }
 
@@ -278,7 +278,7 @@ export function renderCasePage(application, options = {}) {
     [t(locale, "status"), statusLabel(status, locale)],
     [t(locale, "site"), application.name],
     [t(locale, "url"), application.url],
-    [t(locale, "access"), pickAccess(application.requestAccess, locale)],
+    [t(locale, "mode"), pickMode(application.mode, locale)],
     [t(locale, "submitted"), String(application.createdAt || "").slice(0, 10)],
   ];
   if (status === "rejected" && application.rejectReason) {

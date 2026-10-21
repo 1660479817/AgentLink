@@ -53,13 +53,47 @@ test("tunnel accounts and ports must be unique", async () => {
   assert.ok(errors.some((e) => e.startsWith("tunnel.port: duplicate")));
 });
 
-test("tunnel is required for edge-tunnel access", async () => {
+test("tunnel is required for subdomain mode and forbidden for own-domain", async () => {
   const { roster, manifest } = await load();
-  const broken = clone(roster);
-  const wang = broken.members.find((member) => member.id === "wang");
-  wang.tunnel = null;
-  const problems = validateRoster(broken, manifest);
-  assert.ok(problems.some(([id, errors]) => id === "wang" && errors.includes("tunnel: required when access is edge-tunnel")));
+
+  const noTunnel = clone(roster);
+  noTunnel.members.find((member) => member.id === "wang").tunnel = null;
+  const problems = validateRoster(noTunnel, manifest);
+  assert.ok(
+    problems.some(([id, errors]) => id === "wang" && errors.includes("tunnel: required when mode is subdomain"))
+  );
+
+  const ownDomain = clone(roster);
+  ownDomain.members.find((member) => member.id === "wang").mode = "own-domain";
+  const ownProblems = validateRoster(ownDomain, manifest);
+  assert.ok(
+    ownProblems.some(([id, errors]) => id === "wang" && errors.includes("tunnel: must be null when mode is own-domain"))
+  );
+});
+
+test("mode and url must agree", async () => {
+  const { roster, manifest } = await load();
+
+  // 自有域名模式不能挂在 hub 下。
+  const hubHost = clone(roster);
+  hubHost.members.find((member) => member.id === "wang").mode = "own-domain";
+  hubHost.members.find((member) => member.id === "wang").tunnel = null;
+  assert.ok(
+    validateRoster(hubHost, manifest).some(([id, errors]) =>
+      id === "wang" && errors.some((e) => e.startsWith("mode: own-domain"))
+    )
+  );
+
+  // 签发子域模式必须在 hub 下。
+  const outside = clone(roster);
+  outside.members.find((member) => member.id === "zjj").host = "zjj.example";
+  const otherwise = clone(manifest);
+  otherwise.instances.find((instance) => instance.id === "zjj").url = "https://zjj.example";
+  assert.ok(
+    validateRoster(outside, otherwise).some(([id, errors]) =>
+      id === "zjj" && errors.some((e) => e.startsWith("mode: subdomain"))
+    )
+  );
 });
 
 test("a member listed in the roster must exist in the manifest, and the reverse", async () => {
@@ -91,7 +125,7 @@ test("a listed member needs since, and reserved hosts stay out of the manifest",
 
   const leaked = clone(manifest);
   leaked.instances.push({ ...leaked.instances[0], id: "travel", url: "https://travel.xknot.si" });
-  assert.ok(validateRoster(roster, leaked).some(([id, errors]) => id === "travel" && errors[0].includes("present in instances.json")));
+  assert.ok(validateRoster(roster, leaked).some(([id, errors]) => id === "travel" && errors[0].includes("not registered in federation.json")));
 });
 
 test("the founder must stay tier partner", async () => {
@@ -108,11 +142,11 @@ test("unknown enum values are rejected", async () => {
   const zjj = broken.members.find((member) => member.id === "zjj");
   zjj.role = "owner";
   zjj.standing = "trial";
-  zjj.access = "vpn";
+  zjj.mode = "vpn";
   const errors = validateRoster(broken, manifest).find(([id]) => id === "zjj")?.[1] || [];
   assert.ok(errors.some((e) => e.startsWith("role:")));
   assert.ok(errors.some((e) => e.startsWith("standing:")));
-  assert.ok(errors.some((e) => e.startsWith("access:")));
+  assert.ok(errors.some((e) => e.startsWith("mode:")));
 });
 
 test("an empty or malformed roster reports instead of throwing", () => {

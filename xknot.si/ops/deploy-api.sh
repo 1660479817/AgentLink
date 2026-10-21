@@ -4,11 +4,11 @@
 # 静态站（web/dist）由 deploy-hub.sh 负责，这里不碰它。
 #
 # 用法：
-#   XKNOT_EDGE=user@host ./ops/deploy-api.sh
-#   XKNOT_EDGE=user@host ./ops/deploy-api.sh --dry-run
+#   XKNOT_HUB_SSH=user@host ./ops/deploy-api.sh
+#   XKNOT_HUB_SSH=user@host ./ops/deploy-api.sh --dry-run
 #
 # 可覆盖的变量：
-#   XKNOT_EDGE       必填，如 user@192.0.2.10
+#   XKNOT_HUB_SSH       必填，如 user@192.0.2.10
 #   XKNOT_API_ROOT   接口与审核台的根目录，默认 /opt/xknot
 #   XKNOT_WEB_ROOT   静态站根目录，默认 /var/www/xknot
 #   XKNOT_SSH_KEY    私钥路径，默认 ~/.ssh/id_rsa
@@ -28,7 +28,7 @@ for arg in "$@"; do
   esac
 done
 
-: "${XKNOT_EDGE:?set XKNOT_EDGE=user@host}"
+: "${XKNOT_HUB_SSH:?set XKNOT_HUB_SSH=user@host}"
 API_ROOT="${XKNOT_API_ROOT:-/opt/xknot}"
 WEB_ROOT="${XKNOT_WEB_ROOT:-/var/www/xknot}"
 SSH_KEY="${XKNOT_SSH_KEY:-$HOME/.ssh/id_rsa}"
@@ -40,12 +40,12 @@ SSH_OPTS=(-i "$SSH_KEY" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyC
 rsync_to() {
   local src="$1" dest="$2"
   if [[ "$DRY_RUN" == 1 ]]; then
-    echo "(dry-run) $src → $XKNOT_EDGE:$dest"
+    echo "(dry-run) $src → $XKNOT_HUB_SSH:$dest"
     return
   fi
   rsync -az --itemize-changes \
     -e "ssh ${SSH_OPTS[*]}" \
-    "$src" "$XKNOT_EDGE:$dest"
+    "$src" "$XKNOT_HUB_SSH:$dest"
 }
 
 if [[ "$DRY_RUN" != 1 && ! -f "$SSH_KEY" ]]; then
@@ -53,30 +53,61 @@ if [[ "$DRY_RUN" != 1 && ! -f "$SSH_KEY" ]]; then
   exit 1
 fi
 
-echo "==> prepare $XKNOT_EDGE:$API_ROOT"
+echo "==> prepare $XKNOT_HUB_SSH:$API_ROOT"
 if [[ "$DRY_RUN" == 1 ]]; then
   echo "(dry-run) mkdir -p $API_ROOT/{server,admin,ops,docs,web/src/lib,var}"
 else
-    ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" \
+    ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" \
     "mkdir -p '$API_ROOT/server' '$API_ROOT/admin' '$API_ROOT/ops' '$API_ROOT/docs' \
       '$API_ROOT/web/src/lib' '$API_ROOT/var' && chmod 700 '$API_ROOT/var'"
 fi
 
 # 接口运行时需要的东西：server/ 本身，以及 manifest.mjs 校验清单时用到的
 # validate-instances.mjs、i18n.js、regions.js。缺一个，审核通过后生成条目就会失败。
+# 审核台的「编辑」还要读 validate-federation.mjs：漏了它，server/edit.mjs 一加载就报
+# ERR_MODULE_NOT_FOUND，整个接口起不来。
 echo "==> sync api"
 rsync_to "$HUB/server/" "$API_ROOT/server/"
 rsync_to "$HUB/admin/" "$API_ROOT/admin/"
 rsync_to "$HUB/docs/" "$API_ROOT/docs/"
 rsync_to "$HUB/ops/validate-instances.mjs" "$API_ROOT/ops/"
+rsync_to "$HUB/ops/validate-federation.mjs" "$API_ROOT/ops/"
+# 清单校验按签发区/自述区拆分后，validate-instances.mjs 从 profile-schema.mjs 取字段表；
+# 少了它，server/ 一 import validate-instances 就起不来。
+rsync_to "$HUB/ops/profile-schema.mjs" "$API_ROOT/ops/"
 # 定时巡检（每 15 分钟）在远端直接跑这几个文件；漏了它们，timer 会每 15 分钟失败一次。
+# probe-target.mjs 决定探哪儿、探不探：server/app.mjs 与两个巡检脚本都 import 它。
 rsync_to "$HUB/ops/check-health.mjs" "$API_ROOT/ops/"
 rsync_to "$HUB/ops/watch-health.mjs" "$API_ROOT/ops/"
+rsync_to "$HUB/ops/probe-target.mjs" "$API_ROOT/ops/"
 rsync_to "$HUB/ops/fetch-guard.mjs" "$API_ROOT/ops/"
 rsync_to "$HUB/web/src/lib/i18n.js" "$API_ROOT/web/src/lib/"
 rsync_to "$HUB/web/src/lib/regions.js" "$API_ROOT/web/src/lib/"
+
+# 两份人工维护的配置：清单与名册。仓库是权威副本，同步会用仓库内容覆盖远端，
+# 所以先把远端现存的各存一份到 var/config-backup/，在中枢主机上手改过的内容还能捞回来。
+echo "==> backup remote config"
+if [[ "$DRY_RUN" == 1 ]]; then
+  echo "(dry-run) cp instances.json / federation.json → $API_ROOT/var/config-backup/<stamp>/"
+else
+  ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "
+    set -e
+    stamp=\$(date -u +%Y%m%dT%H%M%SZ)
+    dir='$API_ROOT/var/config-backup/'\$stamp
+    mkdir -p \"\$dir\"
+    for f in instances.json federation.json; do
+      [ -f '$API_ROOT/'\$f ] && cp -a '$API_ROOT/'\$f \"\$dir/\$f\"
+    done
+    # 只留最近 20 份，别让备份把磁盘堆满。
+    ls -1dt '$API_ROOT/var/config-backup/'*/ 2>/dev/null | tail -n +21 | xargs -r rm -rf
+    echo \"backup: \$dir\"
+  "
+fi
+
 # 委托发信要按清单判断实例是否在册、是否 active；漏了这份文件，新实例会被 403。
 rsync_to "$HUB/instances.json" "$API_ROOT/instances.json"
+# 总览里每个账号的配置与「编辑」都读这份名册；缺了它，配置一律显示「未进名册」。
+rsync_to "$HUB/federation.json" "$API_ROOT/federation.json"
 # `npm run admin` 读的是这份文件；缺了它，运维只能在仓库目录里跑 node。
 rsync_to "$HUB/package.json" "$API_ROOT/package.json"
 
@@ -89,14 +120,14 @@ else
     "$HUB/ops/xknot-api.service" \
     "$HUB/ops/xknot-health.service" \
     "$HUB/ops/xknot-health.timer" \
-    "$XKNOT_EDGE:/tmp/"
+    "$XKNOT_HUB_SSH:/tmp/"
 fi
 
 echo "==> install config"
 if [[ "$DRY_RUN" == 1 ]]; then
   echo "(dry-run) install conf + units (api + health.service/timer), nginx -t, restart $SERVICE, enable health.timer, reload nginx"
 else
-  ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" "
+  ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "
     set -e
     sudo install -m 644 /tmp/xknot.si.conf '$NGINX_CONF'
     sudo install -m 644 /tmp/xknot-api.service '/etc/systemd/system/$SERVICE.service'
@@ -115,14 +146,14 @@ fi
 
 echo "==> verify"
 if [[ "$DRY_RUN" == 1 ]]; then
-  echo "(dry-run) curl $XKNOT_EDGE/api/health; check xknot-health.timer"
+  echo "(dry-run) curl $XKNOT_HUB_SSH/api/health; check xknot-health.timer"
 else
   for _ in $(seq 1 15); do
-    if ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" "curl -sf http://127.0.0.1:5181/api/health >/dev/null"; then
+    if ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "curl -sf http://127.0.0.1:5181/api/health >/dev/null"; then
       curl -sf "https://xknot.si/api/health" >/dev/null 2>&1 \
         && echo "OK: https://xknot.si/api/health" \
         || echo "OK: 接口已起；公网地址这次没连上，检查 DNS 与证书。"
-      ssh "${SSH_OPTS[@]}" "$XKNOT_EDGE" "systemctl is-enabled xknot-health.timer" >/dev/null 2>&1 \
+      ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "systemctl is-enabled xknot-health.timer" >/dev/null 2>&1 \
         && echo "OK: xknot-health.timer 已启用（每 15 分钟）" \
         || echo "WARN: xknot-health.timer 未启用，连续断连提醒与隐藏不会发生。"
       exit 0

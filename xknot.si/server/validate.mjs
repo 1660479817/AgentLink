@@ -3,14 +3,19 @@
 // 纯函数：输入表单对象，输出清洗后的值与按字段归类的错误码。
 // 错误码是稳定的英文标识，页面自己按语种翻译，接口不回中文。
 //
-// 申请只按子域走：申请人选一个标签，地址由中枢拼成 `<标签>.xknot.si`。
-// 站点落在哪里是另一件事（`requestAccess`），不影响身份。
+// 只有两种接入模式，二选一：
+//   own-domain —— 站点已经有自己的域名，地址就是它，中枢不签发、不跳转。
+//   subdomain  —— 站点没有域名，由中枢签发 <标签>.xknot.si，静态与动态都落在中枢入口。
+//
+// 模式直接决定地址：own-domain 用伙伴的域名，subdomain 用签发的子域。
 //
 // 上限对着 ops/validate-instances.mjs 的规则：清单不过就不能发布。
 
+import { isIP } from "node:net";
+
 import { isCountryCode } from "../web/src/lib/regions.js";
 
-// 中枢自己的域名。签发出来的实例地址都挂在它下面。
+// 中枢自己的域名。只有 subdomain 模式的地址挂在它下面。
 export const HUB_DOMAIN = "xknot.si";
 
 export const LIMITS = {
@@ -18,6 +23,7 @@ export const LIMITS = {
   operator: 80,
   email: 120,
   subdomain: 32,
+  domain: 253,
   intro: 60,
   tags: 5,
   tagLength: 20,
@@ -84,16 +90,19 @@ export const RESERVED_SUBDOMAINS = new Set([
 // 这条规则与清单里的实例 id 一致，签发后可以直接当 id 用。
 const SUBDOMAIN_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])$/;
 
+// 自有域名只接受完整主机名：至少两段、每段 1–63 位、不含下划线。
+const HOST_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
-export const ACCESS_MODES = ["direct", "tunnel"];
+export const MODES = ["own-domain", "subdomain"];
 
 function text(value, max) {
   return typeof value === "string" ? [...value.trim()].slice(0, max + 1).join("") : "";
 }
 
 /**
- * 把用户填的东西收成一个标签。
+ * 把用户填的东西收成一个子域标签。
  *
  * 允许粘贴整条地址或带后缀的写法（`https://travel.xknot.si/`、`travel.xknot.si`），
  * 统一取出最左边那一段；取不出合法标签时返回空串。
@@ -112,17 +121,38 @@ export function subdomainUrl(subdomain) {
   return `https://${subdomain}.${HUB_DOMAIN}`;
 }
 
-// 从一条已经存在的地址里取标签，供老数据读回。
-export function subdomainOfUrl(value) {
+/**
+ * 把用户填的自有域名收成规范地址。
+ *
+ * 接受 `https://example.com/`、`example.com`、`HTTP://EXAMPLE.COM:8443/path`：
+ * 只保留 origin，统一 https、去掉末尾斜杠。以下一律拒绝：
+ *   - 带账号密码、查询串或片段
+ *   - IP 字面量（没有域名就没有证书语义，不属于这种模式）
+ *   - localhost、`.local`、单段主机名
+ *   - 中枢自己的域名（那属于 subdomain 模式）
+ */
+export function normalizeOwnDomain(value) {
+  let raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (!/^[a-z][a-z0-9+.-]*:\/\//.test(raw)) raw = `https://${raw}`;
+  let url;
   try {
-    const host = new URL(String(value || "")).hostname.toLowerCase();
-    const suffix = `.${HUB_DOMAIN}`;
-    if (!host.endsWith(suffix)) return null;
-    const label = host.slice(0, -suffix.length);
-    return SUBDOMAIN_RE.test(label) ? label : null;
+    url = new URL(raw);
   } catch {
-    return null;
+    return "";
   }
+  if (url.protocol !== "https:") return "";
+  if (url.username || url.password) return "";
+  if (url.search || url.hash) return "";
+
+  const host = url.hostname.toLowerCase();
+  if (!HOST_RE.test(host)) return "";
+  if (isIP(host)) return "";
+  if (host === HUB_DOMAIN || host.endsWith(`.${HUB_DOMAIN}`)) return "";
+  if (host === "localhost" || host.endsWith(".local") || host.endsWith(".internal")) return "";
+
+  const port = url.port ? `:${url.port}` : "";
+  return `https://${host}${port}`;
 }
 
 export function normalizeTags(value) {
@@ -165,13 +195,20 @@ export function validateApplication(input) {
   if ([...name].length < 2) errors.name = "too_short";
   else if ([...name].length > LIMITS.name) errors.name = "too_long";
 
-  // 只认子域标签。老客户端发 url 时也按标签解析，解析不出就报同一格。
-  const subdomain = normalizeSubdomain(raw.subdomain ?? raw.url);
-  if (!subdomain) errors.subdomain = "invalid";
-  else if (RESERVED_SUBDOMAINS.has(subdomain)) errors.subdomain = "reserved";
+  const mode = MODES.includes(raw.mode) ? raw.mode : "";
+  if (!mode) errors.mode = "required";
 
-  const access = ACCESS_MODES.includes(raw.requestAccess) ? raw.requestAccess : "";
-  if (!access) errors.access = "required";
+  // 两种模式各要一个地址字段；另一个留空，不互相兜底。
+  const subdomain = mode === "subdomain" ? normalizeSubdomain(raw.subdomain) : "";
+  const domain = mode === "own-domain" ? normalizeOwnDomain(raw.domain) : "";
+
+  if (mode === "subdomain") {
+    if (!subdomain) errors.subdomain = "invalid";
+    else if (RESERVED_SUBDOMAINS.has(subdomain)) errors.subdomain = "reserved";
+  }
+  if (mode === "own-domain" && !domain) errors.domain = "invalid";
+
+  const url = mode === "subdomain" ? (subdomain ? subdomainUrl(subdomain) : "") : domain;
 
   const operator = text(raw.operator, LIMITS.operator);
   if (!operator) errors.operator = "required";
@@ -201,6 +238,6 @@ export function validateApplication(input) {
   return {
     ok: Object.keys(errors).length === 0,
     errors,
-    value: { name, subdomain, requestAccess: access, operator, email, region, timezone, intro, tags },
+    value: { name, mode, domain: domain || null, subdomain: subdomain || null, url, operator, email, region, timezone, intro, tags },
   };
 }

@@ -13,6 +13,8 @@
 //                                                          签一份委托发信凭据，明文只打印这一次
 //   node server/admin-cli.mjs access <id> [--id slug] [--with-relay] [--daily 50] [--out 文件]
 //                                                          生成实例的接入件（env 格式，见 docs/FEDERATION.md 7.4）
+//   node server/admin-cli.mjs backfill <实例 id> [--email 邮箱] [--admin 操作者]
+//                                                          给清单里已有、库里没有申请单的实例补一张已通过的申请
 //   node server/admin-cli.mjs relay-tokens                 列出凭据（不含明文）
 //   node server/admin-cli.mjs relay-revoke <tokenId|instance>
 //                                                          吊销一份凭据，或整个实例的全部凭据
@@ -42,6 +44,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { backfillApplication } from "./backfill.mjs";
 import { createMailer, mailConfigFromEnv } from "./mail.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry } from "./manifest.mjs";
 import { ALL_EVENTS, TEMPLATE_VERSION, buildMail } from "./notify.mjs";
@@ -235,6 +238,49 @@ async function main(argv) {
     return;
   }
 
+  if (command === "backfill") {
+    // 清单里已经有、库里却没有申请单的实例，补一张已通过的申请。
+    // 只抄清单与自述区里的事实，不签发东西、不改清单。
+    const id = rest[0];
+    if (!id || id === "--help" || id === "-h") {
+      return fail("用法：backfill <实例 id> [--email 邮箱] [--admin 操作者] [--dry-run]");
+    }
+    const manifest = await readManifest();
+    const entry = (manifest.instances || []).find((item) => item.id === id);
+    if (!entry) return fail(`清单里没有实例 "${id}"`);
+
+    const profileFile = path.join(dataDir, "profiles", `${id}.json`);
+    let profile = null;
+    try {
+      profile = JSON.parse(await readFile(profileFile, "utf8"));
+    } catch {
+      profile = null;
+    }
+
+    const email = flag(rest, "email", process.env.XKNOT_ADMIN_EMAIL || "");
+    if (!email) return fail("要一个联系邮箱：加 --email，或设 XKNOT_ADMIN_EMAIL。");
+    const admin = flag(rest, "admin", process.env.XKNOT_ADMIN_USER || "");
+
+    if (rest.includes("--dry-run")) {
+      const existing = store.findByUrl(entry.url);
+      console.log(existing ? `已有申请单 ${existing.id}（${existing.status}），不需要补记。` : `会为 ${id} 补一张已通过的申请：${entry.url}`);
+      return;
+    }
+
+    const result = backfillApplication({ store, manifest, instanceId: id, profile, email, admin });
+    if (result.error === "no_instance") return fail(`清单里没有实例 "${id}"`);
+    if (result.error === "no_email") return fail("要一个联系邮箱：加 --email，或设 XKNOT_ADMIN_EMAIL。");
+    if (result.skipped) {
+      console.log(`已有申请单 ${result.application.id}（${result.application.status}），没有改动。`);
+      return;
+    }
+    const { application } = result;
+    console.log(`已补记申请 ${application.id}：${application.name} → ${application.url}`);
+    console.log(`状态 ${application.status}，审阅注记：${application.reviewNote}`);
+    console.log(`下一步：node server/admin-cli.mjs access ${application.id} --id ${id}`);
+    return;
+  }
+
   if (command === "access") {
     // 生成伙伴实例要的接入件：只有中枢签发的东西，不含部署拓扑。
     // 格式是 env 文件，键名与语义见 docs/FEDERATION.md 第 7.4 节；
@@ -256,10 +302,15 @@ async function main(argv) {
     if (instance.status !== "active") return fail(`实例 "${instanceId}" 不是 active。`);
 
     const origin = String(process.env.XKNOT_PUBLIC_ORIGIN || "https://xknot.si").replace(/\/+$/, "");
+    const today = new Date().toISOString().slice(0, 10);
     const lines = [
       "# XKnot 接入件。键名与语义见 FEDERATION.md 第 7.4 节；由实例存进自己的配置。",
-      `# 实例 ${instanceId} · 申请 ${application.id} · ${new Date().toISOString().slice(0, 10)}`,
+      `# 实例 ${instanceId} · 申请 ${application.id} · ${today}`,
       `XKNOT_INSTANCE_ID=${instanceId}`,
+      `XKNOT_ISSUED_URL=${instance.url}`,
+      `XKNOT_ISSUED_AT=${instance.since || today}`,
+      `XKNOT_TIER=${instance.tier || "community"}`,
+      `XKNOT_STATUS=${instance.status || "active"}`,
       `XKNOT_HUB_ORIGIN=${origin}`,
     ];
 
@@ -278,7 +329,6 @@ async function main(argv) {
     } else {
       lines.push("# 不带 --with-relay 时没有发信凭据。实例可以先用本机 SMTP。", "# XKNOT_HUB_RELAY_TOKEN=");
     }
-    lines.push(`XKNOT_HUB_ISSUED_AT=${new Date().toISOString().slice(0, 10)}`);
 
     const out = flag(rest, "out");
     const text = `${lines.join("\n")}\n`;

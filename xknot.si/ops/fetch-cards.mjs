@@ -59,13 +59,11 @@ function hostOf(url) {
   return url.hostname.toLowerCase();
 }
 
-/** 实例自己的主机：清单 url 与 canonical，卡片和图片只能指向这里。 */
+/** 实例自己的主机：清单里只有一个 url，卡片和图片只能指向这里。 */
 export function instanceHosts(instance) {
   const hosts = new Set();
-  for (const value of [instance?.url, instance?.canonical]) {
-    const url = httpsUrl(value);
-    if (url) hosts.add(hostOf(url));
-  }
+  const url = httpsUrl(instance?.url);
+  if (url) hosts.add(hostOf(url));
   return hosts;
 }
 

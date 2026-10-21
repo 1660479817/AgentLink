@@ -12,6 +12,7 @@ import path from "node:path";
 export const DEFAULT_TIMEOUT_MS = 5000;
 export const CARDS_MAX_BYTES = 256 * 1024;
 export const STATS_MAX_BYTES = 32 * 1024;
+export const PROFILE_MAX_BYTES = 64 * 1024;
 export const USER_AGENT = "xknot-hub/1.0 (+https://xknot.si)";
 
 export class FetchGuardError extends Error {

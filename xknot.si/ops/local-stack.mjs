@@ -20,7 +20,7 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { startEdge } from "./local-hub.mjs";
+import { startEntry } from "./local-hub.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER = path.join(ROOT, "server", "index.mjs");
@@ -37,8 +37,6 @@ export const DEFAULT_MANIFEST = {
       logo: null,
       themeColor: "#1F4E8C",
       url: "https://e2e-node.example",
-      redirect: null,
-      canonical: "https://e2e-node.example",
       vertical: "creation",
       tags: { en: ["testing"], "zh-CN": ["测试"], "zh-TW": ["測試"] },
       languages: ["en"],
@@ -55,7 +53,6 @@ export const DEFAULT_MANIFEST = {
       since: "2026-01-01",
       tier: "community",
       status: "active",
-      healthUrl: null,
       statsUrl: null,
       cardsUrl: null,
       social: [],
@@ -67,8 +64,6 @@ export const DEFAULT_MANIFEST = {
       logo: null,
       themeColor: "#7A4E2D",
       url: "https://e2e-paused.example",
-      redirect: null,
-      canonical: "https://e2e-paused.example",
       vertical: "creation",
       tags: { en: ["testing"], "zh-CN": ["测试"], "zh-TW": ["測試"] },
       languages: ["en"],
@@ -84,8 +79,7 @@ export const DEFAULT_MANIFEST = {
       },
       since: "2026-01-01",
       tier: "community",
-      status: "paused",
-      healthUrl: null,
+      status: "suspended",
       statsUrl: null,
       cardsUrl: null,
       social: [],
@@ -154,10 +148,12 @@ export async function startStack(options = {}) {
   const {
     preview = false,
     manifest = null,
+    instancesFile: instancesFileOption = null,
+    federationFile: federationFileOption = null,
     env = {},
     distDir = path.join(ROOT, "web", "dist"),
     dataDir = path.join(ROOT, "var", "e2e", `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
-    edgePort = 0,
+    entryPort = 0,
     admin = null,
     keep = false,
   } = options;
@@ -166,7 +162,10 @@ export async function startStack(options = {}) {
   const apiPort = await freePort();
   const apiUrl = `http://127.0.0.1:${apiPort}`;
 
-  let manifestFile = null;
+  // 审核台能改实例配置，所以测试必须指向一份临时清单：直接改仓库里的
+  // instances.json 会让一次测试污染真实清单。传 instancesFile 就原地用那份。
+  const federationFile = federationFileOption ? path.resolve(federationFileOption) : null;
+  let manifestFile = instancesFileOption ? path.resolve(instancesFileOption) : null;
   if (manifest) {
     manifestFile = path.join(dataDir, "instances.json");
     await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -176,10 +175,12 @@ export async function startStack(options = {}) {
   if (!preview && manifest) {
     // 测试清单也要有对应的快照，否则 /data/hub.json 还停在仓库上次构建的内容。
     const { buildHubData } = await import("../web/src/lib/snapshot.js");
+    const { readProfiles } = await import("./profiles.mjs");
+    const profiles = await readProfiles(path.join(dataDir, "profiles"));
     dataFile = path.join(dataDir, "hub.json");
     await writeFile(
       dataFile,
-      `${JSON.stringify(buildHubData(manifest, { instances: {} }, new Date()), null, 2)}\n`,
+      `${JSON.stringify(buildHubData(manifest, { instances: {} }, new Date(), {}, {}, profiles), null, 2)}\n`,
       "utf8"
     );
   }
@@ -207,6 +208,7 @@ export async function startStack(options = {}) {
       XKNOT_TRUST_PROXY: "1",
       XKNOT_PUBLIC_ORIGIN: apiUrl,
       ...(manifestFile ? { XKNOT_INSTANCES_FILE: manifestFile } : {}),
+      ...(federationFile ? { XKNOT_FEDERATION_FILE: federationFile } : {}),
       ...env,
     }),
     stdio: ["ignore", log, log],
@@ -220,11 +222,11 @@ export async function startStack(options = {}) {
     throw new Error(`${error.message}\n--- api.log ---\n${tail}`);
   }
 
-  // 起边缘之前的任何失败都要把接口收掉：否则子进程活着，测试进程不会退出，
+  // 起入口之前的任何失败都要把接口收掉：否则子进程活着，测试进程不会退出，
   // 报错就变成一条挂住的命令（缺 web/dist 时会这样）。
-  let edge;
+  let entry;
   try {
-    // 管理员在建边缘之前建好：外部（Playwright 的 webServer）以边缘的健康检查
+    // 管理员在建入口之前建好：外部（Playwright 的 webServer）以入口的健康检查
     // 作为“可以开始”的信号，不能在它之后才建账号。
     if (admin?.username) {
       await createAdmin(dataDir, {
@@ -234,7 +236,7 @@ export async function startStack(options = {}) {
       });
     }
 
-    edge = await startEdge({ distDir, apiBase: apiUrl, port: edgePort, dataFile });
+    entry = await startEntry({ distDir, apiBase: apiUrl, port: entryPort, dataFile });
   } catch (error) {
     api.kill("SIGKILL");
     if (!keep) await rm(dataDir, { recursive: true, force: true }).catch(() => {});
@@ -245,7 +247,7 @@ export async function startStack(options = {}) {
   async function stop() {
     if (stopped) return;
     stopped = true;
-    await edge.close().catch(() => {});
+    await entry.close().catch(() => {});
     if (api.exitCode === null) {
       api.kill("SIGTERM");
       const exited = await Promise.race([
@@ -267,7 +269,7 @@ export async function startStack(options = {}) {
   const cliEnv = manifestFile ? { XKNOT_INSTANCES_FILE: manifestFile } : {};
 
   return {
-    portalUrl: edge.url,
+    portalUrl: entry.url,
     apiUrl,
     dataDir,
     distDir,
@@ -360,9 +362,14 @@ async function main(argv) {
   // 刷新页面还在、重启后申请与审核记录还在。测试用 startStack() 的随机端口
   // 与临时目录，互不影响。
   // 5180 留给 `npm run dev`（Vite），部署默认单独占 5190。
-  const edgePort = portIndex >= 0 ? Number(argv[portIndex + 1]) : 5190;
+  const entryPort = portIndex >= 0 ? Number(argv[portIndex + 1]) : 5190;
   const dataIndex = argv.indexOf("--data-dir");
   const dataDir = dataIndex >= 0 ? path.resolve(argv[dataIndex + 1]) : path.join(ROOT, "var", "local");
+  // 审核台可以改配置：这两项让本地栈指向一份临时清单与名册，不碰仓库里的文件。
+  const instancesIndex = argv.indexOf("--instances");
+  const instancesFile = instancesIndex >= 0 ? path.resolve(argv[instancesIndex + 1]) : null;
+  const federationIndex = argv.indexOf("--federation");
+  const federationFile = federationIndex >= 0 ? path.resolve(argv[federationIndex + 1]) : null;
 
   let admin = null;
   if (adminArg) {
@@ -372,7 +379,15 @@ async function main(argv) {
     admin = { username, password };
   }
 
-  const stack = await startStack({ preview, edgePort, admin, dataDir, keep: true });
+  const stack = await startStack({
+    preview,
+    entryPort,
+    admin,
+    dataDir,
+    keep: true,
+    instancesFile,
+    federationFile,
+  });
   if (admin) console.log(`admin ${admin.username} ready`);
 
   console.log("");

@@ -1,4 +1,7 @@
-// 中枢健康探测：读 instances.json，逐个探 healthUrl，写 var/health.json。
+// 中枢健康探测：读 instances.json，逐个探推出的地址，写 var/health.json。
+//
+// 探测地址由清单的 url 推出（`/api/health`），探不探由清单的 status 决定，
+// 两条规则都在 ops/probe-target.mjs。
 //
 // 只用外部 HTTP，不读实例的库，不带任何凭据。判定见 docs/FEDERATION.md 第 5 节。
 //
@@ -11,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { assertPublicUrl, resolveHosts } from "./fetch-guard.mjs";
+import { probeTargetOf } from "./probe-target.mjs";
 
 export const DEFAULT_TIMEOUT_MS = 5000;
 export const DEGRADED_MS = 2000;
@@ -54,9 +58,12 @@ function unknownState(previous) {
   };
 }
 
-// 单个实例探一次。返回 { status, httpStatus, latencyMs, version, error }。
-export async function probe(instance, options = {}) {
+// 单个地址探一次。返回 { status, httpStatus, latencyMs, version, error }。
+//
+// `url` 是探到哪儿；`id` 用来核对实例自报的身份，两者都由 probe-target.mjs 推出。
+export async function probe(url, options = {}) {
   const {
+    id = null,
     fetchImpl = fetch,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     degradedMs = DEGRADED_MS,
@@ -64,7 +71,6 @@ export async function probe(instance, options = {}) {
     resolve = null,
   } = options;
 
-  const url = instance?.healthUrl;
   if (!url) return unknownStateResult();
   if (!isHttpsUrl(url)) return { ...unknownStateResult(), error: "insecure_url" };
 
@@ -112,7 +118,7 @@ export async function probe(instance, options = {}) {
     // 实例自报的 id 与清单不一致，说明这个域名后面是另一个实例（DNS 指错、站点被换过）。
     // 不带这个字段的实例按契约照常判活；带了就必须对得上。
     const reported = typeof body.instance === "string" ? body.instance.trim() : "";
-    if (reported && instance?.id && reported !== instance.id) {
+    if (reported && id && reported !== id) {
       return { status: "down", httpStatus: 200, latencyMs, version: null, error: "instance_mismatch" };
     }
 
@@ -168,21 +174,27 @@ export function mergeHealth(previous, result, now = new Date()) {
  * 返回的 notices 是本次新发生的事件，调用方据此发信；同一个事件只会出现一次，
  * 记在 state.notified 里。隐藏只影响门户渲染，`instances.json` 不动。
  *
+ * @param {object} instance 清单条目
+ * @param {object} state 上一次的运行状态
+ * @param {Date} [now]
+ * @param {{probed?: boolean}} [options] probed=false 表示清单里还是 pending，从没探过
  * @returns {{ state: object, notices: Array<{kind: string, at: string}> }}
  */
-export function applyPolicy(instance, state, now = new Date()) {
+export function applyPolicy(instance, state, now = new Date(), options = {}) {
   const at = now.toISOString();
   const next = { ...state, notified: { ...(state?.notified || {}) } };
   const notices = [];
+  const probed = options.probed !== false;
 
   // 暂停或退役的条目不参与，也不悄悄改它的历史状态。
-  if (instance?.status && instance.status !== "active") {
+  // pending 是另一回事：它属于「还没接通」，要走下面的 14 / 30 天计时。
+  if (instance?.status && instance.status !== "active" && instance.status !== "pending") {
     next.hiddenAt = null;
     next.hiddenReason = null;
     return { state: next, notices };
   }
 
-  if (next.status === "up" || next.status === "degraded") {
+  if (probed && (next.status === "up" || next.status === "degraded")) {
     next.downSince = null;
     next.notified = {};
     next.hiddenAt = null;
@@ -190,7 +202,7 @@ export function applyPolicy(instance, state, now = new Date()) {
     return { state: next, notices };
   }
 
-  if (next.status === "down") {
+  if (probed && next.status === "down") {
     const downSince = next.downSince || at;
     next.downSince = downSince;
     const age = Date.parse(at) - Date.parse(downSince);
@@ -212,9 +224,9 @@ export function applyPolicy(instance, state, now = new Date()) {
     return { state: next, notices };
   }
 
-  // 从未接通：healthUrl 为空或一直探测不到。以清单的 since 起算。
-  // 只有「没有健康检查地址」才走这条，避免把刚签发、正在交接的条目误判成断连。
-  if (!instance?.healthUrl) {
+  // 从未接通：清单里还是 pending（已收录、未验收），或地址压根推不出来。
+  // 以清单的 since 起算，14 天提醒、30 天隐藏。已接通但探不到的一律走上面的 down。
+  if (!probed) {
     const since = Date.parse(`${instance?.since || ""}T00:00:00Z`);
     if (Number.isFinite(since)) {
       const age = Date.parse(at) - since;
@@ -281,13 +293,17 @@ export async function run(options = {}) {
     const reissued =
       previousState?.manifestSince && instance?.since && previousState.manifestSince !== instance.since;
     const before = reissued ? null : previousState;
-    // 暂停或已退役的条目不探，保留上一次的结果。
-    if (instance?.status && instance.status !== "active") {
+    // 暂停或已退役的条目不探，保留上一次的结果。pending 要继续走
+    // 「从未接通」的计时，所以交给下面的 policy，不在这里提前返回。
+    if (instance?.status && instance.status !== "active" && instance.status !== "pending") {
       return [instance.id, before ?? unknownState(before)];
     }
-    const result = await probe(instance, { fetchImpl, timeoutMs, degradedMs, resolve });
+    const target = probeTargetOf(instance);
+    const result = target.enabled
+      ? await probe(target.url, { id: instance.id, fetchImpl, timeoutMs, degradedMs, resolve })
+      : unknownStateResult();
     const merged = mergeHealth(before, result, at);
-    const policy = applyPolicy(instance, merged, at);
+    const policy = applyPolicy(instance, merged, at, { probed: target.enabled });
     for (const notice of policy.notices) notices.push({ id: instance.id, ...notice });
     return [instance.id, { ...policy.state, manifestSince: instance?.since ?? null }];
   });

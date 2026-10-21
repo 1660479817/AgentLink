@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 本地部署门户：校验 → 构建 → 起接口 → 起本机边缘。
+# 本地部署门户：校验 → 构建 → 起接口 → 起本机入口。
 #
 # 线上是 `/opt/xknot` 的接口进程 + nginx；本地把这两层拆成
 # `server/index.mjs` 和 `ops/local-hub.mjs`，路径与响应头按
@@ -14,7 +14,7 @@
 #   ./ops/deploy-local.sh --port 8080          # 换端口（默认 5190，5180 留给 npm run dev）
 #   ./ops/deploy-local.sh --data-dir /tmp/k    # 换数据目录（默认 var/local）
 #
-# 数据目录保留，重启后申请与审核记录还在。Ctrl-C 同时收掉接口与边缘。
+# 数据目录保留，重启后申请与审核记录还在。Ctrl-C 同时收掉接口与入口。
 
 set -euo pipefail
 

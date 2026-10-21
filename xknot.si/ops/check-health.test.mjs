@@ -27,10 +27,13 @@ function jsonResponse(body, status = 200) {
   };
 }
 
-const INSTANCE = { id: "wang", healthUrl: "https://example.test/api/health" };
+// probe 只收地址；instance 身份从 options.id 传进来核对。
+const PROBE_URL = "https://example.test/api/health";
+const PROBE_ID = "wang";
 
 test("a healthy instance is up and keeps the version", async () => {
-  const result = await probe(INSTANCE, {
+  const result = await probe(PROBE_URL, {
+    id: PROBE_ID,
     fetchImpl: async () => jsonResponse({ ok: true, version: "0.2.0" }),
     clock: sequencer([0, 137]),
   });
@@ -42,7 +45,8 @@ test("a healthy instance is up and keeps the version", async () => {
 });
 
 test("a slow but healthy instance is degraded", async () => {
-  const result = await probe(INSTANCE, {
+  const result = await probe(PROBE_URL, {
+    id: PROBE_ID,
     fetchImpl: async () => jsonResponse({ ok: true }),
     clock: sequencer([0, 2500]),
   });
@@ -50,7 +54,8 @@ test("a slow but healthy instance is degraded", async () => {
 });
 
 test("3xx is a failure because redirects are not followed", async () => {
-  const result = await probe(INSTANCE, {
+  const result = await probe(PROBE_URL, {
+    id: PROBE_ID,
     fetchImpl: async () => jsonResponse(undefined, 302),
     clock: sequencer([0, 10]),
   });
@@ -59,7 +64,8 @@ test("3xx is a failure because redirects are not followed", async () => {
 });
 
 test("a 500 is down and carries the status", async () => {
-  const result = await probe(INSTANCE, {
+  const result = await probe(PROBE_URL, {
+    id: PROBE_ID,
     fetchImpl: async () => jsonResponse(undefined, 500),
     clock: sequencer([0, 10]),
   });
@@ -68,7 +74,8 @@ test("a 500 is down and carries the status", async () => {
 });
 
 test("ok !== true is a bad payload", async () => {
-  const result = await probe(INSTANCE, {
+  const result = await probe(PROBE_URL, {
+    id: PROBE_ID,
     fetchImpl: async () => jsonResponse({ ok: false }),
     clock: sequencer([0, 10]),
   });
@@ -77,7 +84,8 @@ test("ok !== true is a bad payload", async () => {
 });
 
 test("a non-JSON body is a bad payload", async () => {
-  const result = await probe(INSTANCE, {
+  const result = await probe(PROBE_URL, {
+    id: PROBE_ID,
     fetchImpl: async () => jsonResponse(undefined),
     clock: sequencer([0, 10]),
   });
@@ -86,14 +94,16 @@ test("a non-JSON body is a bad payload", async () => {
 });
 
 test("the instance may identify itself and must match the manifest", async () => {
-  const match = await probe(INSTANCE, {
+  const match = await probe(PROBE_URL, {
+    id: PROBE_ID,
     fetchImpl: async () => jsonResponse({ ok: true, instance: "wang" }),
     clock: sequencer([0, 10]),
   });
   assert.equal(match.status, "up");
   assert.equal(match.error, null);
 
-  const mismatch = await probe(INSTANCE, {
+  const mismatch = await probe(PROBE_URL, {
+    id: PROBE_ID,
     fetchImpl: async () => jsonResponse({ ok: true, instance: "zjj" }),
     clock: sequencer([0, 10]),
   });
@@ -103,7 +113,8 @@ test("the instance may identify itself and must match the manifest", async () =>
 
 test("an instance that does not report an id is still judged by ok", async () => {
   // 协议里这一项是可选的：老实例不带 instance，不能被判成不健康。
-  const result = await probe(INSTANCE, {
+  const result = await probe(PROBE_URL, {
+    id: PROBE_ID,
     fetchImpl: async () => jsonResponse({ ok: true, service: "knot-backend" }),
     clock: sequencer([0, 10]),
   });
@@ -114,13 +125,13 @@ test("only https is probed", async () => {
   assert.equal(isHttpsUrl("http://example.test/api/health"), false);
   assert.equal(isHttpsUrl("https://example.test/api/health"), true);
   assert.equal(isHttpsUrl("https://user:pass@example.test/api/health"), false);
-  const result = await probe({ id: "x", healthUrl: "http://example.test/api/health" });
+  const result = await probe("http://example.test/api/health", { id: "x" });
   assert.equal(result.status, "unknown");
   assert.equal(result.error, "insecure_url");
 });
 
-test("no healthUrl stays unknown", async () => {
-  const result = await probe({ id: "x", healthUrl: null });
+test("an empty probe url stays unknown", async () => {
+  const result = await probe(null, { id: "x" });
   assert.equal(result.status, "unknown");
   assert.equal(result.error, null);
 });
@@ -134,7 +145,7 @@ test("a timeout is down", async () => {
         reject(error);
       });
     });
-  const result = await probe(INSTANCE, { fetchImpl, timeoutMs: 5, clock: sequencer([0, 5]) });
+  const result = await probe(PROBE_URL, { id: PROBE_ID, fetchImpl, timeoutMs: 5, clock: sequencer([0, 5]) });
   assert.equal(result.status, "down");
   assert.equal(result.error, "timeout");
 });
@@ -162,23 +173,22 @@ test("unknown does not count as a check", () => {
   assert.equal(availableRate(state), null);
 });
 
+async function tempManifest(dir, instances) {
+  const instancesPath = path.join(dir, "instances.json");
+  await writeFile(instancesPath, JSON.stringify({ version: 4, instances }, null, 2));
+  return instancesPath;
+}
+
 test("run writes var/health.json and merges the previous file", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "knot-health-"));
-  const instancesPath = path.join(dir, "instances.json");
   const outPath = path.join(dir, "var", "health.json");
 
-  await writeFile(
-    instancesPath,
-    JSON.stringify({
-      version: 2,
-      instances: [
-        { id: "up", status: "active", healthUrl: "https://up.test/api/health" },
-        { id: "down", status: "active", healthUrl: "https://down.test/api/health" },
-        { id: "paused", status: "suspended", healthUrl: "https://paused.test/api/health" },
-        { id: "off", status: "active", healthUrl: null },
-      ],
-    })
-  );
+  const instancesPath = await tempManifest(dir, [
+    { id: "up", status: "active", url: "https://up.test" },
+    { id: "down", status: "active", url: "https://down.test" },
+    { id: "paused", status: "suspended", url: "https://paused.test" },
+    { id: "off", status: "active" },
+  ]);
 
   const fetchImpl = async (url) => {
     if (String(url).startsWith("https://up.test")) return jsonResponse({ ok: true, version: "0.2.0" });
@@ -214,18 +224,59 @@ test("run writes var/health.json and merges the previous file", async () => {
   assert.equal(saved.instances.down.error, "http_503");
 });
 
+test("run derives the probe url from url (/api/health)", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-health-"));
+  const outPath = path.join(dir, "var", "health.json");
+  const instancesPath = await tempManifest(dir, [
+    { id: "wang", status: "active", url: "https://wang.xknot.si" },
+    // url 带了路径也收敛到站点根。
+    { id: "zjj", status: "active", url: "https://zjj.xknot.si/some/page" },
+  ]);
+
+  const seen = [];
+  await run({
+    instancesPath,
+    outPath,
+    resolve: async () => ["1.2.3.4"],
+    fetchImpl: async (url) => {
+      seen.push(String(url));
+      return jsonResponse({ ok: true });
+    },
+  });
+  assert.deepEqual(seen.sort(), ["https://wang.xknot.si/api/health", "https://zjj.xknot.si/api/health"]);
+});
+
+test("run does not probe while the instance is pending", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-health-"));
+  const outPath = path.join(dir, "var", "health.json");
+  const instancesPath = await tempManifest(dir, [
+    { id: "zjj", status: "pending", url: "https://zjj.xknot.si", since: "2026-10-01" },
+  ]);
+
+  let called = false;
+  const output = await run({
+    instancesPath,
+    outPath,
+    now: () => new Date("2026-10-02T00:00:00Z"),
+    resolve: async () => ["1.2.3.4"],
+    fetchImpl: async () => {
+      called = true;
+      return jsonResponse({ ok: true });
+    },
+  });
+  assert.equal(called, false, "pending 是等验收，不是断连，不发请求");
+  assert.equal(output.instances.zjj.status, "unknown");
+  assert.equal(output.instances.zjj.checks, 0);
+});
+
 test("run drops stale state when a subdomain is reissued", async () => {
   // 下架后用同一个子域重新签发：旧条目的 hiddenAt / downSince 不能跟过来。
   const dir = await mkdtemp(path.join(tmpdir(), "knot-health-"));
-  const instancesPath = path.join(dir, "instances.json");
   const outPath = path.join(dir, "var", "health.json");
 
-  await writeFile(
-    instancesPath,
-    JSON.stringify({
-      instances: [{ id: "wang", status: "active", since: "2026-10-01", healthUrl: "https://wang.test/api/health" }],
-    })
-  );
+  const instancesPath = await tempManifest(dir, [
+    { id: "wang", status: "active", since: "2026-10-01", url: "https://wang.test" },
+  ]);
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(
     outPath,
@@ -261,17 +312,13 @@ test("run drops stale state when a subdomain is reissued", async () => {
 
 test("run probes concurrently and keeps manifest order", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "knot-health-"));
-  const instancesPath = path.join(dir, "instances.json");
   const outPath = path.join(dir, "var", "health.json");
 
   const ids = ["a", "b", "c", "d", "e"];
-  await writeFile(
-    instancesPath,
-    JSON.stringify({
-      instances: ids.map((id) => ({ id, status: "active", healthUrl: `https://${id}.test/api/health` })),
-    })
+  const instancesPath = await tempManifest(
+    dir,
+    ids.map((id) => ({ id, status: "active", url: `https://${id}.test` }))
   );
-
   let inFlight = 0;
   let peak = 0;
   const fetchImpl = async () => {
@@ -293,14 +340,12 @@ test("run probes concurrently and keeps manifest order", async () => {
   assert.equal(peak, 3);
 });
 
-test("run refuses a healthUrl that resolves to a private address", async () => {
+test("run refuses an instance url that resolves to a private address", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "knot-health-"));
-  const instancesPath = path.join(dir, "instances.json");
   const outPath = path.join(dir, "var", "health.json");
-  await writeFile(
-    instancesPath,
-    JSON.stringify({ instances: [{ id: "inside", status: "active", healthUrl: "https://inside.test/api/health" }] })
-  );
+  const instancesPath = await tempManifest(dir, [
+    { id: "inside", status: "active", url: "https://inside.test" },
+  ]);
 
   let called = false;
   const fetchImpl = async () => {
@@ -340,7 +385,7 @@ function downAt(iso) {
 }
 
 test("policy: 24 hours down sends one reminder, not two", () => {
-  const instance = { id: "wang", status: "active", healthUrl: "https://wang.test/api/health" };
+  const instance = { id: "wang", status: "active", url: "https://wang.test" };
   const start = "2026-10-01T00:00:00.000Z";
   const state = downAt(start);
 
@@ -356,7 +401,7 @@ test("policy: 24 hours down sends one reminder, not two", () => {
 });
 
 test("policy: 7 days down hides the entry once, recovery clears it", () => {
-  const instance = { id: "wang", status: "active", healthUrl: "https://wang.test/api/health" };
+  const instance = { id: "wang", status: "active", url: "https://wang.test" };
   const start = "2026-10-01T00:00:00.000Z";
   const before = downAt(start);
 
@@ -379,24 +424,34 @@ test("policy: 7 days down hides the entry once, recovery clears it", () => {
 });
 
 test("policy: never connected is measured from since, and does not hide before 30 days", () => {
-  const instance = { id: "new", status: "active", healthUrl: null, since: "2026-09-20" };
+  const instance = { id: "new", status: "active", url: "https://new.test", since: "2026-09-20" };
   const state = mergeHealth(null, { status: "unknown", httpStatus: null, latencyMs: null, version: null, error: null });
+  const never = { probed: false };
 
-  const day13 = applyPolicy(instance, state, new Date("2026-10-03T00:00:00Z"));
+  const day13 = applyPolicy(instance, state, new Date("2026-10-03T00:00:00Z"), never);
   assert.deepEqual(day13.notices, []);
 
-  const day15 = applyPolicy(instance, state, new Date("2026-10-05T00:00:00Z"));
+  const day15 = applyPolicy(instance, state, new Date("2026-10-05T00:00:00Z"), never);
   assert.deepEqual(day15.notices.map((notice) => notice.kind), ["never_14d"]);
   assert.equal(day15.state.hiddenAt, null);
 
-  const day31 = applyPolicy(instance, day15.state, new Date("2026-10-21T00:00:00Z"));
+  const day31 = applyPolicy(instance, day15.state, new Date("2026-10-21T00:00:00Z"), never);
   assert.deepEqual(day31.notices.map((notice) => notice.kind), ["never_30d"]);
   assert.equal(day31.state.hiddenReason, "never_30d");
   assert.ok(NEVER_REMIND_MS < NEVER_HIDE_MS);
 });
 
+test("policy: an entry that is being probed is not treated as never-connected", () => {
+  // 已接通但探不到 → 走 down 的 24 小时 / 7 天，不是 never 的 14 天 / 30 天。
+  const instance = { id: "wang", status: "active", url: "https://wang.test", since: "2026-01-01" };
+  const state = mergeHealth(null, { status: "unknown", httpStatus: null, latencyMs: null, version: null, error: null });
+  const result = applyPolicy(instance, state, new Date("2026-10-21T00:00:00Z"), { probed: true });
+  assert.deepEqual(result.notices, []);
+  assert.equal(result.state.hiddenAt, null);
+});
+
 test("policy: suspended entries are left alone", () => {
-  const instance = { id: "old", status: "suspended", healthUrl: "https://old.test/api/health" };
+  const instance = { id: "old", status: "suspended", url: "https://old.test" };
   const state = downAt("2026-10-01T00:00:00.000Z");
   const result = applyPolicy(instance, { ...state, hiddenAt: "2026-10-08T00:00:00.000Z" }, new Date("2026-12-01T00:00:00Z"));
   assert.deepEqual(result.notices, []);

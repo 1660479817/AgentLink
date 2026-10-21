@@ -149,9 +149,10 @@ pending ──▶ verified ──▶ hold ──▶ verified
 | `{reapplyAfter}` | 可重提日期 | `2026-10-27` |
 | `{reasonLabel}` / `{reasonHint}` | 拒绝类别与说明 | 见 3.2 |
 | `{items}` | 补材料清单 | 由 3.1 的条目码渲染 |
-| `{host}` / `{subdomain}` | 子域 | `wang.xknot.si` |
-| `{accessLabel}` | 连通方式 | `边缘 + SSH 反向隧道` |
-| `{edgeHost}` / `{account}` / `{port}` | 边缘与隧道 | `54.169.33.64` / `knot-tunnel-wang` / `18080` |
+| `{subdomain}` | 子域 | `wang.xknot.si` |
+| `{modeLabel}` | 接入模式 | `自有域名` / `由中枢签发子域（入口 + SSH 反向隧道）` |
+| `{requestSummary}` | 申请摘要 | 由模式与地址渲染，审核提醒用 |
+| `{entryHost}` / `{account}` / `{port}` | 入口与隧道 | `54.169.33.64` / `knot-tunnel-wang` / `18080` |
 | `{healthUrl}` | 探测地址 | `https://wang.xknot.si/api/health` |
 | `{statusLabel}` | 运行状态 | `正常` |
 | `{contactMasked}` | 脱敏联系人 | `m***@gmail.com` |
@@ -181,7 +182,7 @@ pending ──▶ verified ──▶ hold ──▶ verified
 | 码 | `{reasonLabel}` | `{reasonHint}` |
 |----|-----------------|----------------|
 | `incomplete` | 材料不足 | 申请表缺少关键信息，或所选子域与站点用途不符。 |
-| `unreachable` | 站点不可达 | 所选落点无法从公网访问，或子域没有按约定接通。 |
+| `unreachable` | 站点不可达 | 所选地址无法从公网访问，或子域没有按约定接通。 |
 | `policy` | 不符合联邦约定 | 站点用途或内容与 XKnot 联邦的收录约定不符。 |
 
 拒绝信只给类别与一句说明，不给审核人、不给内部备注、不给评分。
@@ -195,9 +196,9 @@ pending ──▶ verified ──▶ hold ──▶ verified
 | `verified` → `hold` | `partner.hold` | 申请人 |
 | `verified` / `hold` → `approved` | `partner.approved` | 申请人 |
 | `verified` / `hold` → `rejected` | `partner.rejected` | 申请人 |
-| 开通 `reserved` → `issuing` | `partner.issuance` | 主理人 |
-| 开通 `issuing` → `handed_off` | `partner.handoff` | 主理人 |
-| 开通 `handed_off` → `live` | `partner.live` | 主理人 |
+| 签发子域、接入参数确定（仅 `subdomain`） | `partner.issuance` | 主理人 |
+| 接入件生成、一次性领取就绪 | `partner.handoff` | 主理人 |
+| 验收通过、清单 `status` 转 `active` | `partner.live` | 主理人 |
 | 运行 `active` → `suspended` | `partner.suspended` | 联系人 |
 | 运行 `active` / `suspended` → `retired` | `partner.retired` | 联系人 |
 | 探测 `down` 连续 24 小时 | `partner.unreachable_24h` | 联系人 |
@@ -232,7 +233,7 @@ pending ──▶ verified ──▶ hold ──▶ verified
 
 2. 邮箱确认后进入人工审核，通常 {reviewSla} 内给出结果。
 
-3. 通过后签发你选的子域，再按所选落点接通。清单条目先以「未接通」状态写入，公网 /api/health 验证通过后才显示为在线。
+3. 通过后按你选的模式接通：自有域名直接验收；没有域名时由中枢签发子域，再把静态与动态接到入口。清单条目先以「待验收」状态写入，公网 /api/health 通过后才显示为上线。
 
 申请状态随时可查：
 {caseUrl}
@@ -260,7 +261,7 @@ pending ──▶ verified ──▶ hold ──▶ verified
 
 2. 信箱確認後進入人工審核，通常 {reviewSla} 內給出結果。
 
-3. 通過後簽發你選的子網域，再按所選落點接通。清單條目先以「未接通」狀態寫入，公網 /api/health 驗證通過後才顯示為上線。
+3. 通過後按你選的模式接通：自有網域直接驗收；沒有網域時由中樞簽發子網域，再把靜態與動態接到入口。清單條目先以「待驗收」狀態寫入，公網 /api/health 通過後才顯示為上線。
 
 申請狀態隨時可查：
 {caseUrl}
@@ -444,7 +445,7 @@ This message was sent automatically; replies are not monitored.
 收录不包含下面三项，需要时另行确认：
 
 - 签发 *.xknot.si 子域
-- 边缘主机与 SSH 反向隧道
+- 入口主机与 SSH 反向隧道
 - 委托发信凭据
 
 需要其中任何一项，请在申请页说明：
@@ -470,7 +471,7 @@ This message was sent automatically; replies are not monitored.
 收錄不包含下面三項，需要時另行確認：
 
 - 簽發 *.xknot.si 子網域
-- 邊緣主機與 SSH 反向隧道
+- 入口主機與 SSH 反向隧道
 - 委託發信憑證
 
 需要其中任何一項，請在申請頁說明：
@@ -496,7 +497,7 @@ A staff member will now add the instance to the instance manifest and rebuild th
 Listing does not include the following, which are confirmed separately:
 
 - a *.xknot.si subdomain
-- an edge host and SSH reverse tunnel
+- an entry host and SSH reverse tunnel
 - a relay token for delegated mail
 
 If you need any of them, say so on the application page:
@@ -578,6 +579,8 @@ This message was sent automatically; replies are not monitored.
 
 ### 4.6 `partner.issuance`
 
+**只在公钥迟到时发。** 正常流程里申请人在 `/case/<caseKey>` 已经交过 `.pub`，审核通过后中枢直接把配置做完并寄 `partner.handoff`，跳过这一封。若案例页一直没收到公钥，再用 `npm run admin -- notify <申请编号> partner.issuance` 索取；此时前置也只做到静态页为止。
+
 **主题**：`[XKnot] {id} 的接入信息已确定`
 
 ```text
@@ -585,20 +588,20 @@ This message was sent automatically; replies are not monitored.
 
 实例 {id}（{name}）的接入信息已确定。
 
-子域：{subdomain}
-连通方式：{accessLabel}
-边缘主机：{edgeHost}
+接入模式：{modeLabel}
+实例地址：{url}
+入口主机：{entryHost}
 隧道账号：{account}
 专属端口：{port}
 
-「隧道账号」「专属端口」两行只在隧道方式下出现。
+「入口主机」「隧道账号」「专属端口」三行只在中枢签发子域时出现。
 
 下一步需要你做两件事：
 
 1. 在本机生成密钥，私钥留在本机：
-   ssh-keygen -t ed25519 -f ~/.ssh/knot-edge-{id} -N ''
+   ssh-keygen -t ed25519 -f ~/.ssh/knot-entry-{id} -N ''
 
-2. 把 ~/.ssh/knot-edge-{id}.pub 的内容交给我们：
+2. 把 ~/.ssh/knot-entry-{id}.pub 的内容交给我们：
    {caseUrl}
 
 只交 .pub。不要交私钥，也不要贴进邮件或网页。
@@ -617,20 +620,20 @@ This message was sent automatically; replies are not monitored.
 
 實例 {id}（{name}）的接入資訊已確定。
 
-子網域：{subdomain}
-連通方式：{accessLabel}
-邊緣主機：{edgeHost}
+接入模式：{modeLabel}
+實例位址：{url}
+入口主機：{entryHost}
 隧道帳號：{account}
 專屬埠：{port}
 
-「隧道帳號」「專屬埠」兩行只在隧道方式下出現。
+「入口主機」「隧道帳號」「專屬埠」三行只在中樞簽發子網域時出現。
 
 下一步需要你做兩件事：
 
 1. 在本機產生金鑰，私鑰留在本機：
-   ssh-keygen -t ed25519 -f ~/.ssh/knot-edge-{id} -N ''
+   ssh-keygen -t ed25519 -f ~/.ssh/knot-entry-{id} -N ''
 
-2. 把 ~/.ssh/knot-edge-{id}.pub 的內容交給我們：
+2. 把 ~/.ssh/knot-entry-{id}.pub 的內容交給我們：
    {caseUrl}
 
 只交 .pub。不要交私鑰，也不要貼進郵件或網頁。
@@ -649,20 +652,20 @@ Hello {operator},
 
 Access details for instance {id} ({name}) are set.
 
-Subdomain: {subdomain}
-Connectivity: {accessLabel}
-Edge host: {edgeHost}
+Mode: {modeLabel}
+Instance URL: {url}
+Entry host: {entryHost}
 Tunnel account: {account}
 Dedicated port: {port}
 
-The account and port lines appear only for tunnel mode.
+The entry, account and port lines appear only when the hub issues a subdomain.
 
 Two things to do next:
 
 1. Generate a key pair on your own machine, keeping the private key local:
-   ssh-keygen -t ed25519 -f ~/.ssh/knot-edge-{id} -N ''
+   ssh-keygen -t ed25519 -f ~/.ssh/knot-entry-{id} -N ''
 
-2. Send us the contents of ~/.ssh/knot-edge-{id}.pub:
+2. Send us the contents of ~/.ssh/knot-entry-{id}.pub:
    {caseUrl}
 
 Send the .pub file only. Never send the private key, and never paste it into mail or a web page.
@@ -765,7 +768,7 @@ This message was sent automatically; replies are not monitored.
 门户条目：{portalUrl}
 运行状态：{statusLabel}
 
-之后中枢按实例清单探测 {healthUrl}。连续不可达时运行状态会变成中断，条目保留，不自动删除。
+之后中枢会定期探测 {healthUrl}。连续不可达时运行状态会变成中断，条目保留，不自动删除。
 
 本邮件由系统发出，不接收回复。
 
@@ -783,7 +786,7 @@ This message was sent automatically; replies are not monitored.
 入口條目：{portalUrl}
 運行狀態：{statusLabel}
 
-之後中樞按實例清單探測 {healthUrl}。連續不可達時運行狀態會變成中斷，條目保留，不自動刪除。
+之後中樞會定期探測 {healthUrl}。連續不可達時運行狀態會變成中斷，條目保留，不自動刪除。
 
 本郵件由系統發出，不接收回覆。
 
@@ -801,7 +804,7 @@ Public URL: {url}
 Portal entry: {portalUrl}
 Runtime status: {statusLabel}
 
-The hub keeps probing {healthUrl} as listed in the instance manifest. If the instance stays unreachable, its runtime status becomes down; the entry stays and is not removed automatically.
+The hub probes {healthUrl} periodically. If the instance stays unreachable, its runtime status becomes down; the entry stays and is not removed automatically.
 
 This message was sent automatically; replies are not monitored.
 
@@ -1031,7 +1034,7 @@ This message was sent automatically; replies are not monitored.
 恢复探测后自动回到列表，不需要重新申请。
 
 先在本机确认实例在运行，再确认公网地址与隧道是否通。
-需要变更落点或请人协助，回复本信或联系 {outbox}。
+需要变更地址或请人协助，回复本信或联系 {outbox}。
 
 本邮件由系统发出，不接收回复。
 
@@ -1116,7 +1119,7 @@ This message was sent automatically; replies are not monitored.
 处置面板：{origin}/admin/
 ```
 
-`{alertLabel}` 取值：`down_24h`（连续 24 小时不可达）、`down_7d`（连续 7 天，已暂时关闭）、`never_14d`（签发后 14 天仍未接通）、`never_30d`（签发后 30 天，已暂时关闭）、`relay_quota_80`（发信额度用掉 80%）、`cert_expiring_14d`（边缘证书 14 天内到期）。
+`{alertLabel}` 取值：`down_24h`（连续 24 小时不可达）、`down_7d`（连续 7 天，已暂时关闭）、`never_14d`（签发后 14 天仍未接通）、`never_30d`（签发后 30 天，已暂时关闭）、`relay_quota_80`（发信额度用掉 80%）、`cert_expiring_14d`（入口主机证书 14 天内到期）。
 
 ---
 
@@ -1131,7 +1134,7 @@ This message was sent automatically; replies are not monitored.
 | `no-reply@xknot.si` 的发信认证 | 已配 | 阿里云要求 `SMTP_USER` 与 `SMTP_FROM` 一致；改发信地址要同时改两处 |
 | `MAIL_FROM` 与 `Reply-To` 一致 | 已配 | 二者都用 `no-reply@xknot.si`，与「不接收回复」的措辞一致 |
 | 模板版本与文案责任人 | 已定 | 运行时版本在 `TEMPLATE_VERSION`；改文案必须两边一起改并升版本 |
-| 归属验证记录 | **已取消** | 申请只按子域走，签发前没有可验证的域名。验收改为接通后的公网 `/api/health` 探测；旧的 `proof_method` 列仅保留历史数据 |
+| 归属验证记录 | **已取消** | 申请只按子域走，签发前没有可验证的域名。验收改为接通后的公网 `/api/health` 探测；旧的 `proof_method` / `proof_at` 列仅保留历史数据，申请对象不再返回这两个字段 |
 
 ---
 

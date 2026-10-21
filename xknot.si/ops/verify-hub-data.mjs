@@ -47,10 +47,11 @@ function idsOf(manifest) {
  *   data: unknown,
  *   manifest: unknown,
  *   fixtures?: unknown | null,
+ *   requireProfile?: boolean,
  * }} input
  * @returns {string[]} 问题列表，空数组即通过
  */
-export function verifyHubData({ data, manifest, fixtures = null }) {
+export function verifyHubData({ data, manifest, fixtures = null, requireProfile = true }) {
   const problems = [];
   const instances = Array.isArray(data?.instances) ? data.instances : null;
 
@@ -61,10 +62,20 @@ export function verifyHubData({ data, manifest, fixtures = null }) {
     problems.push("snapshot: no instances, the portal would be empty");
   }
 
-  const expected = idsOf(manifest);
-  if (!expected.length) problems.push("manifest: no instances");
+  const allIds = idsOf(manifest);
+  if (!allIds.length) problems.push("manifest: no instances");
 
-  const allowed = new Set(expected);
+  // pending 是已收录、未验收：留在清单里等验收，但绝不能出现在对外快照里。
+  const pending = new Set();
+  const expected = [];
+  for (const instance of Array.isArray(manifest?.instances) ? manifest.instances : []) {
+    const id = instance?.id;
+    if (typeof id !== "string" || !id) continue;
+    if (instance.status === "pending") pending.add(id);
+    else expected.push(id);
+  }
+
+  const allowed = new Set(allIds);
   if (fixtures) for (const id of idsOf(fixtures)) allowed.add(id);
 
   const seen = new Set();
@@ -80,8 +91,22 @@ export function verifyHubData({ data, manifest, fixtures = null }) {
     if (!allowed.has(id)) {
       problems.push(`snapshot: "${id}" is not in instances.json (test data leaked?)`);
     }
+    if (pending.has(id)) {
+      problems.push(`snapshot: "${id}" is still pending and must not be published`);
+    }
 
     if (!isHttps(item?.url)) problems.push(`${id}: url must be https`);
+
+    // 名称来自实例自述的副本；没有副本时 buildHubData 会退回 id。
+    // 门户能显示，但等于没有站点介绍 —— 让它在发布前露出来。
+    if (requireProfile) {
+      const name = item?.name && typeof item.name === "object" ? item.name : {};
+      const named = Object.values(name).some((value) => typeof value === "string" && value && value !== id);
+      if (!named) problems.push(`${id}: no profile name, the portal would show the id`);
+      if (!item?.profileFetchedAt) {
+        problems.push(`${id}: profile has never been fetched (run ops/fetch-profile.mjs)`);
+      }
+    }
 
     const host = hostOf(item?.url);
     const reserved = RESERVED_TLDS.find((tld) => host.endsWith(tld));
@@ -95,13 +120,13 @@ export function verifyHubData({ data, manifest, fixtures = null }) {
   return problems;
 }
 
-export async function verifyHubDataFile({ dataPath, instancesPath, fixturesPath = null }) {
+export async function verifyHubDataFile({ dataPath, instancesPath, fixturesPath = null, requireProfile = true }) {
   const [data, manifest, fixtures] = await Promise.all([
     readFile(dataPath, "utf8").then(JSON.parse),
     readFile(instancesPath, "utf8").then(JSON.parse),
     fixturesPath ? readFile(fixturesPath, "utf8").then(JSON.parse) : Promise.resolve(null),
   ]);
-  return verifyHubData({ data, manifest, fixtures });
+  return verifyHubData({ data, manifest, fixtures, requireProfile });
 }
 
 function parseArgs(argv) {
@@ -122,8 +147,9 @@ if (isMain) {
   const args = parseArgs(process.argv.slice(2));
   const dataPath = args.dataPath || path.join(here, "..", "web", "dist", "data", "hub.json");
   const instancesPath = args.instancesPath || path.join(here, "..", "instances.json");
+  const requireProfile = !process.argv.includes("--allow-missing-profile");
 
-  verifyHubDataFile({ dataPath, instancesPath, fixturesPath: args.fixturesPath || null })
+  verifyHubDataFile({ dataPath, instancesPath, fixturesPath: args.fixturesPath || null, requireProfile })
     .then((problems) => {
       if (!problems.length) {
         console.log(`${dataPath}: ok`);

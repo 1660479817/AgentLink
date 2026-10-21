@@ -13,7 +13,7 @@ export const TEMPLATE_VERSION = "1.1.0";
 
 const LOCALES = ["zh-CN", "zh-TW", "en"];
 
-// 申请只按子域走；老数据没有 subdomain 时从 URL 取回标签。
+// 老数据可能没有 subdomain 列，从 URL 取回标签。
 function subdomainLabelOf(application) {
   const label = String(application?.subdomain || "").trim().toLowerCase();
   if (label) return label.replace(/\.xknot\.si$/, "");
@@ -96,9 +96,9 @@ export const REJECT_REASONS = {
       en: "site unreachable",
     },
     hint: {
-      "zh-CN": "所选落点无法从公网访问，或子域没有按约定接通。",
-      "zh-TW": "所選落點無法從公網存取，或子網域沒有按約定接通。",
-      en: "The chosen landing point is not reachable from the public internet, or the subdomain was not connected as agreed.",
+      "zh-CN": "所选地址无法从公网访问，/api/health 没有按约定接通。",
+      "zh-TW": "所選位址無法從公網存取，/api/health 沒有按約定接通。",
+      en: "The chosen address is not reachable from the public internet, or /api/health was not connected as agreed.",
     },
   },
   policy: {
@@ -117,16 +117,16 @@ export const REJECT_REASONS = {
 
 export const REJECT_REASON_CODES = Object.keys(REJECT_REASONS);
 
-export const ACCESS_LABEL = {
-  direct: {
-    "zh-CN": "固定公网 IP 直连",
-    "zh-TW": "固定公網 IP 直連",
-    en: "direct connection on a fixed public IP",
+export const MODE_LABEL = {
+  "own-domain": {
+    "zh-CN": "自有域名",
+    "zh-TW": "自有網域",
+    en: "own domain",
   },
-  tunnel: {
-    "zh-CN": "边缘 + SSH 反向隧道",
-    "zh-TW": "邊緣 + SSH 反向隧道",
-    en: "edge host with an SSH reverse tunnel",
+  subdomain: {
+    "zh-CN": "由中枢签发子域（入口 + SSH 反向隧道）",
+    "zh-TW": "由中樞簽發子網域（入口 + SSH 反向隧道）",
+    en: "hub-issued subdomain (entry host with an SSH reverse tunnel)",
   },
   unknown: {
     "zh-CN": "尚未确定",
@@ -181,7 +181,7 @@ export const TEMPLATES = {
 
 2. 邮箱确认后进入人工审核，通常 {reviewSla} 内给出结果。
 
-3. 通过后签发你选的子域，再按所选落点接通。清单条目先以「未接通」状态写入，公网 /api/health 验证通过后才显示为在线。
+3. 通过后按你选的模式接通：自有域名直接验收；没有域名时由中枢签发子域，再把静态与动态接到入口。清单条目先以「待验收」状态写入，公网 /api/health 通过后才显示为在线。
 
 申请状态随时可查：
 {caseUrl}
@@ -206,7 +206,7 @@ ${SIGN["zh-CN"]}`,
 
 2. 信箱確認後進入人工審核，通常 {reviewSla} 內給出結果。
 
-3. 通過後簽發你選的子網域，再按所選落點接通。清單條目先以「未接通」狀態寫入，公網 /api/health 驗證通過後才顯示為上線。
+3. 通過後按你選的模式接通：自有網域直接驗收；沒有網域時由中樞簽發子網域，再把靜態與動態接到入口。清單條目先以「待驗收」狀態寫入，公網 /api/health 通過後才顯示為上線。
 
 申請狀態隨時可查：
 {caseUrl}
@@ -231,7 +231,7 @@ Next, three steps:
 
 2. After confirmation the application enters manual review. We usually reply within {reviewSla}.
 
-3. Once approved, we issue the subdomain you picked and then connect the landing mode you chose. The listing entry is written as not yet connected; it shows as online only after the public /api/health check passes.
+3. Once approved, we connect the mode you chose: an own domain is verified as-is; without one, the hub issues a subdomain and serves the static site from the entry. The listing entry is written as pending; it shows as online only after the public /api/health check passes.
 
 You can check the status at any time:
 {caseUrl}
@@ -372,8 +372,8 @@ ${SIGN.en}`,
 
 收录不包含下面三项，需要时另行确认：
 
-- 签发 *.xknot.si 子域
-- 边缘主机与 SSH 反向隧道
+- 自有域名模式的 DNS 与证书（由伙伴自己维护）
+- 无域名模式所需的入口主机与 SSH 反向隧道
 - 委托发信凭据
 
 需要其中任何一项，请在申请页说明：
@@ -393,8 +393,8 @@ ${SIGN["zh-CN"]}`,
 
 收錄不包含下面三項，需要時另行確認：
 
-- 簽發 *.xknot.si 子網域
-- 邊緣主機與 SSH 反向隧道
+- 自有網域模式的 DNS 與憑證（由夥伴自己維護）
+- 無網域模式所需的入口主機與 SSH 反向隧道
 - 委託發信憑證
 
 需要其中任何一項，請在申請頁說明：
@@ -414,8 +414,8 @@ A staff member will now add the instance to the instance manifest and rebuild th
 
 Listing does not include the following, which are confirmed separately:
 
-- a *.xknot.si subdomain
-- an edge host and SSH reverse tunnel
+- DNS and TLS for an own domain (maintained by the partner)
+- the entry host and SSH reverse tunnel needed when there is no domain
 - a relay token for delegated mail
 
 If you need any of them, say so on the application page:
@@ -498,20 +498,20 @@ ${SIGN.en}`,
 
 实例 {id}（{name}）的接入信息已确定。
 
-子域：{subdomain}
-连通方式：{accessLabel}
-边缘主机：{edgeHost}
+接入模式：{modeLabel}
+实例地址：{url}
+入口主机：{entryHost}
 隧道账号：{account}
 专属端口：{port}
 
-「隧道账号」「专属端口」两行只在隧道方式下出现。
+「入口主机」「隧道账号」「专属端口」三行只在中枢签发子域时出现。
 
 下一步需要你做两件事：
 
 1. 在本机生成密钥，私钥留在本机：
-   ssh-keygen -t ed25519 -f ~/.ssh/knot-edge-{id} -N ''
+   ssh-keygen -t ed25519 -f ~/.ssh/knot-entry-{id} -N ''
 
-2. 把 ~/.ssh/knot-edge-{id}.pub 的内容交给我们：
+2. 把 ~/.ssh/knot-entry-{id}.pub 的内容交给我们：
    {caseUrl}
 
 只交 .pub。不要交私钥，也不要贴进邮件或网页。
@@ -525,20 +525,20 @@ ${SIGN["zh-CN"]}`,
 
 實例 {id}（{name}）的接入資訊已確定。
 
-子網域：{subdomain}
-連通方式：{accessLabel}
-邊緣主機：{edgeHost}
+接入模式：{modeLabel}
+實例位址：{url}
+入口主機：{entryHost}
 隧道帳號：{account}
 專屬埠：{port}
 
-「隧道帳號」「專屬埠」兩行只在隧道方式下出現。
+「入口主機」「隧道帳號」「專屬埠」三行只在中樞簽發子網域時出現。
 
 下一步需要你做兩件事：
 
 1. 在本機產生金鑰，私鑰留在本機：
-   ssh-keygen -t ed25519 -f ~/.ssh/knot-edge-{id} -N ''
+   ssh-keygen -t ed25519 -f ~/.ssh/knot-entry-{id} -N ''
 
-2. 把 ~/.ssh/knot-edge-{id}.pub 的內容交給我們：
+2. 把 ~/.ssh/knot-entry-{id}.pub 的內容交給我們：
    {caseUrl}
 
 只交 .pub。不要交私鑰，也不要貼進郵件或網頁。
@@ -552,9 +552,9 @@ ${SIGN["zh-TW"]}`,
 
 Access details for instance {id} ({name}) are set.
 
-Subdomain: {subdomain}
-Connectivity: {accessLabel}
-Edge host: {edgeHost}
+Mode: {modeLabel}
+Instance URL: {url}
+Entry host: {entryHost}
 Tunnel account: {account}
 Dedicated port: {port}
 
@@ -563,9 +563,9 @@ The account and port lines appear only for tunnel mode.
 Two things to do next:
 
 1. Generate a key pair on your own machine, keeping the private key local:
-   ssh-keygen -t ed25519 -f ~/.ssh/knot-edge-{id} -N ''
+   ssh-keygen -t ed25519 -f ~/.ssh/knot-entry-{id} -N ''
 
-2. Send us the contents of ~/.ssh/knot-edge-{id}.pub:
+2. Send us the contents of ~/.ssh/knot-entry-{id}.pub:
    {caseUrl}
 
 Send the .pub file only. Never send the private key, and never paste it into mail or a web page.
@@ -662,7 +662,7 @@ ${SIGN.en}`,
 门户条目：{portalUrl}
 运行状态：{statusLabel}
 
-之后中枢按实例清单探测 {healthUrl}。连续不可达时运行状态会变成中断，条目保留，不自动删除。
+之后中枢会定期探测 {healthUrl}。连续不可达时运行状态会变成中断，条目保留，不自动删除。
 
 ${CLOSING["zh-CN"]}
 
@@ -675,7 +675,7 @@ ${SIGN["zh-CN"]}`,
 入口條目：{portalUrl}
 運行狀態：{statusLabel}
 
-之後中樞按實例清單探測 {healthUrl}。連續不可達時運行狀態會變成中斷，條目保留，不自動刪除。
+之後中樞會定期探測 {healthUrl}。連續不可達時運行狀態會變成中斷，條目保留，不自動刪除。
 
 ${CLOSING["zh-TW"]}
 
@@ -688,7 +688,7 @@ Public URL: {url}
 Portal entry: {portalUrl}
 Runtime status: {statusLabel}
 
-The hub keeps probing {healthUrl} as listed in the instance manifest. If the instance stays unreachable, its runtime status becomes down; the entry stays and is not removed automatically.
+The hub probes {healthUrl} periodically. If the instance stays unreachable, its runtime status becomes down; the entry stays and is not removed automatically.
 
 ${CLOSING.en}
 
@@ -899,7 +899,7 @@ ${SIGN.en}`,
 恢复探测后自动回到列表，不需要重新申请。
 
 先在本机确认实例在运行，再确认公网地址与隧道是否通。
-需要变更落点或请人协助，回复本信或联系 {outbox}。
+需要变更地址或请人协助，回复本信或联系 {outbox}。
 
 ${CLOSING["zh-CN"]}
 
@@ -1131,14 +1131,14 @@ export const ALERT_LABELS = {
     en: "unreachable for 7 days, temporarily hidden",
   },
   never_14d: {
-    "zh-CN": "签发后 14 天仍未接通",
-    "zh-TW": "簽發後 14 天仍未接通",
-    en: "not connected 14 days after issuance",
+    "zh-CN": "收录后 14 天仍未验收",
+    "zh-TW": "收錄後 14 天仍未驗收",
+    en: "not verified 14 days after listing",
   },
   never_30d: {
-    "zh-CN": "签发后 30 天仍未接通，已暂时关闭",
-    "zh-TW": "簽發後 30 天仍未接通，已暫時關閉",
-    en: "not connected 30 days after issuance, temporarily hidden",
+    "zh-CN": "收录后 30 天仍未验收，已暂时关闭",
+    "zh-TW": "收錄後 30 天仍未驗收，已暫時關閉",
+    en: "not verified 30 days after listing, temporarily hidden",
   },
   relay_quota_80: {
     "zh-CN": "委托发信额度已用掉 80%",
@@ -1146,9 +1146,9 @@ export const ALERT_LABELS = {
     en: "relay quota is 80% used",
   },
   cert_expiring_14d: {
-    "zh-CN": "边缘证书 14 天内到期",
-    "zh-TW": "邊緣憑證 14 天內到期",
-    en: "the edge certificate expires within 14 days",
+    "zh-CN": "入口主机证书 14 天内到期",
+    "zh-TW": "入口憑證 14 天內到期",
+    en: "the entry certificate expires within 14 days",
   },
 };
 
@@ -1181,9 +1181,10 @@ export function describeHoldItems(codes, locale) {
 }
 
 export function describeRequest(application, locale) {
-  // 申请一律按子域走，只剩落点方式需要说明。
-  const access = ACCESS_LABEL[application.requestAccess || "unknown"] || ACCESS_LABEL.unknown;
-  return pick(access, locale);
+  // 模式决定地址，审核台与内部信只看这一行。
+  const mode = MODE_LABEL[application.mode || "unknown"] || MODE_LABEL.unknown;
+  const address = String(application.url || "").trim();
+  return address ? `${pick(mode, locale)} · ${address}` : pick(mode, locale);
 }
 
 /**
@@ -1215,7 +1216,7 @@ export function buildVars(application, options = {}) {
     confirmUrl: links.confirmUrl || caseUrl,
     portalUrl: links.portalUrl || `${origin}/${locale === "en" ? "en" : locale}/`,
     supportUrl: options.supportUrl || "",
-    // 伙伴来信的落点：运营方地址。申请阶段的提醒都指向它。
+    // 伙伴来信的回复地址：运营方地址。申请阶段的提醒都指向它。
     outbox: options.outbox || options.adminEmail || "",
     // 没有支持入口时整行省略，别在信尾留一个空的「可选的联系入口：」。
     supportLine: options.supportUrl
@@ -1232,11 +1233,11 @@ export function buildVars(application, options = {}) {
     reasonLabel: pick(reason.label, locale),
     reasonHint: pick(reason.hint, locale),
     subdomain: options.subdomain || (subdomainLabelOf(application) ? `${subdomainLabelOf(application)}.xknot.si` : ""),
-    accessLabel: pick(ACCESS_LABEL[application.requestAccess || "unknown"] || ACCESS_LABEL.unknown, locale),
-    edgeHost: options.edgeHost || "—",
+    modeLabel: pick(MODE_LABEL[application.mode || "unknown"] || MODE_LABEL.unknown, locale),
+    entryHost: options.entryHost || "—",
     account: options.account || "—",
     port: options.port || "—",
-    healthUrl: options.healthUrl || `${application.url}/api/health`,
+    healthUrl: `${application.url}/api/health`,
     statusLabel: options.statusLabel || "up",
     contactMasked: maskEmail(application.email),
     effectiveAt: options.effectiveAt || new Date().toISOString().slice(0, 10),

@@ -1,8 +1,8 @@
 // 联邦名册校验。名册不过就不发布。
 //
-// 名册（federation.json）记网络本身的成员事实：谁在、什么身份、子域怎么来的、
-// 怎么接入、隧道账号与端口。门户对外展示用的字段（名称、简介、标签）不在这里，
-// 那些仍在 instances.json。两者必须对得上，否则就是脱钩。
+// 名册（federation.json）记网络本身的成员事实：谁在、什么身份、用哪种接入模式、
+// 以及无域名时入口隧道的账号与端口。门户对外展示用的字段（名称、简介、标签）
+// 不在这里，那些仍在 instances.json。两者必须对得上，否则就是脱钩。
 //
 // 用法：
 //   node xknot.si/ops/validate-federation.mjs
@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 
 export const ROLES = ["founder", "partner"];
 export const STANDINGS = ["permanent", "regular"];
-export const ISSUANCE = ["own-domain", "subdomain-issued", "subdomain-reserved", "none"];
-export const ACCESS = ["direct", "edge-tunnel", "pending"];
+// 两种接入模式：自有域名，或中枢签发子域 + 入口隧道。模式直接决定地址。
+export const MODES = ["own-domain", "subdomain"];
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/;
 const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
@@ -61,8 +61,7 @@ function validateMember(member, index, errors, seen) {
 
   if (!ROLES.includes(member?.role)) errors.push(`role: must be one of ${ROLES.join(", ")}`);
   if (!STANDINGS.includes(member?.standing)) errors.push(`standing: must be one of ${STANDINGS.join(", ")}`);
-  if (!ISSUANCE.includes(member?.issuance)) errors.push(`issuance: must be one of ${ISSUANCE.join(", ")}`);
-  if (!ACCESS.includes(member?.access)) errors.push(`access: must be one of ${ACCESS.join(", ")}`);
+  if (!MODES.includes(member?.mode)) errors.push(`mode: must be one of ${MODES.join(", ")}`);
 
   if (typeof member?.listed !== "boolean") errors.push("listed: must be true or false");
   checkDate("since", member?.since, errors, { required: member?.listed === true });
@@ -74,7 +73,10 @@ function validateMember(member, index, errors, seen) {
 
   const tunnel = member?.tunnel;
   if (tunnel == null) {
-    if (member?.access === "edge-tunnel") errors.push("tunnel: required when access is edge-tunnel");
+    if (member?.mode === "subdomain") errors.push("tunnel: required when mode is subdomain");
+  } else if (member?.mode === "own-domain") {
+    // 自有域名不经过中枢入口，留一份隧道配置只会让两处各说各话。
+    errors.push("tunnel: must be null when mode is own-domain");
   } else {
     if (typeof tunnel !== "object" || Array.isArray(tunnel)) {
       errors.push("tunnel: must be null or an object");
@@ -159,6 +161,16 @@ export function validateRoster(roster, manifest) {
     const instanceHost = hostOf(instance.url);
     if (instanceHost && instanceHost !== member.host) {
       problems.push([id, [`host: "${member.host}" does not match the instance url host "${instanceHost}"`]]);
+    }
+    // 模式与地址必须自洽：subdomain 挂在 hub 下，own-domain 不在 hub 下。
+    if (instanceHost && member.mode) {
+      const underHub = instanceHost.endsWith(`.${String(roster.hub || "xknot.si").toLowerCase()}`);
+      if (member.mode === "subdomain" && !underHub) {
+        problems.push([id, [`mode: subdomain requires a host under ${roster.hub}, got "${instanceHost}"`]]);
+      }
+      if (member.mode === "own-domain" && underHub) {
+        problems.push([id, [`mode: own-domain cannot use the hub domain "${instanceHost}"`]]);
+      }
     }
     if (member.role === "founder" && instance.tier !== "partner") {
       problems.push([id, [`tier: the founder must be tier "partner", got "${instance.tier}"`]]);

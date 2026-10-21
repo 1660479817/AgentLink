@@ -44,6 +44,7 @@ else
 
   # 伙伴地址取不到时保留上一份，构建照常继续。
   echo "== fetch =="
+  node "$HUB/ops/fetch-profile.mjs"
   node "$HUB/ops/fetch-cards.mjs"
   node "$HUB/ops/fetch-stats.mjs"
 fi
@@ -64,7 +65,8 @@ if [ "$PREVIEW" = "1" ]; then
   node "$HUB/ops/verify-hub-data.mjs" \
     --data "$DIST/data/hub.json" \
     --instances "$HUB/instances.json" \
-    --fixtures "$HUB/fixtures/preview-instances.json"
+    --fixtures "$HUB/fixtures/preview-instances.json" \
+    --allow-missing-profile
 else
   node "$HUB/ops/verify-hub-data.mjs" \
     --data "$DIST/data/hub.json" \

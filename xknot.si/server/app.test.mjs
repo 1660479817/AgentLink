@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { createApp } from "./app.mjs";
@@ -9,8 +12,8 @@ import { normalizeSubdomain, normalizeTags, validateApplication } from "./valida
 
 const valid = {
   name: "北港",
+  mode: "subdomain",
   subdomain: "nordhavn",
-  requestAccess: "direct",
   operator: "Lin",
   email: "lin@example.com",
   region: "NO",
@@ -34,7 +37,10 @@ async function start(t, options = {}) {
       supportUrl: options.supportUrl || "",
       instances: options.instances || [],
       instancesProvider: () => options.instances || [],
+      federationProvider: () => options.federation || null,
       healthProvider: () => options.health || null,
+      instancesFile: options.instancesFile || null,
+      federationFile: options.federationFile || null,
     },
   });
   const server = createServer((req, res) => {
@@ -100,19 +106,40 @@ async function loginAs(call, store, username = "paul", password = "correct-horse
 test("validate: a complete application passes and is normalized", () => {
   const result = validateApplication(valid);
   assert.equal(result.ok, true);
+  assert.equal(result.value.mode, "subdomain");
   assert.equal(result.value.subdomain, "nordhavn");
-  assert.equal(result.value.requestAccess, "direct");
+  assert.equal(result.value.domain, null);
+  assert.equal(result.value.url, "https://nordhavn.xknot.si");
   assert.deepEqual(result.value.tags, ["长文", "设计"]);
   assert.equal(result.value.email, "lin@example.com");
 });
 
 test("validate: missing and malformed fields report per-field codes", () => {
-  const result = validateApplication({ ...valid, subdomain: "nord havn", requestAccess: "", email: "lin@", agree: false });
+  const noMode = validateApplication({ ...valid, mode: "" });
+  assert.equal(noMode.ok, false);
+  assert.equal(noMode.errors.mode, "required");
+
+  const result = validateApplication({ ...valid, mode: "subdomain", subdomain: "nord havn", email: "lin@", agree: false });
   assert.equal(result.ok, false);
   assert.equal(result.errors.subdomain, "invalid");
-  assert.equal(result.errors.access, "required");
   assert.equal(result.errors.email, "invalid_email");
   assert.equal(result.errors.agree, "required");
+});
+
+test("validate: own domain is the address, xknot.si subdomains are not", () => {
+  const own = validateApplication({ ...valid, mode: "own-domain", domain: "https://Example.COM/" });
+  assert.equal(own.ok, true);
+  assert.equal(own.value.domain, "https://example.com");
+  assert.equal(own.value.subdomain, null);
+  assert.equal(own.value.url, "https://example.com");
+
+  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "" }).errors.domain, "invalid");
+  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "http://example.com" }).errors.domain, "invalid");
+  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "travel.xknot.si" }).errors.domain, "invalid");
+  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "192.168.3.91" }).errors.domain, "invalid");
+  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "user:pass@example.com" }).errors.domain, "invalid");
+  // 自有域名模式不看子域字段，反之亦然。
+  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "example.com", subdomain: "www" }).ok, true);
 });
 
 test("validate: the subdomain label is the identity, not a full URL", () => {
@@ -125,9 +152,9 @@ test("validate: the subdomain label is the identity, not a full URL", () => {
   assert.equal(validateApplication({ ...valid, subdomain: "-x" }).errors.subdomain, "invalid");
   assert.equal(validateApplication({ ...valid, subdomain: "x-" }).errors.subdomain, "invalid");
   assert.equal(validateApplication({ ...valid, subdomain: "x".repeat(33) }).errors.subdomain, "invalid");
-  // 落点只接受两种明确选择。
-  assert.equal(validateApplication({ ...valid, requestAccess: "unknown" }).errors.access, "required");
-  assert.equal(validateApplication({ ...valid, requestAccess: "tunnel" }).ok, true);
+  // 模式只接受两种明确选择。
+  assert.equal(validateApplication({ ...valid, mode: "vpn" }).errors.mode, "required");
+  assert.equal(validateApplication({ ...valid, mode: "own-domain" }).errors.domain, "invalid");
 });
 
 test("validate: non-https, credentials in URL and unknown regions are rejected", () => {
@@ -374,9 +401,11 @@ test("api: an admin reviews an application and gets a valid manifest entry", asy
   const entry = manifest.data.entry;
   assert.equal(entry.url, "https://nordhavn.xknot.si");
   assert.equal(entry.id, "nordhavn");
-  assert.deepEqual(entry.regions, ["NO"]);
   assert.equal(entry.tier, "community");
-  assert.equal(entry.healthUrl, null, "approval must not assume /api/health is connected");
+  assert.equal(entry.status, "pending");
+  // 名称、介绍由主理人在实例侧写，中枢不再从申请里抄一份。
+  assert.equal(entry.name, undefined);
+  assert.equal(entry.healthUrl, undefined, "no probe url in the manifest: it is derived from url");
   assert.deepEqual(checkManifestEntry(entry), []);
   assert.match(entry.id, /^[a-z0-9][a-z0-9-]*$/);
 });
@@ -391,7 +420,6 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
         url: "https://alpha.xknot.si",
         tier: "partner",
         status: "active",
-        healthUrl: "https://alpha.xknot.si/api/health",
         cardsUrl: "https://alpha.xknot.si/knot-cards.json",
         statsUrl: null,
         regions: ["SG"],
@@ -402,7 +430,6 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
         url: "https://beta.xknot.si",
         tier: "community",
         status: "active",
-        healthUrl: null,
         regions: ["CN"],
       },
     ],
@@ -411,6 +438,23 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
       instances: {
         alpha: { status: "down", error: "timeout", lastOkAt: downAt, downSince: downAt },
       },
+    },
+    federation: {
+      hub: "xknot.si",
+      updatedAt: "2026-10-20",
+      members: [
+        {
+          id: "alpha",
+          host: "alpha.xknot.si",
+          role: "founder",
+          standing: "permanent",
+          mode: "subdomain",
+          tunnel: { account: "knot-tunnel-alpha", port: 18080 },
+          listed: true,
+          since: "2026-10-19",
+          note: "永久席位。",
+        },
+      ],
     },
   });
 
@@ -424,12 +468,38 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
 
   assert.equal(data.instances.total, 2);
   assert.equal(data.instances.down, 1);
-  assert.equal(data.instances.unprobed, 1, "no healthUrl means not probed, not down");
+  assert.equal(data.instances.unprobed, 1, "not in the roster means not connected, not down");
   assert.equal(data.instances.cards, 1);
   assert.equal(data.instances.checkedAt, downAt);
   assert.equal(data.instances.rows[0].name, "甲站");
   assert.equal(data.instances.rows[0].health.error, "timeout");
   assert.equal(data.instances.rows[1].health.status, "unprobed");
+
+  // 点开实例要看到账号自己的配置，所以名册里的身份、隧道与清单里的入口一起返回。
+  const alphaConfig = data.instances.rows[0].config;
+  assert.equal(alphaConfig.account, "alpha");
+  assert.equal(alphaConfig.host, "alpha.xknot.si");
+  assert.equal(alphaConfig.role, "founder");
+  assert.equal(alphaConfig.standing, "permanent");
+  assert.equal(alphaConfig.mode, "subdomain");
+  assert.deepEqual(alphaConfig.tunnel, { account: "knot-tunnel-alpha", port: 18080 });
+  assert.equal(alphaConfig.listed, true);
+  assert.equal(alphaConfig.probeUrl, "https://alpha.xknot.si/api/health");
+  assert.equal(alphaConfig.cardsUrl, "https://alpha.xknot.si/knot-cards.json");
+  assert.equal(alphaConfig.note, "永久席位。");
+
+  // 不在名册里的实例也要能点开：身份字段给 null，地址仍然可读。
+  // 探测地址由 url 推出，所以这一条也算得出来；但名册缺失，不会去探。
+  const betaConfig = data.instances.rows[1].config;
+  assert.equal(betaConfig.account, "beta");
+  assert.equal(betaConfig.host, "beta.xknot.si");
+  assert.equal(betaConfig.role, null);
+  assert.equal(betaConfig.tunnel, null);
+  assert.equal(betaConfig.listed, null);
+  assert.equal(betaConfig.probeUrl, "https://beta.xknot.si/api/health");
+
+  assert.equal(data.federation.hub, "xknot.si");
+  assert.equal(data.federation.members, 1);
 
   assert.equal(data.applications.counts.pending, 1);
   assert.ok(data.applications.oldestOpenAt, "the queue age must be visible");
@@ -459,8 +529,8 @@ test("api: overview flags approved applications that never reached the manifest"
   assert.equal(result.status, 200);
   assert.equal(result.data.instances.total, 0);
   assert.deepEqual(
-    result.data.applications.approvedNotListed.map((item) => item.subdomain),
-    ["nordhavn"]
+    result.data.applications.approvedNotListed.map((item) => item.address),
+    ["https://nordhavn.xknot.si"]
   );
 });
 
@@ -483,7 +553,8 @@ test("manifest: id comes from the hostname, with a fallback", () => {
   assert.match(suggestId("https://例子.中国"), /^node-/);
 });
 
-test("manifest: healthUrl is only written after an explicit verified address", () => {
+test("manifest: a new entry never carries a probe url", () => {
+  // 探测地址由 url 推出，清单不重复存一份；探不探由清单 status 决定。
   const application = {
     name: "北港",
     subdomain: "nordhavn",
@@ -495,13 +566,11 @@ test("manifest: healthUrl is only written after an explicit verified address", (
     intro: "News from the harbour.",
     tags: [],
   };
-  assert.equal(toManifestEntry(application).healthUrl, null);
-  assert.equal(toManifestEntry(application).url, "https://nordhavn.xknot.si");
-  assert.equal(toManifestEntry(application).id, "nordhavn");
-  assert.equal(
-    toManifestEntry(application, { healthUrl: "https://nordhavn.xknot.si/api/health" }).healthUrl,
-    "https://nordhavn.xknot.si/api/health"
-  );
+  const entry = toManifestEntry(application);
+  assert.equal(entry.healthUrl, undefined);
+  assert.equal(entry.url, "https://nordhavn.xknot.si");
+  assert.equal(entry.id, "nordhavn");
+  assert.deepEqual(checkManifestEntry(entry), []);
 });
 
 // ---- 验证链接、案例页、一次性领取 ----
@@ -679,4 +748,82 @@ test("api: locale drives the language of the partner mail", async (t) => {
   const partner = mailer.sent.find((mail) => mail.to === "lin@example.com");
   assert.match(partner.subject, /已收到加入申請/);
   assert.match(partner.text, /不接收回覆/);
+});
+
+test("api: admin edits instance config and both files are validated", async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "xknot-app-edit-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const instancesFile = path.join(dir, "instances.json");
+  const federationFile = path.join(dir, "federation.json");
+  const instance = {
+    id: "wang",
+    url: "https://wang.xknot.si",
+    since: "2026-10-19",
+    tier: "partner",
+    status: "active",
+  };
+  const member = {
+    id: "wang",
+    host: "wang.xknot.si",
+    role: "founder",
+    standing: "permanent",
+    mode: "subdomain",
+    tunnel: { account: "knot-tunnel", port: 18080 },
+    listed: true,
+    since: "2026-10-19",
+  };
+  writeFileSync(
+    instancesFile,
+    `${JSON.stringify({ version: 3, updatedAt: "2026-10-19", instances: [instance] }, null, 2)}\n`
+  );
+  writeFileSync(
+    federationFile,
+    `${JSON.stringify({ version: 1, updatedAt: "2026-10-19", hub: "xknot.si", members: [member] }, null, 2)}\n`
+  );
+
+  const { call, store } = await start(t, {
+    instances: [instance],
+    federation: { hub: "xknot.si", members: [member] },
+    instancesFile,
+    federationFile,
+  });
+  const cookie = await loginAs(call, store);
+
+  const saved = await call("/api/admin/instances/wang/config", {
+    method: "POST",
+    cookie,
+    body: {
+      instance: { status: "suspended" },
+      member: { mode: "subdomain", listed: true, host: "wang.xknot.si" },
+    },
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.data.ok, true);
+
+  const manifest = JSON.parse(readFileSync(instancesFile, "utf8"));
+  assert.equal(manifest.instances[0].status, "suspended");
+  assert.equal(manifest.instances[0].name, undefined, "自述区不写进登记表");
+  const roster = JSON.parse(readFileSync(federationFile, "utf8"));
+  assert.equal(roster.members[0].mode, "subdomain");
+  assert.ok(store.events(5).some((event) => event.kind === "instance.updated"));
+
+  const rejected = await call("/api/admin/instances/wang/config", {
+    method: "POST",
+    cookie,
+    body: { instance: { url: "http://plain.example" } },
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.data.error, "invalid");
+  assert.ok(rejected.data.fields.some((field) => field.includes("url")));
+  assert.equal(
+    JSON.parse(readFileSync(instancesFile, "utf8")).instances[0].url,
+    "https://wang.xknot.si",
+    "校验失败不写文件"
+  );
+
+  const anonymous = await call("/api/admin/instances/wang/config", {
+    method: "POST",
+    body: { instance: { status: "active" } },
+  });
+  assert.equal(anonymous.status, 401);
 });

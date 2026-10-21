@@ -16,8 +16,8 @@ const ADMIN = "e2e-admin";
 
 const VALID = {
   name: "北港端到端",
+  mode: "subdomain",
   subdomain: "e2e-apply",
-  requestAccess: "direct",
   operator: "Lin",
   email: "lin@e2e-apply.example",
   region: "NO",
@@ -190,12 +190,11 @@ test("admin: 错密码 401，登录后 Cookie 带 HttpOnly / SameSite=Strict", a
 test("applications: 空表单逐字段报错", async () => {
   const result = await call("/api/applications", {
     method: "POST",
-    body: { name: "", subdomain: "nope nope", email: "lin@", agree: false },
+    body: { name: "", mode: "subdomain", subdomain: "nope nope", email: "lin@", agree: false },
   });
   assert.equal(result.status, 400);
   assert.equal(result.data.error, "invalid");
   assert.equal(result.data.fields.subdomain, "invalid");
-  assert.equal(result.data.fields.access, "required");
   assert.equal(result.data.fields.email, "invalid_email");
   assert.equal(result.data.fields.agree, "required");
 });
@@ -292,7 +291,11 @@ test("admin: 列表能看到申请，通过后生成的清单条目过校验", a
   assert.deepEqual(checkManifestEntry(entry), []);
   assert.equal(entry.url, `https://${application.subdomain}.xknot.si`);
   assert.equal(entry.id, application.subdomain, "子域标签就是实例 id");
-  assert.equal(entry.healthUrl, null, "通过审核不等于 /api/health 已接通，不能默认写死");
+  assert.equal(
+    entry.healthUrl,
+    undefined,
+    "清单不写探测地址：它由 url 推出，探不探看实例 status"
+  );
 });
 
 test("admin: 退出后会话失效", async () => {

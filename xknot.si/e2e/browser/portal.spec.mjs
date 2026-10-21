@@ -126,6 +126,8 @@ test.describe("门户", () => {
     await expect(skip).toHaveAttribute("href", "#nodes");
 
     // 表单控件都有 label 或 aria-label，不靠 placeholder 充数。
+    // 地址栏随模式切换：先选签发子域，再选自有域名，两边的 label 都要在。
+    await page.locator('input[name="join-mode"][value="subdomain"]').check();
     for (const id of [
       "join-name",
       "join-subdomain",
@@ -138,6 +140,9 @@ test.describe("门户", () => {
     ]) {
       await expect(page.locator(`label[for="${id}"]`)).toHaveCount(1);
     }
+
+    await page.locator('input[name="join-mode"][value="own-domain"]').check();
+    await expect(page.locator('label[for="join-domain"]')).toHaveCount(1);
     await expect(page.locator("a.admin-link")).toHaveAttribute("href", "/admin/");
   });
 });

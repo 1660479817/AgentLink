@@ -10,11 +10,14 @@ import { mergePreview } from "../web/src/lib/preview.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
+async function readJson(relative) {
+  return JSON.parse(await readFile(path.join(here, "..", relative), "utf8"));
+}
+
 function manifest(ids) {
   return {
     instances: ids.map((id) => ({
       id,
-      name: { en: id },
       url: `https://${id}.xknot.si`,
       tier: "partner",
       status: "active",
@@ -22,9 +25,15 @@ function manifest(ids) {
   };
 }
 
+// 快照里的每一条都该带着自述副本的痕迹：名称和取回时间。
 function snapshot(ids) {
   return {
-    instances: ids.map((id) => ({ id, url: `https://${id}.xknot.si` })),
+    instances: ids.map((id) => ({
+      id,
+      url: `https://${id}.xknot.si`,
+      name: { en: `Site ${id}` },
+      profileFetchedAt: "2026-10-19T02:00:00.000Z",
+    })),
   };
 }
 
@@ -54,6 +63,13 @@ test("fixture ids are allowed when the fixture manifest is passed", () => {
   assert.deepEqual(problems, []);
 });
 
+test("a site whose profile was never fetched is reported", () => {
+  const data = { instances: [{ id: "wang", url: "https://wang.xknot.si", name: { en: "wang" }, profileFetchedAt: null }] };
+  const problems = verifyHubData({ data, manifest: manifest(["wang"]) });
+  assert.ok(problems.some((line) => line.includes("no profile name")));
+  assert.ok(problems.some((line) => line.includes("has never been fetched")));
+});
+
 test("a reserved host suffix fails even when it is listed", () => {
   const data = { instances: [{ id: "wang", url: "https://tester-nordhavn.example" }] };
   const problems = verifyHubData({ data, manifest: manifest(["wang"]) });
@@ -67,7 +83,12 @@ test("a non-https url fails", () => {
 });
 
 test("duplicate ids fail", () => {
-  const data = { instances: [{ id: "wang", url: "https://wang.xknot.si" }, { id: "wang", url: "https://wang.xknot.si" }] };
+  const data = {
+    instances: [
+      { id: "wang", url: "https://wang.xknot.si" },
+      { id: "wang", url: "https://wang.xknot.si" },
+    ],
+  };
   const problems = verifyHubData({ data, manifest: manifest(["wang"]) });
   assert.ok(problems.some((line) => line.includes('duplicate id "wang"')));
 });
@@ -77,18 +98,56 @@ test("an empty snapshot fails", () => {
   assert.ok(problems.some((line) => line.includes("no instances")));
 });
 
+test("a pending instance is not required and must stay out of the snapshot", () => {
+  const manifest = {
+    instances: [
+      { id: "done", url: "https://done.example.com", status: "active" },
+      { id: "waiting", url: "https://waiting.example.com", status: "pending" },
+    ],
+  };
+  assert.deepEqual(
+    verifyHubData({ data: snapshot(["done"]), manifest }),
+    []
+  );
+  assert.ok(
+    verifyHubData({ data: snapshot(["waiting"]), manifest }).some((line) => line.includes("still pending"))
+  );
+});
+
+// 测试用：给登记表里的每条造一份最小自述副本。
+function profilesFor(manifest) {
+  const out = {};
+  for (const instance of manifest.instances || []) {
+    out[instance.id] = {
+      formatVersion: 1,
+      fetchedAt: "2026-10-19T02:00:00.000Z",
+      issued: instance,
+      profile: { name: { en: `Site ${instance.id}` }, intro: { oneLine: { en: "Hi" } }, contact: "hi@example.test" },
+    };
+  }
+  return out;
+}
+
 test("the shipped manifest produces a snapshot this guard accepts", async () => {
-  const shipped = JSON.parse(await readFile(path.join(here, "..", "instances.json"), "utf8"));
-  const data = buildHubData(shipped, { instances: {} });
+  const shipped = await readJson("instances.json");
+  const data = buildHubData(shipped, { instances: {} }, undefined, {}, {}, profilesFor(shipped));
   assert.deepEqual(verifyHubData({ data, manifest: shipped }), []);
 });
 
 test("preview fixtures are rejected unless the build is a preview", async () => {
-  const shipped = JSON.parse(await readFile(path.join(here, "..", "instances.json"), "utf8"));
-  const samples = JSON.parse(await readFile(path.join(here, "..", "fixtures", "preview-instances.json"), "utf8"));
+  const shipped = await readJson("instances.json");
+  const samples = await readJson("fixtures/preview-instances.json");
+  const sampleProfiles = await readJson("fixtures/preview-profiles.json");
 
   const merged = mergePreview(shipped, { instances: {} }, samples, { instances: {} });
-  const data = buildHubData(merged.manifest, merged.health);
+  const data = buildHubData(
+    merged.manifest,
+    merged.health,
+    undefined,
+    {},
+    {},
+    { ...profilesFor(shipped), ...sampleProfiles }
+  );
 
   const strict = verifyHubData({ data, manifest: shipped });
   assert.ok(strict.length > 0);

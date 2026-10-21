@@ -18,7 +18,6 @@ const INSTANCE = {
   id: "wang",
   status: "active",
   url: "https://wang.xknot.si",
-  healthUrl: "https://wang.xknot.si/api/health",
   name: { en: "Wang", "zh-CN": "王" },
   contact: "wang@example.test",
   languages: ["zh-CN"],
@@ -113,7 +112,7 @@ test("never connected alerts go to the operator, not the partner", async () => {
   assert.equal(sent.length, 2);
   for (const message of sent) {
     assert.equal(message.to, "ops@xknot.si");
-    assert.match(message.text, /签发后 (14|30) 天仍未接通/);
+    assert.match(message.text, /收录后 (14|30) 天仍未验收/);
   }
 });
 

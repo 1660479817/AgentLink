@@ -11,13 +11,13 @@ import {
   safeGetJson,
 } from "./fetch-guard.mjs";
 import { cleanCardsPayload } from "./fetch-cards.mjs";
+import { cleanProfilePayload, run as runProfiles } from "./fetch-profile.mjs";
 import { cleanStatsPayload, run as runStats } from "./fetch-stats.mjs";
 import { run as runCards } from "./fetch-cards.mjs";
 
 const instance = {
   id: "nordhavn",
   url: "https://nordhavn.example",
-  canonical: "https://nordhavn.example",
   cardsUrl: "https://nordhavn.example/.well-known/knot-cards.json",
   statsUrl: "https://nordhavn.example/api/stats",
   status: "active",
@@ -254,4 +254,111 @@ test("run: a failing partner keeps the previous stats file", async () => {
   });
   assert.equal(failed[0].status, "failed");
   assert.equal(await readFile(path.join(outDir, "nordhavn.json"), "utf8"), before);
+});
+
+// ---- L1 站点档案 ----
+
+const profileInstance = { id: "nordhavn", url: "https://nordhavn.example", status: "active", tier: "partner", since: "2026-10-19" };
+
+function profilePayload(overrides = {}) {
+  return {
+    formatVersion: 1,
+    issued: { id: "nordhavn", url: "https://nordhavn.example", since: "2026-10-19", tier: "partner", status: "active" },
+    profile: {
+      name: { en: "Nordhavn", "zh-CN": "北港" },
+      intro: { oneLine: { en: "Slow reading." } },
+      contact: "hello@nordhavn.example",
+    },
+    ...overrides,
+  };
+}
+
+test("profile: a matching document is accepted and normalized", () => {
+  const checked = cleanProfilePayload(profilePayload(), { instance: profileInstance });
+  assert.equal(checked.ok, true, checked.problems.join("; "));
+  assert.equal(checked.payload.profile.name["zh-CN"], "北港");
+  assert.equal(checked.payload.issued.id, "nordhavn");
+});
+
+test("profile: a mismatched id or host keeps the previous copy", () => {
+  const wrongId = cleanProfilePayload(
+    profilePayload({ issued: { ...profilePayload().issued, id: "someone-else" } }),
+    { instance: profileInstance }
+  );
+  assert.equal(wrongId.ok, false);
+  assert.ok(wrongId.problems.some((problem) => problem.includes("does not match")));
+
+  const wrongHost = cleanProfilePayload(
+    profilePayload({ issued: { ...profilePayload().issued, url: "https://evil.example" } }),
+    { instance: profileInstance }
+  );
+  assert.equal(wrongHost.ok, false);
+});
+
+test("profile: a wrong formatVersion or a missing profile is rejected", () => {
+  assert.equal(cleanProfilePayload({ formatVersion: 9 }, { instance: profileInstance }).ok, false);
+  assert.equal(cleanProfilePayload(profilePayload({ profile: {} }), { instance: profileInstance }).ok, false);
+});
+
+test("run: the profile is fetched into var/profiles and 304 keeps it", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "xknot-profiles-"));
+  const instancesPath = path.join(dir, "instances.json");
+  const outDir = path.join(dir, "profiles");
+  await writeFile(instancesPath, JSON.stringify({ instances: [profileInstance] }));
+  const resolve = async () => ["1.2.3.4"];
+
+  const ok = await runProfiles({ instancesPath, outDir, resolve, fetchImpl: async () => jsonResponse(profilePayload(), '"p1"') });
+  assert.equal(ok[0].status, "ok");
+  const stored = JSON.parse(await readFile(path.join(outDir, "nordhavn.json"), "utf8"));
+  assert.equal(stored.profile.name.en, "Nordhavn");
+  assert.equal(stored.etag, '"p1"');
+  assert.equal(stored.issued.tier, "partner");
+
+  const unchanged = await runProfiles({
+    instancesPath,
+    outDir,
+    resolve,
+    fetchImpl: async () => ({ status: 304, headers: { get: () => null } }),
+  });
+  assert.equal(unchanged[0].status, "unchanged");
+
+  const failed = await runProfiles({
+    instancesPath,
+    outDir,
+    resolve,
+    fetchImpl: async () => ({ status: 500, headers: { get: () => null } }),
+  });
+  assert.equal(failed[0].status, "failed");
+  assert.equal(JSON.parse(await readFile(path.join(outDir, "nordhavn.json"), "utf8")).fetchedAt, stored.fetchedAt);
+});
+
+test("run: a pending instance is not fetched", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "xknot-profiles-"));
+  const instancesPath = path.join(dir, "instances.json");
+  await writeFile(
+    instancesPath,
+    JSON.stringify({ instances: [{ ...profileInstance, status: "pending" }] })
+  );
+  const results = await runProfiles({
+    instancesPath,
+    outDir: path.join(dir, "profiles"),
+    resolve: async () => ["1.2.3.4"],
+    fetchImpl: async () => jsonResponse(profilePayload()),
+  });
+  assert.equal(results[0].status, "skipped");
+});
+
+test("run: an invalid profile is reported and nothing is written", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "xknot-profiles-"));
+  const instancesPath = path.join(dir, "instances.json");
+  const outDir = path.join(dir, "profiles");
+  await writeFile(instancesPath, JSON.stringify({ instances: [profileInstance] }));
+  const results = await runProfiles({
+    instancesPath,
+    outDir,
+    resolve: async () => ["1.2.3.4"],
+    fetchImpl: async () => jsonResponse({ formatVersion: 1, issued: { id: "nordhavn", url: "https://nordhavn.example" }, profile: {} }),
+  });
+  assert.equal(results[0].status, "invalid");
+  await assert.rejects(readFile(path.join(outDir, "nordhavn.json"), "utf8"));
 });

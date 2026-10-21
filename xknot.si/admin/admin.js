@@ -15,13 +15,14 @@ const STATUS_LABEL = {
   expired: "已过期",
 };
 
-// 总览里的实例状态。paused 是清单里的 status 不是 active，unprobed 是还没配 healthUrl。
+// 总览里的实例状态。pending 是已收录、未通过 /api/health 验收；paused 是暂停或退役。
 const HEALTH_LABEL = {
   up: "在线",
   degraded: "降级",
   down: "离线",
   unknown: "未知",
   unprobed: "未探测",
+  pending: "待验收",
   paused: "已暂停",
 };
 
@@ -59,10 +60,10 @@ const EVENT_LABEL = {
   "admin.password_reset": "重设口令",
 };
 
-// 落点只有两种选择：自己给地址，或走边缘隧道。
-const ACCESS_LABEL = {
-  direct: "自有域名 / 固定公网 IP",
-  tunnel: "动态 IP · 边缘隧道",
+// 只有两种接入模式，模式决定地址。
+const MODE_LABEL = {
+  "own-domain": "自有域名",
+  subdomain: "中枢签发子域",
   unknown: "未选择",
 };
 
@@ -141,6 +142,10 @@ const state = {
   // 点在一半的行会被换掉，用户那一下就没有落到任何申请上。
   // 只有最新一次读取能清除这个状态；旧响应直接丢掉，不参与重绘。
   applicationsBusy: false,
+  // 总览里点开的实例。只展开这一行，不跳站点。
+  instanceOpen: null,
+  // 正在编辑的实例配置。草稿在 state 里，保存失败重绘时不丢用户输入。
+  editing: null,
   manifest: null,
   manifestId: null,
   copied: false,
@@ -235,14 +240,347 @@ function formatBytes(value) {
 
 function healthNote(row) {
   const health = row.health || {};
+  if (health.status === "pending") return "已收录，待 /api/health 验收，暂不探测也不上门户";
   if (health.status === "paused") return "清单里状态不是 active，不探测";
-  if (health.status === "unprobed") return "未配置 healthUrl，等接通验收";
+  if (health.status === "unprobed") return "缺对外地址，推不出探测地址";
   if (health.status === "down") {
     return health.downSince ? `自 ${relativeLabel(health.downSince)} 起断连` : "探测失败";
   }
   if (health.latencyMs != null) return `${health.latencyMs} ms`;
   if (health.lastOkAt) return `上次正常 ${relativeLabel(health.lastOkAt)}`;
   return "没有探测记录";
+}
+
+// 名册字段的中文说法。缺一个说法时直接显示原值，不吞掉。
+const ROLE_LABEL = {
+  founder: "创始",
+  partner: "伙伴",
+  community: "社区",
+  demo: "示例",
+};
+
+const STANDING_LABEL = {
+  permanent: "永久席位",
+  regular: "常规席位",
+};
+
+function toggleInstance(id) {
+  state.instanceOpen = state.instanceOpen === id ? null : id;
+  render();
+}
+
+// 点开实例看到的是这个账号的配置：名册里的身份与隧道，加上清单里的对外地址。
+// 地址一律写成可点文本，跳站是明确动作，不靠点整行带走。
+function renderInstanceConfig(row, id) {
+  const config = row.config || {};
+
+  if (state.editing && state.editing.id === row.id) return renderInstanceForm(row, config, id);
+
+  const link = (value, label) =>
+    el(
+      "a",
+      { class: "cfg-link", href: value, target: "_blank", rel: "noopener noreferrer" },
+      label || value
+    );
+  const line = (term, value) =>
+    el("div", { class: "cfg-row" }, [el("dt", {}, term), el("dd", {}, value)]);
+
+  const tunnel = config.tunnel
+    ? `${config.tunnel.account || "—"}${config.tunnel.port ? ` · :${config.tunnel.port}` : ""}`
+    : null;
+
+  return el("div", { class: "inst-config", id }, [
+    el("div", { class: "cfg-head" }, [
+      el("p", { class: "cfg-title" }, [
+        `账号 ${config.account || row.id}`,
+        config.host ? el("span", { class: "cfg-host" }, config.host) : null,
+      ]),
+      el(
+        "button",
+        { type: "button", class: "btn", onclick: () => startEditing(row) },
+        "编辑"
+      ),
+    ]),
+    config.listed == null
+      ? el("p", { class: "cfg-hint warn" }, "名册里还没有这个账号，保存时会补一条。")
+      : null,
+    el("dl", { class: "cfg-grid" }, [
+      line("名册身份", config.role ? ROLE_LABEL[config.role] || config.role : "未进名册"),
+      line("席位", config.standing ? STANDING_LABEL[config.standing] || config.standing : "—"),
+      line("接入模式", config.mode ? MODE_LABEL[config.mode] || config.mode : "—"),
+      line("隧道", tunnel || "未分配"),
+      line(
+        "清单列出",
+        config.listed == null ? "—" : config.listed ? "是" : "否（只留名册）"
+      ),
+      line("加入时间", config.since ? formatWhen(config.since) : "—"),
+      line(
+        "自述档案",
+        config.profileFetchedAt
+          ? el("span", {}, [
+              link(config.profileUrl || `${String(row.url || "").replace(/\/$/, "")}/api/federation/profile`),
+              `　最近取回 ${formatWhen(config.profileFetchedAt)}`,
+            ])
+          : el("span", { class: "cfg-missing" }, "还没取回过：内容由主理人在实例的 /admin 里写")
+      ),
+      line("对外地址", row.url ? link(row.url) : "未填地址"),
+      line(
+        "探测地址",
+        config.probeUrl
+          ? el("span", {}, [
+              link(config.probeUrl),
+              row.status === "pending"
+                ? el("span", { class: "cfg-missing" }, "　状态还是 pending，待验收后再探")
+                : null,
+            ])
+          : el("span", { class: "cfg-missing" }, "缺对外地址，推不出探测地址")
+      ),
+      line("橱窗数据", config.cardsUrl ? link(config.cardsUrl) : "未接入"),
+      line("活动统计", config.statsUrl ? link(config.statsUrl) : "未接入"),
+    ]),
+    config.note ? el("p", { class: "cfg-note" }, config.note) : null,
+  ]);
+}
+
+// ---- 编辑实例配置 ----
+
+const TIER_OPTIONS = ["demo", "partner", "community"];
+const INSTANCE_STATUS_OPTIONS = ["pending", "active", "suspended", "retired"];
+
+const LABELS = {
+  demo: TIER_LABEL.demo,
+  partner: TIER_LABEL.partner,
+  community: TIER_LABEL.community,
+  pending: "待验收",
+  active: "在用",
+  suspended: "暂停",
+  retired: "退役",
+  founder: ROLE_LABEL.founder,
+  permanent: STANDING_LABEL.permanent,
+  regular: STANDING_LABEL.regular,
+  "own-domain": MODE_LABEL["own-domain"],
+  subdomain: MODE_LABEL.subdomain,
+};
+
+function hostFromUrl(value) {
+  try {
+    return new URL(String(value || "")).host;
+  } catch {
+    return "";
+  }
+}
+
+// 草稿放在 state 里，而不是从输入框现读：保存失败重绘时，用户改过的值还在。
+function draftFrom(row, config) {
+  return {
+    instance: {
+      url: row.url || "",
+      tier: row.tier || "community",
+      status: row.status || "active",
+      since: config.since || "",
+      cardsUrl: config.cardsUrl || "",
+      statsUrl: config.statsUrl || "",
+    },
+    member: {
+      host: config.host || hostFromUrl(row.url),
+      role: config.role || "partner",
+      standing: config.standing || "regular",
+      mode: config.mode || (hostFromUrl(row.url).endsWith(".xknot.si") ? "subdomain" : "own-domain"),
+      listed: config.listed == null ? true : Boolean(config.listed),
+      tunnelAccount: config.tunnel?.account || "",
+      tunnelPort: config.tunnel?.port || "",
+      note: config.note || "",
+    },
+  };
+}
+
+function startEditing(row) {
+  state.editing = { id: row.id, draft: draftFrom(row, row.config || {}), busy: false, errors: [] };
+  render();
+}
+
+function cancelEditing() {
+  state.editing = null;
+  render();
+}
+
+function configInput(value, props = {}, onInput) {
+  const input = el("input", { type: "text", autocomplete: "off", ...props });
+  input.value = value == null ? "" : String(value);
+  if (onInput) input.addEventListener("input", () => onInput(input.value));
+  return input;
+}
+
+function configSelect(value, options, props = {}, onChange) {
+  const select = el("select", props);
+  for (const option of options) {
+    const node = el("option", { value: option }, LABELS[option] || option);
+    if (option === value) node.selected = true;
+    select.append(node);
+  }
+  if (onChange) select.addEventListener("change", () => onChange(select.value));
+  return select;
+}
+
+function formField(term, control, hint) {
+  return el("label", { class: "cfg-field" }, [
+    el("span", { class: "cfg-field-label" }, term),
+    control,
+    hint ? el("span", { class: "cfg-hint" }, hint) : null,
+  ]);
+}
+
+// 表单只收运营自己维护的字段。没进名册的实例按默认身份补一条；
+// 模式不是 subdomain 时不写 tunnel，避免留下一份失效的隧道配置。
+function renderInstanceForm(row, config, id) {
+  const editing = state.editing;
+  const draft = editing.draft;
+  const inst = draft.instance;
+  const member = draft.member;
+
+  const url = configInput(inst.url, {}, (value) => (inst.url = value));
+  const tier = configSelect(inst.tier, TIER_OPTIONS, {}, (value) => (inst.tier = value));
+  const status = configSelect(inst.status, INSTANCE_STATUS_OPTIONS, {}, (value) => (inst.status = value));
+  const since = configInput(inst.since, { placeholder: "YYYY-MM-DD" }, (value) => (inst.since = value));
+  const cardsUrl = configInput(inst.cardsUrl, {}, (value) => (inst.cardsUrl = value));
+  const statsUrl = configInput(inst.statsUrl, {}, (value) => (inst.statsUrl = value));
+
+  const host = configInput(member.host, {}, (value) => (member.host = value));
+  const role = configSelect(member.role, ["founder", "partner"], {}, (value) => (member.role = value));
+  const standing = configSelect(member.standing, ["permanent", "regular"], {}, (value) => (member.standing = value));
+  const mode = configSelect(
+    member.mode,
+    ["own-domain", "subdomain"],
+    {},
+    (value) => (member.mode = value)
+  );
+  const tunnelAccount = configInput(
+    member.tunnelAccount,
+    { placeholder: "knot-tunnel" },
+    (value) => (member.tunnelAccount = value)
+  );
+  const tunnelPort = configInput(
+    member.tunnelPort,
+    { placeholder: "1024-65535", inputmode: "numeric" },
+    (value) => (member.tunnelPort = value)
+  );
+  const note = configInput(member.note, {}, (value) => (member.note = value));
+  const listed = el("input", { type: "checkbox" });
+  listed.checked = member.listed;
+  listed.addEventListener("change", () => (member.listed = listed.checked));
+
+  const errors = editing.errors.length
+    ? el(
+        "ul",
+        { class: "cfg-errors", role: "alert" },
+        editing.errors.map((message) => el("li", {}, message))
+      )
+    : null;
+
+  const save = el("button", { type: "submit", class: "btn btn-ok" }, editing.busy ? "保存中…" : "保存");
+  save.disabled = editing.busy;
+  const cancel = el(
+    "button",
+    { type: "button", class: "btn", disabled: editing.busy, onclick: () => cancelEditing() },
+    "取消"
+  );
+
+  const form = el(
+    "form",
+    {
+      class: "cfg-form",
+      onsubmit: async (event) => {
+        event.preventDefault();
+        if (editing.busy) return;
+        editing.busy = true;
+        editing.errors = [];
+        render();
+        try {
+          await api(`/api/admin/instances/${encodeURIComponent(row.id)}/config`, {
+            method: "POST",
+            body: JSON.stringify({
+              instance: {
+                url: inst.url,
+                tier: inst.tier,
+                status: inst.status,
+                since: inst.since,
+                cardsUrl: inst.cardsUrl,
+                statsUrl: inst.statsUrl,
+              },
+              member: {
+                host: member.host,
+                role: member.role,
+                standing: member.standing,
+                mode: member.mode,
+                listed: member.listed,
+                since: inst.since,
+                note: member.note,
+                tunnel:
+                  member.mode === "subdomain"
+                    ? { account: member.tunnelAccount, port: member.tunnelPort }
+                    : null,
+              },
+            }),
+          });
+          state.editing = null;
+          state.instanceOpen = row.id;
+          await loadOverview();
+        } catch (error) {
+          const fields = error.data && Array.isArray(error.data.fields) ? error.data.fields : null;
+          state.editing.errors =
+            error.status === 400 && fields && fields.length
+              ? fields
+              : ["保存没有成功，请检查接口是否在运行。"];
+          state.editing.busy = false;
+          render();
+        }
+      },
+    },
+    [
+      el("div", { class: "cfg-form-head" }, [
+        el("p", { class: "cfg-title" }, `编辑 ${config.account || row.id}`),
+        el("p", { class: "cfg-hint" }, "清单写到 instances.json，身份写到 federation.json；校验不过不会落盘。"),
+      ]),
+      errors,
+      el("fieldset", { class: "cfg-group" }, [
+        el("legend", {}, "清单 · instances.json"),
+        el("div", { class: "cfg-form-grid" }, [
+          formField("对外地址", url, "必须 https"),
+          formField("分级", tier),
+          formField("状态", status),
+          formField("加入时间", since, "YYYY-MM-DD"),
+          formField("橱窗数据", cardsUrl),
+          formField("活动统计", statsUrl),
+        ]),
+        el("p", { class: "cfg-hint" }, [
+          "名称、介绍、联系方式属于自述区，由主理人在实例自己的 /admin 里写；中枢只按 ",
+          config.profileUrl || `${String(row.url || "").replace(/\/$/, "")}/api/federation/profile`,
+          " 取回副本。最近取回：",
+          config.profileFetchedAt || "还没取回过",
+          "。",
+        ]),
+      ]),
+      el("fieldset", { class: "cfg-group" }, [
+        el("legend", {}, "名册 · federation.json"),
+        el("div", { class: "cfg-form-grid" }, [
+          formField("域名", host),
+          formField("角色", role),
+          formField("席位", standing),
+          formField("接入模式", mode, "自有域名用自家地址；签发子域必须是 *.xknot.si"),
+          formField("隧道账号", tunnelAccount, "仅签发子域"),
+          formField("隧道端口", tunnelPort, "仅签发子域"),
+          el("label", { class: "cfg-field cfg-check" }, [
+            listed,
+            el("span", {}, "写进清单（listed）"),
+          ]),
+          formField("备注", note),
+        ]),
+      ]),
+      el("div", { class: "cfg-form-actions" }, [save, cancel]),
+    ]
+  );
+
+  return el("div", { class: "inst-config", id }, [form]);
 }
 
 function render() {
@@ -355,6 +693,8 @@ function renderTop() {
           state.applications = [];
           state.overview = null;
           state.selected = null;
+          state.editing = null;
+          state.instanceOpen = null;
           render();
         },
       }, "退出"),
@@ -392,34 +732,46 @@ function renderOverview() {
     ]);
 
   const instanceRows = inst.rows.length
-    ? inst.rows.map((row) =>
-        el("div", { class: "inst-row" }, [
-          el("div", { class: "inst-what" }, [
-            el(
-              "a",
-              { class: "inst-name", href: row.url, target: "_blank", rel: "noopener noreferrer" },
-              row.name
-            ),
-            el("p", { class: "inst-url" }, `${row.id} · ${row.url || "未填地址"}`),
-            el("div", { class: "inst-tags" }, [
-              el("span", { class: "pill" }, TIER_LABEL[row.tier] || row.tier),
-              ...(row.services.cards ? [el("span", { class: "pill" }, "橱窗")] : []),
-              ...(row.services.stats ? [el("span", { class: "pill" }, "统计")] : []),
-              row.health.hidden ? el("span", { class: "pill warn" }, "已隐藏") : null,
-            ]),
-          ]),
-          el("div", { class: "inst-state" }, [
-            el("span", { class: `dot ${row.health.status}` }),
-            el("span", {}, HEALTH_LABEL[row.health.status] || row.health.status),
-          ]),
-          el("div", { class: "inst-note" }, [
-            el("span", {}, healthNote(row)),
-            row.health.error
-              ? el("span", { class: "inst-error" }, ERROR_LABEL[row.health.error] || row.health.error)
-              : null,
-          ]),
-        ])
-      )
+    ? inst.rows.map((row) => {
+        const open = state.instanceOpen === row.id;
+        const panelId = `inst-config-${row.id}`;
+        return el("div", { class: `inst-item${open ? " open" : ""}` }, [
+          el(
+            "button",
+            {
+              type: "button",
+              class: "inst-row",
+              "aria-expanded": open ? "true" : "false",
+              "aria-controls": panelId,
+              onclick: () => toggleInstance(row.id),
+            },
+            [
+              el("span", { class: "inst-what" }, [
+                el("span", { class: "inst-name" }, row.name),
+                el("span", { class: "inst-url" }, `${row.id} · ${row.url || "未填地址"}`),
+                el("span", { class: "inst-tags" }, [
+                  el("span", { class: "pill" }, TIER_LABEL[row.tier] || row.tier),
+                  ...(row.services.cards ? [el("span", { class: "pill" }, "橱窗")] : []),
+                  ...(row.services.stats ? [el("span", { class: "pill" }, "统计")] : []),
+                  row.health.hidden ? el("span", { class: "pill warn" }, "已隐藏") : null,
+                ]),
+              ]),
+              el("span", { class: "inst-state" }, [
+                el("span", { class: `dot ${row.health.status}` }),
+                el("span", {}, HEALTH_LABEL[row.health.status] || row.health.status),
+              ]),
+              el("span", { class: "inst-note" }, [
+                el("span", {}, healthNote(row)),
+                row.health.error
+                  ? el("span", { class: "inst-error" }, ERROR_LABEL[row.health.error] || row.health.error)
+                  : null,
+              ]),
+              el("span", { class: "inst-toggle", "aria-hidden": "true" }, open ? "收起" : "配置"),
+            ]
+          ),
+          open ? renderInstanceConfig(row, panelId) : null,
+        ]);
+      })
     : el("p", { class: "empty" }, "清单里还没有实例。");
 
   const queueKeys = ["verified", "hold", "pending", "approved", "rejected", "withdrawn", "expired"];
@@ -479,7 +831,7 @@ function renderOverview() {
       kpi(
         "实例",
         String(inst.total),
-        `在线 ${online} · 离线 ${inst.down} · 其他 ${inst.unknown + inst.unprobed + inst.paused}`,
+        `在线 ${online} · 离线 ${inst.down} · 待验收 ${inst.pending || 0} · 其他 ${inst.unknown + inst.unprobed + inst.paused}`,
         inst.down ? "bad" : ""
       ),
       kpi(
@@ -508,6 +860,7 @@ function renderOverview() {
             el("h2", {}, "实例与探测"),
             el("span", { class: "meta" }, inst.checkedAt ? `上次探测 ${relativeLabel(inst.checkedAt)}` : "未探测"),
           ]),
+          el("p", { class: "panel-note" }, "点一行展开这个账号的配置，不会跳走。"),
           el("div", { class: "inst-list" }, instanceRows),
         ]),
       ]),
@@ -526,7 +879,7 @@ function renderOverview() {
                 "p",
                 { class: "panel-note warn" },
                 `已通过但未写进清单：${apps.approvedNotListed
-                  .map((item) => item.subdomain || item.id)
+                  .map((item) => item.address || item.id)
                   .join("、")}`
               )
             : null,
@@ -563,6 +916,9 @@ function switchView(view) {
   if (view === state.view) return;
   state.view = view;
   state.error = "";
+  // 离开总览时丢掉未保存的草稿，避免下次点开看到上一次的改动。
+  state.editing = null;
+  state.instanceOpen = null;
   render();
   if (view === "overview") loadOverview();
   else loadApplications();
@@ -572,6 +928,8 @@ function openApplications(status) {
   state.filter = status;
   state.selected = null;
   state.manifest = null;
+  state.editing = null;
+  state.instanceOpen = null;
   state.view = "applications";
   state.error = "";
   render();
@@ -760,8 +1118,8 @@ function renderDetail(item) {
     ]),
 
     el("dl", { class: "dl" }, [
-      el("dt", {}, "子域"),
-      el("dd", {}, item.subdomain ? `${item.subdomain}.xknot.si` : "—"),
+      el("dt", {}, "接入模式"),
+      el("dd", {}, MODE_LABEL[item.mode] || item.mode || "—"),
       el("dt", {}, "站点"),
       el("dd", {}, el("a", { href: item.url, target: "_blank", rel: "noopener noreferrer" }, item.url)),
       el("dt", {}, "运营者"),
@@ -776,8 +1134,8 @@ function renderDetail(item) {
       el("dd", {}, item.intro),
       el("dt", {}, "标签"),
       el("dd", {}, item.tags.length ? item.tags.map((tag) => `#${tag}`).join(" ") : "—"),
-      el("dt", {}, "落点"),
-      el("dd", {}, ACCESS_LABEL[item.requestAccess] || item.requestAccess || "unknown"),
+      el("dt", {}, "对外地址"),
+      el("dd", {}, item.url ? el("a", { href: item.url, target: "_blank", rel: "noopener noreferrer" }, item.url) : "—"),
       el("dt", {}, "邮箱确认"),
       el("dd", {}, item.verifiedAt ? formatWhen(item.verifiedAt) : "未确认"),
       item.holdItems?.length ? el("dt", {}, "待补") : null,
@@ -889,6 +1247,7 @@ async function loadOverview() {
     if (error.status === 401) {
       state.admin = null;
       state.overview = null;
+      state.editing = null;
       return;
     }
     state.overviewError = "总览加载失败，请检查接口是否在运行。";
@@ -920,6 +1279,7 @@ async function loadApplications() {
     if (seq !== applicationsSeq) return;
     if (error.status === 401) {
       state.admin = null;
+      state.editing = null;
       return;
     }
     state.error = "列表加载失败。";

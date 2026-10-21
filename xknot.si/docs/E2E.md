@@ -36,7 +36,7 @@ server/index.mjs         127.0.0.1:5181，SQLite 在 var/e2e/<run>/data
 
 ```bash
 cd xknot.si
-npm run deploy:local                 # 校验 → 构建 → 起接口 → 起边缘，127.0.0.1:5190
+npm run deploy:local                 # 校验 → 构建 → 起接口 → 起入口，127.0.0.1:5190
 npm run deploy:local -- --no-build   # 复用 web/dist
 npm run deploy:local -- --preview    # 门户并入 fixtures 样例
 npm run deploy:local -- --admin paul:correct-horse-battery
@@ -50,13 +50,16 @@ npm run deploy:local -- --port 8080 --data-dir /tmp/xknot
 
 ### 测试清单覆盖
 
-接口默认读仓库根目录的 `instances.json`。本地联调与端到端可以用
-`XKNOT_INSTANCES_FILE` 指向一份临时清单，接口与 `admin-cli`（含 `publish`）
-都认这个变量，仓库里的清单不会被改。
+接口默认读仓库根目录的 `instances.json`，名册读 `federation.json`。本地联调与端到端可以用
+`XKNOT_INSTANCES_FILE` 与 `XKNOT_FEDERATION_FILE` 指向临时副本，接口与 `admin-cli`（含 `publish`）
+都认这两个变量，仓库里的文件不会被改。审核台的「编辑」会写回接口正在读的那两份文件，
+所以浏览器用例启动时把两份清单各拷一份到临时目录，再通过
+`node ops/local-stack.mjs --instances <file> --federation <file>` 指过去。
 
 ```bash
 XKNOT_DATA_DIR=/tmp/xknot-data \
 XKNOT_INSTANCES_FILE=/tmp/xknot-instances.json \
+XKNOT_FEDERATION_FILE=/tmp/xknot-federation.json \
 npm run api
 ```
 
@@ -123,7 +126,7 @@ E2E_CHANNEL= npm run test:ui
 - 未确认邮箱的申请直接 `approve` 返回 409；`/case/<caseKey>` 可看状态、补发确认信、提交公钥与撤回。
 - 未登录 401，伪造 Cookie 401，错密码 401；登录 Cookie 带 `HttpOnly`、`SameSite=Strict`、`Path=/`。
 - 待审列表能看到申请，通过后 `reviewedBy` 正确，生成的清单条目过 `checkManifestEntry`。
-- 通过审核不会把 `healthUrl` 写成默认值；退出后会话立刻失效。
+- 通过审核生成的清单条目不写探测地址（它由 `url` 推出）；退出后会话立刻失效。
 - `hold` 只收条目码、`reject` 只收原因类别；重复点同一个动作 409，且不会重复发信。
 - `handoff` 生成一次性领取链接：`GET /claim/<token>` 不消费，`POST /api/claim` 只返回一次明文，再取 409；邮件正文不含凭据。
 
@@ -148,7 +151,7 @@ E2E_CHANNEL= npm run test:ui
 |------|------|
 | `portal.spec.mjs` | 按 `hub.json` 渲染全部卡片、地图可见、入口回原站；三语切换与 `aria-current`；深浅色；区域筛选与「只看在线」；「只看热点」；360/390/768/1280 无横向溢出；键盘可达与表单 label；CSP 下无脚本错误 |
 | `join.spec.mjs` | 空表单逐项报错并聚焦第一个错误；子域/邮箱非法；提交成功显示编号；同一子域重复提示；蜜罐；390px 下触控尺寸 |
-| `admin.spec.mjs` | 登录失败提示；登录 → 待审列表 → 详情 → 通过 → 生成清单条目 → 退出；重复点通过状态不变；CSP 下无脚本错误 |
+| `admin.spec.mjs` | 登录失败提示；登录 → 待审列表 → 详情 → 通过 → 生成清单条目 → 退出；点实例就地展开配置；就地编辑配置、非法值不落盘、草稿不丢；重复点通过状态不变；CSP 下无脚本错误 |
 
 浏览器用例还会断言页面**没有** `pageerror`、没有 CSP 违规。这条断言抓到过两类真实问题：
 内联样式被审核台 CSP 拦截、字体被 Vite 内联成 `data:` 后被 `font-src 'self'` 拦截。

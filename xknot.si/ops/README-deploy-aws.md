@@ -4,12 +4,14 @@
 
 这是联盟门户自己的部署。用 `knot-platform` 部署的伙伴站点不在这里，也不由这套脚本管理；两台若是同一台机器，只说明共用主机，不构成依赖。
 
+这台机器同时是**中枢主机**和**入口主机**（`wang.xknot.si` 等实例入口）。角色与归属见 [`docs/concepts.md`](../../docs/concepts.md)：中枢的配置归本项目的 `ops/`，入口的配置归实例侧 `knot-platform/ops/entry/`，两边不互相引用。
+
 ## 主机
 
 仓库里不写死主机。下面的值只是当前实例，改动时以实际那台为准，或直接覆盖环境变量。
 
 ```bash
-EDGE=ec2-user@54.169.33.64
+HUB=ec2-user@54.169.33.64
 KEY=~/.ssh/suanli-sg-probe.pem
 ```
 
@@ -18,9 +20,9 @@ KEY=~/.ssh/suanli-sg-probe.pem
 | 区域 | `ap-southeast-1` |
 | 实例 | `i-0c876685a64c75538` |
 | 公网 | `54.169.33.64`（随 EIP / 重建变化） |
-| SSH | `ssh -i $KEY $EDGE`（`id_rsa` 在这台机上会被拒） |
+| SSH | `ssh -i $KEY $HUB`（`id_rsa` 在这台机上会被拒） |
 | DNS | `xknot.si` 与 `www` 的 A 记录指向这里 |
-| 同机其它站点 | 这台机同时托管实例侧站点：`/var/www/wang`（`wang.xknot.si`）、`/var/www/knot`（`knot.zenheart.net`），以及无关的 `/var/www/aiugc`。`conf.d/` 下五份配置各自独立，改 conf 前务必 `nginx -t` |
+| 同机其它站点 | 这台机同时托管实例侧站点：`/var/www/wang`（`wang.xknot.si`），以及无关的 `/var/www/aiugc`。`conf.d/` 下各配置各自独立，改 conf 前务必 `nginx -t` |
 
 门户与这些实例站点共用一台机器，但目录、进程与配置互不重叠：门户是 `/var/www/xknot` + `/opt/xknot` + `xknot-api`，实例是各自的 `ops/` 部署产物。共用的只是 nginx 进程、证书目录与这台机的容量。
 
@@ -62,7 +64,7 @@ KEY=~/.ssh/suanli-sg-probe.pem
 发信凭据不进 unit（unit 是 `0644`），单独放 `/opt/xknot/var/mail.env`，权限 `0600`：
 
 ```bash
-ssh -i "$KEY" "$EDGE"
+ssh -i "$KEY" "$HUB"
 sudo install -m 600 -o ec2-user -g ec2-user /dev/null /opt/xknot/var/mail.env
 sudo -u ec2-user vi /opt/xknot/var/mail.env
 ```
@@ -103,10 +105,10 @@ cd xknot.si
 
 # 静态站
 ./ops/build-hub.sh                 # 或 --offline
-XKNOT_EDGE=$EDGE XKNOT_SSH_KEY=$KEY ./ops/deploy-hub.sh
+XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-hub.sh
 
 # 接口、审核台与配置
-XKNOT_EDGE=$EDGE XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh
+XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh
 ```
 
 `deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/`、`instances.json`、巡检脚本与清单校验依赖，安装 nginx 配置与三个 systemd unit，`nginx -t` 通过后重启接口、启用 `xknot-health.timer` 并 reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
@@ -114,8 +116,8 @@ XKNOT_EDGE=$EDGE XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh
 先看会做什么，不连远端：
 
 ```bash
-XKNOT_EDGE=$EDGE ./ops/deploy-hub.sh --dry-run
-XKNOT_EDGE=$EDGE ./ops/deploy-api.sh --dry-run
+XKNOT_HUB_SSH=$HUB ./ops/deploy-hub.sh --dry-run
+XKNOT_HUB_SSH=$HUB ./ops/deploy-api.sh --dry-run
 ```
 
 ## nginx 现状
@@ -156,7 +158,6 @@ curl -sI https://xknot.si/api/admin/applications   # 401
 
 # 同机其它站点不得受影响
 curl -sI https://wang.xknot.si/                   # 实例，200
-curl -sI https://knot.zenheart.net/               # 实例，200
 ```
 
 在 DNS 还没切、只想验这台机时，用 `--resolve` 指定解析，不要直接连 IP：
@@ -167,13 +168,13 @@ curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 
 ## instances.json 备注
 
-清单里当前有两个实例：自营旗舰 `wang`（`https://wang.xknot.si`）和社区成员 `zjj`（`https://zjj.xknot.si`）。`zjj` 仍在交接期，`healthUrl` 为 `null`，运行状态显示「未探测」；`/api/health` 验收通过后再填回完整地址（见 `docs/HANDOFF.md`）。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
+清单里当前有两个实例：自营旗舰 `wang`（`https://wang.xknot.si`）和社区成员 `zjj`（`https://zjj.xknot.si`），两者都是 `subdomain` 模式。`zjj` 仍在交接期，清单 `status` 还是 `pending`，运行状态显示「未探测」；`/api/health` 验收通过后把 `status` 改成 `active`（见 `docs/HANDOFF.md`）。清单里没有探测地址字段，地址恒为 `url` + `/api/health`。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
 
-`zjj` 的子域已签发，但边缘还没有 `/api` 反代，属交接期：清单里 `healthUrl` 暂为 `null`，运行状态 `unknown`。接通后填回 `https://zjj.xknot.si/api/health`。步骤见实例侧的 `knot-platform/ops/edge/zjj-tunnel.md`，交付规则见 `xknot.si/docs/HANDOFF.md`。
+`zjj` 的子域已签发，但入口还没有 `/api` 反代，属交接期：清单 `status` 仍是 `pending`，运行状态 `unknown`。接通后把 `status` 改成 `active`，名册 `mode` 保持 `subdomain`；探测地址恒为 `https://zjj.xknot.si/api/health`，不用登记。步骤见实例侧的 `knot-platform/ops/entry/zjj-tunnel.md`，交付规则见 `xknot.si/docs/HANDOFF.md`。
 
 ## 实例侧
 
-实例怎么部署、边缘与隧道怎么配，不在本文范围。当前实例实现是 `knot-platform`：边缘与隧道见 `knot-platform/ops/edge/README.md`，固定 IP 直连见 `knot-platform/ops/edge/subdomain-fixed-ip.md`，主机与密钥由各自的 `sites/<站点>/site.env` 给出。换别的实现，本文不需要改——中枢只认 `/api/health` 与接入件。
+实例怎么部署、入口与隧道怎么配，不在本文范围。当前实例实现是 `knot-platform`：入口与隧道见 `knot-platform/ops/entry/README.md`，主机与密钥由各自的 `sites/<站点>/site.env` 给出。换别的实现，本文不需要改——中枢只认 `/api/health` 与接入件。
 
 ## 禁止
 

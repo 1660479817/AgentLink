@@ -12,22 +12,15 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 function base(overrides = {}) {
   return {
     id: "travel-sg",
-    name: { en: "Knot Travel SG", "zh-CN": "Knot 旅行 新加坡" },
-    operator: { en: "Example OPC" },
-    intro: { oneLine: { en: "Slow travel around Southeast Asia." } },
-    languages: ["en", "zh-CN"],
-    regions: ["SG", "MY"],
-    timezone: "Asia/Singapore",
-    contact: "ops@example.test",
+    url: "https://travel.xknot.si",
     since: "2026-10-19",
     tier: "partner",
     status: "active",
-    url: "https://travel.xknot.si",
     ...overrides,
   };
 }
 
-test("a well-formed instance has no problems", () => {
+test("a well-formed entry has no problems", () => {
   assert.deepEqual(validateInstance(base()), []);
 });
 
@@ -36,50 +29,29 @@ test("the shipped instances.json is valid", async () => {
   assert.deepEqual(validateInstances(manifest), []);
 });
 
-test("name.en is required", () => {
-  const errors = validateInstance(base({ name: { "zh-CN": "旅行" } }));
-  assert.ok(errors.includes("name.en: required"));
+test("the preview fixtures are valid too", async () => {
+  const manifest = JSON.parse(await readFile(path.join(here, "..", "fixtures", "preview-instances.json"), "utf8"));
+  assert.deepEqual(validateInstances(manifest), []);
 });
 
-test("intro.oneLine.en is required", () => {
-  const errors = validateInstance(base({ intro: { oneLine: { "zh-CN": "慢旅行" } } }));
-  assert.ok(errors.includes("intro.oneLine.en: required"));
+test("self-described fields are rejected: they belong in profile.json", () => {
+  for (const field of ["name", "intro", "operator", "owner", "tags", "contact", "timezone"]) {
+    const errors = validateInstance(base({ [field]: "x" }));
+    assert.ok(
+      errors.some((error) => error.startsWith(`${field}: unknown field`)),
+      `${field} must be reported as unknown`
+    );
+  }
 });
 
-test("a plain string where a locale map belongs is rejected", () => {
-  const errors = validateInstance(base({ name: "Knot Travel" }));
-  assert.ok(errors.some((error) => error.startsWith("name: must be a locale map")));
-});
-
-test("an empty string is rejected and the fix is to omit the key", () => {
-  const errors = validateInstance(base({ name: { en: "Knot Travel SG", "zh-TW": "" } }));
-  assert.ok(errors.includes("name.zh-TW: empty string, omit the key instead"));
-});
-
-test("unknown locales are rejected", () => {
-  const errors = validateInstance(base({ name: { en: "Knot", fr: "Knot" } }));
-  assert.ok(errors.includes("name.fr: unknown locale"));
-});
-
-test("languages must include en and stay in the whitelist", () => {
-  assert.ok(validateInstance(base({ languages: ["zh-CN"] })).includes("languages: must include en"));
-  assert.ok(validateInstance(base({ languages: ["en", "ja"] })).includes('languages: unknown locale "ja"'));
-});
-
-test("regions must be known country codes", () => {
-  assert.ok(validateInstance(base({ regions: ["XX"] })).includes('regions: unknown code "XX"'));
-  assert.deepEqual(validateInstance(base({ regions: ["GLOBAL"] })), []);
-  assert.ok(validateInstance(base({ regions: ["GLOBAL", "SG"] })).includes("regions: GLOBAL must be used alone"));
-});
-
-test("timezone must be a real IANA name", () => {
-  assert.ok(validateInstance(base({ timezone: "GMT+8" })).includes('timezone: unknown "GMT+8"'));
-  assert.deepEqual(validateInstance(base({ timezone: "UTC" })), []);
+test("healthUrl is rejected: the probe url is derived from url", () => {
+  const errors = validateInstance(base({ healthUrl: "https://travel.xknot.si/api/health" }));
+  assert.ok(errors.some((error) => error.startsWith("healthUrl:")));
 });
 
 test("urls must be https", () => {
   assert.ok(validateInstance(base({ url: "http://x.test" })).includes("url: must be https"));
-  assert.ok(validateInstance(base({ cardsUrl: "http://x.test/cards.json" })).includes("cardsUrl: must be https"));
+  assert.ok(validateInstance(base({ cardsUrl: "http://x.test/cards.json" })).includes("cardsUrl: must be https or omitted"));
 });
 
 test("tier and status are enumerations", () => {
@@ -100,40 +72,43 @@ test("since is an ISO date", () => {
 
 test("ids are unique across the manifest", () => {
   const problems = validateInstances({ instances: [base(), base()] });
-  const first = problems.find(([id]) => id === "travel-sg");
-  assert.ok(first[1].some((error) => error.startsWith("id: duplicate")));
+  assert.equal(problems.length, 1);
+  assert.ok(problems[0][1].some((error) => error.startsWith("id: duplicate")));
 });
 
 test("every locale catalog defines the same keys", async () => {
-  const catalogs = {};
-  for (const locale of LOCALES) {
-    catalogs[locale] = JSON.parse(
-      await readFile(path.join(here, "..", "web", "src", "locales", `${locale}.json`), "utf8")
+  const catalogs = await Promise.all(
+    LOCALES.map(async (locale) => {
+      const file = path.join(here, "..", "web", "src", "locales", `${locale}.json`);
+      return [locale, JSON.parse(await readFile(file, "utf8"))];
+    })
+  );
+  const flat = (value, prefix = "") =>
+    Object.entries(value).flatMap(([key, entry]) =>
+      entry && typeof entry === "object" ? flat(entry, `${prefix}${key}.`) : [`${prefix}${key}`]
     );
-  }
-  const shape = (node, prefix = "") =>
-    Object.entries(node).flatMap(([key, value]) =>
-      value && typeof value === "object" ? shape(value, `${prefix}${key}.`) : [`${prefix}${key}`]
-    );
-
-  const reference = shape(catalogs.en).sort();
-  for (const locale of LOCALES) {
-    assert.deepEqual(shape(catalogs[locale]).sort(), reference, `${locale} keys differ from en`);
+  const sets = catalogs.map(([locale, catalog]) => [locale, new Set(flat(catalog))]);
+  const [, reference] = sets[0];
+  for (const [locale, keys] of sets) {
+    const missing = [...reference].filter((key) => !keys.has(key));
+    const extra = [...keys].filter((key) => !reference.has(key));
+    assert.deepEqual(missing, [], `${locale} is missing keys`);
+    assert.deepEqual(extra, [], `${locale} has keys the others do not`);
   }
 });
 
 test("every catalog leaves no empty string", async () => {
   for (const locale of LOCALES) {
-    const catalog = JSON.parse(
-      await readFile(path.join(here, "..", "web", "src", "locales", `${locale}.json`), "utf8")
-    );
-    const walk = (node, prefix = "") => {
-      for (const [key, value] of Object.entries(node)) {
-        const full = `${prefix}${key}`;
-        if (typeof value === "string") assert.notEqual(value.trim(), "", `${locale}: ${full} is empty`);
-        else if (value && typeof value === "object") walk(value, `${full}.`);
+    const file = path.join(here, "..", "web", "src", "locales", `${locale}.json`);
+    const text = await readFile(file, "utf8");
+    const catalog = JSON.parse(text);
+    const walk = (value, trail) => {
+      for (const [key, entry] of Object.entries(value)) {
+        const where = trail ? `${trail}.${key}` : key;
+        if (typeof entry === "string") assert.ok(entry.trim(), `${locale}:${where} is empty`);
+        else walk(entry, where);
       }
     };
-    walk(catalog);
+    walk(catalog, "");
   }
 });

@@ -55,7 +55,18 @@ function readJson(rel) {
 
 const manifest = readJson("instances.json");
 const preview = readJson("fixtures/preview-instances.json");
+const previewProfiles = readJson("fixtures/preview-profiles.json");
 const health = readJson("fixtures/preview-health.json");
+
+// 名称与地区来自实例自述的副本；样例条目用 fixtures 里的那份顶上。
+function profileOf(id) {
+  const file = path.join(root, "var", "profiles", `${id}.json`);
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return previewProfiles[id] || null;
+  }
+}
 
 // 与 web/src/lib/preview.js 的 mergePreview 同序：真实条目在前，样例补空缺。
 const taken = new Set((manifest.instances || []).map((item) => item.id));
@@ -64,10 +75,11 @@ const nodes = [
   ...(preview.instances || []).filter((item) => item.id && !taken.has(item.id)),
 ].map((item) => {
   const state = health.instances?.[item.id];
+  const profile = profileOf(item.id)?.profile || {};
   return {
     id: item.id,
-    name: item.shortName?.en || item.name?.en || item.id,
-    regions: item.regions || [],
+    name: profile.shortName?.en || profile.name?.en || item.id,
+    regions: profile.regions || [],
     status: state?.status || "unknown",
   };
 });

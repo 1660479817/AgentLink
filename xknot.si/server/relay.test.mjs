@@ -10,7 +10,6 @@ const instance = {
   id: "nordhavn",
   name: { en: "Knot · nordhavn" },
   url: "https://nordhavn.example",
-  canonical: "https://nordhavn.example",
   contact: "ops@nordhavn.example",
   status: "active",
 };

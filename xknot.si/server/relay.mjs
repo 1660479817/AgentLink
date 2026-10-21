@@ -40,10 +40,10 @@ function emailOf(value) {
   return parsed && !value.includes("<") ? parsed.address : null;
 }
 
-/** 实例自己的回信域名：清单 url、canonical，以及 contact 里的邮箱。 */
+/** 实例自己的回信域名：清单 url 与 contact 里的邮箱。 */
 export function instanceReplyDomains(instance) {
   const hosts = new Set();
-  for (const raw of [instance?.canonical, instance?.url]) {
+  for (const raw of [instance?.url]) {
     try {
       const url = new URL(String(raw || ""));
       if (url.protocol === "https:" && url.hostname) hosts.add(url.hostname.toLowerCase());
