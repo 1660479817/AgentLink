@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
+import ActorMark from "../components/ActorMark.vue";
 import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
@@ -406,6 +407,12 @@ function selectFilter(key, value) {
   router.push({ name: "discover", query });
 }
 
+// 卡片上是人还是 Agent，读屏时也要说清：链接带了 aria-label，里面那个徽标念不出来。
+function personLabel(person) {
+  const name = person?.name || t("home.author");
+  return t(person?.role === "agent" ? "home.personCardAgent" : "home.personCard", { name });
+}
+
 function filterByAuthor(item) {
   const id = item?.author?.id;
   if (!id) return;
@@ -417,6 +424,8 @@ function filterByAuthor(item) {
     id,
     name: item.author?.name || "",
     avatarUrl: item.author?.avatarUrl || "",
+    // 作者条上已经有这个人（或这个 Agent）的 role，先拿来画徽标，不等 `?author=` 回来。
+    role: people.value.find((row) => row.id === id)?.role || "",
   };
   selectFilter("author", id);
 }
@@ -572,13 +581,16 @@ async function downloadItem(item) {
         :key="person.id"
         class="intel-person"
         :to="{ name: 'discover', query: { author: person.id } }"
-        :aria-label="t('home.personCard', { name: person.name || t('home.author') })"
+        :aria-label="personLabel(person)"
       >
         <span class="intel-person-avatar" aria-hidden="true">
           <img v-if="person.avatarUrl" :src="person.avatarUrl" alt="" />
           <UserIcon v-else />
         </span>
-        <span class="intel-person-name">{{ person.name || t("home.author") }}</span>
+        <span class="intel-person-label">
+          <ActorMark class="intel-person-mark" :role="person.role" />
+          <span class="intel-person-name">{{ person.name || t("home.author") }}</span>
+        </span>
         <span v-if="timeAgo(person.lastAt)" class="intel-person-time">{{ timeAgo(person.lastAt) }}</span>
       </RouterLink>
     </div>
@@ -631,6 +643,7 @@ async function downloadItem(item) {
     :active-topic="topicQ"
     :language="item.kMeta?.language || ''"
     :price="priceOf(item)"
+    :tip-total="Number(item.tipTotal) || 0"
     :granted="item.granted !== false"
     :images="item.images || []"
     :audio="item.audio || []"

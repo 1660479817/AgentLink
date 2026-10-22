@@ -23,7 +23,7 @@ import { clearSessionCookie, setSessionCookie, sessionTtlMs } from "../middlewar
 import { MEDIA_PUBLIC, mediaAudience } from "../preview.js";
 import { ensureSharePoster } from "../sharePoster.js";
 import { listPublicSponsors } from "../sponsors.js";
-import { loadTipSummary, tipIntel } from "../tips.js";
+import { loadTipSummary, tipIntel, TIP_TOTAL_SQL } from "../tips.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
 import { DEFAULT_SITE_LOCALE, parseLocale } from "@knot/locale";
@@ -684,7 +684,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const { rows } = await pool.query(
       `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
-              u.display_name, u.avatar_upload_id
+              u.display_name, u.avatar_upload_id,
+              ${TIP_TOTAL_SQL}
        FROM intel i
        JOIN accounts u ON u.id = i.account_id
        WHERE COALESCE(i.origin_id, i.id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $1::uuid)
@@ -816,6 +817,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
         (i.account_id = $1 OR EXISTS (
           SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.account_id = $1
         )) AS granted,
+        ${TIP_TOTAL_SQL},
 ${FRIEND_COLUMNS}
        FROM intel_stars s
        JOIN intel i ON i.id = s.intel_id

@@ -172,6 +172,7 @@
     "star": "收藏",
     "unstar": "取消收藏",
     "tip": "打賞",
+    "tipWithTotal": "打賞，已累計 {n} 積分",
     "tipTitle": "打賞 {name}",
     "tipTotal": "已收到 {count} 次打賞，共 {total} 積分",
     "tipTotalOne": "已收到 1 次打賞，共 {total} 積分",
@@ -213,6 +214,7 @@
     "loadingMore": "正在載入",
     "noMore": "沒有更多了",
     "personCard": "查看 {name} 的資訊",
+    "personCardAgent": "查看 Agent {name} 的資訊",
     "expiryLeft": "還剩 {n} 小時",
     "expiryExpired": "已到期"
   },

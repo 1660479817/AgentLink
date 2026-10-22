@@ -6,89 +6,34 @@
 // - 所有来自接口的文字一律用 textContent 写进 DOM，不拼 innerHTML；
 // - 页面不写内联脚本和内联样式，CSP 锁在 'self'。
 
+import { LOCALES, applyI18n, fmtDate, fmtInt, locale, setLocale, t } from "./i18n.js";
+
 const TOKEN_KEY = "knot.admin.token";
 const VIEW_LOADERS = {
   overview: loadOverview,
-  content: loadPatrol,
-  users: loadAgents,
+  content: loadContent,
+  users: loadAccounts,
   site: loadSite,
   xknot: loadXknot,
 };
 
-const PRICE_FIELDS = [
-  ["defaultPrice", "默认标价"],
-  ["priceMin", "最低标价"],
-  ["priceMax", "最高标价"],
-  ["publishServiceFeePerMb", "发布服务费 / MB"],
-  ["downloadServiceFeePerMb", "下载服务费 / MB"],
-  ["serviceFeeCap", "服务费封顶"],
-  ["pointUsdCents", "每积分美分"],
-  ["retrievalPrice", "信息检索价"],
-];
-
-const HINTS = {
-  bad_token: "令牌不对，或已经换过。",
-  admin_unconfigured: "Backend 进程里还没有 KNOT_ADMIN_TOKEN。",
-  unreachable: "连不上管理接口。确认 Backend 在运行，并且是从内网打开这一页。",
-  bad_response: "管理接口没有返回 JSON。",
-  no_session: "没有会话。",
-  bad_user: "账户要对上唯一的一位，用邮箱、称呼或用户 id。",
-  ambiguous: "对上不止一个人，换邮箱或用户 id 再试。",
-  protected: "这一户受保护，不能禁言、改等级或改权益。",
-  not_found: "没有找到。",
-  bad_body: "内容不能为空，也不能超过长度上限。",
-  bad_amount: "积分数量要是正整数，且不超过平台上限。",
-  bad_until: "禁言期限写 24h、7d、2w，或选择「直到平台解除」。",
-  bad_level: "等级是 1 到 100 的整数。",
-  bad_entitlement: "权益名称不合法；不能含逗号或顿号，最多 20 字。",
-  entitlement_full: "权益最多 8 个。",
-  env_unconfigured: "这台机器还没有放授权码的目录（KNOT_AGENT_ENV_DIR）。",
-  env_failed: "授权码没有写成文件，这次没有留下账户。",
-  bad_name: "称呼用 1 到 40 个字，字母或数字开头，中间可以有连字符。",
-  bad_specialty: "特长最多 8 个，每个最多 20 字。",
-  name_taken: "这个称呼已经有人用了。",
-  code_taken: "这个邀请码已经有人用了，换一个。",
-  bad_invite_code: "邀请码用 4 到 32 个字母或数字。",
-  bad_invite_uses: "可用次数是 1 到 10000 的整数。",
-  bad_invite_expiry: "有效期写 24h、7d、2w 这类，最长 366d。",
-  bad_invite_note: "备注最多 200 字。",
-  bad_href: "链接要以 http(s) 开头，或以 / 开头的站内路径。",
-  hub_unreachable: "连不上中枢。检查这台机器的出网，或者 KNOT_HUB_ORIGIN 是否写对。",
-  hub_timeout: "中枢 8 秒内没有回应，稍后再试。",
-  hub_error: "中枢返回了看不懂的响应，稍后再试。",
-  hub_rate_limited: "查询太频繁，过一会儿再试。",
-  bad_image: "图片地址不合法。",
-  bad_position: "赞助位顺序是正整数。",
-  sponsor_full: "赞助位最多 8 条。",
-  bad_mime: "只收 JPEG、PNG、GIF、WebP。",
-  file_too_large: "图片不能超过 8MB。",
-  upload_failed: "图片没有上传成功。",
-  bad_switch: "开关只能是开或关。",
-  bad_registration_mode: "注册策略只写 open、invite 或 closed。",
-  bad_args: "至少要改一项。",
-  profile_unconfigured: "这台机器还没有站点目录（KNOT_AGENT_ENV_DIR / KNOT_PROFILE_FILE），档案改不了。",
-  no_application: "还没有提交过接入申请，先在上面提交一次。",
-  not_ready: "中枢还没给出账号与端口，等入口配置完成。",
-  bad_price: "价格要是整数，且满足最低不高于默认、默认不高于最高。",
-  not_pending: "这份提议已经写入或已经收回。",
-  bad_within: "时间窗写 24h、7d、2w 这类，最长 366d。",
-  agent_slots_full: "这个账号的 Agent 名额已经用完了。",
-  agent_unavailable: "Agent 没有签发成功，稍后再试。",
-  users_full: "外部账号已经到 90 个上限。",
-  not_internal: "这一行不是主理人名下的 Agent。",
-  bad_owner: "Agent 只能挂在主理人或外部账号名下。",
-  not_account: "这行不是账号（是 Agent 或平台账号）。积分、等级与禁言都记在人这一行。",
-  owner_unconfigured: "这台机器还没配 KNOT_ADMIN_EMAIL，主理人账号建不出来。",
-  retired: "这个 Agent 已经停用。",
-};
+// 价格字段名只从表单来：框里有几个，就填几个、交几个。
+// 名称在语种文件里（price.*），顺序在 index.html 里，两边都不再各记一份清单。
+function priceKeys() {
+  return [...document.querySelectorAll('input[id^="price-"]')].map((input) =>
+    input.id.slice("price-".length)
+  );
+}
 
 const state = {
   token: "",
   view: "overview",
   system: null,
-  users: [],
+  economy: null,
+  accounts: [],
+  quota: null,
   selectedUser: null,
-  agents: [],
+  selectedAgent: null,
   posts: null,
   patrol: [],
   invites: [],
@@ -145,21 +90,166 @@ function el(tag, props, ...children) {
   return node;
 }
 
-function fmtInt(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "—";
-  return number.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+// 界面图标：与 WebUI 的线条图标同一套画法（viewBox 24、1.8 描边、currentColor），
+// 页面不打包，所以这些路径直接写在这里。静态标记用 data-icon，渲染后一次性画上。
+const GLYPHS = {
+  enter: [
+    ["path", { d: "M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14" }],
+    ["path", { d: "m10 8 4 4-4 4" }],
+    ["path", { d: "M14 12H4" }],
+  ],
+  globe: [
+    ["circle", { cx: 12, cy: 12, r: 8 }],
+    ["path", { d: "M4 12h16" }],
+    ["path", { d: "M12 4c2.2 2.4 3.3 5.1 3.3 8s-1.1 5.6-3.3 8c-2.2-2.4-3.3-5.1-3.3-8s1.1-5.6 3.3-8Z" }],
+  ],
+  refresh: [
+    ["path", { d: "M20 12a8 8 0 0 0-8-8 8.7 8.7 0 0 0-6 2.5L4 8" }],
+    ["path", { d: "M4 4v4h4" }],
+    ["path", { d: "M4 12a8 8 0 0 0 8 8 8.7 8.7 0 0 0 6-2.5L20 16" }],
+    ["path", { d: "M16 16h4v4" }],
+  ],
+  key: [
+    ["circle", { cx: 8.5, cy: 12, r: 3.5 }],
+    ["path", { d: "M12 12h8" }],
+    ["path", { d: "M17 12v3M20 12v2" }],
+  ],
+  overview: [
+    ["path", { d: "M4 19.5V4.5" }],
+    ["path", { d: "M4 19.5h16" }],
+    ["path", { d: "m7.5 15.5 3.5-4.5 3 2.5L19 7" }],
+  ],
+  content: [
+    ["rect", { x: 4, y: 4, width: 16, height: 16, rx: 2.5 }],
+    ["path", { d: "M8 9h8M8 12.5h8M8 16h5" }],
+  ],
+  users: [
+    ["circle", { cx: 10, cy: 8.5, r: 3.2 }],
+    ["path", { d: "M4 19c0-3.2 2.7-5.5 6-5.5s6 2.3 6 5.5" }],
+    ["circle", { cx: 17, cy: 9.6, r: 2.2 }],
+    ["path", { d: "M15.8 14.6c1.4.3 2.5 1.4 2.9 2.9" }],
+  ],
+  site: [
+    ["path", { d: "M4 20.2h16" }],
+    ["path", { d: "M6.2 20.2V9.4L12 5.2l5.8 4.2v10.8" }],
+    ["path", { d: "M10.2 20.2v-4.4h3.6v4.4" }],
+    ["path", { d: "M9 11.4h1.7M13.3 11.4H15M9 14.6h1.7M13.3 14.6H15" }],
+  ],
+  close: [["path", { d: "M7 7 17 17M17 7 7 17" }]],
+  search: [
+    ["circle", { cx: 11, cy: 11, r: 5.5 }],
+    ["path", { d: "M16 16 20 20" }],
+  ],
+  coin: [
+    ["circle", { cx: 12, cy: 12, r: 8 }],
+    ["circle", { cx: 12, cy: 12, r: 5.1 }],
+    ["path", { d: "M12 8.6v6.8" }],
+  ],
+  arrows: [
+    ["path", { d: "M4 9h13" }],
+    ["path", { d: "m14 6 3 3-3 3" }],
+    ["path", { d: "M20 15H7" }],
+    ["path", { d: "m10 12-3 3 3 3" }],
+  ],
+  bank: [
+    ["path", { d: "M4 9.5 12 4l8 5.5" }],
+    ["path", { d: "M6 9.5V19M10 9.5V19M14 9.5V19M18 9.5V19" }],
+    ["path", { d: "M4 19h16" }],
+  ],
+  eye: [
+    ["path", { d: "M2.8 12S6.5 6.2 12 6.2 21.2 12 21.2 12 17.5 17.8 12 17.8 2.8 12 2.8 12Z" }],
+    ["circle", { cx: 12, cy: 12, r: 2.6 }],
+  ],
+  check: [["path", { d: "m5 12.5 4.5 4.5L19 6.5" }]],
+  plus: [["path", { d: "M12 5v14M5 12h14" }]],
+  edit: [
+    ["path", { d: "M4 20h3.2L17.6 9.6a2.2 2.2 0 0 0-3.2-3.2L4 16.8V20Z" }],
+    ["path", { d: "m12.8 6.8 3.4 3.4" }],
+  ],
+  upload: [
+    ["path", { d: "M12 16V4" }],
+    ["path", { d: "m8 8 4-4 4 4" }],
+    ["path", { d: "M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" }],
+  ],
+  link: [
+    ["path", { d: "M10 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7L11.5 6.3" }],
+    ["path", { d: "M14 10.5a4 4 0 0 0-5.7 0L5.5 13.3a4 4 0 0 0 5.7 5.7l1.3-1.3" }],
+  ],
+  image: [
+    ["rect", { x: 4, y: 5, width: 16, height: 14, rx: 2 }],
+    ["circle", { cx: 9, cy: 10, r: 1.6 }],
+    ["path", { d: "m4.5 17 5-4.5 3.5 3 3-2.5 3.5 3" }],
+  ],
+  trash: [
+    ["path", { d: "M4 7h16" }],
+    ["path", { d: "M9.5 7V5h5v2" }],
+    ["path", { d: "m6.5 7 .8 12.2h9.4L17.5 7" }],
+    ["path", { d: "M10.5 11v5M13.5 11v5" }],
+  ],
+  up: [
+    ["path", { d: "M12 19V5" }],
+    ["path", { d: "m6 11 6-6 6 6" }],
+  ],
+  down: [
+    ["path", { d: "M12 5v14" }],
+    ["path", { d: "m6 13 6 6 6-6" }],
+  ],
+  alert: [
+    ["path", { d: "M12 4.2 20.2 19.2H3.8Z" }],
+    ["path", { d: "M12 10v4" }],
+    ["circle", { cx: 12, cy: 16.7, r: 0.6, fill: "currentColor", stroke: "none" }],
+  ],
+  clock: [
+    ["circle", { cx: 12, cy: 12, r: 8 }],
+    ["path", { d: "M12 8v4.5l2.5 1.5" }],
+  ],
+};
+
+function svgNode(name, size = 16) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of GLYPHS[name] || GLYPHS.content) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+    svg.append(node);
+  }
+  return svg;
 }
 
-function fmtDate(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString("zh-CN", { hour12: false });
+function iconEl(name, size = 16) {
+  const span = el("span", { class: "icon", "aria-hidden": "true" });
+  span.append(svgNode(name, size));
+  return span;
+}
+
+function paintIcons(root = document) {
+  for (const node of root.querySelectorAll("[data-icon]")) {
+    if (node.dataset.painted === "1") continue;
+    node.append(svgNode(node.dataset.icon, Number(node.dataset.iconSize) || 16));
+    node.dataset.painted = "1";
+  }
 }
 
 function utf8(value) {
   return String(value == null ? "" : value);
+}
+
+// 列表空了就这么显示：一枚线图标 + 一句说明，不要一行灰字。
+function emptyBlock(key, icon = "content") {
+  return el(
+    "div",
+    { class: "empty-block" },
+    el("span", { class: "empty-mark", "aria-hidden": "true" }, svgNode(icon, 22)),
+    el("p", { class: "empty-title", text: t(key) })
+  );
 }
 
 function splitList(value) {
@@ -170,17 +260,17 @@ function splitList(value) {
 }
 
 function verdictLabel(verdict) {
-  if (verdict === "passed") return "已留下";
-  if (verdict === "pending") return "待终审";
-  if (verdict === "rejected") return "已撤销";
-  if (verdict === "removed") return "已删除";
-  return verdict || "未知";
+  if (verdict === "passed") return t("verdict.passed");
+  if (verdict === "pending") return t("verdict.pending");
+  if (verdict === "rejected") return t("verdict.rejected");
+  if (verdict === "removed") return t("verdict.removed");
+  return verdict || t("verdict.unknown");
 }
 
 function modeLabel(mode) {
-  if (mode === "invite") return "需要邀请码";
-  if (mode === "closed") return "暂停注册";
-  return "开放";
+  if (mode === "invite") return t("registration.invite");
+  if (mode === "closed") return t("registration.closed");
+  return t("registration.open");
 }
 
 function toast(message, kind = "ok") {
@@ -204,25 +294,29 @@ function hideBanner() {
 }
 
 function verifyMessage(error) {
-  if (!error || error.code === "unreachable") return HINTS.unreachable;
-  if (error.code === "bad_token" || error.status === 401) return HINTS.bad_token;
-  if (error.code === "admin_unconfigured") return HINTS.admin_unconfigured;
-  if (error.status === 404) {
-    return "管理接口只接受内网访问。请在实例主机自己或同一内网，用 http://<实例主机>:<端口>/admin 打开。";
-  }
+  if (!error || error.code === "unreachable") return t("error.unreachable");
+  if (error.code === "bad_token" || error.status === 401) return t("error.bad_token");
+  if (error.code === "admin_unconfigured") return t("error.admin_unconfigured");
+  if (error.status === 404) return t("error.not_json");
   return humanError(error);
 }
 
+function errorHint(code) {
+  if (!code) return "";
+  const text = t(`error.${code}`);
+  return text === `error.${code}` ? "" : text;
+}
+
 function humanError(error) {
-  if (!error) return "请求没有完成。";
+  if (!error) return t("error.request_failed");
   if (error.code === "bad_response") {
-    const status = error.status ? `（HTTP ${error.status}）` : "";
-    return `${HINTS.bad_response}${status} 多半是入口或隧道断了，先看 /api/health。`;
+    const status = error.status ? ` (HTTP ${error.status})` : "";
+    return `${t("error.bad_response")}${status} ${t("error.badResponseHint")}`;
   }
-  const hint = HINTS[error.code];
+  const hint = errorHint(error.code);
   if (hint) return hint;
-  if (error.status === 404) return "没有找到；确认这一页是从实例主机或同一内网打开的。";
-  return `请求没有完成（${error.code || error.message || "unknown"}）。`;
+  if (error.status === 404) return t("error.not_json");
+  return `${t("error.request_failed")} (${error.code || error.message || "unknown"})`;
 }
 
 function handleAuth(error) {
@@ -303,14 +397,14 @@ function showLogin(message = "") {
 function showApp() {
   byId("login-view").hidden = true;
   byId("admin-view").hidden = false;
-  setText("topbar-note", "仅内网可用 · 令牌已载入");
+  setText("topbar-note", t("topbar.noteLoaded"));
   setView("overview");
 }
 
 async function enter(token) {
   const value = String(token || "").trim();
   if (!value) {
-    setAlert(byId("login-error"), "先粘贴管理令牌。", "error");
+    setAlert(byId("login-error"), t("login.empty"), "error");
     return;
   }
   state.token = value;
@@ -352,15 +446,82 @@ function setView(name) {
 
 /* 概览 */
 
-function renderSystemFacts() {
-  const facts = byId("ov-system");
-  const system = state.system;
-  if (!facts || !system) return;
-  facts.replaceChildren(
-    el("div", {}, el("dt", { text: "站内浏览" }), el("dd", { text: system.guestBrowsing ? "开" : "关" })),
-    el("div", {}, el("dt", { text: "注册" }), el("dd", { text: modeLabel(system.registrationMode) })),
-    el("div", {}, el("dt", { text: "公开快照" }), el("dd", { text: system.publicBoard ? "开" : "关" }))
+function stateRow(title, hint, on, text) {
+  return el(
+    "div",
+    { class: "state-row" },
+    el(
+      "span",
+      { class: "state-copy" },
+      el("span", { class: "state-title", text: title }),
+      el("span", { class: "state-hint", text: hint })
+    ),
+    el("span", {
+      class: `state-pill${on ? " is-on" : ""}`,
+      text: text ?? (on ? t("overview.on") : t("overview.off")),
+    })
   );
+}
+
+function renderSystemFacts() {
+  const list = byId("ov-system");
+  if (!list) return;
+  const system = state.system;
+  if (!system) {
+    list.replaceChildren(el("p", { class: "muted small", text: t("common.loading") }));
+    return;
+  }
+  list.replaceChildren(
+    stateRow(t("overview.guest"), t("overview.guestHint"), Boolean(system.guestBrowsing)),
+    stateRow(
+      t("overview.registration"),
+      t("overview.registrationHint"),
+      system.registrationMode === "open",
+      modeLabel(system.registrationMode)
+    ),
+    stateRow(t("overview.board"), t("overview.boardHint"), Boolean(system.publicBoard))
+  );
+}
+
+function miniPost(post) {
+  return el(
+    "article",
+    { class: "mini-post" },
+    el(
+      "p",
+      { class: "mini-meta" },
+      el("strong", { text: post.user?.displayName || t("content.noName") }),
+      el("span", { text: fmtDate(post.createdAt) })
+    ),
+    el("p", { class: "mini-body", text: utf8(post.body) || t("content.noBody") })
+  );
+}
+
+function renderOverviewPatrol() {
+  const list = byId("ov-patrol-list");
+  const tag = byId("ov-patrol-count");
+  const count = state.patrol.length;
+  if (tag) {
+    tag.textContent = count ? t("overview.patrolCount", { count }) : t("overview.patrolEmpty");
+    tag.classList.toggle("is-warn", count > 0);
+  }
+  if (!list) return;
+  if (!count) {
+    list.replaceChildren(el("p", { class: "muted small", text: t("overview.patrolClean") }));
+    return;
+  }
+  list.replaceChildren(...state.patrol.slice(0, 3).map(miniPost));
+}
+
+function renderOverview() {
+  const economy = state.economy || {};
+  setText("ov-issued", fmtInt(economy.issued));
+  setText("ov-circulating", fmtInt(economy.circulating));
+  setText("ov-platform", fmtInt(economy.platform));
+  setText("ov-reads", fmtInt(economy.attention?.reads));
+  setText("ov-searches", fmtInt(economy.attention?.searches));
+  renderSystemFacts();
+  renderOverviewPatrol();
 }
 
 async function loadOverview() {
@@ -370,21 +531,21 @@ async function loadOverview() {
       api("/patrol"),
       state.system ? Promise.resolve({ system: state.system }) : api("/system"),
     ]);
+    state.economy = economy;
+    state.patrol = Array.isArray(patrol.posts) ? patrol.posts : [];
     state.system = system.system;
-    setText("ov-issued", fmtInt(economy.issued));
-    setText("ov-circulating", fmtInt(economy.circulating));
-    setText("ov-platform", fmtInt(economy.platform));
-    setText("ov-reads", fmtInt(economy.attention?.reads));
-    setText("ov-searches", fmtInt(economy.attention?.searches));
-    renderSystemFacts();
-    const count = Array.isArray(patrol.posts) ? patrol.posts.length : 0;
-    setText("ov-patrol-count", count ? `${count} 条待看` : "没有新帖");
+    renderOverview();
   } catch (error) {
     if (!handleAuth(error)) showBanner(humanError(error));
   }
 }
 
 /* 内容 */
+
+function loadContent() {
+  renderPosts();
+  void loadPatrol();
+}
 
 async function loadPosts() {
   const user = byId("posts-user").value.trim();
@@ -394,65 +555,110 @@ async function loadPosts() {
   const within = byId("posts-within").value.trim();
   if (q) params.set("q", q);
   if (within) params.set("within", within);
-  const data = await guard(() => api(`/posts?${params.toString()}`));
-  if (!data) return;
-  state.posts = data;
-  renderPosts();
+  const submit = byId("posts-submit");
+  if (submit) {
+    submit.disabled = true;
+    const label = submit.querySelector("span:last-child");
+    if (label) label.textContent = t("content.querying");
+  }
+  try {
+    const data = await guard(() => api(`/posts?${params.toString()}`));
+    if (!data) return;
+    state.posts = data;
+    renderPosts();
+  } finally {
+    if (submit) {
+      submit.disabled = false;
+      const label = submit.querySelector("span:last-child");
+      if (label) label.textContent = t("content.query");
+    }
+  }
+}
+
+function postRow(post) {
+  const remove = el(
+    "button",
+    {
+      class: "button danger compact",
+      type: "button",
+      "aria-label": t("content.remove"),
+      on: { click: () => void removePost(post) },
+    },
+    iconEl("trash", 14),
+    el("span", { text: t("content.remove") })
+  );
+  return el(
+    "article",
+    { class: "post-row" },
+    el(
+      "div",
+      { class: "post-main" },
+      el(
+        "div",
+        { class: "post-head" },
+        el("span", { class: `pill ${post.verdict || ""}`, text: verdictLabel(post.verdict) }),
+        el("span", { class: "post-time", text: fmtDate(post.createdAt) }),
+        el("span", {
+          class: post.public === false ? "pill" : "pill passed",
+          text: post.public === false ? t("content.privateTag") : t("content.publicTag"),
+        }),
+        el("code", { class: "post-id", text: post.id })
+      ),
+      el("p", { class: "post-body", text: utf8(post.body) || t("content.noBody") })
+    ),
+    el("div", { class: "post-actions" }, remove)
+  );
 }
 
 function renderPosts() {
-  const body = byId("posts-list");
+  const list = byId("posts-list");
+  const empty = byId("posts-empty");
   const summary = byId("posts-summary");
-  if (!body) return;
+  if (!list) return;
   const data = state.posts;
   if (!data) {
-    body.replaceChildren();
-    setText("posts-summary", "");
+    list.replaceChildren();
+    if (empty) empty.hidden = false;
+    if (summary) {
+      summary.hidden = true;
+      summary.textContent = "";
+    }
     return;
   }
+  if (empty) empty.hidden = true;
   const user = data.user || {};
   const posts = Array.isArray(data.posts) ? data.posts : [];
-  setText(
-    "posts-summary",
-    `${user.displayName || "（没有称呼）"} · ${user.email || user.id || "—"} · 共 ${fmtInt(data.total)} 条${
-      data.within ? ` · 时间窗 ${data.within}` : ""
-    }`
-  );
+  if (summary) {
+    const within = data.within ? t("content.summaryWithin", { within: data.within }) : "";
+    summary.hidden = false;
+    summary.textContent =
+      t("content.summary", {
+        name: user.displayName || t("content.noName"),
+        ident: user.email || user.id || "—",
+        total: fmtInt(data.total),
+      }) + within;
+  }
   if (!posts.length) {
-    body.replaceChildren(el("tr", {}, el("td", { class: "empty", colspan: "5", text: "这个人没有对上的帖子。" })));
+    list.replaceChildren(emptyBlock("content.emptyList", "content"));
     return;
   }
-  body.replaceChildren(
-    ...posts.map((post) => {
-      const remove = el("button", { class: "button danger", type: "button", text: "删除" });
-      remove.addEventListener("click", () => removePost(post));
-      return el(
-        "tr",
-        {},
-        el("td", { text: fmtDate(post.createdAt) }),
-        el("td", {}, el("span", { class: `pill ${post.verdict || ""}`, text: verdictLabel(post.verdict) })),
-        el("td", { text: post.public === false ? "否" : "是" }),
-        el("td", { class: "cell-body", text: utf8(post.body) || "（没有正文）" }),
-        el("td", { class: "cell-actions" }, remove)
-      );
-    })
-  );
+  list.replaceChildren(...posts.map(postRow));
 }
 
 async function removePost(post) {
-  const reason = window.prompt("删除原因（会写进作者的通知）：", "");
+  const reason = window.prompt(t("content.removeTitle"), "");
   if (reason == null) return;
   const text = reason.trim();
   if (!text) {
-    toast("原因不能为空。", "error");
+    toast(t("content.reasonRequired"), "error");
     return;
   }
-  if (!window.confirm(`确认删除这条帖子？\n\n${text}`)) return;
+  if (!window.confirm(t("content.removeConfirm", { reason: text }))) return;
   const result = await guard(() =>
     api(`/posts/${encodeURIComponent(post.id)}/remove`, { method: "POST", body: { reason: text } })
   );
   if (!result) return;
-  toast(result.already ? "这条之前已经删除过。" : "已删除，作者会收到通知。", "ok");
+  toast(result.already ? t("content.alreadyRemoved") : t("content.removed"), "ok");
   await loadPosts();
 }
 
@@ -466,178 +672,670 @@ async function loadPatrol() {
   }
 }
 
-function renderPatrol() {
-  const list = byId("patrol-list");
-  if (!list) return;
-  if (!state.patrol.length) {
-    list.replaceChildren(el("p", { class: "muted", text: "上次巡查之后没有新留下的公开帖。" }));
-    return;
-  }
-  list.replaceChildren(
-    ...state.patrol.map((post) => {
-      const remove = el("button", { class: "button danger", type: "button", text: "删除" });
-      remove.addEventListener("click", () => patrolRemove(post));
-      const warn = el("button", { class: "button secondary", type: "button", text: "警告" });
-      warn.addEventListener("click", () => patrolWarn(post));
-      return el(
-        "article",
-        { class: "patrol-item" },
-        el(
-          "p",
-          { class: "patrol-meta" },
-          el("span", { text: post.user?.displayName || "（没有称呼）" }),
-          el("span", { text: post.user?.email || "" }),
-          el("span", { text: fmtDate(post.createdAt) }),
-          el("span", { text: post.id })
-        ),
-        el("p", { class: "patrol-body", text: utf8(post.body) || "（没有正文）" }),
-        el("div", { class: "patrol-actions" }, remove, warn)
-      );
-    })
+function patrolItem(post) {
+  const remove = el(
+    "button",
+    {
+      class: "button danger compact",
+      type: "button",
+      "aria-label": t("content.remove"),
+      on: { click: () => void patrolRemove(post) },
+    },
+    iconEl("trash", 14),
+    el("span", { text: t("content.remove") })
+  );
+  const warn = el(
+    "button",
+    {
+      class: "button secondary compact",
+      type: "button",
+      on: { click: () => void patrolWarn(post) },
+    },
+    iconEl("alert", 14),
+    el("span", { text: t("content.warn") })
+  );
+  return el(
+    "article",
+    { class: "patrol-item" },
+    el(
+      "p",
+      { class: "patrol-head" },
+      badgeNode("person", 12),
+      el("span", { class: "patrol-name", text: post.user?.displayName || t("content.noName") }),
+      el("span", { text: post.user?.email || "" }),
+      el("span", { text: fmtDate(post.createdAt) }),
+      el("span", { text: post.id })
+    ),
+    el("p", { class: "patrol-body", text: utf8(post.body) || t("content.noBody") }),
+    el("div", { class: "patrol-actions" }, remove, warn)
   );
 }
 
+function renderPatrol() {
+  const list = byId("patrol-list");
+  const tag = byId("patrol-count");
+  if (!list) return;
+  const count = state.patrol.length;
+  if (tag) {
+    tag.textContent = t("content.patrolCount", { count });
+    tag.classList.toggle("is-warn", count > 0);
+  }
+  if (!count) {
+    list.replaceChildren(emptyBlock("content.patrolEmpty", "check"));
+    return;
+  }
+  list.replaceChildren(...state.patrol.map(patrolItem));
+}
+
 async function patrolRemove(post) {
-  const reason = window.prompt("删除原因（会写进作者的通知）：", "");
+  const reason = window.prompt(t("content.removeTitle"), "");
   if (reason == null) return;
   const text = reason.trim();
   if (!text) {
-    toast("原因不能为空。", "error");
+    toast(t("content.reasonRequired"), "error");
     return;
   }
-  if (!window.confirm(`确认删除这条帖子？\n\n${text}`)) return;
+  if (!window.confirm(t("content.removeConfirm", { reason: text }))) return;
   const result = await guard(() =>
     api(`/posts/${encodeURIComponent(post.id)}/remove`, { method: "POST", body: { reason: text } })
   );
   if (!result) return;
-  toast(result.already ? "这条之前已经删除过。" : "已删除，作者会收到通知。", "ok");
+  toast(result.already ? t("content.alreadyRemoved") : t("content.removed"), "ok");
   await loadPatrol();
 }
 
 async function patrolWarn(post) {
-  const text = window.prompt("警告原文（会发给作者）：", "");
+  const text = window.prompt(t("content.warnTitle"), "");
   if (text == null) return;
   const body = text.trim();
   if (!body) {
-    toast("警告原文不能为空。", "error");
+    toast(t("content.warnRequired"), "error");
     return;
   }
-  const result = await guard(() =>
-    api("/warnings", { method: "POST", body: { user: post.user?.id, body } })
-  );
+  const result = await guard(() => api("/warnings", { method: "POST", body: { user: post.user?.id, body } }));
   if (!result) return;
-  toast("警告已发出。", "ok");
+  toast(t("content.warned"), "ok");
 }
 
 async function recordPatrol(event) {
   event.preventDefault();
   const body = byId("patrol-body").value.trim();
   if (!body) {
-    toast("先写这次巡查的记录。", "error");
+    toast(t("content.patrolNeeded"), "error");
     return;
   }
   const result = await guard(() => api("/patrol", { method: "POST", body: { body } }));
   if (!result) return;
   byId("patrol-body").value = "";
-  toast("巡查已记录。", "ok");
+  toast(t("content.patrolSaved"), "ok");
 }
 
 /* 用户 */
 
-function selectedIsProtected() {
-  return state.selectedUser?.label === "platform";
+const ROLE_KEYS = {
+  platform: "users.rolePlatform",
+  owner: "users.roleOwner",
+  user: "users.roleUser",
+  agent: "users.roleAgent",
+};
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// 名册徽标：人、Agent、平台各一枚线条图标，形状与 WebUI 的 UserIcon / AgentIcon 一致，
+// 让「这一行是人还是机器人」在名字之前就先看出来。
+const IDENTITY_ICONS = {
+  person: [
+    ["circle", { cx: 12, cy: 8, r: 3.5 }],
+    ["path", { d: "M5 19c0-3.5 3-6 7-6s7 2.5 7 6" }],
+  ],
+  agent: [
+    ["path", { d: "M12 7.2V4.6" }],
+    ["circle", { cx: 12, cy: 3.8, r: 0.85, fill: "currentColor", stroke: "none" }],
+    ["rect", { x: 5.5, y: 7.2, width: 13, height: 10.2, rx: 2.6 }],
+    ["circle", { cx: 9.6, cy: 11.6, r: 0.85, fill: "currentColor", stroke: "none" }],
+    ["circle", { cx: 14.4, cy: 11.6, r: 0.85, fill: "currentColor", stroke: "none" }],
+    ["path", { d: "M9.5 14.6h5" }],
+  ],
+  platform: [
+    ["path", { d: "M4 20.2h16" }],
+    ["path", { d: "M6.2 20.2V9.4L12 5.2l5.8 4.2v10.8" }],
+    ["path", { d: "M10.2 20.2v-4.4h3.6v4.4" }],
+    ["path", { d: "M9 11.4h1.7M13.3 11.4H15M9 14.6h1.7M13.3 14.6H15" }],
+  ],
+};
+
+function identityKind(record) {
+  if (!record) return "person";
+  if (record.role === "agent") return "agent";
+  if (record.role === "platform") return "platform";
+  return "person";
 }
 
-async function searchUsers(event) {
-  event.preventDefault();
-  const q = byId("users-q").value.trim();
-  if (!q) return;
-  const data = await guard(() => api(`/users?q=${encodeURIComponent(q)}`));
-  if (!data) return;
-  state.users = Array.isArray(data.users) ? data.users : [];
-  state.selectedUser = state.users.length === 1 ? state.users[0] : null;
-  renderUserList();
+function iconNode(kind, size = 16) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of IDENTITY_ICONS[kind] || IDENTITY_ICONS.person) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, String(value));
+    svg.append(node);
+  }
+  return svg;
+}
+
+function badgeNode(kind, size = 18) {
+  const badge = el("span", { class: `identity-mark is-${kind}`, "aria-hidden": "true" });
+  badge.append(iconNode(kind, size));
+  return badge;
+}
+
+function roleLabel(account) {
+  return account?.role ? t(ROLE_KEYS[account.role] || "users.roleAccount") : t("users.roleAccount");
+}
+
+// 积分、等级、权益与禁言只记在人这一行。平台账号只读，Agent 行不单独持有这些。
+function canManage(account) {
+  return account?.role === "owner" || account?.role === "user";
+}
+
+// 管理端能改谁：主理人，以及主理人名下的内部 Agent。与 Backend 的 editableIdentity 同一口径。
+function canEditIdentity(record) {
+  if (!record) return false;
+  if (record.role === "owner") return true;
+  return record.role === "agent" && record.side === "internal";
+}
+
+function selection() {
+  if (state.selectedAgent) return { kind: "agent", agent: state.selectedAgent, account: state.selectedUser };
+  if (state.selectedUser) return { kind: "account", agent: null, account: state.selectedUser };
+  return null;
+}
+
+function accountMeta(account) {
+  if (account.role === "platform") return t("users.metaMachine");
+  return account.email || `id ${account.id}`;
+}
+
+function accountSummary(account) {
+  if (account.role === "platform") return t("users.summaryReadonly");
+  let text = t("users.summary", { points: fmtInt(account.pointsBalance), level: account.level ?? 1 });
+  if (account.agentLimit) {
+    text += t("users.summaryAgents", { used: account.agentUsed ?? 0, limit: account.agentLimit });
+  }
+  if (account.muted) {
+    text += account.mutedUntil
+      ? t("users.summaryMutedUntil", { until: fmtDate(account.mutedUntil) })
+      : t("users.summaryMuted");
+  }
+  return text;
+}
+
+function agentStateText(agent) {
+  if (agent.retiredAt) return t("users.stateRetired", { when: fmtDate(agent.retiredAt) });
+  return agent.hasToken ? t("users.stateToken") : t("users.stateNoToken");
+}
+
+function agentMatches(agent, needle) {
+  return [agent.displayName, agent.id, agent.bio, ...(Array.isArray(agent.specialties) ? agent.specialties : [])]
+    .join(" ")
+    .toLowerCase()
+    .includes(needle);
+}
+
+function accountMatches(account, needle) {
+  if (!needle) return true;
+  const self = [account.displayName, account.email, account.bio, account.id, account.label]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+  if (self.includes(needle)) return true;
+  return (account.agents || []).some((agent) => agentMatches(agent, needle));
+}
+
+function findAgent(id) {
+  for (const account of state.accounts) {
+    const agent = (account.agents || []).find((row) => row.id === id);
+    if (agent) return { agent, account };
+  }
+  return null;
+}
+
+// 刷新名册后把选中项对回新数据：Agent 可能被停用、账号可能被改名，行对象要换成本次这一份。
+function restoreSelection() {
+  const agentId = state.selectedAgent?.id;
+  const accountId = state.selectedUser?.id;
+  state.selectedAgent = null;
+  state.selectedUser = accountId ? state.accounts.find((row) => row.id === accountId) || null : null;
+  if (!agentId) return;
+  const found = findAgent(agentId);
+  if (found) {
+    state.selectedUser = found.account;
+    state.selectedAgent = found.agent;
+  }
+}
+
+async function loadAccounts() {
+  const list = byId("users-list");
+  if (list) list.setAttribute("aria-busy", "true");
+  setText("roster-count", t("users.rosterLoading"));
+  const data = await guard(() => api("/accounts"));
+  if (list) list.setAttribute("aria-busy", "false");
+  if (!data) {
+    setText("roster-count", t("users.rosterFailed"));
+    return;
+  }
+  state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
+  state.quota = data.quota || null;
+  restoreSelection();
+  renderRoster();
   renderUserPanel();
-  if (!state.users.length) toast("没有对上的人。", "ok");
+  renderIssueQuota();
 }
 
-function userLine(user) {
-  const side = user.side === "internal" ? "内部" : "外部";
-  const label = user.label ? ` · ${user.label}` : "";
-  return `${side}${label} · 等级 ${user.level ?? 1} · 积分 ${fmtInt(user.pointsBalance)}`;
+function selectAccount(account) {
+  state.selectedUser = account;
+  state.selectedAgent = null;
+  renderRoster();
+  renderUserPanel();
+  revealPanel();
 }
 
-function renderUserList() {
+function selectAgent(agent, account) {
+  state.selectedUser = account || null;
+  state.selectedAgent = agent;
+  renderRoster();
+  renderUserPanel();
+  revealPanel();
+}
+
+// 窄屏上详情在名册下面：选中一行后把它带进视口，不用自己往下滚。
+function revealPanel() {
+  if (typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 1180px)").matches) return;
+  byId("user-panel")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function accountRow(account) {
+  const selected = !state.selectedAgent && state.selectedUser?.id === account.id;
+  const kind = identityKind(account);
+  const name = el(
+    "span",
+    { class: "user-name" },
+    el("span", { class: "user-name-text", text: account.displayName || t("users.noName") }),
+    el("span", { class: `role-pill is-${kind}`, text: roleLabel(account) }),
+    account.label ? el("span", { class: "pill", text: account.label }) : null,
+    account.muted ? el("span", { class: "pill is-warn", text: t("users.mutedTag") }) : null
+  );
+  const pick = el(
+    "button",
+    {
+      class: "row-pick",
+      type: "button",
+      "aria-pressed": selected ? "true" : "false",
+      on: { click: () => selectAccount(account) },
+    },
+    badgeNode(kind),
+    el(
+      "span",
+      { class: "user-main" },
+      name,
+      el("span", { class: "user-meta", text: accountMeta(account) })
+    ),
+    el("span", { class: "user-side", text: accountSummary(account) })
+  );
+  return el("div", { class: `user-row${selected ? " is-selected" : ""}` }, pick);
+}
+
+function agentRow(agent, account) {
+  const selected = state.selectedAgent?.id === agent.id;
+  const specialties =
+    (Array.isArray(agent.specialties) ? agent.specialties : []).join("、") || t("users.specialtiesNone");
+  const meta = t("users.underOwner", { owner: account.displayName || t("users.noName"), specialties });
+  const pick = el(
+    "button",
+    {
+      class: "row-pick",
+      type: "button",
+      "aria-pressed": selected ? "true" : "false",
+      on: { click: () => selectAgent(agent, account) },
+    },
+    badgeNode("agent", 16),
+    el(
+      "span",
+      { class: "user-main" },
+      el(
+        "span",
+        { class: "user-name" },
+        el("span", { class: "user-name-text", text: agent.displayName }),
+        el("span", { class: "role-pill is-agent", text: "Agent" }),
+        agent.retiredAt ? el("span", { class: "pill", text: t("users.retiredTag") }) : null
+      ),
+      el("span", { class: "user-meta", text: meta })
+    ),
+    el("span", { class: "user-side", text: agentStateText(agent) })
+  );
+  const actions = el("span", { class: "agent-actions" });
+  if (!agent.retiredAt) {
+    actions.append(
+      el("button", {
+        class: "button danger compact",
+        type: "button",
+        text: t("users.retire"),
+        on: { click: () => void retireAgent(agent) },
+      })
+    );
+  }
+  return el(
+    "div",
+    {
+      class: `user-row agent-row${selected ? " is-selected" : ""}${agent.retiredAt ? " is-retired" : ""}`,
+    },
+    pick,
+    actions
+  );
+}
+
+function quotaChip(label, used, limit) {
+  const chip = el("div", { class: "quota-chip" });
+  const value = el("span", { class: "quota-value" }, el("strong", { text: fmtInt(used) }));
+  if (limit) value.append(el("span", { class: "quota-limit", text: ` / ${fmtInt(limit)}` }));
+  chip.append(el("span", { class: "quota-label", text: label }), value);
+  if (limit) {
+    const full = Number(used) >= Number(limit);
+    const bar = el("progress", { class: `quota-bar${full ? " is-full" : ""}`, max: String(limit), value: String(Math.min(Number(used) || 0, Number(limit))) });
+    bar.setAttribute("aria-label", `${label} ${fmtInt(used)}/${fmtInt(limit)}`);
+    chip.append(bar);
+  }
+  return chip;
+}
+
+function renderRosterQuota() {
+  const strip = byId("users-quota");
+  if (!strip) return;
+  const quota = state.quota;
+  if (!quota) {
+    strip.replaceChildren();
+    return;
+  }
+  strip.replaceChildren(
+    quotaChip(t("users.quotaInternalAgent"), quota.internalAgents?.used, quota.internalAgents?.limit),
+    quotaChip(t("users.quotaExternalAccount"), quota.externalAccounts?.used, quota.externalAccounts?.limit),
+    quotaChip(t("users.quotaExternalAgent"), quota.externalAgents?.used, 0)
+  );
+}
+
+const ROSTER_GROUPS = [
+  { role: "platform", key: "groupPlatform" },
+  { role: "owner", key: "groupInternal" },
+  { role: "user", key: "groupExternal" },
+];
+
+function renderRoster() {
   const list = byId("users-list");
   if (!list) return;
-  if (!state.users.length) {
-    list.replaceChildren(el("p", { class: "muted", text: "输入邮箱、称呼或用户 id 查找。" }));
+  renderRosterQuota();
+  const needle = (byId("users-q")?.value || "").trim().toLowerCase();
+  const visible = state.accounts.filter((account) => accountMatches(account, needle));
+  const agentTotal = state.accounts.reduce((sum, account) => sum + (account.agents || []).length, 0);
+  if (!state.accounts.length) {
+    setText("roster-count", t("users.rosterEmpty"));
+    list.replaceChildren(el("p", { class: "empty-state", text: t("users.rosterEmptyHint") }));
+    return;
+  }
+  setText(
+    "roster-count",
+    needle
+      ? t("users.rosterFiltered", { accounts: fmtInt(visible.length), agents: fmtInt(agentTotal) })
+      : t("users.rosterCount", { accounts: fmtInt(state.accounts.length), agents: fmtInt(agentTotal) })
+  );
+  if (!visible.length) {
+    list.replaceChildren(el("p", { class: "empty-state", text: t("users.filterEmpty", { query: needle }) }));
     return;
   }
   list.replaceChildren(
-    ...state.users.map((user) => {
-      const button = el(
-        "button",
-        {
-          class: `user-row${state.selectedUser?.id === user.id ? " is-selected" : ""}`,
-          type: "button",
-        },
+    ...ROSTER_GROUPS.map((group) => {
+      const items = visible.filter((account) => account.role === group.role);
+      if (!items.length) return null;
+      return el(
+        "section",
+        { class: "account-group" },
         el(
-          "span",
-          { class: "user-main" },
-          el("span", { class: "user-name", text: user.displayName || "（没有称呼）" }),
-          el("span", { class: "user-meta", text: user.email || user.id })
+          "h4",
+          { class: "account-group-title" },
+          el("span", { text: t(`users.${group.key}`) }),
+          el("span", { class: "account-group-count", text: String(items.length) })
         ),
-        el("span", { class: "user-side", text: userLine(user) })
+        el("p", { class: "muted small", text: t(`users.${group.key}Hint`) }),
+        ...items.flatMap((account) => [
+          accountRow(account),
+          ...(account.agents || []).map((agent) => agentRow(agent, account)),
+        ])
       );
-      button.addEventListener("click", () => {
-        state.selectedUser = user;
-        renderUserList();
-        renderUserPanel();
-      });
-      return button;
-    })
+    }).filter(Boolean)
   );
+}
+
+function factsRows(rows) {
+  return rows.map(([label, value]) =>
+    el("div", {}, el("dt", { text: label }), el("dd", { text: value }))
+  );
+}
+
+function identityFacts(record, picked) {
+  const isAgent = picked.kind === "agent";
+  const account = picked.account || record;
+  const rows = [[t("users.factType"), roleLabel(record)]];
+  if (isAgent) {
+    rows.push([t("users.factOwner"), account?.displayName || "—"]);
+    rows.push([t("users.factName"), record.displayName || "—"]);
+    rows.push([t("users.factSpecialties"), (record.specialties || []).join("、") || t("users.specialtiesNone")]);
+    rows.push([t("users.factState"), agentStateText(record)]);
+  } else {
+    rows.push([t("users.factName"), record.displayName || "—"]);
+    rows.push([
+      t("users.factEmail"),
+      record.email || (record.role === "platform" ? t("users.factMachineNoEmail") : t("users.factNoEmail")),
+    ]);
+    if (record.role === "platform") rows.push([t("users.factState"), t("users.factPlatformState")]);
+    else {
+      rows.push([t("users.factLevel"), String(record.level ?? 1)]);
+      rows.push([t("users.factPoints"), fmtInt(record.pointsBalance)]);
+      rows.push([
+        t("users.factMute"),
+        record.muted
+          ? record.mutedUntil
+            ? t("users.factMuteUntil", { when: fmtDate(record.mutedUntil) })
+            : t("users.factMuteForever")
+          : t("users.factMuteNone"),
+      ]);
+      rows.push([t("users.factEntitlements"), (record.entitlements || []).join("、") || t("common.none")]);
+    }
+    if (record.label) rows.push(["label", record.label]);
+  }
+  rows.push([t("users.factUserId"), record.id]);
+  rows.push([t("users.factCreated"), fmtDate(record.createdAt)]);
+  return rows;
+}
+
+function identityDraft() {
+  return {
+    name: byId("identity-name")?.value ?? "",
+    bio: byId("identity-bio")?.value ?? "",
+    specialties: splitList(byId("identity-specialties")?.value),
+  };
+}
+
+// 前端先照 Backend 的规则挡一次，错在字段旁边说清；真边界仍以接口为准。
+function identityProblem(record, draft, { checkName }) {
+  if (checkName) {
+    const name = draft.name.replace(/\s+/g, " ").trim();
+    if (!name) return t("users.nameRequired");
+    if (Array.from(name).length > 40) return t("users.nameTooLong");
+  }
+  const bio = draft.bio.replace(/\r\n?/g, "\n").trim();
+  if (Array.from(bio).length > 200) return t("users.bioTooLong");
+  if (record.role === "agent") {
+    if (draft.specialties.length > 8) return t("users.specialtiesTooMany");
+    if (draft.specialties.some((item) => Array.from(item).length > 20)) return t("users.specialtyTooLong");
+  }
+  return "";
+}
+
+function fillIdentityForm(record) {
+  const name = byId("identity-name");
+  if (name) {
+    name.value = record.displayName || "";
+    name.disabled = false;
+    name.setAttribute("aria-describedby", "identity-name-hint");
+  }
+  setText(
+    "identity-name-hint",
+    record.role === "agent" ? t("users.nameHintAgent") : t("users.nameHintPerson")
+  );
+  const bio = byId("identity-bio");
+  if (bio) bio.value = record.bio || "";
+  const field = byId("identity-specialty-field");
+  if (field) field.hidden = record.role !== "agent";
+  const specialties = byId("identity-specialties");
+  if (specialties) specialties.value = (record.specialties || []).join(", ");
+  updateBioCount();
+  setAlert(byId("identity-error"), "", "error");
+}
+
+function updateBioCount() {
+  const bio = byId("identity-bio")?.value || "";
+  setText("identity-bio-count", `${Array.from(bio).length} / 200`);
 }
 
 function renderUserPanel() {
   const panel = byId("user-panel");
+  const empty = byId("detail-empty");
   if (!panel) return;
-  const user = state.selectedUser;
-  if (!user) {
+  const picked = selection();
+  if (!picked) {
     panel.hidden = true;
+    if (empty) empty.hidden = false;
     return;
   }
+  const record = picked.kind === "agent" ? picked.agent : picked.account;
+  const account = picked.account || record;
   panel.hidden = false;
-  setText("user-summary", user.displayName || user.email || user.id);
-  const mute = user.muted ? `禁言至 ${user.mutedUntil ? fmtDate(user.mutedUntil) : "平台解除"}` : "未禁言";
-  const honors = Array.isArray(user.entitlements) && user.entitlements.length ? user.entitlements.join("、") : "无";
-  const note = [
-    user.email || "（没有邮箱）",
-    `用户 id ${user.id}`,
-    user.side === "internal" ? "内部账户" : "外部账户",
-    user.label ? `label ${user.label}` : "",
-    `等级 ${user.level ?? 1}`,
-    `积分 ${fmtInt(user.pointsBalance)}`,
-    mute,
-    `权益 ${honors}`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  setText("user-note", selectedIsProtected() ? `${note} · 平台账户受保护` : note);
-  const level = byId("level-value");
-  if (level) level.value = user.level ?? 1;
-  for (const button of document.querySelectorAll("#user-panel form button[type=submit]")) {
-    button.disabled = selectedIsProtected();
+  if (empty) empty.hidden = true;
+
+  const kind = identityKind(record);
+  const mark = byId("user-mark");
+  if (mark) {
+    mark.className = `identity-mark is-${kind}`;
+    mark.replaceChildren(iconNode(kind, 20));
   }
+
+  setText("user-summary", record.displayName || record.email || record.id);
+  const note = [
+    roleLabel(record),
+    picked.kind === "agent" ? t("users.underOwnerShort", { owner: account?.displayName || t("users.noName") }) : accountMeta(record),
+    `id ${record.id}`,
+    record.retiredAt ? t("users.stateRetired", { when: fmtDate(record.retiredAt) }) : "",
+  ].filter(Boolean);
+  setText("user-note", note.join(" · "));
+
+  const editable = canEditIdentity(record);
+  const form = byId("identity-form");
+  if (form) form.hidden = !editable;
+  const readonly = byId("identity-readonly");
+  if (readonly) {
+    readonly.hidden = editable;
+    readonly.textContent =
+      record.role === "platform"
+        ? t("users.readonlyPlatform")
+        : picked.kind === "agent"
+          ? t("users.readonlyAgent")
+          : t("users.readonlyAccount");
+  }
+  setText("identity-mode", editable ? t("users.editable") : t("users.readonly"));
+  if (editable) fillIdentityForm(record);
+
+  const facts = byId("identity-facts");
+  if (facts) facts.replaceChildren(...factsRows(identityFacts(record, picked)));
+
+  // 运营操作只挂在人这一行：Agent 的积分、禁言与权益都算所属账号的。
+  const actions = byId("user-actions");
+  const manageable = picked.kind === "account" && canManage(record);
+  if (actions) actions.hidden = !manageable;
+  const note2 = byId("actions-note");
+  if (note2) {
+    note2.hidden = !manageable || record.role === "owner";
+    note2.textContent = t("users.actionsNote");
+  }
+  if (manageable) {
+    const level = byId("level-value");
+    if (level) level.value = record.level ?? 1;
+  }
+}
+
+async function submitIdentity(event) {
+  event.preventDefault();
+  const picked = selection();
+  if (!picked) return;
+  const record = picked.kind === "agent" ? picked.agent : picked.account;
+  if (!canEditIdentity(record)) return;
+  const draft = identityDraft();
+  const problem = identityProblem(record, draft, { checkName: true });
+  if (problem) {
+    setAlert(byId("identity-error"), problem, "error");
+    return;
+  }
+
+  const patch = {};
+  const name = draft.name.replace(/\s+/g, " ").trim();
+  if (name !== record.displayName) patch.displayName = name;
+  const bio = draft.bio.replace(/\r\n?/g, "\n").trim();
+  if (bio !== (record.bio || "")) patch.bio = bio;
+  if (record.role === "agent" && draft.specialties.join("\u0000") !== (record.specialties || []).join("\u0000")) {
+    patch.specialties = draft.specialties;
+  }
+  if (!Object.keys(patch).length) {
+    setAlert(byId("identity-error"), t("users.noChange"), "error");
+    return;
+  }
+
+  const save = byId("identity-save");
+  if (save) {
+    save.disabled = true;
+    save.textContent = t("common.saving");
+  }
+  setAlert(byId("identity-error"), "", "error");
+  try {
+    await api(`/accounts/${encodeURIComponent(record.id)}/profile`, { method: "POST", body: patch });
+    await loadAccounts();
+    toast(t("users.saved"), "ok");
+  } catch (error) {
+    if (handleAuth(error)) return;
+    setAlert(byId("identity-error"), humanError(error), "error");
+  } finally {
+    if (save) {
+      save.disabled = false;
+      save.textContent = t("users.save");
+    }
+  }
+}
+
+function resetIdentity() {
+  const picked = selection();
+  if (!picked) return;
+  fillIdentityForm(picked.kind === "agent" ? picked.agent : picked.account);
 }
 
 function updateUser(next) {
   if (!next) return;
-  const index = state.users.findIndex((user) => user.id === next.id);
-  if (index >= 0) state.users[index] = { ...state.users[index], ...next };
+  const index = state.accounts.findIndex((account) => account.id === next.id);
+  if (index >= 0) state.accounts[index] = { ...state.accounts[index], ...next };
   if (state.selectedUser?.id === next.id) state.selectedUser = { ...state.selectedUser, ...next };
-  renderUserList();
+  renderRoster();
   renderUserPanel();
 }
 
@@ -648,11 +1346,11 @@ async function submitGrant(event) {
   const amount = Number(byId("grant-amount").value);
   const body = byId("grant-body").value.trim();
   if (!Number.isSafeInteger(amount) || amount <= 0) {
-    toast("积分数量要是正整数。", "error");
+    toast(t("users.amountBad"), "error");
     return;
   }
   if (!body) {
-    toast("原因不能为空。", "error");
+    toast(t("users.reasonRequired"), "error");
     return;
   }
   const data = await guard(() => api("/points", { method: "POST", body: { user: user.id, amount, body } }));
@@ -660,7 +1358,7 @@ async function submitGrant(event) {
   byId("grant-amount").value = "";
   byId("grant-body").value = "";
   updateUser(data.user);
-  toast(`已发放 ${amount}，余额 ${fmtInt(data.pointsBalance)}。`, "ok");
+  toast(t("users.granted", { amount: fmtInt(amount), balance: fmtInt(data.pointsBalance) }), "ok");
 }
 
 async function submitWarn(event) {
@@ -669,14 +1367,14 @@ async function submitWarn(event) {
   if (!user) return;
   const body = byId("warn-body").value.trim();
   if (!body) {
-    toast("警告原文不能为空。", "error");
+    toast(t("users.warnRequired"), "error");
     return;
   }
   const data = await guard(() => api("/warnings", { method: "POST", body: { user: user.id, body } }));
   if (!data) return;
   byId("warn-body").value = "";
   updateUser(data.user);
-  toast("警告已发出。", "ok");
+  toast(t("users.warned"), "ok");
 }
 
 async function submitMute(event) {
@@ -685,7 +1383,7 @@ async function submitMute(event) {
   if (!user) return;
   const body = byId("mute-body").value.trim();
   if (!body) {
-    toast("原因不能为空。", "error");
+    toast(t("users.reasonRequired"), "error");
     return;
   }
   const data = await guard(() =>
@@ -694,7 +1392,7 @@ async function submitMute(event) {
   if (!data) return;
   byId("mute-body").value = "";
   updateUser(data.user);
-  toast("已禁言。", "ok");
+  toast(t("users.muted"), "ok");
 }
 
 async function submitUnmute(event) {
@@ -703,14 +1401,14 @@ async function submitUnmute(event) {
   if (!user) return;
   const body = byId("unmute-body").value.trim();
   if (!body) {
-    toast("原因不能为空。", "error");
+    toast(t("users.reasonRequired"), "error");
     return;
   }
   const data = await guard(() => api("/unmute", { method: "POST", body: { user: user.id, body } }));
   if (!data) return;
   byId("unmute-body").value = "";
   updateUser(data.user);
-  toast(data.already ? "这个人本来就没有被禁言。" : "已解除禁言。", "ok");
+  toast(data.already ? t("users.unmutedAlready") : t("users.unmuted"), "ok");
 }
 
 async function submitLevel(event) {
@@ -720,18 +1418,18 @@ async function submitLevel(event) {
   const level = Number(byId("level-value").value);
   const body = byId("level-body").value.trim();
   if (!Number.isSafeInteger(level) || level < 1 || level > 100) {
-    toast("等级是 1 到 100 的整数。", "error");
+    toast(t("users.levelBad"), "error");
     return;
   }
   if (!body) {
-    toast("原因不能为空。", "error");
+    toast(t("users.reasonRequired"), "error");
     return;
   }
   const data = await guard(() => api("/level", { method: "POST", body: { user: user.id, level, body } }));
   if (!data) return;
   byId("level-body").value = "";
   updateUser(data.user);
-  toast(data.already ? "等级没有变化。" : `等级改为 ${level}。`, "ok");
+  toast(data.already ? t("users.levelSame") : t("users.levelChanged", { level: fmtInt(level) }), "ok");
 }
 
 async function submitEntitlements(event) {
@@ -742,11 +1440,11 @@ async function submitEntitlements(event) {
   const revoke = splitList(byId("entitlement-revoke").value);
   const body = byId("entitlement-body").value.trim();
   if (!grant.length && !revoke.length) {
-    toast("至少写一个要授予或收回的权益。", "error");
+    toast(t("users.entitlementNeeded"), "error");
     return;
   }
   if (!body) {
-    toast("原因不能为空。", "error");
+    toast(t("users.reasonRequired"), "error");
     return;
   }
   const data = await guard(() =>
@@ -757,7 +1455,7 @@ async function submitEntitlements(event) {
   byId("entitlement-revoke").value = "";
   byId("entitlement-body").value = "";
   updateUser(data.user);
-  toast(data.already ? "权益没有变化。" : "权益已更新。", "ok");
+  toast(data.already ? t("users.entitlementSame") : t("users.entitlementsUpdated"), "ok");
 }
 
 async function submitIssue(event) {
@@ -765,7 +1463,7 @@ async function submitIssue(event) {
   const name = byId("issue-name").value.trim();
   const specialties = splitList(byId("issue-specialties").value);
   if (!name) {
-    toast("称呼不能为空。", "error");
+    toast(t("users.issueEmpty"), "error");
     return;
   }
   const body = specialties.length ? { name, specialties } : { name };
@@ -775,75 +1473,54 @@ async function submitIssue(event) {
   let message;
   const agent = data.agent || {};
   const who = `${agent.displayName || name}（${agent.id || "—"}）`;
+  const file = data.envFile || "KNOT_AGENT_ENV_DIR";
   if (data.already) {
-    message = `已在：${who}，授权码没有换。要换码请停用它再签发。`;
+    message = t("users.issueAlready", { who });
   } else if (data.created) {
-    message = `已签发：${who}。授权码写在 ${data.envFile || "KNOT_AGENT_ENV_DIR"}，这里不会显示。`;
+    message = t("users.issueCreated", { who, file });
   } else {
-    message = `已复起：${who}。新授权码写在 ${data.envFile || "KNOT_AGENT_ENV_DIR"}，这里不会显示。`;
+    message = t("users.issueRevived", { who, file });
   }
   setAlert(result, message, "ok");
-  loadAgents();
+  byId("issue-name").value = "";
+  byId("issue-specialties").value = "";
+  await loadAccounts();
 }
 
-async function loadAgents() {
-  const data = await guard(() => api("/agents"));
-  if (!data) return;
-  state.agents = Array.isArray(data.agents) ? data.agents : [];
-  renderAgents(data);
-}
-
-function renderAgents(data) {
-  setText(
-    "agents-quota",
-    `内部 Agent ${data.internalUsed}/${data.internalLimit} · 外部账号 ${data.userUsed}/${data.userLimit}`
-  );
-  const list = byId("agents-list");
-  if (!list) return;
-  if (!state.agents.length) {
-    list.replaceChildren(el("p", { class: "muted", text: "还没有签发内部 Agent。" }));
+// 签发只落在主理人名下：外部账号的 Agent 由账号自己在「我的」里开通，一个账号一个。
+// 名额满时先不让点，别让人填完称呼才收到 409。
+function renderIssueQuota() {
+  const quota = state.quota;
+  const note = byId("issue-quota");
+  const submit = byId("issue-submit");
+  if (!note) return;
+  if (!quota) {
+    note.textContent = t("users.issueQuotaReading");
+    if (submit) submit.disabled = false;
     return;
   }
-  list.replaceChildren(
-    ...state.agents.map((agent) => {
-      const row = el(
-        "div",
-        { class: "user-row" },
-        el(
-          "span",
-          { class: "user-main" },
-          el("span", { class: "user-name", text: agent.displayName }),
-          el("span", {
-            class: "user-meta",
-            text: `${agent.id} · ${agent.retiredAt ? `已停用 ${fmtDate(agent.retiredAt)}` : "在岗"}`,
-          })
-        ),
-        el("span", { class: "user-side", text: agent.hasToken ? "有授权码" : "无授权码" })
-      );
-      if (!agent.retiredAt) {
-        row.append(
-          el("button", {
-            class: "button secondary",
-            type: "button",
-            text: "停用",
-            on: { click: () => retireAgent(agent) },
-          })
-        );
-      }
-      return row;
-    })
-  );
+  const used = Number(quota.internalAgents?.used) || 0;
+  const limit = Number(quota.internalAgents?.limit) || 0;
+  const owner = state.accounts.find((account) => account.role === "owner");
+  const target = owner ? t("users.ownerNamed", { name: owner.displayName }) : t("users.ownerMissing");
+  const full = limit > 0 && used >= limit;
+  note.textContent =
+    t("users.issueQuota", { target, used, limit }) + (full ? t("users.issueQuotaFull") : "");
+  if (submit) {
+    submit.disabled = full;
+    submit.title = full ? t("users.issueFullTitle") : "";
+  }
 }
 
 async function retireAgent(agent) {
-  const reason = window.prompt(`停用 ${agent.displayName} 的原因`, "停用");
+  const reason = window.prompt(t("users.retireTitle", { name: agent.displayName }), t("users.retireDefault"));
   if (reason == null) return;
   const data = await guard(() =>
-    api(`/agents/${encodeURIComponent(agent.id)}/retire`, { method: "POST", body: { body: reason.trim() || "停用" } })
+    api(`/agents/${encodeURIComponent(agent.id)}/retire`, { method: "POST", body: { body: reason.trim() || t("users.retireDefault") } })
   );
   if (!data) return;
-  toast("已停用，授权码作废。", "ok");
-  loadAgents();
+  toast(t("users.retired"), "ok");
+  await loadAccounts();
 }
 
 /* 站点 */
@@ -856,7 +1533,10 @@ function fillSystem(system) {
   if (guest) guest.checked = Boolean(system.guestBrowsing);
   if (board) board.checked = Boolean(system.publicBoard);
   if (mode) mode.value = system.registrationMode || "open";
-  setText("system-updated", system.updatedAt ? `上次修改：${fmtDate(system.updatedAt)}` : "还没有改过。");
+  setText(
+    "system-updated",
+    system.updatedAt ? t("site.updatedAt", { when: fmtDate(system.updatedAt) }) : t("site.neverChanged")
+  );
 }
 
 async function loadSystem() {
@@ -882,29 +1562,46 @@ async function saveSystem(event) {
   state.system = data.system;
   fillSystem(state.system);
   renderSystemFacts();
-  toast("开门方式已保存。", "ok");
+  toast(t("site.gateSaved"), "ok");
 }
 
 function renderInvites() {
   const body = byId("invites-list");
   if (!body) return;
   if (!state.invites.length) {
-    body.replaceChildren(el("tr", {}, el("td", { class: "empty", colspan: "5", text: "还没有邀请码。" })));
+    body.replaceChildren(emptyBlock("site.inviteNone"));
     return;
   }
   body.replaceChildren(
     ...state.invites.map((invite) => {
-      const disable = el("button", { class: "button danger", type: "button", text: "停用" });
+      const disable = el("button", {
+        class: "button danger compact",
+        type: "button",
+        text: t("site.disable"),
+      });
       disable.disabled = !invite.usable;
       disable.addEventListener("click", () => disableInvite(invite));
+      const meta = el(
+        "span",
+        { class: "invite-meta" },
+        el("span", { text: t("site.inviteRemaining", { used: invite.usedCount, max: invite.maxUses }) }),
+        el("span", {
+          text: invite.expiresAt
+            ? t("site.inviteExpires", { when: fmtDate(invite.expiresAt) })
+            : t("site.inviteNoExpiry"),
+        }),
+        invite.note ? el("span", { text: invite.note }) : null
+      );
       return el(
-        "tr",
-        {},
-        el("td", {}, el("code", { text: invite.code })),
-        el("td", { text: `${invite.usedCount}/${invite.maxUses}` }),
-        el("td", { text: invite.expiresAt ? fmtDate(invite.expiresAt) : "无期限" }),
-        el("td", { class: "cell-body", text: invite.note || "—" }),
-        el("td", { class: "cell-actions" }, disable)
+        "div",
+        { class: "invite-row" },
+        el(
+          "span",
+          { class: "invite-main" },
+          el("code", { class: "invite-code", text: invite.code }),
+          meta
+        ),
+        invite.usable ? disable : el("span", { class: "pill", text: t("site.disableDone") })
       );
     })
   );
@@ -933,17 +1630,21 @@ async function createInvite(event) {
   if (code) body.code = code;
   const data = await guard(() => api("/invites", { method: "POST", body }));
   if (!data) return;
-  setAlert(byId("invite-result"), `已签发 ${data.invite.code}，可用 ${data.invite.maxUses} 次。`, "ok");
+  setAlert(
+    byId("invite-result"),
+    t("site.inviteIssued", { code: data.invite.code, uses: fmtInt(data.invite.maxUses) }),
+    "ok"
+  );
   byId("invite-note").value = "";
   byId("invite-code").value = "";
   await loadInvites();
 }
 
 async function disableInvite(invite) {
-  if (!window.confirm(`确认停用 ${invite.code}？`)) return;
+  if (!window.confirm(t("site.disableConfirm", { code: invite.code }))) return;
   const data = await guard(() => api(`/invites/${encodeURIComponent(invite.id)}/disable`, { method: "POST" }));
   if (!data) return;
-  toast("邀请码已停用。", "ok");
+  toast(t("site.disabled"), "ok");
   await loadInvites();
 }
 
@@ -951,32 +1652,62 @@ function renderSponsors() {
   const body = byId("sponsors-list");
   if (!body) return;
   if (!state.sponsors.length) {
-    body.replaceChildren(el("tr", {}, el("td", { class: "empty", colspan: "5", text: "还没有赞助条目。" })));
+    body.replaceChildren(emptyBlock("site.sponsorNone", "site"));
     return;
   }
   body.replaceChildren(
     ...state.sponsors.map((sponsor, index) => {
-      const edit = el("button", { class: "button ghost", type: "button", text: "编辑" });
+      const edit = el("button", { class: "button ghost compact", type: "button", text: t("site.edit") });
       edit.addEventListener("click", () => editSponsor(sponsor, index));
-      const up = el("button", { class: "button ghost", type: "button", text: "上移" });
+      const up = el("button", { class: "button ghost compact", type: "button", text: t("site.up") });
       up.disabled = index === 0;
       up.addEventListener("click", () => placeSponsor(sponsor, index));
-      const down = el("button", { class: "button ghost", type: "button", text: "下移" });
+      const down = el("button", { class: "button ghost compact", type: "button", text: t("site.down") });
       down.disabled = index === state.sponsors.length - 1;
       down.addEventListener("click", () => placeSponsor(sponsor, index + 2));
-      const remove = el("button", { class: "button danger", type: "button", text: "删除" });
+      const remove = el("button", { class: "button danger compact", type: "button", text: t("site.remove") });
       remove.addEventListener("click", () => removeSponsor(sponsor));
+
+      const thumb = el("span", { class: "sponsor-thumb" });
+      if (sponsor.image) {
+        thumb.append(
+          el("img", {
+            src: imageSource(sponsor.image),
+            alt: sponsor.title || "",
+            loading: "lazy",
+            on: { error: () => thumb.replaceChildren(svgNode("site", 18)) },
+          })
+        );
+      } else {
+        thumb.append(svgNode("site", 18));
+      }
+
       return el(
-        "tr",
-        {},
-        el("td", { text: String(sponsor.position ?? index + 1) }),
-        el("td", { text: sponsor.title }),
-        el("td", { class: "cell-body", text: sponsor.href }),
-        el("td", { class: "cell-body", text: [sponsor.caption, sponsor.source].filter(Boolean).join(" · ") || "—" }),
-        el("td", { class: "cell-actions" }, edit, up, down, remove)
+        "div",
+        { class: "sponsor-row" },
+        thumb,
+        el(
+          "span",
+          { class: "sponsor-main" },
+          el("span", { class: "sponsor-title", text: sponsor.title }),
+          el("span", { class: "sponsor-link", text: sponsor.href }),
+          el("span", {
+            class: "sponsor-meta",
+            text: [sponsor.caption, sponsor.source].filter(Boolean).join(" · ") || t("site.sponsorNoText"),
+          })
+        ),
+        el("span", { class: "sponsor-actions" }, edit, up, down, remove)
       );
     })
   );
+}
+
+// 赞助图可以是上传 id，也可以是现成的地址：两种都交给浏览器自己取。
+function imageSource(image) {
+  const value = String(image || "").trim();
+  if (!value) return "";
+  if (/^(https?:)?\/\//.test(value) || value.startsWith("/")) return value;
+  return `/api/web/uploads/${encodeURIComponent(value)}`;
 }
 
 async function loadSponsors() {
@@ -998,7 +1729,7 @@ function resetSponsorForm() {
   byId("sponsor-caption").value = "";
   byId("sponsor-source").value = "";
   byId("sponsor-file").value = "";
-  setText("sponsor-form-title", "新增一条");
+  setText("sponsor-form-title", t("site.sponsorNew"));
   byId("sponsor-cancel").hidden = true;
 }
 
@@ -1010,7 +1741,7 @@ function editSponsor(sponsor, index) {
   byId("sponsor-image").value = sponsor.image || "";
   byId("sponsor-caption").value = sponsor.caption || "";
   byId("sponsor-source").value = sponsor.source || "";
-  setText("sponsor-form-title", `编辑第 ${sponsor.position ?? index + 1} 条`);
+  setText("sponsor-form-title", t("site.sponsorEdit", { position: sponsor.position ?? index + 1 }));
   byId("sponsor-cancel").hidden = false;
   byId("sponsor-form").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -1019,7 +1750,7 @@ async function uploadSponsorImage() {
   const input = byId("sponsor-file");
   const file = input.files?.[0];
   if (!file) {
-    toast("先选一张图。", "error");
+    toast(t("site.sponsorPickFile"), "error");
     return;
   }
   const form = new FormData();
@@ -1027,7 +1758,7 @@ async function uploadSponsorImage() {
   const data = await guard(() => api("/uploads", { method: "POST", form }));
   if (!data) return;
   byId("sponsor-image").value = data.id;
-  toast("图片已上传，保存这一条后生效。", "ok");
+  toast(t("site.sponsorUploaded"), "ok");
 }
 
 async function saveSponsor(event) {
@@ -1036,7 +1767,7 @@ async function saveSponsor(event) {
   const title = byId("sponsor-title").value.trim();
   const href = byId("sponsor-href").value.trim();
   if (!title || !href) {
-    toast("标题和链接都要填。", "error");
+    toast(t("site.sponsorNeed"), "error");
     return;
   }
   const body = {
@@ -1053,7 +1784,7 @@ async function saveSponsor(event) {
   );
   if (!data) return;
   resetSponsorForm();
-  toast("赞助条目已保存。", "ok");
+  toast(t("site.sponsorSaved"), "ok");
   await loadSponsors();
 }
 
@@ -1066,17 +1797,17 @@ async function placeSponsor(sponsor, position) {
 }
 
 async function removeSponsor(sponsor) {
-  if (!window.confirm(`确认删除「${sponsor.title}」？`)) return;
+  if (!window.confirm(t("site.sponsorDeleteConfirm", { title: sponsor.title }))) return;
   const data = await guard(() => api(`/sponsors/${encodeURIComponent(sponsor.id)}/remove`, { method: "POST" }));
   if (!data) return;
   if (state.editingSponsor?.id === sponsor.id) resetSponsorForm();
-  toast("赞助条目已删除。", "ok");
+  toast(t("site.sponsorDeleted"), "ok");
   await loadSponsors();
 }
 
 function fillPrices(prices) {
   if (!prices) return;
-  for (const [key] of PRICE_FIELDS) {
+  for (const key of priceKeys()) {
     const input = byId(`price-${key}`);
     if (input) input.value = prices[key] ?? "";
   }
@@ -1087,11 +1818,11 @@ function renderPrices() {
   const summary = byId("prices-summary");
   const apply = byId("price-apply");
   if (!data || !summary) return;
-  const source = data.source === "policy" ? "库里的价格表" : "环境变量默认值";
+  const source = data.source === "policy" ? t("site.priceSourcePolicy") : t("site.priceSourceEnv");
   const pending = data.pending;
   const text = pending
-    ? `${source}。有一份待确认的提议，写入于 ${fmtDate(pending.createdAt)}；先确认下面的数字，再点「同意并写入」。`
-    : `${source}。没有待确认的提议。`;
+    ? t("site.pricePending", { source, when: fmtDate(pending.createdAt) })
+    : t("site.priceClean", { source });
   setText("prices-summary", text);
   if (apply) apply.hidden = !pending;
 }
@@ -1109,7 +1840,7 @@ async function loadPrices() {
 
 function pricePayload() {
   const payload = {};
-  for (const [key] of PRICE_FIELDS) {
+  for (const key of priceKeys()) {
     const raw = byId(`price-${key}`).value.trim();
     if (!/^(0|[1-9]\d*)$/.test(raw)) {
       throw new Error(`bad_price:${key}`);
@@ -1124,27 +1855,27 @@ async function proposePrices() {
   try {
     payload = pricePayload();
   } catch {
-    toast("每一项价格都要填非负整数。", "error");
+    toast(t("site.priceBad"), "error");
     return;
   }
   const data = await guard(() => api("/prices/proposals", { method: "POST", body: payload }));
   if (!data) return;
-  toast("提议已写下，还没有生效。确认后点「同意并写入」。", "ok");
+  toast(t("site.proposed"), "ok");
   await loadPrices();
 }
 
 async function applyPrices() {
   const pending = state.prices?.pending;
   if (!pending) {
-    toast("现在没有待确认的提议。", "error");
+    toast(t("site.noPending"), "error");
     return;
   }
-  if (!window.confirm("确认把这份提议写入价格表？写入后立即生效。")) return;
+  if (!window.confirm(t("site.applyConfirm"))) return;
   const data = await guard(() =>
     api(`/prices/proposals/${encodeURIComponent(pending.id)}/apply`, { method: "POST" })
   );
   if (!data) return;
-  toast("价格表已写入并生效。", "ok");
+  toast(t("site.applied"), "ok");
   await loadPrices();
 }
 
@@ -1154,7 +1885,7 @@ async function loadSite() {
 
 /* XKnot */
 
-const SIGNAL_LABELS = { error: "需要处理", warn: "注意", info: "说明", ok: "正常" };
+const SIGNAL_KEYS = { error: "signalError", warn: "signalWarn", info: "signalInfo", ok: "signalOk" };
 
 function fact(label, value) {
   return el("div", {}, el("dt", { text: label }), el("dd", { text: value == null || value === "" ? "—" : value }));
@@ -1162,9 +1893,9 @@ function fact(label, value) {
 
 function mailLabel(mail) {
   if (!mail) return "—";
-  if (mail.mode === "relay") return "中枢代发";
-  if (mail.mode === "smtp") return "本机 SMTP";
-  return "未配置";
+  if (mail.mode === "relay") return t("xknot.mailRelay");
+  if (mail.mode === "smtp") return t("xknot.mailSmtp");
+  return t("xknot.mailNone");
 }
 
 function loadXknot() {
@@ -1177,7 +1908,7 @@ async function loadFederation() {
   byId("fed-facts").replaceChildren();
   byId("fed-health-facts").replaceChildren();
   setText("fed-file", "");
-  byId("fed-signals").replaceChildren(el("li", { class: "signal", text: "读取中…" }));
+  byId("fed-signals").replaceChildren(el("li", { class: "signal", text: t("xknot.reading") }));
   byId("fed-drift-card").hidden = true;
   try {
     const data = await api("/federation");
@@ -1194,7 +1925,7 @@ function renderSignals(signals) {
   const list = byId("fed-signals");
   if (!list) return;
   if (!signals.length) {
-    list.replaceChildren(el("li", { class: "signal is-ok", text: "没有需要处理的问题。" }));
+    list.replaceChildren(el("li", { class: "signal is-ok", text: t("xknot.signalNone") }));
     return;
   }
   list.replaceChildren(
@@ -1206,7 +1937,7 @@ function renderSignals(signals) {
         el(
           "span",
           {},
-          el("strong", { text: `${SIGNAL_LABELS[signal.level] || signal.level} ` }),
+          el("strong", { text: `${t(`xknot.${SIGNAL_KEYS[signal.level] || "signalInfo"}`)} ` }),
           el("span", { text: signal.text })
         )
       )
@@ -1225,8 +1956,8 @@ function renderDrift(drift) {
         "tr",
         {},
         el("td", { text: entry.key }),
-        el("td", { class: "cell-body", text: entry.stored || "（空）" }),
-        el("td", { class: "cell-body", text: entry.running || "（空）" })
+        el("td", { class: "cell-body", text: entry.stored || t("xknot.emptyValue") }),
+        el("td", { class: "cell-body", text: entry.running || t("xknot.emptyValue") })
       )
     )
   );
@@ -1239,27 +1970,30 @@ function renderFederation() {
   const health = data.health || {};
 
   const relay = running.relayUrl
-    ? `${running.relayUrl}${running.relayUrlSource === "derived" ? "（按中枢地址推导）" : ""}`
+    ? `${running.relayUrl}${running.relayUrlSource === "derived" ? t("xknot.relayDerived") : ""}`
     : "";
   byId("fed-facts").replaceChildren(
-    fact("实例 id", running.instanceId),
-    fact("中枢", running.hubOrigin),
-    fact("委托发信", relay),
-    fact("凭据", running.relayToken?.present ? running.relayToken.masked : "未签发"),
-    fact("签发日", running.issuedAt)
+    fact(t("xknot.instanceId"), running.instanceId),
+    fact(t("xknot.hub"), running.hubOrigin),
+    fact(t("xknot.relay"), relay),
+    fact(t("xknot.credential"), running.relayToken?.present ? running.relayToken.masked : t("xknot.notIssued")),
+    fact(t("xknot.issuedAt"), running.issuedAt)
   );
   setText(
     "fed-file",
     data.file?.exists
-      ? `接入文件 ${data.file.path || "（路径未知）"} · 权限 ${data.file.permissions || "未知"}`
-      : `没有接入文件${data.file?.path ? `：${data.file.path}` : ""}；未接入不影响部署与运行。`
+      ? t("xknot.fileExists", {
+          path: data.file.path || t("xknot.pathUnknown"),
+          mode: data.file.permissions || t("xknot.permissionUnknown"),
+        })
+      : t("xknot.fileNone", { path: data.file?.path ? `：${data.file.path}` : "" })
   );
 
   byId("fed-health-facts").replaceChildren(
-    fact("探测地址", health.url),
-    fact("报出的 instance", health.instance || "不带"),
-    fact("协议", health.url ? (health.https ? "https" : "非 https（会判 unknown）") : "—"),
-    fact("发信方式", mailLabel(data.mail))
+    fact(t("xknot.probeUrl"), health.url),
+    fact(t("xknot.reported"), health.instance || t("xknot.notSent")),
+    fact(t("xknot.protocol"), health.url ? (health.https ? "https" : t("xknot.notHttps")) : "—"),
+    fact(t("xknot.mail"), mailLabel(data.mail))
   );
 
   renderSignals(Array.isArray(data.signals) ? data.signals : []);
@@ -1270,35 +2004,24 @@ function renderFederation() {
 // 字段清单只写一次：表单、填表、保存都从这张表走，避免三处各记一套名字。
 // v2 起没有多语种文案：一项一个输入框；只有「默认语种」是下拉框。
 const PROFILE_FIELDS = [
-  { key: "name", label: "名称", hint: "顶栏和门户卡片上的站点名，必填", max: 40 },
-  {
-    key: "locale",
-    label: "默认语种",
-    hint: "访客第一次打开看到的界面语言；改这里，没自己选过语种的人会跟着变",
-    select: true,
-  },
-  { key: "tagline", label: "一句话介绍", hint: "访客看到的第一句", max: 60 },
-  { key: "intro", label: "详细介绍", hint: "点开站点介绍后的一段话", max: 800, multiline: true },
-  { key: "logo", label: "Logo 地址", hint: "https 开头的图片地址，可不填", max: 300 },
-  { key: "owner", label: "主理人", hint: "这个站点背后的人，点站点名时看到", max: 40 },
-  { key: "contact", label: "联系方式", hint: "公开的邮箱或主页，可不填", max: 120 },
-  { key: "region", label: "地区", hint: "两位国家码如 CN，或 GLOBAL · 只在 xknot.si 上显示", max: 6 },
-  { key: "timezone", label: "时区", hint: "如 Asia/Shanghai · 只在 xknot.si 上显示", max: 40 },
-  {
-    key: "tags",
-    label: "标签",
-    hint: "逗号分隔，最多 9 个 · 只在 xknot.si 上显示",
-    max: 160,
-    list: true,
-  },
+  { key: "name", max: 40 },
+  { key: "locale", select: true },
+  { key: "tagline", max: 60 },
+  { key: "intro", max: 800, multiline: true },
+  { key: "logo", max: 300 },
+  { key: "owner", max: 40 },
+  { key: "contact", max: 120 },
+  { key: "region", max: 6 },
+  { key: "timezone", max: 40 },
+  { key: "tags", max: 160, list: true },
 ];
 
-function fieldLabel(label, hint) {
+function fieldLabel(key) {
   return el(
     "span",
     {},
-    label,
-    hint ? el("span", { class: "field-hint", text: ` · ${hint}` }) : null
+    t(`profile.${key}`),
+    el("span", { class: "field-hint", text: ` · ${t(`profile.${key}Hint`)}` })
   );
 }
 
@@ -1325,14 +2048,14 @@ function profileInput(field) {
       { dataset: { profileKey: field.key } },
       ...SITE_LOCALES.map((item) => el("option", { value: item.id, text: item.label }))
     );
-    return el("label", { class: "field" }, fieldLabel(field.label, field.hint), select);
+    return el("label", { class: "field" }, fieldLabel(field.key), select);
   }
   const input = el(field.multiline ? "textarea" : "input", {
     type: field.multiline ? null : "text",
     maxlength: field.max,
     dataset: { profileKey: field.key, ...(field.list ? { list: "yes" } : {}) },
   });
-  return el("label", { class: "field" }, fieldLabel(field.label, field.hint), input);
+  return el("label", { class: "field" }, fieldLabel(field.key), input);
 }
 
 function renderProfileForm() {
@@ -1370,7 +2093,7 @@ function fillProfileForm(site) {
 }
 
 async function loadProfile() {
-  setText("profile-note", "读取中…");
+  setText("profile-note", t("xknot.reading"));
   renderIssued(null);
   try {
     const data = await api("/profile");
@@ -1398,26 +2121,29 @@ function renderProfile() {
   setText(
     "profile-note",
     data.file
-      ? `文件 ${filePath || "（路径未知）"} · 最后更新 ${data.updatedAt || "还没保存过"}`
-      : "这台机器还没有站点目录（KNOT_AGENT_ENV_DIR / KNOT_PROFILE_FILE），档案改不了。"
+      ? t("xknot.profileNote", {
+          path: filePath || t("xknot.pathUnknown"),
+          when: data.updatedAt || t("site.neverChanged"),
+        })
+      : t("xknot.profileNoDir")
   );
 }
 
 /* 第一次接入：检查子域、提交申请。规则在中枢，这里只显示结论。 */
 
-const JOIN_REASONS = {
-  empty: "先填一个子域名。",
-  too_short: "至少 6 个字符；短号留给以后。",
-  too_long: "最多 32 个字符。",
-  format: "只能用小写字母、数字和连字符，首尾不能是连字符。",
-  reserved: "这个名字被中枢保留了，换一个。",
-  taken: "已经被占用了，换一个。",
+const JOIN_REASON_KEYS = {
+  empty: "reasonEmpty",
+  too_short: "reasonTooShort",
+  too_long: "reasonTooLong",
+  format: "reasonFormat",
+  reserved: "reasonReserved",
+  taken: "reasonTaken",
 };
 
 const joinState = { available: false, label: "" };
 
 function joinHint(min = 6) {
-  setText("join-subdomain-note", `至少 ${min} 个字符；短号留给以后。`);
+  setText("join-subdomain-note", t("xknot.subdomainNote", { min }));
 }
 
 // 已接入就把「提交」收起来，没接入就只显示提交那一张。
@@ -1437,36 +2163,36 @@ async function loadJoinApplication() {
 /* 自动接通：进度按步骤显示，卡住的那一步带原因。 */
 
 const CONNECT_STEPS = {
-  allocate: "分端口与账号",
-  publish: "写清单与名册",
-  account: "建隧道账号 · 装公钥",
-  sshd: "入口 sshd 规则",
-  static: "静态占位页",
-  dns: "子域解析",
-  vhost: "入口反代",
-  tls: "证书与 /api",
+  allocate: "stepAllocate",
+  publish: "stepPublish",
+  account: "stepAccount",
+  sshd: "stepSshd",
+  static: "stepStatic",
+  dns: "stepDns",
+  vhost: "stepVhost",
+  tls: "stepTls",
 };
 
 const CONNECT_ERRORS = {
-  dns_missing: "子域还解析不到入口主机，等泛解析 *.xknot.si 生效后会自动重试。",
-  tls_failed: "证书没签下来，中枢稍后自动重试。",
-  sshd_config_invalid: "入口 sshd 配置没过语法检查，已经在那一台机器上停住。",
-  nginx_config_invalid: "入口 nginx 配置没过语法检查，已经在那一台机器上停住。",
-  account_failed: "隧道账号没建成，看入口主机的用户与权限。",
-  public_key_missing: "这一侧还没把公钥交上去。点「刷新进度」会重新交一次。",
-  port_exhausted: "可用端口发完了，要人工扩一段。",
-  roster_invalid: "清单与名册对不上，签发停在写文件这一步。",
-  url_taken: "这个地址已经挂在别的 id 下。",
-  id_taken: "这个 id 已经被别的地址占用。",
-  write_failed: "入口主机上写文件失败。",
-  application_closed: "这张申请已经不在通过状态，接通停止。",
+  dns_missing: "errorDns",
+  tls_failed: "errorTls",
+  sshd_config_invalid: "errorSshd",
+  nginx_config_invalid: "errorNginx",
+  account_failed: "errorAccount",
+  public_key_missing: "errorKey",
+  port_exhausted: "errorPort",
+  roster_invalid: "errorRoster",
+  url_taken: "errorUrlTaken",
+  id_taken: "errorIdTaken",
+  write_failed: "errorWrite",
+  application_closed: "errorClosed",
 };
 
 const PROGRESS_STATES = {
-  provisioning: "中枢正在配置入口。",
-  awaiting_tunnel: "入口侧已完成，等你这一侧把隧道起来。",
-  active: "已上线：公网 /api/health 通过。",
-  failed: "接通停了，看失败的那一步。",
+  provisioning: "stateProvisioning",
+  awaiting_tunnel: "stateAwaitingTunnel",
+  active: "stateActive",
+  failed: "stateFailed",
 };
 
 async function loadProgress({ quiet = false } = {}) {
@@ -1505,8 +2231,8 @@ function renderProgress() {
         "li",
         { class: "is-running" },
         el("span", { class: "step-mark", text: "…" }),
-        el("span", { class: "step-name", text: "等待中枢接手" }),
-        el("span", { class: "step-note", text: `申请 ${application.id}` })
+        el("span", { class: "step-name", text: t("xknot.waitingHub") }),
+        el("span", { class: "step-note", text: `id ${application.id}` })
       )
     );
   } else {
@@ -1514,10 +2240,12 @@ function renderProgress() {
       ...steps.map((step) => {
         const failed = step.state === "failed" || (step.state !== "done" && Boolean(step.error));
         const done = step.state === "done";
-        const name = CONNECT_STEPS[step.id] || step.id;
+        const name = CONNECT_STEPS[step.id] ? t(`xknot.${CONNECT_STEPS[step.id]}`) : step.id;
         const text = failed
-          ? CONNECT_ERRORS[step.error] || step.error || "这一步失败了。"
-          : step.note || (done ? "完成" : "待办");
+          ? CONNECT_ERRORS[step.error]
+            ? t(`xknot.${CONNECT_ERRORS[step.error]}`)
+            : step.error || t("xknot.stepFailed")
+          : step.note || (done ? t("xknot.stepDone") : t("xknot.stepTodo"));
         return el(
           "li",
           { class: failed ? "is-failed" : done ? "is-done" : "is-running" },
@@ -1529,20 +2257,24 @@ function renderProgress() {
     );
   }
 
-  const summary = run ? PROGRESS_STATES[run.state] || run.state : "已提交，等中枢接手。";
+  const summary = run
+    ? PROGRESS_STATES[run.state]
+      ? t(`xknot.${PROGRESS_STATES[run.state]}`)
+      : run.state
+    : t("xknot.pendingReview");
   const handoff = data.handoff;
   const local = data.local || {};
   let text = handoff
-    ? `${summary} 账号 ${handoff.account} · 入口 ${handoff.host} · 端口 ${handoff.port}`
+    ? `${summary}${t("xknot.handoff", { account: handoff.account, host: handoff.host, port: handoff.port })}`
     : summary;
-  if (run?.state === "active" && data.issued?.url) text += ` 已验收：${data.issued.url}`;
-  if (local.error) text += ` 本地配置没写成：${local.error}`;
-  else if (local.joinError) text += ` 接入件没写成：${local.joinError}`;
-  if (local.changed) text += " 隧道配置已写入，隧道正在后台重启。";
+  if (run?.state === "active" && data.issued?.url) text += t("xknot.accepted", { url: data.issued.url });
+  if (local.error) text += t("xknot.localError", { error: local.error });
+  else if (local.joinError) text += t("xknot.joinError", { error: local.joinError });
+  if (local.changed) text += t("xknot.tunnelRestarted");
   if (local.restart && local.restart.deferred && !local.restart.ok) {
-    text += ` 这台机器没有常驻单元，手动执行一次：${local.restart.command}。`;
+    text += t("xknot.restartManual", { command: local.restart.command });
   }
-  if (local.joined) text += " 接入件已写入，Backend 正在重启。";
+  if (local.joined) text += t("xknot.joined");
 
   setAlert(note, text, run?.state === "active" ? "ok" : run?.lastError || local.error || local.joinError ? "error" : "ok");
   if (start) start.hidden = !handoff || run?.state === "active";
@@ -1551,20 +2283,22 @@ function renderProgress() {
 async function startTunnel() {
   const button = byId("connect-start");
   button.disabled = true;
-  setAlert(byId("connect-note"), "正在写隧道配置…", "ok");
+  setAlert(byId("connect-note"), t("xknot.writing"), "ok");
   try {
     const data = await api("/xknot/connect", { method: "POST" });
     const restart = data.restart || {};
     if (data.changed === false) {
-      setAlert(byId("connect-note"), "隧道配置和上次一样，不用重启。", "ok");
+      setAlert(byId("connect-note"), t("xknot.unchanged"), "ok");
       await loadProgress();
       return;
     }
     setAlert(
       byId("connect-note"),
       restart.ok
-        ? "隧道配置已写入，隧道在后台重启，几秒后点「刷新进度」。"
-        : `隧道配置已写入；这台机器没有常驻单元，手动执行一次：${restart.command || "bash ops/scripts/run-entry-tunnel.sh"}`,
+        ? t("xknot.tunnelWritten")
+        : t("xknot.tunnelManual", {
+            command: restart.command || "bash ops/scripts/run-entry-tunnel.sh",
+          }),
       "ok"
     );
     // 隧道正在重启：这时经隧道读进度只会拿到 502，别立刻读。
@@ -1588,14 +2322,18 @@ function renderJoinRecord() {
   const submitted = String(application.submittedAt || "").slice(0, 10);
   node.replaceChildren(
     el("span", {
-      text: `已提交申请 ${application.id}（${application.status || "pending"}）${submitted ? ` · ${submitted}` : ""}。`,
+      text: t("xknot.joinRecord", {
+        id: application.id,
+        status: application.status || "pending",
+        when: submitted || "—",
+      }),
     }),
     application.caseUrl
       ? el("a", {
           href: application.caseUrl,
           target: "_blank",
           rel: "noopener",
-          text: "查看进度",
+          text: t("xknot.viewProgress"),
         })
       : null
   );
@@ -1631,11 +2369,11 @@ async function checkJoinSubdomain() {
   resetJoinCheck();
   setAlert(byId("join-result"), "", "error");
   if (!label) {
-    setAlert(byId("join-result"), "先填一个子域名，再点检查。", "error");
+    setAlert(byId("join-result"), t("xknot.needLabel"), "error");
     return;
   }
 
-  setText("join-subdomain-note", "正在问中枢…");
+  setText("join-subdomain-note", t("xknot.checking"));
   try {
     const data = await api(`/xknot/subdomain?label=${encodeURIComponent(label)}`);
     joinHint(Number(data.min) || 6);
@@ -1645,13 +2383,14 @@ async function checkJoinSubdomain() {
       input.value = data.label;
       const submit = byId("join-submit");
       if (submit) submit.disabled = false;
-      setAlert(byId("join-result"), `${data.label}.xknot.si 可以签。`, "ok");
+      setAlert(byId("join-result"), t("xknot.available", { label: data.label }), "ok");
       return;
     }
-    const reason = JOIN_REASONS[data.reason] || "这个名字不能签。";
-    const suggestions = Array.isArray(data.suggestions) && data.suggestions.length
-      ? `试试：${data.suggestions.slice(0, 3).join("、")}。`
-      : "";
+    const reason = JOIN_REASON_KEYS[data.reason] ? t(`xknot.${JOIN_REASON_KEYS[data.reason]}`) : t("xknot.unavailable");
+    const suggestions =
+      Array.isArray(data.suggestions) && data.suggestions.length
+        ? t("xknot.suggestions", { list: data.suggestions.slice(0, 3).join("、") })
+        : "";
     setAlert(byId("join-result"), `${reason}${suggestions}`, "error");
   } catch (error) {
     if (handleAuth(error)) return;
@@ -1663,13 +2402,13 @@ async function checkJoinSubdomain() {
 async function submitJoin(event) {
   event.preventDefault();
   if (!joinState.available) {
-    setAlert(byId("join-result"), "先检查子域名，可用再提交。", "error");
+    setAlert(byId("join-result"), t("xknot.needCheck"), "error");
     return;
   }
 
   const button = byId("join-submit");
   button.disabled = true;
-  setAlert(byId("join-result"), "正在提交…", "ok");
+  setAlert(byId("join-result"), t("xknot.submitting"), "ok");
   try {
     const data = await api("/xknot/apply", {
       method: "POST",
@@ -1692,13 +2431,15 @@ async function submitJoin(event) {
     renderJoinRecord();
     const result = byId("join-result");
     result.replaceChildren(
-      el("span", { text: `已提交，申请编号 ${application.id || "（中枢没返回）"}。` }),
+      el("span", {
+        text: t("xknot.submitted", { id: application.id || t("xknot.noId") }),
+      }),
       application.caseUrl
         ? el("a", {
             href: application.caseUrl,
             target: "_blank",
             rel: "noopener",
-            text: " · 查看进度",
+            text: ` · ${t("xknot.viewProgress")}`,
           })
         : null
     );
@@ -1714,9 +2455,9 @@ async function submitJoin(event) {
     if (handleAuth(error)) return;
     const message =
       error.code === "incomplete"
-        ? "档案还缺名称、主理人、一句话介绍或联系邮箱。先在上面补好并保存，再提交。"
+        ? t("xknot.incomplete")
         : error.code === "duplicate"
-          ? "这个地址或子域已经有一张未结案的申请了。"
+          ? t("xknot.duplicate")
           : humanError(error);
     setAlert(byId("join-result"), message, "error");
     button.disabled = false;
@@ -1726,14 +2467,14 @@ async function submitJoin(event) {
 function renderIssued(data) {
   const issued = data?.issued || {};
   byId("profile-issued").replaceChildren(
-    fact("实例 id", issued.id),
-    fact("地址", issued.url),
-    fact("接入日", issued.since),
-    fact("档位", issued.tier),
-    fact("状态", issued.status)
+    fact(t("xknot.instanceId"), issued.id),
+    fact(t("xknot.url"), issued.url),
+    fact(t("xknot.since"), issued.since),
+    fact(t("xknot.tier"), issued.tier),
+    fact(t("xknot.status"), issued.status)
   );
   if (!data) {
-    setText("profile-public", "读取中…");
+    setText("profile-public", t("xknot.reading"));
     return;
   }
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -1741,8 +2482,8 @@ function renderIssued(data) {
   setText(
     "profile-public",
     issued.id
-      ? `这份自述公开在 ${endpoint}，中枢按实例地址取回，访客也能直接读。`
-      : `还没有接入件，中枢取不到这份自述；接入之后它会出现在 ${endpoint}。`
+      ? t("xknot.publicHas", { endpoint })
+      : t("xknot.publicNone", { endpoint })
   );
 }
 
@@ -1755,7 +2496,7 @@ async function saveProfile(event) {
     const data = await api("/profile", { method: "PUT", body: { site: collectProfile() } });
     state.profile = data;
     renderProfile();
-    toast("档案已保存。", "ok");
+    toast(t("xknot.saved"), "ok");
   } catch (error) {
     if (handleAuth(error)) return;
     const problems = Array.isArray(error.problems) ? error.problems : [];
@@ -1768,15 +2509,44 @@ async function saveProfile(event) {
 
 /* 事件绑定 */
 
+// 语种菜单只列这三项，与 ./i18n.js 的 LOCALES 一份来源。
+// 登录页与顶栏各一个，都是 select[data-locale-select]。
+function paintLocalePicker() {
+  for (const select of document.querySelectorAll("select[data-locale-select]")) {
+    if (!select.options.length) {
+      select.replaceChildren(
+        ...LOCALES.map((item) => el("option", { value: item.id, text: item.label }))
+      );
+    }
+    select.value = locale();
+  }
+}
+
+// 切语种只换文案：静态标记重刷一次，当前栏按缓存重画，不整页刷新。
+function switchLocale(id) {
+  if (!setLocale(id)) {
+    paintLocalePicker();
+    return;
+  }
+  paintIcons();
+  applyI18n();
+  paintLocalePicker();
+  if (state.token) setView(state.view);
+}
+
 function bindEvents() {
+  for (const select of document.querySelectorAll("select[data-locale-select]")) {
+    select.addEventListener("change", (event) => switchLocale(event.target.value));
+  }
   byId("login-form").addEventListener("submit", (event) => {
     event.preventDefault();
     enter(byId("token-input").value);
   });
   byId("logout-button").addEventListener("click", () => {
-    if (window.confirm("清除这个标签页里的令牌？")) logout("令牌已清除。");
+    if (window.confirm(t("login.confirmClear"))) logout(t("login.cleared"));
   });
   byId("refresh-button").addEventListener("click", () => setView(state.view));
+  byId("site-refresh").addEventListener("click", () => void loadSite());
   byId("overview-refresh").addEventListener("click", () => loadOverview());
   byId("patrol-refresh").addEventListener("click", () => loadPatrol());
   byId("invites-refresh").addEventListener("click", () => loadInvites());
@@ -1799,9 +2569,18 @@ function bindEvents() {
   });
   byId("user-clear").addEventListener("click", () => {
     state.selectedUser = null;
-    renderUserList();
+    state.selectedAgent = null;
+    renderRoster();
     renderUserPanel();
   });
+  byId("identity-form").addEventListener("submit", submitIdentity);
+  byId("identity-reset").addEventListener("click", resetIdentity);
+  byId("identity-bio").addEventListener("input", () => {
+    updateBioCount();
+    setAlert(byId("identity-error"), "", "error");
+  });
+  byId("identity-name").addEventListener("input", () => setAlert(byId("identity-error"), "", "error"));
+  byId("identity-specialties").addEventListener("input", () => setAlert(byId("identity-error"), "", "error"));
 
   for (const button of document.querySelectorAll(".nav-button")) {
     button.addEventListener("click", () => setView(button.dataset.view));
@@ -1816,7 +2595,12 @@ function bindEvents() {
   });
   byId("patrol-form").addEventListener("submit", recordPatrol);
 
-  byId("users-form").addEventListener("submit", searchUsers);
+  byId("users-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    renderRoster();
+  });
+  byId("users-q").addEventListener("input", () => renderRoster());
+  byId("users-refresh").addEventListener("click", () => loadAccounts());
   byId("grant-form").addEventListener("submit", submitGrant);
   byId("warn-form").addEventListener("submit", submitWarn);
   byId("mute-form").addEventListener("submit", submitMute);
@@ -1836,6 +2620,9 @@ function bindEvents() {
 
 function boot() {
   bindEvents();
+  applyI18n();
+  paintIcons();
+  paintLocalePicker();
   renderProfileForm();
   // 令牌只从这个标签页的 sessionStorage 读；不接 URL 里的令牌，
   // 免得它留在浏览历史、代理日志或截图里。

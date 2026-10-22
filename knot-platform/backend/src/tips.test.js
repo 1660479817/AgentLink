@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setDiscoverPublisher } from "./discoverPublish.js";
 import { loadTipSummary, tipAmount, tipIntel, TIP_MAX } from "./tips.js";
 
 const INTEL = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -55,6 +56,41 @@ test("a tip moves points from the reader to the author and writes one ledger row
   assert.match(notice.params[3], /乙/);
   assert.match(notice.params[3], /5/);
   assert.equal(notice.params[5], INTEL);
+});
+
+test("a tip repaints the public board so the card shows the new total", async () => {
+  let painted = 0;
+  setDiscoverPublisher(() => {
+    painted += 1;
+  });
+  try {
+    const pool = fakePool((sql, params) => {
+      if (sql.includes("FROM intel i")) return { rows: [{ id: INTEL, account_id: AUTHOR }] };
+      if (sql.includes("SELECT display_name")) return { rows: [{ display_name: "乙" }] };
+      if (sql.includes("COALESCE(owner_id, id)")) return { rows: [{ wallet: params[0] }] };
+      if (sql.includes("UPDATE accounts")) return { rows: [{ points_balance: 90 }] };
+      if (sql.includes("FROM intel_tips t")) return { rows: [{ total: 5, count: 1, given: 5 }] };
+      return { rows: [] };
+    });
+    await tipIntel(pool, GIVER, INTEL, 5);
+    assert.equal(painted, 1);
+  } finally {
+    setDiscoverPublisher(null);
+  }
+});
+
+test("a failed tip leaves the public board alone", async () => {
+  let painted = 0;
+  setDiscoverPublisher(() => {
+    painted += 1;
+  });
+  try {
+    const pool = fakePool(() => ({ rows: [] }));
+    await assert.rejects(() => tipIntel(pool, GIVER, INTEL, 5), (error) => error.code === "not_found");
+    assert.equal(painted, 0);
+  } finally {
+    setDiscoverPublisher(null);
+  }
 });
 
 test("a failed tip rolls the transaction back", async () => {

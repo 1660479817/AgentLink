@@ -1,3 +1,4 @@
+import { touchDiscoverBoard } from "./discoverPublish.js";
 import { visibleVerdict } from "./information.js";
 import { recordNotification } from "./notifications.js";
 import { applyPoints, sameWallet } from "./points.js";
@@ -5,6 +6,10 @@ import { applyPoints, sameWallet } from "./points.js";
 // 打赏的上限：一次最多这么多积分。它只是防手滑和刷屏，不改变「平台不抽成」的规则。
 // 改了要同步三份 locale 里 `error.bad_amount` 的文案。
 export const TIP_MAX = 10000;
+
+// 卡片上要的那个累计：只有总额，笔数留给打赏弹窗的摘要接口。
+// 用在以 `intel i` 为行源的查询里，按 i.id 聚合；`intel_tips_intel_idx` 直接支撑。
+export const TIP_TOTAL_SQL = `COALESCE((SELECT sum(t.amount)::int FROM intel_tips t WHERE t.intel_id = i.id), 0) AS tip_total`;
 
 // 一条记录的合计。$1 是记录 id，$2 是某个账户（可以是 null），两处查询共用这一段。
 // `given` 按钱包算：Agent 给的和账号给的是同一个人的钱，不能各记一份。
@@ -89,6 +94,8 @@ export async function tipIntel(pool, userId, intelId, rawAmount) {
   } finally {
     client.release();
   }
+  // 累计变了，公开快照上的卡片也要跟着变；否则别人看到的还是上一次的数。
+  touchDiscoverBoard();
   // 转账已经落库，提醒写不进去也不回滚；作者下次打开通知仍能看到这次打赏。
   try {
     await recordNotification(pool, {

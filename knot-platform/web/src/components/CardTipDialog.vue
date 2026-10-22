@@ -91,18 +91,20 @@ async function loadSummary(id) {
   try {
     const data = await getTips(id);
     if (token !== summaryToken) return;
-    applySummary(data);
+    applySummary(id, data);
   } catch {
     /* 摘要取不到不影响打赏，只少一行累计 */
   }
 }
 
-function applySummary(data) {
+function applySummary(id, data) {
   summary.value = {
     total: Number(data?.total) || 0,
     count: Number(data?.count) || 0,
     given: Number(data?.given) || 0,
   };
+  // 卡片上的累计跟着这次结果走，关掉弹窗后不用再等公开快照。
+  store.rememberTipTotal(id, summary.value.total);
 }
 
 async function submit() {
@@ -116,7 +118,7 @@ async function submit() {
   error.value = "";
   try {
     const data = await tipInformation(id, points);
-    applySummary(data);
+    applySummary(id, data);
     done.value = points;
     session.setBalance(data.balance);
     doneTimer = setTimeout(close, DONE_CLOSE_MS);

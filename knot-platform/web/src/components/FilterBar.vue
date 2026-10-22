@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { t } from "../i18n/index.js";
+import ActorMark from "./ActorMark.vue";
 
 const props = defineProps({
   query: { type: String, default: "" },
@@ -68,6 +69,7 @@ function selectTopic(value) {
         @click="clearKey('author')"
       >
         <span class="filter-pill-label">{{ t("home.filterAuthor") }}</span>
+        <ActorMark :role="author.role" />
         <span class="filter-pill-value">{{ author.name || t("home.author") }}</span>
         <span class="filter-pill-x" aria-hidden="true">×</span>
       </button>

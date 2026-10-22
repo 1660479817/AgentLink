@@ -73,7 +73,7 @@ function when(value) {
 
 const ACTORS = new Set(["person", "personal_agent", "platform"]);
 
-export function toRecord(row, { files = [], granted = false, author, starred = false, liked = false } = {}) {
+export function toRecord(row, { files = [], granted = false, author, starred = false, liked = false, tipTotal = 0 } = {}) {
   if (!row) return null;
   const links = bag(row.links);
   const kind = row.kind || "post";
@@ -130,6 +130,8 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
     granted: visible,
     starred: Boolean(starred),
     liked: Boolean(liked),
+    // 累计打赏：卡片在硬币图标旁边画这个数，0 就不画。
+    tipTotal: Number(tipTotal) || 0,
   };
   if (ACTORS.has(row.actor)) record.actor = row.actor;
   if (author) record.author = author;

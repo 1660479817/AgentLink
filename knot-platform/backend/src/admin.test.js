@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,13 +13,16 @@ import {
   isLoopbackAddress,
   grantPoints,
   issueInternalAgent,
+  listAccountRoster,
   listPosts,
   muteUser,
   removePost,
+  retireManagedAgent,
   setEntitlements,
   setLevel,
   tokensMatch,
   unmuteUser,
+  updateManagedAccount,
   warnUser,
 } from "./admin.js";
 import { muteState, speakerAccount } from "./account.js";
@@ -973,4 +976,389 @@ test("the issue door refuses a blank name and a missing directory", async () => 
   } finally {
     server2.close();
   }
+});
+
+const PLATFORM_ID = "00000000-0000-4000-8000-000000000001";
+const OUTSIDE_ID = "55555555-5555-4555-8555-555555555555";
+const TESTER_ID = "66666666-6666-4666-8666-666666666666";
+const EXTERNAL_AGENT_ID = "77777777-7777-4777-8777-777777777777";
+const RETIRED_AGENT_ID = "88888888-8888-4888-8888-888888888888";
+
+function rosterRow(overrides) {
+  return {
+    side: null,
+    email: null,
+    owner_id: null,
+    label: null,
+    level: 1,
+    entitlements: {},
+    points_balance: 0,
+    muted_until: null,
+    specialties: [],
+    retired_at: null,
+    created_at: "2026-10-01T00:00:00.000Z",
+    has_token: false,
+    ...overrides,
+  };
+}
+
+test("the roster lists platform, internal and external accounts with their agents", async () => {
+  const rows = [
+    rosterRow({ id: PLATFORM_ID, role: "platform", display_name: "Knot" }),
+    rosterRow({
+      id: OWNER_ID,
+      role: "owner",
+      side: "internal",
+      email: "admin@example.com",
+      display_name: "主理人",
+      points_balance: 200,
+    }),
+    rosterRow({
+      id: OUTSIDE_ID,
+      role: "user",
+      side: "external",
+      email: "reader@example.com",
+      display_name: "读者",
+    }),
+    rosterRow({
+      id: TESTER_ID,
+      role: "user",
+      side: "external",
+      email: "tester@example.com",
+      display_name: "测试员",
+      label: "tester",
+    }),
+    rosterRow({
+      id: USER_ID,
+      role: "agent",
+      side: "internal",
+      owner_id: OWNER_ID,
+      display_name: "豆包",
+      specialties: ["网页搜索"],
+      has_token: true,
+    }),
+    rosterRow({
+      id: RETIRED_AGENT_ID,
+      role: "agent",
+      side: "internal",
+      owner_id: OWNER_ID,
+      display_name: "旧助手",
+      retired_at: "2026-10-02T00:00:00.000Z",
+    }),
+    rosterRow({
+      id: EXTERNAL_AGENT_ID,
+      role: "agent",
+      side: "external",
+      owner_id: OUTSIDE_ID,
+      display_name: "读者的 Agent",
+      has_token: true,
+    }),
+  ];
+  const pool = {
+    async query(sql) {
+      assert.match(sql, /FROM accounts/);
+      return { rows };
+    },
+  };
+  const roster = await listAccountRoster(pool);
+  // Agent 不再单独占一行：它们挂在所属账号下面。
+  assert.deepEqual(
+    roster.accounts.map((account) => account.role),
+    ["platform", "owner", "user", "user"]
+  );
+  const owner = roster.accounts.find((account) => account.role === "owner");
+  assert.equal(owner.agentLimit, 10);
+  assert.equal(owner.agentUsed, 1);
+  assert.deepEqual(
+    owner.agents.map((agent) => [agent.displayName, Boolean(agent.retiredAt), agent.hasToken]),
+    [
+      ["豆包", false, true],
+      ["旧助手", true, false],
+    ]
+  );
+  const outside = roster.accounts.find((account) => account.id === OUTSIDE_ID);
+  assert.equal(outside.agentLimit, 1);
+  assert.equal(outside.agents[0].id, EXTERNAL_AGENT_ID);
+  assert.deepEqual(roster.quota, {
+    internalAgents: { used: 1, limit: 10 },
+    // 带 label 的测试员不占外部账号名额，与库里的触发器一致。
+    externalAccounts: { used: 1, limit: 90 },
+    externalAgents: { used: 1 },
+  });
+});
+
+test("an admin can edit the owner's name and bio", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("owner_role")) {
+        return {
+          rows: [
+            rosterRow({
+              id: OWNER_ID,
+              role: "owner",
+              side: "internal",
+              email: "admin@example.com",
+              display_name: "主理人",
+              bio: "",
+            }),
+          ],
+        };
+      }
+      if (sql.includes("UPDATE accounts SET")) {
+        return {
+          rows: [
+            rosterRow({
+              id: OWNER_ID,
+              role: "owner",
+              side: "internal",
+              email: "admin@example.com",
+              display_name: "PaulWang",
+              bio: "白天写代码。",
+            }),
+          ],
+        };
+      }
+      if (sql.includes("INSERT INTO admin_actions")) return { rows: [] };
+      throw new Error(`unexpected ${sql}`);
+    },
+  };
+  const result = await updateManagedAccount(pool, OWNER_ID, { displayName: "PaulWang", bio: "白天写代码。" });
+  assert.equal(result.ok, true);
+  assert.equal(result.kind, "account");
+  assert.equal(result.account.displayName, "PaulWang");
+  assert.equal(result.account.bio, "白天写代码。");
+  const update = calls.find((call) => call.sql.includes("UPDATE accounts SET"));
+  assert.match(update.sql, /display_name = \$\d+/);
+  assert.match(update.sql, /bio = \$\d+/);
+  const action = calls.find((call) => call.sql.includes("INSERT INTO admin_actions"));
+  assert.equal(action.params[0], "config");
+  assert.equal(action.params[1], OWNER_ID);
+  assert.match(action.params[3], /主理人 主理人/);
+});
+
+test("an internal agent's bio, specialties and name are editable", async () => {
+  const envDir = await mkdtemp(path.join(os.tmpdir(), "knot-agent-rename-"));
+  const file = path.join(envDir, "豆包.local.env");
+  await writeFile(file, "KNOT_AGENT_NAME=豆包\nKNOT_AGENT_ID=" + USER_ID + "\nKNOT_AGENT_TOKEN=token-one\n", {
+    mode: 0o600,
+  });
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("owner_role")) {
+        return {
+          rows: [
+            rosterRow({
+              id: USER_ID,
+              role: "agent",
+              side: "internal",
+              owner_id: OWNER_ID,
+              display_name: "豆包",
+              specialties: ["网页搜索"],
+              bio: "",
+              owner_role: "owner",
+            }),
+          ],
+        };
+      }
+      if (sql.includes("UPDATE accounts SET")) {
+        return {
+          rows: [
+            rosterRow({
+              id: USER_ID,
+              role: "agent",
+              side: "internal",
+              owner_id: OWNER_ID,
+              display_name: params[0] || "豆包",
+              specialties: ["网页搜索"],
+              bio: "",
+            }),
+          ],
+        };
+      }
+      if (sql.includes("INSERT INTO admin_actions")) return { rows: [] };
+      throw new Error(`unexpected ${sql}`);
+    },
+  };
+  // 改称呼现在是允许的：库里改名，授权码文件里那一行名字跟着改，文件名与令牌都不动。
+  const renamed = await updateManagedAccount(
+    pool,
+    USER_ID,
+    { displayName: "豆包二号" },
+    { envDir: envDir }
+  );
+  assert.equal(renamed.account.displayName, "豆包二号");
+  assert.equal(renamed.envFile, file);
+  assert.match(await readFile(file, "utf8"), /^KNOT_AGENT_NAME=豆包二号$/m);
+  assert.match(await readFile(file, "utf8"), /^KNOT_AGENT_TOKEN=token-one$/m);
+  const renameUpdate = calls.find((call) => call.sql.includes("display_name = $"));
+  assert.ok(renameUpdate);
+
+  const pool2 = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("owner_role")) {
+        return {
+          rows: [
+            rosterRow({
+              id: USER_ID,
+              role: "agent",
+              side: "internal",
+              owner_id: OWNER_ID,
+              display_name: "豆包",
+              specialties: ["网页搜索"],
+              bio: "",
+              owner_role: "owner",
+            }),
+          ],
+        };
+      }
+      if (sql.includes("UPDATE accounts SET")) {
+        return {
+          rows: [
+            rosterRow({
+              id: USER_ID,
+              role: "agent",
+              side: "internal",
+              owner_id: OWNER_ID,
+              display_name: "豆包",
+              specialties: ["网页搜索", "资料整理"],
+              bio: "专管网页检索。",
+            }),
+          ],
+        };
+      }
+      if (sql.includes("INSERT INTO admin_actions")) return { rows: [] };
+      throw new Error(`unexpected ${sql}`);
+    },
+  };
+  const result = await updateManagedAccount(pool2, USER_ID, {
+    displayName: "豆包",
+    bio: "专管网页检索。",
+    specialties: ["网页搜索", "资料整理"],
+  });
+  assert.equal(result.kind, "agent");
+  assert.deepEqual(result.account.specialties, ["网页搜索", "资料整理"]);
+  const update = calls.filter((call) => call.sql.includes("UPDATE accounts SET")).at(-1);
+  assert.match(update.sql, /specialties = \$\d+::jsonb/);
+  assert.doesNotMatch(update.sql, /display_name = \$\d+/);
+});
+
+test("a rename whose auth-code file cannot be written rolls the name back", async () => {
+  const calls = [];
+  const envDir = await mkdtemp(path.join(os.tmpdir(), "knot-agent-rename-fail-"));
+  // 目录里没有这个 Agent 的授权码文件时改名不算失败；这里把 envDir 指到一个普通文件，
+  // 让 readdir 报 ENOTDIR，走到退回称呼的那条路。
+  const blocked = path.join(envDir, "not-a-dir");
+  await writeFile(blocked, "x");
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("owner_role")) {
+        return {
+          rows: [
+            rosterRow({
+              id: USER_ID,
+              role: "agent",
+              side: "internal",
+              owner_id: OWNER_ID,
+              display_name: "豆包",
+              specialties: [],
+              bio: "",
+              owner_role: "owner",
+            }),
+          ],
+        };
+      }
+      if (sql.includes("UPDATE accounts SET")) {
+        return {
+          rows: [rosterRow({ id: USER_ID, role: "agent", side: "internal", owner_id: OWNER_ID, display_name: "豆包二号" })],
+        };
+      }
+      if (sql.includes("INSERT INTO admin_actions")) return { rows: [] };
+      throw new Error(`unexpected ${sql}`);
+    },
+  };
+  await assert.rejects(
+    () => updateManagedAccount(pool, USER_ID, { displayName: "豆包二号" }, { envDir: blocked }),
+    (error) => error.code === "env_failed"
+  );
+  const rollback = calls.filter((call) => call.sql.includes("UPDATE accounts SET")).at(-1);
+  assert.match(rollback.sql, /display_name = \$2/);
+  assert.deepEqual(rollback.params, [USER_ID, "豆包"]);
+  assert.equal(calls.some((call) => call.sql.includes("INSERT INTO admin_actions")), false);
+});
+
+test("external accounts and their agents are read-only in the admin", async () => {
+  for (const row of [
+    rosterRow({ id: OUTSIDE_ID, role: "user", side: "external", email: "reader@example.com", display_name: "读者" }),
+    rosterRow({
+      id: EXTERNAL_AGENT_ID,
+      role: "agent",
+      side: "external",
+      owner_id: OUTSIDE_ID,
+      display_name: "读者的 Agent",
+      owner_role: "user",
+    }),
+    rosterRow({ id: PLATFORM_ID, role: "platform", display_name: "Knot" }),
+  ]) {
+    const pool = {
+      async query(sql) {
+        if (sql.includes("owner_role")) return { rows: [row] };
+        throw new Error(`unexpected ${sql}`);
+      },
+    };
+    await assert.rejects(
+      () => updateManagedAccount(pool, row.id, { bio: "改一改" }),
+      (error) => error.code === "not_editable"
+    );
+  }
+});
+
+test("a profile edit with nothing to change is refused instead of writing an empty action", async () => {
+  const pool = {
+    async query(sql) {
+      if (sql.includes("owner_role")) {
+        return {
+          rows: [rosterRow({ id: OWNER_ID, role: "owner", side: "internal", display_name: "主理人", bio: "原样" })],
+        };
+      }
+      throw new Error(`unexpected ${sql}`);
+    },
+  };
+  await assert.rejects(
+    () => updateManagedAccount(pool, OWNER_ID, { displayName: "主理人", bio: "原样" }),
+    (error) => error.code === "empty_body"
+  );
+  await assert.rejects(
+    () => updateManagedAccount(pool, OWNER_ID, {}),
+    (error) => error.code === "empty_body"
+  );
+});
+
+test("an admin can stop an external account's agent too", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("owner_role")) {
+        return { rows: [{ id: EXTERNAL_AGENT_ID, display_name: "读者的 Agent", owner_role: "user" }] };
+      }
+      if (sql.includes("retired_at = now()")) {
+        return { rows: [{ id: EXTERNAL_AGENT_ID, owner_id: OUTSIDE_ID, display_name: "读者的 Agent" }] };
+      }
+      if (sql.includes("INSERT INTO admin_actions")) return { rows: [] };
+      throw new Error(`unexpected ${sql}`);
+    },
+  };
+  const result = await retireManagedAgent(pool, EXTERNAL_AGENT_ID, "令牌泄漏。");
+  assert.equal(result.ok, true);
+  assert.equal(result.ownerRole, "user");
+  const action = calls.find((call) => call.sql.includes("admin_actions"));
+  assert.equal(action.params[0], "retire");
+  assert.equal(action.params[1], EXTERNAL_AGENT_ID);
+  assert.match(action.params[3], /外部 Agent 读者的 Agent/);
 });

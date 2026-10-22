@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { displayNameText, specialtyList } from "./account.js";
 
@@ -202,10 +202,11 @@ export function agentEnvPath(dir, displayName) {
 }
 
 // 文件里写着它属于哪个 Agent。认不出来（没这个文件、或没写 id）时返回 null。
+// 早先的授权码文件用 KNOT_AGENT_USER_ID 记同一个 id，两种都要认。
 async function envFileAgentId(file) {
   try {
     const text = await readFile(file, "utf8");
-    const found = /^KNOT_AGENT_ID=(.*)$/m.exec(text);
+    const found = /^KNOT_AGENT_(?:ID|USER_ID)=(.*)$/m.exec(text);
     return found ? found[1].trim() : null;
   } catch (error) {
     if (error.code === "ENOENT") return null;
@@ -227,6 +228,47 @@ export async function agentEnvFileFor(dir, agent) {
   return path.join(dir, `${stem}.${agent.id}.local.env`);
 }
 
+// 按 id 找这个 Agent 的授权码文件。改过称呼之后文件名还是签发时那一份，
+// 所以不能只按当前称呼推算：先看按称呼算出来的位置，再全目录认一遍 KNOT_AGENT_ID。
+export async function findAgentEnvFile(dir, agent) {
+  if (!dir || !agent?.id) return null;
+  const preferred = agent.displayName ? agentEnvPath(dir, agent.displayName) : null;
+  if (preferred && (await envFileAgentId(preferred)) === agent.id) return preferred;
+  let names = [];
+  try {
+    names = await readdir(dir);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  for (const name of names.sort()) {
+    if (!name.endsWith(".local.env")) continue;
+    const file = path.join(dir, name);
+    if ((await envFileAgentId(file)) === agent.id) return file;
+  }
+  return null;
+}
+
+// 改称呼时同步文件里那一行 KNOT_AGENT_NAME。文件名不动：OpenClaw 的
+// apply-config 按「签发时的称呼」找 `<id>.local.env`，搬走文件反而会让它找不到令牌。
+// 令牌只有哈希留在库里，所以这里只改名字，不碰 KNOT_AGENT_TOKEN。
+export async function updateAgentEnvName(dir, agent) {
+  const file = await findAgentEnvFile(dir, agent);
+  if (!file) return null;
+  const text = await readFile(file, "utf8");
+  const line = `KNOT_AGENT_NAME=${agent.displayName}`;
+  const next = /^KNOT_AGENT_NAME=.*$/m.test(text)
+    ? text.replace(/^KNOT_AGENT_NAME=.*$/m, line)
+    : `${line}\n${text}`;
+  if (next === text) return file;
+  const tmp = `${file}.${process.pid}.tmp`;
+  await writeFile(tmp, next, { mode: 0o600 });
+  await chmod(tmp, 0o600);
+  await rename(tmp, file);
+  await chmod(file, 0o600);
+  return file;
+}
+
 export async function writeAgentEnvFile(dir, agent) {
   if (!agent?.displayName || !agent?.token) throw fail("bad_name");
   await mkdir(dir, { recursive: true });
@@ -241,8 +283,10 @@ export async function writeAgentEnvFile(dir, agent) {
 
 // 停用时把授权码文件带走：库里已经清空令牌，留着这份只会让人拿着死码去接。
 export async function removeAgentEnvFile(dir, agent) {
-  if (!dir || !agent?.displayName || !agent?.id) return false;
-  const file = await agentEnvFileFor(dir, agent);
+  if (!dir || !agent?.id) return false;
+  // 改过称呼的 Agent，文件名还是签发时那一份，所以按 id 认，不按当前称呼推。
+  const file = await findAgentEnvFile(dir, agent);
+  if (!file) return false;
   try {
     await rm(file);
     return true;
