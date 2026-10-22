@@ -8,7 +8,8 @@ import test from "node:test";
 import { createApp } from "./app.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry } from "./manifest.mjs";
 import { openMemoryStore } from "./store.mjs";
-import { normalizeSubdomain, normalizeTags, validateApplication } from "./validate.mjs";
+import { checkLabel } from "../ops/subdomain.mjs";
+import { normalizeTags, validateApplication } from "./validate.mjs";
 
 const valid = {
   name: "北港",
@@ -44,6 +45,8 @@ async function start(t, options = {}) {
       profilesDir: options.profilesDir || null,
       statsDir: options.statsDir || null,
       cardsDir: options.cardsDir || null,
+      locationsProvider: options.locationsProvider || (() => options.locations || null),
+      statusProvider: options.statusProvider || (() => options.status || null),
     },
   });
   const server = createServer((req, res) => {
@@ -83,16 +86,8 @@ async function start(t, options = {}) {
     return { status: response.status, data, headers: response.headers };
   }
 
-  // 走一遍真实的邮箱确认：令牌从 store 取，POST 到 /api/verify。
-  async function verify(application) {
-    const issued = store.issueVerifyToken({ applicationId: application.id });
-    assert.ok(issued.token, "verify token should be issued");
-    const result = await call("/api/verify", { method: "POST", form: { token: issued.token } });
-    assert.equal(result.status, 200);
-    return result;
-  }
-
-  return { store, call, base, verify };
+  // 提交即通过：没有邮箱确认，也没有待审队列。
+  return { store, call, base };
 }
 
 function adminCookie(result) {
@@ -109,55 +104,46 @@ async function loginAs(call, store, username = "paul", password = "correct-horse
 test("validate: a complete application passes and is normalized", () => {
   const result = validateApplication(valid);
   assert.equal(result.ok, true);
-  assert.equal(result.value.mode, "subdomain");
   assert.equal(result.value.subdomain, "nordhavn");
-  assert.equal(result.value.domain, null);
   assert.equal(result.value.url, "https://nordhavn.xknot.si");
   assert.deepEqual(result.value.tags, ["长文", "设计"]);
   assert.equal(result.value.email, "lin@example.com");
 });
 
 test("validate: missing and malformed fields report per-field codes", () => {
-  const noMode = validateApplication({ ...valid, mode: "" });
-  assert.equal(noMode.ok, false);
-  assert.equal(noMode.errors.mode, "required");
-
-  const result = validateApplication({ ...valid, mode: "subdomain", subdomain: "nord havn", email: "lin@", agree: false });
+  const result = validateApplication({ ...valid, subdomain: "", email: "lin@", agree: false });
   assert.equal(result.ok, false);
-  assert.equal(result.errors.subdomain, "invalid");
+  assert.equal(result.errors.subdomain, "required");
   assert.equal(result.errors.email, "invalid_email");
   assert.equal(result.errors.agree, "required");
 });
 
-test("validate: own domain is the address, xknot.si subdomains are not", () => {
-  const own = validateApplication({ ...valid, mode: "own-domain", domain: "https://Example.COM/" });
-  assert.equal(own.ok, true);
-  assert.equal(own.value.domain, "https://example.com");
-  assert.equal(own.value.subdomain, null);
-  assert.equal(own.value.url, "https://example.com");
+test("validate: an own domain is refused — the federation only issues subdomains", () => {
+  const stale = validateApplication({ ...valid, mode: "own-domain", domain: "https://example.com/" });
+  assert.equal(stale.ok, false);
+  assert.equal(stale.errors.mode, "not_supported");
+  assert.equal(stale.errors.domain, "not_supported");
 
-  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "" }).errors.domain, "invalid");
-  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "http://example.com" }).errors.domain, "invalid");
-  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "travel.xknot.si" }).errors.domain, "invalid");
-  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "192.168.3.91" }).errors.domain, "invalid");
-  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "user:pass@example.com" }).errors.domain, "invalid");
-  // 自有域名模式不看子域字段，反之亦然。
-  assert.equal(validateApplication({ ...valid, mode: "own-domain", domain: "example.com", subdomain: "www" }).ok, true);
+  // 只带自有域名、没有标签时，也拿不到地址。
+  assert.equal(validateApplication({ ...valid, subdomain: "", domain: "example.com" }).ok, false);
+  // 老客户端仍写 mode: "subdomain" 时照常受理。
+  assert.equal(validateApplication({ ...valid, mode: "subdomain" }).ok, true);
+  assert.equal(validateApplication({ ...valid, mode: "vpn" }).errors.mode, "not_supported");
 });
 
 test("validate: the subdomain label is the identity, not a full URL", () => {
   assert.equal(validateApplication({ ...valid, subdomain: "https://travel.xknot.si/" }).value.subdomain, "travel");
   assert.equal(validateApplication({ ...valid, subdomain: "Travel" }).value.subdomain, "travel");
-  assert.equal(validateApplication({ ...valid, subdomain: "https://nordhavn.example" }).errors.subdomain, "invalid");
-  assert.equal(validateApplication({ ...valid, subdomain: "a" }).errors.subdomain, "invalid");
-  assert.equal(validateApplication({ ...valid, subdomain: "www" }).errors.subdomain, "reserved");
-  assert.equal(validateApplication({ ...valid, subdomain: "admin" }).errors.subdomain, "reserved");
-  assert.equal(validateApplication({ ...valid, subdomain: "-x" }).errors.subdomain, "invalid");
-  assert.equal(validateApplication({ ...valid, subdomain: "x-" }).errors.subdomain, "invalid");
-  assert.equal(validateApplication({ ...valid, subdomain: "x".repeat(33) }).errors.subdomain, "invalid");
-  // 模式只接受两种明确选择。
-  assert.equal(validateApplication({ ...valid, mode: "vpn" }).errors.mode, "required");
-  assert.equal(validateApplication({ ...valid, mode: "own-domain" }).errors.domain, "invalid");
+  assert.equal(validateApplication({ ...valid, subdomain: "https://nordhavn.example" }).errors.subdomain, "format");
+  // 不足 6 位是政策，不是格式：短号留给以后。
+  assert.equal(validateApplication({ ...valid, subdomain: "a" }).errors.subdomain, "too_short");
+  assert.equal(validateApplication({ ...valid, subdomain: "nord havn" }).errors.subdomain, "format");
+  assert.equal(validateApplication({ ...valid, subdomain: "www" }).errors.subdomain, "too_short");
+  assert.equal(validateApplication({ ...valid, subdomain: "admin" }).errors.subdomain, "too_short");
+  assert.equal(validateApplication({ ...valid, subdomain: "billing" }).errors.subdomain, "reserved");
+  assert.equal(validateApplication({ ...valid, subdomain: "-x" }).errors.subdomain, "too_short");
+  assert.equal(validateApplication({ ...valid, subdomain: "x-" }).errors.subdomain, "too_short");
+  assert.equal(validateApplication({ ...valid, subdomain: "x".repeat(33) }).errors.subdomain, "too_long");
 });
 
 test("validate: non-https, credentials in URL and unknown regions are rejected", () => {
@@ -170,15 +156,17 @@ test("validate: over-long text is rejected instead of silently cut", () => {
   const longName = "名".repeat(41);
   assert.equal(validateApplication({ ...valid, name: longName }).errors.name, "too_long");
   assert.equal(validateApplication({ ...valid, intro: "长".repeat(61) }).errors.intro, "too_long");
-  assert.equal(validateApplication({ ...valid, tags: "a,b,c,d,e,f" }).errors.tags, "too_many_tags");
+  assert.equal(validateApplication({ ...valid, tags: "a,b,c,d,e,f,g,h,i,j" }).errors.tags, "too_many_tags");
 });
 
 test("normalize: tags split on both comma styles and drop duplicates", () => {
   assert.deepEqual(normalizeTags("Agent，工具 chain, agent"), ["Agent", "工具", "chain"]);
-  assert.equal(normalizeSubdomain("https://travel.xknot.si/"), "travel");
-  assert.equal(normalizeSubdomain("travel.xknot.si"), "travel");
-  assert.equal(normalizeSubdomain("travel"), "travel");
-  assert.equal(normalizeSubdomain("BAD_Label"), "");
+  // 实例按数组提交：标签里的空格是标签的一部分，不再拆开。
+  assert.deepEqual(normalizeTags(["vibe coding", "Agent"]), ["vibe coding", "Agent"]);
+  // 子域规则只有一份，在 ops/subdomain.mjs。
+  assert.deepEqual(checkLabel("https://travel.xknot.si/"), { label: "travel", available: true, reason: "ok" });
+  assert.equal(checkLabel("BAD_Label").reason, "format");
+  assert.equal(checkLabel("travel").available, true);
 });
 
 test("api: health advertises the documented service shape", async (t) => {
@@ -191,13 +179,41 @@ test("api: health advertises the documented service shape", async (t) => {
   assert.match(result.data.at, /^\d{4}-\d{2}-\d{2}T/);
 });
 
-test("api: submission returns an id and lands in the pending queue", async (t) => {
+test("api: locations are the observed regions, never the addresses behind them", async (t) => {
+  const { call } = await start(t, {
+    locations: {
+      generatedAt: "2026-10-22T01:00:00.000Z",
+      locations: { wang: { country: "CN", at: "2026-10-22T01:00:00.000Z", source: "tunnel" } },
+    },
+  });
+  const result = await call("/api/locations");
+  assert.equal(result.status, 200);
+  assert.equal(result.data.generatedAt, "2026-10-22T01:00:00.000Z");
+  assert.equal(result.data.locations.wang.country, "CN");
+  // 出口 IP 只用来查区域，不能出现在对外响应里。
+  assert.equal(JSON.stringify(result.data).includes("119.123"), false);
+  assert.equal(result.headers.get("cache-control"), "no-store");
+});
+
+test("api: no observation yet is an empty table, not an error", async (t) => {
+  const { call } = await start(t);
+  const result = await call("/api/locations");
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.data, { generatedAt: null, locations: {} });
+});
+
+test("api: submission is approved immediately", async (t) => {
   const { call, store } = await start(t);
   const result = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
   assert.equal(result.status, 201);
   assert.match(result.data.application.id, /^XK-\d{4}-[0-9A-Z]{6}$/);
-  assert.equal(result.data.application.status, "pending");
-  assert.equal(store.listApplications({ status: "pending" }).length, 1);
+  assert.equal(result.data.application.status, "approved");
+  assert.match(result.data.application.caseUrl, /\/case\//);
+  const stored = store.getApplication(result.data.application.id);
+  assert.equal(stored.reviewedBy, "auto");
+  assert.ok(stored.reviewedAt);
+  assert.deepEqual(store.countsByStatus().pending, undefined, "no pending bucket exists any more");
+  assert.equal(store.listApplications({ status: "approved" }).length, 1);
 });
 
 function recordingMailer() {
@@ -210,7 +226,7 @@ function recordingMailer() {
   };
 }
 
-test("api: a new application emails the applicant and the admin", async (t) => {
+test("api: a new application emails the approval and the admin notice", async (t) => {
   const mailer = recordingMailer();
   const { call } = await start(t, { mailer, adminEmail: "admin@example.com" });
   const result = await call("/api/applications", {
@@ -222,15 +238,17 @@ test("api: a new application emails the applicant and the admin", async (t) => {
   assert.equal(mailer.sent.length, 2);
   const [partner, admin] = mailer.sent;
   assert.equal(partner.to, "lin@example.com");
-  assert.match(partner.subject, /application received/);
+  assert.match(partner.subject, /approved/);
+  assert.doesNotMatch(partner.subject, /received/);
   assert.equal(partner.replyTo, "", "partner mail must not accept replies");
   assert.match(partner.text, /replies are not monitored/);
-  assert.match(partner.text, /\/verify\//);
+  assert.doesNotMatch(partner.text, /\/verify\//);
+  assert.match(partner.text, /\/case\//);
   assert.match(partner.text, new RegExp(result.data.application.id));
 
   assert.equal(admin.to, "admin@example.com");
   assert.equal(admin.replyTo, "lin@example.com");
-  assert.match(admin.subject, /new application/);
+  assert.match(admin.subject, /new member/);
   assert.match(admin.text, /https:\/\/xknot\.si\/admin\//);
 });
 
@@ -245,62 +263,36 @@ test("api: a broken mailer never fails the submission", async (t) => {
   const result = await call("/api/applications", { method: "POST", body: valid });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(result.status, 201);
-  assert.equal(store.listApplications({ status: "pending" }).length, 1);
+  assert.equal(store.listApplications({ status: "approved" }).length, 1);
 });
 
-test("api: approval, rejection and hold email the applicant after verification", async (t) => {
+test("api: approval no longer needs a review step", async (t) => {
   const mailer = recordingMailer();
-  const { call, verify, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
   const cookie = await loginAs(call, store);
 
   const approved = await call("/api/applications", {
     method: "POST",
     body: { ...valid, locale: "zh-CN" },
   });
-  await verify(approved.data.application);
-  const approvedReview = await call(`/api/admin/applications/${approved.data.application.id}/review`, {
+  await new Promise((resolve) => setImmediate(resolve));
+
+  // 审核接口已经移除：自动通过之后没有「等人点」的环节。
+  const review = await call(`/api/admin/applications/${approved.data.application.id}/review`, {
     method: "POST",
     cookie,
     body: { decision: "approve" },
   });
-  assert.equal(approvedReview.status, 200);
-  assert.equal(approvedReview.data.application.status, "approved");
-
-  const rejected = await call("/api/applications", {
-    method: "POST",
-    body: { ...valid, subdomain: "sakura", locale: "en" },
-  });
-  await verify(rejected.data.application);
-  await call(`/api/admin/applications/${rejected.data.application.id}/review`, {
-    method: "POST",
-    cookie,
-    body: { decision: "reject", note: "内部备注，不该出现在信里", reason: "policy" },
-  });
-
-  const held = await call("/api/applications", {
-    method: "POST",
-    body: { ...valid, subdomain: "hold", locale: "zh-CN" },
-  });
-  await verify(held.data.application);
-  await call(`/api/admin/applications/${held.data.application.id}/review`, {
-    method: "POST",
-    cookie,
-    body: { decision: "hold", items: ["site_unreachable", "health_missing"] },
-  });
-  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(review.status, 404);
 
   const applicantMail = mailer.sent.filter((mail) => mail.to === "lin@example.com");
-  // received ×3 + verified ×3 + approved + rejected + hold
-  assert.equal(applicantMail.length, 9);
-  const approvedMail = applicantMail.find((mail) => /已通过收录审核/.test(mail.subject));
-  const rejectedMail = applicantMail.find((mail) => /result for|审核结果/.test(mail.subject));
-  const holdMail = applicantMail.find((mail) => /需要补充材料/.test(mail.subject));
-  assert.ok(approvedMail && rejectedMail && holdMail, applicantMail.map((mail) => mail.subject).join(" | "));
-  assert.equal(approvedMail.replyTo, "");
-  assert.ok(!rejectedMail.text.includes("内部备注"));
-  assert.match(rejectedMail.text, /does not fit the federation terms|不符合联邦约定/);
-  assert.match(holdMail.text, /站点地址从公网打不开/);
-  assert.match(holdMail.text, /\/case\//);
+  assert.equal(applicantMail.length, 1, "a submission sends exactly one applicant mail");
+  assert.match(applicantMail[0].subject, /已通过/);
+  assert.equal(applicantMail[0].replyTo, "");
+
+  const log = store.listNotifyLog(20);
+  assert.ok(log.some((row) => row.event === "partner.approved" && row.status === "sent"));
+  assert.ok(!log.some((row) => row.event === "partner.received"));
 });
 
 test("api: the same site cannot be queued twice", async (t) => {
@@ -366,45 +358,28 @@ test("api: wrong password and unknown user are both rejected", async (t) => {
   assert.equal((await call("/api/admin/login", { method: "POST", body: { username: "ghost", password: "nope" } })).status, 401);
 });
 
-test("api: an admin reviews an application and gets a valid manifest entry", async (t) => {
-  const { call, store, verify } = await start(t);
+test("api: an approved application yields a valid manifest entry", async (t) => {
+  const { call, store } = await start(t);
   const cookie = await loginAs(call, store);
 
   const submitted = await call("/api/applications", { method: "POST", body: valid });
   const id = submitted.data.application.id;
 
-  const listed = await call("/api/admin/applications?status=pending", { cookie });
+  const listed = await call("/api/admin/applications?status=approved", { cookie });
   assert.equal(listed.status, 200);
   assert.equal(listed.data.applications.length, 1);
-  assert.equal(listed.data.counts.pending, 1);
+  assert.equal(listed.data.counts.approved, 1);
 
-  // 未经邮箱确认不能直接通过：pending 只能走 verified。
-  const tooEarly = await call(`/api/admin/applications/${id}/review`, {
-    method: "POST",
-    cookie,
-    body: { decision: "approve" },
-  });
-  assert.equal(tooEarly.status, 409);
-  assert.equal(tooEarly.data.error, "invalid_transition");
-
-  await verify(submitted.data.application);
-  assert.equal(store.getApplication(id).status, "verified");
-
-  const reviewed = await call(`/api/admin/applications/${id}/review`, {
-    method: "POST",
-    cookie,
-    body: { decision: "approve", note: "域名核对过" },
-  });
-  assert.equal(reviewed.status, 200);
-  assert.equal(reviewed.data.application.status, "approved");
-  assert.equal(reviewed.data.application.reviewedBy, "paul");
+  const stored = store.getApplication(id);
+  assert.equal(stored.status, "approved");
+  assert.equal(stored.reviewedBy, "auto");
 
   const manifest = await call(`/api/admin/applications/${id}/manifest`, { cookie });
   assert.equal(manifest.status, 200);
   const entry = manifest.data.entry;
   assert.equal(entry.url, "https://nordhavn.xknot.si");
   assert.equal(entry.id, "nordhavn");
-  assert.equal(entry.tier, "community");
+  assert.equal(entry.tier, "free");
   assert.equal(entry.status, "pending");
   // 名称、介绍由主理人在实例侧写，中枢不再从申请里抄一份。
   assert.equal(entry.name, undefined);
@@ -421,7 +396,7 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
         id: "alpha",
         name: { en: "Alpha", "zh-CN": "甲站" },
         url: "https://alpha.xknot.si",
-        tier: "partner",
+        tier: "paid",
         status: "active",
         cardsUrl: "https://alpha.xknot.si/knot-cards.json",
         statsUrl: null,
@@ -431,7 +406,7 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
         id: "beta",
         name: { en: "Beta", "zh-CN": "乙站" },
         url: "https://beta.xknot.si",
-        tier: "community",
+        tier: "free",
         status: "active",
         regions: ["CN"],
       },
@@ -462,7 +437,7 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
   });
 
   const cookie = await loginAs(call, store);
-  await call("/api/applications", { method: "POST", body: { ...valid, subdomain: "gamma" } });
+  await call("/api/applications", { method: "POST", body: { ...valid, subdomain: "gammas" } });
   store.createRelayToken({ instanceId: "alpha", createdBy: "paul" });
 
   const result = await call("/api/admin/overview", { cookie });
@@ -477,6 +452,12 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
   assert.equal(data.instances.rows[0].name, "甲站");
   assert.equal(data.instances.rows[0].health.error, "timeout");
   assert.equal(data.instances.rows[1].health.status, "unprobed");
+
+  // 观测位置与自述 region 分开给：控制台要能看出机器搬了、档案没改。
+  // 这一轮没有位置数据，两条都是 null，不会编一个国家出来。
+  assert.equal(data.instances.rows[0].location, null);
+  // regions 来自自述档案副本；这一轮没有副本，所以是空数组。
+  assert.deepEqual(data.instances.rows[0].regions, []);
 
   // 点开实例要看到账号自己的配置，所以名册里的身份、隧道与清单里的入口一起返回。
   const alphaConfig = data.instances.rows[0].config;
@@ -504,9 +485,12 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
   assert.equal(data.federation.hub, "xknot.si");
   assert.equal(data.federation.members, 1);
 
-  assert.equal(data.applications.counts.pending, 1);
-  assert.ok(data.applications.oldestOpenAt, "the queue age must be visible");
-  assert.deepEqual(data.applications.approvedNotListed, []);
+  assert.equal(data.applications.counts.approved, 1);
+  assert.deepEqual(
+    data.applications.approvedNotListed.map((item) => item.address),
+    ["https://gammas.xknot.si"],
+    "auto-approved but not yet listed is the step the console must surface"
+  );
   assert.ok(data.events.some((event) => event.kind === "application.submitted"));
 
   assert.equal(data.mail.enabled, false);
@@ -518,15 +502,9 @@ test("api: overview summarises instances, queue and mail for admins", async (t) 
 });
 
 test("api: overview flags approved applications that never reached the manifest", async (t) => {
-  const { call, store, verify } = await start(t);
+  const { call, store } = await start(t);
   const cookie = await loginAs(call, store);
-  const submitted = await call("/api/applications", { method: "POST", body: valid });
-  await verify(submitted.data.application);
-  await call(`/api/admin/applications/${submitted.data.application.id}/review`, {
-    method: "POST",
-    cookie,
-    body: { decision: "approve" },
-  });
+  await call("/api/applications", { method: "POST", body: valid });
 
   const result = await call("/api/admin/overview", { cookie });
   assert.equal(result.status, 200);
@@ -583,52 +561,22 @@ function tokenFromMail(text, kind) {
   return match ? match[1] : null;
 }
 
-test("api: the verify page never consumes the token, the POST does", async (t) => {
+test("api: the email verification gate is gone", async (t) => {
   const mailer = recordingMailer();
   const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
   const submitted = await call("/api/applications", { method: "POST", body: { ...valid, locale: "en" } });
   await new Promise((resolve) => setImmediate(resolve));
 
-  const token = tokenFromMail(mailer.sent[0].text, "verify");
-  assert.ok(token, "the partner mail must carry a verify link");
+  assert.ok(!tokenFromMail(mailer.sent[0].text, "verify"), "the mail must not carry a verify link");
+  assert.equal(store.getApplication(submitted.data.application.id).status, "approved");
 
-  // 邮件安全网关会预取链接：GET 只能渲染页面。
-  const page = await call(`/verify/${token}`);
-  assert.equal(page.status, 200);
-  assert.match(page.data, /Confirm your email/);
-  assert.equal(store.getApplication(submitted.data.application.id).status, "pending");
-
-  const confirmed = await call("/api/verify", { method: "POST", form: { token } });
-  assert.equal(confirmed.status, 200);
-  assert.match(confirmed.data, /Email confirmed/);
-  assert.equal(store.getApplication(submitted.data.application.id).status, "verified");
-
-  const again = await call("/api/verify", { method: "POST", form: { token } });
-  assert.equal(again.status, 200);
-  assert.match(again.data, /already used/);
-
-  const missing = await call("/api/verify", { method: "POST", form: { token: "nope-nope-nope" } });
-  assert.equal(missing.status, 404);
+  const page = await call("/verify/tok_abcdefgh");
+  assert.equal(page.status, 404, "no verify page is served");
+  const confirmed = await call("/api/verify", { method: "POST", form: { token: "tok_abcdefgh" } });
+  assert.equal(confirmed.status, 401, "no verify endpoint exists");
 });
 
-test("api: verification mails the partner once per state version", async (t) => {
-  const mailer = recordingMailer();
-  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
-  await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
-  await new Promise((resolve) => setImmediate(resolve));
-  const token = tokenFromMail(mailer.sent[0].text, "verify");
-
-  await call("/api/verify", { method: "POST", form: { token } });
-  await new Promise((resolve) => setImmediate(resolve));
-
-  const verifiedMail = mailer.sent.filter((mail) => /已进入审核/.test(mail.subject));
-  assert.equal(verifiedMail.length, 1);
-  const log = store.listNotifyLog(50);
-  assert.ok(log.some((row) => row.event === "partner.verified" && row.status === "sent"));
-  assert.ok(log.some((row) => row.event === "internal.application_verified" && row.status === "sent"));
-});
-
-test("api: the case page shows status and accepts resend and withdraw", async (t) => {
+test("api: the case page accepts a public key and a withdrawal", async (t) => {
   const mailer = recordingMailer();
   const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
   const submitted = await call("/api/applications", { method: "POST", body: valid });
@@ -638,13 +586,14 @@ test("api: the case page shows status and accepts resend and withdraw", async (t
   const page = await call(`/case/${application.caseKey}`);
   assert.equal(page.status, 200);
   assert.match(page.data, new RegExp(application.id));
-  assert.match(page.data, /Resend verification message/i);
+  assert.doesNotMatch(page.data, /Resend verification/i);
 
-  const before = mailer.sent.length;
-  const resent = await call(`/api/case/${application.caseKey}/resend-verify`, { method: "POST" });
-  assert.equal(resent.status, 303);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.ok(mailer.sent.length > before, "resend must send a new verify mail");
+  const saved = await call(`/api/case/${application.caseKey}/public-key`, {
+    method: "POST",
+    form: { publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnly lin@example.com" },
+  });
+  assert.equal(saved.status, 303);
+  assert.match(store.getApplication(application.id).publicKey, /^ssh-ed25519 /);
 
   const withdrawn = await call(`/api/case/${application.caseKey}/withdraw`, { method: "POST" });
   assert.equal(withdrawn.status, 303);
@@ -656,13 +605,11 @@ test("api: the case page shows status and accepts resend and withdraw", async (t
 
 test("api: handoff issues a single-use claim link and the page does not consume it", async (t) => {
   const mailer = recordingMailer();
-  const { call, store, verify } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
   const cookie = await loginAs(call, store);
 
   const submitted = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
-  await verify(submitted.data.application);
   const id = submitted.data.application.id;
-  await call(`/api/admin/applications/${id}/review`, { method: "POST", cookie, body: { decision: "approve" } });
   await new Promise((resolve) => setImmediate(resolve));
 
   const handoff = await call(`/api/admin/applications/${id}/handoff`, {
@@ -694,53 +641,41 @@ test("api: handoff issues a single-use claim link and the page does not consume 
   assert.ok(log.some((row) => row.event === "partner.handoff" && row.status === "sent"));
 });
 
-test("api: a repeated review cannot mail twice or leave the state machine", async (t) => {
+test("api: submission mails once and the console can resend deliberately", async (t) => {
   const mailer = recordingMailer();
-  const { call, store, verify } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
   const cookie = await loginAs(call, store);
   const submitted = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
-  await verify(submitted.data.application);
   const id = submitted.data.application.id;
+  await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(
-    (await call(`/api/admin/applications/${id}/review`, { method: "POST", cookie, body: { decision: "approve" } })).status,
-    200
-  );
-  const again = await call(`/api/admin/applications/${id}/review`, {
+  const approved = mailer.sent.filter((mail) => /已通过/.test(mail.subject));
+  assert.equal(approved.length, 1);
+
+  // 人工补寄是显式动作，允许再发一次。
+  const resent = await call(`/api/admin/applications/${id}/notify`, {
     method: "POST",
     cookie,
-    body: { decision: "approve" },
+    body: { event: "partner.approved" },
   });
-  assert.equal(again.status, 409);
-  assert.equal(again.data.error, "invalid_transition");
-
+  assert.equal(resent.status, 200);
   await new Promise((resolve) => setImmediate(resolve));
-  const approved = mailer.sent.filter((mail) => /已通过收录审核/.test(mail.subject));
-  assert.equal(approved.length, 1);
+  assert.equal(mailer.sent.filter((mail) => /已通过/.test(mail.subject)).length, 2);
 });
 
-test("api: hold carries coded items and resume returns to review", async (t) => {
-  const { call, store, verify } = await start(t);
+test("api: the console can withdraw an approved application", async (t) => {
+  const { call, store } = await start(t);
   const cookie = await loginAs(call, store);
   const submitted = await call("/api/applications", { method: "POST", body: valid });
-  await verify(submitted.data.application);
-  const id = submitted.data.application.id;
+  const key = store.getApplication(submitted.data.application.id).caseKey;
 
-  const held = await call(`/api/admin/applications/${id}/review`, {
-    method: "POST",
-    cookie,
-    body: { decision: "hold", items: ["health_missing", "not_a_code"] },
-  });
-  assert.equal(held.status, 200);
-  assert.deepEqual(held.data.application.holdItems, ["health_missing"]);
+  const withdrawn = await call(`/api/case/${key}/withdraw`, { method: "POST" });
+  assert.equal(withdrawn.status, 303);
+  assert.equal(store.getApplication(submitted.data.application.id).status, "withdrawn");
 
-  const resumed = await call(`/api/admin/applications/${id}/review`, {
-    method: "POST",
-    cookie,
-    body: { decision: "resume" },
-  });
-  assert.equal(resumed.status, 200);
-  assert.equal(resumed.data.application.status, "verified");
+  // 已结案的申请不再占着子域，可以重新提交。
+  const again = await call("/api/applications", { method: "POST", body: valid });
+  assert.equal(again.status, 201);
 });
 
 test("api: locale drives the language of the partner mail", async (t) => {
@@ -749,7 +684,7 @@ test("api: locale drives the language of the partner mail", async (t) => {
   await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-TW" } });
   await new Promise((resolve) => setImmediate(resolve));
   const partner = mailer.sent.find((mail) => mail.to === "lin@example.com");
-  assert.match(partner.subject, /已收到加入申請/);
+  assert.match(partner.subject, /已通過/);
   assert.match(partner.text, /不接收回覆/);
 });
 
@@ -762,7 +697,7 @@ test("api: admin edits instance config and both files are validated", async (t) 
     id: "wang",
     url: "https://wang.xknot.si",
     since: "2026-10-19",
-    tier: "partner",
+    tier: "paid",
     status: "active",
   };
   const member = {
@@ -837,7 +772,7 @@ const MEMBER_INSTANCE = {
   id: "nordhavn",
   url: "https://nordhavn.xknot.si",
   since: "2026-10-01",
-  tier: "community",
+  tier: "free",
   status: "active",
 };
 
@@ -889,8 +824,7 @@ async function startMember(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
 
   const application = app.store.createApplication({ ...valid, email: "lin@example.com" });
-  app.store.markEmailVerified(application.id);
-  app.store.transition({ id: application.id, to: "approved" });
+  assert.equal(application.status, "approved");
   return { ...app, sent, mailer };
 }
 
@@ -986,4 +920,131 @@ test("subdomain: 太短、保留词、已占用与可用各给一个理由", asy
   const whole = await call("/api/subdomains/check?label=https://hello-world.xknot.si/");
   assert.equal(whole.data.label, "hello-world");
   assert.equal(whole.data.available, true);
+});
+
+test("progress: the instance reads step state by case key and gets the handoff only when ready", async (t) => {
+  const { call, store } = await start(t);
+  const submitted = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
+  const application = store.getApplication(submitted.data.application.id);
+
+  // 还没开始接通：没有 run，也没有交接参数。
+  const empty = await call(`/api/case/${application.caseKey}/progress`);
+  assert.equal(empty.status, 200);
+  assert.equal(empty.data.run, null);
+  assert.equal(empty.data.handoff, null);
+  assert.equal(empty.data.application.subdomain, "nordhavn");
+
+  store.createProvisionRun({
+    applicationId: application.id,
+    instanceId: "nordhavn",
+    host: "nordhavn.xknot.si",
+    account: "knot-tunnel-nordhavn",
+    port: 18090,
+    entryHost: "203.0.113.10",
+    state: "provisioning",
+    steps: [
+      { id: "allocate", state: "done", at: null, error: null, note: null },
+      { id: "publish", state: "pending", at: null, error: "dns_missing", note: null },
+    ],
+    attempts: 1,
+    lastError: "dns_missing",
+    tunnelConfirmedAt: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const half = await call(`/api/case/${application.caseKey}/progress`);
+  assert.equal(half.data.run.state, "provisioning");
+  assert.equal(half.data.run.lastError, "dns_missing");
+  assert.equal(half.data.run.steps[1].error, "dns_missing");
+  assert.equal(half.data.handoff, null);
+
+  const run = store.getProvisionRun(application.id);
+  store.saveProvisionRun({ ...run, state: "awaiting_tunnel" });
+  const ready = await call(`/api/case/${application.caseKey}/progress`);
+  assert.deepEqual(ready.data.handoff, {
+    host: "203.0.113.10",
+    account: "knot-tunnel-nordhavn",
+    port: 18090,
+  });
+
+  // 案例键是能力凭据：错的键什么都读不到。
+  assert.equal((await call("/api/case/nope-nope-nope/progress")).status, 404);
+});
+
+test("api: overview carries the observed location next to the declared region", async (t) => {
+  const { call, store } = await start(t, {
+    instances: [{ id: "wang", url: "https://wang.xknot.si", tier: "paid", status: "active" }],
+    locations: {
+      generatedAt: "2026-10-22T01:00:00.000Z",
+      locations: { wang: { country: "CN", at: "2026-10-22T01:00:00.000Z", source: "tunnel" } },
+    },
+  });
+  const cookie = await loginAs(call, store);
+  const row = (await call("/api/admin/overview", { cookie })).data.instances.rows[0];
+  assert.deepEqual(row.location, {
+    country: "CN",
+    at: "2026-10-22T01:00:00.000Z",
+    source: "tunnel",
+  });
+});
+
+test("api: a country without an observation stays null, not empty string", async (t) => {
+  const { call, store } = await start(t, {
+    instances: [{ id: "wang", url: "https://wang.xknot.si", tier: "paid", status: "active" }],
+    locations: { locations: { other: { country: "SG" } } },
+  });
+  const cookie = await loginAs(call, store);
+  const row = (await call("/api/admin/overview", { cookie })).data.instances.rows[0];
+  assert.equal(row.location, null);
+});
+
+test("api: overview reads tunnel and traffic from the node status document", async (t) => {
+  const { call, store } = await start(t, {
+    instances: [{ id: "alpha", url: "https://alpha.xknot.si", tier: "paid", status: "active" }],
+    federation: {
+      hub: "xknot.si",
+      members: [
+        {
+          id: "alpha",
+          host: "alpha.xknot.si",
+          role: "founder",
+          standing: "permanent",
+          mode: "subdomain",
+          tunnel: { account: "knot-tunnel-alpha", port: 18080 },
+          listed: true,
+          since: "2026-10-19",
+        },
+      ],
+    },
+    // health.json 还是上一轮的结果；status.json 已经把探测刷新成 down。
+    health: { checkedAt: "2026-10-22T01:00:00.000Z", instances: { alpha: { status: "up", latencyMs: 90 } } },
+    status: {
+      generatedAt: "2026-10-22T02:00:00.000Z",
+      nodes: {
+        alpha: {
+          id: "alpha",
+          probe: { status: "down", latencyMs: null, error: "timeout", hidden: false, checkedAt: "2026-10-22T01:55:00.000Z" },
+          tunnel: { connected: false, account: "knot-tunnel-alpha", port: 18080, checkedAt: "2026-10-22T01:59:00.000Z" },
+          traffic: { date: "2026-10-21", requests: 12, bytes: 3456, updatedAt: "2026-10-22T01:00:00.000Z" },
+        },
+      },
+    },
+  });
+
+  const cookie = await loginAs(call, store);
+  const data = (await call("/api/admin/overview", { cookie })).data;
+  const row = data.instances.rows[0];
+
+  assert.equal(row.health.status, "down");
+  assert.equal(row.health.error, "timeout");
+  assert.equal(row.health.checkedAt, "2026-10-22T01:55:00.000Z");
+  // 隧道和接口分开说：这条是「隧道没连」，不是「实例 502」。
+  assert.equal(row.tunnel.connected, false);
+  assert.equal(row.tunnel.port, 18080);
+  assert.equal(row.traffic.requests, 12);
+  assert.equal(data.instances.trafficNodes, 1);
+  assert.equal(data.instances.trafficRequests, 12);
+  assert.equal(data.instances.trafficBytes, 3456);
+  assert.equal(data.instances.tunnelsDown, 1);
 });

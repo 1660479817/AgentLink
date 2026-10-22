@@ -5,10 +5,11 @@
 //   node server/admin-cli.mjs list-admins
 //   node server/admin-cli.mjs delete-admin <username>
 //   node server/admin-cli.mjs reset-password <username>    密码同样从 XKNOT_ADMIN_PASSWORD 读，或交互输入
-//   node server/admin-cli.mjs list [pending|approved|rejected|hold]
+//   node server/admin-cli.mjs list [approved|withdrawn]
 //   node server/admin-cli.mjs show <id>
 //   node server/admin-cli.mjs manifest <id>                打印可直接粘贴的清单条目
-//   node server/admin-cli.mjs publish <id> [--id slug]     把已通过的申请写进 instances.json
+//   node server/admin-cli.mjs publish <id> [--id slug] [--tunnel-account acct --tunnel-port port]
+//                                                          写清单；给了隧道参数时同时写 federation.json
 //   node server/admin-cli.mjs relay-token <instance> [--label text] [--daily 50]
 //                                                          签一份委托发信凭据，明文只打印这一次
 //   node server/admin-cli.mjs access <id> [--id slug] [--with-relay] [--daily 50] [--out 文件]
@@ -19,7 +20,6 @@
 //   node server/admin-cli.mjs relay-revoke <tokenId|instance>
 //                                                          吊销一份凭据，或整个实例的全部凭据
 //   node server/admin-cli.mjs relay-log [n]                最近 n 条发信记录（只有域名，没有地址和正文）
-//   node server/admin-cli.mjs verify <id>                  邮箱验证信发不出去时，人工确认邮箱
 //   node server/admin-cli.mjs notify <id> <event> [--url URL]
 //                                                          补发/重发一封伙伴信；event 见 docs/PARTNER-MAIL.md
 //   node server/admin-cli.mjs handoff <id> --payload <file> [--ttl 72]
@@ -31,14 +31,13 @@
 //   node server/admin-cli.mjs retire <id> [--reclaim 日期] [--export 日期]
 //                                                          发退出联邦信（清单状态仍需自己改）
 //   node server/admin-cli.mjs notify-log [n] [--case id]   发信日志
-//   node server/admin-cli.mjs expire                       把超期未验证的申请标成 expired
 //
 // 发信命令需要 SMTP_HOST / MAIL_FROM，读法与接口进程一致（见 server/mail.mjs）。
 //
 // 示例：
 //   XKNOT_ADMIN_PASSWORD='...' node server/admin-cli.mjs create-admin paul
 
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
@@ -46,7 +45,8 @@ import { fileURLToPath } from "node:url";
 
 import { backfillApplication } from "./backfill.mjs";
 import { createMailer, mailConfigFromEnv } from "./mail.mjs";
-import { checkManifestEntry, suggestId, toManifestEntry } from "./manifest.mjs";
+import { checkManifestEntry, suggestId, toManifestEntry, toRosterMember } from "./manifest.mjs";
+import { validateRoster } from "../ops/validate-federation.mjs";
 import { ALL_EVENTS, TEMPLATE_VERSION, buildMail } from "./notify.mjs";
 import { openStore } from "./store.mjs";
 
@@ -58,6 +58,9 @@ const dataDir = process.env.XKNOT_DATA_DIR || path.join(root, "var");
 const manifestFile = process.env.XKNOT_INSTANCES_FILE
   ? path.resolve(process.env.XKNOT_INSTANCES_FILE)
   : path.join(root, "instances.json");
+const rosterFile = process.env.XKNOT_FEDERATION_FILE
+  ? path.resolve(process.env.XKNOT_FEDERATION_FILE)
+  : path.join(root, "federation.json");
 const store = openStore(path.join(dataDir, "xknot.db"));
 
 function fail(message) {
@@ -76,6 +79,17 @@ async function askPassword() {
 
 async function readManifest() {
   return JSON.parse(await readFile(manifestFile, "utf8"));
+}
+
+async function readRoster() {
+  return JSON.parse(await readFile(rosterFile, "utf8"));
+}
+
+// 先写临时文件再 rename：写到一半失败时，原来的 JSON 还是完整的。
+async function writeJsonAtomic(file, value) {
+  const temp = `${file}.tmp`;
+  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(temp, file);
 }
 
 function flag(rest, name, fallback = null) {
@@ -183,7 +197,7 @@ async function main(argv) {
     }
     const counts = store.countsByStatus();
     console.log(
-      `\n待确认 ${counts.pending} · 待审核 ${counts.verified} · 已通过 ${counts.approved} · 已拒绝 ${counts.rejected} · 搁置 ${counts.hold} · 已撤回 ${counts.withdrawn} · 已过期 ${counts.expired}`
+      `\n已通过 ${counts.approved || 0} · 已撤回 ${counts.withdrawn || 0} · 历史（拒绝/过期）${(counts.rejected || 0) + (counts.expired || 0)}`
     );
     return;
   }
@@ -230,10 +244,51 @@ async function main(argv) {
       return fail("生成的条目过不了清单校验");
     }
 
+    // 名册与清单一一对应：只写清单一半，npm run validate:federation 会立刻报错。
+    // 给了隧道账号与端口就两份一起写，校验通过才落盘。
+    const tunnelAccount = flag(rest, "tunnel-account");
+    const tunnelPort = Number(flag(rest, "tunnel-port") || 0);
+    // 旗标出现就要按名册走，不要因为端口写成非数字而静默退成只写清单。
+    const withRoster = rest.includes("--tunnel-account") || rest.includes("--tunnel-port");
+    let roster = null;
+    if (withRoster) {
+      if (!tunnelAccount) return fail("要写名册就得同时给 --tunnel-account 与 --tunnel-port。");
+      if (!Number.isInteger(tunnelPort) || tunnelPort < 1024 || tunnelPort > 65535) {
+        return fail("--tunnel-port 是 1024–65535 的整数。");
+      }
+
+      roster = await readRoster();
+      if (roster.members.some((member) => member.id === entry.id)) {
+        return fail(`名册里已有 "${entry.id}"，不要重复写。`);
+      }
+      roster.members.push(
+        toRosterMember(entry, {
+          tunnelAccount,
+          tunnelPort,
+          role: flag(rest, "role", "partner"),
+          standing: flag(rest, "standing") || undefined,
+          note: flag(rest, "note") || undefined,
+        })
+      );
+      roster.updatedAt = new Date().toISOString().slice(0, 10);
+
+      const rosterProblems = validateRoster(roster, { ...manifest, instances: [...manifest.instances, entry] });
+      if (rosterProblems.length) {
+        for (const [label, errors] of rosterProblems) {
+          for (const error of errors) console.error(`- ${label || "名册"}: ${error}`);
+        }
+        return fail("名册校验不过，两份文件都没有改动。");
+      }
+    }
+
     manifest.instances.push(entry);
     manifest.updatedAt = new Date().toISOString().slice(0, 10);
-    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    await writeJsonAtomic(manifestFile, manifest);
+    if (roster) await writeJsonAtomic(rosterFile, roster);
+
     console.log(`已写入 instances.json：${entry.id} → ${entry.url}`);
+    if (roster) console.log(`已写入 federation.json：${entry.id}（${tunnelAccount} / ${tunnelPort}）`);
+    else console.log("名册还没写：补 --tunnel-account 与 --tunnel-port，或在 federation.json 手工加同名成员。");
     console.log("下一步：npm run build，重新构建后再部署。");
     return;
   }
@@ -270,13 +325,14 @@ async function main(argv) {
     const result = backfillApplication({ store, manifest, instanceId: id, profile, email, admin });
     if (result.error === "no_instance") return fail(`清单里没有实例 "${id}"`);
     if (result.error === "no_email") return fail("要一个联系邮箱：加 --email，或设 XKNOT_ADMIN_EMAIL。");
+    if (result.error === "not_hub_subdomain") return fail(`实例 "${id}" 的地址不是中枢签发的子域，不能补记：${entry.url}`);
     if (result.skipped) {
       console.log(`已有申请单 ${result.application.id}（${result.application.status}），没有改动。`);
       return;
     }
     const { application } = result;
     console.log(`已补记申请 ${application.id}：${application.name} → ${application.url}`);
-    console.log(`状态 ${application.status}，审阅注记：${application.reviewNote}`);
+    console.log(`状态 ${application.status}（按 instances.json 补记于 ${application.reviewedAt?.slice(0, 10)}）`);
     console.log(`下一步：node server/admin-cli.mjs access ${application.id} --id ${id}`);
     return;
   }
@@ -299,7 +355,11 @@ async function main(argv) {
     const manifest = await readManifest();
     const instance = manifest.instances.find((item) => item.id === instanceId);
     if (!instance) return fail(`清单里没有实例 "${instanceId}"。先 publish，再发接入件。`);
-    if (instance.status !== "active") return fail(`实例 "${instanceId}" 不是 active。`);
+    // 收录时是 pending，接通验收后才 active：接入件必须在 pending 阶段就能发，
+    // 否则伙伴拿不到隧道凭据，永远等不到 active。挂起与退出之后不再签。
+    if (!["pending", "active"].includes(instance.status)) {
+      return fail(`实例 "${instanceId}" 当前是 ${instance.status}，不再发接入件。`);
+    }
 
     const origin = String(process.env.XKNOT_PUBLIC_ORIGIN || "https://xknot.si").replace(/\/+$/, "");
     const today = new Date().toISOString().slice(0, 10);
@@ -309,7 +369,7 @@ async function main(argv) {
       `XKNOT_INSTANCE_ID=${instanceId}`,
       `XKNOT_ISSUED_URL=${instance.url}`,
       `XKNOT_ISSUED_AT=${instance.since || today}`,
-      `XKNOT_TIER=${instance.tier || "community"}`,
+      `XKNOT_TIER=${instance.tier || "free"}`,
       `XKNOT_STATUS=${instance.status || "active"}`,
       `XKNOT_HUB_ORIGIN=${origin}`,
     ];
@@ -401,17 +461,6 @@ async function main(argv) {
     return;
   }
 
-  if (command === "verify") {
-    const application = store.getApplication(rest[0]);
-    if (!application) return fail("没有这条申请");
-    const result = store.markEmailVerified(application.id);
-    if (result.error === "invalid_transition") {
-      return fail(`当前状态是 ${application.status}，不能直接标为已确认`);
-    }
-    console.log(`已确认 ${application.id} 的邮箱，状态 ${result.application.status}`);
-    return;
-  }
-
   if (command === "notify") {
     const application = store.getApplication(rest[0]);
     if (!application) return fail("没有这条申请");
@@ -419,16 +468,11 @@ async function main(argv) {
     if (!eventName) return fail(`用法：notify <id> <event>，可选 ${ALL_EVENTS.join(" / ")}`);
 
     const links = {};
-    if (eventName === "partner.received") {
-      const issued = store.issueVerifyToken({ applicationId: application.id });
-      links.verifyUrl = `${mailerFromEnv().origin}/verify/${issued.token}`;
-    }
     if (eventName === "partner.contact_revalidate") {
       const env = mailerFromEnv();
       links.confirmUrl = `${env.origin}/case/${application.caseKey}`;
     }
-    const message = await sendEvent(eventName, application, { links }, {});
-    if (message && links.verifyUrl) console.log(`验证地址：${links.verifyUrl}`);
+    await sendEvent(eventName, application, { links }, {});
     return;
   }
 
@@ -529,12 +573,6 @@ async function main(argv) {
         )} ${row.status.padEnd(9)} ${row.toDomain || "—"}${row.error ? `  ${row.error}` : ""}`
       );
     }
-    return;
-  }
-
-  if (command === "expire") {
-    const count = store.expireApplications();
-    console.log(`已过期 ${count} 条未确认的申请。`);
     return;
   }
 

@@ -11,6 +11,7 @@
 
 export const SUBDOMAIN_MIN = 6;
 export const SUBDOMAIN_MAX = 32;
+export const HUB_SUFFIX = ".xknot.si";
 
 // 与 DNS / HTTP 基础设施撞名的标签。签发后没法回头改（证书、隧道、清单都写死了），
 // 所以宁可多留一些。
@@ -68,6 +69,24 @@ export function normalizeLabel(input) {
   value = value.replace(/\.+$/, "");
   if (value.endsWith(".xknot.si")) value = value.slice(0, -".xknot.si".length);
   return value;
+}
+
+/**
+ * 从一整条地址取出中枢签发的标签。
+ *
+ * 只认一级：`wang.xknot.si` 是签发的，`a.b.xknot.si` 不是，`example.com` 也不是。
+ * 这里不判长度与保留名：早期已签发的短号（如 `wang`）照样要能在清单里通过校验。
+ */
+export function labelFromUrl(value) {
+  let host = "";
+  try {
+    host = new URL(String(value || "").trim()).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+  if (!host.endsWith(HUB_SUFFIX)) return "";
+  const label = host.slice(0, -HUB_SUFFIX.length);
+  return label && !label.includes(".") ? label : "";
 }
 
 const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;

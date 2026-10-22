@@ -170,12 +170,6 @@ a {
   color: #ffffff;
 }
 
-.btn-bad {
-  border-color: var(--bad);
-  background: var(--bad);
-  color: #ffffff;
-}
-
 .btn-block {
   width: 100%;
   margin-top: 1.2rem;
@@ -379,7 +373,9 @@ a {
   white-space: nowrap;
 }
 
-.badge.pending {
+.badge.pending,
+.badge.verified,
+.badge.hold {
   background: var(--warn-soft);
   color: var(--warn);
 }
@@ -392,12 +388,6 @@ a {
 .badge.rejected {
   background: var(--bad-soft);
   color: var(--bad);
-}
-
-.badge.hold,
-.badge.verified {
-  background: var(--surface-soft);
-  color: var(--dim);
 }
 
 .badge.withdrawn,
@@ -519,10 +509,6 @@ a {
   color: var(--dim);
 }
 
-.note {
-  margin-top: 0.8rem;
-}
-
 .sr-only {
   position: absolute;
   width: 1px;
@@ -533,36 +519,6 @@ a {
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
-}
-
-/* 补材料条目与拒绝类别：审核台只让人勾选，避免自由文本进对外邮件。 */
-.checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem 0.9rem;
-  margin: 0.35rem 0 0.9rem;
-}
-
-.check {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.82rem;
-  color: var(--ink);
-}
-
-.check input {
-  accent-color: var(--accent);
-}
-
-.note select {
-  min-height: 34px;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
 }
 
 /* ---- 总览 ---- */

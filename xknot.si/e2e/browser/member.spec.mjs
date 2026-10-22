@@ -78,7 +78,7 @@ test("未登录时只有邮箱一格，加入方式是四步说明", async ({ pa
   const steps = page.locator("aside#join ol.steps li");
   await expect(steps).toHaveCount(4);
   await expect(steps.nth(0).locator(".step-title")).toHaveText(zhCN.join.step1);
-  await expect(steps.nth(2).locator(".step-desc")).toContainText("6");
+  await expect(steps.nth(2).locator(".step-desc")).toContainText("提交后平台当场核对通过");
   await expect(page.locator('a.step-link[href*="github.com/manwjh/AgentLink"]')).toBeVisible();
   await expect(page.locator("code.inline-code")).toContainText("/admin");
 
@@ -113,7 +113,7 @@ test("收到授权码后登录，看到本站状态、健康与计数", async ({
   const member = page.locator("aside#join section.member");
   await expect(member).toBeVisible();
   await expect(member.locator(".member-name")).toHaveText("端到端节点");
-  await expect(member.locator(".member-url")).toHaveText("https://e2e-node.example");
+  await expect(member.locator(".member-url")).toHaveText("https://e2e-node.xknot.si");
   await expect(member.locator(".pill")).toHaveText(zhCN.status.active);
 
   // 四项读的都是中枢已有的副本：没有探测就是「未知」，没有活动数据就是「—」。

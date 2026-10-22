@@ -53,7 +53,8 @@ export function buildHubData(manifest, health, now = new Date(), cards = {}, sta
           owner: site.owner ?? null,
           contact: site.contact ?? null,
           region: site.region ?? null,
-          timezone: site.timezone ?? "UTC",
+          // 只把主理人写下的钟带出去；没写就是 null，页面按出口 IP 推一个。
+          timezone: site.timezone || null,
           tags: Array.isArray(site.tags) ? site.tags : [],
           url: instance.url,
           // 自述区最近一次取回的时刻。null 表示还没收到过这个站点的档案。

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run xknot.si entry traffic aggregate hourly
+
+[Timer]
+# 开机 3 分钟后先跑一次，之后每小时一次。错开健康巡检的 2/17/32/47 分。
+OnBootSec=3min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -14,11 +14,11 @@ const SCHEMA = `
 create table if not exists applications (
   id           text primary key,
   name         text not null,
-  -- 两种接入模式：own-domain（自有域名）或 subdomain（中枢签发）。
+  -- 接入模式。现在只有 subdomain 一种；列留着是为了读得懂 2.0 之前的老单。
   mode         text,
-  -- 自有域名模式的地址（https://example.com）；subdomain 模式为 NULL。
+  -- 2.0 之前的自有域名，保留给老单；新单一律为 NULL。
   domain       text,
-  -- subdomain 模式的标签；own-domain 模式为 NULL。
+  -- 中枢签发的子域标签，签发后就是实例 id。
   subdomain    text,
   -- 对外地址，创建时由模式推出，之后不再变。
   url          text not null,
@@ -29,11 +29,10 @@ create table if not exists applications (
   intro        text not null,
   tags         text not null default '[]',
   locale       text,
-  status       text not null default 'pending',
+  status       text not null default 'approved',
   created_at   text not null,
   reviewed_at  text,
   reviewed_by  text,
-  review_note  text,
   ip_hash      text,
   -- 可选服务（委托发信、橱窗、统计）。不影响接入模式。
   request_services text,
@@ -45,27 +44,11 @@ create table if not exists applications (
   case_key         text,
   -- 每次状态迁移 +1，和事件一起作为发信幂等键。
   state_version    integer not null default 0,
-  verified_at      text,
-  contact_verified_at text,
-  hold_items       text,
-  reject_reason    text,
-  open_until       text,
   closed_at        text
 );
 
 create index if not exists applications_status on applications(status, created_at);
 create index if not exists applications_url on applications(url);
-
--- 邮箱验证令牌：库里只有 SHA-256，明文随信发出，24~720 小时过期，用一次作废。
-create table if not exists verify_tokens (
-  token_hash    text primary key,
-  application_id text not null,
-  created_at    text not null,
-  expires_at    text not null,
-  used_at       text
-);
-
-create index if not exists verify_tokens_application on verify_tokens(application_id);
 
 -- 一次性领取令牌：交付资料（委托发信凭据等）只在这里留一份，取一次即作废。
 create table if not exists claim_tokens (
@@ -181,6 +164,17 @@ create table if not exists member_sessions (
 );
 
 create index if not exists member_sessions_email on member_sessions(email, created_at);
+
+-- 自动接通：一个申请单一条 run，整份状态与步骤序列以 JSON 存放。
+-- 申请单本身仍是权威记录；这里只记「接通做到哪一步」，删掉可以重跑。
+create table if not exists provision_runs (
+  application_id text primary key,
+  run            text not null,
+  created_at     text not null,
+  updated_at     text not null
+);
+
+create index if not exists provision_runs_updated on provision_runs(updated_at);
 `;
 
 // 依赖迁移补出来的列的索引，必须在 migrate() 之后建：
@@ -189,37 +183,24 @@ const INDEXES = `
 create index if not exists applications_case on applications(case_key);
 `;
 
-export const STATUSES = [
-  "pending",
-  "verified",
-  "hold",
-  "approved",
-  "rejected",
-  "withdrawn",
-  "expired",
-];
+// 申请单一律在提交时通过，只剩「有效」与「已撤回」两种结果。
+// rejected / expired 是自动通过之前留下的历史状态，只读不改。
+export const STATUSES = ["approved", "withdrawn", "rejected", "expired"];
 
-// 申请单的状态机。审核通过只代表「可以收录」，与实例是否接通无关。
+// 申请单的状态机。写入只发生在 createApplication（直接 approved）与撤回。
 const TRANSITIONS = {
-  pending: ["verified", "withdrawn", "expired"],
-  verified: ["hold", "approved", "rejected", "withdrawn"],
-  hold: ["verified", "approved", "rejected", "withdrawn"],
-  approved: [],
-  rejected: [],
+  approved: ["withdrawn"],
   withdrawn: [],
+  rejected: [],
   expired: [],
 };
 
-const TERMINAL_STATUSES = new Set(["approved", "rejected", "withdrawn", "expired"]);
+const TERMINAL_STATUSES = new Set(["withdrawn"]);
 
 // 允许通过 transition() 一起写回的列。用映射表挡住任意列名拼接。
 const APPLICATION_PATCH_COLUMNS = {
   reviewedAt: "reviewed_at",
   reviewedBy: "reviewed_by",
-  reviewNote: "review_note",
-  verifiedAt: "verified_at",
-  holdItems: "hold_items",
-  rejectReason: "reject_reason",
 };
 
 // 老库是 create table if not exists 建出来的，新列不会自己长出来。
@@ -234,11 +215,6 @@ const APPLICATION_COLUMNS = [
   ["public_key", "text"],
   ["case_key", "text"],
   ["state_version", "integer not null default 0"],
-  ["verified_at", "text"],
-  ["contact_verified_at", "text"],
-  ["hold_items", "text"],
-  ["reject_reason", "text"],
-  ["open_until", "text"],
   ["closed_at", "text"],
 ];
 
@@ -256,28 +232,32 @@ function migrate(db) {
   for (const row of missing) fill.run(randomBytes(9).toString("base64url"), row.id);
   // state_version 在旧行上是 NULL 时也给个 0，幂等键才稳定。
   db.exec("update applications set state_version = 0 where state_version is null");
-  // 旧库只有 url 与 subdomain 的区分：有标签就是 subdomain 模式，否则是自有域名。
+  // 旧库只有 url 与 subdomain 的区分：有标签就是签发子域，否则留空由读时推断。
   db.exec(`
     update applications
-       set mode = case when subdomain is not null and subdomain <> '' then 'subdomain' else 'own-domain' end
-     where mode is null or mode = ''
+       set mode = 'subdomain'
+     where (mode is null or mode = '')
+       and subdomain is not null
+       and subdomain <> ''
   `);
-  db.exec(`
-    update applications
-       set domain = url
-     where (domain is null or domain = '')
-       and mode = 'own-domain'
-       and url is not null
-       and url not like 'https://%.xknot.si'
-  `);
+  // 自动通过之前留在队列里的申请一起结到 approved：等待过的人不该再等下去。
+  // 老库可能没有 reviewed_at / reviewed_by，先确认列存在再写。
+  const columns = new Set(db.prepare("pragma table_info(applications)").all().map((row) => row.name));
+  if (columns.has("reviewed_at") && columns.has("reviewed_by")) {
+    db.prepare(
+      `update applications
+          set status = 'approved',
+              reviewed_at = coalesce(reviewed_at, ?),
+              reviewed_by = coalesce(nullif(reviewed_by, ''), 'auto')
+        where status in ('pending', 'verified', 'hold')`
+    ).run(nowIso());
+  } else {
+    db.exec("update applications set status = 'approved' where status in ('pending', 'verified', 'hold')");
+  }
 }
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function addDays(days, from = new Date()) {
-  return new Date(from.getTime() + days * 86400000).toISOString();
 }
 
 function jsonList(value) {
@@ -353,17 +333,14 @@ export function openStore(file) {
 
   function rowToApplication(row) {
     if (!row) return null;
-    // 老库没有 mode 列：有标签按 subdomain，没有就是自有域名。
-    const mode = row.mode || (row.subdomain ? "subdomain" : "own-domain");
-    const subdomain = mode === "subdomain" ? row.subdomain || null : null;
-    const domain = mode === "own-domain" ? row.domain || row.url : null;
+    // 新单一定有标签，地址由标签重算，和签发时写下的 url 是同一个。
+    // 2.0 之前的老单没有标签，直接用它自己存的 url，只为还能打开案例页。
+    const subdomain = row.subdomain || null;
     return {
       id: row.id,
       name: row.name,
-      mode,
-      domain,
       subdomain,
-      url: mode === "subdomain" ? subdomainUrl(subdomain) : domain,
+      url: subdomain ? subdomainUrl(subdomain) : row.url || null,
       operator: row.operator,
       email: row.email,
       region: row.region,
@@ -375,17 +352,11 @@ export function openStore(file) {
       createdAt: row.created_at,
       reviewedAt: row.reviewed_at,
       reviewedBy: row.reviewed_by,
-      reviewNote: row.review_note,
       // ---- 接入模式与状态机 ----
       requestServices: jsonList(row.request_services),
       publicKey: row.public_key || null,
       caseKey: row.case_key || null,
       stateVersion: Number(row.state_version) || 0,
-      verifiedAt: row.verified_at || null,
-      contactVerifiedAt: row.contact_verified_at || null,
-      holdItems: jsonList(row.hold_items),
-      rejectReason: row.reject_reason || null,
-      openUntil: row.open_until || null,
       closedAt: row.closed_at || null,
     };
   }
@@ -399,8 +370,8 @@ export function openStore(file) {
 
     // ---- 申请 ----
 
-    // 同一个地址只允许一条未结案的申请。approved 之后放行：
-    // 伙伴要补服务或换地址时得能再交一张单。
+    // 同一个子域只允许一条有效申请。撤回之后可以重新提交，
+    // 因为地址已经交回中枢；已通过而没撤回的再交一张会撞上这一条。
     findOpenBySubdomain(subdomain) {
       const label = String(subdomain || "").trim();
       if (!label) return null;
@@ -408,25 +379,10 @@ export function openStore(file) {
         get(
           `select * from applications
             where (subdomain = ? or url = ?)
-              and status in ('pending', 'verified', 'hold')
+              and status <> 'withdrawn'
             order by created_at desc limit 1`,
           label,
           subdomainUrl(label)
-        )
-      );
-    },
-
-    findOpenByDomain(domain) {
-      const url = String(domain || "").trim();
-      if (!url) return null;
-      return rowToApplication(
-        get(
-          `select * from applications
-            where (mode = 'own-domain' or mode is null)
-              and url = ?
-              and status in ('pending', 'verified', 'hold')
-            order by created_at desc limit 1`,
-          url
         )
       );
     },
@@ -449,17 +405,21 @@ export function openStore(file) {
 
     createApplication(input) {
       const createdAt = nowIso();
+      const reviewedAt = String(input.reviewedAt || createdAt);
+      const reviewedBy = String(input.reviewedBy || "auto");
       const id = newApplicationId(new Date(createdAt));
       const caseKey = randomBytes(9).toString("base64url");
-      const mode = input.mode === "own-domain" ? "own-domain" : "subdomain";
-      const subdomain = mode === "subdomain" ? String(input.subdomain || "").trim() : null;
-      const domain = mode === "own-domain" ? String(input.domain || "").trim() : null;
-      const url = input.url || (mode === "subdomain" ? subdomainUrl(subdomain) : domain);
+      // 新单一律是签发子域；domain 只为老单留着，写 NULL。
+      const mode = "subdomain";
+      const subdomain = String(input.subdomain || "").trim() || null;
+      const domain = null;
+      const url = subdomain ? subdomainUrl(subdomain) : String(input.url || "").trim();
+      // 提交即通过：不排队、不等人点。reviewed_by 记 auto，谁都没审过也说得清。
       db.prepare(
         `insert into applications
-          (id, name, mode, domain, subdomain, url, operator, email, region, timezone, intro, tags, locale, status, created_at, ip_hash,
-           request_services, case_key, state_version, open_until)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 0, ?)`
+          (id, name, mode, domain, subdomain, url, operator, email, region, timezone, intro, tags, locale, status, created_at,
+           reviewed_at, reviewed_by, ip_hash, request_services, case_key, state_version)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, 0)`
       ).run(
         id,
         input.name,
@@ -475,10 +435,11 @@ export function openStore(file) {
         JSON.stringify(input.tags || []),
         input.locale || null,
         createdAt,
+        reviewedAt,
+        reviewedBy,
         input.ipHash || null,
         JSON.stringify(input.requestServices || []),
-        caseKey,
-        addDays(30)
+        caseKey
       );
       event("application.submitted", id, input.locale || null);
       return this.getApplication(id);
@@ -501,19 +462,11 @@ export function openStore(file) {
     },
 
     countsByStatus() {
-      const out = { pending: 0, verified: 0, approved: 0, rejected: 0, hold: 0, withdrawn: 0, expired: 0 };
+      const out = { approved: 0, withdrawn: 0 };
       for (const row of all("select status, count(*) as n from applications group by status")) {
         out[row.status] = row.n;
       }
       return out;
-    },
-
-    // 最久一条还没结束的申请。审核台用它提示“已经压了多久”。
-    oldestOpenAt() {
-      const row = get(
-        "select created_at from applications where status in ('pending', 'verified', 'hold') order by created_at asc limit 1"
-      );
-      return row?.created_at || null;
     },
 
     // 发信概况：只统计窗口内的事件，不返回收件地址与正文。
@@ -582,55 +535,12 @@ export function openStore(file) {
       return { application: this.getApplication(current.id) };
     },
 
-    // 审核：approved / rejected / hold 从 verified 或 hold 进入；
-    // resume 把 hold 送回 verified。已结案的再改一律拒绝。
-    reviewApplication({ id, decision, note = "", items = [], reason = null, admin }) {
-      const target = {
-        approve: "approved",
-        reject: "rejected",
-        hold: "hold",
-        resume: "verified",
-      }[decision];
-      if (!target) return { error: "invalid_decision" };
-      return this.transition({
-        id,
-        to: target,
-        admin,
-        patch: {
-          reviewedAt: nowIso(),
-          reviewedBy: admin,
-          reviewNote: String(note || "").slice(0, 500),
-          ...(decision === "hold" ? { holdItems: items } : {}),
-          ...(decision === "reject" ? { rejectReason: reason || "incomplete" } : {}),
-        },
-      });
-    },
-
-    // 邮箱验证：pending → verified，顺便记下时间。
-    markEmailVerified(id) {
-      return this.transition({
-        id,
-        to: "verified",
-        patch: { verifiedAt: nowIso() },
-        eventKind: "application.verified",
-      });
-    },
-
-    markContactVerified(id) {
-      const current = this.getApplication(id);
-      if (!current) return { error: "not_found" };
-      db.prepare("update applications set contact_verified_at = ?, state_version = state_version + 1 where id = ?")
-        .run(nowIso(), current.id);
-      event("application.contact_verified", current.id, null);
-      return { application: this.getApplication(current.id) };
-    },
-
+    // 撤回：申请通过之后，伙伴仍然可以把这张单收回去。
     withdrawApplication(id) {
       return this.transition({
         id,
         to: "withdrawn",
         eventKind: "application.withdrawn",
-        patch: { reviewedAt: nowIso() },
       });
     },
 
@@ -643,64 +553,59 @@ export function openStore(file) {
       return { application: this.getApplication(current.id) };
     },
 
-    // pending 超过 open_until 自动结束。approved 之后不再过期。
-    expireApplications(now = nowIso()) {
-      const rows = all(
-        "select id from applications where status = 'pending' and open_until is not null and open_until < ?",
-        String(now)
-      );
-      for (const row of rows) {
-        db.prepare(
-          "update applications set status = 'expired', closed_at = ?, state_version = state_version + 1 where id = ?"
-        ).run(now, row.id);
-        event("application.expired", row.id, null);
-      }
-      return rows.length;
-    },
+    // ---- 自动接通 ----
 
-    // ---- 邮箱验证令牌 ----
-
-    // 每次补发都换一份新的，旧的未使用令牌一并作废。
-    issueVerifyToken({ applicationId, ttlHours = 720 }) {
-      const current = this.getApplication(applicationId);
-      if (!current) return { error: "not_found" };
-      const token = randomBytes(32).toString("base64url");
-      const createdAt = nowIso();
-      const expiresAt = new Date(Date.now() + ttlHours * 3600_000).toISOString();
-      db.prepare("delete from verify_tokens where application_id = ? and used_at is null").run(current.id);
+    // 同一个申请单只跑一条 run。重试由 worker 在同一行上推进，不新建。
+    createProvisionRun(run) {
+      const stamp = nowIso();
       db.prepare(
-        "insert into verify_tokens (token_hash, application_id, created_at, expires_at, used_at) values (?, ?, ?, ?, null)"
-      ).run(sha256(token), current.id, createdAt, expiresAt);
-      event("verify.issued", current.id, null);
-      return { token, applicationId: current.id, expiresAt };
+        "insert or ignore into provision_runs (application_id, run, created_at, updated_at) values (?, ?, ?, ?)"
+      ).run(String(run.applicationId), JSON.stringify(run), stamp, stamp);
+      return this.getProvisionRun(run.applicationId);
     },
 
-    // 页面在用户点「确认」之前先看一眼令牌属于谁，只为拿对语种。
-    // 不消费、不改状态；令牌本身仍是秘密，查看不需要额外鉴权。
-    verifyTokenApplication(token) {
-      const row = get("select application_id from verify_tokens where token_hash = ?", sha256(String(token || "")));
-      return row ? this.getApplication(row.application_id) : null;
+    getProvisionRun(applicationId) {
+      const row = get("select * from provision_runs where application_id = ?", String(applicationId || ""));
+      if (!row) return null;
+      try {
+        return JSON.parse(row.run);
+      } catch {
+        return null;
+      }
     },
 
-    // 消费令牌：过期的、用过的、不存在的分开报，页面才能给出准确的说明。
-    // 顺带把申请推进到 verified；状态已经不是 pending 时只返回当前状态，
-    // 让页面能解释「已经验证过了」或「申请已结束」。
-    consumeVerifyToken(token) {
-      const hash = sha256(String(token || ""));
-      const row = get("select * from verify_tokens where token_hash = ?", hash);
-      if (!row) return { error: "not_found" };
-      if (row.used_at) return { error: "already_used" };
-      if (Date.parse(row.expires_at) <= Date.now()) return { error: "expired" };
-      const current = this.getApplication(row.application_id);
-      if (!current) return { error: "not_found" };
-      if (current.status !== "pending" && current.status !== "verified") {
-        return { error: "closed", application: current };
-      }
-      db.prepare("update verify_tokens set used_at = ? where token_hash = ?").run(nowIso(), hash);
-      if (current.status === "pending") {
-        return { application: this.markEmailVerified(current.id).application, token: row, transitioned: true };
-      }
-      return { application: current, token: row, transitioned: false };
+    saveProvisionRun(run) {
+      db.prepare("update provision_runs set run = ?, updated_at = ? where application_id = ?").run(
+        JSON.stringify(run),
+        nowIso(),
+        String(run.applicationId)
+      );
+      return this.getProvisionRun(run.applicationId);
+    },
+
+    listProvisionRuns(limit = 50) {
+      return all("select run from provision_runs order by updated_at desc limit ?", Math.min(Number(limit) || 50, 200))
+        .map((row) => {
+          try {
+            return JSON.parse(row.run);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
+    },
+
+    // 已通过、已交公钥、还没有 run 的单：worker 每一轮都用它来发现新活。
+    applicationsAwaitingProvision() {
+      return all(
+        `select a.* from applications a
+          left join provision_runs r on r.application_id = a.id
+         where a.status = 'approved'
+           and a.public_key is not null and a.public_key <> ''
+           and r.application_id is null
+         order by a.created_at asc
+         limit 20`
+      ).map(rowToApplication);
     },
 
     // ---- 一次性领取令牌 ----
@@ -1129,7 +1034,7 @@ export function openStore(file) {
 
     // ---- 成员入口 ----
     //
-    // 只认审核通过且邮箱已验证的申请：那是这个站点对外的正式联系地址。
+    // 只认已通过的申请：那是这个站点对外的正式联系地址。
     // 一个邮箱可能对应多条历史申请，按时间倒序全部返回，由接口层挑在册的那条。
     memberApplications(email) {
       const address = String(email || "").trim().toLowerCase();
@@ -1237,7 +1142,7 @@ export function openStore(file) {
       ).map((row) => row.subdomain);
     },
 
-    // 审核台自己的写操作也要留痕；内部 event() 只在库内使用。
+    // 控制台自己的写操作也要留痕；内部 event() 只在库内使用。
     recordEvent(kind, ref, detail) {
       event(kind, ref, detail);
     },

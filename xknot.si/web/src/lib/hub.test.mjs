@@ -190,3 +190,83 @@ test("summary of an empty view is all zeros", () => {
     generatedAt: null,
   });
 });
+
+// 区域以中枢观测到的出口 IP 为准：机器会搬，自述区的 region 是入网那天写的。
+test("the observed country wins over the region the site declared", () => {
+  const [item] = buildView(
+    { instances: [instance({ region: "SG" })] },
+    { locations: { "travel-sg": { country: "CN", at: "2026-10-22T01:00:00.000Z" } } }
+  );
+  assert.equal(item.region, "CN");
+  assert.deepEqual(item.groups, ["east-asia"]);
+  assert.deepEqual(item.located, { country: "CN", at: "2026-10-22T01:00:00.000Z", source: "tunnel" });
+});
+
+test("the whole /api/locations payload is accepted as is", () => {
+  const [item] = buildView(
+    { instances: [instance({ region: "SG" })] },
+    { locations: { generatedAt: "2026-10-22T01:00:00.000Z", locations: { "travel-sg": { country: "CN" } } } }
+  );
+  assert.equal(item.region, "CN");
+  assert.equal(item.located.country, "CN");
+});
+
+test("without an observation the declared region still shows, unmarked", () => {
+  const [item] = buildView({ instances: [instance({ region: "SG" })] }, { locations: null });
+  assert.equal(item.region, "SG");
+  assert.deepEqual(item.groups, ["southeast-asia"]);
+  assert.equal(item.located, null);
+});
+
+test("garbage in the location table is ignored, not printed", () => {
+  for (const hit of [{ country: "China" }, { country: "ZZZ" }, { country: "" }, {}, null, "CN"]) {
+    const [item] = buildView(
+      { instances: [instance({ region: "SG" })] },
+      { locations: { "travel-sg": hit } }
+    );
+    assert.equal(item.region, "SG");
+    assert.equal(item.located, null);
+  }
+});
+
+test("a lowercase code from an upstream feed is normalised", () => {
+  const [item] = buildView(
+    { instances: [instance({ region: "SG" })] },
+    { locations: { "travel-sg": { country: "cn" } } }
+  );
+  assert.equal(item.region, "CN");
+});
+
+// 钟：主理人写下的永远优先；只在没写时按出口 IP 的国家推一个，并标出来。
+test("a declared timezone is never replaced by the egress country", () => {
+  const [item] = buildView(
+    { instances: [instance({ timezone: "Asia/Singapore", region: "SG" })] },
+    { locations: { "travel-sg": { country: "CN" } } }
+  );
+  assert.equal(item.timezone, "Asia/Singapore");
+  assert.equal(item.timezoneInferred, false);
+});
+
+test("an undeclared timezone is guessed from the observed country", () => {
+  const [item] = buildView(
+    { instances: [instance({ timezone: null, region: "SG" })] },
+    { locations: { "travel-sg": { country: "CN" } } }
+  );
+  assert.equal(item.timezone, "Asia/Shanghai");
+  assert.equal(item.timezoneInferred, true);
+});
+
+test("with no timezone and no observation the clock stays UTC, unmarked", () => {
+  const [item] = buildView({ instances: [instance({ timezone: null })] }, { locations: null });
+  assert.equal(item.timezone, "UTC");
+  assert.equal(item.timezoneInferred, false);
+});
+
+test("a country the table cannot place does not invent a clock", () => {
+  const [item] = buildView(
+    { instances: [instance({ timezone: null })] },
+    { locations: { "travel-sg": { country: "ZZ" } } }
+  );
+  assert.equal(item.timezone, "UTC");
+  assert.equal(item.timezoneInferred, false);
+});

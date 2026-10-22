@@ -7,7 +7,7 @@ test("the probe url is url + /api/health", () => {
   assert.equal(PROBE_PATH, "/api/health");
   assert.equal(healthUrlOf({ url: "https://wang.xknot.si" }), "https://wang.xknot.si/api/health");
   assert.equal(healthUrlOf({ url: "https://wang.xknot.si/" }), "https://wang.xknot.si/api/health");
-  // 自有域名模式的 url 就是伙伴自己的地址，探测路径相同。
+  // 探测路径与主机无关：换一个地址也只是换个主机。
   assert.equal(healthUrlOf({ url: "https://nordhavn.example" }), "https://nordhavn.example/api/health");
 });
 

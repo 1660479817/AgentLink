@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { run } from "./check-health.mjs";
+import { refreshStatus } from "./node-status.mjs";
 import { readProfiles } from "./profiles.mjs";
 import { mailConfigFromEnv, sendMail } from "../server/mail.mjs";
 import { ALERT_LABELS, buildMail } from "../server/notify.mjs";
@@ -166,6 +167,18 @@ export async function watch(options = {}) {
   }
 
   if (!result.notices.length) log("没有需要通知的状态变化。");
+
+  // 健康是节点状态的一部分：写完 health.json 就重算一次，
+  // 控制台与构建读到的始终是一份 status.json，而不是各读各的文件。
+  if (!dryRun) {
+    try {
+      await refreshStatus({ dataDir: path.dirname(healthPath), instancesPath });
+      log("节点状态已更新。");
+    } catch (error) {
+      log(`! 节点状态未更新：${error.message}`);
+    }
+  }
+
   return { ...result, sent };
 }
 

@@ -8,13 +8,13 @@ const login = async (page) => {
   await page.locator('form button[type="submit"]').click();
 };
 
-test.describe("审核台", () => {
+test.describe("控制台", () => {
   test("未登录先看到登录表单，错密码给出提示且不进入控制台", async ({ page }) => {
     const errors = watchErrors(page);
     await page.goto("/admin/");
 
     await expect(page.locator("#username")).toBeVisible();
-    await expect(page.locator("h1")).toContainText("联邦审核台");
+    await expect(page.locator("h1")).toContainText("联邦控制台");
 
     await page.locator("#username").fill(ADMIN.username);
     await page.locator("#password").fill("not-the-password");
@@ -25,16 +25,17 @@ test.describe("审核台", () => {
     expect(errors, errors.join("\n")).toEqual([]);
   });
 
-  test("登录 → 打开待审申请 → 通过 → 生成清单条目 → 退出", async ({ page, request }) => {
+  test("登录 → 打开已通过申请 → 生成清单条目 → 退出", async ({ page, request }) => {
     const errors = watchErrors(page);
     const site = uniqueSite("review");
 
-    // 申请走公开接口提交，审核台只负责审核，和线上分工一致。
+    // 申请走公开接口提交，提交即通过；控制台只负责收录与运维。
     const submitted = await request.post("/api/applications", {
       data: { ...site, agree: true, locale: "zh-CN" },
     });
     expect(submitted.status()).toBe(201);
     const { application } = await submitted.json();
+    expect(application.status).toBe("approved");
 
     await page.goto("/admin/");
     await login(page);
@@ -42,30 +43,20 @@ test.describe("审核台", () => {
     await expect(page.locator("header.top")).toBeVisible();
     await expect(page.locator("header.top")).toContainText(ADMIN.username);
 
-    // 登录后先落在总览，申请列表在「申请审核」里。
-    await page.locator("nav.views button", { hasText: "申请审核" }).click();
+    // 登录后先落在总览，申请列表在「申请记录」里，默认就是已通过。
+    await page.locator("nav.views button", { hasText: "申请记录" }).click();
 
     const item = page.locator(".list .item", { hasText: site.name });
     await expect(item).toBeVisible();
     await item.click();
 
-    // 线上要申请人点邮件里的验证链接；本地栈没有 SMTP，用人工确认接口。
-    const verified = await page.request.post(`/api/admin/applications/${application.id}/verify`);
-    expect(verified.status()).toBe(200);
-
-    // 确认后离开 pending 分类，回到「待审核」里继续。
-    await page.goto("/admin/");
-    await page.locator("nav.views button", { hasText: "申请审核" }).click();
-    await page.locator("button.tab", { hasText: "待审核" }).click();
-    await page.locator(".list .item", { hasText: site.name }).click();
-
     const detail = page.locator(".detail");
     await expect(detail.locator("h2")).toHaveText(site.name);
     await expect(detail).toContainText(site.url);
-    await expect(detail.locator(".badge")).toHaveText("待审核");
-
-    await page.locator(".actions button", { hasText: "通过" }).click();
     await expect(detail.locator(".badge")).toHaveText("已通过");
+    await expect(detail).toContainText("提交即通过");
+    // 审核动作已经移除。
+    await expect(page.locator(".actions button")).toHaveCount(0);
 
     await page.locator(".snippet button", { hasText: "生成" }).click();
     const pre = page.locator(".snippet pre");
@@ -74,12 +65,13 @@ test.describe("审核台", () => {
     expect(entry.url).toBe(site.url);
     expect(entry.id).toMatch(/^[a-z0-9][a-z0-9-]*$/);
     expect(entry.status).toBe("pending");
+    expect(entry.tier).toBe("free");
     expect(entry.healthUrl).toBeUndefined();
 
     await page.locator("header.top button", { hasText: "退出" }).click();
     await expect(page.locator("#username")).toBeVisible();
 
-    // 审核台自己也在 CSP 下运行，全程不能有脚本错误。
+    // 控制台自己也在 CSP 下运行，全程不能有脚本错误。
     expect(errors, errors.join("\n")).toEqual([]);
   });
 
@@ -92,14 +84,14 @@ test.describe("审核台", () => {
     await expect(page.locator(".ov-title")).toContainText("个实例");
     await expect(page.locator(".kpi")).toHaveCount(4);
 
-    for (const heading of ["实例与探测", "申请队列", "发信", "最近事件"]) {
+    for (const heading of ["实例与探测", "申请记录", "发信", "最近事件"]) {
       await expect(page.locator(".panel-head h2", { hasText: heading })).toBeVisible();
     }
 
     // 队列行把运营直接送到对应的申请分类。
-    await page.locator(".queue-row", { hasText: "待审核" }).click();
+    await page.locator(".queue-row", { hasText: "已通过" }).click();
     await expect(page.locator(".tabs")).toBeVisible();
-    await expect(page.locator("nav.views button.active")).toContainText("申请审核");
+    await expect(page.locator("nav.views button.active")).toContainText("申请记录");
 
     expect(errors, errors.join("\n")).toEqual([]);
   });
@@ -123,7 +115,7 @@ test.describe("审核台", () => {
 
     const config = page.locator(".inst-config");
     await expect(config).toBeVisible();
-    for (const label of ["账号", "名册身份", "接入模式", "隧道", "探测地址"]) {
+    for (const label of ["账号", "名册身份", "隧道", "探测地址"]) {
       await expect(config).toContainText(label);
     }
     // 探测地址是推导值：展示出来，但不给输入框。
@@ -159,7 +151,7 @@ test.describe("审核台", () => {
     // 探测地址由对外地址推出，表单里不再有这一项。
     await expect(form.locator(".cfg-field", { hasText: "探测地址" })).toHaveCount(0);
     await expect(form.locator(".cfg-field", { hasText: "健康探测" })).toHaveCount(0);
-    const note = `审核台改过的备注 ${Date.now()}`;
+    const note = `控制台改过的备注 ${Date.now()}`;
     await noteInput.fill(note);
 
     // 先交一个非 https 地址：错误留在卡片里，输入不丢，文件也不该被写坏。
@@ -185,38 +177,31 @@ test.describe("审核台", () => {
     expect(errors, errors.join("\n")).toEqual([]);
   });
 
-  test("重复点同一个审核动作，状态不变、列表也不重复", async ({ page, request }) => {
+  test("已通过的申请不再给审核动作，列表也不重复", async ({ page, request }) => {
     const site = uniqueSite("idem");
     const submitted = await request.post("/api/applications", {
       data: { ...site, agree: true, locale: "zh-CN" },
     });
     const { application } = await submitted.json();
+    expect(application.status).toBe("approved");
 
     await page.goto("/admin/");
     await login(page);
-    // 等登录真正落定再调审核接口：login() 只负责点提交，
-    // 会话还没写进 Cookie 时先调接口会拿到 401，申请就停在「待确认」。
     await expect(page.locator("header.top")).toBeVisible();
-
-    const verified = await page.request.post(`/api/admin/applications/${application.id}/verify`);
-    expect(verified.status()).toBe(200);
-    await page.goto("/admin/");
-    await page.locator("nav.views button", { hasText: "申请审核" }).click();
-    await page.locator("button.tab", { hasText: "待审核" }).click();
+    await page.locator("nav.views button", { hasText: "申请记录" }).click();
 
     // 直接按编号定位，避免列表里同名干扰。
     const item = page.locator(".list .item", { hasText: application.id });
     await expect(item).toBeVisible();
     await item.click();
-    await page.locator(".actions button", { hasText: "通过" }).click();
     await expect(page.locator(".detail .badge")).toHaveText("已通过");
+    await expect(page.locator(".actions button")).toHaveCount(0);
 
-    // 已结案的不再给审核动作；同一个动作再打一次接口，只会被 409 挡回来。
-    await expect(page.locator(".actions button", { hasText: "通过" })).toHaveCount(0);
+    // 审核接口已经移除：再打一次只会 404。
     const again = await page.request.post(`/api/admin/applications/${application.id}/review`, {
       data: { decision: "approve" },
     });
-    expect(again.status()).toBe(409);
+    expect(again.status()).toBe(404);
 
     await page.locator("button.tab", { hasText: "已通过" }).click();
     await expect(page.locator(".list .item", { hasText: application.id })).toHaveCount(1);

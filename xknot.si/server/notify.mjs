@@ -9,7 +9,7 @@
 //     因此所有需要申请人动作的事都必须给链接，不能写「请回复本邮件」。
 //  2. 正文只放事实：不放内部备注、审核人、IP、哈希，也不放任何凭据明文。
 
-export const TEMPLATE_VERSION = "1.1.0";
+export const TEMPLATE_VERSION = "2.0.0";
 
 const LOCALES = ["zh-CN", "zh-TW", "en"];
 
@@ -34,107 +34,6 @@ export function normalizeLocale(value) {
   return "en";
 }
 
-// 补材料只认条目码。运营方勾条目，避免自由文本把手写评价带进对外邮件。
-export const HOLD_ITEMS = {
-  site_unreachable: {
-    "zh-CN": "站点地址从公网打不开",
-    "zh-TW": "站點位址從公網打不開",
-    en: "the site URL is not reachable from the public internet",
-  },
-  health_missing: {
-    "zh-CN": "站点没有提供可用的 /api/health",
-    "zh-TW": "站點沒有提供可用的 /api/health",
-    en: "the site does not expose a working /api/health",
-  },
-  intro_unclear: {
-    "zh-CN": "一句话简介与实际内容不一致",
-    "zh-TW": "一句話簡介與實際內容不一致",
-    en: "the one-line intro does not match the site",
-  },
-  name_conflict: {
-    "zh-CN": "名称或标识可能与已有成员冲突",
-    "zh-TW": "名稱或標識可能與已有成員衝突",
-    en: "the name or mark may conflict with an existing member",
-  },
-  contact_invalid: {
-    "zh-CN": "联系邮箱无法送达",
-    "zh-TW": "聯絡信箱無法送達",
-    en: "the contact address is not deliverable",
-  },
-  region_mismatch: {
-    "zh-CN": "区域或时区与实际运营地不符",
-    "zh-TW": "區域或時區與實際營運地不符",
-    en: "the region or timezone does not match where you operate",
-  },
-  other: {
-    "zh-CN": "材料不足",
-    "zh-TW": "材料不足",
-    en: "the information provided is not sufficient",
-  },
-};
-
-export const HOLD_ITEM_CODES = Object.keys(HOLD_ITEMS);
-
-// 拒绝只给三个类别，不给审核人、不给内部备注。
-export const REJECT_REASONS = {
-  incomplete: {
-    label: {
-      "zh-CN": "材料不足",
-      "zh-TW": "材料不足",
-      en: "insufficient information",
-    },
-    hint: {
-      "zh-CN": "申请表缺少关键信息，或所选子域与站点用途不符。",
-      "zh-TW": "申請表缺少關鍵資訊，或所選子網域與站點用途不符。",
-      en: "The application is missing key information, or the chosen subdomain does not fit the site.",
-    },
-  },
-  unreachable: {
-    label: {
-      "zh-CN": "站点不可达",
-      "zh-TW": "站點不可達",
-      en: "site unreachable",
-    },
-    hint: {
-      "zh-CN": "所选地址无法从公网访问，/api/health 没有按约定接通。",
-      "zh-TW": "所選位址無法從公網存取，/api/health 沒有按約定接通。",
-      en: "The chosen address is not reachable from the public internet, or /api/health was not connected as agreed.",
-    },
-  },
-  policy: {
-    label: {
-      "zh-CN": "不符合联邦约定",
-      "zh-TW": "不符合聯邦約定",
-      en: "does not fit the federation terms",
-    },
-    hint: {
-      "zh-CN": "站点用途或内容与 XKnot 联邦的收录约定不符。",
-      "zh-TW": "站點用途或內容與 XKnot 聯邦的收錄約定不符。",
-      en: "The site's purpose or content does not fit the XKnot Federation listing terms.",
-    },
-  },
-};
-
-export const REJECT_REASON_CODES = Object.keys(REJECT_REASONS);
-
-export const MODE_LABEL = {
-  "own-domain": {
-    "zh-CN": "自有域名",
-    "zh-TW": "自有網域",
-    en: "own domain",
-  },
-  subdomain: {
-    "zh-CN": "由中枢签发子域（入口 + SSH 反向隧道）",
-    "zh-TW": "由中樞簽發子網域（入口 + SSH 反向隧道）",
-    en: "hub-issued subdomain (entry host with an SSH reverse tunnel)",
-  },
-  unknown: {
-    "zh-CN": "尚未确定",
-    "zh-TW": "尚未確定",
-    en: "not decided yet",
-  },
-};
-
 const CLOSING = {
   "zh-CN": "本邮件由系统发出，不接收回复。",
   "zh-TW": "本郵件由系統發出，不接收回覆。",
@@ -158,327 +57,80 @@ const HELLO = {
  * companion: 该事件是否需要案例页（没有案例页就不发，避免给死链）。
  */
 export const TEMPLATES = {
-  "partner.received": {
-    audience: "partner",
-    subject: {
-      "zh-CN": "[XKnot] {id} 已收到加入申请",
-      "zh-TW": "[XKnot] {id} 已收到加入申請",
-      en: "[XKnot] {id} application received",
-    },
-    text: {
-      "zh-CN": `${HELLO["zh-CN"]}
-
-我们已收到你提交的 XKnot 联邦加入申请。
-
-编号：{id}
-站点：{name}
-地址：{url}
-
-接下来三步：
-
-1. 用下面的链接确认邮箱。{verifyTtl} 内未确认，申请会自动结束。
-   {verifyUrl}
-
-2. 邮箱确认后进入人工审核，通常 {reviewSla} 内给出结果。
-
-3. 通过后按你选的模式接通：自有域名直接验收；没有域名时由中枢签发子域，再把静态与动态接到入口。清单条目先以「待验收」状态写入，公网 /api/health 通过后才显示为在线。
-
-申请状态随时可查：
-{caseUrl}
-
-{supportLine}
-
-${CLOSING["zh-CN"]}
-
-${SIGN["zh-CN"]}`,
-      "zh-TW": `${HELLO["zh-TW"]}
-
-我們已收到你提交的 XKnot 聯邦加入申請。
-
-編號：{id}
-站點：{name}
-位址：{url}
-
-接下來三步：
-
-1. 用下面的連結確認信箱。{verifyTtl} 內未確認，申請會自動結束。
-   {verifyUrl}
-
-2. 信箱確認後進入人工審核，通常 {reviewSla} 內給出結果。
-
-3. 通過後按你選的模式接通：自有網域直接驗收；沒有網域時由中樞簽發子網域，再把靜態與動態接到入口。清單條目先以「待驗收」狀態寫入，公網 /api/health 通過後才顯示為上線。
-
-申請狀態隨時可查：
-{caseUrl}
-
-{supportLine}
-
-${CLOSING["zh-TW"]}
-
-${SIGN["zh-TW"]}`,
-      en: `${HELLO.en}
-
-We have received your application to join the XKnot Federation.
-
-Reference: {id}
-Site: {name}
-URL: {url}
-
-Next, three steps:
-
-1. Confirm your email address using the link below. The application closes automatically if it is not confirmed within {verifyTtl}.
-   {verifyUrl}
-
-2. After confirmation the application enters manual review. We usually reply within {reviewSla}.
-
-3. Once approved, we connect the mode you chose: an own domain is verified as-is; without one, the hub issues a subdomain and serves the static site from the entry. The listing entry is written as pending; it shows as online only after the public /api/health check passes.
-
-You can check the status at any time:
-{caseUrl}
-
-{supportLine}
-
-${CLOSING.en}
-
-${SIGN.en}`,
-    },
-  },
-
-  "partner.verified": {
-    audience: "partner",
-    subject: {
-      "zh-CN": "[XKnot] {id} 已进入审核",
-      "zh-TW": "[XKnot] {id} 已進入審核",
-      en: "[XKnot] {id} is under review",
-    },
-    text: {
-      "zh-CN": `${HELLO["zh-CN"]}
-
-申请 {id}（{name}）的邮箱已确认，现在进入人工审核。
-
-审核会核对三件事：站点可以从公网访问、一句话简介与实际内容一致、名称与标识不与其他成员冲突。
-
-结果会寄到这个邮箱，通常在 {reviewSla} 内。
-
-这期间要改信息或补材料：
-{caseUrl}
-
-${CLOSING["zh-CN"]}
-
-${SIGN["zh-CN"]}`,
-      "zh-TW": `${HELLO["zh-TW"]}
-
-申請 {id}（{name}）的信箱已確認，現在進入人工審核。
-
-審核會核對三件事：站點可以從公網訪問、一句話簡介與實際內容一致、名稱與標識不與其他成員衝突。
-
-結果會寄到這個信箱，通常 {reviewSla} 內。
-
-這期間要改資訊或補材料：
-{caseUrl}
-
-${CLOSING["zh-TW"]}
-
-${SIGN["zh-TW"]}`,
-      en: `${HELLO.en}
-
-The email address for application {id} ({name}) is confirmed, and the application is now under manual review.
-
-Review checks three things: the site is reachable from the public internet, the one-line intro matches the site, and the name or mark does not conflict with an existing member.
-
-We will write to this address with the result, usually within {reviewSla}.
-
-To change details or send additional material meanwhile:
-{caseUrl}
-
-${CLOSING.en}
-
-${SIGN.en}`,
-    },
-  },
-
-  "partner.hold": {
-    audience: "partner",
-    subject: {
-      "zh-CN": "[XKnot] {id} 需要补充材料",
-      "zh-TW": "[XKnot] {id} 需要補充材料",
-      en: "[XKnot] {id} needs more information",
-    },
-    text: {
-      "zh-CN": `${HELLO["zh-CN"]}
-
-申请 {id}（{name}）需要补充材料，审核暂时搁置。
-
-需要补充：
-{items}
-
-请在 {dueAt} 前通过申请页补齐：
-{caseUrl}
-
-逾期未补，申请会在 {expireAt} 结束。之后可以重新提交，编号会换新的。
-
-${CLOSING["zh-CN"]}
-
-${SIGN["zh-CN"]}`,
-      "zh-TW": `${HELLO["zh-TW"]}
-
-申請 {id}（{name}）需要補充材料，審核暫時擱置。
-
-需要補充：
-{items}
-
-請在 {dueAt} 前透過申請頁補齊：
-{caseUrl}
-
-逾期未補，申請會在 {expireAt} 結束。之後可以重新提交，編號會換新的。
-
-${CLOSING["zh-TW"]}
-
-${SIGN["zh-TW"]}`,
-      en: `${HELLO.en}
-
-Application {id} ({name}) needs more information, so review is on hold.
-
-Still needed:
-{items}
-
-Please send it through the application page by {dueAt}:
-{caseUrl}
-
-If nothing arrives, the application closes on {expireAt}. You can apply again afterwards with a new reference.
-
-${CLOSING.en}
-
-${SIGN.en}`,
-    },
-  },
-
+  // 提交即通过：这封信既是回执也是结果，不再有确认邮箱与等待审核的下一步。
   "partner.approved": {
     audience: "partner",
     subject: {
-      "zh-CN": "[XKnot] {id} 已通过收录审核",
-      "zh-TW": "[XKnot] {id} 已通過收錄審核",
-      en: "[XKnot] {id} was approved for listing",
+      "zh-CN": "[XKnot] {id} 已通过，地址已签发",
+      "zh-TW": "[XKnot] {id} 已通過，位址已簽發",
+      en: "[XKnot] {id} is approved and the address is issued",
     },
     text: {
       "zh-CN": `${HELLO["zh-CN"]}
 
-你提交的 XKnot 联邦加入申请（{id}）已通过审核。
+你提交的 XKnot 联邦加入申请（{id}）已通过。平台在收到申请时自动核对，通过即生效，不需要再等回信。
 
 站点：{name}
 地址：{url}
+当前档位：免费
 
-接下来由工作人员把实例写进实例清单并重新构建门户。收录当天，门户的实例目录里会出现这个条目。
+接下来由运营方把实例写进联邦清单并接通入口。收录当天，门户的实例目录里会出现这个条目：状态先是「待验收」，公网 /api/health 通过后转为在线。
 
-收录不包含下面三项，需要时另行确认：
+收录不包含下面两项，需要时另行确认：
 
-- 自有域名模式的 DNS 与证书（由伙伴自己维护）
-- 无域名模式所需的入口主机与 SSH 反向隧道
+- 入口主机与 SSH 反向隧道
 - 委托发信凭据
 
-需要其中任何一项，请在申请页说明：
+申请状态与公钥提交：
 {caseUrl}
+
+{supportLine}
 
 ${CLOSING["zh-CN"]}
 
 ${SIGN["zh-CN"]}`,
       "zh-TW": `${HELLO["zh-TW"]}
 
-你提交的 XKnot 聯邦加入申請（{id}）已通過審核。
+你提交的 XKnot 聯邦加入申請（{id}）已通過。平台在收到申請時自動核對，通過即生效，不需要再等回信。
 
 站點：{name}
 位址：{url}
+目前檔位：免費
 
-接下來由工作人員把實例寫進實例清單並重新建置入口。收錄當天，入口的實例目錄裡會出現這個條目。
+接下來由營運方把實例寫進聯邦清單並接通入口。收錄當天，入口的實例目錄裡會出現這個條目：狀態先是「待驗收」，公網 /api/health 通過後轉為上線。
 
-收錄不包含下面三項，需要時另行確認：
+收錄不包含下面兩項，需要時另行確認：
 
-- 自有網域模式的 DNS 與憑證（由夥伴自己維護）
-- 無網域模式所需的入口主機與 SSH 反向隧道
+- 入口主機與 SSH 反向隧道
 - 委託發信憑證
 
-需要其中任何一項，請在申請頁說明：
+申請狀態與公鑰提交：
 {caseUrl}
+
+{supportLine}
 
 ${CLOSING["zh-TW"]}
 
 ${SIGN["zh-TW"]}`,
       en: `${HELLO.en}
 
-Your application to join the XKnot Federation ({id}) has been approved.
+Your application to join the XKnot Federation ({id}) is approved. The hub checks every application as it arrives, so approval takes effect immediately and no further reply is needed.
 
 Site: {name}
 URL: {url}
+Current tier: free
 
-A staff member will now add the instance to the instance manifest and rebuild the portal. The entry appears in the portal's instance directory on the day it is listed.
+The operator will now add the instance to the federation manifest and connect the entry. The entry appears in the portal's instance directory on the day it is listed: first as pending, then as online once the public /api/health check passes.
 
 Listing does not include the following, which are confirmed separately:
 
-- DNS and TLS for an own domain (maintained by the partner)
-- the entry host and SSH reverse tunnel needed when there is no domain
+- the entry host and SSH reverse tunnel
 - a relay token for delegated mail
 
-If you need any of them, say so on the application page:
+Application status and public key:
 {caseUrl}
 
-${CLOSING.en}
-
-${SIGN.en}`,
-    },
-  },
-
-  "partner.rejected": {
-    audience: "partner",
-    subject: {
-      "zh-CN": "[XKnot] {id} 的审核结果",
-      "zh-TW": "[XKnot] {id} 的審核結果",
-      en: "[XKnot] result for {id}",
-    },
-    text: {
-      "zh-CN": `${HELLO["zh-CN"]}
-
-你提交的 XKnot 联邦加入申请（{id}）本次未通过审核。
-
-站点：{name}
-地址：{url}
-原因类别：{reasonLabel}
-
-{reasonHint}
-
-情况有变化时可以修改后重新提交，{reapplyAfter} 之后开放。
-申请页：{caseUrl}
-
-${CLOSING["zh-CN"]}
-
-${SIGN["zh-CN"]}`,
-      "zh-TW": `${HELLO["zh-TW"]}
-
-你提交的 XKnot 聯邦加入申請（{id}）本次未通過審核。
-
-站點：{name}
-位址：{url}
-原因類別：{reasonLabel}
-
-{reasonHint}
-
-情況有變化時可以修改後重新提交，{reapplyAfter} 之後開放。
-申請頁：{caseUrl}
-
-${CLOSING["zh-TW"]}
-
-${SIGN["zh-TW"]}`,
-      en: `${HELLO.en}
-
-Your application to join the XKnot Federation ({id}) was not approved this time.
-
-Site: {name}
-URL: {url}
-Reason: {reasonLabel}
-
-{reasonHint}
-
-You can revise and apply again from {reapplyAfter}.
-Application page: {caseUrl}
+{supportLine}
 
 ${CLOSING.en}
 
@@ -498,13 +150,10 @@ ${SIGN.en}`,
 
 实例 {id}（{name}）的接入信息已确定。
 
-接入模式：{modeLabel}
 实例地址：{url}
 入口主机：{entryHost}
 隧道账号：{account}
 专属端口：{port}
-
-「入口主机」「隧道账号」「专属端口」三行只在中枢签发子域时出现。
 
 下一步需要你做两件事：
 
@@ -525,13 +174,10 @@ ${SIGN["zh-CN"]}`,
 
 實例 {id}（{name}）的接入資訊已確定。
 
-接入模式：{modeLabel}
 實例位址：{url}
 入口主機：{entryHost}
 隧道帳號：{account}
 專屬埠：{port}
-
-「入口主機」「隧道帳號」「專屬埠」三行只在中樞簽發子網域時出現。
 
 下一步需要你做兩件事：
 
@@ -552,13 +198,10 @@ ${SIGN["zh-TW"]}`,
 
 Access details for instance {id} ({name}) are set.
 
-Mode: {modeLabel}
 Instance URL: {url}
 Entry host: {entryHost}
 Tunnel account: {account}
 Dedicated port: {port}
-
-The account and port lines appear only for tunnel mode.
 
 Two things to do next:
 
@@ -769,7 +412,6 @@ ${SIGN.en}`,
 不受影响：
 
 - 实例自己的库、账号、内容与积分
-- 实例自己的域名与证书
 
 恢复条件：{resumeCondition}
 
@@ -791,7 +433,6 @@ ${SIGN["zh-CN"]}`,
 不受影響：
 
 - 實例自己的庫、帳號、內容與積分
-- 實例自己的網域與憑證
 
 恢復條件：{resumeCondition}
 
@@ -813,7 +454,6 @@ Affected:
 Not affected:
 
 - the instance's own database, accounts, content, and points
-- the instance's own domain and certificate
 
 To resume: {resumeCondition}
 
@@ -1003,12 +643,12 @@ ${SIGN.en}`,
   "internal.application_new": {
     audience: "operator",
     subject: {
-      "zh-CN": "[XKnot] 待审申请 {id} · {name}",
-      "zh-TW": "[XKnot] 待審申請 {id} · {name}",
-      en: "[XKnot] new application {id} · {name}",
+      "zh-CN": "[XKnot] 新成员 {id} · {name} 已自动通过",
+      "zh-TW": "[XKnot] 新成員 {id} · {name} 已自動通過",
+      en: "[XKnot] new member {id} · {name} approved automatically",
     },
     text: {
-      "zh-CN": `有一条新的加入申请，等待审核。
+      "zh-CN": `有一条新的加入申请，已按提交即通过自动结案。
 
 编号：{id}
 站点：{name}
@@ -1018,10 +658,10 @@ ${SIGN.en}`,
 区域 / 时区：{region} / {timezone}
 简介：{intro}
 标签：{tags}
-申请接入：{requestSummary}
 
-审核台：{origin}/admin/`,
-      "zh-TW": `有一條新的加入申請，等待審核。
+下一步是写清单、接通入口；收录后的档位默认免费，要改收费在实例配置里改：
+{origin}/admin/`,
+      "zh-TW": `有一條新的加入申請，已按提交即通過自動結案。
 
 編號：{id}
 站點：{name}
@@ -1031,10 +671,10 @@ ${SIGN.en}`,
 區域 / 時區：{region} / {timezone}
 簡介：{intro}
 標籤：{tags}
-申請接入：{requestSummary}
 
-審核台：{origin}/admin/`,
-      en: `A new application is waiting for review.
+下一步是寫清單、接通入口；收錄後的檔位預設免費，要改收費在實例設定裡改：
+{origin}/admin/`,
+      en: `A new application has arrived and was closed as approved on submission.
 
 Reference: {id}
 Site: {name}
@@ -1044,38 +684,10 @@ Contact: {email}
 Region / timezone: {region} / {timezone}
 Intro: {intro}
 Tags: {tags}
-Requested access: {requestSummary}
 
-Review console: {origin}/admin/`,
-    },
-  },
-
-  "internal.application_verified": {
-    audience: "operator",
-    subject: {
-      "zh-CN": "[XKnot] 申请 {id} 邮箱已确认",
-      "zh-TW": "[XKnot] 申請 {id} 信箱已確認",
-      en: "[XKnot] application {id} email confirmed",
-    },
-    text: {
-      "zh-CN": `申请 {id}（{name}）的邮箱已确认，可以开始审核。
-
-地址：{url}
-区域 / 时区：{region} / {timezone}
-申请接入：{requestSummary}
-审核台：{origin}/admin/`,
-      "zh-TW": `申請 {id}（{name}）的信箱已確認，可以開始審核。
-
-位址：{url}
-區域 / 時區：{region} / {timezone}
-申請接入：{requestSummary}
-審核台：{origin}/admin/`,
-      en: `The email address for application {id} ({name}) is confirmed; review can start.
-
-URL: {url}
-Region / timezone: {region} / {timezone}
-Requested access: {requestSummary}
-Review console: {origin}/admin/`,
+Next: write the manifest entry and connect the entry. New listings default to the
+free tier; switch to paid in the instance settings:
+{origin}/admin/`,
     },
   },
 
@@ -1172,21 +784,6 @@ export function maskEmail(address) {
   return `${local.slice(0, 1)}***@${domain}`;
 }
 
-export function describeHoldItems(codes, locale) {
-  const list = (Array.isArray(codes) ? codes : [])
-    .map((code) => HOLD_ITEMS[code] && pick(HOLD_ITEMS[code], locale))
-    .filter(Boolean);
-  if (!list.length) list.push(pick(HOLD_ITEMS.other, locale));
-  return list.map((line) => `- ${line}`).join("\n");
-}
-
-export function describeRequest(application, locale) {
-  // 模式决定地址，审核台与内部信只看这一行。
-  const mode = MODE_LABEL[application.mode || "unknown"] || MODE_LABEL.unknown;
-  const address = String(application.url || "").trim();
-  return address ? `${pick(mode, locale)} · ${address}` : pick(mode, locale);
-}
-
 /**
  * 补齐所有变量的默认值。调用方只需要给 links 与少量覆盖项。
  */
@@ -1195,8 +792,6 @@ export function buildVars(application, options = {}) {
   const origin = String(options.origin || "https://xknot.si").replace(/\/+$/, "");
   const links = options.links || {};
   const caseUrl = links.caseUrl || `${origin}/case/${application.caseKey || ""}`;
-  const reason = REJECT_REASONS[application.rejectReason || "incomplete"] || REJECT_REASONS.incomplete;
-  const created = Date.parse(application.createdAt || "") || Date.now();
 
   return {
     id: application.id,
@@ -1211,7 +806,6 @@ export function buildVars(application, options = {}) {
     locale,
     origin,
     caseUrl,
-    verifyUrl: links.verifyUrl || "",
     claimUrl: links.claimUrl || "",
     confirmUrl: links.confirmUrl || caseUrl,
     portalUrl: links.portalUrl || `${origin}/${locale === "en" ? "en" : locale}/`,
@@ -1222,18 +816,9 @@ export function buildVars(application, options = {}) {
     supportLine: options.supportUrl
       ? `${pick({ "zh-CN": "可选的联系入口：", "zh-TW": "可選的聯絡入口：", en: "Optional contact: " }, locale)}${options.supportUrl}`
       : "",
-    reviewSla: options.reviewSla || { "zh-CN": "3 个工作日", "zh-TW": "3 個工作日", en: "3 business days" }[locale],
-    verifyTtl: { "zh-CN": "30 天", "zh-TW": "30 天", en: "30 days" }[locale],
     confirmTtl: { "zh-CN": "30 天", "zh-TW": "30 天", en: "30 days" }[locale],
     claimTtl: { "zh-CN": "72 小时", "zh-TW": "72 小時", en: "72 hours" }[locale],
-    dueAt: (application.reviewedAt || new Date(created).toISOString()).slice(0, 10),
-    expireAt: String(application.openUntil || "").slice(0, 10),
-    reapplyAfter: new Date(created + 7 * 86400000).toISOString().slice(0, 10),
-    items: describeHoldItems(application.holdItems, locale),
-    reasonLabel: pick(reason.label, locale),
-    reasonHint: pick(reason.hint, locale),
     subdomain: options.subdomain || (subdomainLabelOf(application) ? `${subdomainLabelOf(application)}.xknot.si` : ""),
-    modeLabel: pick(MODE_LABEL[application.mode || "unknown"] || MODE_LABEL.unknown, locale),
     entryHost: options.entryHost || "—",
     account: options.account || "—",
     port: options.port || "—",
@@ -1244,7 +829,6 @@ export function buildVars(application, options = {}) {
     reclaimAt: options.reclaimAt || "",
     exportUntil: options.exportUntil || "",
     resumeCondition: options.resumeCondition || "—",
-    requestSummary: describeRequest(application, locale),
     alertLabel: options.alertLabel || "",
     firstSeenAt: options.firstSeenAt || "",
     checkedAt: options.checkedAt || "",
@@ -1297,21 +881,9 @@ export function buildMail(eventName, application, options = {}) {
   };
 }
 
-// 兼容旧调用点与旧测试：审核结果信、给管理员的新申请信。
+// 兼容旧调用点：给管理员的新申请信。
 export function newApplicationMail(application, { adminEmail, origin, supportUrl } = {}) {
   return buildMail("internal.application_new", application, { adminEmail, origin, supportUrl });
-}
-
-export function applicantReviewMail(application, decision, { adminEmail, origin, replyTo, supportUrl } = {}) {
-  const event =
-    decision === "approved"
-      ? "partner.approved"
-      : decision === "rejected"
-        ? "partner.rejected"
-        : null;
-  if (!event) return null;
-  if (!application?.email) return null;
-  return buildMail(event, application, { adminEmail, origin, replyTo, supportUrl });
 }
 
 export { LOCALES };

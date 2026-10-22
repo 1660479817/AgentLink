@@ -42,7 +42,7 @@ export default defineConfig({
   ],
   webServer: {
     // 每次跑都用新的数据目录：否则第二次运行会因为管理员已存在而起不来。
-    // 清单与名册也用临时副本：审核台里的「编辑」会写回文件，不能改到仓库里的真清单。
+    // 清单与名册也用临时副本：控制台里的「编辑」会写回文件，不能改到仓库里的真清单。
     command: `D="$(mktemp -d -t xknot-ui)"; cp ../instances.json "$D/instances.json"; cp ../federation.json "$D/federation.json"; node ../ops/local-stack.mjs --preview --port ${PORT} --data-dir "$D/data" --instances "$D/instances.json" --federation "$D/federation.json" --admin e2e-admin:e2e-correct-horse-battery`,
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: !process.env.CI,

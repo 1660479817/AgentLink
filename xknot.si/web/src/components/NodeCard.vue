@@ -64,6 +64,10 @@ const clockTitle = computed(() => {
   if (time.value) parts.push(offset.value ? `${time.value} ${offset.value}` : time.value);
   if (shift.value === 1) parts.push(props.t("instance.tomorrow"));
   if (shift.value === -1) parts.push(props.t("instance.yesterday"));
+  // 区域不是注册时填的那个：说清楚它是按出口 IP 判的，免得看着像填错了。
+  if (props.item.located) parts.push(props.t("instance.located"));
+  // 钟也不是主理人写的：同样说清楚，别让人以为档案被人改过。
+  if (props.item.timezoneInferred) parts.push(props.t("instance.timeInferred"));
   return parts.join(" · ");
 });
 
@@ -130,8 +134,10 @@ const facts = computed(() =>
           <span class="tier">{{ t(`tier.${item.tier}`) }}</span>
         </span>
         <span class="place" :title="clockTitle">
-          <span class="place-time">{{ time || "—" }}</span>
-          <span>{{ region || t("region.other") }}<template v-if="offset"> · {{ offset }}</template></span>
+          <span class="place-time" :class="{ inferred: item.timezoneInferred }">{{ time || "—" }}</span>
+          <span class="place-region" :class="{ located: item.located }">{{
+            region || t("region.other")
+          }}<template v-if="offset"> · {{ offset }}</template></span>
         </span>
       </span>
 
@@ -352,6 +358,20 @@ const facts = computed(() =>
   color: var(--muted);
   font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* 钟是按出口 IP 推的：与区域同样用点线下划，悬停能看到出处。 */
+.place-time.inferred {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+/* 区域按出口 IP 判的：点线下划一小段，鼠标悬停能看到出处。 */
+.place-region.located {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
 }
 
 .arrow {

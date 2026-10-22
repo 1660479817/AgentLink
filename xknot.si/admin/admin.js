@@ -1,18 +1,20 @@
-// XKnot 审核台。
+// XKnot 控制台。
 //
+// 申请提交即通过，这里不再有审核动作：看申请记录、改实例配置、看探测与发信。
 // 无构建步骤：浏览器直接加载这个模块。所有文本用 textContent 写入，
 // 申请内容不会当成 HTML 执行。
 
 const app = document.getElementById("app");
 
 const STATUS_LABEL = {
-  pending: "待确认",
-  verified: "待审核",
   approved: "已通过",
-  rejected: "已拒绝",
-  hold: "搁置",
   withdrawn: "已撤回",
-  expired: "已过期",
+  // 自动通过之前的历史状态。
+  pending: "待确认（历史）",
+  verified: "待审核（历史）",
+  hold: "搁置（历史）",
+  rejected: "已拒绝（历史）",
+  expired: "已过期（历史）",
 };
 
 // 总览里的实例状态。pending 是已收录、未通过 /api/health 验收；paused 是暂停或退役。
@@ -27,10 +29,9 @@ const HEALTH_LABEL = {
 };
 
 const TIER_LABEL = {
-  founder: "创始",
-  partner: "伙伴",
-  community: "社区",
   demo: "示例",
+  free: "免费",
+  paid: "收费",
 };
 
 const ERROR_LABEL = {
@@ -42,15 +43,9 @@ const ERROR_LABEL = {
 
 const EVENT_LABEL = {
   "application.submitted": "新申请",
-  "application.verified": "邮箱已确认",
   "application.contact_verified": "联系邮箱已确认",
   "application.public_key": "已保存公钥",
-  "application.approved": "审核通过",
-  "application.rejected": "审核拒绝",
-  "application.hold": "搁置待补",
   "application.withdrawn": "申请撤回",
-  "application.expired": "申请过期",
-  "verify.issued": "发出验证信",
   "claim.issued": "发出交付资料",
   "claim.consumed": "领取交付资料",
   "relay.token_created": "签发发信凭据",
@@ -58,13 +53,6 @@ const EVENT_LABEL = {
   "admin.created": "建管理员",
   "admin.deleted": "删管理员",
   "admin.password_reset": "重设口令",
-};
-
-// 只有两种接入模式，模式决定地址。
-const MODE_LABEL = {
-  "own-domain": "自有域名",
-  subdomain: "中枢签发子域",
-  unknown: "未选择",
 };
 
 const REGION_LABEL = {
@@ -129,9 +117,9 @@ const COUNTRY_GROUP = {
 const state = {
   admin: null,
   view: "overview",
-  filter: "pending",
+  filter: "approved",
   applications: [],
-  counts: { pending: 0, verified: 0, approved: 0, rejected: 0, hold: 0, withdrawn: 0, expired: 0 },
+  counts: { approved: 0, withdrawn: 0 },
   selected: null,
   busy: false,
   error: "",
@@ -238,17 +226,35 @@ function formatBytes(value) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+// 档案里的 region 与中枢观测到的国家不同：说明这台机器已经搬了，或者档案没改。
+// 只在两个值都在、且确实不同时才算漂移；没有观测值时谈不上漂移。
+function locationDrift(row) {
+  const declared = Array.isArray(row.regions) ? row.regions[0] : null;
+  const seen = row.location?.country || null;
+  return Boolean(declared && seen && declared !== seen);
+}
+
 function healthNote(row) {
   const health = row.health || {};
   if (health.status === "pending") return "已收录，待 /api/health 验收，暂不探测也不上门户";
   if (health.status === "paused") return "清单里状态不是 active，不探测";
   if (health.status === "unprobed") return "缺对外地址，推不出探测地址";
   if (health.status === "down") {
+    // 隧道没连时探测必然失败：先说清是哪一段断的，别让人去查实例的接口。
+    if (row.tunnel?.checkedAt && !row.tunnel.connected) return "隧道未连，探测必然失败";
     return health.downSince ? `自 ${relativeLabel(health.downSince)} 起断连` : "探测失败";
   }
   if (health.latencyMs != null) return `${health.latencyMs} ms`;
   if (health.lastOkAt) return `上次正常 ${relativeLabel(health.lastOkAt)}`;
   return "没有探测记录";
+}
+
+// 入口 nginx 观测到的流量。没有采集过就整行不出现，不写 0 冒充数据。
+function trafficNote(row) {
+  const traffic = row.traffic;
+  if (!traffic || !traffic.requests) return null;
+  const day = traffic.date ? `${traffic.date} ` : "";
+  return `${day}${traffic.requests} 次 · ${formatBytes(traffic.bytes)}`;
 }
 
 // 名册字段的中文说法。缺一个说法时直接显示原值，不吞掉。
@@ -307,7 +313,6 @@ function renderInstanceConfig(row, id) {
     el("dl", { class: "cfg-grid" }, [
       line("名册身份", config.role ? ROLE_LABEL[config.role] || config.role : "未进名册"),
       line("席位", config.standing ? STANDING_LABEL[config.standing] || config.standing : "—"),
-      line("接入模式", config.mode ? MODE_LABEL[config.mode] || config.mode : "—"),
       line("隧道", tunnel || "未分配"),
       line(
         "清单列出",
@@ -324,6 +329,37 @@ function renderInstanceConfig(row, id) {
           : el("span", { class: "cfg-missing" }, "还没取回过：内容由主理人在实例的 /admin 里写")
       ),
       line("对外地址", row.url ? link(row.url) : "未填地址"),
+      line(
+        "观测位置",
+        row.location
+          ? el("span", {}, [
+              `${row.location.country}`,
+              el(
+                "span",
+                { class: "cfg-missing" },
+                `　隧道出口 IP 判定${row.location.at ? `，${formatWhen(row.location.at)}` : ""}`
+              ),
+            ])
+          : el("span", { class: "cfg-missing" }, "未采集：隧道未连，或中枢不在入口主机")
+      ),
+      line(
+        "隧道对端",
+        row.tunnel?.checkedAt
+          ? el("span", {}, [
+              `${row.tunnel.connected ? "连着" : "不在"}　账号 ${row.tunnel.account || "—"} · 端口 ${row.tunnel.port ?? "—"}`,
+              el("span", { class: "cfg-missing" }, `　${formatWhen(row.tunnel.checkedAt)} 采集`),
+            ])
+          : el("span", { class: "cfg-missing" }, "未采集：中枢不在入口主机，或 provision worker 没跑")
+      ),
+      line(
+        "入口流量",
+        row.traffic
+          ? el("span", {}, [
+              `${row.traffic.date} · ${row.traffic.requests} 次 · ${formatBytes(row.traffic.bytes)}`,
+              el("span", { class: "cfg-missing" }, "　入口 nginx 观测，不含实例自己记的站内行为"),
+            ])
+          : el("span", { class: "cfg-missing" }, "未采集：入口还没装 knot-log.conf")
+      ),
       line(
         "探测地址",
         config.probeUrl
@@ -344,13 +380,16 @@ function renderInstanceConfig(row, id) {
 
 // ---- 编辑实例配置 ----
 
-const TIER_OPTIONS = ["demo", "partner", "community"];
+const TIER_OPTIONS = ["demo", "free", "paid"];
 const INSTANCE_STATUS_OPTIONS = ["pending", "active", "suspended", "retired"];
 
 const LABELS = {
   demo: TIER_LABEL.demo,
-  partner: TIER_LABEL.partner,
-  community: TIER_LABEL.community,
+  free: TIER_LABEL.free,
+  paid: TIER_LABEL.paid,
+  // 自动通过之前登记的旧档位，读到就按新档位显示。
+  partner: TIER_LABEL.paid,
+  community: TIER_LABEL.free,
   pending: "待验收",
   active: "在用",
   suspended: "暂停",
@@ -358,8 +397,6 @@ const LABELS = {
   founder: ROLE_LABEL.founder,
   permanent: STANDING_LABEL.permanent,
   regular: STANDING_LABEL.regular,
-  "own-domain": MODE_LABEL["own-domain"],
-  subdomain: MODE_LABEL.subdomain,
 };
 
 function hostFromUrl(value) {
@@ -375,7 +412,7 @@ function draftFrom(row, config) {
   return {
     instance: {
       url: row.url || "",
-      tier: row.tier || "community",
+      tier: row.tier || "free",
       status: row.status || "active",
       since: config.since || "",
       cardsUrl: config.cardsUrl || "",
@@ -385,7 +422,6 @@ function draftFrom(row, config) {
       host: config.host || hostFromUrl(row.url),
       role: config.role || "partner",
       standing: config.standing || "regular",
-      mode: config.mode || (hostFromUrl(row.url).endsWith(".xknot.si") ? "subdomain" : "own-domain"),
       listed: config.listed == null ? true : Boolean(config.listed),
       tunnelAccount: config.tunnel?.account || "",
       tunnelPort: config.tunnel?.port || "",
@@ -431,7 +467,7 @@ function formField(term, control, hint) {
 }
 
 // 表单只收运营自己维护的字段。没进名册的实例按默认身份补一条；
-// 模式不是 subdomain 时不写 tunnel，避免留下一份失效的隧道配置。
+// 接入形态恒为 subdomain，隧道账号与端口每次一并提交。
 function renderInstanceForm(row, config, id) {
   const editing = state.editing;
   const draft = editing.draft;
@@ -448,12 +484,6 @@ function renderInstanceForm(row, config, id) {
   const host = configInput(member.host, {}, (value) => (member.host = value));
   const role = configSelect(member.role, ["founder", "partner"], {}, (value) => (member.role = value));
   const standing = configSelect(member.standing, ["permanent", "regular"], {}, (value) => (member.standing = value));
-  const mode = configSelect(
-    member.mode,
-    ["own-domain", "subdomain"],
-    {},
-    (value) => (member.mode = value)
-  );
   const tunnelAccount = configInput(
     member.tunnelAccount,
     { placeholder: "knot-tunnel" },
@@ -511,14 +541,10 @@ function renderInstanceForm(row, config, id) {
                 host: member.host,
                 role: member.role,
                 standing: member.standing,
-                mode: member.mode,
                 listed: member.listed,
                 since: inst.since,
                 note: member.note,
-                tunnel:
-                  member.mode === "subdomain"
-                    ? { account: member.tunnelAccount, port: member.tunnelPort }
-                    : null,
+                tunnel: { account: member.tunnelAccount, port: member.tunnelPort },
               },
             }),
           });
@@ -566,9 +592,8 @@ function renderInstanceForm(row, config, id) {
           formField("域名", host),
           formField("角色", role),
           formField("席位", standing),
-          formField("接入模式", mode, "自有域名用自家地址；签发子域必须是 *.xknot.si"),
-          formField("隧道账号", tunnelAccount, "仅签发子域"),
-          formField("隧道端口", tunnelPort, "仅签发子域"),
+          formField("隧道账号", tunnelAccount),
+          formField("隧道端口", tunnelPort),
           el("label", { class: "cfg-field cfg-check" }, [
             listed,
             el("span", {}, "写进清单（listed）"),
@@ -635,8 +660,8 @@ function renderLogin() {
   return el("main", { class: "login" }, [
     el("section", { class: "login-card" }, [
       el("p", { class: "login-mark" }, ["◆", " XKNOT / ADMIN"]),
-      el("h1", {}, "联邦审核台"),
-      el("p", {}, "审核加入申请，通过后生成实例清单条目。"),
+      el("h1", {}, "联邦控制台"),
+      el("p", {}, "看申请记录与实例状态；申请提交即通过，这里不再审核。"),
       form,
     ]),
   ]);
@@ -650,8 +675,7 @@ function renderConsole() {
 }
 
 function renderTop() {
-  const counts = (state.overview && state.overview.applications.counts) || state.counts;
-  const waiting = (counts.pending || 0) + (counts.verified || 0) + (counts.hold || 0);
+  const pendingListing = (state.overview?.applications?.approvedNotListed || []).length;
   const viewTab = (key, label, badge) =>
     el(
       "button",
@@ -676,11 +700,11 @@ function renderTop() {
         }),
         el("span", {}, "XKNOT"),
       ]),
-      "/ 联邦审核台",
+      "/ 联邦控制台",
     ]),
-    el("nav", { class: "views", "aria-label": "审核台视图" }, [
+    el("nav", { class: "views", "aria-label": "控制台视图" }, [
       viewTab("overview", "总览"),
-      viewTab("applications", "申请审核", waiting),
+      viewTab("applications", "申请记录", pendingListing),
     ]),
     el("div", { class: "top-user" }, [
       el("span", {}, state.admin.username),
@@ -720,9 +744,6 @@ function renderOverview() {
   const mail = ov.mail;
   const relay = ov.relay;
   const online = inst.up + inst.degraded;
-  const verifiedWaiting = (apps.counts.verified || 0) + (apps.counts.hold || 0);
-  const unconfirmed = apps.counts.pending || 0;
-  const waiting = verifiedWaiting + unconfirmed;
 
   const kpi = (label, value, note, tone = "") =>
     el("article", { class: `kpi${tone ? ` ${tone}` : ""}` }, [
@@ -753,6 +774,18 @@ function renderOverview() {
                   el("span", { class: "pill" }, TIER_LABEL[row.tier] || row.tier),
                   ...(row.services.cards ? [el("span", { class: "pill" }, "橱窗")] : []),
                   ...(row.services.stats ? [el("span", { class: "pill" }, "统计")] : []),
+                  // 对端采集过、但这条隧道不在：与「接口 502」是两种故障。
+                  row.tunnel?.checkedAt && !row.tunnel.connected
+                    ? el("span", { class: "pill warn" }, "隧道断开")
+                    : null,
+                  // 位置只在和档案不一致时提醒：一致时多一个胶囊只是噪音。
+                  locationDrift(row)
+                    ? el(
+                        "span",
+                        { class: "pill warn", title: "门户显示的是观测位置，不是档案里的 region" },
+                        `位置 ${row.location.country}（档案 ${row.regions[0]}）`
+                      )
+                    : null,
                   row.health.hidden ? el("span", { class: "pill warn" }, "已隐藏") : null,
                 ]),
               ]),
@@ -762,6 +795,7 @@ function renderOverview() {
               ]),
               el("span", { class: "inst-note" }, [
                 el("span", {}, healthNote(row)),
+                trafficNote(row) ? el("span", {}, trafficNote(row)) : null,
                 row.health.error
                   ? el("span", { class: "inst-error" }, ERROR_LABEL[row.health.error] || row.health.error)
                   : null,
@@ -774,7 +808,7 @@ function renderOverview() {
       })
     : el("p", { class: "empty" }, "清单里还没有实例。");
 
-  const queueKeys = ["verified", "hold", "pending", "approved", "rejected", "withdrawn", "expired"];
+  const queueKeys = ["approved", "withdrawn", "rejected", "expired"];
   const queue = el(
     "div",
     { class: "queue" },
@@ -813,6 +847,9 @@ function renderOverview() {
           `接口 ${ov.runtime.version} 已运行 ${formatUptime(ov.runtime.uptimeSeconds)}`,
           " · ",
           `申请库 ${formatBytes(ov.runtime.dbBytes)}`,
+          inst.trafficNodes
+            ? ` · 昨日 ${inst.trafficRequests} 次请求 / ${formatBytes(inst.trafficBytes)}`
+            : null,
         ]),
       ]),
       el(
@@ -835,10 +872,10 @@ function renderOverview() {
         inst.down ? "bad" : ""
       ),
       kpi(
-        "待处理申请",
-        String(waiting),
-        `待审核 ${verifiedWaiting} · 待确认 ${unconfirmed} · 已通过 ${apps.counts.approved || 0}`,
-        waiting ? "warn" : ""
+        "申请",
+        String(apps.total),
+        `已通过 ${apps.counts.approved || 0} · 已撤回 ${apps.counts.withdrawn || 0} · 待收录 ${apps.approvedNotListed.length}`,
+        apps.approvedNotListed.length ? "warn" : ""
       ),
       kpi(
         "24 小时发信",
@@ -867,13 +904,10 @@ function renderOverview() {
       el("div", { class: "ov-col" }, [
         el("section", { class: "panel" }, [
           el("div", { class: "panel-head" }, [
-            el("h2", {}, "申请队列"),
+            el("h2", {}, "申请记录"),
             el("button", { type: "button", class: "link-btn", onclick: () => openApplications("all") }, "查看全部"),
           ]),
           queue,
-          apps.oldestOpenAt
-            ? el("p", { class: "panel-note" }, `最久一条在队列里 ${relativeLabel(apps.oldestOpenAt)}。`)
-            : null,
           apps.approvedNotListed.length
             ? el(
                 "p",
@@ -938,7 +972,7 @@ function openApplications(status) {
 
 function renderApplications() {
   const loading = state.applicationsBusy;
-  const tabs = ["pending", "verified", "hold", "approved", "rejected", "all"].map((key) => {
+  const tabs = ["approved", "withdrawn", "all"].map((key) => {
     const count = key === "all" ? Object.values(state.counts).reduce((a, b) => a + b, 0) : state.counts[key] || 0;
     return el(
       "button",
@@ -986,7 +1020,7 @@ function renderApplications() {
           )
         )
       )
-    : el("p", { class: "empty" }, state.filter === "pending" ? "没有待审申请。" : "这个分类下没有记录。");
+    : el("p", { class: "empty" }, state.filter === "approved" ? "还没有通过记录。" : "这个分类下没有记录。");
 
   return el("div", { class: "layout" }, [
     el("section", { class: "panel" }, [el("div", { class: "tabs" }, tabs), list]),
@@ -998,115 +1032,9 @@ function renderApplications() {
   ]);
 }
 
-const HOLD_OPTIONS = [
-  ["site_unreachable", "站点从公网打不开"],
-  ["health_missing", "没有可用的 /api/health"],
-  ["intro_unclear", "简介与实际内容不符"],
-  ["name_conflict", "名称或标识可能冲突"],
-  ["contact_invalid", "联系邮箱无法送达"],
-  ["region_mismatch", "区域或时区不符"],
-  ["other", "材料不足"],
-];
-
-const REJECT_OPTIONS = [
-  ["incomplete", "材料不足"],
-  ["unreachable", "站点不可达"],
-  ["policy", "不符合联邦约定"],
-];
-
 function renderDetail(item) {
-  const note = el("textarea", { rows: "2", placeholder: "审核备注（可选，只有内部可见，不会寄给申请人）" });
-  note.value = item.reviewNote || "";
-
-  // 补材料只认条目码：勾选结果随 review 一起提交，信中只出现这些条目。
-  const boxes = HOLD_OPTIONS.map(([code, label]) => {
-    const box = el("input", { type: "checkbox", value: code });
-    box.checked = Array.isArray(item.holdItems) && item.holdItems.includes(code);
-    return { code, box, label };
-  });
-  const reason = el("select", {});
-  for (const [code, label] of REJECT_OPTIONS) {
-    const option = el("option", { value: code }, label);
-    if ((item.rejectReason || "incomplete") === code) option.selected = true;
-    reason.append(option);
-  }
-
-  const blocked = state.busy;
-  const review = (decision, label, extraClass = "") =>
-    el(
-      "button",
-      {
-        type: "button",
-        class: `btn ${extraClass}`,
-        disabled: blocked,
-        onclick: async () => {
-          state.busy = true;
-          render();
-          try {
-            const data = await api(`/api/admin/applications/${item.id}/review`, {
-              method: "POST",
-              body: JSON.stringify({
-                decision,
-                note: note.value,
-                items: boxes.filter((entry) => entry.box.checked).map((entry) => entry.code),
-                reason: reason.value,
-              }),
-            });
-            state.selected = data.application;
-            state.manifest = null;
-            // 审核成功后必须解除忙碌态，否则「生成」与审核键会一直是灰的。
-            state.busy = false;
-            await loadApplications();
-          } catch (error) {
-            state.error =
-              error.status === 409
-                ? "这条申请已经不在可审核状态，刷新后重试。"
-                : "审核没有保存，请重试。";
-            state.busy = false;
-            render();
-          }
-        },
-      },
-      label
-    );
-
-  const canApprove = ["verified", "hold"].includes(item.status);
-  const canReject = ["verified", "hold"].includes(item.status);
-  const canHold = item.status === "verified";
-  const canResume = item.status === "hold";
-  const actions = [
-    canApprove ? review("approve", "通过", "btn-ok") : null,
-    canReject ? review("reject", "拒绝", "btn-bad") : null,
-    canHold ? review("hold", "搁置") : null,
-    canResume ? review("resume", "恢复审核") : null,
-  ].filter(Boolean);
-
-  const resend = item.status === "pending"
-    ? el("button", {
-        type: "button",
-        class: "btn",
-        disabled: blocked,
-        onclick: async () => {
-          state.busy = true;
-          state.error = "";
-          try {
-            const data = await api(`/api/admin/applications/${item.id}/notify`, {
-              method: "POST",
-              body: JSON.stringify({ event: "partner.received" }),
-            });
-            state.error = data.verifyUrl
-              ? `已重新发送。验证地址：${data.verifyUrl}`
-              : "已重新发送验证信。";
-          } catch {
-            state.error = "验证信没有发出去，请检查 SMTP 配置。";
-          }
-          state.busy = false;
-          render();
-        },
-      }, "补发验证信")
-    : null;
-
   const manifest = state.manifest && state.manifestId === item.id ? state.manifest : null;
+  const notListed = (state.overview?.applications?.approvedNotListed || []).some((row) => row.id === item.id);
 
   return el("div", { class: "detail" }, [
     el("div", { class: "detail-head" }, [
@@ -1118,8 +1046,6 @@ function renderDetail(item) {
     ]),
 
     el("dl", { class: "dl" }, [
-      el("dt", {}, "接入模式"),
-      el("dd", {}, MODE_LABEL[item.mode] || item.mode || "—"),
       el("dt", {}, "站点"),
       el("dd", {}, el("a", { href: item.url, target: "_blank", rel: "noopener noreferrer" }, item.url)),
       el("dt", {}, "运营者"),
@@ -1134,40 +1060,21 @@ function renderDetail(item) {
       el("dd", {}, item.intro),
       el("dt", {}, "标签"),
       el("dd", {}, item.tags.length ? item.tags.map((tag) => `#${tag}`).join(" ") : "—"),
-      el("dt", {}, "对外地址"),
-      el("dd", {}, item.url ? el("a", { href: item.url, target: "_blank", rel: "noopener noreferrer" }, item.url) : "—"),
-      el("dt", {}, "邮箱确认"),
-      el("dd", {}, item.verifiedAt ? formatWhen(item.verifiedAt) : "未确认"),
-      item.holdItems?.length ? el("dt", {}, "待补") : null,
-      item.holdItems?.length ? el("dd", {}, item.holdItems.join(" / ")) : null,
-      item.rejectReason ? el("dt", {}, "拒绝类别") : null,
-      item.rejectReason ? el("dd", {}, item.rejectReason) : null,
-      item.publicKey ? el("dt", {}, "公钥") : null,
-      item.publicKey ? el("dd", {}, item.publicKey) : null,
-      item.reviewedBy ? el("dt", {}, "审核") : null,
-      item.reviewedBy ? el("dd", {}, `${item.reviewedBy} · ${formatWhen(item.reviewedAt)}`) : null,
-      item.reviewNote ? el("dt", {}, "备注") : null,
-      item.reviewNote ? el("dd", {}, item.reviewNote) : null,
+      el("dt", {}, "通过"),
+      el("dd", {}, item.reviewedAt
+        ? `${item.reviewedBy === "auto" || !item.reviewedBy ? "提交即通过" : item.reviewedBy} · ${formatWhen(item.reviewedAt)}`
+        : "—"),
+      state.overview
+        ? el("dt", {}, "收录")
+        : null,
+      state.overview
+        ? el("dd", {}, notListed ? "还没写进清单" : "已写进清单")
+        : null,
+      el("dt", {}, "公钥"),
+      el("dd", {}, item.publicKey || "未提交"),
     ]),
 
-    item.status === "pending" || item.status === "verified" || item.status === "hold"
-      ? el("div", { class: "note" }, [
-          el("p", { class: "hint" }, "搁置时勾选需要申请人补的内容；这些条目会原样出现在信里。"),
-          el("div", { class: "checks" }, boxes.map(({ box, label }) =>
-            el("label", { class: "check" }, [box, el("span", {}, label)])
-          )),
-          el("p", { class: "hint" }, "拒绝时只给类别，审核备注不会外发。"),
-          el("div", { class: "checks" }, [reason]),
-        ])
-      : null,
-
-    el("div", { class: "note" }, [note]),
-
-    actions.length
-      ? el("div", { class: "actions" }, actions)
-      : el("p", { class: "hint" }, item.status === "pending" ? "等待申请人确认邮箱。" : "这份申请已经结束，不能再审核。"),
-
-    resend ? el("div", { class: "actions" }, [resend]) : null,
+    el("p", { class: "hint" }, "申请提交即通过，这里不再审核。要让一个成员停下来，改它实例的 status（暂停 / 退役）。"),
 
     item.status === "approved"
       ? el("div", { class: "snippet" }, [
@@ -1197,7 +1104,7 @@ function renderDetail(item) {
                 el("pre", { tabindex: "0" }, manifest),
                 el("button", {
                   type: "button",
-                  // 审核台 CSP 是 style-src 'self'，行内 style 会被拦，样式放 CSS 里。
+                  // 控制台 CSP 是 style-src 'self'，行内 style 会被拦，样式放 CSS 里。
                   class: "btn btn-copy",
                   onclick: async () => {
                     try {
@@ -1218,7 +1125,7 @@ function renderDetail(item) {
               ])
             : null,
         ])
-      : null,
+      : el("p", { class: "hint" }, "这份申请已撤回，只在库里留档。"),
 
     state.error ? el("p", { class: "alert", role: "alert" }, state.error) : null,
   ]);

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 把中枢的接口、审核台和站点配置同步到托管主机，并重启接口进程。
+# 把中枢的接口、控制台和站点配置同步到托管主机，并重启接口进程。
 #
 # 静态站（web/dist）由 deploy-hub.sh 负责，这里不碰它。
 #
@@ -9,7 +9,7 @@
 #
 # 可覆盖的变量：
 #   XKNOT_HUB_SSH       必填，如 user@192.0.2.10
-#   XKNOT_API_ROOT   接口与审核台的根目录，默认 /opt/xknot
+#   XKNOT_API_ROOT   接口与控制台的根目录，默认 /opt/xknot
 #   XKNOT_WEB_ROOT   静态站根目录，默认 /var/www/xknot
 #   XKNOT_SSH_KEY    私钥路径，默认 ~/.ssh/id_rsa
 #   XKNOT_NGINX_CONF 远端 nginx 配置路径，默认 /etc/nginx/conf.d/xknot.si.conf
@@ -64,8 +64,8 @@ else
 fi
 
 # 接口运行时需要的东西：server/ 本身，以及 manifest.mjs 校验清单时用到的
-# validate-instances.mjs、i18n.js、regions.js。缺一个，审核通过后生成条目就会失败。
-# 审核台的「编辑」还要读 validate-federation.mjs：漏了它，server/edit.mjs 一加载就报
+# validate-instances.mjs、i18n.js、regions.js。缺一个，生成清单条目就会失败。
+# 控制台的「编辑」还要读 validate-federation.mjs：漏了它，server/edit.mjs 一加载就报
 # ERR_MODULE_NOT_FOUND，整个接口起不来。
 echo "==> sync api"
 rsync_to "$HUB/server/" "$API_ROOT/server/"
@@ -109,33 +109,61 @@ rsync_to "$HUB/package.json" "$API_ROOT/package.json"
 
 echo "==> stage config"
 if [[ "$DRY_RUN" == 1 ]]; then
-  echo "(dry-run) copy ops/xknot.si.conf, ops/xknot-api.service, ops/xknot-health.{service,timer} → /tmp"
+  echo "(dry-run) copy ops/xknot.si.conf, ops/xknot-api.service, ops/xknot-provision.service, ops/xknot-health.{service,timer}, ops/xknot-traffic.{service,timer} → /tmp"
 else
   scp -q "${SSH_OPTS[@]}" \
     "$HUB/ops/xknot.si.conf" \
     "$HUB/ops/xknot-api.service" \
+    "$HUB/ops/xknot-provision.service" \
     "$HUB/ops/xknot-health.service" \
     "$HUB/ops/xknot-health.timer" \
+    "$HUB/ops/xknot-traffic.service" \
+    "$HUB/ops/xknot-traffic.timer" \
     "$XKNOT_HUB_SSH:/tmp/"
+fi
+
+echo "==> entry host config"
+if [[ "$DRY_RUN" == 1 ]]; then
+  echo "(dry-run) create $API_ROOT/var/provision.env from XKNOT_ENTRY_HOST if missing"
+elif [[ -n "${XKNOT_ENTRY_HOST:-}" ]]; then
+  ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "
+    set -e
+    if [ ! -f '$API_ROOT/var/provision.env' ]; then
+      printf 'XKNOT_ENTRY_HOST=%s\n' '$XKNOT_ENTRY_HOST' | sudo tee '$API_ROOT/var/provision.env' >/dev/null
+      sudo chmod 600 '$API_ROOT/var/provision.env'
+      echo 'wrote: $API_ROOT/var/provision.env'
+    fi
+  "
+else
+  echo "skip: 没给 XKNOT_ENTRY_HOST；自动接通会以「未配置」停在原地"
 fi
 
 echo "==> install config"
 if [[ "$DRY_RUN" == 1 ]]; then
-  echo "(dry-run) install conf + units (api + health.service/timer), nginx -t, restart $SERVICE, enable health.timer, reload nginx"
+  echo "(dry-run) install conf + units (api + provision + health.{service,timer} + traffic.{service,timer}), nginx -t, restart $SERVICE, reload nginx"
 else
   ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "
     set -e
     sudo install -m 644 /tmp/xknot.si.conf '$NGINX_CONF'
     sudo install -m 644 /tmp/xknot-api.service '/etc/systemd/system/$SERVICE.service'
+    sudo install -m 644 /tmp/xknot-provision.service /etc/systemd/system/xknot-provision.service
     sudo install -m 644 /tmp/xknot-health.service /etc/systemd/system/xknot-health.service
     sudo install -m 644 /tmp/xknot-health.timer /etc/systemd/system/xknot-health.timer
+    sudo install -m 644 /tmp/xknot-traffic.service /etc/systemd/system/xknot-traffic.service
+    sudo install -m 644 /tmp/xknot-traffic.timer /etc/systemd/system/xknot-traffic.timer
     sudo nginx -t
     sudo systemctl daemon-reload
     sudo systemctl enable '$SERVICE'
     sudo systemctl restart '$SERVICE'
+    # 自动接通：没配 provision.env 时只打日志，不会碰主机。
+    sudo systemctl enable xknot-provision
+    sudo systemctl restart xknot-provision
     # timer 只 enable，不立刻补跑：部署时刚探过，马上再跑一次会把同一状态重复写一遍。
     sudo systemctl enable xknot-health.timer
     sudo systemctl start xknot-health.timer
+    # 流量聚合读入口 nginx 的日志；入口还没装 knot-log.conf 时它会安静跳过。
+    sudo systemctl enable xknot-traffic.timer
+    sudo systemctl start xknot-traffic.timer
     sudo systemctl reload nginx
   "
 fi
@@ -152,6 +180,12 @@ else
       ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "systemctl is-enabled xknot-health.timer" >/dev/null 2>&1 \
         && echo "OK: xknot-health.timer 已启用（每 15 分钟）" \
         || echo "WARN: xknot-health.timer 未启用，连续断连提醒与隐藏不会发生。"
+      ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "systemctl is-enabled xknot-traffic.timer" >/dev/null 2>&1 \
+        && echo "OK: xknot-traffic.timer 已启用（每小时）" \
+        || echo "WARN: xknot-traffic.timer 未启用，控制台不会出现入口流量。"
+      ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "systemctl is-active --quiet xknot-provision" \
+        && echo "OK: xknot-provision 在跑（自动接通）" \
+        || echo "WARN: xknot-provision 没起来，签发了也不会自动接通。看 journalctl -u xknot-provision。"
       exit 0
     fi
     sleep 1

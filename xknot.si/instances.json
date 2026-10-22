@@ -6,15 +6,22 @@
       "id": "wang",
       "url": "https://wang.xknot.si",
       "since": "2026-10-19",
-      "tier": "partner",
+      "tier": "paid",
       "status": "active"
     },
     {
       "id": "zjj",
       "url": "https://zjj.xknot.si",
       "since": "2026-10-19",
-      "tier": "community",
+      "tier": "free",
       "status": "pending"
+    },
+    {
+      "id": "cpswang",
+      "url": "https://cpswang.xknot.si",
+      "since": "2026-10-21",
+      "tier": "free",
+      "status": "active"
     }
   ]
 }

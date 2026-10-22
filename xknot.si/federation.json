@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-20",
+  "updatedAt": "2026-10-21",
   "hub": "xknot.si",
   "members": [
     {
@@ -29,6 +29,20 @@
       "listed": true,
       "since": "2026-10-19",
       "note": "子域已签发；隧道账号与 /api 反代待接通，待接通前不探测。",
+      "mode": "subdomain"
+    },
+    {
+      "id": "cpswang",
+      "host": "cpswang.xknot.si",
+      "role": "partner",
+      "standing": "regular",
+      "tunnel": {
+        "account": "knot-tunnel-cpswang",
+        "port": 18090
+      },
+      "listed": true,
+      "since": "2026-10-21",
+      "note": "子域与隧道已登记，等待接通验收。",
       "mode": "subdomain"
     }
   ]

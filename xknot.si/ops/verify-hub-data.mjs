@@ -97,13 +97,13 @@ export function verifyHubData({ data, manifest, fixtures = null, requireProfile 
 
     if (!isHttps(item?.url)) problems.push(`${id}: url must be https`);
 
-    // 名称来自实例自述的副本；没有副本时 buildHubData 会退回 id。
-    // 门户能显示，但等于没有站点介绍 —— 让它在发布前露出来。
+    // 名称来自实例自述的副本；取不到副本时 buildHubData 会退回 id。
+    // 名字等于 id 是主理人自己的选择（把 id 当站名），不算缺档案；真正要报的是没取回副本。
     if (requireProfile) {
-      const name = typeof item?.name === "string" ? item.name.trim() : "";
-      if (!name || name === id) problems.push(`${id}: no profile name, the portal would show the id`);
       if (!item?.profileFetchedAt) {
         problems.push(`${id}: profile has never been fetched (run ops/fetch-profile.mjs)`);
+      } else if (!String(item?.name || "").trim()) {
+        problems.push(`${id}: profile has no name, the portal would show the id`);
       }
     }
 

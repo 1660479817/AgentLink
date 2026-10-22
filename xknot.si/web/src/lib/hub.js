@@ -4,8 +4,10 @@
 // 这里只做纯计算：不回退到默认语种之外的翻译，不排序之外的猜测。
 
 import { groupsOf, REGION_GROUPS } from "./regions.js";
+import { timezoneOf } from "./timezones.js";
 
-const TIER_ORDER = { demo: 0, partner: 1, community: 2 };
+// 清单里的档位：示例 > 收费 > 免费。partner / community 是旧词，读到也按新档位排。
+const TIER_ORDER = { demo: 0, paid: 1, partner: 1, free: 2, community: 2 };
 
 function tierRank(tier) {
   return TIER_ORDER[tier] ?? 99;
@@ -24,10 +26,11 @@ export function sortInstances(list) {
 
 /**
  * @param {{ instances?: unknown[] }} data hub.json
- * @param {{ locale: string }} options
+ * @param {{ locations?: unknown }} options 中枢观测到的位置，见 GET /api/locations
  */
-export function buildView(data) {
+export function buildView(data, options = {}) {
   const list = Array.isArray(data?.instances) ? data.instances : [];
+  const locations = options.locations || null;
 
   // 连续不可达满 7 天、或签发后 30 天仍未接通，条目暂时不出现在门户。
   // 判断依据是探测写下的 hiddenAt，不是清单里的 status。
@@ -35,7 +38,17 @@ export function buildView(data) {
     .filter((instance) => instance?.health?.hidden !== true)
     .map((instance) => {
       const health = instance.health || null;
-      const region = typeof instance.region === "string" ? instance.region : null;
+      // 位置以观测到的出口 IP 为准：机器会搬，自述区的 region 是入网那天写的。
+      // 没有观测值（隧道没起来、或中枢不是入口主机）才回落到自述区。
+      const located = observedLocation(locations, instance.id);
+      const region = located?.country || (typeof instance.region === "string" ? instance.region : null);
+
+      // 钟：主理人写了就按他写的走，没写才用出口 IP 的国家推一个。
+      // 推出来的钟带标记，页面上说清楚「这个不是主理人写的」。
+      const declared = typeof instance.timezone === "string" && instance.timezone.trim();
+      const inferred = declared ? null : timezoneOf(located?.country);
+      const timezone = declared || inferred || "UTC";
+
       return {
         id: instance.id,
         // 自述区已经是扁平字符串，门户不再按语种取一次：填什么就显示什么。
@@ -49,8 +62,12 @@ export function buildView(data) {
         url: instance.url,
         tier: instance.tier,
         status: instance.status,
-        timezone: instance.timezone || "UTC",
+        timezone,
+        // 钟不是自述区写的：卡片上标一下，免得主理人以为谁改了他的档案。
+        timezoneInferred: Boolean(inferred),
         region,
+        // 位置来自出口 IP 时带上来源与时间：页面据此说明「这个区域不是注册时填的」。
+        located,
         groups: groupsOf(region ? [region] : []),
         cards: Array.isArray(instance.cards) ? instance.cards : [],
         health: {
@@ -62,6 +79,16 @@ export function buildView(data) {
         },
       };
     });
+}
+
+// 中枢按隧道对端 IP 判定的国家码。locations 既接受 /api/locations 的整包，
+// 也接受 { id: { country } } 这一层，省得调用方先拆一遍。
+function observedLocation(locations, id) {
+  const table = locations?.locations && typeof locations.locations === "object" ? locations.locations : locations;
+  const hit = table?.[id];
+  const country = typeof hit?.country === "string" ? hit.country.trim().toUpperCase() : "";
+  if (!/^[A-Z]{2}$/.test(country)) return null;
+  return { country, at: hit.at || null, source: "tunnel" };
 }
 
 // 页面上出现的筛选项：全部 + 实际用到的分组，顺序固定。

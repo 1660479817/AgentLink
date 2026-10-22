@@ -11,6 +11,8 @@
 //
 // v2 起自述区是九项扁平字段，没有多语种映射：主理人填什么，门户就显示什么。
 
+import { HUB_SUFFIX, labelFromUrl } from "./subdomain.mjs";
+
 export const FORMAT_VERSION = 2;
 
 export const LIMITS = {
@@ -26,7 +28,7 @@ export const LIMITS = {
   tags: 9,
 };
 
-export const TIERS = ["demo", "partner", "community"];
+export const TIERS = ["demo", "free", "paid"];
 export const STATUSES = ["pending", "active", "suspended", "retired"];
 
 const ISSUED_FIELDS = ["id", "url", "since", "tier", "status", "cardsUrl", "statsUrl"];
@@ -203,7 +205,10 @@ export function checkIssued(instance, seen = new Set()) {
     seen.add(id);
   }
 
+  // 清单只收中枢签发出来的地址：https://<标签>.xknot.si。
+  // 早期签发的短号（< 6 位）照样放行；长度与保留名在签发时才判。
   if (!isHttpsUrl(instance.url)) errors.push("url: must be https");
+  else if (!labelFromUrl(instance.url)) errors.push(`url: must be https://<label>${HUB_SUFFIX}`);
 
   if (typeof instance.since !== "string" || !DATE_RE.test(instance.since)) errors.push("since: must be YYYY-MM-DD");
   if (!TIERS.includes(instance.tier)) errors.push(`tier: must be one of ${TIERS.join(", ")}`);

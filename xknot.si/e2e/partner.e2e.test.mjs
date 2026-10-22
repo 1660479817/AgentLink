@@ -1,7 +1,7 @@
 // 伙伴接入的端到端测试：真实 HTTP + 真实 SMTP 会话 + 真实令牌。
 //
-// 覆盖线上的完整路径：提交申请 → 收到验证信 → 验证页（GET 不消费、POST 才确认）
-// → 案例页补发 → 审核通过 → 交接发一次性领取链接 → 领取页面（GET 不消费）→ 领取。
+// 覆盖线上的完整路径：提交申请 → 立即通过并收到批准信（含案例页地址）
+// → 案例页提交公钥 / 撤回 → 交接发一次性领取链接 → 领取页面（GET 不消费）→ 领取。
 // 收信端是 e2e/smtp-sink.mjs，所以令牌确实是从邮件正文里取出来的，
 // 不靠读库、也不靠测试后门。
 //
@@ -115,7 +115,7 @@ function matchPath(text, prefix, extra = "") {
   return found.at(-1).replace(/^https?:\/\/[^/]+/, "");
 }
 
-test("join: 提交后收到验证信，发件人与回信地址固定", async () => {
+test("join: 提交即通过，收到批准信且没有验证环节", async () => {
   const submitted = await request("/api/applications", {
     method: "POST",
     body: APPLICATION,
@@ -123,49 +123,36 @@ test("join: 提交后收到验证信，发件人与回信地址固定", async ()
   });
   assert.equal(submitted.status, 201, submitted.text);
   const application = submitted.data.application;
-  assert.equal(application.status, "pending");
+  assert.equal(application.status, "approved");
   assert.match(application.id, /^XK-\d{4}-[0-9A-Z]{6}$/);
+  assert.match(application.caseUrl, /\/case\//);
 
   const mail = await nextMail(APPLICATION.email);
   assert.match(mail.from, new RegExp(MAIL_FROM));
   assert.equal(mail.replyTo, "no-reply@xknot.si", "伙伴邮件不接收回复");
   assert.match(mail.body, /本邮件由系统发出，不接收回复。|This message was sent automatically; replies are not monitored\./);
+  assert.match(mail.body, /approved|已通过/i);
   assert.ok(!/xkr_[A-Za-z0-9]/.test(mail.body), "邮件里不能出现明文凭据");
+  assert.doesNotMatch(mail.body, /\/verify\//, "不再有邮箱验证链接");
 
-  const verifyPath = matchPath(mail.body, "/verify/");
   const casePath = matchPath(mail.body, "/case/");
-
-  // GET 只是页面：邮件网关/安全网关预取也不该把令牌用掉。
-  for (let i = 0; i < 2; i += 1) {
-    const page = await request(verifyPath);
-    assert.equal(page.status, 200);
-    assert.match(page.text, /确认|Confirm/i);
-    assert.match(page.headers.get("cache-control") || "", /no-store/);
-    assert.match(page.headers.get("referrer-policy") || "", /no-referrer/);
-  }
-
   const casePage = await request(casePath);
   assert.equal(casePage.status, 200);
   assert.ok(casePage.text.includes(APPLICATION.name));
-  assert.match(casePage.text, /waiting for email confirmation|待确认/i);
+  assert.doesNotMatch(casePage.text, /waiting for email confirmation|待确认/i);
 
-  const token = verifyPath.split("/").pop();
-  const confirmed = await request("/api/verify", { method: "POST", form: { token } });
-  assert.equal(confirmed.status, 200);
-  assert.match(confirmed.text, /confirmed|已确认/i);
-
-  const reused = await request("/api/verify", { method: "POST", form: { token } });
-  assert.equal(reused.status, 200);
-  assert.match(reused.text, /already|已经/i, "同一个令牌第二次只提示已使用");
+  const verifyPage = await request("/verify/tok_abcdefgh");
+  assert.equal(verifyPage.status, 404, "验证页已经移除");
 
   adminCookie = await login();
-  const listed = await request("/api/admin/applications?status=verified", { cookie: adminCookie });
+  const listed = await request("/api/admin/applications?status=approved", { cookie: adminCookie });
   assert.equal(listed.status, 200);
-  assert.ok(listed.data.applications.some((row) => row.id === application.id));
+  const row = listed.data.applications.find((item) => item.id === application.id);
+  assert.ok(row);
+  assert.equal(row.reviewedBy, "auto");
 });
 
-test("join: 案例页可以补发验证信，撤销后不再接受审核", async () => {
-  // 用一张新的申请：上一条已经确认过邮箱，已结案的申请不再补发确认信。
+test("join: 案例页可以提交公钥，撤销后不再接受审核", async () => {
   const application = {
     ...APPLICATION,
     subdomain: "partner-resend",
@@ -181,13 +168,15 @@ test("join: 案例页可以补发验证信，撤销后不再接受审核", async
   const received = await nextMail(application.email);
   const casePath = matchPath(received.body, "/case/");
 
-  const resent = await request(`/api${casePath}/resend-verify`, { method: "POST" });
-  assert.equal(resent.status, 303);
-  assert.match(resent.headers.get("location") || "", /resend=1/);
+  const saved = await request(`/api${casePath}/public-key`, {
+    method: "POST",
+    form: { publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPartnerKeyOnly lin@example.com" },
+  });
+  assert.equal(saved.status, 303);
+  assert.match(saved.headers.get("location") || "", /key=1/);
 
-  const resentMail = await nextMail(application.email);
-  assert.ok(matchPath(resentMail.body, "/verify/"));
-  assert.ok(matchPath(resentMail.body, "/case/"));
+  const keyed = await request(casePath);
+  assert.match(keyed.text, /公钥|public key/i);
 
   const withdrawn = await request(`/api${casePath}/withdraw`, { method: "POST" });
   assert.equal(withdrawn.status, 303);
@@ -198,12 +187,11 @@ test("join: 案例页可以补发验证信，撤销后不再接受审核", async
   assert.match(page.text, /withdrawn|已撤回/i);
 });
 
-test("join: 审核通过后交接发一次性领取链接，领取页不消费、领取只能用一次", async () => {
-  // 上一条测试把申请撤回（结案）了，这里重新走一条完整链路。
+test("join: 通过后交接发一次性领取链接，领取页不消费、领取只能用一次", async () => {
   const application = {
     ...APPLICATION,
-      mode: "subdomain",
-      subdomain: "partner-claim",
+    mode: "subdomain",
+    subdomain: "partner-claim",
     email: "claim@partner-e2e.example",
   };
   const submitted = await request("/api/applications", {
@@ -213,19 +201,9 @@ test("join: 审核通过后交接发一次性领取链接，领取页不消费�
   });
   assert.equal(submitted.status, 201, submitted.text);
   const id = submitted.data.application.id;
+  assert.equal(submitted.data.application.status, "approved");
 
-  const received = await nextMail(application.email);
-  const token = matchPath(received.body, "/verify/").split("/").pop();
-  assert.equal((await request("/api/verify", { method: "POST", form: { token } })).status, 200);
-
-  const approved = await request(`/api/admin/applications/${id}/review`, {
-    method: "POST",
-    cookie: adminCookie,
-    headers: { origin: stack.portalUrl },
-    body: { decision: "approve" },
-  });
-  assert.equal(approved.status, 200, approved.text);
-  assert.equal(approved.data.application.status, "approved");
+  await nextMail(application.email);
 
   const handoff = await request(`/api/admin/applications/${id}/handoff`, {
     method: "POST",

@@ -28,7 +28,7 @@ server/index.mjs         127.0.0.1:5181，SQLite 在 var/e2e/<run>/data
 | `/data/hub.json` | 构建写出的快照，`no-cache` |
 | `/admin` | 301 到 `/admin/`（对应 nginx 的精确匹配） |
 | `/admin/*` | 反代，只补 HSTS 与 `X-Robots-Tag`，CSP 由接口自己发 |
-| `/verify/*`、`/case/*`、`/claim/*` | 反代到接口，补 `X-Robots-Tag: noindex`；页面自己发 CSP 与 `no-store` |
+| `/case/*`、`/claim/*` | 反代到接口，补 `X-Robots-Tag: noindex`；页面自己发 CSP 与 `no-store` |
 | `/api/*` | 反代，补 server 级安全头与 `X-Forwarded-For`（追加，不覆盖） |
 | 其它 | 404，`..` 与 `%2e%2e` 出不了 `web/dist` |
 
@@ -43,8 +43,8 @@ npm run deploy:local -- --admin paul:correct-horse-battery
 npm run deploy:local -- --port 8080 --data-dir /tmp/xknot
 ```
 
-启动后终端会打印门户、审核台、接口与数据目录。`Ctrl-C` 一起收掉两个进程。
-数据落在 `var/local/`（`--data-dir` 可换），**不删**：重启后申请、审核记录、
+启动后终端会打印门户、控制台、接口与数据目录。`Ctrl-C` 一起收掉两个进程。
+数据落在 `var/local/`（`--data-dir` 可换），**不删**：重启后申请、发信记录、
 委托发信日志都还在。`5180/5181` 留给 `npm run dev`，部署默认占 `5190`。
 端到端测试另起随机端口与临时目录，跑完即删。
 
@@ -52,7 +52,7 @@ npm run deploy:local -- --port 8080 --data-dir /tmp/xknot
 
 接口默认读仓库根目录的 `instances.json`，名册读 `federation.json`。本地联调与端到端可以用
 `XKNOT_INSTANCES_FILE` 与 `XKNOT_FEDERATION_FILE` 指向临时副本，接口与 `admin-cli`（含 `publish`）
-都认这两个变量，仓库里的文件不会被改。审核台的「编辑」会写回接口正在读的那两份文件，
+都认这两个变量，仓库里的文件不会被改。控制台的「编辑」会写回接口正在读的那两份文件，
 所以浏览器用例启动时把两份清单各拷一份到临时目录，再通过
 `node ops/local-stack.mjs --instances <file> --federation <file>` 指过去。
 
@@ -69,7 +69,7 @@ npm run api
 |----|------|--------|------|
 | 单元 | `npm test` | 清单与名册校验、页面数据、接口与邮件纯函数 | Node，无网络 |
 | 接口端到端 | `npm run test:e2e` | 真 HTTP、真 SQLite、真 SMTP 会话、真 CLI | Node + `web/dist` |
-| 浏览器端到端 | `npm run test:ui` | 真 Chromium 跑门户、申请表、审核台 | Playwright + Chrome + `web/dist` |
+| 浏览器端到端 | `npm run test:ui` | 真 Chromium 跑门户、申请表、控制台 | Playwright + Chrome + `web/dist` |
 | 全量 | `npm run test:all` | 上面三项依次跑 | 同上 |
 
 两套端到端都从 `web/dist` 读静态站，干净检出先构建一次：
@@ -117,17 +117,17 @@ E2E_CHANNEL= npm run test:ui
 - `hub.json` 只含清单里的实例；没有探测/橱窗/活动数据时是 `null` 与 `[]`，不写 0。
 - 未知路径、路径穿越、`/admin` 白名单外的文件都是 404。
 
-### 4.2 申请与审核（`e2e/api.e2e.test.mjs`）
+### 4.2 申请与自动通过（`e2e/api.e2e.test.mjs`）
 
-- 空表单按字段返回错误码；跨站 POST 403；蜜罐填了回 201 但不落库。
-- 正常提交 201，编号形如 `XK-YYYY-XXXXXX`；同一子域再提 409。
-- 提交后收到两封信：申请人拿到 `/verify/` 链接，运营方拿到待审提醒；伙伴信 `Reply-To` 为空（不接收回复）。
-- `GET /verify/<token>` 不消费令牌；`POST /api/verify` 消费一次，状态 `pending → verified`，第二次返回「已用过」。
-- 未确认邮箱的申请直接 `approve` 返回 409；`/case/<caseKey>` 可看状态、补发确认信、提交公钥与撤回。
+- 缺少字段按字段返回错误码；跨站 POST 403；蜜罐填了回 201 但不落库。
+- 正常提交 201，编号形如 `XK-YYYY-XXXXXX`，状态直接是 `approved`；同一子域再提 409。
+- 提交后收到两封信：申请人拿到批准信（含地址、档位与 `/case/` 链接），运营方拿到新成员提醒；伙伴信 `Reply-To` 为空（不接收回复）。
+- 没有 `/verify/` 页面与 `/api/verify` 接口；申请不会停在待确认。
+- `/case/<caseKey>` 可看状态、提交公钥与撤回。
 - 未登录 401，伪造 Cookie 401，错密码 401；登录 Cookie 带 `HttpOnly`、`SameSite=Strict`、`Path=/`。
-- 待审列表能看到申请，通过后 `reviewedBy` 正确，生成的清单条目过 `checkManifestEntry`。
-- 通过审核生成的清单条目不写探测地址（它由 `url` 推出）；退出后会话立刻失效。
-- `hold` 只收条目码、`reject` 只收原因类别；重复点同一个动作 409，且不会重复发信。
+- 已通过列表能看到申请，`reviewedBy` 为 `auto`；生成的清单条目过 `checkManifestEntry`，默认 `tier: free`。
+- 审核接口已移除，再调返回 404；退出后会话立刻失效。
+- `handoff` 生成一次性领取链接：`GET /claim/<token>` 不消费，`POST /api/claim` 只返回一次明文，再取 409；邮件正文不含凭据。
 - `handoff` 生成一次性领取链接：`GET /claim/<token>` 不消费，`POST /api/claim` 只返回一次明文，再取 409；邮件正文不含凭据。
 
 ### 4.3 委托发信（`e2e/relay.e2e.test.mjs`）
@@ -150,11 +150,11 @@ E2E_CHANNEL= npm run test:ui
 | 文件 | 覆盖 |
 |------|------|
 | `portal.spec.mjs` | 按 `hub.json` 渲染全部卡片、地图可见、入口回原站；三语切换与 `aria-current`；深浅色；区域筛选与「只看在线」；「只看热点」；360/390/768/1280 无横向溢出；键盘可达与表单 label；CSP 下无脚本错误 |
-| `join.spec.mjs` | 空表单逐项报错并聚焦第一个错误；子域/邮箱非法；提交成功显示编号；同一子域重复提示；蜜罐；390px 下触控尺寸 |
+| `member.spec.mjs` | 右栏只有邮箱一格与四步加入指引、没有申请表；邮箱不完整不发请求；从真实邮件取授权码登录后看到本站状态、健康与计数；退出后状态不残留；390px 下两格与登录键不小于 44px、右栏不溢出 |
 | `admin.spec.mjs` | 登录失败提示；登录 → 待审列表 → 详情 → 通过 → 生成清单条目 → 退出；点实例就地展开配置；就地编辑配置、非法值不落盘、草稿不丢；重复点通过状态不变；CSP 下无脚本错误 |
 
 浏览器用例还会断言页面**没有** `pageerror`、没有 CSP 违规。这条断言抓到过两类真实问题：
-内联样式被审核台 CSP 拦截、字体被 Vite 内联成 `data:` 后被 `font-src 'self'` 拦截。
+内联样式被控制台 CSP 拦截、字体被 Vite 内联成 `data:` 后被 `font-src 'self'` 拦截。
 
 ## 5. 与 HUB.md 验收清单的对应
 
@@ -165,10 +165,10 @@ E2E_CHANNEL= npm run test:ui
 | 360/390/768/1280 可读可点、不横向溢出 | `portal.spec.mjs` |
 | 除申请外不发写请求、只请求同源数据 | `portal.spec.mjs` 的网络与渲染断言、CSP |
 | 申请表逐项报错、编号格式、重复提示 | `join.spec.mjs`、`api.e2e.test.mjs` |
-| 未登录 401、审核台状态流转、清单条目 | `api.e2e.test.mjs`、`admin.spec.mjs` |
+| 未登录 401、自动通过与清单条目 | `api.e2e.test.mjs`、`admin.spec.mjs` |
 | 跨站 POST 403、连续提交 429 | `api.e2e.test.mjs`、`limits.e2e.test.mjs` |
 | 凭据签发/吊销、额度、幂等、SMTP 故障 | `relay.e2e.test.mjs` |
-| 接口重启后数据仍在 | 由 SQLite 落盘保证；`relay-log` 与审核用例跨 CLI/接口读同一库 |
+| 接口重启后数据仍在 | 由 SQLite 落盘保证；`relay-log` 与申请用例跨 CLI/接口读同一库 |
 
 ## 6. 仍需要人工或上线前的检查
 

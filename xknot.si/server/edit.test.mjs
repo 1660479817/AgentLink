@@ -10,7 +10,7 @@ const INSTANCE = {
   id: "wang",
   url: "https://wang.xknot.si",
   since: "2026-10-19",
-  tier: "partner",
+  tier: "paid",
   status: "active",
 };
 
@@ -51,18 +51,17 @@ test("edit: 保存清单与名册，其他字段原样保留", async (t) => {
     federationFile: files.federationFile,
     id: "wang",
     instance: {
-      url: "https://wang.example",
-      tier: "partner",
+      url: "https://wang.xknot.si",
+      tier: "paid",
       status: "suspended",
       since: "2026-10-19",
       cardsUrl: "",
       statsUrl: "",
     },
     member: {
-      host: "wang.example",
+      host: "wang.xknot.si",
       role: "founder",
       standing: "permanent",
-      mode: "own-domain",
       listed: true,
       since: "2026-10-19",
       note: "改过备注。",
@@ -78,8 +77,24 @@ test("edit: 保存清单与名册，其他字段原样保留", async (t) => {
 
   const member = roster.members[0];
   assert.equal(member.note, "改过备注。");
-  assert.equal(member.mode, "own-domain");
-  assert.equal(member.tunnel, null, "mode 改成自有域名时清掉 tunnel");
+  assert.equal(member.mode, "subdomain", "接入形态不由编辑改动");
+  assert.deepEqual(member.tunnel, { account: "knot-tunnel", port: 18080 });
+});
+
+test("edit: 清单地址必须挂在中枢名下", async (t) => {
+  const files = setup(t);
+  const before = files.read();
+
+  const result = await updateInstanceConfig({
+    instancesFile: files.instancesFile,
+    federationFile: files.federationFile,
+    id: "wang",
+    instance: { url: "https://knot.example.com" },
+  });
+
+  assert.equal(result.error, "invalid");
+  assert.ok(result.fields.some((message) => message.includes("xknot.si")));
+  assert.deepEqual(files.read(), before);
 });
 
 test("edit: 校验不过时不落盘", async (t) => {
@@ -106,7 +121,7 @@ test("edit: 名册里没有的实例可以补一条", async (t) => {
     instancesFile: files.instancesFile,
     federationFile: files.federationFile,
     id: "wang",
-    instance: { tier: "partner" },
+    instance: { tier: "paid" },
     member: {
       host: "wang.xknot.si",
       role: "partner",
@@ -151,7 +166,7 @@ test("edit: 不存在的实例返回 not_found，不写文件", async (t) => {
     instancesFile: files.instancesFile,
     federationFile: files.federationFile,
     id: "ghost",
-    instance: { tier: "partner" },
+    instance: { tier: "paid" },
   });
   assert.equal(result.error, "not_found");
   assert.deepEqual(files.read(), before);

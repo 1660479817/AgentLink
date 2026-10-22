@@ -258,12 +258,12 @@ test("run: a failing partner keeps the previous stats file", async () => {
 
 // ---- L1 站点档案 ----
 
-const profileInstance = { id: "nordhavn", url: "https://nordhavn.example", status: "active", tier: "partner", since: "2026-10-19" };
+const profileInstance = { id: "nordhavn", url: "https://nordhavn.example", status: "active", tier: "paid", since: "2026-10-19" };
 
 function profilePayload(overrides = {}) {
   return {
     formatVersion: 2,
-    issued: { id: "nordhavn", url: "https://nordhavn.example", since: "2026-10-19", tier: "partner", status: "active" },
+    issued: { id: "nordhavn", url: "https://nordhavn.example", since: "2026-10-19", tier: "paid", status: "active" },
     site: {
       name: "北港",
       tagline: "Slow reading.",
@@ -314,7 +314,7 @@ test("run: the profile is fetched into var/profiles and 304 keeps it", async () 
   const stored = JSON.parse(await readFile(path.join(outDir, "nordhavn.json"), "utf8"));
   assert.equal(stored.site.name, "北港");
   assert.equal(stored.etag, '"p1"');
-  assert.equal(stored.issued.tier, "partner");
+  assert.equal(stored.issued.tier, "paid");
 
   const unchanged = await runProfiles({
     instancesPath,

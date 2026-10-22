@@ -6,7 +6,7 @@
       "id": "nordhavn",
       "url": "https://nordhavn.xknot.si",
       "since": "2026-08-04",
-      "tier": "partner",
+      "tier": "paid",
       "status": "active"
     },
     "site": {
@@ -31,7 +31,7 @@
       "id": "sakura",
       "url": "https://sakura.xknot.si",
       "since": "2026-08-19",
-      "tier": "partner",
+      "tier": "paid",
       "status": "active"
     },
     "site": {
@@ -56,7 +56,7 @@
       "id": "meridian",
       "url": "https://meridian.xknot.si",
       "since": "2026-07-22",
-      "tier": "partner",
+      "tier": "paid",
       "status": "active"
     },
     "site": {
@@ -81,7 +81,7 @@
       "id": "khaleej",
       "url": "https://khaleej.xknot.si",
       "since": "2026-09-02",
-      "tier": "partner",
+      "tier": "paid",
       "status": "active"
     },
     "site": {
@@ -106,7 +106,7 @@
       "id": "saigon",
       "url": "https://saigon.xknot.si",
       "since": "2026-09-11",
-      "tier": "community",
+      "tier": "free",
       "status": "active"
     },
     "site": {
@@ -131,7 +131,7 @@
       "id": "bengaluru",
       "url": "https://bengaluru.xknot.si",
       "since": "2026-08-27",
-      "tier": "community",
+      "tier": "free",
       "status": "active"
     },
     "site": {
@@ -156,7 +156,7 @@
       "id": "aurora",
       "url": "https://aurora.xknot.si",
       "since": "2026-07-30",
-      "tier": "partner",
+      "tier": "paid",
       "status": "active"
     },
     "site": {
@@ -181,7 +181,7 @@
       "id": "pampa",
       "url": "https://pampa.xknot.si",
       "since": "2026-09-18",
-      "tier": "community",
+      "tier": "free",
       "status": "active"
     },
     "site": {
@@ -206,7 +206,7 @@
       "id": "koru",
       "url": "https://koru.xknot.si",
       "since": "2026-08-08",
-      "tier": "partner",
+      "tier": "paid",
       "status": "active"
     },
     "site": {
@@ -231,7 +231,7 @@
       "id": "atlas",
       "url": "https://atlas.xknot.si",
       "since": "2026-09-25",
-      "tier": "community",
+      "tier": "free",
       "status": "active"
     },
     "site": {

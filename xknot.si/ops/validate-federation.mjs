@@ -1,8 +1,10 @@
 // 联邦名册校验。名册不过就不发布。
 //
-// 名册（federation.json）记网络本身的成员事实：谁在、什么身份、用哪种接入模式、
-// 以及无域名时入口隧道的账号与端口。门户对外展示用的字段（名称、简介、标签）
+// 名册（federation.json）记网络本身的成员事实：谁在、什么身份、
+// 以及入口隧道的账号与端口。门户对外展示用的字段（名称、简介、标签）
 // 不在这里，那些仍在 instances.json。两者必须对得上，否则就是脱钩。
+//
+// 接入只有一种：中枢签发 <标签>.xknot.si，静态页在入口主机，/api 走反向隧道。
 //
 // 用法：
 //   node xknot.si/ops/validate-federation.mjs
@@ -14,8 +16,8 @@ import { fileURLToPath } from "node:url";
 
 export const ROLES = ["founder", "partner"];
 export const STANDINGS = ["permanent", "regular"];
-// 两种接入模式：自有域名，或中枢签发子域 + 入口隧道。模式直接决定地址。
-export const MODES = ["own-domain", "subdomain"];
+// 接入只有一个取值。字段留着，是因为名册结构与文档已经按它写了。
+export const MODES = ["subdomain"];
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/;
 const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
@@ -73,10 +75,7 @@ function validateMember(member, index, errors, seen) {
 
   const tunnel = member?.tunnel;
   if (tunnel == null) {
-    if (member?.mode === "subdomain") errors.push("tunnel: required when mode is subdomain");
-  } else if (member?.mode === "own-domain") {
-    // 自有域名不经过中枢入口，留一份隧道配置只会让两处各说各话。
-    errors.push("tunnel: must be null when mode is own-domain");
+    errors.push("tunnel: required — every member is served through the entry tunnel");
   } else {
     if (typeof tunnel !== "object" || Array.isArray(tunnel)) {
       errors.push("tunnel: must be null or an object");
@@ -162,18 +161,15 @@ export function validateRoster(roster, manifest) {
     if (instanceHost && instanceHost !== member.host) {
       problems.push([id, [`host: "${member.host}" does not match the instance url host "${instanceHost}"`]]);
     }
-    // 模式与地址必须自洽：subdomain 挂在 hub 下，own-domain 不在 hub 下。
-    if (instanceHost && member.mode) {
+    // 地址必须挂在中枢名下：签发子域是唯一的接入形态。
+    if (instanceHost) {
       const underHub = instanceHost.endsWith(`.${String(roster.hub || "xknot.si").toLowerCase()}`);
-      if (member.mode === "subdomain" && !underHub) {
-        problems.push([id, [`mode: subdomain requires a host under ${roster.hub}, got "${instanceHost}"`]]);
-      }
-      if (member.mode === "own-domain" && underHub) {
-        problems.push([id, [`mode: own-domain cannot use the hub domain "${instanceHost}"`]]);
+      if (!underHub) {
+        problems.push([id, [`host: must be under ${roster.hub}, got "${instanceHost}"`]]);
       }
     }
-    if (member.role === "founder" && instance.tier !== "partner") {
-      problems.push([id, [`tier: the founder must be tier "partner", got "${instance.tier}"`]]);
+    if (member.role === "founder" && instance.tier !== "paid") {
+      problems.push([id, [`tier: the founder must be tier "paid", got "${instance.tier}"`]]);
     }
   }
 

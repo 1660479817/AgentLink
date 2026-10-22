@@ -78,7 +78,7 @@ test("old database opens: missing columns are added, case_key is filled, index e
   db.close();
   assert.ok(indexes.includes("applications_case"));
   assert.ok(columns.includes("public_key"));
-  assert.ok(columns.includes("open_until"));
+  assert.ok(columns.includes("reviewed_by"));
 });
 
 test("password reset on an old database makes the new password valid", (t) => {

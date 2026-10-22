@@ -1,7 +1,7 @@
 // xknot 中枢的接口层。
 //
-// 写操作只有六类：访客提交加入申请、确认邮箱、在案例页补材料、一次性领取交付资料、
-// 管理员审核、管理员改实例配置。其余都是读。
+// 写操作只有四类：访客提交加入申请（提交即通过）、在案例页提交公钥或撤回、
+// 一次性领取交付资料、管理员改实例配置与补信。其余都是读。
 // 不设 CORS：只接受同源请求，带 Origin 且与 Host 不一致直接拒绝。
 // 静态文件只在本地开发时由这里代管 /admin/，生产交给 nginx。
 
@@ -19,8 +19,6 @@ import { memberCodeMail } from "./member-mail.mjs";
 import { probeEnabled, probeTargetOf } from "../ops/probe-target.mjs";
 import {
   ALL_EVENTS,
-  HOLD_ITEM_CODES,
-  REJECT_REASON_CODES,
   TEMPLATE_VERSION,
   buildMail,
   normalizeLocale,
@@ -29,8 +27,6 @@ import {
   renderCasePage,
   renderClaimPage,
   renderClaimResult,
-  renderVerifyPage,
-  renderVerifyResult,
 } from "./pages.mjs";
 import { RELAY_LIMITS, domainOf, relayMessage, validateRelayRequest } from "./relay.mjs";
 import { ipHash } from "./store.mjs";
@@ -237,6 +233,8 @@ export function createApp({ store, config }) {
   const sessionDays = config.sessionDays || 7;
   const adminDir = config.adminDir;
   const submitLimit = createLimiter({ windowMs: 3600_000, max: 8 });
+  // 实例每 5–20 秒读一次接通进度：单 IP 每分钟 60 次够用，也不至于能被拿来刷库。
+  const progressLimit = createLimiter({ windowMs: 60_000, max: 60 });
   const loginLimit = createLimiter({ windowMs: 900_000, max: 12 });
   const noticeLimit = createLimiter({ windowMs: 3600_000, max: 30 });
   // 伙伴信按收件地址、收件域名、全站三层限流，避免有人靠刷申请把某个信箱打爆。
@@ -260,7 +258,6 @@ export function createApp({ store, config }) {
   const origin = String(config.origin || "https://xknot.si").replace(/\/+$/, "");
   const supportUrl = String(config.supportUrl || "").trim();
   const replyTo = String(config.replyTo || "").trim();
-  const reviewSla = String(config.reviewSla || "").trim();
   // 归属验证已随「只按子域走」取消：申请时站点还不存在，子域由中枢签发，
   // 没有需要申请人自证的东西。真正的验收在接通阶段（公网 /api/health）。
 
@@ -280,6 +277,10 @@ export function createApp({ store, config }) {
   const relayMinuteLimit = createLimiter({ windowMs: 60_000, max: RELAY_LIMITS.perMinute });
   const relayHourLimit = createLimiter({ windowMs: 3600_000, max: RELAY_LIMITS.perHour });
   const healthProvider = typeof config.healthProvider === "function" ? config.healthProvider : () => null;
+  const locationsProvider =
+    typeof config.locationsProvider === "function" ? config.locationsProvider : () => null;
+  // 节点状态文档：ops/node-status.mjs 合成的健康 + 隧道 + 位置 + 流量。
+  const statusProvider = typeof config.statusProvider === "function" ? config.statusProvider : () => null;
   const federationProvider =
     typeof config.federationProvider === "function" ? config.federationProvider : () => null;
   const settings = {
@@ -288,6 +289,7 @@ export function createApp({ store, config }) {
     profilesDir: typeof config.profilesDir === "string" ? config.profilesDir : null,
     statsDir: typeof config.statsDir === "string" ? config.statsDir : null,
     cardsDir: typeof config.cardsDir === "string" ? config.cardsDir : null,
+    locationsFile: typeof config.locationsFile === "string" ? config.locationsFile : null,
   };
   const startedAt = Date.now();
 
@@ -300,9 +302,31 @@ export function createApp({ store, config }) {
     }
   }
 
-  // 联邦名册只给审核台看：账号身份、接入模式、隧道账号与端口。
-  function readFederation() {
+  // 站点位置由 provision worker 按隧道对端写进 var/geoip/locations.json。
+  // 读不到就是空表：门户回落到自述区的 region，不编一个位置出来。
+  function readLocations() {
     try {
+      const value = locationsProvider();
+      const locations = value && typeof value.locations === "object" ? value.locations : {};
+      return { generatedAt: value?.generatedAt || null, locations };
+    } catch {
+      return { generatedAt: null, locations: {} };
+    }
+  }
+
+  // 节点状态：健康、隧道、位置、流量已经由 ops/node-status.mjs 合成一份。
+  // 文件不在时返回空表，总览回落到 health/locations 各自的源，不编一个状态出来。
+  function readStatus() {
+    try {
+      const value = statusProvider();
+      return value && typeof value === "object" ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 联邦名册只给控制台看：账号身份、接入模式、隧道账号与端口。
+  function readFederation() {    try {
       const value = federationProvider();
       return value && typeof value === "object" ? value : null;
     } catch {
@@ -311,7 +335,7 @@ export function createApp({ store, config }) {
   }
 
   // 站点自述的副本，由 ops/fetch-profile.mjs 写在 var/profiles/{id}.json。
-  // 审核台只读它来显示名字；写内容要去实例自己的 /admin。
+  // 控制台只读它来显示名字；写内容要去实例自己的 /admin。
   function readCachedProfile(id) {
     if (!settings.profilesDir || !id) return null;
     try {
@@ -368,7 +392,7 @@ export function createApp({ store, config }) {
     return list.find((item) => hostOf(item?.url) === `${label}.xknot.si`) || null;
   }
 
-  // 成员身份只认审核通过、邮箱已验证的申请单：那是站点对外的正式联系地址。
+  // 成员身份只认已通过的申请单：那是站点对外的正式联系地址。
   // 一个邮箱可能交过几张单（换地址、补服务），取第一张还在册的。
   function memberOf(email) {
     for (const application of store.memberApplications(email)) {
@@ -402,7 +426,7 @@ export function createApp({ store, config }) {
         email,
         instanceId: instance.id,
         since: instance.since || null,
-        tier: instance.tier || "community",
+        tier: instance.tier || "free",
         status,
       },
       site: {
@@ -447,7 +471,7 @@ export function createApp({ store, config }) {
     const cached = readCachedProfile(instance.id);
     return {
       name: cachedText(cached?.site?.name) || instance.id || "",
-      tier: instance.tier || "community",
+      tier: instance.tier || "free",
       status: instance.status || "active",
       host: member?.host || hostOf(instance.url) || "",
       account: member?.id || instance.id || "",
@@ -477,6 +501,10 @@ export function createApp({ store, config }) {
     const list = Array.isArray(readInstances()) ? readInstances() : [];
     const health = readHealth();
     const checks = health.instances && typeof health.instances === "object" ? health.instances : {};
+    const observed = readLocations().locations;
+    // 健康、隧道、位置、流量由 ops/node-status.mjs 合成一份；没有这份文件就回落到各自的源。
+    const status = readStatus();
+    const statusNodes = status?.nodes && typeof status.nodes === "object" ? status.nodes : {};
     const federation = readFederation();
     const members = Array.isArray(federation?.members) ? federation.members : [];
     const memberById = new Map(members.map((member) => [String(member?.id || ""), member]));
@@ -489,6 +517,7 @@ export function createApp({ store, config }) {
     const rows = list.map((instance) => {
       const probe =
         checks[instance.id] && typeof checks[instance.id] === "object" ? checks[instance.id] : null;
+      const node = statusNodes[instance.id] && typeof statusNodes[instance.id] === "object" ? statusNodes[instance.id] : null;
       const pending = instance.status === "pending";
       const paused = instance.status !== "active" && !pending;
       const member =
@@ -496,29 +525,65 @@ export function createApp({ store, config }) {
       // 清单里还是 pending 就是「已收录、未验收」，不拿探测结果说话。
       // 名册里没有这个账号（校验本应拦住）也按未接通展示，避免把脱钩当成在线。
       const probed = Boolean(member) && probeEnabled(instance);
-      const probeStatus = pending ? "pending" : paused ? "paused" : probed ? probe?.status || "unknown" : "unprobed";
+      const probeStatus = pending
+        ? "pending"
+        : paused
+          ? "paused"
+          : probed
+            ? node?.probe?.status || probe?.status || "unknown"
+            : "unprobed";
+      const location = node?.location || observed[instance.id] || null;
       const cached = readCachedProfile(instance.id);
       return {
         id: instance.id,
         // 名字来自实例自述的副本；还没取回时显示 id。
         name: cachedText(cached?.site?.name) || instanceName(instance),
         url: instance.url || "",
-        tier: instance.tier || "community",
+        tier: instance.tier || "free",
         status: instance.status || "active",
         regions: cachedText(cached?.site?.region) ? [cachedText(cached.site.region)] : [],
+        // 中枢看到的位置：与门户用的是同一份判定（隧道对端 → 出口 IP → 国家）。
+        // 控制台把它和自述的 region 并排放，方便看出「档案写的」和「实际在」差在哪。
+        location: location?.country
+          ? {
+              country: location.country,
+              at: location.at || null,
+              source: location.source || "tunnel",
+            }
+          : null,
         profileFetchedAt: cached?.fetchedAt || null,
         services: {
           cards: Boolean(instance.cardsUrl),
           stats: Boolean(instance.statsUrl),
         },
         config: instanceConfig(instance, member),
+        // 隧道在不在是独立的事实：连着但 /api/health 不通，问题在实例一侧；
+        // 隧道本身没连，问题在实例的出口或 sshd 一侧。
+        tunnel: node?.tunnel
+          ? {
+              connected: Boolean(node.tunnel.connected),
+              account: node.tunnel.account || null,
+              port: Number.isInteger(node.tunnel.port) ? node.tunnel.port : null,
+              checkedAt: node.tunnel.checkedAt || null,
+            }
+          : null,
+        // 入口 nginx 观测到的昨日流量；没有采集过就是 null，页面不写 0。
+        traffic: node?.traffic
+          ? {
+              date: node.traffic.date || null,
+              requests: Number(node.traffic.requests) || 0,
+              bytes: Number(node.traffic.bytes) || 0,
+              updatedAt: node.traffic.updatedAt || null,
+            }
+          : null,
         health: {
           status: probeStatus,
-          latencyMs: probe?.latencyMs ?? null,
-          lastOkAt: probe?.lastOkAt || null,
-          error: probe?.error || null,
-          downSince: probe?.downSince || null,
-          hidden: Boolean(probe?.hiddenAt),
+          latencyMs: node?.probe?.latencyMs ?? probe?.latencyMs ?? null,
+          lastOkAt: node?.probe?.lastOkAt || probe?.lastOkAt || null,
+          error: node?.probe?.error || probe?.error || null,
+          downSince: node?.probe?.downSince || probe?.downSince || null,
+          hidden: node?.probe ? Boolean(node.probe.hidden) : Boolean(probe?.hiddenAt),
+          checkedAt: node?.probe?.checkedAt || health.checkedAt || null,
         },
       };
     });
@@ -537,6 +602,12 @@ export function createApp({ store, config }) {
       hidden: rows.filter((row) => row.health.hidden).length,
       cards: rows.filter((row) => row.services.cards).length,
       stats: rows.filter((row) => row.services.stats).length,
+      // 有流量数据的实例、昨天合计的请求与字节。没有采集过就是 0，但 rows 里各自是 null。
+      trafficNodes: rows.filter((row) => row.traffic).length,
+      trafficRequests: rows.reduce((sum, row) => sum + (row.traffic?.requests || 0), 0),
+      trafficBytes: rows.reduce((sum, row) => sum + (row.traffic?.bytes || 0), 0),
+      // 只统计采集过的：peers.json 还没生成时不能把每个节点都报成隧道断开。
+      tunnelsDown: rows.filter((row) => row.tunnel?.checkedAt && !row.tunnel.connected && row.status === "active").length,
       checkedAt: health.checkedAt || null,
       rows,
     };
@@ -554,7 +625,6 @@ export function createApp({ store, config }) {
       .map((application) => ({
         id: application.id,
         name: application.name,
-        mode: application.mode,
         address: application.url,
       }));
 
@@ -577,7 +647,6 @@ export function createApp({ store, config }) {
       applications: {
         counts,
         total: Object.values(counts).reduce((sum, value) => sum + value, 0),
-        oldestOpenAt: store.oldestOpenAt(),
         approvedNotListed,
       },
       mail: {
@@ -624,7 +693,6 @@ export function createApp({ store, config }) {
         adminEmail,
         supportUrl,
         replyTo,
-        ...(reviewSla ? { reviewSla } : {}),
         ...extra,
       });
     } catch (error) {
@@ -670,12 +738,11 @@ export function createApp({ store, config }) {
 
   // 提交与验证各配一封伙伴信 + 一封内部信；状态迁移由 review 触发。
   // 案例页的「重新发送」传 dedupe:false：那是显式重发，不该被幂等键挡住。
+  // 提交即通过：一封信把回执与结果一起说清，另发一封给运营方。
   function mailApplicationReceived(application, { dedupe = true } = {}) {
     if (!application) return;
-    const verify = store.issueVerifyToken({ applicationId: application.id });
-    const links = verify?.token ? { verifyUrl: `${origin}/verify/${verify.token}` } : {};
     const version = dedupe ? application.stateVersion : null;
-    dispatchMail("partner.received", application, { links }, { dedupeVersion: version });
+    dispatchMail("partner.approved", application, {}, { dedupeVersion: version });
     // 全站每小时最多 30 封内部告警，防止有人靠刷申请把管理员信箱打爆。
     if (noticeLimit("admin").allowed) {
       dispatchMail("internal.application_new", application, {}, { dedupeVersion: version });
@@ -823,18 +890,10 @@ export function createApp({ store, config }) {
 
     // ---- 伙伴页面：只读渲染，不消费令牌 ----
 
-    const verifyPage = /^\/verify\/([A-Za-z0-9_-]{8,128})$/.exec(route);
-    if (verifyPage && (method === "GET" || method === "HEAD")) {
-      const application = store.verifyTokenApplication(verifyPage[1]);
-      return sendHtml(res, 200, renderVerifyPage(verifyPage[1], application?.locale || "en"));
-    }
-
     const casePage = /^\/case\/([A-Za-z0-9_-]{6,64})$/.exec(route);
     if (casePage && (method === "GET" || method === "HEAD")) {
       const application = store.findByCaseKey(casePage[1]);
       const result = {
-        resend: url.searchParams.get("resend") === "1" ? "sent" : undefined,
-        contact: url.searchParams.get("contact") === "1" ? "confirmed" : undefined,
         publicKey: url.searchParams.get("key") === "1" ? "saved" : undefined,
         withdrawn: url.searchParams.get("withdrawn") === "1" ? 1 : undefined,
       };
@@ -866,6 +925,16 @@ export function createApp({ store, config }) {
 
     if (method !== "GET" && method !== "POST") {
       return send(res, 405, { error: "method_not_allowed" });
+    }
+
+    // ---- 公开：每个实例现在在哪（观测值，不是自述） ----
+    //
+    // 位置取隧道对端的出口 IP，由 provision worker 判定后写进 var/geoip。只给
+    // 国家码，不给 IP：门户要的是区域，不是把谁的宽带地址挂到公网上。
+    // 没有这条数据时返回空表，页面回落到实例自己写的 region。
+
+    if (route === "/api/locations" && method === "GET") {
+      return send(res, 200, readLocations(), { "cache-control": "no-store" });
     }
 
     // 同源检查放在最前：跨站表单、跨站脚本都进不来。
@@ -1047,36 +1116,9 @@ export function createApp({ store, config }) {
       );
     }
 
-    // ---- 伙伴：确认邮箱（GET 只给页面，POST 才消费）----
-
-    if (route === "/api/verify" && method === "POST") {
-      const body = await readBody(req);
-      if (body.error === "too_large") return sendHtml(res, 413, renderVerifyResult("missing", null, "zh-CN"));
-      const limited = pageLimit(ipHash(clientIp(req, trustProxy), secret));
-      if (!limited.allowed) return sendHtml(res, 429, renderVerifyResult("missing", null, "zh-CN"));
-
-      const result = store.consumeVerifyToken(body.token);
-      if (result.error === "not_found") return sendHtml(res, 404, renderVerifyResult("missing", null, "zh-CN"));
-      if (result.error === "already_used") {
-        const application = store.verifyTokenApplication(body.token);
-        return sendHtml(res, 200, renderVerifyResult("used", application, "zh-CN"));
-      }
-      if (result.error === "expired") return sendHtml(res, 410, renderVerifyResult("expired", result.application, "zh-CN"));
-      if (result.error === "closed") return sendHtml(res, 409, renderVerifyResult("closed", result.application, "zh-CN"));
-
-      const application = result.application;
-      if (result.transitioned) {
-        dispatchMail("partner.verified", application, {}, { dedupeVersion: application.stateVersion });
-        dispatchMail("internal.application_verified", application, {}, { dedupeVersion: application.stateVersion });
-      }
-      return sendHtml(res, 200, renderVerifyResult(result.transitioned ? "ok" : "already", application, "zh-CN"));
-    }
-
     // ---- 伙伴：案例页上的动作 ----
 
-    const caseAction = /^\/api\/case\/([A-Za-z0-9_-]{6,64})\/(resend-verify|withdraw|public-key|confirm-contact)$/.exec(
-      route
-    );
+    const caseAction = /^\/api\/case\/([A-Za-z0-9_-]{6,64})\/(withdraw|public-key)$/.exec(route);
     if (caseAction && method === "POST") {
       const [, key, action] = caseAction;
       const application = store.findByCaseKey(key);
@@ -1091,17 +1133,6 @@ export function createApp({ store, config }) {
         return res.end();
       }
 
-      if (action === "resend-verify") {
-        if (application.status !== "pending") {
-          res.writeHead(303, { location: `/case/${key}`, "cache-control": "no-store" });
-          return res.end();
-        }
-        // 补发不做状态去重：这是一次显式的重发请求。
-        mailApplicationReceived(application, { dedupe: false });
-        res.writeHead(303, { location: `/case/${key}?resend=1`, "cache-control": "no-store" });
-        return res.end();
-      }
-
       if (action === "public-key") {
         const body = await readBody(req);
         const text = String(body.publicKey || "").trim();
@@ -1113,12 +1144,52 @@ export function createApp({ store, config }) {
         res.writeHead(303, { location: `/case/${key}?key=1`, "cache-control": "no-store" });
         return res.end();
       }
+    }
 
-      if (action === "confirm-contact") {
-        store.markContactVerified(application.id);
-        res.writeHead(303, { location: `/case/${key}?contact=1`, "cache-control": "no-store" });
-        return res.end();
-      }
+    // ---- 伙伴：接通进度 ----
+    //
+    // 实例在 NAT 后，中枢拨不进去；它按案例键来读这份进度，顺带取回交接参数。
+    // 案例键本身就是能力凭据（和案例页同一个），所以不再另发令牌。
+    // 只读，不含公钥与邮箱。
+    const progress = /^\/api\/case\/([A-Za-z0-9_-]{6,64})\/progress$/.exec(route);
+    if (progress && method === "GET") {
+      const limited = progressLimit(ipHash(clientIp(req, trustProxy), secret));
+      if (!limited.allowed) return send(res, 429, { error: "rate_limited", retryAfter: limited.retryAfter });
+      const application = store.findByCaseKey(progress[1]);
+      if (!application) return send(res, 404, { error: "not_found" });
+
+      const run = store.getProvisionRun(application.id);
+      const ready = run && (run.state === "awaiting_tunnel" || run.state === "active");
+      // 接入件要的三样事实（id、地址、档位）在这里给全，实例就不必自己猜。
+      const listed = findInstance(application.subdomain || "") || null;
+      return send(res, 200, {
+        application: {
+          id: application.id,
+          name: application.name,
+          status: application.status,
+          subdomain: application.subdomain,
+          url: application.url,
+        },
+        issued: {
+          id: application.subdomain || "",
+          url: application.url || "",
+          tier: listed?.tier || "free",
+          since: listed?.since || (run?.createdAt || application.createdAt || "").slice(0, 10),
+          status: run?.state === "active" ? "active" : listed?.status || "pending",
+        },
+        run: run
+          ? {
+              state: run.state,
+              steps: run.steps,
+              lastError: run.lastError,
+              updatedAt: run.updatedAt,
+            }
+          : null,
+        // 账号与端口只在该节点资料都就绪后给出；隧道要用的就是这三样。
+        handoff: ready
+          ? { host: run.entryHost, account: run.account, port: run.port }
+          : null,
+      });
     }
 
     // ---- 伙伴：一次性领取 ----
@@ -1152,17 +1223,14 @@ export function createApp({ store, config }) {
 
       // 表单里藏了一个正常用户看不见的字段，填了就当机器人，直接回成功。
       if (typeof body.website === "string" && body.website.trim() !== "") {
-        return send(res, 201, { application: { id: "XK-DISCARDED", status: "pending" } });
+        return send(res, 201, { application: { id: "XK-DISCARDED", status: "approved" } });
       }
 
       const checked = validateApplication(body);
       if (!checked.ok) return send(res, 400, { error: "invalid", fields: checked.errors });
 
-      // 两种模式各自按地址查重：未结案时同一个地址只能有一条申请。
-      const duplicate =
-        checked.value.mode === "own-domain"
-          ? store.findOpenByDomain(checked.value.domain)
-          : store.findOpenBySubdomain(checked.value.subdomain);
+      // 同一个子域只留一条有效申请；撤回之后可以重新提交。
+      const duplicate = store.findOpenBySubdomain(checked.value.subdomain);
       if (duplicate) return send(res, 409, { error: "duplicate" });
 
       const services = tokensFrom(body.services).filter((item) =>
@@ -1175,7 +1243,7 @@ export function createApp({ store, config }) {
         requestServices: services,
       });
 
-      // 伙伴回执带验证链接；没有 SMTP 时只是入队，管理员仍能在审核台看到。
+      // 提交即通过；没有 SMTP 时只是入队，申请本身已经结案。
       mailApplicationReceived(application);
 
       return send(res, 201, {
@@ -1240,7 +1308,7 @@ export function createApp({ store, config }) {
     const admin = currentAdmin(req);
     if (!admin) return send(res, 401, { error: "unauthenticated" });
 
-    // 审核台首页用的汇总：实例与探测、申请队列、发信与最近事件。
+    // 控制台首页用的汇总：实例与探测、申请记录、发信与最近事件。
     if (route === "/api/admin/overview" && method === "GET") {
       return send(res, 200, buildOverview());
     }
@@ -1275,7 +1343,7 @@ export function createApp({ store, config }) {
     if (route === "/api/admin/applications" && method === "GET") {
       const status = url.searchParams.get("status");
       const wanted = status && status !== "all" ? status : null;
-      if (wanted && !["pending", "verified", "approved", "rejected", "hold", "withdrawn", "expired"].includes(wanted)) {
+      if (wanted && !["approved", "withdrawn", "rejected", "expired"].includes(wanted)) {
         return send(res, 400, { error: "invalid_status" });
       }
       return send(res, 200, {
@@ -1296,58 +1364,12 @@ export function createApp({ store, config }) {
       return send(res, 200, { entries: store.listNotifyLog(limit, url.searchParams.get("case") || null) });
     }
 
-    // 邮箱验证信寄不到时的人工确认。接口与 `admin-cli verify` 走同一条迁移。
-    const manualVerify = /^\/api\/admin\/applications\/([A-Za-z0-9-]+)\/verify$/.exec(route);
-    if (manualVerify && method === "POST") {
-      const application = store.getApplication(manualVerify[1]);
-      if (!application) return send(res, 404, { error: "not_found" });
-      const result = store.markEmailVerified(application.id);
-      if (result.error === "invalid_transition") {
-        return send(res, 409, { error: "invalid_transition", from: application.status, to: "verified" });
-      }
-      const verified = result.application;
-      dispatchMail("partner.verified", verified, {}, { dedupeVersion: verified.stateVersion });
-      dispatchMail("internal.application_verified", verified, {}, { dedupeVersion: verified.stateVersion });
-      return send(res, 200, { application: verified });
+    // 自动接通的进度：控制台只读。真正的推进在 xknot-provision 常驻进程里。
+    if (route === "/api/admin/provision" && method === "GET") {
+      return send(res, 200, { runs: store.listProvisionRuns(50) });
     }
 
-    const review = /^\/api\/admin\/applications\/([A-Za-z0-9-]+)\/review$/.exec(route);
-    if (review && method === "POST") {
-      const body = await readBody(req);
-      const decision = String(body.decision || "");
-      const before = store.getApplication(review[1]);
-      if (!before) return send(res, 404, { error: "not_found" });
-
-      const items = tokensFrom(body.items).filter((code) => HOLD_ITEM_CODES.includes(code));
-      const reason = REJECT_REASON_CODES.includes(body.reason) ? body.reason : "incomplete";
-      const result = store.reviewApplication({
-        id: review[1],
-        decision,
-        note: typeof body.note === "string" ? body.note.slice(0, 500) : "",
-        items,
-        reason,
-        admin: admin.username,
-      });
-      if (result.error === "not_found") return send(res, 404, { error: "not_found" });
-      if (result.error === "invalid_decision") return send(res, 400, { error: "invalid_decision" });
-      if (result.error === "invalid_transition") {
-        return send(res, 409, { error: "invalid_transition", from: result.from, to: result.to });
-      }
-
-      const application = result.application;
-      // 只有状态真的变了才寄；幂等键含版本号，重复点同一个动作不会重复发信。
-      const event = {
-        approved: "partner.approved",
-        rejected: "partner.rejected",
-        hold: "partner.hold",
-      }[application.status];
-      if (event) {
-        dispatchMail(event, application, {}, { dedupeVersion: application.stateVersion });
-      }
-
-      return send(res, 200, { application });
-    }
-
+    // 补发/重发伙伴信。运营类事件不传版本号，允许人工补寄。
     const notifyRoute = /^\/api\/admin\/applications\/([A-Za-z0-9-]+)\/notify$/.exec(route);
     if (notifyRoute && method === "POST") {
       const body = await readBody(req);
@@ -1356,21 +1378,13 @@ export function createApp({ store, config }) {
       const event = String(body.event || "");
       if (!ALL_EVENTS.includes(event)) return send(res, 400, { error: "unknown_event" });
 
-      const links = {};
-      let verifyToken = null;
-      if (event === "partner.received") {
-        const issued = store.issueVerifyToken({ applicationId: application.id });
-        verifyToken = issued.token;
-        links.verifyUrl = `${origin}/verify/${issued.token}`;
-      }
-      const result = dispatchMail(event, application, { ...body.context, links }, {});
+      const result = dispatchMail(event, application, { ...body.context }, {});
       if (!result) return send(res, 503, { error: "mail_unavailable" });
       if (result.duplicate) return send(res, 200, { ok: true, duplicate: true });
       if (result.throttled) return send(res, 429, { error: "throttled" });
       return send(res, 200, {
         ok: true,
         event,
-        verifyUrl: links.verifyUrl || undefined,
         to: result.message?.to,
       });
     }

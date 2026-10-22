@@ -124,7 +124,8 @@ test("optional fields get stable placeholders", () => {
   assert.equal(item.name, "x");
   assert.equal(item.region, null);
   assert.deepEqual(item.tags, []);
-  assert.equal(item.timezone, "UTC");
+  // 没写就是 null，让页面的 GeoIP 兜底有机会生效；不在这里假装是 UTC。
+  assert.equal(item.timezone, null);
   assert.equal(item.health, null);
 });
 

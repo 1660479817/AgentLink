@@ -1,4 +1,4 @@
-// 审核台改实例配置。
+// 控制台改实例配置。
 //
 // 一次保存要同时照顾两份文件：instances.json 是门户展示用的清单，
 // federation.json 是网络的名册（身份、接入模式、隧道）。
@@ -26,8 +26,8 @@ const INSTANCE_TEXT_FIELDS = [
   "statsUrl",
 ];
 
-// 名册里可改的字段。tunnel 单独处理。
-const MEMBER_FIELDS = ["host", "role", "standing", "mode", "since", "note"];
+// 名册里可改的字段。tunnel 单独处理；mode 是常量，不由人改。
+const MEMBER_FIELDS = ["host", "role", "standing", "since", "note"];
 
 async function readJson(file) {
   return JSON.parse(await readFile(file, "utf8"));
@@ -64,9 +64,10 @@ function applyInstancePatch(instance, patch) {
 }
 
 // 名册成员：没进名册的实例在第一次保存时补一条。
-// mode 改成 own-domain 时顺手把 tunnel 清空，避免留下一份不再生效的隧道配置。
+// 接入形态只有签发子域，mode 固定写 subdomain，不跟着补丁走。
 function applyMemberPatch(member, patch) {
   const next = member && typeof member === "object" ? { ...member } : {};
+  next.mode = "subdomain";
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return next;
 
   for (const field of MEMBER_FIELDS) {
@@ -91,10 +92,6 @@ function applyMemberPatch(member, patch) {
       const port = rawPort == null || rawPort === "" ? null : Number(rawPort);
       next.tunnel = { account: account || "", port: Number.isFinite(port) ? port : null };
     }
-  }
-
-  if ("mode" in patch && patch.mode !== "subdomain" && !("tunnel" in patch)) {
-    next.tunnel = null;
   }
 
   return next;

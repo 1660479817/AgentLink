@@ -3,16 +3,11 @@ import test from "node:test";
 
 import {
   ALL_EVENTS,
-  HOLD_ITEM_CODES,
-  HOLD_ITEMS,
   INTERNAL_EVENTS,
   PARTNER_EVENTS,
-  REJECT_REASON_CODES,
-  REJECT_REASONS,
   TEMPLATE_VERSION,
   buildMail,
   buildVars,
-  describeHoldItems,
   maskEmail,
   normalizeLocale,
   render,
@@ -29,17 +24,15 @@ const application = {
   intro: "北海沿岸的慢阅读与长文笔记。",
   tags: ["长文", "设计"],
   locale: "zh-CN",
-  status: "hold",
+  status: "approved",
+  tier: "free",
   createdAt: "2026-10-01T00:00:00.000Z",
   reviewedAt: "2026-10-02T00:00:00.000Z",
-  openUntil: "2026-10-31T00:00:00.000Z",
   stateVersion: 2,
   caseKey: "casekey123",
   mode: "subdomain",
   subdomain: "nordhavn",
   url: "https://nordhavn.xknot.si",
-  holdItems: ["site_unreachable", "health_missing"],
-  rejectReason: "policy",
 };
 
 const options = {
@@ -52,7 +45,6 @@ const options = {
   account: "knot-nordhavn",
   port: "16001",
   links: {
-    verifyUrl: "https://xknot.si/verify/tok_abcdefgh",
     claimUrl: "https://xknot.si/claim/tok_abcdefgh",
     confirmUrl: "https://xknot.si/case/casekey123",
   },
@@ -60,11 +52,18 @@ const options = {
 
 const LOCALES = ["zh-CN", "zh-TW", "en"];
 
-test("registry: 13 partner events and 3 internal events are implemented", () => {
-  assert.equal(PARTNER_EVENTS.length, 13);
-  assert.equal(INTERNAL_EVENTS.length, 3);
-  assert.equal(ALL_EVENTS.length, 16);
+test("registry: 9 partner events and 2 internal events are implemented", () => {
+  assert.equal(PARTNER_EVENTS.length, 9);
+  assert.equal(INTERNAL_EVENTS.length, 2);
+  assert.equal(ALL_EVENTS.length, 11);
   assert.match(TEMPLATE_VERSION, /^\d+\.\d+\.\d+$/);
+});
+
+test("registry: there is no waiting, verification or rejection step left", () => {
+  for (const legacy of ["partner.received", "partner.verified", "partner.hold", "partner.rejected", "internal.application_verified"]) {
+    assert.ok(!ALL_EVENTS.includes(legacy), `${legacy} must be gone`);
+  }
+  assert.ok(!ALL_EVENTS.includes("partner.pending"));
 });
 
 test("registry: every event renders in all three locales without placeholders", () => {
@@ -107,22 +106,22 @@ test("copy: no template leaks secrets or internal notes", () => {
   }
 });
 
-test("copy: hold lists coded items only, and the case page carries the action", () => {
-  const zh = buildMail("partner.hold", application, options);
-  assert.match(zh.text, /站点地址从公网打不开/);
-  assert.match(zh.text, /站点没有提供可用的 \/api\/health/);
+test("copy: the approval mail is also the receipt, and carries no verify link", () => {
+  const zh = buildMail("partner.approved", application, options);
+  assert.match(zh.text, /自动核对，通过即生效/);
   assert.match(zh.text, /\/case\/casekey123/);
+  assert.doesNotMatch(zh.text, /\/verify\//);
+  assert.match(zh.text, /免费/);
 
-  const en = buildMail("partner.hold", { ...application, locale: "en" }, options);
-  assert.match(en.text, /not reachable from the public internet/);
-  assert.match(en.text, /working \/api\/health/);
+  const en = buildMail("partner.approved", { ...application, locale: "en" }, options);
+  assert.match(en.text, /checks every application as it arrives/);
   assert.match(en.text, /\/case\/casekey123/);
-});
+  assert.doesNotMatch(en.text, /\/verify\//);
+  assert.match(en.text, /tier: free/);
 
-test("copy: rejection uses a coded reason, never the free-text review note", () => {
-  const mail = buildMail("partner.rejected", { ...application, reviewNote: "内部备注不要外发" }, options);
-  assert.match(mail.text, /不符合联邦约定/);
-  assert.ok(!mail.text.includes("内部备注不要外发"));
+  const tw = buildMail("partner.approved", { ...application, locale: "zh-TW" }, options);
+  assert.match(tw.text, /通過/);
+  assert.doesNotMatch(tw.text, /\/verify\//);
 });
 
 test("copy: handoff never contains the claim payload", () => {
@@ -143,8 +142,8 @@ test("copy: issuance shows tunnel lines, and omits the secret itself", () => {
 test("vars: the issuance mail derives the subdomain from the application itself", () => {
   // 运营方执行 notify 时不必再手填 --subdomain；申请单里已经有标签。
   const mail = buildMail("partner.issuance", application, { ...options, subdomain: "" });
-  assert.match(mail.text, /接入模式：由中枢签发子域/);
   assert.match(mail.text, /实例地址：https:\/\/nordhavn\.xknot\.si/);
+  assert.doesNotMatch(mail.text, /接入模式/);
   const legacy = buildMail(
     "partner.issuance",
     { ...application, subdomain: null, url: "https://nordhavn.xknot.si" },
@@ -156,24 +155,9 @@ test("vars: the issuance mail derives the subdomain from the application itself"
 test("vars: missing links become empty, not literal braces", () => {
   const vars = buildVars({ ...application, caseKey: null }, { origin: "https://xknot.si/" });
   assert.equal(vars.origin, "https://xknot.si");
-  assert.equal(vars.verifyUrl, "");
-  const text = render("a {verifyUrl} b {unknown}", vars);
+  assert.equal(vars.claimUrl, "");
+  const text = render("a {claimUrl} b {unknown}", vars);
   assert.equal(text, "a  b ");
-});
-
-test("vars: every hold item and reject reason has all three locales", () => {
-  for (const code of HOLD_ITEM_CODES) {
-    for (const locale of LOCALES) {
-      assert.ok(HOLD_ITEMS[code][locale], `${code}/${locale}`);
-    }
-  }
-  for (const code of REJECT_REASON_CODES) {
-    for (const locale of LOCALES) {
-      assert.ok(REJECT_REASONS[code].label[locale], `${code}/label/${locale}`);
-      assert.ok(REJECT_REASONS[code].hint[locale], `${code}/hint/${locale}`);
-    }
-  }
-  assert.match(describeHoldItems(["not_a_code"], "en"), /not sufficient/);
 });
 
 test("locale: regional and script variants map to a maintained catalog", () => {
@@ -195,4 +179,5 @@ test("privacy: contact addresses are masked in revalidation mail", () => {
 
 test("registry: an unknown event is a programming error, not a silent no-op", () => {
   assert.throws(() => buildMail("partner.nope", application, options), /unknown_mail_event/);
+  assert.throws(() => buildMail("partner.hold", application, options), /unknown_mail_event/);
 });

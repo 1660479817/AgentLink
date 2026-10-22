@@ -1,9 +1,7 @@
 // 探测地址与「要不要探」都由契约推出，不再写进清单。
 //
-// 地址只有一个来源：清单条目的 url。
-//   own-domain —— url 就是伙伴自己的域名。
-//   subdomain  —— url 是中枢签发的 https://<标签>.xknot.si。
-// 两种情况探测地址都是 url + /api/health。
+// 地址只有一个来源：清单条目的 url，即中枢签发的 https://<标签>.xknot.si。
+// 探测地址是 url + /api/health。
 //
 // 探不探只看清单的 status：
 //   pending  —— 已写进清单、尚未通过 /api/health 验收。不探，走「从未接通」计时。

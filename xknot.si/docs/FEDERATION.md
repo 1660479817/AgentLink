@@ -4,7 +4,7 @@
 
 > 2.1 拆分档案：L1 分成**签发区**（`instances.json`，中枢写）与**自述区**（`sites/<站点>/profile.json`，主理人在实例 `/admin` 里写）。中枢按 `url` 取回 `GET /api/federation/profile`，副本落 `var/profiles/{id}.json`。改名、换联系方式不再需要向中枢提交或审批。
 
-> 2.0 收敛契约：接入只有 `own-domain` 与 `subdomain` 两种模式；名册用 `mode` + `tunnel` 记接入，清单用 `url` + `status` 记身份与验收状态。术语「公网入口 / 入口主机」取代「边缘」（见 [NAMING.md](NAMING.md)）。
+> 2.2 收敛接入：只有一种形态——中枢签发 `<标签>.xknot.si`，入口主机 + SSH 反向隧道；`own-domain` 已停用。名册仍用 `mode` + `tunnel` 记接入，清单用 `url` + `status` 记身份与验收状态。术语「公网入口 / 入口主机」取代「边缘」（见 [NAMING.md](NAMING.md)）。
 
 术语与中英文写法见 [NAMING.md](NAMING.md)，语种与区域规则见 [I18N.md](I18N.md)。本文出现的概念名以那两份为准。
 
@@ -36,7 +36,7 @@
 - 伙伴不需要向中枢提交材料，也不需要通知任何人。
 - 网关只有一个：`instances.json`。改条目、提交、发布，就是全部操作。
 
-`instances.json` 只管对外展示的字段。网络成员的事实——创始实例、接入模式、隧道账号与端口——记在同目录的 `federation.json`（联邦名册）。名册不参与门户渲染，两份文件在构建前交叉校验，对不上就不发布。
+`instances.json` 只管对外展示的字段。网络成员的事实——创始实例、接入形态、隧道账号与端口——记在同目录的 `federation.json`（联邦名册）。名册不参与门户渲染，两份文件在构建前交叉校验，对不上就不发布。
 
 唯一的例外是第 7 节的**委托发信**：实例 POST 一封信给中枢的 SMTP。它不写清单、不写快照、不留正文，也不是第四层信息，只是一项送信服务。
 
@@ -95,8 +95,9 @@ L1 装在两处，按谁有权改划分：
 |----|------|--------|------|
 | **签发区** | `id`、`url`、`since`、`tier`、`status`、`cardsUrl`、`statsUrl` | `xknot.si/instances.json` | 中枢 |
 | **自述区** | `name`、`tagline`、`intro`、`logo`、`owner`、`contact`、`region`、`timezone`、`tags` | 实例的 `sites/<站点>/profile.json` | 主理人，在实例 `/admin` 里编辑 |
+| **观测区** | `health`、`locations`（出口 IP 判出的国家码） | 中枢的 `var/health.json`、`var/geoip/locations.json` | 中枢自己：探测与隧道对端，实例无从声明 |
 
-中枢不接收写入：签发区改清单、提交、发布；自述区由主理人在自己站点改，中枢下次构建时按 `url` 取回。两区合起来才是门户上的一条档案。
+中枢不接收写入：签发区改清单、提交、发布；自述区由主理人在自己站点改，中枢下次构建时按 `url` 取回。观测区只由中枢写，任何一方都不能在接口里改它。三区合起来才是门户上的一条档案。
 
 ### 4.1 签发区
 
@@ -105,9 +106,9 @@ L1 装在两处，按谁有权改划分：
 | 字段 | 约束 |
 |------|------|
 | `id` | 小写字母、数字、连字符，2–32 位，清单内唯一，不可改 |
-| `url` | 身份地址，各语种共用。`subdomain` 模式为 `https://<标签>.xknot.si`；`own-domain` 模式为站点自己的 https 域名 |
+| `url` | 身份地址，各语种共用。恒为中枢签发的 `https://<标签>.xknot.si`；落在其它域名下会被校验拒绝 |
 | `since` | ISO 日期，收录日 |
-| `tier` | `demo`、`partner`、`community` |
+| `tier` | `demo`、`free`、`paid`（旧值 `partner` / `community` 按同档兼容） |
 | `status` | `pending`、`active`、`suspended`、`retired`。`pending` 只表示已收录、未验收 |
 | `statsUrl` | 可空。有值时拉取 L2 活动数据 |
 | `cardsUrl` | 可空。有值时拉取 L3 橱窗 |
@@ -128,8 +129,8 @@ L1 装在两处，按谁有权改划分：
 | `logo` | https 地址 | 300 | 否 | 卡片徽记 |
 | `owner` | 字符串 | 40 | 否 | 卡片页脚的主理人 |
 | `contact` | 字符串 | 120 | 否 | 只存在副本里，不直接上屏 |
-| `region` | 两位国家码或 `GLOBAL` | 2 | 否 | 区域分组与地图定位 |
-| `timezone` | IANA 名 | 40 | 否 | 卡片上的当地钟点 |
+| `region` | 两位国家码或 `GLOBAL` | 2 | 否 | 区域分组与地图定位；有出口 IP 观测值时以观测值为准，见 `HUB.md` 第 4 节 |
+| `timezone` | IANA 名 | 40 | 否 | 卡片上的当地钟点；缺省时按出口 IP 的国家推一个并标注，见 `HUB.md` 第 4 节 |
 | `tags` | 字符串数组 | 9 个 × 16 | 否 | 卡片标签与标签筛选 |
 
 要点：
@@ -137,6 +138,7 @@ L1 装在两处，按谁有权改划分：
 - **没有多语种映射**：主理人用哪种语种写，门户就显示哪种。中枢不翻译，也不按界面语种挑一份。
 - `tags` 是自由文本：不预设词表、不按语义合并、不翻译；只做去空白、忽略大小写去重、保留主理人排的顺序。
 - `logo` 是 https 绝对地址。自述区里的图片只存地址，不进中枢的二进制。
+- `region` 是主理人写的**声明**，不是中枢认定的位置。门户对位置的显示以隧道对端的出口 IP 为准（GeoIP，只有国家码）；声明值在没有观测时兜底，例如实例离线或中枢不在入口主机上。
 - 空的字符串不要写：清掉一项就整键省略。不认识的键整份被拒（见 `ops/profile-schema.mjs` 的 `SITE_FIELDS`）。
 
 ### 4.3 取回与缓存
@@ -161,18 +163,19 @@ L1 装在两处，按谁有权改划分：
 - 区域只用于分组浏览，不参与排序，不影响收录。
 - 清单必须通过 `ops/validate-instances.mjs` 才发布。
 
-### 4.5 接入模式
+### 4.5 接入形态
 
-只有两种接入模式，身份就是 `url` 本身，没有第二根轴：
+接入只有一种，身份就是 `url` 本身，没有第二根轴：
 
 | `federation.json` 的 `mode` | 身份 | 入口与隧道 |
 |------|------|------------|
-| `own-domain` | `https://example.com`，站点自己的域名 | 不签发子域，不跳转，不使用入口隧道 |
 | `subdomain` | `https://<标签>.xknot.si`，由中枢签发 | 入口托管静态页，`/api` 经 SSH 反向隧道回源；`tunnel` 必填 |
 
-两种模式的探测地址都恒为 `url` + `/api/health`。模式写进名册，是网络事实；`url` 写进清单，是门户地址。两者必须一致：`subdomain` 的 `url` 必须是 `https://<标签>.xknot.si`，`own-domain` 的 `url` 不得落在 `xknot.si` 下。
+`mode` 字段保留，取值只有 `subdomain`。探测地址恒为 `url` + `/api/health`。名册 `host` 与清单 `url` 的主机名必须一致，并且都落在 `xknot.si` 下。
 
-`status: pending` 是收录与验收之间的状态，不是第三种模式：条目已在清单里，但不探测、不上门户；`/api/health` 验收通过后改成 `active`。换机器、换 IP 只改 DNS 与入口配置，`url` 不变。
+已经有自有域名的站点不在这里登记：它自己就是入口，不需要签发、不需要跳转。这类站点进不了清单，也不参与联邦探测。
+
+`status: pending` 是收录与验收之间的状态，不是另一种接入形态：条目已在清单里，但不探测、不上门户；`/api/health` 验收通过后改成 `active`。换机器、换 IP 只改 DNS 与入口配置，`url` 不变。
 
 ## 5. L2：运行状态
 
@@ -283,8 +286,17 @@ Knot 实例提供 `GET /api/health`，返回 `{ ok: true, service, version }`。
 
 至少给一个认识的计数，否则整份作废。拉取由 `ops/fetch-stats.mjs` 执行：只允许 `https`，不跟随重定向，超时 5 秒，响应体上限 32KB，解析 DNS 后拒绝回环、私有网段和云元数据地址；失败时保留上一份。支持 `ETag` / `If-None-Match`。
 
-## 6. L3：热点橱窗
+### 5.7 入口流量（中枢观测，不属契约）
 
+中枢在入口 nginx 的访问日志里看到每个子域的请求与字节，聚合成 `var/traffic/{id}.json`。这一项**不需要实例配合，也不进任何接口**：
+
+- 实例不报数、不埋点，接入件与 `/api/*` 都不变。
+- 只给中枢控制台看，不写 `hub.json`、不进成员入口。对外公开某个站点的流量要主理人另行同意。
+- 中枢与入口不同机时这一项整段不生效，其余契约照旧。
+
+字段、保留期与盲区见 [HUB.md](HUB.md) 第 11 节。
+
+## 6. L3：热点橱窗
 伙伴登记一个 URL（`cardsUrl`），内容发布在自己的站点，中枢在构建时取回。
 
 ### 6.1 定位
@@ -384,7 +396,7 @@ Accept: application/json
 
 - 只允许 `https`，禁止 URL 中的用户名和密码。
 - 不跟随重定向，超时 5 秒，响应体上限 256KB。
-- 解析 DNS 后拒绝回环、私有网段、链路本地和云元数据地址。清单经过人工审核，运行时仍执行同一套检查。
+- 解析 DNS 后拒绝回环、私有网段、链路本地和云元数据地址。清单经人工收录，运行时仍执行同一套检查。
 - 不带 Cookie 和凭据。
 - 落盘前做白名单清洗：剥掉 HTML 标签，丢弃危险协议，`body` 只渲染 MD 子集。
 - 拉取在构建步骤内运行，失败时保留上一次的 `var/cards/`。
@@ -416,7 +428,7 @@ Accept: application/json
 
 ```bash
 cd xknot.si
-node server/admin-cli.mjs relay-token wang --label "验证邮件" --daily 50
+node server/admin-cli.mjs relay-token wang --label "登录提醒" --daily 50
 node server/admin-cli.mjs relay-tokens
 node server/admin-cli.mjs relay-revoke wang
 node server/admin-cli.mjs relay-log 50
@@ -448,10 +460,10 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 ```json
 {
   "to": "lin@example.com",
-  "subject": "验证你的邮箱",
-  "text": "点开这个链接完成验证：https://wang.xknot.si/verify/8f3c",
+  "subject": "登录提醒",
+  "text": "点开这个链接继续：https://wang.xknot.si/login/8f3c",
   "replyTo": "support@wang.xknot.si",
-  "idempotencyKey": "verify-8f3c"
+  "idempotencyKey": "login-8f3c"
 }
 ```
 
@@ -476,7 +488,7 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 ```json
 {
   "instance": "wang",
-  "token": { "label": "验证邮件", "dailyLimit": 50 },
+  "token": { "label": "登录提醒", "dailyLimit": 50 },
   "quota": { "windowHours": 24, "used": 12, "limit": 50, "remaining": 38 }
 }
 ```
@@ -512,7 +524,7 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 规则：
 
 - 生成：`node server/admin-cli.mjs access <申请编号> --id <instance> [--with-relay] --out <文件>`，
-  只发给已审核通过的申请。
+  只发给已通过的申请。
 - 传输：一次性领取，`0600`，不进聊天、不进邮件正文、不进版本库。
 - 存放：实例自己保存；不接入联邦的实例不需要这份文件，功能照常。
 - 范围：**只含接入**。域名、端口、入口主机、隧道账号、静态文件归属属于部署拓扑，
@@ -543,11 +555,11 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 
 ## 8. 安全与隐私
 
-- 中枢只访问清单中的地址。加入申请只收接入模式与地址（自有域名或子域标签），接收时不解析、不抓取；只有审核通过、写进清单并验收之后，构建时才探测。
+- 中枢只访问清单中的地址。加入申请只收子域标签与站点信息，接收时不解析、不抓取；只有申请通过、写进清单并验收之后，构建时才探测。
 - 探测与拉取在解析 DNS 后拒绝回环、私有网段、链路本地和云元数据地址。
 - 写入路径只有两条：`POST /api/applications`（只收表单字段，不存文件，不回显 HTML，字段有长度上限与蜜罐）和 `POST /api/federation/mail`（Bearer 凭据、纯文本、独立额度、不留正文）。
 - 委托发信与浏览器会话完全隔离：不读 Cookie，不接受 `Origin` 跨站的 POST 复用会话。
-- 审核台需要管理员账号和会话；账号由命令行建立，口令用 scrypt 加盐存储，会话 Cookie 为 `HttpOnly`、`SameSite=Strict`。
+- 控制台需要管理员账号和会话；账号由命令行建立，口令用 scrypt 加盐存储，会话 Cookie 为 `HttpOnly`、`SameSite=Strict`。
 - 门户不执行伙伴脚本，不嵌 iframe。外链带 `rel="noopener noreferrer"`。
 - 中枢不保存用户表、作者目录和个体访问画像；申请记录只存站点信息、联系邮箱和哈希后的来源地址；发信记录只存收件域名与地址哈希。
 - `.si` 在欧盟境内。M2 上线前完成一次 GDPR 评估，重点检查自报计数能否反推个体，以及发信日志的最小化。
@@ -561,26 +573,26 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 
 ## 10. 收录与下架
 
-加入是申请制：主理人在自己站点的 `/admin` 里提交，运营者人工审核，通过后才写进清单。审核不是自动入驻，也不改变实例自治。
+加入是申请制：主理人在自己站点的 `/admin` 里提交，平台当场核对并**自动通过**、签发子域，然后才由运营方写进清单。通过不是自动入驻，也不改变实例自治。
 
 | 阶段 | 发生什么 |
 |------|----------|
-| 提交 | 主理人在实例 `/admin` 的「接入 XKnot」里填子域标签与联系邮箱，由实例代交 `POST /api/applications`，字段为接入模式、自有域名或子域标签、名称、简介、运营者、邮箱、区域、时区、标签；也可以直接调中枢接口 |
+| 提交 | 主理人在实例 `/admin` 的「接入 XKnot」里填子域标签与联系邮箱，由实例代交 `POST /api/applications`，字段为子域标签、名称、简介、运营者、邮箱、区域、时区、标签；也可以直接调中枢接口。`mode` 与 `domain` 已停用，带了就返回 `not_supported` |
 | 查标签 | 提交前先问 `GET /api/subdomains/check?label=`。少于 6 位的标签不签，保留名与已占用的不签；不通过时给出候选 |
-| 排队 | 同一地址只保留一条未结案申请；来源地址哈希后限流 |
-| 审核 | 运营者在 `/admin/` 看记录，核对申请信息与地址是否可行，标记通过、拒绝或搁置 |
-| 写清单 | 通过后由 `server/admin-cli.mjs publish <id>` 生成条目并写入 `instances.json`，状态为 `pending`；或手工粘贴 |
-| 上线 | 子域模式先接通入口主机与隧道，然后把清单 `status` 改成 `active` 并重新构建，条目出现在地图与目录里 |
+| 自动通过 | 平台校验字段并查重，通过即把申请写成 `approved`（`reviewed_by=auto`），没有待审队列 |
+| 通知 | 立刻寄批准信给申请人，并给运营方寄一封新成员提醒 |
+| 写清单 | 通过后由 `server/admin-cli.mjs publish <id> --tunnel-account <账号> --tunnel-port <端口>` 生成条目写入 `instances.json`，状态为 `pending`，同时写 `federation.json` 的同名成员；或手工粘贴 |
+| 上线 | 先接通入口主机与隧道，然后把清单 `status` 改成 `active` 并重新构建，条目出现在地图与目录里 |
 
 | 情形 | 动作 |
 |------|------|
-| 新伙伴 | 审核通过 → 写清单（`pending`）→ 接通验收 → 改成 `active` → 重新构建 |
+| 新伙伴 | 提交即通过 → 写清单（`pending`）→ 接通验收 → 改成 `active` → 重新构建 |
 | 改名 | 修改对应条目 |
-| 换 IP | 伙伴提交变更；`subdomain` 模式只改 DNS 与入口配置，`url` 不动 |
-| 换模式 | 换 `url` 与名册 `mode`（`tunnel` 同时增删），旧子域回收；不做 301 过渡 |
+| 换 IP | 伙伴提交变更；只改 DNS 与入口配置，`url` 不动 |
+| 换标签 | 换 `url` 与名册 `host`，重新签发；旧子域回收，不做 301 过渡 |
 | 长期失联 | 24 小时提醒，7 天从门户暂时隐藏（条目不删）；恢复探测后自动回来 |
 | 30 天仍未接通 | 从门户暂时隐藏，由人跟进或回收子域 |
 | 违法、欺诈、冒充、商标侵权 | 从清单删除，L3 整组下架并删除缓存 |
 | 伙伴退出 | 删除条目，删除 L3 缓存，回收子域 |
 
-申请被拒绝或搁置不影响站点本身；申请人可以修正信息后重新提交。中枢不托管内容，下架只影响入口，不影响伙伴站点的数据。
+申请通过或撤回都不影响站点本身；申请人可以修正信息后重新提交。中枢不托管内容，下架只影响入口，不影响伙伴站点的数据。

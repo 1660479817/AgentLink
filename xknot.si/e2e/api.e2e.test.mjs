@@ -6,10 +6,12 @@
 // 跑法：npm run test:e2e
 
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 
-import { DEFAULT_MANIFEST, startStack } from "../ops/local-stack.mjs";
+import { DEFAULT_MANIFEST, DEFAULT_ROSTER, startStack } from "../ops/local-stack.mjs";
 import { checkManifestEntry } from "../server/manifest.mjs";
+import { validateRoster } from "../ops/validate-federation.mjs";
 
 const PASSWORD = "e2e-correct-horse-battery";
 const ADMIN = "e2e-admin";
@@ -32,7 +34,7 @@ let stack;
 let portal;
 
 before(async () => {
-  stack = await startStack({ manifest: DEFAULT_MANIFEST });
+  stack = await startStack({ manifest: DEFAULT_MANIFEST, roster: DEFAULT_ROSTER });
   portal = stack.portalUrl;
   await stack.createAdmin(ADMIN, PASSWORD);
 });
@@ -144,7 +146,7 @@ test("api: /api/health 返回文档里的形状", async () => {
   assert.equal(result.headers.get("cache-control"), "no-store");
 });
 
-// ---- 审核台 ----
+// ---- 控制台 ----
 
 test("admin: /admin 301 到 /admin/，静态文件有独立 CSP", async () => {
   const redirect = await call("/admin", { redirect: "manual" });
@@ -194,7 +196,7 @@ test("applications: 空表单逐字段报错", async () => {
   });
   assert.equal(result.status, 400);
   assert.equal(result.data.error, "invalid");
-  assert.equal(result.data.fields.subdomain, "invalid");
+  assert.equal(result.data.fields.subdomain, "format");
   assert.equal(result.data.fields.email, "invalid_email");
   assert.equal(result.data.fields.agree, "required");
 });
@@ -217,7 +219,8 @@ test("applications: 正常提交 201，同一子域再提 409", async () => {
   const first = await call("/api/applications", { method: "POST", body: VALID, headers });
   assert.equal(first.status, 201);
   assert.match(first.data.application.id, /^XK-\d{4}-[0-9A-Z]{6}$/);
-  assert.equal(first.data.application.status, "pending");
+  assert.equal(first.data.application.status, "approved");
+  assert.match(first.data.application.caseUrl, /\/case\//);
 
   const again = await call("/api/applications", {
     method: "POST",
@@ -238,52 +241,31 @@ test("applications: 跨站 POST 403", async () => {
   assert.equal(result.data.error, "cross_origin");
 });
 
-test("admin: 列表能看到申请，通过后生成的清单条目过校验", async () => {
+test("admin: 列表能看到自动通过的申请，生成的清单条目过校验", async () => {
   const headers = { origin: portal };
   // 用另一个子域：同一子域在未结案时重复提交会被判重复。
-  const application = { ...VALID, subdomain: "e2e-review", name: "待审核站点" };
+  const application = { ...VALID, subdomain: "e2e-review", name: "自动通过站点" };
   const submitted = await call("/api/applications", { method: "POST", body: application, headers });
   assert.equal(submitted.status, 201);
   const id = submitted.data.application.id;
+  assert.equal(submitted.data.application.status, "approved");
 
   const { cookie } = await login();
-  const listed = await call("/api/admin/applications?status=pending", { cookie });
+  const listed = await call("/api/admin/applications?status=approved", { cookie });
   assert.equal(listed.status, 200);
   const row = listed.data.applications.find((item) => item.id === id);
-  assert.ok(row, "刚提交的申请应出现在待审列表");
+  assert.ok(row, "刚提交的申请应出现在已通过列表");
   assert.equal(row.email, VALID.email);
+  assert.equal(row.reviewedBy, "auto");
 
-  // 未确认邮箱不能直接通过：先走验证（本地栈没配 SMTP，用人工确认接口）。
-  const tooEarly = await call(`/api/admin/applications/${id}/review`, {
-    method: "POST",
-    cookie,
-    headers,
-    body: { decision: "approve" },
-  });
-  assert.equal(tooEarly.status, 409);
-  assert.equal(tooEarly.data.error, "invalid_transition");
-
-  const verified = await call(`/api/admin/applications/${id}/verify`, { method: "POST", cookie, headers });
-  assert.equal(verified.status, 200);
-  assert.equal(verified.data.application.status, "verified");
-
+  // 审核接口已经移除：没有「再审一次」的入口。
   const reviewed = await call(`/api/admin/applications/${id}/review`, {
     method: "POST",
     cookie,
     headers,
-    body: { decision: "approve", note: "端到端通过" },
-  });
-  assert.equal(reviewed.status, 200);
-  assert.equal(reviewed.data.application.status, "approved");
-  assert.equal(reviewed.data.application.reviewedBy, ADMIN);
-
-  const again = await call(`/api/admin/applications/${id}/review`, {
-    method: "POST",
-    cookie,
-    headers,
     body: { decision: "approve" },
   });
-  assert.equal(again.status, 409, "已结案的申请不能再审一次");
+  assert.equal(reviewed.status, 404);
 
   const manifest = await call(`/api/admin/applications/${id}/manifest`, { cookie });
   assert.equal(manifest.status, 200);
@@ -295,6 +277,31 @@ test("admin: 列表能看到申请，通过后生成的清单条目过校验", a
     entry.healthUrl,
     undefined,
     "清单不写探测地址：它由 url 推出，探不探看实例 status"
+  );
+
+  // publish 给了隧道账号与端口，就把名册一起写掉：只写一半时 validate:federation 必报错。
+  const stdout = await stack.adminCli([
+    "publish",
+    id,
+    "--tunnel-account",
+    "knot-tunnel-review",
+    "--tunnel-port",
+    "18099",
+  ]);
+  assert.match(stdout, /已写入 federation\.json/);
+
+  const manifestFile = JSON.parse(await readFile(stack.manifestFile, "utf8"));
+  const roster = JSON.parse(await readFile(stack.federationFile, "utf8"));
+  const member = roster.members.find((item) => item.id === entry.id);
+  assert.ok(member, "名册要有同名成员");
+  assert.equal(member.host, entry.url.replace("https://", ""));
+  assert.deepEqual(member.tunnel, { account: "knot-tunnel-review", port: 18099 });
+  assert.equal(member.mode, "subdomain");
+  assert.deepEqual(validateRoster(roster, manifestFile), []);
+
+  // 再交一次会被清单里已有的地址挡住，不会写出重复成员。
+  await assert.rejects(
+    stack.adminCli(["publish", id, "--tunnel-account", "knot-tunnel-again", "--tunnel-port", "18100"])
   );
 });
 

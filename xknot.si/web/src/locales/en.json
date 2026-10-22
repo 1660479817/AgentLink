@@ -70,12 +70,16 @@
     "emptyFiltered": "No sites match the current filters.",
     "checked": "Checked {when}",
     "tomorrow": "next day locally",
-    "yesterday": "previous day locally"
+    "yesterday": "previous day locally",
+    "located": "Region from egress IP",
+    "timeInferred": "Clock inferred from egress IP"
   },
   "tier": {
     "demo": "DEMO",
-    "partner": "PARTNER",
-    "community": "COMMUNITY"
+    "paid": "PAID",
+    "free": "FREE",
+    "partner": "PAID",
+    "community": "FREE"
   },
   "region": {
     "global": "Global",
@@ -99,7 +103,8 @@
   "footer": {
     "disclaimer": "The hub does not host content. Data, accounts and points stay with each instance.",
     "license": "Source under Apache-2.0",
-    "admin": "Operator console"
+    "admin": "Operator console",
+    "geo": "Region data by DB-IP"
   },
   "localeName": {
     "en": "English",
@@ -117,10 +122,10 @@
   "join": {
     "eyebrow": "JOIN THE FEDERATION",
     "title": "Sign in to your XKnot",
-    "lede": "Members sign in with the address confirmed when the site was opened. The code works once, and signing in shows this site's health, activity counts, and listing status.",
+    "lede": "Members sign in with the address given on the application. The code works once, and signing in shows this site's health, activity counts, and listing status.",
     "email": "Member email",
     "emailPlaceholder": "you@example.com",
-    "emailHint": "The address verified on your application.",
+    "emailHint": "The address you gave on the application.",
     "emailInvalid": "Enter a complete email address.",
     "code": "Sign-in code",
     "codePlaceholder": "000000",
@@ -129,7 +134,7 @@
     "codeSent": "Code sent. It expires in {ttl}; check spam if it does not arrive.",
     "codeExpired": "The code is wrong or expired. Request a new one.",
     "badCode": "That code is not right.",
-    "notMember": "This address is not a member yet. Deploy and submit using the steps below; you can sign in once approved.",
+    "notMember": "This address is not a member yet. Deploy and submit using the steps below; approval takes effect on submission.",
     "mailOff": "This hub has no mail configured. Contact the operator.",
     "rate": "Too many attempts. Try again in a little while.",
     "offline": "Network unavailable. Try again.",
@@ -155,12 +160,12 @@
     "howLede": "Run a Knot on your own machine, then hand in the site's description. The portal no longer takes applications.",
     "step1": "Deploy Knot",
     "step1desc": "Vibe Coding: install the project on your machine. Pick Node and the service manager for your system.",
-    "step2": "Open the admin page",
-    "step2desc": "Sign in with the admin token. Change the port and address to match your deployment.",
-    "step3": "Fill in the site and submit",
-    "step3desc": "Name, description, contact. The first submission picks a subdomain of at least 6 characters; short labels are held back.",
-    "step4": "Wait for our reply",
-    "step4desc": "We write to arrange the handoff. Please keep the address correct and reachable.",
+    "step2": "Open your Knot admin console",
+    "step2desc": "Sign in with the admin token. Address and port follow your deployment. In the XKnot panel, fill in the site name, intro and contact, pick a subdomain (at least 6 characters), then hit Apply.",
+    "step3": "Wait for the connection",
+    "step3desc": "xknot.si then talks to your Knot machine and finishes the configuration and checks. Anything that goes wrong shows in the XKnot panel of your admin console.",
+    "step4": "Stay in touch",
+    "step4desc": "Staff will email you if anything needs a decision. Keep that address right and reachable; you can also write to the xknot.si admin directly.",
     "contactLabel": "Operator",
     "contactHint": "Write here for opening, changes, or reinstatement.",
     "terms": "Federation terms: host no other instance's content, and keep accounts and data on your own machine.",

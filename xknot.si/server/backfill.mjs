@@ -7,23 +7,8 @@
 // 补记只做一件事：把清单里已经存在的事实抄成一条申请记录，并写明来源。
 // 它不签发新东西，不改清单，不发信，也不假装当时有人审过。
 
+import { labelFromUrl } from "../ops/subdomain.mjs";
 import { subdomainUrl } from "./validate.mjs";
-
-const SUBDOMAIN_SUFFIX = ".xknot.si";
-
-/** 从清单条目推出接入模式。子域是本中枢签发的，其余都是自有域名。 */
-export function modeOf(entry) {
-  let host = "";
-  try {
-    host = new URL(String(entry?.url || "")).hostname.toLowerCase();
-  } catch {
-    return { mode: "own-domain", subdomain: null };
-  }
-  if (!host.endsWith(SUBDOMAIN_SUFFIX)) return { mode: "own-domain", subdomain: null };
-  const label = host.slice(0, -SUBDOMAIN_SUFFIX.length);
-  // 只认一级标签：a.b.xknot.si 不是中枢签发的形态。
-  return label && !label.includes(".") ? { mode: "subdomain", subdomain: label } : { mode: "own-domain", subdomain: null };
-}
 
 /** 自述区字段都是扁平字符串，只做去空白。 */
 function text(value) {
@@ -37,7 +22,7 @@ function text(value) {
  * @param {string} options.instanceId 清单里的 id
  * @param {object} [options.profile] var/profiles/<id>.json 的内容，用来填名称与联系方式
  * @param {string} options.email   申请单上的联系邮箱（必填：没有邮箱的单不成立）
- * @param {string} [options.admin] 操作者，写进 review_note
+ * @param {string} [options.admin] 操作者，写进 reviewed_by
  * @param {Date}   [options.now]
  */
 export function backfillApplication({ store, manifest, instanceId, profile = null, email, admin = "", now = new Date() }) {
@@ -52,8 +37,9 @@ export function backfillApplication({ store, manifest, instanceId, profile = nul
   const address = String(email || "").trim();
   if (!address) return { error: "no_email", instanceId: id };
 
-  const { mode, subdomain } = modeOf(entry);
-  const url = mode === "subdomain" ? subdomainUrl(subdomain) : String(entry.url).replace(/\/+$/, "");
+  const subdomain = labelFromUrl(entry.url);
+  if (!subdomain) return { error: "not_hub_subdomain", instanceId: id };
+  const url = subdomainUrl(subdomain);
   const body = profile?.site || {};
   const name = text(body.name) || id;
   const operator = text(body.owner) || name;
@@ -68,9 +54,7 @@ export function backfillApplication({ store, manifest, instanceId, profile = nul
 
   const created = store.createApplication({
     name,
-    mode,
-    subdomain: subdomain || "",
-    domain: mode === "own-domain" ? url : "",
+    subdomain,
     url,
     operator,
     email: address,
@@ -79,25 +63,10 @@ export function backfillApplication({ store, manifest, instanceId, profile = nul
     intro,
     tags,
     locale,
+    // 补记的单子沿用清单里的签发日，不写成今天。
+    reviewedAt: `${since}T00:00:00.000Z`,
+    reviewedBy: admin || "backfill",
   });
 
-  // 走和正常审核同一条状态机：pending → verified → approved。
-  store.transition({
-    id: created.id,
-    to: "verified",
-    patch: { verifiedAt: `${since}T00:00:00.000Z` },
-    eventKind: "application.verified",
-  });
-  const reviewed = store.transition({
-    id: created.id,
-    to: "approved",
-    admin: admin || null,
-    patch: {
-      reviewedAt: `${since}T00:00:00.000Z`,
-      reviewedBy: admin || null,
-      reviewNote: `按 instances.json 补记：${id} 在 ${since} 已是 ${entry.status || "active"}，原申请单缺失。地址与签发日取自清单，其余取自站点自述区。`,
-    },
-  });
-
-  return { created: true, application: reviewed.application };
+  return { created: true, application: created };
 }

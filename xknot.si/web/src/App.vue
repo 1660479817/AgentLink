@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 
-import BrandMark from "./components/BrandMark.vue";
+import BrandLockup from "./components/BrandLockup.vue";
 import GlobePattern from "./components/GlobePattern.vue";
 import JoinPanel from "./components/JoinPanel.vue";
 import LangSwitch from "./components/LangSwitch.vue";
@@ -21,6 +21,8 @@ const props = defineProps({
 });
 
 const data = ref(null);
+// 中枢观测到的位置。取不到就是空，页面按自述区的 region 显示，不报错也不空着。
+const locations = ref(null);
 const error = ref(false);
 const loading = ref(true);
 const group = ref("all");
@@ -36,7 +38,7 @@ const now = ref(Date.now());
 let ticker = null;
 let flashTimer = null;
 
-const view = computed(() => (data.value ? buildView(data.value) : []));
+const view = computed(() => (data.value ? buildView(data.value, { locations: locations.value }) : []));
 const groups = computed(() => availableGroups(view.value));
 const tags = computed(() => availableTags(view.value));
 const filtered = computed(() => filterByTag(filterByGroup(view.value, group.value), tag.value));
@@ -138,10 +140,16 @@ async function focusNode(id) {
 async function load() {
   loading.value = true;
   error.value = false;
+  // 位置走自己的接口：静态快照里没有 IP，也没必要为了它把构建搬到服务器上。
+  // 这一份取不到不影响页面，只是区域退回自述区。
+  const places = fetch("/api/locations", { headers: { accept: "application/json" } })
+    .then((response) => (response.ok ? response.json() : null))
+    .catch(() => null);
   try {
     const response = await fetch("/data/hub.json", { headers: { accept: "application/json" } });
     if (!response.ok) throw new Error(String(response.status));
     data.value = await response.json();
+    locations.value = await places;
   } catch {
     error.value = true;
   } finally {
@@ -170,10 +178,7 @@ onBeforeUnmount(() => {
     <section class="net" aria-labelledby="net-title">
       <header class="net-top">
         <a class="brand" :href="`/${locale}/`">
-          <BrandMark class="mark" :size="26" />
-          <span class="brand-word">{{ t("hero.wordmark") }}</span>
-          <span class="brand-sep" aria-hidden="true">/</span>
-          <span class="brand-name">{{ t("hero.name") }}</span>
+          <BrandLockup class="brand-lockup" />
         </a>
 
         <div class="net-top-right">
@@ -353,6 +358,14 @@ onBeforeUnmount(() => {
               <span>{{ t("hero.protocol") }}</span>
               <span aria-hidden="true">·</span>
               <span>{{ t("footer.license") }}</span>
+              <!-- DB-IP 的免费库按 CC BY 4.0 提供，署名是使用条件之一。 -->
+              <a
+                class="foot-link"
+                href="https://db-ip.com"
+                rel="noopener noreferrer"
+                target="_blank"
+                >{{ t("footer.geo") }}</a
+              >
               <a class="admin-link" href="/admin/">{{ t("footer.admin") }}</a>
             </div>
           </footer>
@@ -452,32 +465,19 @@ onBeforeUnmount(() => {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
   color: var(--ink);
   text-decoration: none;
 }
 
-.mark {
-  width: 26px;
-  height: 26px;
+/* 组合标是整块图形，尺寸只定高，宽度按 3.38:1 自己走。 */
+.brand-lockup {
+  height: 22px;
   flex-shrink: 0;
+  transition: opacity 160ms ease;
 }
 
-.brand-word {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.24em;
-}
-
-.brand-sep {
-  color: var(--line-strong);
-}
-
-.brand-name {
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+.brand:hover .brand-lockup {
+  opacity: 0.78;
 }
 
 .net-top-right {
@@ -1047,6 +1047,16 @@ h1 {
   border-bottom-color: var(--accent);
 }
 
+/* 数据署名：DB-IP 的免费库按 CC BY 4.0 提供，页脚留着这一句。 */
+.foot-link {
+  color: var(--faint);
+  text-decoration: none;
+}
+
+.foot-link:hover {
+  color: var(--accent);
+}
+
 /* ---------- 右栏 ---------- */
 .join-pane {
   position: relative;
@@ -1208,11 +1218,6 @@ h1 {
 }
 
 @media (max-width: 640px) {
-  .brand-sep,
-  .brand-name {
-    display: none;
-  }
-
   .pill {
     display: none;
   }

@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { backfillApplication, modeOf } from "./backfill.mjs";
+import { labelFromUrl } from "../ops/subdomain.mjs";
+import { backfillApplication } from "./backfill.mjs";
 import { openMemoryStore } from "./store.mjs";
 
 const manifest = {
   version: 5,
   instances: [
-    { id: "wang", url: "https://wang.xknot.si", since: "2026-10-19", tier: "partner", status: "active" },
-    { id: "own", url: "https://knot.example.com", since: "2026-10-01", tier: "community", status: "active" },
+    { id: "wang", url: "https://wang.xknot.si", since: "2026-10-19", tier: "paid", status: "active" },
+    { id: "own", url: "https://knot.example.com", since: "2026-10-01", tier: "free", status: "active" },
   ],
 };
 
@@ -27,15 +28,12 @@ function seed() {
   return openMemoryStore();
 }
 
-test("a hub-issued subdomain is a subdomain application", () => {
-  assert.deepEqual(modeOf({ url: "https://wang.xknot.si" }), { mode: "subdomain", subdomain: "wang" });
-});
-
-test("any other address is an own-domain application", () => {
-  assert.deepEqual(modeOf({ url: "https://knot.example.com" }), { mode: "own-domain", subdomain: null });
+test("only a hub-issued subdomain has a label to backfill", () => {
+  assert.equal(labelFromUrl("https://wang.xknot.si"), "wang");
   // 多级子域不是中枢签发的形态，不能当成标签。
-  assert.deepEqual(modeOf({ url: "https://a.b.xknot.si" }), { mode: "own-domain", subdomain: null });
-  assert.deepEqual(modeOf({ url: "not a url" }), { mode: "own-domain", subdomain: null });
+  assert.equal(labelFromUrl("https://a.b.xknot.si"), "");
+  assert.equal(labelFromUrl("https://knot.example.com"), "");
+  assert.equal(labelFromUrl("not a url"), "");
 });
 
 test("the backfilled application carries the signer's facts and says where it came from", () => {
@@ -54,7 +52,6 @@ test("the backfilled application carries the signer's facts and says where it ca
   const app = result.application;
   assert.equal(app.status, "approved");
   assert.equal(app.url, "https://wang.xknot.si");
-  assert.equal(app.mode, "subdomain");
   assert.equal(app.subdomain, "wang");
   assert.equal(app.name, "王家小站");
   assert.equal(app.operator, "PaulWang");
@@ -63,10 +60,8 @@ test("the backfilled application carries the signer's facts and says where it ca
   assert.equal(app.timezone, "Asia/Shanghai");
   assert.deepEqual(app.tags, ["exchange"]);
   // 签发日取自清单，不是补记这天。
-  assert.equal(app.verifiedAt, "2026-10-19T00:00:00.000Z");
+  assert.equal(app.reviewedAt, "2026-10-19T00:00:00.000Z");
   assert.equal(app.reviewedBy, "paul");
-  assert.match(app.reviewNote, /补记/);
-  assert.match(app.reviewNote, /instances\.json/);
   store.close();
 });
 
@@ -99,12 +94,11 @@ test("an open application counts as present, so no duplicate is added", () => {
   store.close();
 });
 
-test("an own-domain instance keeps its own address", () => {
+test("an instance outside the hub domain cannot be backfilled", () => {
   const store = seed();
   const result = backfillApplication({ store, manifest, instanceId: "own", email: "owner@example.test" });
-  assert.equal(result.application.url, "https://knot.example.com");
-  assert.equal(result.application.mode, "own-domain");
-  assert.equal(result.application.subdomain, null);
+  assert.equal(result.error, "not_hub_subdomain");
+  assert.equal(store.listApplications().length, 0);
   store.close();
 });
 

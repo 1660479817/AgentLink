@@ -14,7 +14,6 @@ export function uniqueSite(tag = "site") {
   const subdomain = `${tag}-${stamp}`;
   return {
     name: `端到端 ${stamp}`,
-    mode: "subdomain",
     subdomain,
     url: `https://${subdomain}.xknot.si`,
     operator: "E2E",

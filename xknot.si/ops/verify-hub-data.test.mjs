@@ -19,7 +19,7 @@ function manifest(ids) {
     instances: ids.map((id) => ({
       id,
       url: `https://${id}.xknot.si`,
-      tier: "partner",
+      tier: "paid",
       status: "active",
     })),
   };
@@ -66,8 +66,15 @@ test("fixture ids are allowed when the fixture manifest is passed", () => {
 test("a site whose profile was never fetched is reported", () => {
   const data = { instances: [{ id: "wang", url: "https://wang.xknot.si", name: "wang", profileFetchedAt: null }] };
   const problems = verifyHubData({ data, manifest: manifest(["wang"]) });
-  assert.ok(problems.some((line) => line.includes("no profile name")));
   assert.ok(problems.some((line) => line.includes("has never been fetched")));
+});
+
+test("a site that names itself after its id is allowed once the profile is fetched", () => {
+  const data = {
+    instances: [{ id: "cpswang", url: "https://cpswang.xknot.si", name: "cpswang", profileFetchedAt: "2026-10-21T15:30:00.000Z" }],
+  };
+  const problems = verifyHubData({ data, manifest: manifest(["cpswang"]) });
+  assert.deepEqual(problems, []);
 });
 
 test("a reserved host suffix fails even when it is listed", () => {

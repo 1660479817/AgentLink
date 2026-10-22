@@ -1,12 +1,12 @@
-// 伙伴侧页面：邮箱验证、申请案例页、一次性领取页。
+// 伙伴侧页面：申请案例页与一次性领取页。
 //
-// 三个页面都遵守同一条规则：GET 只渲染「确认」按钮，消费令牌必须是 POST。
-// 邮箱安全网关会预取链接，GET 一消费就等于替用户点掉了。
+// 案例页只渲染表单，撤回与提交公钥都是 POST；领取页同样 GET 只给按钮，
+// 消费令牌必须是 POST。邮箱安全网关会预取链接，GET 一消费就等于替用户点掉了。
 //
 // 没有构建步骤、没有前端脚本：只发内联样式的 HTML 和普通表单。
 // 所有用户数据都经过 escapeHtml，申请内容不会当 HTML 执行。
 
-import { MODE_LABEL, normalizeLocale } from "./notify.mjs";
+import { normalizeLocale } from "./notify.mjs";
 
 const PAGE_STYLE = `
   :root { color-scheme: light; }
@@ -41,27 +41,13 @@ const PAGE_STYLE = `
 
 const TEXT = {
   "zh-CN": {
-    verifyTitle: "确认邮箱 · XKnot 联邦",
-    verifyHeading: "确认你的邮箱",
-    verifyBody: "点下面的按钮完成确认。确认后申请进入人工审核。",
-    verifyButton: "确认邮箱",
-    verifyExpired: "这个链接已经过期。请在申请页重新发送验证信。",
-    verifyUsed: "这个链接已经用过了。如果已经确认过，不必重复操作。",
-    verifyMissing: "这个链接无效。请从最近一封验证信里打开，或到申请页重新发送。",
-    verifyClosed: "这个申请已经结束，无法再确认邮箱。",
-    verifyDone: "邮箱已确认。申请已进入人工审核，通常 3 个工作日内给出结果。",
-    verifyDoneAgain: "这个邮箱之前已经确认过了，申请正在审核中。",
     caseTitle: "申请状态 · XKnot 联邦",
     caseHeading: "申请 {id}",
-    caseResend: "重新发送验证信",
-    caseResent: "验证信已重新发送，请查看邮箱。",
     caseWithdraw: "撤回这份申请",
     caseWithdrawn: "申请已撤回。",
     casePublicKey: "提交公钥",
     casePublicKeyHint: "只粘贴 .pub 的内容。私钥留在你自己的机器上。",
     casePublicKeySaved: "公钥已保存。",
-    caseConfirm: "确认联系人仍然有效",
-    caseConfirmed: "联系人已确认。",
     caseClosed: "这份申请已经结束，只能查看，不能再操作。",
     caseFooter: "本页面只对持有链接的人可见，不要转发。",
     claimTitle: "领取接入资料 · XKnot 联邦",
@@ -75,35 +61,18 @@ const TEXT = {
     status: "状态",
     site: "站点",
     url: "地址",
-    mode: "接入模式",
     submitted: "提交时间",
-    holdItems: "需要补充",
-    reason: "原因",
     close: "关闭",
     footer: "—— XKnot 联邦",
   },
   "zh-TW": {
-    verifyTitle: "確認信箱 · XKnot 聯邦",
-    verifyHeading: "確認你的信箱",
-    verifyBody: "點下面的按鈕完成確認。確認後申請進入人工審核。",
-    verifyButton: "確認信箱",
-    verifyExpired: "這個連結已經過期。請在申請頁重新傳送驗證信。",
-    verifyUsed: "這個連結已經用過了。如果已經確認過，不必重複操作。",
-    verifyMissing: "這個連結無效。請從最近一封驗證信裡開啟，或到申請頁重新傳送。",
-    verifyClosed: "這個申請已經結束，無法再確認信箱。",
-    verifyDone: "信箱已確認。申請已進入人工審核，通常 3 個工作日內給出結果。",
-    verifyDoneAgain: "這個信箱之前已經確認過了，申請正在審核中。",
     caseTitle: "申請狀態 · XKnot 聯邦",
     caseHeading: "申請 {id}",
-    caseResend: "重新傳送驗證信",
-    caseResent: "驗證信已重新傳送，請查看信箱。",
     caseWithdraw: "撤回這份申請",
     caseWithdrawn: "申請已撤回。",
     casePublicKey: "提交公鑰",
     casePublicKeyHint: "只貼上 .pub 的內容。私鑰留在你自己的機器上。",
     casePublicKeySaved: "公鑰已儲存。",
-    caseConfirm: "確認聯絡人仍然有效",
-    caseConfirmed: "聯絡人已確認。",
     caseClosed: "這份申請已經結束，只能查看，不能再操作。",
     caseFooter: "本頁面只對持有連結的人可見，不要轉發。",
     claimTitle: "領取接入資料 · XKnot 聯邦",
@@ -117,35 +86,18 @@ const TEXT = {
     status: "狀態",
     site: "站點",
     url: "位址",
-    mode: "接入模式",
     submitted: "提交時間",
-    holdItems: "需要補充",
-    reason: "原因",
     close: "關閉",
     footer: "—— XKnot 聯邦",
   },
   en: {
-    verifyTitle: "Confirm email · XKnot Federation",
-    verifyHeading: "Confirm your email",
-    verifyBody: "Use the button below to confirm. The application then enters manual review.",
-    verifyButton: "Confirm email",
-    verifyExpired: "This link has expired. Send a new verification message from the application page.",
-    verifyUsed: "This link was already used. If you confirmed earlier, nothing else is needed.",
-    verifyMissing: "This link is not valid. Open the latest verification message, or resend from the application page.",
-    verifyClosed: "This application is closed, so the email can no longer be confirmed.",
-    verifyDone: "Email confirmed. The application is now under manual review; we usually reply within 3 business days.",
-    verifyDoneAgain: "This email was already confirmed and the application is under review.",
     caseTitle: "Application status · XKnot Federation",
     caseHeading: "Application {id}",
-    caseResend: "Resend verification message",
-    caseResent: "Verification message sent again; please check your inbox.",
     caseWithdraw: "Withdraw this application",
     caseWithdrawn: "Application withdrawn.",
     casePublicKey: "Submit public key",
     casePublicKeyHint: "Paste only the .pub content. Keep the private key on your own machine.",
     casePublicKeySaved: "Public key saved.",
-    caseConfirm: "Confirm the contact is still valid",
-    caseConfirmed: "Contact confirmed.",
     caseClosed: "This application is closed. It can be viewed but no longer changed.",
     caseFooter: "This page is visible only to whoever holds the link. Do not forward it.",
     claimTitle: "Claim access material · XKnot Federation",
@@ -159,22 +111,20 @@ const TEXT = {
     status: "Status",
     site: "Site",
     url: "URL",
-    mode: "Mode",
     submitted: "Submitted",
-    holdItems: "Still needed",
-    reason: "Reason",
     close: "Close",
     footer: "— XKnot Federation",
   },
 };
 
 const STATUS_LABEL = {
+  approved: { "zh-CN": "已通过", "zh-TW": "已通過", en: "approved" },
+  withdrawn: { "zh-CN": "已撤回", "zh-TW": "已撤回", en: "withdrawn" },
+  // 自动通过之前的历史状态，只用来打开老案例页。
   pending: { "zh-CN": "等待邮箱确认", "zh-TW": "等待信箱確認", en: "waiting for email confirmation" },
   verified: { "zh-CN": "等待人工审核", "zh-TW": "等待人工審核", en: "waiting for manual review" },
   hold: { "zh-CN": "需要补充材料", "zh-TW": "需要補充材料", en: "needs more information" },
-  approved: { "zh-CN": "已通过收录审核", "zh-TW": "已通過收錄審核", en: "approved for listing" },
-  rejected: { "zh-CN": "本次未通过", "zh-TW": "本次未通過", en: "not approved this time" },
-  withdrawn: { "zh-CN": "已撤回", "zh-TW": "已撤回", en: "withdrawn" },
+  rejected: { "zh-CN": "未通过", "zh-TW": "未通過", en: "not approved" },
   expired: { "zh-CN": "已过期", "zh-TW": "已過期", en: "expired" },
 };
 
@@ -194,11 +144,6 @@ function t(locale, key) {
 
 function statusLabel(status, locale) {
   const entry = STATUS_LABEL[status] || STATUS_LABEL.pending;
-  return entry[normalizeLocale(locale)] || entry.en;
-}
-
-function pickMode(value, locale) {
-  const entry = MODE_LABEL[value] || MODE_LABEL.unknown;
   return entry[normalizeLocale(locale)] || entry.en;
 }
 
@@ -227,43 +172,7 @@ function banner(kind, text) {
 }
 
 /**
- * 邮箱验证页：只有按钮，令牌放在隐藏字段里。
- */
-export function renderVerifyPage(token, locale) {
-  const body = `<section class="card">
-  <h1>${escapeHtml(t(locale, "verifyHeading"))}</h1>
-  <p>${escapeHtml(t(locale, "verifyBody"))}</p>
-  <form method="post" action="/api/verify">
-    <input type="hidden" name="token" value="${escapeHtml(token)}">
-    <button type="submit">${escapeHtml(t(locale, "verifyButton"))}</button>
-  </form>
-</section>`;
-  return shell(locale, t(locale, "verifyTitle"), body);
-}
-
-export function renderVerifyResult(outcome, application, locale) {
-  const localeOfApplication = normalizeLocale(application?.locale || locale);
-  const message = {
-    ok: t(localeOfApplication, "verifyDone"),
-    already: t(localeOfApplication, "verifyDoneAgain"),
-    expired: t(localeOfApplication, "verifyExpired"),
-    used: t(localeOfApplication, "verifyUsed"),
-    missing: t(localeOfApplication, "verifyMissing"),
-    closed: t(localeOfApplication, "verifyClosed"),
-  }[outcome] || t(localeOfApplication, "verifyMissing");
-  const kind = outcome === "ok" || outcome === "already" ? "ok" : "bad";
-  const caseUrl = application?.caseKey ? `/case/${escapeHtml(application.caseKey)}` : "";
-  const body = `<section class="card">
-  <h1>${escapeHtml(t(localeOfApplication, "verifyHeading"))}</h1>
-  ${banner(kind, message)}
-  ${caseUrl ? `<p class="actions"><a class="button secondary" href="${caseUrl}">${escapeHtml(t(localeOfApplication, "status"))}</a></p>` : ""}
-</section>`;
-  return shell(localeOfApplication, t(localeOfApplication, "verifyTitle"), body);
-}
-
-/**
- * 案例页：状态、补材料清单、以及当前状态下允许的动作。
- * 已结案的申请只读。
+ * 案例页：状态与当前状态下允许的动作。已撤回的申请只读。
  */
 export function renderCasePage(application, options = {}) {
   if (!application) {
@@ -271,60 +180,41 @@ export function renderCasePage(application, options = {}) {
   }
   const locale = normalizeLocale(application.locale);
   const status = application.status;
-  const open = !["approved", "rejected", "withdrawn", "expired"].includes(status);
+  const open = status === "approved";
   const key = encodeURIComponent(application.caseKey || "");
 
   const rows = [
     [t(locale, "status"), statusLabel(status, locale)],
     [t(locale, "site"), application.name],
     [t(locale, "url"), application.url],
-    [t(locale, "mode"), pickMode(application.mode, locale)],
     [t(locale, "submitted"), String(application.createdAt || "").slice(0, 10)],
   ];
-  if (status === "rejected" && application.rejectReason) {
-    rows.push([t(locale, "reason"), application.rejectReason]);
-  }
 
   const notices = [];
-  if (options.resend === "sent") notices.push(banner("ok", t(locale, "caseResent")));
   if (options.withdrawn === 1) notices.push(banner("ok", t(locale, "caseWithdrawn")));
   if (options.publicKey === "saved") notices.push(banner("ok", t(locale, "casePublicKeySaved")));
-  if (options.contact === "confirmed") notices.push(banner("ok", t(locale, "caseConfirmed")));
-
-  const hold = status === "hold" && Array.isArray(application.holdItems) && application.holdItems.length
-    ? `<p>${escapeHtml(t(locale, "holdItems"))}</p><ul class="items">${application.holdItems
-        .map((code) => `<li>${escapeHtml(code)}</li>`)
-        .join("")}</ul>`
-    : "";
 
   const actions = [];
   if (open) {
-    actions.push(`<form method="post" action="/api/case/${key}/resend-verify"><button class="secondary" type="submit">${escapeHtml(
-      t(locale, "caseResend")
-    )}</button></form>`);
     actions.push(`<form method="post" action="/api/case/${key}/withdraw"><button class="secondary" type="submit">${escapeHtml(
       t(locale, "caseWithdraw")
     )}</button></form>`);
   }
 
   // 归属验证已取消：申请时站点还不存在，子域由中枢签发。
-  // 案例页只留公钥与联系人两件事。
+  // 案例页只留公钥这一件事。
   const caseForms = open
     ? `<h2>${escapeHtml(t(locale, "casePublicKey"))}</h2>
 <p class="muted">${escapeHtml(t(locale, "casePublicKeyHint"))}</p>
 <form method="post" action="/api/case/${key}/public-key">
   <textarea name="publicKey" spellcheck="false" autocomplete="off" placeholder="ssh-ed25519 AAAA..."></textarea>
   <p class="actions"><button type="submit">${escapeHtml(t(locale, "casePublicKey"))}</button></p>
-</form>
-<form method="post" action="/api/case/${key}/confirm-contact">
-  <p class="actions"><button class="secondary" type="submit">${escapeHtml(t(locale, "caseConfirm"))}</button></p>
 </form>`
     : `<p class="muted">${escapeHtml(t(locale, "caseClosed"))}</p>`;
 
   const body = `<section class="card">
   <h1>${escapeHtml(t(locale, "caseHeading").replace("{id}", application.id))}</h1>
   ${notices.join("")}
-  ${hold}
   <dl>${rows
     .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
     .join("")}</dl>

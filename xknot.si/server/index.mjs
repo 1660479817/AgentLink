@@ -16,7 +16,6 @@
 //   XKNOT_RELAY_DAILY_LIMIT  每份凭据 24 小时内的发信上限，默认 50
 //   XKNOT_MAIL_REPLY_TO  伙伴信的 Reply-To，默认取 MAIL_FROM（不接收回复）
 //   XKNOT_SUPPORT_URL    伙伴信里的可选联系入口，留空则整行省略
-//   XKNOT_REVIEW_SLA     人工审核时限的展示文案，默认 3 个工作日
 
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
@@ -158,6 +157,42 @@ function loadHealth() {
   }
 }
 
+// 站点位置由 provision worker 写：隧道对端 IP 的 GeoIP 结论。同样按 mtime 缓存，
+// 机器搬了家，下一次采集就能反映到页面上。文件不在就是没有。
+const locationsFile = process.env.XKNOT_LOCATIONS_FILE
+  ? path.resolve(process.env.XKNOT_LOCATIONS_FILE)
+  : path.join(dataDir, "geoip", "locations.json");
+let locationsCache = { key: "", value: null };
+function loadLocations() {
+  try {
+    const stat = statSync(locationsFile);
+    const key = `${stat.mtimeMs}:${stat.size}`;
+    if (key === locationsCache.key) return locationsCache.value;
+    const parsed = JSON.parse(readFileSync(locationsFile, "utf8"));
+    locationsCache = { key, value: parsed };
+    return parsed;
+  } catch {
+    return locationsCache.value;
+  }
+}
+
+// 节点状态：ops/node-status.mjs 把健康、隧道、位置、流量合成一份。
+// 总览按节点读它，不再分别打开四份文件。文件不在时回落到各自的源。
+const statusFile = path.join(dataDir, "status.json");
+let statusCache = { key: "", value: null };
+function loadStatus() {
+  try {
+    const stat = statSync(statusFile);
+    const key = `${stat.mtimeMs}:${stat.size}`;
+    if (key === statusCache.key) return statusCache.value;
+    const parsed = JSON.parse(readFileSync(statusFile, "utf8"));
+    statusCache = { key, value: parsed };
+    return parsed;
+  } catch {
+    return statusCache.value;
+  }
+}
+
 const relayEnabled =
   process.env.XKNOT_RELAY_ENABLED == null
     ? Boolean(mailer)
@@ -176,20 +211,22 @@ const { handle } = createApp({
     // 对外信一律 no-reply：xknot.si 的 MX 只发信，回信会退。
     replyTo: String(process.env.XKNOT_MAIL_REPLY_TO || mailConfig?.from || "").trim(),
     supportUrl: String(process.env.XKNOT_SUPPORT_URL || "").trim(),
-    reviewSla: String(process.env.XKNOT_REVIEW_SLA || "").trim(),
     instancesProvider: loadInstances,
     federationProvider: loadFederation,
     healthProvider: loadHealth,
-    // 审核台改配置要写回这两份文件；写之前会整份校验，见 server/edit.mjs。
+    locationsProvider: loadLocations,
+    statusProvider: loadStatus,
+    // 控制台改配置要写回这两份文件；写之前会整份校验，见 server/edit.mjs。
     instancesFile,
     federationFile,
-    // 站点自述的副本目录，由 ops/fetch-profile.mjs 写。审核台只读。
+    // 站点自述的副本目录，由 ops/fetch-profile.mjs 写。控制台只读。
     profilesDir: process.env.XKNOT_PROFILES_DIR
       ? path.resolve(process.env.XKNOT_PROFILES_DIR)
       : path.join(root, "var", "profiles"),
     // 成员入口展示的活动数据与橱窗条数，同样只读构建时取回的副本。
     statsDir: path.join(dataDir, "stats"),
     cardsDir: path.join(dataDir, "cards"),
+    locationsFile,
     relay: {
       enabled: relayEnabled,
       dailyLimit: Number(process.env.XKNOT_RELAY_DAILY_LIMIT || 50),

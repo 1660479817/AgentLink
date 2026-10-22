@@ -1,0 +1,25 @@
+[Unit]
+Description=xknot.si auto-connect (entry host provisioning for approved instances)
+Documentation=https://xknot.si/docs/HANDOFF.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/xknot
+# 入口主机地址与证书邮箱不从仓库读：前者是这台机器的身份，后者跟着发信配置走。
+# 两个文件都可能不存在；缺失时 worker 只打一行日志，不动任何东西。
+EnvironmentFile=-/opt/xknot/var/mail.env
+EnvironmentFile=-/opt/xknot/var/provision.env
+Environment=XKNOT_DATA_DIR=/opt/xknot/var
+Environment=XKNOT_INSTANCES_FILE=/opt/xknot/instances.json
+Environment=XKNOT_FEDERATION_FILE=/opt/xknot/federation.json
+ExecStart=/usr/bin/node /opt/xknot/ops/provision-worker.mjs
+Restart=always
+RestartSec=10
+# 建账号、写 sshd 与 nginx 配置都要 sudo；不要加 NoNewPrivileges。
+NoNewPrivileges=no
+
+[Install]
+WantedBy=multi-user.target

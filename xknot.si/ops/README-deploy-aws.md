@@ -32,16 +32,20 @@ KEY=~/.ssh/suanli-sg-probe.pem
 |------|------|
 | `/var/www/xknot` | 门户静态（`web/dist`） |
 | `/opt/xknot/server` | 接口源码 `server/index.mjs` |
-| `/opt/xknot/admin` | 审核台静态 |
+| `/opt/xknot/admin` | 控制台静态 |
 | `/opt/xknot/docs` | 本项目文档（systemd 的 `Documentation=`） |
 | `/opt/xknot/instances.json` | 接口读取的实例清单（委托发信判断实例是否在册、是否 active） |
 | `/opt/xknot/ops/validate-instances.mjs` | 清单校验（`manifest.mjs` 依赖） |
 | `/opt/xknot/ops/{check-health,watch-health,fetch-guard}.mjs` | 定时健康巡检：探测、发信、暂时隐藏 |
+| `/opt/xknot/ops/{peers,geoip}.mjs` | 站点位置：隧道对端 → 出口 IP → 国家码 |
+| `/opt/xknot/var/geoip/` | DB-IP Lite 库 + IP 判定缓存 + `locations.json`（生成物，约 4.5 MB，不入仓） |
 | `/opt/xknot/web/src/lib/{i18n,regions}.js` | 校验依赖 |
 | `/opt/xknot/var` | SQLite / session-secret（`0600`，勿入仓） |
 | `/etc/nginx/conf.d/xknot.si.conf` | 门户 + `/api` `/admin` 反代 |
 | `/etc/systemd/system/xknot-api.service` | 接口常驻 |
 | `/etc/systemd/system/xknot-health.{service,timer}` | 每 15 分钟巡检一次 |
+| `/etc/systemd/system/xknot-provision.service` | 自动接通：逐项配置入口主机，探测通过后改 `active` |
+| `/opt/xknot/var/provision.env` | 自动接通的输入：`XKNOT_ENTRY_HOST`（`0600`，首次部署由 `XKNOT_ENTRY_HOST` 生成） |
 
 ## 环境变量（systemd）
 
@@ -58,6 +62,17 @@ KEY=~/.ssh/suanli-sg-probe.pem
 | `EnvironmentFile` | `-/opt/xknot/var/mail.env`，可选；不存在时只是不发信 |
 
 接口只监听回环；nginx 反代 `/api/`、`/admin/`。
+
+自动接通另有一份输入，见 unit `ops/xknot-provision.service`：
+
+| 变量 | 生产值 |
+|------|--------|
+| `XKNOT_ENTRY_HOST` | 入口主机公网地址（与中枢同机时为 `54.169.33.64`）；写 `/opt/xknot/var/provision.env`，不写进 unit |
+| `XKNOT_ADMIN_EMAIL` | 证书登记邮箱，复用 `mail.env` 里的 `XKNOT_ADMIN_EMAIL` |
+| `XKNOT_PROVISION_INTERVAL_MS` | 可选，默认 `20000` |
+| `XKNOT_AFTER_ACTIVATE` | 可选；改成 `active` 后执行的命令，例如重建门户 |
+
+worker 每轮只推进一步，失败只记错误码（`dns_missing`、`tls_failed`…）并原地重试，这些码会原样出现在实例管理界面的 XKnot 栏。它需要 `sudo`：建账号、写 sshd 与 nginx 配置、跑 certbot。**DNS 不在它手里**——入口域名需要一条泛解析 `*.xknot.si → XKNOT_ENTRY_HOST`；没有它，`dns` 这一步永远过不去。
 
 ## 邮件（可选）
 
@@ -107,11 +122,11 @@ cd xknot.si
 ./ops/build-hub.sh                 # 或 --offline
 XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-hub.sh
 
-# 接口、审核台与配置
+# 接口、控制台与配置
 XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh
 ```
 
-`deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/`、`instances.json`、巡检脚本与清单校验依赖，安装 nginx 配置与三个 systemd unit，`nginx -t` 通过后重启接口、启用 `xknot-health.timer` 并 reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
+`deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/`、`instances.json`、巡检与采集脚本（含 `ops/geoip.mjs`、`ops/peers.mjs`、`ops/node-status.mjs`、`ops/traffic.mjs`）与清单校验依赖，安装 nginx 配置与六个 systemd unit（`xknot-api`、`xknot-provision`、`xknot-health.{service,timer}`、`xknot-traffic.{service,timer}`），`nginx -t` 通过后重启接口、启用两个 timer 并 reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
 
 先看会做什么，不连远端：
 
@@ -123,6 +138,7 @@ XKNOT_HUB_SSH=$HUB ./ops/deploy-api.sh --dry-run
 ## nginx 现状
 
 - `xknot.si` / `www.xknot.si`：443 提供门户，`/` 302 到 `/en/`；80 只留 ACME 并 301 到 HTTPS。
+- 443 的 server 里开了 gzip（文本类，含 JS/CSS/JSON/SVG/XML）；不压图片与字体，它们本来就压过。门户是纯静态站，这一层不压就没有别处可压。
 - `/api/`、`/admin/` 反代到 `127.0.0.1:5181`；`/assets/` 长缓存，`/data/hub.json` 用 `no-cache`。
 - 门户带 HSTS、`nosniff`、`Referrer-Policy`、`X-Frame-Options: DENY` 与 CSP；`/admin/` 的严格 CSP 由接口的 `serveAdminFile` 发出，nginx 只补 HSTS。`/assets/` 与 `/data/hub.json` 不要写 `add_header`，否则 nginx 会丢掉 server 级安全头。
 - 没有其它子域。`root.xknot.si` 已删除：DNS 记录、nginx 配置与证书都清理掉了，不要重新加回来。
@@ -151,6 +167,7 @@ sudo systemctl show xknot-api -p Environment   # 应含 XKNOT_SECURE_COOKIE=1
 ```bash
 curl -sI https://xknot.si/                        # 302 → /en/
 curl -sI https://xknot.si/en/                     # 200
+curl -sI -H 'Accept-Encoding: gzip' https://xknot.si/assets/<main js> | grep -i content-encoding  # gzip
 curl -sI https://xknot.si/data/hub.json           # 200，no-cache
 curl -s  https://xknot.si/api/health              # {"ok":true,...}
 curl -sI https://xknot.si/admin/                  # 200

@@ -1,0 +1,18 @@
+[Unit]
+Description=xknot.si entry traffic aggregate (nginx access log → var/traffic)
+After=network.target
+Documentation=file:///opt/xknot/docs/HUB.md
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/xknot
+Environment=XKNOT_DATA_DIR=/opt/xknot/var
+# 入口 nginx 由 knot-platform/ops/entry/log.conf.template 写这一份。
+Environment=XKNOT_ACCESS_LOG=/var/log/nginx/knot-access.log
+ExecStart=/usr/bin/node /opt/xknot/ops/traffic.mjs
+NoNewPrivileges=true
+PrivateTmp=true
+# 日志权限是 0644 时不用动；若是 0640 root:adm，把服务用户加进 adm 组：
+#   sudo usermod -aG adm ec2-user

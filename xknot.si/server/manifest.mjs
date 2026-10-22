@@ -1,6 +1,6 @@
 // 已通过的申请 → instances.json 的一条实例。
 //
-// 审核通过不等于自动上线：这里只生成一条能过校验的条目，
+// 申请通过不等于自动上线：这里只生成一条能过校验的条目，
 // 由人执行 admin-cli 写进清单，再重新构建门户。清单是版本库里的文件，
 // 不让网页请求直接改它。
 //
@@ -8,9 +8,7 @@
 // 站点的名称、介绍、联系方式由主理人在实例的 /admin 里写，中枢按
 // GET /api/federation/profile 取回 —— 所以这里不再从申请里抄名字。
 //
-// 两种模式只决定 url：
-//   own-domain —— url 就是申请人填的自有域名。
-//   subdomain  —— url 是中枢签发出来的 https://<标签>.xknot.si。
+// url 只有一种来源：中枢签发的 https://<标签>.xknot.si。
 
 import { validateInstance } from "../ops/validate-instances.mjs";
 import { subdomainUrl } from "./validate.mjs";
@@ -42,16 +40,15 @@ export function suggestId(url) {
  * @param {{ id?: string, since?: string, tier?: string }} options
  */
 export function toManifestEntry(application, options = {}) {
-  // 地址由模式决定：own-domain 取申请里的自有域名，subdomain 由标签拼成。
-  const mode = application.mode === "own-domain" ? "own-domain" : "subdomain";
+  // 地址由标签拼成；标签就是实例 id，签发后不再变。
   const subdomain = String(application.subdomain || "").trim();
-  const url = mode === "subdomain" && subdomain ? subdomainUrl(subdomain) : String(application.url || "").replace(/\/$/, "");
+  const url = subdomain ? subdomainUrl(subdomain) : String(application.url || "").replace(/\/$/, "");
 
   return {
-    id: options.id || (mode === "subdomain" && ID_RE.test(subdomain) ? subdomain : suggestId(url)),
+    id: options.id || (ID_RE.test(subdomain) ? subdomain : suggestId(url)),
     url,
     since: options.since || new Date().toISOString().slice(0, 10),
-    tier: options.tier || "community",
+    tier: options.tier || "free",
     // 写进清单只是“已收录”。探测通过前保持 pending：不探、不上门户，
     // 验收后再把 status 改成 active。见 docs/HANDOFF.md。
     status: "pending",
@@ -61,4 +58,26 @@ export function toManifestEntry(application, options = {}) {
 // 生成后立刻用发布前的同一套规则自检，避免审核员手工补字段。
 export function checkManifestEntry(entry, seen = new Set()) {
   return validateInstance(entry, seen);
+}
+
+/**
+ * 清单条目 + 分配的隧道 → 名册成员。名册与清单靠 id 双向对齐，
+ * 所以 host 直接从条目的 url 取，不另设字段。
+ *
+ * @param {{ id: string, url: string, since?: string }} entry
+ * @param {{ tunnelAccount: string, tunnelPort: number, role?: string, standing?: string, note?: string }} options
+ */
+export function toRosterMember(entry, options = {}) {
+  const role = options.role || "partner";
+  return {
+    id: entry.id,
+    host: new URL(entry.url).host,
+    role,
+    standing: options.standing || (role === "founder" ? "permanent" : "regular"),
+    tunnel: { account: options.tunnelAccount, port: options.tunnelPort },
+    listed: true,
+    since: entry.since,
+    note: options.note || "子域与隧道已登记，等待接通验收。",
+    mode: "subdomain",
+  };
 }

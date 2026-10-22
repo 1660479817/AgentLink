@@ -32,17 +32,47 @@ export const DEFAULT_MANIFEST = {
   instances: [
     {
       id: "e2e-node",
-      url: "https://e2e-node.example",
+      url: "https://e2e-node.xknot.si",
       since: "2026-01-01",
-      tier: "community",
+      // 名册里它是 founder；validateRoster 要求创始实例 tier 为 paid。
+      tier: "paid",
       status: "active",
     },
     {
       id: "e2e-paused",
-      url: "https://e2e-paused.example",
+      url: "https://e2e-paused.xknot.si",
       since: "2026-01-01",
-      tier: "community",
+      tier: "free",
       status: "suspended",
+    },
+  ],
+};
+
+// 与 DEFAULT_MANIFEST 对齐的测试名册：publish 写名册时要用它做交叉校验。
+export const DEFAULT_ROSTER = {
+  version: 1,
+  updatedAt: "2026-01-01",
+  hub: "xknot.si",
+  members: [
+    {
+      id: "e2e-node",
+      host: "e2e-node.xknot.si",
+      role: "founder",
+      standing: "permanent",
+      tunnel: { account: "knot-tunnel", port: 18080 },
+      listed: true,
+      since: "2026-01-01",
+      mode: "subdomain",
+    },
+    {
+      id: "e2e-paused",
+      host: "e2e-paused.xknot.si",
+      role: "partner",
+      standing: "regular",
+      tunnel: { account: "knot-tunnel-paused", port: 18081 },
+      listed: true,
+      since: "2026-01-01",
+      mode: "subdomain",
     },
   ],
 };
@@ -131,6 +161,7 @@ export async function startStack(options = {}) {
   const {
     preview = false,
     manifest = null,
+    roster = null,
     instancesFile: instancesFileOption = null,
     federationFile: federationFileOption = null,
     env = {},
@@ -145,9 +176,13 @@ export async function startStack(options = {}) {
   const apiPort = await freePort();
   const apiUrl = `http://127.0.0.1:${apiPort}`;
 
-  // 审核台能改实例配置，所以测试必须指向一份临时清单：直接改仓库里的
+  // 控制台能改实例配置，所以测试必须指向一份临时清单：直接改仓库里的
   // instances.json 会让一次测试污染真实清单。传 instancesFile 就原地用那份。
-  const federationFile = federationFileOption ? path.resolve(federationFileOption) : null;
+  let federationFile = federationFileOption ? path.resolve(federationFileOption) : null;
+  if (roster) {
+    federationFile = path.join(dataDir, "federation.json");
+    await writeFile(federationFile, `${JSON.stringify(roster, null, 2)}\n`, "utf8");
+  }
   let manifestFile = instancesFileOption ? path.resolve(instancesFileOption) : null;
   if (manifest) {
     manifestFile = path.join(dataDir, "instances.json");
@@ -266,8 +301,11 @@ export async function startStack(options = {}) {
     return file;
   }
 
-  // 端到端要用运维同款命令，并且让 CLI 读同一份测试清单。
-  const cliEnv = manifestFile ? { XKNOT_INSTANCES_FILE: manifestFile } : {};
+  // 端到端要用运维同款命令，并且让 CLI 读同一份测试清单与名册。
+  const cliEnv = {
+    ...(manifestFile ? { XKNOT_INSTANCES_FILE: manifestFile } : {}),
+    ...(federationFile ? { XKNOT_FEDERATION_FILE: federationFile } : {}),
+  };
 
   return {
     portalUrl: entry.url,
@@ -277,6 +315,7 @@ export async function startStack(options = {}) {
     apiPort,
     apiPid: api.pid,
     manifestFile,
+    federationFile,
     logFile,
     setManifest,
     adminCli: (args, extraEnv = {}) => adminCli(dataDir, args, { ...cliEnv, ...extraEnv }),
@@ -366,7 +405,7 @@ async function main(argv) {
   const entryPort = portIndex >= 0 ? Number(argv[portIndex + 1]) : 5190;
   const dataIndex = argv.indexOf("--data-dir");
   const dataDir = dataIndex >= 0 ? path.resolve(argv[dataIndex + 1]) : path.join(ROOT, "var", "local");
-  // 审核台可以改配置：这两项让本地栈指向一份临时清单与名册，不碰仓库里的文件。
+  // 控制台可以改配置：这两项让本地栈指向一份临时清单与名册，不碰仓库里的文件。
   const instancesIndex = argv.indexOf("--instances");
   const instancesFile = instancesIndex >= 0 ? path.resolve(argv[instancesIndex + 1]) : null;
   const federationIndex = argv.indexOf("--federation");
