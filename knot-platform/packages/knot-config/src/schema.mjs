@@ -213,7 +213,7 @@ const SITE_KEYS = [
     group: "platform",
     type: "path",
     default: "",
-    desc: "备份目录。留空不备份；配置后 deploy-site.sh 装每天 04:15 的备份任务（launchd 或 systemd timer）。",
+    desc: "备份目录。留空是还没决定（公网站点会提醒）；写 `null` 表示明确不备份，不再提醒；两者都不装备份任务。填目录后 deploy-site.sh 装每天 04:15 的备份任务（launchd 或 systemd timer）。",
   },
   {
     key: "KNOT_BACKUP_KEEP",
@@ -1002,8 +1002,10 @@ export const WARNINGS = [
   },
   {
     id: "backup-off",
+    // 留空是「还没决定」，公网站点提醒一句；写 null / none / off 是「决定了不备份」，不再提醒。
+    // 三者效果一样：都不装备份任务，脚本也不会去建目录。
     when: (env) => isBlank(env.KNOT_BACKUP_DIR) && !isLocalOnlySite(env),
-    message: "KNOT_BACKUP_DIR 为空，不会做备份。上线前建议指到外接盘或另一台机器。",
+    message: "KNOT_BACKUP_DIR 为空，不会做备份。上线前建议指到外接盘或另一台机器；确定不备份就写 null。",
   },
   {
     id: "body-limit",

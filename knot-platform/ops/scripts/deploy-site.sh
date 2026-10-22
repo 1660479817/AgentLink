@@ -292,6 +292,13 @@ APP_ENV="$KNOT_PLATFORM_ENV"
 if [[ -z "$KNOT_BACKUP_DIR" ]]; then
   KNOT_BACKUP_DIR="$(knot_env_get "$APP_ENV" KNOT_BACKUP_DIR)"
 fi
+# null / none / off 是「明确不备份」：归一成空，后面按「未配置」处理，不装任务。
+# 不归一的话 backup-knot.sh 会去建一个叫 null 的目录。
+BACKUP_OFF_EXPLICIT=0
+case "$(printf '%s' "$KNOT_BACKUP_DIR" | tr '[:upper:]' '[:lower:]')" in
+  null | none | off) BACKUP_OFF_EXPLICIT=1 ;;
+esac
+KNOT_BACKUP_DIR="$(knot_backup_dir "$KNOT_BACKUP_DIR")"
 KNOT_UPLOAD_DIR="$(knot_expand_path "$KNOT_UPLOAD_DIR")"
 
 # ---- 3. 数据库 ----
@@ -382,6 +389,9 @@ case "$RUNTIME" in
     chmod +x "$VENV_SCRIPTS/backup-knot.sh" "$VENV_SCRIPTS/audit-knot-storage.sh" "$VENV_SCRIPTS/gc-knot-storage.sh"
     if [[ -n "$KNOT_BACKUP_DIR" ]]; then
       knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.backup.plist" com.knot.backup
+    elif [[ "$BACKUP_OFF_EXPLICIT" == 1 ]]; then
+      echo "==> KNOT_BACKUP_DIR=null：已明确关闭备份，不装备份 LaunchAgent"
+      knot_bootout_launchd com.knot.backup
     else
       echo "==> KNOT_BACKUP_DIR 未配置，不装备份 LaunchAgent"
       knot_bootout_launchd com.knot.backup

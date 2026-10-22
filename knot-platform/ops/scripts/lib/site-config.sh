@@ -239,6 +239,16 @@ knot_enabled() {
   esac
 }
 
+# 备份目录取值的归一：null / none / off 与留空同义——不备份。
+# 区别只体现在部署时的提醒上：留空是「还没决定」，null 是「决定了不备份」。
+# 归一之后 backup-knot.sh 不会把 null 当成目录名去 mkdir。
+knot_backup_dir() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    null | none | off) printf '' ;;
+    *) printf '%s' "${1:-}" ;;
+  esac
+}
+
 knot_expand_path() {
   case "${1:-}" in
     "~") printf '%s' "$HOME" ;;

@@ -167,6 +167,31 @@ test("pushing the entry yourself still needs the tunnel and a domain", () => {
   assert.ok(noTunnel.errors.some((message) => message.includes("KNOT_TUNNEL=1")));
 });
 
+test("a public site can opt out of backups with null", () => {
+  const result = checkSite({
+    KNOT_ADMIN_EMAIL: "admin@example.com",
+    KNOT_PUBLIC_ORIGIN: "https://wang.xknot.si",
+    KNOT_DOMAIN: "wang.xknot.si",
+    KNOT_ENTRY_ENABLED: "1",
+    KNOT_ENTRY_SSH: "ec2-user@entry-host",
+    KNOT_TUNNEL: "1",
+    KNOT_BACKUP_DIR: "null",
+  });
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.warnings, []);
+
+  // 留空是还没决定，仍然提醒；提醒里要给出 null 这个明确选项。
+  const undecided = checkSite({
+    KNOT_ADMIN_EMAIL: "admin@example.com",
+    KNOT_PUBLIC_ORIGIN: "https://wang.xknot.si",
+    KNOT_DOMAIN: "wang.xknot.si",
+    KNOT_ENTRY_ENABLED: "1",
+    KNOT_ENTRY_SSH: "ec2-user@entry-host",
+    KNOT_TUNNEL: "1",
+  });
+  assert.ok(undecided.warnings.some((message) => message.includes("写 null")));
+});
+
 test("local deployment must stay on loopback", () => {
   const lan = checkSite({
     KNOT_ADMIN_EMAIL: "dev@example.com",

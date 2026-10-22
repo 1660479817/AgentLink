@@ -37,9 +37,9 @@ source "$SCRIPT_DIR/lib/site-config.sh"
 knot_source_platform_env
 export PATH="$KNOT_PG_BIN:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-BACKUP_DIR="${KNOT_BACKUP_DIR:-}"
+BACKUP_DIR="$(knot_backup_dir "${KNOT_BACKUP_DIR:-}")"
 if [[ -z "$BACKUP_DIR" ]]; then
-  echo "KNOT_BACKUP_DIR 未配置，跳过备份"
+  echo "KNOT_BACKUP_DIR 未配置或为 null，跳过备份"
   exit 0
 fi
 

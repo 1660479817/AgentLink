@@ -104,7 +104,7 @@ WebUI 顶栏左上角是固定的 `XKnot` 标识（`web/public/logos/xknot-mark.
 | 实例主机 | `KNOT_PGLOG` | `$HOME/knot/pg.log` | 日志文件 |
 | 实例主机 | `KNOT_PG_BIN` | `/opt/homebrew/opt/postgresql@16/bin` | Intel Homebrew 改 `/usr/local/opt/postgresql@16/bin` |
 | 实例主机 | `KNOT_UPLOAD_DIR` | `<部署根>/var/uploads` | 上传目录，在发布包外，升级和回滚都不动 |
-| 实例主机 | `KNOT_BACKUP_DIR` | 空（不备份） | 配置后装每天 04:15 的备份任务 |
+| 实例主机 | `KNOT_BACKUP_DIR` | 空（还没决定；公网站点会提醒） | 填目录装每天 04:15 的备份任务；写 `null` 表示明确不备份 |
 | 实例主机 | `KNOT_BACKUP_KEEP` | `7` | 保留几份快照 |
 | 实例主机 | `KNOT_BACKUP_SITES` | `1` | 备份是否收 `sites/<站点>/`：`platform.env` 和 `agents/` 里的密钥 |
 | 实例主机 | `KNOT_BACKUP_OPENCLAW` | `auto` | `auto` 有 `~/.openclaw` 就收；`1` 必须；`0` 跳过 |
@@ -649,7 +649,7 @@ node backend/scripts/backfill-uploads.mjs --apply
 ./ops/scripts/backup-knot.sh --config-only   # 只收配置和智能体状态，不碰数据库
 ```
 
-目标目录是环境文件里的 `KNOT_BACKUP_DIR`。留空表示不备份，脚本会直接退出；`KNOT_BACKUP_KEEP` 是保留份数（缺省 7）。每次写一份权限 `700` 的 `knot-<时间>/`，并用 `latest` 符号链接指向最近一份。同一秒内跑两次会加 `-1`、`-2` 后缀，不会覆盖上一份。
+目标目录是环境文件里的 `KNOT_BACKUP_DIR`。留空或写 `null` 都表示不备份，脚本会直接退出；区别只在部署时的提醒——留空是还没决定，公网站点提醒一句，`null` 是明确不备份，不再提醒。`KNOT_BACKUP_KEEP` 是保留份数（缺省 7）。每次写一份权限 `700` 的 `knot-<时间>/`，并用 `latest` 符号链接指向最近一份。同一秒内跑两次会加 `-1`、`-2` 后缀，不会覆盖上一份。
 
 一份快照里有这些：
 
@@ -663,7 +663,7 @@ node backend/scripts/backfill-uploads.mjs --apply
 
 `platform.env` 和凭据沿用源文件的 `600`，目录沿用 `700`；快照根目录本身是 `700`。没变的文件用硬链接复用，所以加了 `sites/` 和 `agents/` 之后每天的增量仍然很小。
 
-`deploy-site.sh` 只在 `KNOT_BACKUP_DIR` 非空时安装备份任务（macOS 是 LaunchAgent `com.knot.backup`，Linux 是 `knot-backup.timer`），每天 04:15 执行一次；清空配置后重新部署会把它卸掉。另装每月 1 日 04:45 的 `gc-knot-storage.sh`（macOS `com.knot.gc` / Linux `knot-gc.timer`），只写报告到 `var/log/knot-gc.log`，不删文件；要真删得人工执行 `--apply`。
+`deploy-site.sh` 只在 `KNOT_BACKUP_DIR` 是真目录时安装备份任务（macOS 是 LaunchAgent `com.knot.backup`，Linux 是 `knot-backup.timer`），每天 04:15 执行一次；改回空或 `null` 后重新部署会把它卸掉。另装每月 1 日 04:45 的 `gc-knot-storage.sh`（macOS `com.knot.gc` / Linux `knot-gc.timer`），只写报告到 `var/log/knot-gc.log`，不删文件；要真删得人工执行 `--apply`。
 
 `KNOT_BACKUP_DIR` 默认在同一块盘上。这只防误删和改坏，不防整机或整盘丢失；要防后者，把 `KNOT_BACKUP_DIR` 指到外挂盘或另一台机器，或者定期把 `latest/` 同步出去。
 

@@ -61,6 +61,7 @@ function scaffold(options = {}) {
 
 function run(ctx, extraEnv = {}) {
   return execFileSync("bash", [SCRIPT, "--config-only"], {
+    cwd: ctx.root,
     env: {
       PATH: process.env.PATH,
       HOME: ctx.home,
@@ -159,6 +160,14 @@ test("KNOT_BACKUP_SITES=0 只备份数据库相关部分", { skip: !HAS_RSYNC },
   const dest = path.join(ctx.backups, stamp);
   assert.equal(existsSync(path.join(dest, "sites")), false);
   assert.match(readFileSync(path.join(dest, "manifest.txt"), "utf8"), /^sites_status=skipped$/m);
+});
+
+test("KNOT_BACKUP_DIR=null 表示明确不备份，也不会建一个叫 null 的目录", () => {
+  const ctx = scaffold({ siteEnv: ["KNOT_BACKUP_DIR=null"] });
+  const out = run(ctx);
+  assert.match(out, /跳过备份/);
+  assert.equal(existsSync(path.join(ctx.root, "null")), false);
+  assert.equal(existsSync(ctx.backups), false);
 });
 
 test("强制备份 OpenClaw 但目录不存在时失败且不留半份快照", { skip: !HAS_RSYNC }, () => {
