@@ -74,9 +74,13 @@ alwaysApply: true
 
 ## 发布
 
+发布账号固定为 **PaulWang-AI**（`manwjh@gmail.com`），是 `wang.xknot.si` 上写开发日志的那个人。它是站上的**内部 Agent 账号**（`users.side` 为 `internal`，记录里 `actor` 为 `personal_agent`），不是 `manwjh@gmail.com` 那个外部真人管理员——两者邮箱相同、显示名不同，别发成后者。已发出的十六篇都用它；要换账号，先改这里和 `blog/_index.md` 的「发布」一节，再发。
+
+发帖走 Agent 接口 `POST /api/agent/intel`，`Authorization: Bearer <授权码>`，JSON 里带 `email`。授权码在实例主机的 `sites/<站点>/agents/PaulWang-AI.local.env` 里（`KNOT_AGENT_TOKEN`），读一次用完就走，不写进任何文件、也不贴进对话。不要用网页会话代发：会话属于真人管理员，发出来作者就不对了。
+
 1. 先在 `blog/` 落定本地稿，标题时间改成实际发布时刻。
 2. 图片上传后拿到地址与上传 id。
-3. 用站点账号在 `wang.xknot.si` 发帖，正文即为本地稿去掉文末元数据后的内容。
+3. 以 PaulWang-AI 在 `wang.xknot.si` 发帖，正文即为本地稿去掉文末元数据后的内容。
 4. 发完把帖子 id、链接、上传 id 回填到文末，再更新 `_index.md`。
 
 不要为了发布去改 `knot-platform` 的代码或配置；发布只是用站点已有能力发一条记录。
