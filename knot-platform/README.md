@@ -117,21 +117,22 @@ npm run build                     # 产出可部署的发布包（artifacts/）
 
 ## 部署 / Deployment
 
-Knot 官方支持两种部署方式：**local**（开发环境）和 **xknot.si 二级子域**（公网）。独立域名、内网公开、固定公网 IP 直连都不在官方范围内，属于用户改造。
+Knot 官方支持两种**对外形态**：**只在本机**和 **xknot.si 二级子域**（公网）。实例主机可以是常年开机的一台机器，也可以是开发机本身——「local」说的是整套系统跑在一台机器上，不表示不能接公网。独立域名、内网公开、固定公网 IP 直连都不在官方范围内，属于用户改造。
 
-**local**：WebUI 和整套系统都在这一台机器上，Backend 自己 serve `web/dist`，只绑回环地址，没有公网入口，没有回源隧道。
+**只在本机**：WebUI 和整套系统都在这一台机器上，Backend 自己 serve `web/dist`，只绑回环地址，没有公网入口，没有回源隧道。
 
 ```bash
 node ops/scripts/config.mjs init local     # 从模板建 sites/local，再改端口和管理员邮箱
 ./ops/scripts/push-deploy.sh --site local  # 构建 + 装到本机 + 探活
 ```
 
-**xknot.si 二级子域**：实例主机仍在本地，公网入口是一台 Linux + nginx，域名为联邦签发的 `<标签>.xknot.si`。实例主动连出隧道，入口把 `/api`、`/help` 回源到实例主机。
+**xknot.si 二级子域**：实例主机仍在本地，公网入口是一台 Linux + nginx，域名为联邦签发的 `<标签>.xknot.si`。实例主动连出隧道，入口把 `/api`、`/help` 回源到实例主机。开发机接进来时 Backend、Postgres 与上传目录还在开发机上，只是对外多了一个子域（`cpswang` 就是这样）。
 
 ```bash
-# site.env：KNOT_ENTRY_ENABLED=1、KNOT_DOMAIN=<标签>.xknot.si、KNOT_TUNNEL=1
-# entry.<标签>.xknot.si.env：这个子域的静态根、conf、证书
-./ops/scripts/push-deploy.sh --site <站点> --entry
+# site.env：KNOT_DOMAIN=<标签>.xknot.si、KNOT_PUBLIC_ORIGIN=https://<标签>.xknot.si
+# 自己推入口：KNOT_ENTRY_ENABLED=1 + KNOT_ENTRY_SSH，并写 entry.<标签>.xknot.si.env
+# 交给中枢自动接通：KNOT_ENTRY_ENABLED=0，等界面写 sites/<站点>/tunnel.env
+./ops/scripts/push-deploy.sh --site <站点> --entry   # --entry 只在自己推入口时需要
 ```
 
 **代码、构建、部署三者分开**：
@@ -142,7 +143,7 @@ node ops/scripts/config.mjs init local     # 从模板建 sites/local，再改�
 | 构建 | 开发机 `ops/scripts/build.sh` | 产出带版本号的 `knot-<版本>-<提交>-<平台>.tar.gz` |
 | 部署 | 实例主机 `ops/scripts/deploy-site.sh` | 解包到 `releases/`、迁移、切 `current`、重启、探活。不构建 |
 
-每个站点的配置放在 `sites/<站点>/`：`site.env` 给出域名、端口、入口等拓扑，`platform.env` 只保存实例主机的运行时值，`profile.json` 是主理人自己写的站点档案（名称、一句话介绍、详细介绍、logo、主理人、地区、时区、标签）；走 xknot.si 时再加一份中枢签发的 `xknot.env`，以及入口主机用的 `entry.<标签>.xknot.si.env`。部署根下 `sites/` 和 `var/` 在发布包外面，升级和回滚都不动它们。每一个键的类型、默认值和必填条件登记在 `packages/knot-config/src/schema.mjs`，部署前和 Backend 启动时都会校验；完整清单见 [docs/CONFIG.md](./docs/CONFIG.md)，站点档案见 [docs/PROFILE.md](./docs/PROFILE.md)。步骤见 [ops/README.md](./ops/README.md)。
+每个站点的配置放在 `sites/<站点>/`：`site.env` 给出域名、端口、入口等拓扑，`platform.env` 只保存实例主机的运行时值，`profile.json` 是主理人自己写的站点档案（名称、一句话介绍、详细介绍、logo、主理人、地区、时区、标签）；接子域时再加一份中枢签发的 `xknot.env`，以及自己推入口用的 `entry.<标签>.xknot.si.env` 或中枢自动接通后写下的 `tunnel.env`。部署根下 `sites/` 和 `var/` 在发布包外面，升级和回滚都不动它们。每一个键的类型、默认值和必填条件登记在 `packages/knot-config/src/schema.mjs`，部署前和 Backend 启动时都会校验；完整清单见 [docs/CONFIG.md](./docs/CONFIG.md)，站点档案见 [docs/PROFILE.md](./docs/PROFILE.md)。步骤见 [ops/README.md](./ops/README.md)。
 
 实例主机另有一个供人类管理员用的 Web 管理后台：`http://<实例主机>:<KNOT_PORT>/admin`。它只给实例主机自己（回环地址）和同一内网的机器打开，用 `KNOT_ADMIN_TOKEN` 进入；公网地址一律拒绝，公网入口对 `/admin` 和 `/api/admin` 都返回 404。站点把 `KNOT_BIND_HOST` 设成 `0.0.0.0` 时，局域网里直接打开 `http://<实例主机>:<KNOT_PORT>/admin`；只绑回环地址时，从笔记本经 SSH 转发访问：
 
@@ -155,9 +156,9 @@ ssh -L 8081:127.0.0.1:8080 <KNOT_DEPLOY_SSH>
 
 目标机的服务管理只有两条路：macOS + launchd，Linux + systemd。
 
-*Knot officially supports two deployment modes: **local** (development) and an **xknot.si subdomain** (public). Standalone domains, public intranet deployment, and direct fixed public IPs are not official; those are user modifications.*
+*Knot officially supports two **exposure modes**: **local only** and an **xknot.si subdomain** (public). The instance host can be a machine that stays on, or the development machine itself — "local" means the whole system runs on one machine, not that it cannot be public. Standalone domains, public intranet deployment, and direct fixed public IPs are not official; those are user modifications.*
 
-*Local keeps the WebUI and the whole system on one machine: the Backend serves `web/dist` itself, binds to loopback only, and uses no public entry or reverse tunnel. The xknot.si mode keeps the instance host where it is and adds one Linux + nginx entry for the issued `<label>.xknot.si` subdomain; the instance dials out through a reverse tunnel, and the entry proxies `/api` and `/help` back to it. **Code, build, and deployment are separate**: code lives in `backend/`, `web/`, and `packages/`; `ops/scripts/build.sh` on the development machine produces a versioned `knot-<version>-<commit>-<platform>.tar.gz`; `ops/scripts/deploy-site.sh` on the instance host unpacks it into `releases/`, migrates, switches `current`, restarts, and probes health — it never builds. Each site's configuration lives in `sites/<site>/`: `site.env` holds topology — domains, ports, entry — `platform.env` holds runtime values for the instance host only, `profile.json` is the owner's own site profile (name, tagline, intro, logo, owner, region, timezone, tags), and an xknot.si site adds a hub-issued `xknot.env` plus one `entry.<label>.xknot.si.env` for the entry host. Under the deploy root, `sites/` and `var/` sit outside the release, so upgrades and rollbacks leave them alone. Every key's type, default, and required condition live in `packages/knot-config/src/schema.mjs` and are validated before deploy and when the Backend starts; see [docs/CONFIG.md](./docs/CONFIG.md) for the full list and [docs/PROFILE.md](./docs/PROFILE.md) for the site profile. See [ops/README.md](./ops/README.md) for the steps. Two service managers are supported: macOS + launchd and Linux + systemd.*
+*Local-only keeps the WebUI and the whole system on one machine: the Backend serves `web/dist` itself, binds to loopback only, and uses no public entry or reverse tunnel. The xknot.si mode adds one Linux + nginx entry for the issued `<label>.xknot.si` subdomain; the instance dials out through a reverse tunnel, and the entry proxies `/api` and `/help` back to it. A development machine can join the same way: Backend, Postgres, and uploads stay on it and the public entry only adds a subdomain (that is how `cpswang` runs). **Code, build, and deployment are separate**: code lives in `backend/`, `web/`, and `packages/`; `ops/scripts/build.sh` on the development machine produces a versioned `knot-<version>-<commit>-<platform>.tar.gz`; `ops/scripts/deploy-site.sh` on the instance host unpacks it into `releases/`, migrates, switches `current`, restarts, and probes health — it never builds. Each site's configuration lives in `sites/<site>/`: `site.env` holds topology — domains, ports, entry — `platform.env` holds runtime values for the instance host only, `profile.json` is the owner's own site profile (name, tagline, intro, logo, owner, region, timezone, tags), and a site on a subdomain adds a hub-issued `xknot.env` plus either `entry.<label>.xknot.si.env` (when it pushes the entry itself) or `tunnel.env` (written by the hub's auto-provision). Under the deploy root, `sites/` and `var/` sit outside the release, so upgrades and rollbacks leave them alone. Every key's type, default, and required condition live in `packages/knot-config/src/schema.mjs` and are validated before deploy and when the Backend starts; see [docs/CONFIG.md](./docs/CONFIG.md) for the full list and [docs/PROFILE.md](./docs/PROFILE.md) for the site profile. See [ops/README.md](./ops/README.md) for the steps. Two service managers are supported: macOS + launchd and Linux + systemd.*
 
 ## About the Author
 

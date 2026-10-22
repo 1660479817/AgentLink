@@ -2,21 +2,28 @@
 
 本目录是**实例侧**的部署层：每台用 `knot-platform` 部署的 Knot 站点（WebUI + Backend + OpenClaw 配套）都从这里发布。
 
-官方只支持两种部署方式：
+官方支持两种**对外形态**，与「在哪台机器上跑」是两件事：
 
-| 方式 | 对外地址 | 配置 |
+| 对外形态 | 对外地址 | 配置 |
 | --- | --- | --- |
-| **local**（开发环境） | `http://127.0.0.1:<KNOT_PORT>/` | `KNOT_ENTRY_ENABLED=0`，`KNOT_DOMAIN=` 留空，Backend 只绑回环地址 |
-| **xknot.si 二级子域**（公网） | `https://<标签>.xknot.si/` | `KNOT_ENTRY_ENABLED=1`，`KNOT_DOMAIN=<标签>.xknot.si`，走回源隧道 + 入口 nginx |
+| **只在本机** | `http://127.0.0.1:<KNOT_PORT>/` | `KNOT_DOMAIN=` 留空，`KNOT_ENTRY_ENABLED=0`，`KNOT_TUNNEL=0`，Backend 只绑回环地址 |
+| **xknot.si 二级子域**（公网） | `https://<标签>.xknot.si/` | `KNOT_DOMAIN=<标签>.xknot.si`，走回源隧道（+ 入口 nginx） |
+
+实例主机可以是常年开机的一台机器（`bot01`），也可以是开发环境本身。**「local」说的是整套系统跑在一台机器上，不表示不能接公网**：开发机同样可以领一个子域接进联邦（`cpswang` 就是这样，Backend 在开发机上，入口主机回源到它的隧道）。两种形态下，Backend、Postgres 与上传目录都在这一台机器里，入口只多放一份 WebUI 与公开快照。
+
+入口由谁推到入口主机，决定 `KNOT_ENTRY_ENABLED`：
+
+- `1`：部署时由这台机器 `push-entry.sh` 推 WebUI 与 nginx conf（`bot01` 的 `wang.xknot.si`）。
+- `0`：不碰入口主机。要么只在本机，要么入口已由中枢自动接通写好 conf，本机只负责隧道与内容（`cpswang`）。
 
 **独立域名部署、内网公开部署都不在官方范围内**，属于用户改造。`config.mjs check` 只接受
 `xknot.si` 签发的二级子域，不接受自有域名、固定公网 IP 直连或局域网地址。
 
 部署分三层：
 
-- **实例主机**：跑 Knot Backend、PostgreSQL、WebUI。macOS 用 LaunchAgent，Linux 用 systemd。
-- **公网入口（仅 xknot.si 方式）**：一台 Linux + nginx，只放 WebUI 和公开快照，`/api`、`/help` 经隧道回到实例主机。
-- **配置**：`sites/<站点>/site.env` 一份；走 xknot.si 时再加一份 `entry.<标签>.xknot.si.env`。
+- **实例主机**：跑 Knot Backend、PostgreSQL、WebUI。macOS 用 LaunchAgent，Linux 用 systemd。可以是常年开机的一台机器，也可以是开发机本身。
+- **公网入口（仅子域形态）**：一台 Linux + nginx，只放 WebUI 和公开快照，`/api`、`/help` 经隧道回到实例主机。
+- **配置**：`sites/<站点>/site.env` 一份；接子域时再加 `entry.<标签>.xknot.si.env`（自己推入口时）或 `tunnel.env`（中枢自动接通后由界面写入）。
 
 部署分成三步，互相不掺：
 
@@ -76,7 +83,7 @@ node ops/scripts/config.mjs init <站点>
 
 WebUI 顶栏左上角是固定的 `XKnot` 标识（`web/public/logos/xknot-mark.svg`），所有站点一致。站点自己的名字在顶栏正中，站点 logo 用在登录卡和未登录首页。顶栏不设搜索按钮；点站点名打开主理人弹窗。
 
-local 部署到这里就够了。要接入 xknot.si 子域，再填 `KNOT_ENTRY_ENABLED=1`、`KNOT_ENTRY_SSH`、`KNOT_DOMAIN` 和 `KNOT_PUBLIC_ORIGIN`；要从开发机发布，填 `KNOT_DEPLOY_SSH`。
+只在本机访问到这里就够了。要接 xknot.si 子域，先领签发件（`xknot.env`），再按入口由谁决定 `KNOT_ENTRY_ENABLED`：自己推入口就填 `1` 加 `KNOT_ENTRY_SSH`，交给中枢自动接通就保持 `0`，等界面把 `tunnel.env` 写好。`KNOT_PUBLIC_ORIGIN` 与 `KNOT_DOMAIN` 都改到签发的子域。要从开发机发布到另一台机器，填 `KNOT_DEPLOY_SSH`。
 
 ### 1.1 全部站点参数与默认值
 
@@ -127,7 +134,7 @@ local 部署到这里就够了。要接入 xknot.si 子域，再填 `KNOT_ENTRY_
 | 入口 | `KNOT_ENTRY_KEY` | 按入口自己的 `KNOT_DOMAIN` 推导 | 私钥 |
 | 入口 | `KNOT_ENTRY_RELOAD_CMD` | `sudo systemctl reload nginx` | 非 systemd 机器改这里 |
 | 入口 | `KNOT_ENTRY_SERVE` | `static` | `static` 页面从入口主机上的磁盘出；`proxy` 连首页也回源 |
-| 隧道 | `KNOT_TUNNEL` | `0` | local 保持 `0`；xknot.si 方式设 `1` |
+| 隧道 | `KNOT_TUNNEL` | `0` | 没有入口时 `0`；接了子域由 `tunnel.env` 写 `1` |
 | 隧道 | `KNOT_TUNNEL_SSH` | `knot-tunnel@<KNOT_ENTRY_SSH 的主机>` | 隧道账号 |
 | 隧道 | `KNOT_TUNNEL_KEY` | `$HOME/.ssh/knot-entry` | 隧道私钥，不进仓库 |
 | 隧道 | `KNOT_TUNNEL_LOCAL_PORT` | `$KNOT_PORT` | 实例主机侧被转发的端口 |
@@ -196,9 +203,9 @@ XKNOT_HUB_ISSUED_AT=2026-10-20
 
 ## 2. 拓扑
 
-官方只保留两种拓扑。
+官方只保留两种对外拓扑。实例主机是本机还是另一台机器，两种拓扑都成立。
 
-### 2.1 local（开发环境）
+### 2.1 只在本机（开发环境）
 
 ```text
 浏览器 → http://127.0.0.1:<KNOT_PORT>/
@@ -230,12 +237,14 @@ Knot Backend → 127.0.0.1:18789               （OpenClaw Gateway，可选，�
 Knot Backend → 公开快照 → 入口主机 WebUI 目录
 ```
 
-- `KNOT_ENTRY_ENABLED=1`
+- `KNOT_ENTRY_ENABLED=1`（自己推 WebUI 与 conf）或 `0`（入口已由中枢自动接通）
 - `KNOT_DOMAIN=<标签>.xknot.si`
 - `KNOT_PUBLIC_ORIGIN=https://<标签>.xknot.si`
 - `KNOT_TUNNEL=1`
 - `KNOT_BIND_HOST=127.0.0.1`
 - 入口主机只放 WebUI 与公开快照；Backend、Postgres 和上传目录仍在实例主机，只有一份。
+
+实例主机就是开发机时，这一套同样成立：`cpswang` 的 Backend、Postgres 与上传目录都在开发机上，`KNOT_DOMAIN` 与 `KNOT_PUBLIC_ORIGIN` 指向签发的子域，`site.env` 保持 `KNOT_ENTRY_ENABLED=0` 不去动入口主机，隧道那几项由中枢自动接通写进 `sites/<站点>/tunnel.env`。也就是说，「local」只说明整套系统在一台机器上，接不接公网由 `xknot.env` 与 `tunnel.env` 决定，与这台机器是不是开发机无关。
 
 隧道由实例主机主动连出，入口的 `127.0.0.1:<KNOT_ENTRY_PROXY_PORT>` 转到实例主机的
 `127.0.0.1:<KNOT_TUNNEL_LOCAL_PORT>`。入口主机与实例主机恰好同机时可以把 `KNOT_TUNNEL=0`

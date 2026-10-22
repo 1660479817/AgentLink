@@ -134,13 +134,37 @@ test("a loopback-only site is not warned about missing backups", () => {
   assert.ok(publicSite.warnings.some((message) => message.includes("KNOT_BACKUP_DIR")));
 });
 
-test("local deployment must not carry a domain", () => {
+test("a local host can also carry an issued subdomain", () => {
+  // 开发机整套系统都在这台机器上，同样可以领子域接进联邦：入口 conf 由中枢自动接通写，
+  // site.env 保持 KNOT_ENTRY_ENABLED=0，隧道写在 tunnel.env（cpswang 就是这种形态）。
   const result = checkSite({
     KNOT_ADMIN_EMAIL: "dev@example.com",
-    KNOT_PUBLIC_ORIGIN: "http://127.0.0.1:8081",
-    KNOT_DOMAIN: "wang.xknot.si",
+    KNOT_PUBLIC_ORIGIN: "https://cpswang.xknot.si",
+    KNOT_DOMAIN: "cpswang.xknot.si",
+    KNOT_ENTRY_ENABLED: "0",
+    KNOT_TUNNEL: "0",
   });
-  assert.ok(result.errors.some((message) => message.includes("KNOT_ENTRY_ENABLED=0")));
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.warnings.some((message) => message.includes("KNOT_BACKUP_DIR")));
+});
+
+test("pushing the entry yourself still needs the tunnel and a domain", () => {
+  const noDomain = checkSite({
+    KNOT_ADMIN_EMAIL: "dev@example.com",
+    KNOT_PUBLIC_ORIGIN: "http://127.0.0.1:8081",
+    KNOT_ENTRY_ENABLED: "1",
+    KNOT_ENTRY_SSH: "ec2-user@entry-host",
+  });
+  assert.ok(noDomain.errors.some((message) => message.includes("必须写 KNOT_DOMAIN")));
+
+  const noTunnel = checkSite({
+    KNOT_ADMIN_EMAIL: "dev@example.com",
+    KNOT_PUBLIC_ORIGIN: "https://wang.xknot.si",
+    KNOT_DOMAIN: "wang.xknot.si",
+    KNOT_ENTRY_ENABLED: "1",
+    KNOT_ENTRY_SSH: "ec2-user@entry-host",
+  });
+  assert.ok(noTunnel.errors.some((message) => message.includes("KNOT_TUNNEL=1")));
 });
 
 test("local deployment must stay on loopback", () => {

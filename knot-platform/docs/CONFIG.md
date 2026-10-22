@@ -11,8 +11,9 @@ node ops/scripts/config.mjs docs --write               # 重新生成本文
 
 ## 官方部署方式
 
-只支持两种：**local**（开发环境，`KNOT_ENTRY_ENABLED=0`，只绑回环地址）和
-**xknot.si 二级子域**（`KNOT_ENTRY_ENABLED=1`，`KNOT_DOMAIN=<标签>.xknot.si`）。
+只看对外形态，有两种：**只在本机**（`KNOT_DOMAIN=` 留空、`KNOT_ENTRY_ENABLED=0`、只绑回环地址）和
+**xknot.si 二级子域**（`KNOT_DOMAIN=<标签>.xknot.si`，走回源隧道）。实例主机是本机还是另一台机器，两种都成立：
+开发机接子域时 `KNOT_ENTRY_ENABLED` 可以是 `0`，入口由中枢自动接通写好，本机只跑隧道与内容。
 独立域名、内网公开、固定公网 IP 直连都不在官方范围内，属于用户改造。
 
 ## 三个边界
@@ -47,11 +48,11 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `KNOT_PUBLIC_ORIGIN` | `http://127.0.0.1:8080` |  | 对外访问地址。local 部署写 http://127.0.0.1:<KNOT_PORT>；接入 xknot.si 子域后写中枢签发的 https://<标签>.xknot.si。 |
-| `KNOT_DOMAIN` | （空） |  | xknot.si 签发的二级子域，形如 <标签>.xknot.si。local 部署留空；接子域时与入口文件名一致。 |
+| `KNOT_PUBLIC_ORIGIN` | `http://127.0.0.1:8080` |  | 对外访问地址。只在本机时写 http://127.0.0.1:<KNOT_PORT>；接 xknot.si 子域后写中枢签发的 https://<标签>.xknot.si。 |
+| `KNOT_DOMAIN` | （空） |  | xknot.si 签发的二级子域，形如 <标签>.xknot.si。只在本机访问时留空；接子域时与入口文件名一致。 |
 | `KNOT_HUB_ORIGIN` | `https://xknot.si` |  | 第一次接入时把申请提交到哪个中枢。默认联邦入口 xknot.si；本机联调可以指向 dev 中枢。 |
 | `KNOT_PORT` | `8080` |  | 实例主机上 Backend 监听的端口。 |
-| `KNOT_BIND_HOST` | `127.0.0.1` |  | Backend 绑定地址。local 与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。 |
+| `KNOT_BIND_HOST` | `127.0.0.1` |  | Backend 绑定地址。本机与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。 |
 | `KNOT_SESSION_COOKIE_NAME` | `knot_sid` |  | 会话 Cookie 名。同一个域名下跑多个站点时要各不相同。 |
 | `KNOT_ADMIN_EMAIL` | （空） | 是 | 站点管理员邮箱。必填；用这个邮箱登录后拥有平台管理权限，建议与投诉也寄到这里。 |
 | `KNOT_SESSION_TTL_DAYS` | `30` |  | 登录会话有效期（天）。Cookie 和 sessions.expires_at 用同一个值。 |
@@ -79,7 +80,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `KNOT_DEPLOY_SSH` | （空） |  | 实例主机的 ssh 目标，形如 user@host。留空表示就在实例主机上直接跑 deploy-site.sh（local）。 |
+| `KNOT_DEPLOY_SSH` | （空） |  | 实例主机的 ssh 目标，形如 user@host。留空表示目标就是这台机器，直接就地跑 deploy-site.sh。 |
 | `KNOT_DEPLOY_DIR` | `~/knot/AgentLink/knot-platform` |  | 实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。 |
 | `KNOT_DEPLOY_SSH_KEY` | （空） |  | 发布用的私钥。留空用 ssh 默认身份。 |
 | `KNOT_DEPLOY_VERIFY_URL` | 见说明 |  | 部署后探活的地址。留空按 http://<实例主机>:<KNOT_PORT>/api/health 推导。 |
@@ -90,7 +91,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `KNOT_ENTRY_ENABLED` | `0` |  | 1 表示接入 xknot.si 子域，把 WebUI 和 nginx 配置推到 KNOT_ENTRY_SSH；0 是 local 部署，不碰入口主机。 |
+| `KNOT_ENTRY_ENABLED` | `0` |  | 1 表示部署时由这台机器把 WebUI 与 nginx 配置推到 KNOT_ENTRY_SSH；0 表示不碰入口主机（只在本机，或入口已由中枢自动接通）。 |
 | `KNOT_ENTRY_SSH` | （空） |  | 入口主机的 ssh 目标。 |
 | `KNOT_ENTRY_SSH_KEY` | `$HOME/.ssh/id_rsa` |  | 在开发机上推页面用的私钥。 |
 | `KNOT_ENTRY_PUSH_KEY` | `$HOME/.ssh/knot-entry-publish` |  | 在实例主机上推公开快照用的私钥，可以和 KNOT_ENTRY_SSH_KEY 不是同一把。 |
@@ -112,7 +113,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `KNOT_TUNNEL` | `0` |  | 1 表示实例主机主动连出建隧道，让 xknot.si 子域入口能回源；local 部署保持 0。 |
+| `KNOT_TUNNEL` | `0` |  | 1 表示实例主机主动连出建隧道，让 xknot.si 子域入口能回源。没有入口时留 0；本机也接了子域时由 sites/<站点>/tunnel.env 写 1。 |
 | `KNOT_TUNNEL_SSH` | 见说明 |  | 隧道账号。留空是 knot-tunnel@<KNOT_ENTRY_SSH 的主机>。 |
 | `KNOT_TUNNEL_KEY` | `$HOME/.ssh/knot-entry` |  | 实例主机上建隧道用的私钥。 |
 | `KNOT_TUNNEL_LOCAL_PORT` | 见说明 |  | 隧道落回本机的端口。留空等于 KNOT_PORT。 |
@@ -247,8 +248,9 @@ node ops/scripts/config.mjs sites                            # 列出已有站�
 
 | 规则 | 条件 |
 | --- | --- |
-| KNOT_ENTRY_ENABLED=1 时必须配置 KNOT_ENTRY_SSH。local 部署请写 KNOT_ENTRY_ENABLED=0。 | `KNOT_ENTRY_ENABLED=1` |
+| KNOT_ENTRY_ENABLED=1 时必须配置 KNOT_ENTRY_SSH。不自己推入口时写 KNOT_ENTRY_ENABLED=0。 | `KNOT_ENTRY_ENABLED=1` |
 | KNOT_DB_MODE=external 时必须配置 KNOT_DATABASE_URL。 | `KNOT_DB_MODE=external` |
-| 接入 xknot.si 子域时必须设 KNOT_TUNNEL=1，由实例主机主动连出回源隧道。 | `KNOT_ENTRY_ENABLED=1` |
-| 接入 xknot.si 子域时 KNOT_PUBLIC_ORIGIN 必须走 https://。 | `KNOT_ENTRY_ENABLED=1` |
+| 接子域时必须写 KNOT_PUBLIC_ORIGIN=https://<标签>.xknot.si，且主机名与 KNOT_DOMAIN 一致。 | `KNOT_DOMAIN` 非空 |
+| 自己推入口（`KNOT_ENTRY_ENABLED=1`）时必须设 KNOT_TUNNEL=1；入口由中枢自动接通时隧道写在 `tunnel.env`，这里不强制。 | `KNOT_DOMAIN` 非空 |
+| 不接子域时 KNOT_PUBLIC_ORIGIN 只认回环地址，也不建隧道。 | `KNOT_DOMAIN` 为空 |
 

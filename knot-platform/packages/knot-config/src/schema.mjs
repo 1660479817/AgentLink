@@ -86,7 +86,7 @@ const SITE_KEYS = [
     group: "site",
     type: "url",
     default: "http://127.0.0.1:8080",
-    desc: "对外访问地址。local 部署写 http://127.0.0.1:<KNOT_PORT>；接入 xknot.si 子域后写中枢签发的 https://<标签>.xknot.si。",
+    desc: "对外访问地址。只在本机时写 http://127.0.0.1:<KNOT_PORT>；接 xknot.si 子域后写中枢签发的 https://<标签>.xknot.si。",
     example: "https://wang.xknot.si",
   },
   {
@@ -95,7 +95,7 @@ const SITE_KEYS = [
     type: "string",
     default: "",
     scope: ["dev", "entry"],
-    desc: "xknot.si 签发的二级子域，形如 <标签>.xknot.si。local 部署留空；接子域时与入口文件名一致。",
+    desc: "xknot.si 签发的二级子域，形如 <标签>.xknot.si。只在本机访问时留空；接子域时与入口文件名一致。",
     example: "wang.xknot.si",
   },
   {
@@ -121,7 +121,7 @@ const SITE_KEYS = [
     group: "site",
     type: "string",
     default: "127.0.0.1",
-    desc: "Backend 绑定地址。local 与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。",
+    desc: "Backend 绑定地址。本机与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。",
   },
   {
     key: "KNOT_SESSION_COOKIE_NAME",
@@ -258,7 +258,7 @@ const SITE_KEYS = [
     type: "string",
     default: "",
     scope: ["dev"],
-    desc: "实例主机的 ssh 目标，形如 user@host。留空表示就在实例主机上直接跑 deploy-site.sh（local）。",
+    desc: "实例主机的 ssh 目标，形如 user@host。留空表示目标就是这台机器，直接就地跑 deploy-site.sh。",
     example: "deploy@<实例主机>",
   },
   {
@@ -331,7 +331,7 @@ const SITE_KEYS = [
     group: "entry",
     type: "bool",
     default: 0,
-    desc: "1 表示接入 xknot.si 子域，把 WebUI 和 nginx 配置推到 KNOT_ENTRY_SSH；0 是 local 部署，不碰入口主机。",
+    desc: "1 表示部署时由这台机器把 WebUI 与 nginx 配置推到 KNOT_ENTRY_SSH；0 表示不碰入口主机（只在本机，或入口已由中枢自动接通）。",
   },
   {
     key: "KNOT_ENTRY_SSH",
@@ -480,7 +480,7 @@ const SITE_KEYS = [
     type: "bool",
     default: 0,
     scope: ["platform"],
-    desc: "1 表示实例主机主动连出建隧道，让 xknot.si 子域入口能回源；local 部署保持 0。",
+    desc: "1 表示实例主机主动连出建隧道，让 xknot.si 子域入口能回源。没有入口时留 0；本机也接了子域时由 sites/<站点>/tunnel.env 写 1。",
   },
   {
     key: "KNOT_TUNNEL_SSH",
@@ -969,7 +969,7 @@ export const RULES = [
     id: "entry-ssh",
     when: (env) => truthy(env.KNOT_ENTRY_ENABLED),
     need: ["KNOT_ENTRY_SSH"],
-    message: "KNOT_ENTRY_ENABLED=1 时必须配置 KNOT_ENTRY_SSH。local 部署请写 KNOT_ENTRY_ENABLED=0。",
+    message: "KNOT_ENTRY_ENABLED=1 时必须配置 KNOT_ENTRY_SSH。不自己推入口时写 KNOT_ENTRY_ENABLED=0。",
   },
   {
     id: "external-db",
@@ -1030,36 +1030,36 @@ export function checkSite(env) {
     const message = validateValue(entry, value);
     if (message) errors.push(message);
   }
-  // 两种部署方式互斥：local 只在本机；接子域必须是 xknot.si 签发的那一个域。
+  // 两种对外形态：只在本机，或接 xknot.si 签发的子域。实例主机是本机还是另一台机器不改变判定：
+  // 开发机同样可以领子域，「local」只说明整套系统在一台机器上。
   const domain = String(env.KNOT_DOMAIN || "").trim();
-  if (truthy(env.KNOT_ENTRY_ENABLED)) {
-    if (!domain) {
-      errors.push("接入 xknot.si 子域时必须写 KNOT_DOMAIN=<标签>.xknot.si。");
-    } else if (!XKNOT_SUBDOMAIN.test(domain)) {
-      errors.push(`接入 xknot.si 子域时 KNOT_DOMAIN 必须是 <标签>.xknot.si，现在是 "${domain}"。`);
+  const origin = String(env.KNOT_PUBLIC_ORIGIN || "").trim();
+  if (domain) {
+    if (!XKNOT_SUBDOMAIN.test(domain)) {
+      errors.push(`KNOT_DOMAIN 必须是 <标签>.xknot.si，现在是 "${domain}"。`);
     }
     const originHost = hostOf(env.KNOT_PUBLIC_ORIGIN);
-    const origin = String(env.KNOT_PUBLIC_ORIGIN || "").trim();
     if (!originHost) {
-      errors.push("接入 xknot.si 子域时必须写 KNOT_PUBLIC_ORIGIN=https://<标签>.xknot.si。");
+      errors.push("接 xknot.si 子域时必须写 KNOT_PUBLIC_ORIGIN=https://<标签>.xknot.si。");
     } else if (!/^https:\/\//i.test(origin)) {
-      errors.push("接入 xknot.si 子域时 KNOT_PUBLIC_ORIGIN 必须走 https://。");
-    } else if (domain && originHost !== domain) {
+      errors.push("接 xknot.si 子域时 KNOT_PUBLIC_ORIGIN 必须走 https://。");
+    } else if (originHost !== domain) {
       errors.push(`KNOT_PUBLIC_ORIGIN 的主机名 ${originHost} 与 KNOT_DOMAIN=${domain} 不一致。`);
     }
-    if (!truthy(env.KNOT_TUNNEL)) {
-      errors.push("接入 xknot.si 子域时必须设 KNOT_TUNNEL=1，由实例主机主动连出回源隧道。");
+    // 自己推入口的站点在这里建隧道。入口由中枢自动接通时，隧道写在 sites/<站点>/tunnel.env，
+    // site.env 里保持 0 也不报错——cpswang 就是这种形态。
+    if (truthy(env.KNOT_ENTRY_ENABLED) && !truthy(env.KNOT_TUNNEL)) {
+      errors.push("KNOT_ENTRY_ENABLED=1 时必须设 KNOT_TUNNEL=1，由实例主机主动连出回源隧道。");
     }
   } else {
-    if (!isBlank(env.KNOT_DOMAIN)) {
-      errors.push("KNOT_ENTRY_ENABLED=0 是 local 部署，不写 KNOT_DOMAIN；要接子域请设 KNOT_ENTRY_ENABLED=1。");
+    if (truthy(env.KNOT_ENTRY_ENABLED)) {
+      errors.push("KNOT_ENTRY_ENABLED=1 是「自己推入口」，必须写 KNOT_DOMAIN=<标签>.xknot.si。");
     }
-    const origin = String(env.KNOT_PUBLIC_ORIGIN || "").trim();
     if (origin && !isLocalOnlySite(env)) {
-      errors.push("KNOT_ENTRY_ENABLED=0 是 local 部署，KNOT_PUBLIC_ORIGIN 必须是 http://127.0.0.1:<端口> 或 http://localhost:<端口>；独立域名或内网公开部署属于用户改造范围。");
+      errors.push("不接子域时 KNOT_PUBLIC_ORIGIN 必须是 http://127.0.0.1:<端口> 或 http://localhost:<端口>；独立域名或内网公开部署属于用户改造范围。");
     }
     if (truthy(env.KNOT_TUNNEL)) {
-      errors.push("KNOT_ENTRY_ENABLED=0 是 local 部署，不建回源隧道；请设 KNOT_TUNNEL=0。");
+      errors.push("不接子域时不建回源隧道；请设 KNOT_TUNNEL=0。");
     }
   }
   for (const rule of RULES) {
@@ -1490,8 +1490,9 @@ export function renderDocs() {
     "",
     "## 官方部署方式",
     "",
-    "只支持两种：**local**（开发环境，`KNOT_ENTRY_ENABLED=0`，只绑回环地址）和",
-    "**xknot.si 二级子域**（`KNOT_ENTRY_ENABLED=1`，`KNOT_DOMAIN=<标签>.xknot.si`）。",
+    "只看对外形态，有两种：**只在本机**（`KNOT_DOMAIN=` 留空、`KNOT_ENTRY_ENABLED=0`、只绑回环地址）和",
+    "**xknot.si 二级子域**（`KNOT_DOMAIN=<标签>.xknot.si`，走回源隧道）。实例主机是本机还是另一台机器，两种都成立：",
+    "开发机接子域时 `KNOT_ENTRY_ENABLED` 可以是 `0`，入口由中枢自动接通写好，本机只跑隧道与内容。",
     "独立域名、内网公开、固定公网 IP 直连都不在官方范围内，属于用户改造。",
     "",
     "## 三个边界",
@@ -1587,8 +1588,9 @@ export function renderDocs() {
       rule.id === "entry-ssh" ? "`KNOT_ENTRY_ENABLED=1`" : rule.id === "external-db" ? "`KNOT_DB_MODE=external`" : "—";
     lines.push(`| ${rule.message} | ${condition} |`);
   }
-  lines.push("| 接入 xknot.si 子域时必须设 KNOT_TUNNEL=1，由实例主机主动连出回源隧道。 | `KNOT_ENTRY_ENABLED=1` |");
-  lines.push("| 接入 xknot.si 子域时 KNOT_PUBLIC_ORIGIN 必须走 https://。 | `KNOT_ENTRY_ENABLED=1` |");
+  lines.push("| 接子域时必须写 KNOT_PUBLIC_ORIGIN=https://<标签>.xknot.si，且主机名与 KNOT_DOMAIN 一致。 | `KNOT_DOMAIN` 非空 |");
+  lines.push("| 自己推入口（`KNOT_ENTRY_ENABLED=1`）时必须设 KNOT_TUNNEL=1；入口由中枢自动接通时隧道写在 `tunnel.env`，这里不强制。 | `KNOT_DOMAIN` 非空 |");
+  lines.push("| 不接子域时 KNOT_PUBLIC_ORIGIN 只认回环地址，也不建隧道。 | `KNOT_DOMAIN` 为空 |");
   lines.push("");
   return `${lines.join("\n")}\n`;
 }
