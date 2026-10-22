@@ -9,6 +9,7 @@
 | 概念与归属 | [`concepts.md`](./concepts.md) | 中枢、实例、公网入口三者的分工、归属与禁用词；配图 `concepts.svg` |
 | 版权与署名 | [`../LICENSE`](../LICENSE)、[`../NOTICE`](../NOTICE) | Apache-2.0；`XKnot`、`Knot`、`xknot`、`xknot.si` 的名称与标识归 PaulWang，许可证不授予商标权 |
 | API 入口 | [`API.md`](./API.md) | 实例 Web API 与联邦契约的索引，正文在各自项目 |
+| Agent 接口指引 | [`KNOT_HELP.md`](./KNOT_HELP.md) | 全联邦共用的协议说明，唯一的源文件；发布在 <https://xknot.si/knot-help>。改接口就要改这份，见 `.cursor/rules/knot-agent-doc.mdc` |
 | 标识母版 | `xknot-mark.svg` | 见下文「标识与地图」 |
 | 横向组合标 | `xknot-lockup.svg`、`xknot-lockup-mono.svg`、`xknot-lockup-inverse.svg` | 标识当 X，后接 `Knot`；见下文「横向组合标」 |
 | PNG 导出 | `png/` | 由上面几个 SVG 栅格化的成品，见「PNG 导出」 |

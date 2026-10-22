@@ -32,7 +32,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | 文件 | 放什么 | 谁写 |
 | --- | --- | --- |
 | `sites/<站点>/site.env` | 域名、主机、端口、路径、入口、隧道。不含密码 | 运维 |
-| `sites/<站点>/profile.json` | 自述区：名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（九项扁平字段）。不进版本库 | 主理人，在 `/admin` 的 XKnot 栏编辑 |
+| `sites/<站点>/profile.json` | 自述区：名称、默认语种、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（十项扁平字段）。不进版本库 | 主理人，在 `/admin` 的 XKnot 栏编辑 |
 | `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。权限 600 | 部署脚本 |
 | `sites/<站点>/xknot.env` | 实例 id、中枢地址、签发日期与委托发信凭据。权限 600 | 中枢签发，`join-xknot.sh` 写入 |
 | `sites/<站点>/entry.<标签>.xknot.si.env` | 接入 xknot.si 子域时的入口：域名、静态根、conf、证书。一个站点一份 | 运维 |
@@ -103,7 +103,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_ENTRY_CACHE_SIZE` | `2g` |  | 缓存上限，nginx 写法，如 2g。 |
 | `KNOT_ENTRY_MAX_BODY` | `52m` |  | 入口主机接受的请求体上限。必须大于后端附件上限，否则大文件在 nginx 就被截断。 |
 | `KNOT_ENTRY_ACCESS_LOG` | `/var/log/nginx/knot-access.log` |  | 入口访问日志。同一台入口主机上的子域共用一个文件，按 $host 分；中枢的流量聚合读它。 |
-| `KNOT_ENTRY_PROXY_PORT` | `18080` |  | 入口回源端口。nginx 把 /api 和 /help 转到这里，隧道再转回实例主机。 |
+| `KNOT_ENTRY_PROXY_PORT` | `18080` |  | 入口回源端口。nginx 把 /api 转到这里，隧道再转回实例主机。 |
 | `KNOT_ENTRY_SSL` | `1` |  | 1 监听 443 并配证书；0 只监听 80，证书还没签好时用。 |
 | `KNOT_ENTRY_CERT` | 见说明 |  | 证书链。留空由 KNOT_DOMAIN 推导。 |
 | `KNOT_ENTRY_KEY` | 见说明 |  | 证书私钥。留空由 KNOT_DOMAIN 推导。 |

@@ -24,11 +24,12 @@ watch(
 );
 
 watch(
-  () => [session.ready, session.user?.id || "", session.user?.locale || "", session.region],
+  () => [session.ready, session.user?.id || "", session.user?.locale || "", session.defaultLocale],
   () => {
     if (!session.ready) return;
-    const result = locale.applySession({ user: session.user, region: session.region });
+    const result = locale.applySession({ user: session.user, defaultLocale: session.defaultLocale });
     if (!result.sync || !session.user || syncing === result.sync) return;
+
     const id = result.sync;
     syncing = id;
     updateProfile({ locale: id })
@@ -39,7 +40,10 @@ watch(
       .finally(() => {
         if (syncing === id) syncing = "";
       });
-  }
+  },
+  // 从快照启动时 ready 一开始就是 true，没有这一次「变为 true」的跳变；
+  // 语种要在首帧就按快照里的站点默认落下去。
+  { immediate: true }
 );
 </script>
 

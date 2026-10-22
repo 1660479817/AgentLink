@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import { CATEGORIES, normalizeCategory } from "./categories.js";
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const migration = fs.readFileSync(path.join(here, "..", "migrations", "020_normalize_categories.sql"), "utf8");
 
 test("the controlled table is a fixed list with a fallback", () => {
   assert.equal(CATEGORIES.length, 18);
@@ -18,16 +12,6 @@ test("the controlled table is a fixed list with a fallback", () => {
 test("a controlled category passes through unchanged", () => {
   for (const category of CATEGORIES) {
     assert.equal(normalizeCategory(category), category);
-  }
-});
-
-// 「房产」「美食」这类名字本身不含关键词，归一规则若不做白名单就会把它们误归「其他」。
-// 迁移和运行时规则各写一份，靠这条断言防止两边走散。
-test("the migration leaves every controlled category as it is", () => {
-  const guard = migration.match(/WHEN category IN \(([\s\S]*?)\) THEN category/);
-  assert.ok(guard, "migration has no guard for controlled categories");
-  for (const category of CATEGORIES) {
-    assert.ok(guard[1].includes(`'${category}'`), `${category} is missing from the migration guard`);
   }
 });
 

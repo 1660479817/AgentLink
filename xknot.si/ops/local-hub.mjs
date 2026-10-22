@@ -48,6 +48,8 @@ const MIME = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
   ".txt": "text/plain; charset=utf-8",
+  // 文档页同时发一份原文（如 /knot-help.md）：线上 nginx 用 default_type text/markdown。
+  ".md": "text/markdown; charset=utf-8",
   ".xml": "application/xml; charset=utf-8",
   ".webmanifest": "application/manifest+json",
 };
@@ -172,8 +174,15 @@ async function serveStatic(req, res, { distDir, pathname, dataFile }) {
     return createReadStream(file).pipe(res);
   }
 
+  // 无扩展名的文档页：/knot-help 取 /knot-help.html（与 nginx 的 try_files 等价）。
+  // 只在 .html 真的存在时接管，其余仍走下面的目录规则。
+  if (!path.extname(pathname) && pathname !== "/") {
+    const page = resolveInside(distDir, `${pathname}.html`);
+    if (page && (await statFile(page))) relative = `${pathname}.html`;
+  }
+
   // 目录形式：/en/ 取 /en/index.html；/en 先补斜杠。
-  if (/^\/[A-Za-z-]+\/?$/.test(pathname) && !path.extname(pathname) && pathname !== "/") {
+  if (relative === pathname && /^\/[A-Za-z-]+\/?$/.test(pathname) && !path.extname(pathname) && pathname !== "/") {
     if (!pathname.endsWith("/")) {
       applyHeaders(res, SECURITY_HEADERS);
       res.writeHead(301, { location: `${pathname}/` });

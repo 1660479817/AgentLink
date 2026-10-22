@@ -14,6 +14,7 @@ import {
   issuedValid,
   joinEnvPath,
   joinValues,
+  readRelayValues,
   restartBackend,
   writeJoinEnv,
 } from "./issued.js";
@@ -86,6 +87,43 @@ test("write: a changed tier rewrites the file", async () => {
   });
   assert.equal(paid.changed, true);
   assert.match(await readFile(file, "utf8"), /^XKNOT_TIER=paid$/m);
+});
+
+test("relay: the automatic path keeps a token the hub did not re-issue", async () => {
+  // 自动接通只写签发区。凭据在文件里、中枢的 progress 里没有，
+  // 直接照空白写就会把它抹掉，而且每轮轮询都会重写并重启 Backend。
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-issued-"));
+  const file = joinEnvPath(dir);
+  await writeFile(file, "XKNOT_INSTANCE_ID=cpswang\nXKNOT_HUB_RELAY_TOKEN=xkr_cpswang_0123456789abcdef\n", {
+    mode: 0o600,
+  });
+  const relay = await readRelayValues(file);
+  assert.equal(relay.relayToken, "xkr_cpswang_0123456789abcdef");
+
+  const first = await writeJoinEnv({
+    file,
+    values: joinValues({ issued: ISSUED, hubOrigin: "https://xknot.si", ...relay }),
+  });
+  assert.equal(first.changed, true);
+  assert.match(await readFile(file, "utf8"), /^XKNOT_HUB_RELAY_TOKEN=xkr_cpswang_0123456789abcdef$/m);
+
+  // 再读一次、再写一次：键值没变，就不再重启。
+  const again = await writeJoinEnv({
+    file,
+    values: joinValues({ issued: ISSUED, hubOrigin: "https://xknot.si", ...(await readRelayValues(file)) }),
+  });
+  assert.equal(again.changed, false);
+});
+
+test("write: values that would not boot the backend are refused", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-issued-"));
+  const file = joinEnvPath(dir);
+  const values = joinValues({ issued: ISSUED, hubOrigin: "https://xknot.si" });
+  values.XKNOT_INSTANCE_ID = "CPSWang"; // 大写过不了 schema
+  const result = await writeJoinEnv({ file, values });
+  assert.equal(result.error, "join_invalid");
+  assert.match(result.detail, /XKNOT_INSTANCE_ID/);
+  await assert.rejects(readFile(file, "utf8"), /ENOENT/);
 });
 
 test("restart: no unit means a command to run, not a silent success", async () => {

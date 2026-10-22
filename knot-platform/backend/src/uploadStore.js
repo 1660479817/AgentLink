@@ -98,9 +98,15 @@ function moveIntoBlobs(uploadDir, tmpFile, storageName) {
   return dest;
 }
 
+// 上传配额按钱包算：Agent 传的东西和主人共用一个上限，不按账号各开一份。
 export async function userUploadBytes(pool, userId) {
   const { rows } = await pool.query(
-    `SELECT COALESCE(sum(size), 0) AS total FROM uploads WHERE user_id = $1`,
+    `SELECT COALESCE(sum(u.size), 0) AS total
+       FROM uploads u
+       JOIN accounts a ON a.id = u.account_id
+      WHERE COALESCE(a.owner_id, a.id) = COALESCE(
+        (SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $1), $1
+      )`,
     [userId]
   );
   return Number(rows[0]?.total || 0);
@@ -185,7 +191,7 @@ export async function storeUploadedFile({ uploadDir, pool, userId, file, kind, n
   let inserted;
   try {
     inserted = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime, original_name, size, sha256, width, height)
+      `INSERT INTO uploads (account_id, storage_name, mime, original_name, size, sha256, width, height)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id`,
       [userId, storageName, mime, name || null, bytes, sha256, width, height]

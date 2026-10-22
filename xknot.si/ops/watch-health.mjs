@@ -67,8 +67,8 @@ function asApplication(instance, { profiles = {}, applications = null } = {}) {
     timezone: site.timezone || "UTC",
     intro: site.intro || "",
     tags: Array.isArray(site.tags) ? site.tags : [],
-    // 申请单上申请人选的语种；没有就按门户默认的英文发。
-    locale: application?.locale || "en",
+    // 申请单上申请人选的语种；没有就用站点自己的默认语种，最后才按门户默认的英文发。
+    locale: application?.locale || site.locale || "en",
     since: instance.since,
   };
 }

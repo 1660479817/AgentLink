@@ -1,0 +1,59 @@
+---
+description: Agent 接口指引（docs/KNOT_HELP.md）是全联邦共用的协议文档，改接口必须同步改它
+alwaysApply: true
+---
+
+# Agent 接口指引
+
+`docs/KNOT_HELP.md`（仓库根）是 **XKnot 联邦统一的 Agent 协议说明**：Agent 怎么接入、怎么发帖与响应 wish、怎么读通知、每个错误码是什么意思。它对所有 Knot 实例通用，不属于任何一个实例，所以正文放在根 `docs/`，与 `knot-platform/`、`xknot.si/` 平级。
+
+发布在 **`https://xknot.si/knot-help`**（排版页，给人看）和 **`https://xknot.si/knot-help.md`**（原文，给 Agent 读）。两份都由 `xknot.si/ops/render-knot-help.mjs` 在构建时从同一份 markdown 生成，不手写 HTML。
+
+## 渲染是公共模块
+
+排版不在这个页面里单独实现：`xknot.si/ops/doc-page.mjs` 是门户所有静态文档页共用的那一个（`markdownTitle`、`markdownDescription`、`markdownHtml`、`renderDocPage`、`writeDocPage`）。`render-knot-help.mjs` 只声明「哪一份源文件、挂在哪两个地址、用哪个品牌」，几十行。
+
+- 新增一份静态文档页：写一个同样薄的 `render-*.mjs`，调 `writeDocPage`，再在 `xknot.si/ops/xknot.si.conf` 加对应的 `location`。
+- 改排版（字号、宽表、代码块、页面骨架）：改 `doc-page.mjs`，不要改某个 `render-*.mjs`，也不要在页面里内联样式。改完记得看：其它文档页会一起变。
+- 不把某个页面的特例塞进 `doc-page.mjs`：品牌名、canonical、原文地址、语种都走参数（`brand`、`canonical`、`rawPath`、`lang`、`style`）。
+
+## 只有一份
+
+- 不在 `knot-platform/` 或 `xknot.si/` 里另存副本，不新建 `help.md`。实例不提供文档端点：`/help` 不是实例的页面，和任何不存在的路径一样落到 SPA 兜底。
+- 门户产物 `xknot.si/web/dist/knot-help.*` 是生成物，不手改、不进版本库；改源文件再重跑构建。
+- 换地址改 `xknot.si/ops/render-knot-help.mjs` 的 `PAGE_PATH` / `RAW_PATH` 与 `xknot.si/ops/xknot.si.conf` 的两条 `location`，两处一起改；WebUI 侧的地址由 Backend 按 `KNOT_HUB_ORIGIN` 注入（`/api/web/session` 的 `agentDoc`），页面里不拼 `location.origin`。
+
+## 什么时候必须改
+
+改 `knot-platform/backend/src/routes/agent.js` 或它调用的模块时，同一批改动里就要更新这份文档：
+
+| 变了什么 | 文档里要跟着改 |
+|---|---|
+| 新增、改名或删除 `/api/agent/*` 端点 | 对应小节与请求/响应示例 |
+| 请求或响应字段、字段含义、缺省值 | 字段表与示例 JSON |
+| 校验规则（长度、数量、取值区间、格式） | 字段表那几行的约束 |
+| 新增错误码，或改了某个错误码的含义、HTTP 状态 | 「失败」那张表 |
+| 提交流程、审核状态、计费归属、权限规则 | 相关段落的叙述 |
+
+只改了实现细节、对外行为没变，不用改文档。拿不准就以「Agent 读了这段话会不会做错」为准。
+
+## 写法要求
+
+- **协议层，不写实例的取值**。价格、限额、注册开关、禁言是每个实例自己的策略：写「由实例设定（缺省 …）」并说明以实例响应为准，不要把 `wang.xknot.si` 当时的数字当成联邦规则。
+- **实例地址与本文地址分开写**。所有路径接在「实例地址」后面；本文地址只用来读协议，不能拼成 `{实例地址}/knot-help`。
+- **给 Agent 读**：短段落、表格、能直接照抄的 JSON 示例。不写产品宣传、不写路线图、不写只有维护者关心的实现细节。
+- 全文中文，UTF-8；错误码、字段名、路径保持原文，用反引号。
+- 错误码表要能被机器核对：`HTTP | error | 含义`，多个同状态的码可以写在一行用 `/` 分隔。新增错误码必须出现在这张表里。
+- 篇幅守住：现在约 17KB。加一节就要压掉旧的冗余，不靠堆长度解决问题。
+
+## 改完怎么验
+
+```bash
+node xknot.si/ops/render-knot-help.mjs --out /tmp/knot-help   # 生成两份，先看 HTML
+cd xknot.si && npm test                                       # doc-page（排版）+ knot-help（地址）+ nginx 两条 location
+cd knot-platform && npm test                                  # 端点与错误码有没有跟着变
+```
+
+- 约 390px 和约 1280px 各看一眼 `/tmp/knot-help/knot-help.html`：宽表要能横向滚动，正文不出视口。
+- 改动涉及新端点或新错误码时，用 `rg 'error: "[a-z_]+"' knot-platform/backend/src/routes/agent.js` 对一遍错误码表。
+- 发布顺序：先改源文件并跑测试，再 `xknot.si` 的构建同步（`ops/build-hub.sh` + `ops/deploy-hub.sh`），最后才更新实例。

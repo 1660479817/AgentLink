@@ -77,6 +77,15 @@ test("timezone must be a real IANA name", () => {
   assert.deepEqual(cleanSite(base({ timezone: "UTC" })).problems, []);
 });
 
+test("the instance's own default language is one of three, or omitted", () => {
+  assert.equal(cleanSite(base({ locale: "en" })).site.locale, "en");
+  assert.equal(cleanSite(base({ locale: "zh-TW" })).site.locale, "zh-TW");
+  assert.equal(cleanSite(base()).site.locale, undefined);
+  assert.ok(
+    cleanSite(base({ locale: "ja" })).problems.includes("locale: must be one of zh-CN, zh-TW, en"),
+  );
+});
+
 test("logo must be https or omitted", () => {
   assert.ok(cleanSite(base({ logo: "/logos/site.svg" })).problems.includes("logo: must be https, or omit it"));
   assert.deepEqual(cleanSite(base({ logo: null })).problems, []);

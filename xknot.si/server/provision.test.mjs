@@ -100,7 +100,7 @@ test("run: a failed step goes back to pending but keeps the error code", () => {
 test("port: first free port after the founder's 18080", () => {
   assert.equal(nextPort([]), 18090);
   assert.equal(nextPort([{ tunnel: { port: 18090 } }]), 18091);
-  assert.equal(tunnelFor({ instanceId: "zjj", members: [] }).port, 18090);
+  assert.equal(tunnelFor({ instanceId: "example", members: [] }).port, 18090);
 });
 
 test("tunnel: reuses the roster entry instead of allocating a new port", () => {
@@ -109,8 +109,8 @@ test("tunnel: reuses the roster entry instead of allocating a new port", () => {
     port: 18090,
   });
   // 名册里的账号在、端口坏了，就重算端口，不沿用坏值。
-  const broken = tunnelFor({ instanceId: "zjj", members: [{ id: "zjj", tunnel: { account: "knot-tunnel-zjj", port: 80 } }] });
-  assert.equal(broken.account, "knot-tunnel-zjj");
+  const broken = tunnelFor({ instanceId: "example", members: [{ id: "example", tunnel: { account: "knot-tunnel-example", port: 80 } }] });
+  assert.equal(broken.account, "knot-tunnel-example");
   assert.equal(broken.port, 18090);
 });
 
@@ -126,6 +126,19 @@ test("render: the full vhost proxies /api to the tunnel's loopback port", () => 
   assert.match(conf, /proxy_pass http:\/\/127\.0\.0\.1:18090;/);
   assert.match(conf, /ssl_certificate \/etc\/letsencrypt\/live\/cpswang\.xknot\.si\/fullchain\.pem;/);
   assert.match(conf, /client_max_body_size 52m;/);
+});
+
+test("render: the admin surface never rides the public subdomain", () => {
+  // 隧道的对端是实例上的回环，Backend 的「只信内网」分不出来源，
+  // 入口这一层必须自己挡住管理页与管理接口。
+  for (const entry of [false, true]) {
+    const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry });
+    assert.match(conf, /location \^~ \/api\/admin \{\n\s+default_type application\/json;\n\s+return 404 '\{"error":"not_found"\}';/);
+    assert.match(conf, /location \^~ \/admin \{\n\s+default_type application\/json;\n\s+return 404 '\{"error":"not_found"\}';/);
+    // 挡住的两段都不许带反代：写了 proxy_pass 就等于没挡。
+    const blocked = conf.slice(conf.indexOf("location ^~ /api/admin"), conf.indexOf("location /api/ {"));
+    assert.doesNotMatch(blocked, /proxy_pass/);
+  }
 });
 
 test("render: sshd gives every member exactly one listen port and no shell", () => {
@@ -291,14 +304,14 @@ test("render: before the tunnel is up, / is the placeholder and only /api is pro
   const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090 });
   assert.doesNotMatch(conf, new RegExp(ENTRY_PROXIED_MARK));
   assert.match(conf, /try_files \$uri \$uri\/ \/index\.html;/);
-  // /api 与 /help 之外，443 上只有静态 root。
-  assert.equal((conf.match(/proxy_pass http:\/\/127\.0\.0\.1:18090;/g) || []).length, 2);
+  // /api 之外，443 上只有静态 root。
+  assert.equal((conf.match(/proxy_pass http:\/\/127\.0\.0\.1:18090;/g) || []).length, 1);
 });
 
 test("render: once the tunnel is up, / proxies to the instance so the WebUI shows", () => {
   const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry: true });
   assert.match(conf, new RegExp(ENTRY_PROXIED_MARK));
-  assert.equal((conf.match(/proxy_pass http:\/\/127\.0\.0\.1:18090;/g) || []).length, 3);
+  assert.equal((conf.match(/proxy_pass http:\/\/127\.0\.0\.1:18090;/g) || []).length, 2);
   // 占位页不再有人访问：静态 root 只剩下 ACME 校验在用。
   assert.doesNotMatch(conf, /try_files/);
   assert.doesNotMatch(conf, /location = \/index\.html/);

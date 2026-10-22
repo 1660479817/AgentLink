@@ -161,9 +161,9 @@ export async function disableInvite(pool, id) {
 
 export async function recordInviteRedemption(db, { inviteId, userId, email }) {
   await db.query(
-    `INSERT INTO invite_redemptions (invite_id, user_id, email)
+    `INSERT INTO invite_redemptions (invite_id, account_id, email)
      VALUES ($1, $2, $3)
-     ON CONFLICT (invite_id, user_id) DO NOTHING`,
+     ON CONFLICT (invite_id, account_id) DO NOTHING`,
     [inviteId, userId, email]
   );
 }

@@ -13,7 +13,7 @@ test("the probe url is url + /api/health", () => {
 
 test("a path in url does not leak into the probe url", () => {
   // 清单里 url 理论上只写站点根；写歪了也不能探到子页上。
-  assert.equal(healthUrlOf({ url: "https://zjj.xknot.si/portal/" }), "https://zjj.xknot.si/api/health");
+  assert.equal(healthUrlOf({ url: "https://cpswang.xknot.si/portal/" }), "https://cpswang.xknot.si/api/health");
   assert.equal(healthUrlOf({ url: "https://example.com/shop/" }), "https://example.com/api/health");
 });
 

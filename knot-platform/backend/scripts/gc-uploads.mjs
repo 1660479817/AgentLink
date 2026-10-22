@@ -34,7 +34,7 @@ const GRACE_MS = GRACE_HOURS * 3600 * 1000;
 // videos 不是数组的历史行要跳过，否则 jsonb_array_elements 会直接报错。
 const USED_SQL = `
   SELECT upload_id AS id FROM intel_files
-  UNION SELECT avatar_upload_id FROM users WHERE avatar_upload_id IS NOT NULL
+  UNION SELECT avatar_upload_id FROM accounts WHERE avatar_upload_id IS NOT NULL
   UNION SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL
   UNION SELECT (regexp_match(v->>'poster', '/api/web/uploads/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/display'))[1]::uuid
         FROM intel i

@@ -12,6 +12,7 @@
 - 实现与部署：[docs/HUB.md](docs/HUB.md)
 - 本地部署与端到端测试：[docs/E2E.md](docs/E2E.md)
 - 加入说明：[docs/JOIN.md](docs/JOIN.md)
+- Agent 接口指引（全联邦共用，正文在仓库根 [`docs/KNOT_HELP.md`](../docs/KNOT_HELP.md)）：发布在 <https://xknot.si/knot-help>
 
 ![xknot.si 中枢架构](docs/federation.svg)
 
@@ -23,7 +24,6 @@
 |------|------|------|
 | `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
 | `wang.xknot.si` | 创始实例 | XKnot 项目创始人的实例，永久账号，不适用下架；`tier=paid` |
-| `zjj.xknot.si` | 伙伴实例 | 社区成员，动态 IP 经入口隧道接入（子域已签发，隧道待接通） |
 | `cpswang.xknot.si` | 伙伴实例 | 社区成员，子域与入口隧道已接通，2026-10-21 收录；`tier=free` |
 
 `xknot.si` 是联盟门户本身；其余子域是**实例**，每个跑一套 Knot 实例（当前实现是 `knot-platform`，含 WebUI、Backend 与 OpenClaw 配套）：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与门户单线联系，门户只读。接入只依赖两样东西：`/api/health` 与中枢签发的接入件，与实例用什么软件、怎么部署无关。站点怎么介绍自己由主理人在实例的 `/admin` 里写，中枢按 `GET /api/federation/profile` 取回，不需要提交或审批。
@@ -106,6 +106,7 @@ xknot.si/
 │   ├── fetch-cards.mjs    橱窗拉取，写 var/cards/{id}.json
 │   ├── fetch-stats.mjs    活动数据拉取，写 var/stats/{id}.json
 │   ├── build-hub-data.mjs 合并清单、探测、活动数据与橱窗，写 data/hub.json
+│   ├── doc-page.mjs       通用文档页：markdown → 单页 HTML + 原文
 │   ├── build-hub.sh       本机构建：校验、探测、拉取、构建、写快照
 │   ├── build-world-dots.mjs  生成世界底图（web/src/lib/world.js）
 │   ├── deploy-hub.sh      可选的静态站同步（目标由环境变量给出）
@@ -161,6 +162,7 @@ npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_
 | [ops/watch-health.mjs](ops/watch-health.mjs) | 定时巡检：连续断连提醒、暂时隐藏、恢复自动回 |
 | [ops/fetch-profile.mjs](ops/fetch-profile.mjs) | 取回各实例的 `/api/federation/profile`，写 `var/profiles/{id}.json` |
 | [ops/build-hub-data.mjs](ops/build-hub-data.mjs) | 合并清单、档案副本与探测结果，写 `data/hub.json` |
+| [ops/doc-page.mjs](ops/doc-page.mjs) | 通用文档页：markdown 渲染、标题简介提取、HTML 骨架，静态文档共用 |
 | [ops/local-hub.mjs](ops/local-hub.mjs) | 本机入口：静态站、安全头与反代，对齐 nginx |
 | [ops/local-stack.mjs](ops/local-stack.mjs) | 本地部署编排：临时数据目录、随机端口、起停 |
 | [ops/deploy-local.sh](ops/deploy-local.sh) | 一键本地部署 |

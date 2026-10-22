@@ -20,10 +20,12 @@ import {
   renderManagedBlock,
   renderAgentPlist,
   restartTunnel,
+  scheduleTunnelRestart,
   startTunnelAgent,
   submitPublicKey,
   tunnelEnvPath,
   tunnelKeyPath,
+  tunnelUnitInstalled,
 } from "./tunnel.js";
 
 const CASE_URL = "https://xknot.si/case/DrBwXKN_EPZm";
@@ -126,7 +128,7 @@ test("progress: read by case key, and a hub error is surfaced", async () => {
 
 test("handoff: account, host and port are all checked before they reach site.env", () => {
   assert.equal(handoffValid({ host: "54.169.33.64", account: "knot-tunnel-cpswang", port: 18090 }), true);
-  assert.equal(handoffValid({ host: "entry.xknot.si", account: "knot-tunnel-zjj", port: 18081 }), true);
+  assert.equal(handoffValid({ host: "entry.xknot.si", account: "knot-tunnel-cpswang", port: 18081 }), true);
   // 注入：账号或主机不能带空格、分号、换行。
   assert.equal(handoffValid({ host: "h", account: "knot-tunnel-a\nKNOT_TUNNEL=0", port: 18090 }), false);
   assert.equal(handoffValid({ host: "a b", account: "acct", port: 18090 }), false);
@@ -183,6 +185,34 @@ test("restart: a missing unit is reported with the command to run", async () => 
 test("restart: a successful kickstart says so", async () => {
   const result = await restartTunnel({ platform: "linux", exec: async () => ({}) });
   assert.equal(result.ok, true);
+});
+
+test("restart: the probe answers before anything is restarted", async () => {
+  // 回包之前只许探测；真重启要等响应写完，否则这一页（可能正走隧道）会被自己掐断。
+  const calls = [];
+  const exec = async (cmd, args) => {
+    calls.push(`${cmd} ${args.join(" ")}`);
+    return {};
+  };
+  assert.equal(await tunnelUnitInstalled({ platform: "linux", exec }), true);
+  assert.deepEqual(calls, ["systemctl cat knot-entry-tunnel"]);
+
+  const missing = await tunnelUnitInstalled({
+    platform: "linux",
+    exec: async () => {
+      throw new Error("Unit not found.");
+    },
+  });
+  assert.equal(missing, false);
+});
+
+test("restart: a scheduled restart runs after the response, not during it", async () => {
+  let ran = 0;
+  scheduleTunnelRestart({ delayMs: 5, restart: async () => { ran += 1; } });
+  assert.equal(ran, 0, "scheduling must not restart inline");
+  // 用自己的定时器等它跑到：被排的这个是 unref 的，不能靠它撑住事件循环。
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(ran, 1);
 });
 
 test("agent plist: template placeholders are all filled", () => {

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { topicMatchesLanguage } from "@knot/locale";
 import { toPlain } from "@knot/markdown";
 import { attachmentExtract, saveReviewExtract, sectionHeading } from "../extracts.js";
 import { CATEGORIES } from "../categories.js";
@@ -100,7 +101,8 @@ function categoryOf(value) {
 const MAX_TOPICS = 4;
 
 // 话题标签：评审员交回 2–4 个短关键词。收数组，也容忍逗号/顿号分隔的字符串。
-function topicsOf(value) {
+// 标签跟着正文语种走：英文正文里冒出中文标签就丢掉，交由语言判定兜底。
+function topicsOf(value, language) {
   const raw = Array.isArray(value.topics)
     ? value.topics
     : typeof value.topics === "string"
@@ -110,7 +112,7 @@ function topicsOf(value) {
   const topics = [];
   for (const item of raw) {
     const topic = clip(item, 20);
-    if (!topic || seen.has(topic)) continue;
+    if (!topic || seen.has(topic) || !topicMatchesLanguage(topic, language)) continue;
     seen.add(topic);
     topics.push(topic);
     if (topics.length >= MAX_TOPICS) break;
@@ -138,7 +140,15 @@ export function parseIntelReply(text) {
     const reason = cleanText(value.reason || value.reject?.reason);
     if (reason) return { verdict: "revoke", reason, note: "", category: "", language: "", topics: [] };
   }
-  return { verdict: "pass", reason: "", note, category: categoryOf(value), language: languageOf(value), topics: topicsOf(value) };
+  const language = languageOf(value);
+  return {
+    verdict: "pass",
+    reason: "",
+    note,
+    category: categoryOf(value),
+    language,
+    topics: topicsOf(value, language),
+  };
 }
 
 function replyText(envelope) {
@@ -281,7 +291,7 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
     '{"verdict":"revoke","reason":"违规原因","note":"","category":"","language":"","topics":[]}',
     "只有违法、欺诈、隐私或骚扰才 revoke。拿不准就 pass。",
     `不要判断链接或附件打不打得开。category 只能从这张类别表里选一个，不要自创新类别，拿不准写「其他」。类别表：${CATEGORIES.join("、")}。`,
-    "topics 写 2–4 个短关键词（每条不超过 20 字），概括这条信息讲的是什么，例如「大模型」「租房」。留空就给空数组。",
+    "topics 写 2–4 个短关键词（每条不超过 20 字），概括这条信息讲的是什么。必须与正文同语种：正文是英文就写英文关键词，正文是中文就写中文关键词；AI、API、Agent 这类专有名词保留原文。看不懂正文时给空数组。",
     "language 用 BCP 47 语言标签，只写一个主语言，例如 zh、en、ja、zh-Hans、zh-Hant。不要写中文或英文。看不准写 und。post、fastpost、wish、wishRespond 都要写。",
     "note 写卡片上跟在文件名后面的一句事实。有附件时，根据读到的文字写这件东西是什么。去掉电话、微信和发布者。不要编造。",
     "note、reason 里引用文字不要用英文双引号，改用中文引号「」或单引号，避免破坏 JSON。",

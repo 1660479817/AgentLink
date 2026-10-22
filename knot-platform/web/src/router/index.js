@@ -23,7 +23,17 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const session = useSessionStore();
-  if (!session.ready) await session.load();
+  // 上一份公开快照已经带着站点开关时，首帧不再等会话：`/discover` 会先画快照，
+  // 再让 `/api/web/home` 把登录态和个人状态叠上去。
+  //
+  // 三种情况仍然要先等一次会话：
+  //   - 本机还没有快照（第一次来）；
+  //   - 要进的是首页以外的页面（登录页、「我的」、通知等都要先知道是谁）；
+  //   - 站点关掉访客浏览，快照不足以放行。
+  const needsUser = to.name !== "discover";
+  if (!session.ready || (!session.userKnown && (needsUser || session.site.guestBrowsing === false))) {
+    await session.load();
+  }
   if (to.name === "gate" && session.user) return { name: "discover" };
   // 站内浏览关掉时，未登录只能停在登录/注册页。
   if (!session.canBrowse) return to.name === "gate" ? true : { name: "gate" };

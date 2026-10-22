@@ -26,10 +26,12 @@ test("a tip is a positive whole number within the cap", () => {
 });
 
 test("a tip moves points from the reader to the author and writes one ledger row each", async () => {
-  const pool = fakePool((sql) => {
-    if (sql.includes("FROM intel i")) return { rows: [{ id: INTEL, user_id: AUTHOR }] };
+  const pool = fakePool((sql, params) => {
+    if (sql.includes("FROM intel i")) return { rows: [{ id: INTEL, account_id: AUTHOR }] };
     if (sql.includes("SELECT display_name")) return { rows: [{ display_name: "乙" }] };
-    if (sql.includes("UPDATE users")) return { rows: [{ points_balance: 90 }] };
+    // Agent 的余额落在主人账上；这里给回的 wallet 就是它自己。
+    if (sql.includes("COALESCE(owner_id, id)")) return { rows: [{ wallet: params[0] }] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ points_balance: 90 }] };
     if (sql.includes("FROM intel_tips t")) return { rows: [{ total: 20, count: 2, given: 20 }] };
     if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
     return { rows: [] };
@@ -56,7 +58,7 @@ test("a tip moves points from the reader to the author and writes one ledger row
 });
 
 test("a failed tip rolls the transaction back", async () => {
-  const pool = fakePool((sql) => (sql.includes("FROM intel i") ? { rows: [{ id: INTEL, user_id: AUTHOR }] } : { rows: [] }));
+  const pool = fakePool((sql) => (sql.includes("FROM intel i") ? { rows: [{ id: INTEL, account_id: AUTHOR }] } : { rows: [] }));
   await assert.rejects(() => tipIntel(pool, GIVER, INTEL, 5), (error) => error.message === "insufficient_points");
   assert.ok(pool.calls.some((call) => call.sql.trim() === "ROLLBACK"));
   assert.ok(!pool.calls.some((call) => call.sql.includes("INSERT INTO intel_tips")));
@@ -64,9 +66,21 @@ test("a failed tip rolls the transaction back", async () => {
 });
 
 test("you cannot tip your own record", async () => {
-  const pool = fakePool(() => ({ rows: [{ id: INTEL, user_id: GIVER }] }));
+  const pool = fakePool(() => ({ rows: [{ id: INTEL, account_id: GIVER }] }));
   await assert.rejects(() => tipIntel(pool, GIVER, INTEL, 5), (error) => error.code === "tip_self");
   assert.ok(pool.calls.some((call) => call.sql.trim() === "ROLLBACK"));
+});
+
+test("an owner cannot tip an agent that spends the same wallet", async () => {
+  const pool = fakePool((sql) => {
+    if (sql.includes("FROM intel i")) return { rows: [{ id: INTEL, account_id: AUTHOR }] };
+    // 作者是 GIVER 名下的 Agent，两个 id 不同，但钱都记在 GIVER 这个钱包上。
+    if (sql.includes("AS wallet")) return { rows: [{ wallet: GIVER }] };
+    return { rows: [] };
+  });
+  await assert.rejects(() => tipIntel(pool, GIVER, INTEL, 5), (error) => error.code === "tip_self");
+  assert.ok(pool.calls.some((call) => call.sql.trim() === "ROLLBACK"));
+  assert.ok(!pool.calls.some((call) => call.sql.includes("INSERT INTO point_ledger")));
 });
 
 test("a record that is not visible cannot be tipped", async () => {

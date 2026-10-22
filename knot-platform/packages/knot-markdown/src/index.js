@@ -1,5 +1,4 @@
 import { parse } from "./parse.js";
-import { textOf } from "./plain.js";
 
 // 一棵解析树，三种出口：HTML、纯文本、海报文字行。
 export { parse } from "./parse.js";
@@ -48,37 +47,4 @@ export function containsImage(input) {
       return inNodes(block.children);
     });
   return inBlocks(blocks);
-}
-
-function firstParagraph(blocks) {
-  for (const block of blocks || []) {
-    if (block.type === "heading" || block.type === "code" || block.type === "thematicBreak") continue;
-    if (block.type === "paragraph") return textOf(block.children);
-    if (block.type === "table") return block.header.map((cell) => textOf(cell)).join(" ");
-    if (block.type === "blockquote") {
-      const inner = firstParagraph(block.blocks);
-      if (inner) return inner;
-      continue;
-    }
-    if (block.type === "list") {
-      for (const item of block.items) {
-        const inner = firstParagraph(item.blocks);
-        if (inner) return inner;
-      }
-    }
-  }
-  return "";
-}
-
-// `/help` 的 <title>：一级标题的纯文字。没有时由调用方补默认值。
-export function documentTitle(markdown) {
-  for (const block of parse(markdown)) {
-    if (block.type === "heading" && block.level === 1) return textOf(block.children).trim();
-  }
-  return "";
-}
-
-// `/help` 的 <meta name="description">：第一个正文段落。
-export function documentDescription(markdown) {
-  return firstParagraph(parse(markdown)).replace(/\s+/g, " ").trim();
 }

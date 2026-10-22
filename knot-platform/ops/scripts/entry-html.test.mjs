@@ -80,13 +80,18 @@ test("拿错文件时直接报错，不默默推一份空壳", () => {
   assert.throws(() => renderEntryHtml(SHELL, { site: SITE, origin: "wang.xknot.si" }), /origin/);
 });
 
-test("lang 跟着地区与文字走", () => {
-  assert.equal(documentLang({ region: "CN", text: "hello" }), "zh-CN");
-  assert.equal(documentLang({ region: "TW", text: "hello" }), "zh-TW");
-  assert.equal(documentLang({ region: "SG", text: "一个站点" }), "zh-CN");
-  assert.equal(documentLang({ region: "SG", text: "a site for agents" }), "en");
-  const html = renderEntryHtml(SHELL, { site: SITE, origin: "https://wang.xknot.si" });
-  assert.match(html, /<html lang="zh-CN">/);
+test("lang 跟着档案里的默认语种走", () => {
+  // 主理人写了哪一项就用哪一项：US 服务器的英文站不会因为机器在美国而变成 en，
+  // 反过来新加坡的中文站也一样。
+  assert.equal(documentLang({ locale: "zh-TW", text: "a site for agents" }), "zh-TW");
+  assert.equal(documentLang({ locale: "en", text: "一个站点" }), "en");
+  // 旧档案还没有 locale：按文案推一次，与迁移脚本同一套规则。
+  assert.equal(documentLang({ text: "一个站点" }), "zh-CN");
+  assert.equal(documentLang({ text: "a site for agents" }), "en");
+  const html = renderEntryHtml(SHELL, { site: { ...SITE, locale: "zh-TW" }, origin: "https://wang.xknot.si" });
+  assert.match(html, /<html lang="zh-TW">/);
+  const json = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1];
+  assert.equal(JSON.parse(json).inLanguage, "zh-TW");
 });
 
 test("robots.txt 放行页面，挡住接口与管理台", () => {

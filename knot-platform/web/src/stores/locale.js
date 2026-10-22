@@ -1,14 +1,7 @@
 import { defineStore } from "pinia";
+import { DEFAULT_SITE_LOCALE, isLocale } from "@knot/locale";
 import { setLocale } from "../i18n/index.js";
-import {
-  bootLocale,
-  isLocale,
-  PIN_KEY,
-  readStored,
-  resolveLocale,
-  SEEN_KEY,
-  writeStored,
-} from "../locale.js";
+import { bootLocale, PIN_KEY, readStored, resolveLocale, writeStored } from "../locale.js";
 
 function browserStorage() {
   try {
@@ -20,13 +13,14 @@ function browserStorage() {
 }
 
 const storage = browserStorage();
-const initial = bootLocale(readStored(storage, PIN_KEY), readStored(storage, SEEN_KEY));
+const initial = bootLocale(readStored(storage, PIN_KEY));
 
 export const useLocaleStore = defineStore("locale", {
   state: () => ({
     current: initial,
     pinned: Boolean(readStored(storage, PIN_KEY)),
-    region: "en",
+    // 站点默认语种来自 profile.json，会话接口回话后才有值。
+    siteDefault: DEFAULT_SITE_LOCALE,
   }),
   actions: {
     applyResolved(result) {
@@ -34,16 +28,15 @@ export const useLocaleStore = defineStore("locale", {
       this.pinned = result.pin;
       setLocale(result.locale);
       const box = browserStorage();
-      writeStored(box, SEEN_KEY, result.locale);
       writeStored(box, PIN_KEY, result.pin ? result.locale : null);
     },
-    applySession({ user, region } = {}) {
-      const suggested = isLocale(region) ? region : "en";
-      this.region = suggested;
+    applySession({ user, defaultLocale } = {}) {
+      const site = isLocale(defaultLocale) ? defaultLocale : DEFAULT_SITE_LOCALE;
+      this.siteDefault = site;
       const result = resolveLocale({
         account: user?.locale,
         pin: readStored(browserStorage(), PIN_KEY),
-        region: suggested,
+        site,
       });
       this.applyResolved(result);
       return result;

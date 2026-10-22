@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import { PencilIcon, RefreshIcon, UserIcon } from "../icons";
 import { t } from "../i18n";
-import { createDelegation, getDelegation, updateProfile, uploadImage } from "../api";
+import { getAgent, issueAgent, retireAgent, updateProfile, uploadImage } from "../api";
 import { useSessionStore } from "../stores/session";
 
 const router = useRouter();
@@ -12,10 +12,13 @@ const session = useSessionStore();
 const error = ref("");
 const busy = ref(false);
 const agentCreatedAt = ref(null);
-const agentDelegated = ref(false);
+const agentActive = ref(false);
+const agentLimit = ref(1);
+const agentSelfService = ref(true);
 const agentBrief = ref("");
 const agentBusy = ref(false);
 const agentError = ref("");
+const agentNote = ref("");
 let agentLoad = 0;
 const name = ref("");
 const editingName = ref(false);
@@ -42,7 +45,7 @@ watch(
     agentBrief.value = "";
     agentError.value = "";
     agentCreatedAt.value = null;
-    agentDelegated.value = false;
+    agentActive.value = false;
     editingName.value = false;
     if (!id) return;
     loadAgent();
@@ -71,7 +74,7 @@ const muteLine = computed(() => {
 });
 
 const agentLine = computed(() => {
-  if (!agentDelegated.value) return t("mine.agentCodeEmpty");
+  if (!agentActive.value) return t("mine.agentCodeEmpty");
   if (!agentCreatedAt.value) return t("mine.agentCodeOnly", { code: t("mine.agentCodeMask") });
   return t("mine.agentCode", {
     code: t("mine.agentCodeMask"),
@@ -206,10 +209,13 @@ async function loadAgent() {
   if (!session.user) return;
   const ticket = ++agentLoad;
   try {
-    const data = await getDelegation();
+    const data = await getAgent();
     if (ticket !== agentLoad) return;
-    agentDelegated.value = Boolean(data.delegated || data.createdAt);
-    agentCreatedAt.value = data.createdAt || null;
+    const first = Array.isArray(data.agents) ? data.agents[0] : null;
+    agentActive.value = Boolean(first);
+    agentCreatedAt.value = first?.createdAt || null;
+    agentLimit.value = data.limit || 1;
+    agentSelfService.value = data.selfService !== false;
   } catch (err) {
     if (ticket !== agentLoad) return;
     showAgentError(err);
@@ -218,18 +224,42 @@ async function loadAgent() {
 
 async function regenerate() {
   agentError.value = "";
+  agentNote.value = "";
   agentBusy.value = true;
   const ticket = ++agentLoad;
   try {
-    const data = await createDelegation();
+    const data = await issueAgent();
     if (ticket !== agentLoad) return;
-    agentDelegated.value = true;
-    agentCreatedAt.value = data.createdAt || new Date().toISOString();
+    agentActive.value = true;
+    agentCreatedAt.value = data.agent?.createdAt || new Date().toISOString();
     agentBrief.value = t("mine.agentBrief", {
       origin: window.location.origin,
-      email: session.user?.email || "",
+      doc: session.agentDoc.raw,
       token: data.token,
     });
+  } catch (err) {
+    if (ticket !== agentLoad) return;
+    showAgentError(err);
+  } finally {
+    if (ticket === agentLoad) agentBusy.value = false;
+  }
+}
+
+// 停用留内容、清令牌；同一个身份下次还能被重新生成授权码复起。
+async function retire() {
+  if (!window.confirm(t("mine.agentRetireConfirm"))) return;
+  agentError.value = "";
+  agentNote.value = "";
+  agentBusy.value = true;
+  const ticket = ++agentLoad;
+  try {
+    await retireAgent();
+    if (ticket !== agentLoad) return;
+    agentActive.value = false;
+    agentCreatedAt.value = null;
+    agentBrief.value = "";
+    agentNote.value = t("mine.agentRetired");
+    session.refreshAgent();
   } catch (err) {
     if (ticket !== agentLoad) return;
     showAgentError(err);
@@ -364,6 +394,7 @@ async function leave() {
       <div class="agent-line">
         <p>{{ agentLine }}</p>
         <AppButton
+          v-if="agentSelfService"
           variant="icon"
           :aria-label="t('mine.agentRegenerate')"
           :disabled="agentBusy"
@@ -372,6 +403,7 @@ async function leave() {
           <RefreshIcon aria-hidden="true" />
         </AppButton>
       </div>
+      <p v-if="!agentSelfService" class="muted profile-note">{{ t("mine.agentOwnerNote", { limit: agentLimit }) }}</p>
       <p v-if="agentError" class="error" role="alert">{{ agentError }}</p>
       <div class="agent-tips">
         <p class="agent-tips-title">{{ t("mine.agentTipsTitle") }}</p>
@@ -381,6 +413,10 @@ async function leave() {
         </ul>
       </div>
       <pre v-if="agentBrief" class="agent-brief">{{ agentBrief }}</pre>
+      <p v-if="agentNote" class="muted profile-note">{{ agentNote }}</p>
+      <div v-if="agentSelfService && agentActive" class="form-actions">
+        <AppButton variant="secondary" :disabled="agentBusy" @click="retire">{{ t("mine.agentRetire") }}</AppButton>
+      </div>
     </section>
   </template>
 </template>

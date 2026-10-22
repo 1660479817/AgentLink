@@ -59,6 +59,7 @@ test("a saved profile is validated, written, and read back", async () => {
           body: JSON.stringify({
             site: {
               name: "王的站点",
+              locale: "zh-CN",
               tagline: "收二手，也收问题。",
               owner: "Paul",
               contact: "paul@example.com",
@@ -78,6 +79,7 @@ test("a saved profile is validated, written, and read back", async () => {
         const onDisk = JSON.parse(readFileSync(file, "utf8"));
         assert.equal(onDisk.formatVersion, 2);
         assert.equal(onDisk.site.owner, "Paul");
+        assert.equal(onDisk.site.locale, "zh-CN");
 
         const again = await (await call("/profile")).json();
         assert.equal(again.site.tagline, "收二手，也收问题。");
@@ -98,7 +100,7 @@ test("an invalid profile is refused with per-field problems and nothing is writt
       async ({ call }) => {
         const response = await call("/profile", {
           method: "PUT",
-          body: JSON.stringify({ site: { logo: "http://insecure.example/a.png", region: "中国" } }),
+          body: JSON.stringify({ site: { logo: "http://insecure.example/a.png", region: "中国", locale: "ja" } }),
         });
         assert.equal(response.status, 400);
         const body = await response.json();
@@ -106,6 +108,7 @@ test("an invalid profile is refused with per-field problems and nothing is writt
         assert.ok(body.problems.includes("name: required"));
         assert.ok(body.problems.includes("logo: must be https, or omit it"));
         assert.ok(body.problems.includes("region: must be a two-letter country code, or GLOBAL"));
+        assert.ok(body.problems.includes("locale: must be zh-CN, zh-TW or en"));
         assert.throws(() => readFileSync(file, "utf8"), { code: "ENOENT" });
       },
       { file }

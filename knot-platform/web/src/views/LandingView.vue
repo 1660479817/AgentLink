@@ -48,7 +48,7 @@ function prev() {
 
 async function copyDelegate() {
   try {
-    await navigator.clipboard.writeText(t("gate.delegateQuote", { origin: siteOrigin }));
+    await navigator.clipboard.writeText(t("gate.delegateQuote", { origin: siteOrigin, doc: session.agentDoc.raw }));
     copied.value = true;
     setTimeout(() => (copied.value = false), 1600);
   } catch {
@@ -180,7 +180,7 @@ watch(
       <p class="gate-delegate-lead">{{ t("gate.delegateLead") }}</p>
       <blockquote class="gate-delegate-quote">
         <QuoteIcon class="gate-delegate-mark" aria-hidden="true" />
-        <p class="gate-delegate-text">{{ t("gate.delegateQuote", { origin: siteOrigin }) }}</p>
+        <p class="gate-delegate-text">{{ t("gate.delegateQuote", { origin: siteOrigin, doc: session.agentDoc.raw }) }}</p>
       </blockquote>
       <div class="gate-delegate-actions">
         <AppButton variant="secondary" @click="copyDelegate">
@@ -190,7 +190,7 @@ watch(
         </AppButton>
       </div>
       <p class="gate-delegate-help">
-        <a href="/help">{{ t("gate.helpLink") }}</a>
+        <a :href="session.agentDoc.page" target="_blank" rel="noopener noreferrer">{{ t("gate.helpLink") }}</a>
       </p>
     </div>
   </section>

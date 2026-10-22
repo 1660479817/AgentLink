@@ -94,7 +94,7 @@ L1 装在两处，按谁有权改划分：
 | 区 | 字段 | 存在哪 | 谁写 |
 |----|------|--------|------|
 | **签发区** | `id`、`url`、`since`、`tier`、`status`、`cardsUrl`、`statsUrl` | `xknot.si/instances.json` | 中枢 |
-| **自述区** | `name`、`tagline`、`intro`、`logo`、`owner`、`contact`、`region`、`timezone`、`tags` | 实例的 `sites/<站点>/profile.json` | 主理人，在实例 `/admin` 里编辑 |
+| **自述区** | `name`、`locale`、`tagline`、`intro`、`logo`、`owner`、`contact`、`region`、`timezone`、`tags` | 实例的 `sites/<站点>/profile.json` | 主理人，在实例 `/admin` 里编辑 |
 | **观测区** | `health`、`locations`（出口 IP 判出的国家码） | 中枢的 `var/health.json`、`var/geoip/locations.json` | 中枢自己：探测与隧道对端，实例无从声明 |
 
 中枢不接收写入：签发区改清单、提交、发布；自述区由主理人在自己站点改，中枢下次构建时按 `url` 取回。观测区只由中枢写，任何一方都不能在接口里改它。三区合起来才是门户上的一条档案。
@@ -119,11 +119,12 @@ L1 装在两处，按谁有权改划分：
 
 主理人在实例的 `/admin` → **XKnot** 里编辑，落在 `sites/<站点>/profile.json`；实例通过 `GET /api/federation/profile` 公开它。字段、上限、必填项与校验规则见 [`knot-platform/docs/PROFILE.md`](../../knot-platform/docs/PROFILE.md)；两边的实现是 `ops/profile-schema.mjs` 与 `knot-platform/backend/src/profile.js`，以本仓库的 `ops/profile-schema.mjs` 为准。
 
-格式是 `{ "formatVersion": 2, "updatedAt": "YYYY-MM-DD", "site": { … } }`，九项扁平字段：
+格式是 `{ "formatVersion": 2, "updatedAt": "YYYY-MM-DD", "site": { … } }`，十项扁平字段：
 
 | 字段 | 类型 | 上限 | 必填 | 门户上出现在哪 |
 |------|------|------|------|---------------|
 | `name` | 字符串 | 40 | 是 | 卡片名称、地图标点 |
+| `locale` | `zh-CN` / `zh-TW` / `en` | — | 否 | 门户不上屏。实例用它决定访客第一次打开时的界面语言 |
 | `tagline` | 字符串 | 60 | 否 | 卡片的一句话 |
 | `intro` | 字符串 | 800 | 否 | 卡片正文 |
 | `logo` | https 地址 | 300 | 否 | 卡片徽记 |
@@ -135,7 +136,7 @@ L1 装在两处，按谁有权改划分：
 
 要点：
 
-- **没有多语种映射**：主理人用哪种语种写，门户就显示哪种。中枢不翻译，也不按界面语种挑一份。
+- **没有多语种文案映射**：主理人用哪种语种写，门户就显示哪种。中枢不翻译，也不按界面语种挑一份。`locale` 不是文案语种，是实例界面的默认语言，门户只校验取值。
 - `tags` 是自由文本：不预设词表、不按语义合并、不翻译；只做去空白、忽略大小写去重、保留主理人排的顺序。
 - `logo` 是 https 绝对地址。自述区里的图片只存地址，不进中枢的二进制。
 - `region` 是主理人写的**声明**，不是中枢认定的位置。门户对位置的显示以隧道对端的出口 IP 为准（GeoIP，只有国家码）；声明值在没有观测时兜底，例如实例离线或中枢不在入口主机上。
@@ -153,6 +154,8 @@ L1 装在两处，按谁有权改划分：
 门户只用这份副本：缺字段时用签发区字段与兜底文案补齐，不会因此把条目算成 down（那是 L2 的事）。
 
 **升级顺序：先实例，后门户。** 取回时 `formatVersion` 不是 2 的响应会被整份拒绝、保留上一份副本；旧副本没有 `site`，门户对这条只显示 id。所以 `0.3.0` 之前部署的实例要先把 `knot-platform` 升上去、让 `/api/federation/profile` 吐出 v2，再跑一次 `npm run fetch:profile` 后重建中枢。`deploy-hub.sh` 前的 `ops/verify-hub-data.mjs` 会把「有签发区但没有自述区名称」判成问题并挡住发布，正是为了让这个顺序显式发生。
+
+**新增自述区字段时反过来：先中枢，后实例。** `cleanSite` 拒绝未知键，整份不合法就保留上一份副本。`locale` 就是这样加进来的：中枢的 `SITE_FIELDS` 先收下它，实例再开始写；顺序反了不会崩，但门户上这个站点的改名、换介绍会静默停在旧副本，只在 `var/` 里留几条问题记录。
 
 ### 4.4 规则
 

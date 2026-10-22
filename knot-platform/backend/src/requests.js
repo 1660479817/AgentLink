@@ -11,12 +11,12 @@ function iso(value) {
 
 export async function listRequests(pool, viewerId = null) {
   const { rows } = await pool.query(
-    `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.user_id, i.actor, i.created_at, i.updated_at, i.expires_at,
+    `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.account_id, i.actor, i.created_at, i.updated_at, i.expires_at,
             (SELECT count(*)::int FROM intel r
              WHERE r.responds_to = i.id AND r.kind = 'wishRespond' AND ${visibleVerdict("r.verdict")}) AS response_count,
             EXISTS (
               SELECT 1 FROM request_unlocks u
-              WHERE u.intel_id = i.id AND u.user_id = $1
+              WHERE u.intel_id = i.id AND u.account_id = $1
             ) AS unlocked
      FROM intel i
      WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
@@ -25,7 +25,7 @@ export async function listRequests(pool, viewerId = null) {
   );
   const files = await filesByIntel(pool, rows.map((row) => row.id));
   return rows.map((row) => {
-    const mine = Boolean(viewerId && row.user_id === viewerId);
+    const mine = Boolean(viewerId && row.account_id === viewerId);
     const unlocked = mine || Boolean(row.unlocked);
     return {
       ...toRecord(row, { files: files.get(row.id) || [], granted: unlocked }),
@@ -44,7 +44,7 @@ export async function listMyResponses(pool, userId) {
             q.detail AS wish_detail, q.category AS wish_category, q.verdict AS wish_verdict, q.created_at AS wish_created_at, q.expires_at AS wish_expires_at
      FROM intel r
      LEFT JOIN intel q ON q.id = r.responds_to AND q.kind = 'wish'
-     WHERE r.user_id = $1 AND r.kind = 'wishRespond'
+     WHERE r.account_id = $1 AND r.kind = 'wishRespond'
      ORDER BY r.created_at DESC`,
     [userId]
   );
@@ -81,11 +81,11 @@ export async function listLooks(pool, userId) {
             l.created_at AS looked_at,
             EXISTS (
               SELECT 1 FROM request_unlocks u
-              WHERE u.intel_id = i.id AND u.user_id = $1
+              WHERE u.intel_id = i.id AND u.account_id = $1
             ) AS unlocked
      FROM request_looks l
      JOIN intel i ON i.id = l.intel_id AND i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
-     WHERE l.user_id = $1
+     WHERE l.account_id = $1
      ORDER BY l.created_at DESC`,
     [userId]
   );
@@ -101,7 +101,7 @@ export async function listLooks(pool, userId) {
 
 export async function lookRequest(pool, userId, requestId) {
   const { rows } = await pool.query(
-    `SELECT id, user_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")} AND ${wishLive("intel")}`,
+    `SELECT id, account_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")} AND ${wishLive("intel")}`,
     [requestId]
   );
   if (!rows.length) {
@@ -109,13 +109,13 @@ export async function lookRequest(pool, userId, requestId) {
     error.code = "not_found";
     throw error;
   }
-  if (rows[0].user_id === userId) {
+  if (rows[0].account_id === userId) {
     const error = new Error("bad_state");
     error.code = "bad_state";
     throw error;
   }
   await pool.query(
-    `INSERT INTO request_looks (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    `INSERT INTO request_looks (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [userId, requestId]
   );
   const looks = await listLooks(pool, userId);
@@ -124,19 +124,19 @@ export async function lookRequest(pool, userId, requestId) {
 
 export async function listRequestResponses(pool, userId, requestId) {
   const owned = await pool.query(
-    `SELECT id FROM intel WHERE id = $1 AND user_id = $2 AND kind = 'wish'`,
+    `SELECT id FROM intel WHERE id = $1 AND account_id = $2 AND kind = 'wish'`,
     [requestId, userId]
   );
   if (!owned.rows.length) return { error: "not_found", status: 404 };
   const { rows } = await pool.query(
     `SELECT i.id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.reject_reason, i.category, i.price, i.kind, i.is_public, i.created_at, i.updated_at,
-            i.user_id, u.display_name, u.avatar_upload_id,
+            i.account_id, u.display_name, u.avatar_upload_id,
             EXISTS (
               SELECT 1 FROM packet_downloads pd
-              WHERE pd.intel_id = i.id AND pd.user_id = $2
+              WHERE pd.intel_id = i.id AND pd.account_id = $2
             ) AS granted
      FROM intel i
-     JOIN users u ON u.id = i.user_id
+     JOIN accounts u ON u.id = i.account_id
      WHERE i.responds_to = $1 AND i.kind = 'wishRespond' AND ${visibleVerdict("i.verdict")}
      ORDER BY i.created_at ASC`,
     [requestId, userId]

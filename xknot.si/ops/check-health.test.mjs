@@ -104,7 +104,7 @@ test("the instance may identify itself and must match the manifest", async () =>
 
   const mismatch = await probe(PROBE_URL, {
     id: PROBE_ID,
-    fetchImpl: async () => jsonResponse({ ok: true, instance: "zjj" }),
+    fetchImpl: async () => jsonResponse({ ok: true, instance: "example" }),
     clock: sequencer([0, 10]),
   });
   assert.equal(mismatch.status, "down");
@@ -230,7 +230,7 @@ test("run derives the probe url from url (/api/health)", async () => {
   const instancesPath = await tempManifest(dir, [
     { id: "wang", status: "active", url: "https://wang.xknot.si" },
     // url 带了路径也收敛到站点根。
-    { id: "zjj", status: "active", url: "https://zjj.xknot.si/some/page" },
+    { id: "example", status: "active", url: "https://example.xknot.si/some/page" },
   ]);
 
   const seen = [];
@@ -243,14 +243,14 @@ test("run derives the probe url from url (/api/health)", async () => {
       return jsonResponse({ ok: true });
     },
   });
-  assert.deepEqual(seen.sort(), ["https://wang.xknot.si/api/health", "https://zjj.xknot.si/api/health"]);
+  assert.deepEqual(seen.sort(), ["https://example.xknot.si/api/health", "https://wang.xknot.si/api/health"]);
 });
 
 test("run does not probe while the instance is pending", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "knot-health-"));
   const outPath = path.join(dir, "var", "health.json");
   const instancesPath = await tempManifest(dir, [
-    { id: "zjj", status: "pending", url: "https://zjj.xknot.si", since: "2026-10-01" },
+    { id: "example", status: "pending", url: "https://example.xknot.si", since: "2026-10-01" },
   ]);
 
   let called = false;
@@ -265,8 +265,8 @@ test("run does not probe while the instance is pending", async () => {
     },
   });
   assert.equal(called, false, "pending 是等验收，不是断连，不发请求");
-  assert.equal(output.instances.zjj.status, "unknown");
-  assert.equal(output.instances.zjj.checks, 0);
+  assert.equal(output.instances.example.status, "unknown");
+  assert.equal(output.instances.example.checks, 0);
 });
 
 test("run drops stale state when a subdomain is reissued", async () => {

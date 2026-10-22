@@ -146,7 +146,7 @@ export async function fitAvatar(buffer) {
 
 export async function acceptAvatar(pool, uploadDir, userId, uploadId) {
   const { rows } = await pool.query(
-    `SELECT id, storage_name, mime FROM uploads WHERE id = $1 AND user_id = $2 AND mime LIKE 'image/%'`,
+    `SELECT id, storage_name, mime FROM uploads WHERE id = $1 AND account_id = $2 AND mime LIKE 'image/%'`,
     [uploadId, userId]
   );
   if (!rows.length) return { error: "bad_avatar" };

@@ -15,7 +15,7 @@ export function defaultAvatarUrl(userId) {
 export function avatarUrlFor(row) {
   if (!row) return null;
   if (row.avatar_upload_id) return publicUploadUrl(row.avatar_upload_id);
-  const id = row.user_id || row.id;
+  const id = row.account_id || row.id;
   if (!id) return null;
   return defaultAvatarUrl(id);
 }

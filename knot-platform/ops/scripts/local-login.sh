@@ -73,17 +73,23 @@ DAYS="${KNOT_SESSION_TTL_DAYS:-30}"
 NAME="${EMAIL%%@*}"
 
 "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -v email="$EMAIL" -v name="$NAME" -v sid="$SID" -v days="$DAYS" <<'SQL' >/dev/null
-INSERT INTO users (email, display_name, side)
-SELECT :'email', :'name', 'external'
+  -v email="$EMAIL" -v name="$NAME" -v sid="$SID" -v days="$DAYS" \
+  -v admin_email="${KNOT_ADMIN_EMAIL:-}" <<'SQL' >/dev/null
+-- 主理人邮箱建的是 owner（一个站点只有一个），其余邮箱建外部账号。
+-- owner 通常已经由启动时的 ensureOwner 建好，这里只是补「库比配置旧」的情况。
+INSERT INTO accounts (role, email, display_name, side)
+SELECT CASE WHEN lower(:'email') = lower(:'admin_email') THEN 'owner' ELSE 'user' END,
+       :'email', :'name',
+       CASE WHEN lower(:'email') = lower(:'admin_email') THEN 'internal' ELSE 'external' END
 WHERE NOT EXISTS (
-  SELECT 1 FROM users WHERE lower(email) = lower(:'email') AND side = 'external'
+  SELECT 1 FROM accounts WHERE lower(email) = lower(:'email')
 );
 
-INSERT INTO sessions (sid, user_id, expires_at)
+-- owner 的 side 是 internal，不能像旧版那样按 side='external' 找会话主体。
+INSERT INTO sessions (sid, account_id, expires_at)
 SELECT :'sid', u.id, now() + make_interval(days => :days)
-FROM users u
-WHERE lower(u.email) = lower(:'email') AND u.side = 'external';
+FROM accounts u
+WHERE lower(u.email) = lower(:'email') AND u.role IN ('owner', 'user');
 SQL
 
 COOKIE="${KNOT_SESSION_COOKIE_NAME:-knot_sid}"

@@ -12,8 +12,8 @@ function keys(node, prefix = "") {
   return Object.entries(node).flatMap(([key, value]) => keys(value, prefix ? `${prefix}.${key}` : key));
 }
 
-test("account locale wins over this browser and the IP suggestion", () => {
-  assert.deepEqual(resolveLocale({ account: "en", pin: "zh-TW", region: "zh-CN" }), {
+test("the person's own choice wins over the site default", () => {
+  assert.deepEqual(resolveLocale({ account: "en", pin: "zh-TW", site: "zh-CN" }), {
     locale: "en",
     pin: true,
     sync: null,
@@ -21,40 +21,38 @@ test("account locale wins over this browser and the IP suggestion", () => {
 });
 
 test("a browser choice is kept and can be written onto an account that has none", () => {
-  assert.deepEqual(resolveLocale({ account: null, pin: "zh-TW", region: "zh-CN" }), {
+  assert.deepEqual(resolveLocale({ account: null, pin: "zh-TW", site: "zh-CN" }), {
     locale: "zh-TW",
     pin: true,
     sync: "zh-TW",
   });
 });
 
-test("with no choice yet, the IP suggestion is used and not pinned", () => {
-  assert.deepEqual(resolveLocale({ account: "", pin: null, region: "en" }), {
+test("with no choice, the site default applies and is not pinned", () => {
+  assert.deepEqual(resolveLocale({ account: null, pin: null, site: "en" }), {
     locale: "en",
     pin: false,
     sync: null,
   });
-  assert.deepEqual(resolveLocale({}), {
-    locale: "en",
+  assert.deepEqual(resolveLocale({ account: "", pin: "nope", site: "zh-TW" }), {
+    locale: "zh-TW",
     pin: false,
     sync: null,
   });
 });
 
-test("first paint uses a saved choice, then the last seen region", () => {
-  assert.equal(bootLocale("en", "zh-CN"), "en");
-  assert.equal(bootLocale(null, "zh-TW"), "zh-TW");
-  assert.equal(bootLocale("nope", "also-nope"), "en");
+test("a missing or malformed site default falls to the one placeholder", () => {
+  assert.deepEqual(resolveLocale({}), { locale: "zh-CN", pin: false, sync: null });
+  assert.deepEqual(resolveLocale({ site: "ja" }), { locale: "zh-CN", pin: false, sync: null });
 });
 
-test("first paint falls back to the browser's language, not English", () => {
-  assert.equal(bootLocale(null, null, ["zh-CN", "zh", "en"]), "zh-CN");
-  assert.equal(bootLocale(null, null, ["zh-Hant-TW"]), "zh-TW");
-  assert.equal(bootLocale(null, null, ["en-GB"]), "en");
-  assert.equal(bootLocale(null, null, ["ja-JP"]), "en");
-  assert.equal(bootLocale(null, null, []), "en");
-  // 存过的选择仍然赢过浏览器。
-  assert.equal(bootLocale("en", null, ["zh-CN"]), "en");
+test("first paint only knows the browser choice", () => {
+  assert.equal(bootLocale("en"), "en");
+  assert.equal(bootLocale("zh-TW"), "zh-TW");
+  assert.equal(bootLocale(null), "zh-CN");
+  assert.equal(bootLocale("nope"), "zh-CN");
+  // 浏览器语言不参与：本机装的是日文也一样。
+  assert.equal(bootLocale(undefined), "zh-CN");
 });
 
 test("locale catalogs share the same keys", () => {

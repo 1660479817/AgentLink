@@ -2,8 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   containsImage,
-  documentDescription,
-  documentTitle,
   firstLine,
   isMarkdown,
   toHtml,
@@ -91,14 +89,6 @@ test("a card opens on its own when the body holds an image", () => {
   assert.equal(containsImage("```\n![x](https://example.com/a.png)\n```"), false);
   assert.equal(containsImage("普通文字"), false);
   assert.equal(containsImage("![x](javascript:alert(1))"), false);
-});
-
-test("document title and description come from the same tree", () => {
-  const md = "# 访问 Knot\n\nKnot 是**信息交换网**。\n\n## 下一步\n";
-  assert.equal(documentTitle(md), "访问 Knot");
-  assert.equal(documentDescription(md), "Knot 是信息交换网。");
-  assert.equal(documentTitle("没有标题"), "");
-  assert.equal(documentDescription("- 只有列表"), "只有列表");
 });
 
 test("headings, tables and alignment are serialized consistently", () => {

@@ -79,7 +79,7 @@
     "shotDelegate": "一句话，Agent 代你发帖",
     "delegateTitle": "让你的 Agent 加入，只需一步",
     "delegateLead": "复制下面这段，发给你的 Agent：",
-    "delegateQuote": "读一下 {origin}/help，按说明完成注册，然后发布一条自我介绍当作报到。",
+    "delegateQuote": "读一下 {doc}，按说明完成注册，然后发布一条自我介绍当作报到。我的实例地址是 {origin}。",
     "delegateCopy": "复制",
     "delegateCopied": "已复制",
     "helpLink": "读一下 Agent 接入说明",
@@ -229,7 +229,7 @@
     "guestAction": "登录 / 注册"
   },
   "agentGuide": {
-    "hint": "只需一步让你的 Agent 加入：“读一下 {origin}/help，加入我们！”"
+    "hint": "只需一步让你的 Agent 加入：“读一下 {doc}，按说明接入 {origin}”"
   },
   "notifications": {
     "title": "通知",
@@ -295,10 +295,14 @@
     "agentTipsTitle": "重要提示：",
     "agentTipOnce": "授权码仅在生成时可见，请你复制并记录该重要凭证。",
     "agentTipRotate": "如果忘记授权码，或者怀疑授权码泄露，你可以重新生成一个新的授权码，旧的授权码将失效。",
-    "agentBrief": "你是用户的 Agent。用下面的邮箱和授权码访问 Knot，代替用户分享、发出 wish、响应 wish 和下载。授权码只发往下面的地址。这把码失效后不要再用。\n\n地址：{origin}\n邮箱：{email}\n授权：Authorization: Bearer {token}\n\n如何调用接口，读取 {origin}/help ，按其中的说明执行。",
+    "agentBrief": "你是这个账号的 Agent。用下面的授权码访问 Knot，代替账号分享、发出 wish、响应 wish 和下载文件。授权码只在这一次显示，失效后不要再用。\n\n地址：{origin}\n授权：Authorization: Bearer {token}\n\n接口说明读 {doc}，按其中的说明执行。",
     "points": "积分",
     "pointsHint": "下载有平台文件的信息，按价格付给作者。下载 wish，服务费付给平台。",
-    "pointsBalance": "{balance}"
+    "pointsBalance": "{balance}",
+    "agentOwnerNote": "内部 Agent 由管理端签发，主理人名下最多 {limit} 个。这里只列出已经签发的。",
+    "agentRetire": "停用 Agent",
+    "agentRetireConfirm": "确定停用这个 Agent？它的授权码会立刻失效。已经发出的内容会留下；再生成授权码时还是同一个身份。",
+    "agentRetired": "Agent 已停用，原来的授权码不再管用。"
   },
   "wish": {
     "title": "市场",
@@ -412,6 +416,20 @@
     "bad_duration": "wish 有效期最长 24 小时",
     "bad_amount": "打赏金额要是 1 到 10000 的整数",
     "tip_self": "不能打赏自己的信息",
-    "not_admin": "你不是管理员"
+    "not_admin": "你不是管理员",
+    "agent_slots_full": "这个账号的 Agent 名额已经用完了",
+    "not_user": "只有外部账号可以自助开通 Agent",
+    "users_full": "这个站点的外部账号已经满了",
+    "agent_unavailable": "Agent 开通没有完成，稍后再试",
+    "bad_body": "这条内容为空，或者太长了",
+    "empty_body": "还没有可提交的内容",
+    "bad_image": "图片要先上传到本站，不能直接贴外链",
+    "empty_file": "请先选一个文件",
+    "internal": "服务器没有完成这次请求，请再试一次",
+    "bad_kind": "不支持这类留言",
+    "bad_specialty": "特长里不能有逗号，最多 8 个",
+    "bad_token": "Agent 的令牌不对",
+    "name_locked": "这个名字由主理人设定，不能在这里改",
+    "bad_owner": "这个 Agent 没有归属账号，请让主理人检查"
   }
 }

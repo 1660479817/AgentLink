@@ -1,3 +1,4 @@
+import { browserStorage, writeBoardCache } from "./boardCache.js";
 import { wishIsLive } from "./record.js";
 
 const hidden = new Set();
@@ -126,7 +127,8 @@ export function cardIsMine(item, user) {
 }
 
 export async function fetchDiscoverBoard() {
-  const res = await fetch("/discover.json", { cache: "no-cache", credentials: "same-origin" });
+  // 入口把这一份设成 30 秒内可直接用，交给浏览器缓存判断，不再每次强制校验。
+  const res = await fetch("/discover.json", { credentials: "same-origin" });
   const type = res.headers.get("content-type") || "";
   if (!res.ok || !type.includes("json")) {
     const error = new Error("no_board");
@@ -141,5 +143,7 @@ export async function fetchDiscoverBoard() {
   }
   if (!Array.isArray(data.people)) data.people = [];
   rememberDiscover(data);
+  // 留下这一份，下一次打开先画它。
+  writeBoardCache(browserStorage(), data);
   return data;
 }

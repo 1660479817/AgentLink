@@ -7,8 +7,8 @@ import { registrationMode } from "./system.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FEEDBACK_LABEL = { suggestion: "建议", complaint: "投诉" };
-// 017 建的称呼唯一索引。注册撞上它时追加序号重试。
-const DISPLAY_NAME_KEY = "users_display_name_key";
+// 称呼全局唯一（忽略大小写）。注册撞上它时追加序号重试。
+const DISPLAY_NAME_KEY = "accounts_display_name_key";
 
 export const FEEDBACK_MAX = 2000;
 
@@ -122,10 +122,10 @@ export async function requestLoginKey(pool, email, options = {}) {
   );
   if (recent.rowCount) return { error: "too_many", status: 429 };
 
-  // 新邮箱才看注册策略；已有账户照常登录，不受邀请码和暂停注册影响。
+  // 新邮箱才看注册策略；已有账号照常登录，不受邀请码和暂停注册影响。
   let inviteId = null;
   const existing = await pool.query(
-    `SELECT 1 FROM users WHERE lower(email) = lower($1) AND side = 'external' LIMIT 1`,
+    `SELECT 1 FROM accounts WHERE lower(email) = lower($1) LIMIT 1`,
     [email]
   );
   if (!existing.rows.length) {
@@ -173,22 +173,28 @@ async function redeemOn(db, email, key) {
   );
   if (!matched.rowCount) return { error: "bad_key", status: 400 };
 
+  // 主理人只认配置里的那一个邮箱；其余邮箱都是外部账号。
+  // 正常启动时 ensureOwner 已经建好了主理人行，这里只处理「库比配置旧」的边角。
+  const owner = await db.query(`SELECT id, email FROM accounts WHERE role = 'owner' LIMIT 1`);
+  const registeringOwner = !owner.rows.length && email === adminEmail();
+
   const base = defaultDisplayName(email);
   for (let seq = 0; ; seq += 1) {
     const name = seq === 0 ? base : numberedName(base, seq);
     await db.query(`SAVEPOINT name_${seq}`);
     try {
       const saved = await db.query(
-        `INSERT INTO users (email, display_name, points_balance) VALUES ($1, $2, $3)
-         ON CONFLICT (lower(email)) WHERE email IS NOT NULL AND side = 'external'
+        `INSERT INTO accounts (role, side, email, display_name, points_balance)
+         VALUES ($4, $5, $1, $2, $3)
+         ON CONFLICT (lower(email)) WHERE email IS NOT NULL
          DO UPDATE SET email = EXCLUDED.email
-         RETURNING id, points_balance, (xmax = 0) AS inserted`,
-        [email, name, signupGrant()]
+         RETURNING id, points_balance, role, (xmax = 0) AS inserted`,
+        [email, name, signupGrant(), registeringOwner ? "owner" : "user", registeringOwner ? "internal" : "external"]
       );
       await db.query(`RELEASE SAVEPOINT name_${seq}`);
       const row = saved.rows[0];
-      // 老账户直接登录；新账户才看注册策略。
-      if (row.inserted === false) return { userId: row.id, pointsBalance: row.points_balance };
+      // 老账号直接登录；新账号才看注册策略。
+      if (row.inserted === false) return { userId: row.id, pointsBalance: row.points_balance, role: row.role };
 
       const mode = registrationMode();
       if (mode === "closed") return { error: "registration_closed", status: 403 };
@@ -199,8 +205,14 @@ async function redeemOn(db, email, key) {
         if (!consumed) return { error: "bad_invite", status: 400 };
         await recordInviteRedemption(db, { inviteId, userId: row.id, email });
       }
-      return { userId: row.id, pointsBalance: row.points_balance };
+      return { userId: row.id, pointsBalance: row.points_balance, role: row.role };
     } catch (error) {
+      // 名额满了：库里触发器拦下来的，换成可翻译的错误码。
+      if (error.code === "KN001" || error.code === "KN002" || error.code === "KN003") {
+        await db.query(`ROLLBACK TO SAVEPOINT name_${seq}`);
+        await db.query(`RELEASE SAVEPOINT name_${seq}`);
+        return { error: "users_full", status: 403 };
+      }
       // 只给称呼重名让路：换一个序号再插，其余唯一约束照常抛出。
       if (error.code !== "23505" || error.constraint !== DISPLAY_NAME_KEY || seq >= 1000) throw error;
       await db.query(`ROLLBACK TO SAVEPOINT name_${seq}`);
@@ -233,11 +245,91 @@ export function adminEmail() {
   return normalizeEmail(process.env.KNOT_ADMIN_EMAIL);
 }
 
-// 人类管理员：External Personal Agent 账户的邮箱等于管理员邮箱时，其 WebUI 操作按平台层执行。
-export async function isAdminUser(pool, userId) {
-  if (!userId) return false;
-  const { rows } = await pool.query(`SELECT email FROM users WHERE id = $1`, [userId]);
-  return Boolean(rows[0]?.email) && rows[0].email === adminEmail();
+// 主理人账号：唯一，邮箱以 KNOT_ADMIN_EMAIL 为准。启动时调用，幂等。
+// 邮箱改了就把主理人绑到新邮箱；主理人只有一个，不会因此多出第二个人。
+export async function ensureOwner(pool) {
+  const email = adminEmail();
+  if (!email) return null;
+  const existing = await pool.query(`SELECT id FROM accounts WHERE role = 'owner' LIMIT 1`);
+  if (existing.rows[0]) {
+    try {
+      await pool.query(
+        `UPDATE accounts SET email = $2, updated_at = now()
+          WHERE id = $1 AND lower(email) IS DISTINCT FROM lower($2)`,
+        [existing.rows[0].id, email]
+      );
+    } catch (error) {
+      // 改绑的主理人邮箱已经被别的账号注册过：这里不能静默挑一个赢家，
+      // 否则那个人下次登录会以普通账号进站，而配置看上去是对的。
+      if (error.code === "23505") {
+        throw new Error(
+          `KNOT_ADMIN_EMAIL=${email} 已经被另一个账号占用。主理人邮箱必须唯一：改配置，或先清掉那个账号。`
+        );
+      }
+      throw error;
+    }
+    return existing.rows[0].id;
+  }
+  // 这个邮箱之前作为普通账号注册过：收回成主理人，内容与名下的 Agent 一并转内部。
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const promoted = await client.query(
+      `UPDATE accounts SET role = 'owner', side = 'internal', updated_at = now()
+        WHERE lower(email) = lower($1) AND role = 'user'
+        RETURNING id`,
+      [email]
+    );
+    if (promoted.rows[0]) {
+      await client.query(
+        `UPDATE accounts SET side = 'internal', updated_at = now()
+          WHERE owner_id = $1 AND role = 'agent'`,
+        [promoted.rows[0].id]
+      );
+      await client.query("COMMIT");
+      return promoted.rows[0].id;
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    // 另一个进程刚好建好了主理人：以它为准，不把启动拖垮。
+    if (error.code === "23505") {
+      const again = await pool.query(`SELECT id FROM accounts WHERE role = 'owner' LIMIT 1`);
+      if (again.rows[0]) return again.rows[0].id;
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  const base = defaultDisplayName(email);
+  for (let seq = 0; seq < 50; seq += 1) {
+    const name = seq === 0 ? base : numberedName(base, seq);
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO accounts (role, side, email, display_name)
+         VALUES ('owner', 'internal', $1, $2)
+         RETURNING id`,
+        [email, name]
+      );
+      return rows[0].id;
+    } catch (error) {
+      if (error.code !== "23505") throw error;
+      // 另一个进程同时建好了主理人。
+      const again = await pool.query(`SELECT id FROM accounts WHERE role = 'owner' LIMIT 1`);
+      if (again.rows[0]) return again.rows[0].id;
+      // 称呼被占：换序号再试。其余冲突（邮箱已属于别的角色）说明库里有脏数据，不猜。
+      if (error.constraint !== DISPLAY_NAME_KEY) throw error;
+    }
+  }
+  throw new Error("owner_unavailable");
+}
+
+// 管理员 = 主理人账号。不再靠邮箱比较：角色就是权限。
+export async function isOwnerAccount(pool, accountId) {
+  if (!accountId) return false;
+  const { rows } = await pool.query(`SELECT role FROM accounts WHERE id = $1`, [accountId]);
+  return rows[0]?.role === "owner";
 }
 
 export function feedbackMessage({ kind, accountEmail, userId, body }) {

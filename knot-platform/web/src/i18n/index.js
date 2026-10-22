@@ -1,8 +1,9 @@
 import { ref } from "vue";
+import { DEFAULT_SITE_LOCALE } from "@knot/locale";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
 import zhTW from "./locales/zh-TW.json";
-import { bootLocale, PIN_KEY, readStored, SEEN_KEY } from "../locale.js";
+import { bootLocale, PIN_KEY, readStored } from "../locale.js";
 
 const catalogs = {
   "zh-CN": zhCN,
@@ -10,7 +11,11 @@ const catalogs = {
   en,
 };
 
-export const defaultLocale = "zh-CN";
+/**
+ * 目录缺一个键时回到哪一份。它不是访客看到的默认语种：
+ * 那个由站点默认（主理人设）与这个人自己的选择决定，见 `../locale.js`。
+ */
+export const defaultLocale = DEFAULT_SITE_LOCALE;
 
 function browserStorage() {
   try {
@@ -22,7 +27,7 @@ function browserStorage() {
 }
 
 const storage = browserStorage();
-export const locale = ref(bootLocale(readStored(storage, PIN_KEY), readStored(storage, SEEN_KEY)));
+export const locale = ref(bootLocale(readStored(storage, PIN_KEY)));
 
 function applyLang(value) {
   if (typeof document !== "undefined") document.documentElement.lang = value;

@@ -1,3 +1,4 @@
+import { walletOf } from "./points.js";
 import { cardImageUrl } from "./uploads.js";
 
 // 一个上传件对谁可读：
@@ -14,30 +15,53 @@ export const MEDIA_PRIVATE = "private";
 // 两条来源一次查完，调用方只需要一次往返。
 export async function mediaAudience(pool, uploadId, userId) {
   const { rows } = await pool.query(
-    `SELECT i.user_id, i.kind, i.is_public, i.verdict, parent.user_id AS wish_user_id
+    `SELECT i.account_id, i.kind, i.is_public, i.verdict, parent.account_id AS wish_account_id,
+            COALESCE(owner.owner_id, owner.id) AS wallet,
+            COALESCE(wisher.owner_id, wisher.id) AS wish_wallet
      FROM intel_files f
      JOIN intel i ON i.id = f.intel_id
+     JOIN accounts owner ON owner.id = i.account_id
      LEFT JOIN intel parent ON parent.id = i.responds_to AND parent.kind = 'wish'
+     LEFT JOIN accounts wisher ON wisher.id = parent.account_id
      WHERE f.upload_id = $1
      UNION
-     SELECT i.user_id, i.kind, i.is_public, i.verdict, NULL::uuid AS wish_user_id
+     SELECT i.account_id, i.kind, i.is_public, i.verdict, NULL::uuid AS wish_account_id,
+            COALESCE(owner.owner_id, owner.id) AS wallet,
+            NULL::uuid AS wish_wallet
      FROM intel i
+     JOIN accounts owner ON owner.id = i.account_id
      WHERE i.videos @> jsonb_build_array(jsonb_build_object('poster', $2::text))`,
     [uploadId, cardImageUrl(String(uploadId || "").toLowerCase())]
   );
+  // 公开优先于「你是作者」：同一条记录既是自己的、又是公开的，就按公开缓存。
+  // 先走完这一轮再决定要不要查查看者的钱包——公开图片是大多数，不该为它多打一次库。
+  for (const row of rows) {
+    const visible = row.verdict === "pending" || row.verdict === "passed";
+    if (!visible) continue;
+    if ((row.kind === "post" || row.kind === "fastpost") && row.is_public) return MEDIA_PUBLIC;
+    if (row.kind === "wish") return MEDIA_PUBLIC;
+  }
+  if (!userId) return null;
+  // 钱包归属：Agent 的附件，它的主人也能看——钱、通知、好友都按钱包算，附件不该例外。
+  const wallet = await walletOf(pool, userId);
+  if (!wallet) return null;
   let audience = null;
   for (const row of rows) {
     const visible = row.verdict === "pending" || row.verdict === "passed";
-    // 公开优先于「你是作者」：同一条记录既是自己的、又是公开的，就按公开缓存。
-    if (visible) {
-      if ((row.kind === "post" || row.kind === "fastpost") && row.is_public) return MEDIA_PUBLIC;
-      if (row.kind === "wish") return MEDIA_PUBLIC;
-    }
     // 作者本人不限终审状态：撤销或删除之后，自己的提交记录里还要能看原图。
-    if (userId && row.user_id === userId) audience = MEDIA_PRIVATE;
-    else if (visible && row.kind === "wishRespond" && userId && row.wish_user_id === userId) audience = MEDIA_PRIVATE;
+    if (row.wallet === wallet) audience = MEDIA_PRIVATE;
+    else if (visible && row.kind === "wishRespond" && row.wish_wallet === wallet) audience = MEDIA_PRIVATE;
   }
-  return audience;
+  if (audience) return audience;
+  // 还没挂到任何记录上的上传（发布框里的预览）也要能被上传者自己看见。
+  const { rows: owned } = await pool.query(
+    `SELECT COALESCE(owner.owner_id, owner.id) AS wallet
+     FROM uploads u
+     JOIN accounts owner ON owner.id = u.account_id
+     WHERE u.id = $1`,
+    [uploadId]
+  );
+  return owned[0]?.wallet === wallet ? MEDIA_PRIVATE : null;
 }
 
 export async function directMediaReadable(pool, uploadId, userId) {

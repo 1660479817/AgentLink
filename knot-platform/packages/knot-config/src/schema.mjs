@@ -21,7 +21,7 @@
 //
 // 站点配置分四个文件：
 //   * site.env      站点拓扑：域名、主机、端口、路径、入口。不含密码。
-//   * profile.json  自述区：名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（九项扁平字段）。
+//   * profile.json  自述区：名称、默认语种、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（十项扁平字段）。
 //                   主理人在 /admin 编辑，不进版本库。
 //   * platform.env  实例主机自己的运行时值：SMTP 密码、价格初值、管理令牌。部署脚本生成，权限 600。
 //   * xknot.env     接入 XKnot 联邦：实例 id、中枢地址、签发日期、委托发信凭据。由中枢签发，不由部署推导。
@@ -429,7 +429,7 @@ const SITE_KEYS = [
     type: "port",
     default: 18080,
     scope: ["entry", "platform"],
-    desc: "入口回源端口。nginx 把 /api 和 /help 转到这里，隧道再转回实例主机。",
+    desc: "入口回源端口。nginx 把 /api 转到这里，隧道再转回实例主机。",
   },
   {
     key: "KNOT_ENTRY_SSL",
@@ -1513,7 +1513,7 @@ export function renderDocs() {
     "| 文件 | 放什么 | 谁写 |",
     "| --- | --- | --- |",
     "| `sites/<站点>/site.env` | 域名、主机、端口、路径、入口、隧道。不含密码 | 运维 |",
-    "| `sites/<站点>/profile.json` | 自述区：名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（九项扁平字段）。不进版本库 | 主理人，在 `/admin` 的 XKnot 栏编辑 |",
+    "| `sites/<站点>/profile.json` | 自述区：名称、默认语种、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（十项扁平字段）。不进版本库 | 主理人，在 `/admin` 的 XKnot 栏编辑 |",
     "| `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。权限 600 | 部署脚本 |",
     "| `sites/<站点>/xknot.env` | 实例 id、中枢地址、签发日期与委托发信凭据。权限 600 | 中枢签发，`join-xknot.sh` 写入 |",
     "| `sites/<站点>/entry.<标签>.xknot.si.env` | 接入 xknot.si 子域时的入口：域名、静态根、conf、证书。一个站点一份 | 运维 |",

@@ -23,7 +23,7 @@ function fakePool({ used = 0, failInsert = false } = {}) {
     calls,
     async query(sql, params = []) {
       calls.push({ sql, params });
-      if (sql.includes("sum(size)")) return { rows: [{ total: used }] };
+      if (/sum\((u\.)?size\)/.test(sql)) return { rows: [{ total: used }] };
       if (failInsert) throw new Error("insert_failed");
       return { rows: [{ id: ID }] };
     },

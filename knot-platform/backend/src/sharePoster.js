@@ -43,12 +43,12 @@ export function shareSite(env = process.env) {
 
 const WIDTH = 1080;
 const PAD = 72;
-const PANEL_PAD = 72;
 const INNER = WIDTH - PAD * 2;
-// sharp 读 SVG 的单边上限是 32767px。留出余量，并让一张长图仍能发进聊天工具。
-export const MAX_HEIGHT = 24576;
-// 预览图最高占 5 倍内容宽，超出的竖图按顶部裁切，不让一张图吃掉整张海报。
-export const MAX_PREVIEW_HEIGHT = INNER * 5;
+// 长图的成本不在 sharp 的单边上限（32767px），在解码内存和出海链路：
+// 1080×6144 = 660 万像素，约 0.7MB、一秒画完；再长的帖子截到省略号，二维码指向原文。
+export const MAX_HEIGHT = 6144;
+// 预览图最高占 3 倍内容宽，超出的竖图按顶部裁切，不让一张图吃掉整张海报。
+export const MAX_PREVIEW_HEIGHT = INNER * 3;
 // 分享图是给人看一眼就存的，不是印刷品。90 档压出来两兆多，出海链路要传几十秒；
 // 75 档加渐进式约省三分之一字节，手机上放大也看不出差别，所以画质让一步。
 export const POSTER_JPEG_QUALITY = 75;
@@ -58,8 +58,20 @@ const BODY_SIZE = 40;
 const BODY_LEADING = 64;
 const NAME_SIZE = 32;
 const NAME_LEADING = 48;
-const QR_PIXEL = 10;
+// 8px 一个模块，1080 宽里 360px 的二维码在手机上仍能一眼扫上；静区保留标准的 4 模块。
+// 版本高的码（子域长、id 全大写）自动缩到 7px 一模块，页脚不会被二维码撑高。
+const QR_PIXEL = 8;
+const QR_TARGET = 360;
 const QR_QUIET = 4;
+// 页脚两栏：左边站名、标语、地址，右边二维码。文字块通常比二维码矮，
+// 所以固定区高度基本由二维码和白底、内边距决定，比原来的竖排省一半。
+const FOOT_PAD = 36;
+const FOOT_NAME = 40;
+const FOOT_LINE = 26;
+const FOOT_LINE_LEADING = 36;
+const FOOT_HOST = 22;
+const FOOT_GAP = 10;
+const FOOT_PLATE = 12;
 const FONT = "Hiragino Sans GB, Heiti SC, PingFang SC, Songti SC, sans-serif";
 const MONO = "Menlo, Consolas, Monaco, monospace";
 const H1_SIZE = 52;
@@ -329,18 +341,19 @@ export function shareContent(row, files = []) {
 function qrRects(url) {
   const qr = QRCode.create(url, { errorCorrectionLevel: "M" });
   const n = qr.modules.size;
+  const pixel = Math.max(4, Math.min(QR_PIXEL, Math.floor(QR_TARGET / (n + QR_QUIET * 2))));
   const parts = [];
   let dark = 0;
   for (let row = 0; row < n; row += 1) {
     for (let col = 0; col < n; col += 1) {
       if (!qr.modules.get(row, col)) continue;
       dark += 1;
-      const left = (col + QR_QUIET) * QR_PIXEL;
-      const top = (row + QR_QUIET) * QR_PIXEL;
-      parts.push(`<rect x="${left}" y="${top}" width="${QR_PIXEL}" height="${QR_PIXEL}" fill="#050505"/>`);
+      const left = (col + QR_QUIET) * pixel;
+      const top = (row + QR_QUIET) * pixel;
+      parts.push(`<rect x="${left}" y="${top}" width="${pixel}" height="${pixel}" fill="#050505"/>`);
     }
   }
-  return { svg: parts.join(""), size: (n + QR_QUIET * 2) * QR_PIXEL, dark };
+  return { svg: parts.join(""), size: (n + QR_QUIET * 2) * pixel, dark, pixel };
 }
 
 function hold(x, y, label, video) {
@@ -397,7 +410,7 @@ export function shareMetaKey(card) {
   const head = card?.head || {};
   const site = shareSite();
   // 版本号是编码参数的版本：换画质、换宽度都要抬一档，旧图才会按新参数重画一次。
-  const payload = ["4", site.page, site.name, site.line, head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0), head.avatarKey || ""].join("\u0001");
+  const payload = ["5", site.page, site.name, site.line, head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0), head.avatarKey || ""].join("\u0001");
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
 
@@ -494,7 +507,7 @@ async function fitLine(text, width, size, weight = "") {
   return `${trimmed}…`;
 }
 
-async function fittedPreview(preview, y) {
+async function fittedPreview(preview) {
   if (!preview) return null;
   try {
     const meta = await sharp(preview).rotate().metadata();
@@ -503,7 +516,7 @@ async function fittedPreview(preview, y) {
     if (!srcW || !srcH) return null;
     const natural = Math.round((srcH / srcW) * INNER);
     if (natural < 1) return null;
-    return { x: PAD, y, width: INNER, height: Math.min(natural, MAX_PREVIEW_HEIGHT) };
+    return { x: PAD, width: INNER, height: Math.min(natural, MAX_PREVIEW_HEIGHT) };
   } catch {
     return null;
   }
@@ -542,15 +555,36 @@ function fitTexts(texts, room) {
   return kept;
 }
 
-function posterPr(content, site) {
+async function posterPr(content, site) {
   const qr = qrRects(shareUrl(content?.id, site));
-  const nameSize = 56;
-  const lineSize = 32;
-  const hostSize = 26;
-  const lines = wrapText(site.line, INNER, lineSize, 3).filter((line) => line);
-  const textHeight = nameSize + 16 + lines.length * (lineSize + 10) + 12 + hostSize;
-  const group = textHeight + 48 + qr.size;
-  return { qr, lines, nameSize, lineSize, hostSize, textHeight, group, height: group + PANEL_PAD * 2 };
+  const qrBox = qr.size + FOOT_PLATE * 2;
+  // 两栏之间留一个 GAP，文字不会贴到二维码的白底上。
+  const room = Math.max(160, WIDTH - PAD * 2 - qrBox - GAP);
+  const name = await fitLine(site.name, room, FOOT_NAME, "600");
+  const host = await fitLine(site.host, room, FOOT_HOST);
+  const lines = wrapText(site.line, room, FOOT_LINE, 2).filter((line) => line);
+  const textHeight = FOOT_NAME + lines.length * FOOT_LINE_LEADING + FOOT_HOST + FOOT_GAP * 2;
+  return { qr, name, host, lines, textHeight, height: Math.max(textHeight, qrBox) + FOOT_PAD * 2 };
+}
+
+// 页脚两栏：左边站名、标语、地址，右边二维码。文字块垂直居中，二维码贴右内边距。
+function footerPanel(pr, top) {
+  const parts = [];
+  let cursor = top + Math.round((pr.height - pr.textHeight) / 2) + FOOT_NAME;
+  parts.push(textLine(pr.name, PAD, cursor, FOOT_NAME, "#0866FF", "start", "600"));
+  cursor += FOOT_GAP;
+  for (const line of pr.lines) {
+    cursor += FOOT_LINE;
+    parts.push(textLine(line, PAD, cursor, FOOT_LINE, "#050505", "start"));
+    cursor += FOOT_LINE_LEADING - FOOT_LINE;
+  }
+  cursor += FOOT_GAP + FOOT_HOST;
+  parts.push(textLine(pr.host, PAD, cursor, FOOT_HOST, "#1C1E21", "start"));
+  return {
+    parts,
+    qrX: WIDTH - PAD - FOOT_PLATE - pr.qr.size,
+    qrY: top + Math.round((pr.height - pr.qr.size) / 2),
+  };
 }
 
 export async function buildSharePoster(content, site = shareSite()) {
@@ -573,9 +607,9 @@ export async function buildSharePoster(content, site = shareSite()) {
     if (stand) texts.push({ text: await fitLine(stand, INNER, BODY_SIZE), size: BODY_SIZE, leading: BODY_LEADING, fill: "#050505" });
   }
 
-  const pr = posterPr(content, site);
+  const pr = await posterPr(content, site);
   const head = await layoutHead(content.head);
-  const previewBox = await fittedPreview(content.preview, head.contentTop);
+  const previewBox = await fittedPreview(content.preview);
   const imageHold = Boolean(content.image) && !previewBox;
 
   let y = head.contentTop;
@@ -597,7 +631,7 @@ export async function buildSharePoster(content, site = shareSite()) {
     parts.push(hold(PAD, y, LABEL.image, false));
     y += HOLD + GAP;
   }
-  // 正文按剩余高度收口，保证整张图不超过 MAX_HEIGHT（sharp 读 SVG 有单边上限）。
+  // 正文按剩余高度收口，保证整张图不超过 MAX_HEIGHT。
   const fitted = fitTexts(texts, MAX_HEIGHT - GAP - pr.height - y);
   for (const line of fitted) {
     if (line.rule) {
@@ -620,32 +654,15 @@ export async function buildSharePoster(content, site = shareSite()) {
   const contentBottom = y;
   const footerTop = contentBottom + GAP;
   const height = footerTop + pr.height;
-  const zoneHeight = pr.height;
-  let cursor = footerTop + Math.round((zoneHeight - pr.group) / 2);
-  const footer = [];
-  cursor += pr.nameSize;
-  footer.push(textLine(site.name, WIDTH / 2, cursor, pr.nameSize, "#0866FF", "middle"));
-  cursor += 16;
-  for (const line of pr.lines) {
-    cursor += pr.lineSize;
-    footer.push(textLine(line, WIDTH / 2, cursor, pr.lineSize, "#050505", "middle"));
-    cursor += 10;
-  }
-  cursor += 12;
-  cursor += pr.hostSize;
-  const prTextBottom = cursor;
-  footer.push(textLine(site.host, WIDTH / 2, cursor, pr.hostSize, "#1C1E21", "middle"));
-  const qrY = prTextBottom + 48;
-  const qrX = Math.round((WIDTH - pr.qr.size) / 2);
-  const plate = 24;
+  const foot = footerPanel(pr, footerTop);
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}">
   <rect width="${WIDTH}" height="${height}" fill="#FFFFFF"/>
   ${parts.join("\n  ")}
-  <rect x="0" y="${footerTop}" width="${WIDTH}" height="${zoneHeight}" fill="#F0F2F5"/>
-  ${footer.join("\n  ")}
-  <rect x="${qrX - plate}" y="${qrY - plate}" width="${pr.qr.size + plate * 2}" height="${pr.qr.size + plate * 2}" rx="20" fill="#FFFFFF"/>
-  <g transform="translate(${qrX} ${qrY})">${pr.qr.svg}</g>
+  <rect x="0" y="${footerTop}" width="${WIDTH}" height="${pr.height}" fill="#F0F2F5"/>
+  ${foot.parts.join("\n  ")}
+  <rect x="${foot.qrX - FOOT_PLATE}" y="${foot.qrY - FOOT_PLATE}" width="${pr.qr.size + FOOT_PLATE * 2}" height="${pr.qr.size + FOOT_PLATE * 2}" rx="20" fill="#FFFFFF"/>
+  <g transform="translate(${foot.qrX} ${foot.qrY})">${pr.qr.svg}</g>
 </svg>`;
   return {
     width: WIDTH,
@@ -653,11 +670,10 @@ export async function buildSharePoster(content, site = shareSite()) {
     svg,
     previewBox: placedPreview,
     avatarBox: head.avatarBox,
-    qr: { x: qrX, y: qrY, size: pr.qr.size, dark: pr.qr.dark, pixel: QR_PIXEL },
+    qr: { x: foot.qrX, y: foot.qrY, size: pr.qr.size, dark: pr.qr.dark, pixel: pr.qr.pixel },
     footerTop,
     contentTop: head.contentTop,
     contentBottom,
-    prTextBottom,
     videoY,
     imageY,
   };
@@ -782,9 +798,9 @@ export async function loadShareCard(pool, intelId, uploadDir) {
   // 分享图跟着帖子走，不跟着版本走：拿到旧地址也画最新那一版。
   const { rows } = await pool.query(
     `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.kind, i.is_public, i.verdict,
-            i.actor, i.category, i.price, i.created_at, i.user_id, u.display_name, u.avatar_upload_id
+            i.actor, i.category, i.price, i.created_at, i.account_id, u.display_name, u.avatar_upload_id
      FROM intel i
-     LEFT JOIN users u ON u.id = i.user_id
+     LEFT JOIN accounts u ON u.id = i.account_id
      WHERE COALESCE(i.origin_id, i.id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $1::uuid)
        AND i.kind IN ('post', 'fastpost') AND i.is_public AND ${visibleVerdict("i.verdict")}
      ORDER BY i.version DESC
@@ -817,8 +833,8 @@ export async function loadShareCard(pool, intelId, uploadDir) {
       avatarPath = readableBlobPath(uploadDir, storage);
       avatarKey = `upload:${String(row.avatar_upload_id).toLowerCase()}`;
     }
-  } else if (row.user_id) {
-    const index = defaultAvatarIndex(row.user_id);
+  } else if (row.account_id) {
+    const index = defaultAvatarIndex(row.account_id);
     avatarPath = defaultAvatarPath(index);
     avatarKey = `default:${index}`;
   }

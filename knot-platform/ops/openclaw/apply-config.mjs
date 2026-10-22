@@ -148,6 +148,17 @@ async function seedPrompts(id) {
   await rm(path.join(workspace, "BOOTSTRAP.md"), { force: true });
 }
 
+// 授权码文件名默认是 `<id>.local.env`。两个称呼撞成同一个文件名时，
+// ensure-internal-agent 会写成 `<id>.<uuid 前 8 位>.local.env`，这里两种都认。
+async function agentEnvFile(dir, id) {
+  const names = await readdir(dir).catch(() => []);
+  const spare = names
+    .filter((name) => name.startsWith(`${id}.`) && name.endsWith(".local.env"))
+    .sort();
+  const preferred = names.includes(`${id}.local.env`) || !spare.length ? `${id}.local.env` : spare[0];
+  return path.join(dir, preferred);
+}
+
 async function syncInternal(ids) {
   for (const id of ids) {
     const source = path.join(root, "internal_agent", id);
@@ -159,7 +170,7 @@ async function syncInternal(ids) {
     }
     await rm(path.join(workspace, "BOOTSTRAP.md"), { force: true });
     const envDir = process.env.KNOT_AGENT_ENV_DIR || path.join(root, "../sites", process.env.KNOT_SITE || "", "agents");
-    const envFile = path.join(envDir, `${id}.local.env`);
+    const envFile = await agentEnvFile(envDir, id);
     const tokenFile = path.join(workspace, ".knot-agent.env");
     try {
       await copyFile(envFile, tokenFile);

@@ -1,6 +1,6 @@
 ---
 name: knot-admin
-description: Run the local admin command to find an account, list posts, delete, warn, grant points, mute, set honors or level, issue an internal agent account, change the sponsored rail, flip site switches, issue invite codes, and record a patrol.
+description: Run the local admin command to find an account, list posts, delete, warn, grant points, mute, set honors or level, issue an internal agent, change the sponsored rail, flip site switches, issue invite codes, and record a patrol.
 ---
 
 # 管理员
@@ -17,7 +17,7 @@ description: Run the local admin command to find an account, list posts, delete,
 
 `users --q 邮箱、称呼、用户 id 或 label`
 
-返回 `{ users }`。先看等级、权益、绩点和禁言，再改账户。`label` 为 `platform` 的不要禁言，也不要改等级和权益。`side` 为 `internal` 的共用一个邮箱，用称呼区分是哪一个。
+返回 `{ users }`。先看等级、权益、绩点和禁言，再改账户。`role` 为 `platform` 的不要禁言，也不要改等级和权益。`role` 为 `agent` 的不带等级、权益与积分：要动这些就找它的 `ownerId`。
 
 ## 看帖
 
@@ -65,17 +65,17 @@ description: Run the local admin command to find an account, list posts, delete,
 
 `level` 是 1 到 100 的整数。做完说明现在是多少。巡查不调用。
 
-## 签发 Internal Personal Agent 账户
+## 签发内部 Agent
 
 `issue --name 称呼`
 
 特长只写主人给出的，可以重复：`--specialty 网页搜索`。没给就不要加这个参数。
 
-返回 `{ created, issued, already, envFile, user }`。`user` 里有 `id`、`displayName`、`pointsBalance`、`specialties`。
+返回 `{ created, issued, already, envFile, agent }`。`agent` 里有 `id`、`displayName`、`ownerId`、`specialties`。`ownerId` 是主理人。
 
-`issued` 为 true 时，授权码写在 `envFile`，只此一次。不要打开这个文件，不要把授权码写进回复。回复称呼、用户 id，以及文件路径。建成后这位对每位用户都是好友。
+`issued` 为 true 时，授权码写在 `envFile`，只此一次。不要打开这个文件，不要把授权码写进回复。回复称呼、Agent id，以及文件路径。建成后这位对每位账号都是好友。
 
-`already` 为 true：这一户已在，授权码不换，特长也不改。告诉主人已在。
+`already` 为 true：这个称呼在岗，授权码不换，特长也不改。告诉主人已在。停用过的同名 Agent 会用新授权码复起（`created` 为 false、`issued` 为 true）。
 
 巡查不调用。这一步不登记 OpenClaw，也不写提示词。
 

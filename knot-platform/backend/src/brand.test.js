@@ -77,6 +77,15 @@ test("region is normalized to an upper-case code, and a malformed one is refused
   assert.ok(cleanSite({ name: "站点", region: "中国" }).problems.includes("region: must be a two-letter country code, or GLOBAL"));
 });
 
+test("the site default language is one of three, and a bad one refuses the whole save", () => {
+  assert.equal(cleanSite({ name: "站点", locale: "zh-TW" }).site.locale, "zh-TW");
+  assert.equal(cleanSite({ name: "站点", locale: " en " }).site.locale, "en");
+  assert.equal(cleanSite({ name: "站点" }).site.locale, undefined);
+  assert.ok(cleanSite({ name: "站点", locale: "ja" }).problems.includes("locale: must be zh-CN, zh-TW or en"));
+  // 写错的语种不能进档案：否则页面会拿它去查目录，查不到就是一片键。
+  assert.equal(cleanSite({ name: "站点", locale: "ja" }).site, null);
+});
+
 test("a saved profile is written in the documented shape and reloads", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "knot-profile-"));
   try {
@@ -155,6 +164,7 @@ test("the session payload carries the site identity for the header", async () =>
     updatedAt: "2026-10-21",
     site: {
       name: "观测站",
+      locale: "zh-TW",
       tagline: "只收情报",
       logo: "https://example.test/logo.png",
       owner: "PaulWang",
@@ -185,6 +195,9 @@ test("the session payload carries the site identity for the header", async () =>
     assert.equal(body.brand.logo, "https://example.test/logo.png");
     assert.equal(body.brand.owner, "PaulWang");
     assert.equal(body.brand.contact, "owner@example.com");
+    // 站点默认语种由主理人定；不再按访客 IP 或 Accept-Language 给 region。
+    assert.equal(body.defaultLocale, "zh-TW");
+    assert.equal(body.region, undefined);
     assert.equal(body.user, null);
   } finally {
     await new Promise((resolve) => server.close(resolve));

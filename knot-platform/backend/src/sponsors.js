@@ -1,4 +1,5 @@
 import { uploadName } from "./information.js";
+import { PLATFORM_ACCOUNT_ID } from "./points.js";
 import { publicUploadUrl } from "./uploads.js";
 import { storeUploadedFile } from "./uploadStore.js";
 
@@ -8,7 +9,6 @@ const TITLE_MAX = 80;
 const HREF_MAX = 500;
 const CAPTION_MAX = 120;
 const SOURCE_MAX = 40;
-const PLATFORM_USER_ID = "00000000-0000-4000-8000-000000000001";
 const SPONSOR_COLUMNS = `id, title, href, position, image_url, image_upload_id, caption, source`;
 export const SPONSOR_LIMIT = 8;
 
@@ -119,7 +119,7 @@ export async function storeSponsorImage(pool, uploadDir, file) {
     const stored = await storeUploadedFile({
       uploadDir,
       pool,
-      userId: PLATFORM_USER_ID,
+      userId: PLATFORM_ACCOUNT_ID,
       file,
       kind: "image",
       name,

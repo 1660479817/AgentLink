@@ -11,7 +11,7 @@ import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { renderJoinFile } from "@knot/config";
+import { checkJoin, parseEnv, renderJoinFile } from "@knot/config";
 
 const execFileAsync = promisify(execFile);
 
@@ -55,10 +55,33 @@ export function joinValues({ issued, hubOrigin, relayUrl = "", relayToken = "" }
   };
 }
 
+/**
+ * 现有接入件里的委托发信两项。
+ *
+ * 自动接通只拿得到签发区（id、地址、档位、签发日）；发信凭据由中枢另行签发、
+ * 只经手工写入。改写时原样带过去，否则刷新一次进度就把凭据抹掉——
+ * 而且因为「键值不同」，每一轮轮询都会重写文件并重启 Backend。
+ */
+export async function readRelayValues(file, { read = readFile, parse = parseEnv } = {}) {
+  if (!file) return { relayUrl: "", relayToken: "" };
+  try {
+    const env = parse(await read(file, "utf8"));
+    return {
+      relayUrl: String(env.XKNOT_HUB_RELAY_URL || "").trim(),
+      relayToken: String(env.XKNOT_HUB_RELAY_TOKEN || "").trim(),
+    };
+  } catch {
+    return { relayUrl: "", relayToken: "" };
+  }
+}
+
 /** 已存在且内容一致就不动文件：重启是份量很大的动作，不能每轮都做。 */
 export async function writeJoinEnv({ file, values, read = readFile } = {}) {
   if (!file) return { error: "no_file" };
   const text = renderJoinFile(values);
+  // 写坏了整站起不来：同一个校验器先跑一遍，不合法就一个字节都不写。
+  const problems = checkJoin(text).errors;
+  if (problems.length) return { error: "join_invalid", detail: problems[0] };
   let current = null;
   try {
     current = await read(file, "utf8");

@@ -58,6 +58,20 @@ test("topics accept a comma-separated string and drop repeats past four", () => 
   assert.deepEqual(reply.topics, ["大模型", "算法", "招聘", "远程"]);
 });
 
+test("an English record drops Chinese topic keywords", () => {
+  const reply = parseIntelReply(
+    '{"verdict":"pass","note":"","category":"科技","language":"en","topics":["Agent","联邦网络","内容枢纽"]}'
+  );
+  assert.deepEqual(reply.topics, ["Agent"]);
+});
+
+test("a Chinese record keeps Chinese keywords and English proper nouns", () => {
+  const reply = parseIntelReply(
+    '{"verdict":"pass","note":"","category":"科技","language":"zh-Hans","topics":["AI","大模型","pull request"]}'
+  );
+  assert.deepEqual(reply.topics, ["AI", "大模型", "pull request"]);
+});
+
 test("a revoke drops topics", () => {
   const reply = parseIntelReply('{"verdict":"revoke","reason":"欺诈。","topics":["大模型"]}');
   assert.deepEqual(reply.topics, []);

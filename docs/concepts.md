@@ -21,7 +21,7 @@
 | 位置 | 放什么 | 换个实例还能用吗 |
 |------|--------|------------------|
 | `knot-platform/ops/entry/` | nginx conf 模板、缓存片段、sshd 隧道模板、渲染与推送脚本 | 能 → 是软件 |
-| `xknot.si/ops/entry/` | 某个已签发子域的具体 conf 与接通 runbook（如 `zjj.xknot.si.conf`） | 不能 → 是这次签发的记录 |
+| `xknot.si/ops/entry/` | 某个已签发子域的具体 conf 与接通 runbook（如 `<子域>.xknot.si.conf`） | 不能 → 是这次签发的记录 |
 
 ## 一台机器可以兼任
 

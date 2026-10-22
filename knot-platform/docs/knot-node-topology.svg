@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="780" viewBox="0 0 1240 780">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 1.2 L 10 5 L 0 8.8 Z" fill="#222"/>
+    </marker>
+    <marker id="arrow-start" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 10 1.2 L 0 5 L 10 8.8 Z" fill="#222"/>
+    </marker>
+  </defs>
+  <rect width="1240" height="780" fill="#ffffff"/>
+
+  <rect x="252" y="104" width="520" height="376" rx="10" fill="#fbfbfb" stroke="#9a9a9a" stroke-width="1.2" stroke-dasharray="7 5"/>
+  <rect x="886" y="104" width="320" height="376" rx="10" fill="#fbfbfb" stroke="#9a9a9a" stroke-width="1.2" stroke-dasharray="7 5"/>
+
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.6">
+    <rect x="40" y="120" width="180" height="84" rx="8"/>
+    <rect x="40" y="236" width="180" height="118" rx="8"/>
+    <rect x="268" y="140" width="488" height="140" rx="8"/>
+    <rect x="268" y="300" width="228" height="100" rx="8"/>
+    <rect x="520" y="300" width="236" height="100" rx="8"/>
+    <rect x="902" y="140" width="288" height="56" rx="8"/>
+    <rect x="902" y="216" width="288" height="70" rx="8"/>
+  </g>
+
+  <g fill="#eaf1ff" stroke="#222" stroke-width="1.6">
+    <rect x="902" y="310" width="138" height="84" rx="8"/>
+    <rect x="1052" y="310" width="138" height="84" rx="8"/>
+    <rect x="440" y="524" width="360" height="170" rx="8"/>
+  </g>
+
+  <g fill="#f4f4f4" stroke="#222" stroke-width="1.6">
+    <rect x="40" y="524" width="360" height="170" rx="8"/>
+    <rect x="840" y="524" width="360" height="170" rx="8"/>
+  </g>
+
+  <g fill="none" stroke="#222" stroke-width="1.6">
+    <line x1="220" y1="162" x2="264" y2="162" marker-end="url(#arrow)"/>
+    <line x1="220" y1="250" x2="264" y2="250" marker-end="url(#arrow)"/>
+    <line x1="382" y1="280" x2="382" y2="296" marker-end="url(#arrow)"/>
+    <line x1="638" y1="280" x2="638" y2="296" marker-end="url(#arrow)"/>
+    <line x1="776" y1="172" x2="882" y2="172" marker-start="url(#arrow-start)" marker-end="url(#arrow)"/>
+    <line x1="1046" y1="196" x2="1046" y2="212" marker-end="url(#arrow)"/>
+    <line x1="972" y1="286" x2="972" y2="306" marker-end="url(#arrow)"/>
+    <line x1="1120" y1="286" x2="1120" y2="306" marker-end="url(#arrow)"/>
+  </g>
+
+  <line x1="512" y1="202" x2="512" y2="266" stroke="#bdbdbd" stroke-width="1.2"/>
+
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="40" y="42" font-size="19" font-weight="600" fill="#111">Knot 节点的部署与数据位置</text>
+    <text x="40" y="66" font-size="12.5" fill="#333">两个入口：人的浏览器，和人的 Agent。两条都只连入口主机，数据都只在实例机。</text>
+  </g>
+
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
+    <text x="130" y="148" font-size="15" font-weight="600" fill="#111">读者</text>
+    <text x="130" y="172" font-size="12.5" fill="#111">浏览器 · WebUI</text>
+    <text x="130" y="192" font-size="11" fill="#555">读页面、快照</text>
+
+    <text x="130" y="266" font-size="14" font-weight="600" fill="#111">读者的 Agent</text>
+    <text x="130" y="290" font-size="12.5" fill="#111">程序 / AI 助手</text>
+    <text x="130" y="314" font-size="11" fill="#555">只调 /api/agent/*</text>
+    <text x="130" y="336" font-size="11" fill="#555">没有快照，每次回源</text>
+
+    <text x="252" y="128" font-size="13" font-weight="600" fill="#111" text-anchor="start">入口主机 · 新加坡</text>
+    <text x="512" y="172" font-size="14" font-weight="600" fill="#111">入口 nginx</text>
+    <text x="512" y="192" font-size="12" fill="#333">443 · HTTP/2 · gzip</text>
+
+    <text x="390" y="224" font-size="11.5" fill="#333">页面 / 快照 / 图片</text>
+    <text x="390" y="246" font-size="11" fill="#555">命中就直出</text>
+    <text x="634" y="224" font-size="11.5" fill="#333">/api/web/* · /api/agent/*</text>
+    <text x="634" y="246" font-size="11" fill="#555">一律回源</text>
+
+    <text x="382" y="324" font-size="13" font-weight="600" fill="#111">磁盘副本</text>
+    <text x="382" y="348" font-size="12" fill="#333">/var/www/wang</text>
+    <text x="382" y="368" font-size="11.5" fill="#333">web/dist · discover.json</text>
+    <text x="382" y="388" font-size="11" fill="#555">由推送脚本写入</text>
+
+    <text x="638" y="324" font-size="13" font-weight="600" fill="#111">图片缓存</text>
+    <text x="638" y="348" font-size="12" fill="#333">/var/cache/nginx/…</text>
+    <text x="638" y="368" font-size="11.5" fill="#333">knot_uploads · 2g</text>
+    <text x="638" y="388" font-size="11" fill="#555">读者看过才形成</text>
+
+    <text x="829" y="134" font-size="12" font-weight="600" fill="#111">SSH 反向隧道</text>
+    <text x="829" y="152" font-size="10.5" fill="#555">127.0.0.1:18080</text>
+    <text x="829" y="196" font-size="10.5" fill="#555">一次往返约 0.9 s</text>
+
+    <text x="886" y="128" font-size="13" font-weight="600" fill="#111" text-anchor="start">实例主机 · 你的机器</text>
+    <text x="1046" y="162" font-size="13" font-weight="600" fill="#111">隧道端点（入口侧）</text>
+    <text x="1046" y="182" font-size="12" fill="#333">127.0.0.1:18080</text>
+
+    <text x="1046" y="244" font-size="14" font-weight="600" fill="#111">Knot Backend</text>
+    <text x="1046" y="268" font-size="11.5" fill="#333">Express · 接口 · 快照组装</text>
+
+    <text x="971" y="334" font-size="13" font-weight="600" fill="#111">Postgres</text>
+    <text x="971" y="356" font-size="12" fill="#111">唯一一份</text>
+    <text x="971" y="376" font-size="11" fill="#333">帖子 · 账号</text>
+
+    <text x="1121" y="334" font-size="13" font-weight="600" fill="#111">上传原件</text>
+    <text x="1121" y="356" font-size="12" fill="#111">唯一一份</text>
+    <text x="1121" y="376" font-size="11" fill="#333">原图 · 视频</text>
+
+    <text x="40" y="506" font-size="16" font-weight="600" fill="#111" text-anchor="start">同一个节点，三处各存什么</text>
+
+    <text x="220" y="556" font-size="14" font-weight="600" fill="#111">入口主机 · 新加坡</text>
+    <text x="220" y="584" font-size="12" fill="#333">web/dist 一份</text>
+    <text x="220" y="606" font-size="12" fill="#333">discover.json 一份</text>
+    <text x="220" y="628" font-size="12" fill="#333">图片缓存：只有被看过的</text>
+    <text x="220" y="656" font-size="11.5" fill="#555">丢了能重推、能重新攒</text>
+
+    <text x="620" y="556" font-size="14" font-weight="600" fill="#111">实例机 · 你的机器</text>
+    <text x="620" y="584" font-size="12" fill="#333">Postgres：全部记录</text>
+    <text x="620" y="606" font-size="12" fill="#333">上传原件：全部图片视频</text>
+    <text x="620" y="630" font-size="12" font-weight="600" fill="#111">不在别处留第二份</text>
+    <text x="620" y="658" font-size="11.5" fill="#555">入口读不到才穿隧道来取</text>
+
+    <text x="1020" y="556" font-size="14" font-weight="600" fill="#111">联邦中枢 xknot.si</text>
+    <text x="1020" y="584" font-size="12" fill="#333">instances.json：网址与状态</text>
+    <text x="1020" y="606" font-size="12" fill="#333">wang · cpswang</text>
+    <text x="1020" y="628" font-size="12" fill="#333">不存帖子，不存图片</text>
+    <text x="1020" y="656" font-size="11.5" fill="#555">节点之间也不同步内容</text>
+
+    <text x="620" y="726" font-size="12" fill="#333">实例机是唯一数据源；入口机上的文件与缓存都是它的副本。</text>
+    <text x="620" y="750" font-size="11.5" fill="#555">Agent 与网页共用同一条隧道、同一份图片缓存，区别只在于拿不拿得到快照。</text>
+  </g>
+
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="start" font-size="11.5" fill="#333">
+    <text x="268" y="426">页面与快照是磁盘文件，不穿隧道。</text>
+    <text x="268" y="448">/api/* 没有磁盘副本，每次都要等隧道回话。</text>
+    <text x="902" y="426">Agent 打的是同一台 Backend。</text>
+    <text x="902" y="448">令牌只换出账号，不另开数据。</text>
+  </g>
+</svg>

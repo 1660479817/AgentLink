@@ -12,7 +12,7 @@ const AUTHOR = "33333333-3333-4333-8333-333333333333";
 test("a public card keeps the author account id", () => {
   const card = presentIntel({
     id: "post",
-    user_id: AUTHOR,
+    account_id: AUTHOR,
     display_name: "甲",
     avatar_upload_id: null,
     body: "原文",
@@ -27,7 +27,7 @@ test("a public card keeps the author account id", () => {
   });
   assert.equal(card.author.id, AUTHOR);
   assert.equal(card.author.name, "甲");
-  assert.equal(card.user_id, undefined);
+  assert.equal(card.account_id, undefined);
 });
 
 test("an author filter narrows the public feed by account, then time", async () => {
@@ -39,7 +39,7 @@ test("an author filter narrows the public feed by account, then time", async () 
     },
   };
   await listPublicIntel(pool, 30, null, AUTHOR);
-  assert.match(calls[0].sql, /AND i\.user_id = \$2/);
+  assert.match(calls[0].sql, /AND i\.account_id = \$2/);
   assert.match(calls[0].sql, /ORDER BY i\.created_at DESC, i\.weight DESC, i\.id DESC LIMIT \$3/);
   assert.deepEqual(calls[0].params, [null, AUTHOR, 30]);
 });
@@ -228,12 +228,12 @@ test("the same review failure is told once, and a new one is told again", async 
   let detail = null;
   const pool = {
     async query(sql, params) {
-      if (sql.includes("SELECT user_id, verdict, detail")) {
-        return { rows: [{ user_id: userId, verdict: "pending", detail }] };
+      if (sql.includes("SELECT account_id, verdict, detail")) {
+        return { rows: [{ account_id: userId, verdict: "pending", detail }] };
       }
       if (sql.includes("UPDATE intel")) {
         detail = { reviewError: JSON.parse(params[1]).reviewError };
-        return { rows: [{ user_id: userId }] };
+        return { rows: [{ account_id: userId }] };
       }
       if (sql.includes("INSERT INTO notifications")) {
         notes.push(params);
@@ -257,8 +257,8 @@ test("the same review failure is told once, and a new one is told again", async 
 test("a finished record does not get a review-failure notice", async () => {
   const pool = {
     async query(sql) {
-      if (sql.includes("SELECT user_id, verdict, detail")) {
-        return { rows: [{ user_id: "u", verdict: "passed", detail: null }] };
+      if (sql.includes("SELECT account_id, verdict, detail")) {
+        return { rows: [{ account_id: "u", verdict: "passed", detail: null }] };
       }
       throw new Error("unexpected");
     },
@@ -361,7 +361,7 @@ test("reopening a sale resets its expiry to the platform hours", async () => {
         updates.push(params);
         return { rows: [] };
       }
-      if (sql.includes("AND i.user_id = $2")) {
+      if (sql.includes("AND i.account_id = $2")) {
         return { rows: [{ id: intelId }] };
       }
       return { rows: [] };
@@ -393,8 +393,8 @@ test("deleting a post keeps the row and takes the whole revision chain down", as
   const pool = {
     async query(sql, params) {
       calls.push({ sql, params });
-      if (sql.includes("SELECT id, user_id, kind, origin_id, verdict")) {
-        return { rows: [{ id: POST_V2, user_id: AUTHOR, kind: "post", origin_id: POST_ORIGIN, verdict: "passed" }] };
+      if (sql.includes("SELECT id, account_id, kind, origin_id, verdict")) {
+        return { rows: [{ id: POST_V2, account_id: AUTHOR, kind: "post", origin_id: POST_ORIGIN, verdict: "passed" }] };
       }
       if (sql.includes("UPDATE intel")) return { rows: [{ id: POST_V1 }, { id: POST_V2 }] };
       return { rows: [] };
@@ -412,8 +412,8 @@ test("deleting a post keeps the row and takes the whole revision chain down", as
 test("deleting is quiet for someone else's post, another kind, or an already deleted one", async () => {
   const other = {
     async query(sql) {
-      if (sql.includes("SELECT id, user_id, kind, origin_id, verdict")) {
-        return { rows: [{ id: POST_V2, user_id: "22222222-2222-4222-8222-222222222222", kind: "post", origin_id: null, verdict: "passed" }] };
+      if (sql.includes("SELECT id, account_id, kind, origin_id, verdict")) {
+        return { rows: [{ id: POST_V2, account_id: "22222222-2222-4222-8222-222222222222", kind: "post", origin_id: null, verdict: "passed" }] };
       }
       throw new Error("should not update");
     },
@@ -422,8 +422,8 @@ test("deleting is quiet for someone else's post, another kind, or an already del
 
   const wish = {
     async query(sql) {
-      if (sql.includes("SELECT id, user_id, kind, origin_id, verdict")) {
-        return { rows: [{ id: POST_V2, user_id: AUTHOR, kind: "wish", origin_id: null, verdict: "passed" }] };
+      if (sql.includes("SELECT id, account_id, kind, origin_id, verdict")) {
+        return { rows: [{ id: POST_V2, account_id: AUTHOR, kind: "wish", origin_id: null, verdict: "passed" }] };
       }
       throw new Error("should not update");
     },
@@ -432,8 +432,8 @@ test("deleting is quiet for someone else's post, another kind, or an already del
 
   const gone = {
     async query(sql) {
-      if (sql.includes("SELECT id, user_id, kind, origin_id, verdict")) {
-        return { rows: [{ id: POST_V2, user_id: AUTHOR, kind: "post", origin_id: null, verdict: "removed" }] };
+      if (sql.includes("SELECT id, account_id, kind, origin_id, verdict")) {
+        return { rows: [{ id: POST_V2, account_id: AUTHOR, kind: "post", origin_id: null, verdict: "removed" }] };
       }
       if (sql.includes("UPDATE intel")) return { rows: [] };
       throw new Error(sql);

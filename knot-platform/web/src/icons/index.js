@@ -202,7 +202,7 @@ export const CopyIcon = knotIcon([
   h("rect", { x: 9, y: 9, width: 11, height: 11, rx: 2 }),
   h("path", { d: "M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" }),
 ]);
-// 站内说明：Agent 接入文档由 Backend 直接发在 /help，不在 SPA 路由里。
+// 说明文档：Agent 接入说明在联邦中枢（session.agentDoc），不在 SPA 路由里。
 export const HelpIcon = knotIcon([
   h("circle", { cx: 12, cy: 12, r: 8 }),
   h("path", { d: "M9.7 9.4a2.4 2.4 0 0 1 4.6.9c0 1.7-2.3 1.9-2.3 3.6" }),

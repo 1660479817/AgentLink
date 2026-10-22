@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
-import { honorList, muteState, specialtyList, storedSpecialties } from "./account.js";
-import { ensureInternalAgent, internalAgentName, writeAgentEnvFile } from "./internalAgent.js";
+import { honorList, muteState, specialtyList, storedSpecialties, displayNameText, AGENT_LIMIT, USER_LIMIT } from "./account.js";
+import { createAgent, findAgentsOf, mapAgentError, removeAgentEnvFile, retireAgent, reviveAgent, writeAgentEnvFile } from "./agentAccount.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { discardExtract } from "./extracts.js";
 import { recordNotification } from "./notifications.js";
@@ -14,7 +14,7 @@ const LEVEL_MAX = 100;
 const HONOR_MAX = 8;
 const HONOR_NAME = 20;
 const MUTE_FOREVER = new Date(Date.UTC(9999, 11, 31));
-const ACCOUNT_COLUMNS = `id, email, display_name, label, side, level, entitlements, points_balance, muted_until`;
+const ACCOUNT_COLUMNS = `id, role, side, email, display_name, owner_id, label, level, entitlements, points_balance, muted_until, specialties, retired_at`;
 const RECENT_LIMIT = 30;
 const WINDOW_LIMIT = 200;
 const WITHIN_MAX_HOURS = 24 * 366;
@@ -87,15 +87,20 @@ function presentAccount(row) {
   const mute = muteState(row.muted_until);
   return {
     id: row.id,
-    email: row.email,
+    role: row.role,
+    side: row.side || null,
+    ownerId: row.owner_id || null,
+    email: row.email || null,
     displayName: row.display_name || "",
     label: row.label || "",
-    side: row.side || "external",
     level: row.level ?? 1,
     entitlements: honorList(row.entitlements),
     pointsBalance: row.points_balance ?? 0,
     muted: mute.muted,
     mutedUntil: mute.mutedUntil,
+    specialties: storedSpecialties(row.specialties),
+    retired: Boolean(row.retired_at),
+    retiredAt: row.retired_at || null,
   };
 }
 
@@ -114,14 +119,14 @@ export async function findUsers(pool, query) {
   if (!q) throw fail("bad_user");
   if (UUID.test(q)) {
     const { rows } = await pool.query(
-      `SELECT ${ACCOUNT_COLUMNS} FROM users WHERE id = $1`,
+      `SELECT ${ACCOUNT_COLUMNS} FROM accounts WHERE id = $1`,
       [q]
     );
     return rows;
   }
   const { rows } = await pool.query(
     `SELECT ${ACCOUNT_COLUMNS}
-     FROM users
+     FROM accounts
      WHERE lower(email) = lower($1) OR lower(btrim(display_name)) = lower(btrim($1))
      ORDER BY created_at ASC
      LIMIT 6`,
@@ -141,51 +146,109 @@ function presentIssued(row) {
   return { ...presentAccount(row), specialties: storedSpecialties(row.specialties) };
 }
 
+// 内部 Agent 只能挂在主理人名下，最多 10 个。名额由库里的触发器守，这里把错误翻成接口错误。
+// 同名再签发是幂等的：在岗的直接返回它现在这一行（令牌不变）；停用过的用新令牌复起。
 export async function issueInternalAgent(pool, name, options = {}) {
-  if (!internalAgentName(name)) throw fail("bad_name");
+  const displayName = displayNameText(name);
   const specialties = Object.hasOwn(options, "specialties") ? specialtyList(options.specialties) : null;
   const envDir = String(options.envDir || "").trim();
   if (!envDir) throw fail("env_unconfigured");
   const writeEnv = options.writeEnv || writeAgentEnvFile;
-  const issued = await ensureInternalAgent(pool, name);
-  if (issued.created && specialties) {
-    await pool.query(
-      `UPDATE users SET specialties = $2::jsonb, updated_at = now() WHERE id = $1`,
-      [issued.userId, JSON.stringify(specialties)]
-    );
-  }
-  let envFile = null;
-  if (issued.token) {
-    try {
-      envFile = await writeEnv(envDir, issued);
-    } catch {
-      try {
-        await pool.query(`DELETE FROM delegations WHERE user_id = $1`, [issued.userId]);
-        if (issued.created) await pool.query(`DELETE FROM users WHERE id = $1`, [issued.userId]);
-      } catch (rollbackError) {
-        console.error(rollbackError);
-      }
-      throw fail("env_failed");
-    }
-    const note = specialties?.length ? `签发 ${issued.displayName}。特长 ${specialties.join("、")}` : `签发 ${issued.displayName}`;
-    await pool.query(
-      `INSERT INTO admin_actions (action, user_id, body) VALUES ('issue', $1, $2)`,
-      [issued.userId, note]
-    );
-  }
-  const { rows } = await pool.query(
-    `SELECT ${ACCOUNT_COLUMNS}, specialties FROM users WHERE id = $1`,
-    [issued.userId]
+
+  const owner = await pool.query(`SELECT id FROM accounts WHERE role = 'owner' LIMIT 1`);
+  const ownerId = owner.rows[0]?.id;
+  if (!ownerId) throw fail("owner_unconfigured");
+
+  const found = await pool.query(
+    `SELECT ${ACCOUNT_COLUMNS} FROM accounts WHERE lower(btrim(display_name)) = lower(btrim($1))`,
+    [displayName]
   );
+  const existing = found.rows[0];
+  if (existing && (existing.role !== "agent" || existing.owner_id !== ownerId)) throw fail("name_taken");
+  if (existing && !existing.retired_at) {
+    return { ok: true, created: false, issued: false, already: true, envFile: null, agent: presentIssued(existing) };
+  }
+
+  let issued;
+  try {
+    issued = existing
+      ? await reviveAgent(pool, existing.id, specialties)
+      : await createAgent(pool, { ownerId, name: displayName, specialties });
+  } catch (error) {
+    throw mapAgentError(error) || error;
+  }
+  issued.ownerId = ownerId;
+
+  let envFile = null;
+  try {
+    envFile = await writeEnv(envDir, issued);
+  } catch {
+    // 授权码文件没写成，这次签发就当没发生。新建的删掉；复起的退回停用，令牌作废。
+    if (existing) {
+      await retireAgent(pool, existing.id).catch((error) => console.error(error));
+    } else {
+      await pool.query(`DELETE FROM accounts WHERE id = $1`, [issued.id]).catch((error) => console.error(error));
+    }
+    throw fail("env_failed");
+  }
+
+  const note = specialties?.length
+    ? `签发 ${issued.displayName}。特长 ${specialties.join("、")}`
+    : `签发 ${issued.displayName}`;
+  await pool.query(`INSERT INTO admin_actions (action, account_id, body) VALUES ('issue', $1, $2)`, [
+    issued.id,
+    note,
+  ]);
+  const { rows } = await pool.query(`SELECT ${ACCOUNT_COLUMNS} FROM accounts WHERE id = $1`, [issued.id]);
   if (!rows.length) throw fail("not_found");
+  return { ok: true, created: !existing, issued: true, already: false, envFile, agent: presentIssued(rows[0]) };
+}
+
+// 管理端看到的 Agent 配额：内部 Agent 与每个外部账号的那一个。
+export async function listAgents(pool) {
+  const owner = await pool.query(`SELECT id FROM accounts WHERE role = 'owner' LIMIT 1`);
+  const ownerId = owner.rows[0]?.id || null;
+  const agents = ownerId ? await findAgentsOf(pool, ownerId, { includeRetired: true }) : [];
+  const users = await pool.query(
+    `SELECT count(*)::int AS users FROM accounts WHERE role = 'user' AND retired_at IS NULL AND label IS NULL`
+  );
   return {
-    ok: true,
-    created: issued.created,
-    issued: Boolean(issued.token),
-    already: !issued.token,
-    envFile,
-    user: presentIssued(rows[0]),
+    ownerId,
+    internalLimit: AGENT_LIMIT.owner,
+    internalUsed: agents.filter((agent) => !agent.retired_at).length,
+    userLimit: USER_LIMIT,
+    userUsed: Number(users.rows[0]?.users) || 0,
+    agents: agents.map((agent) => ({
+      id: agent.id,
+      displayName: agent.display_name,
+      createdAt: agent.created_at,
+      hasToken: agent.has_token,
+      retiredAt: agent.retired_at || null,
+    })),
   };
+}
+
+export async function retireInternalAgent(pool, id, reason, options = {}) {
+  if (!UUID.test(String(id || ""))) throw fail("not_found");
+  const text = requireText(reason, REASON_MAX, "bad_body");
+  const { rows } = await pool.query(
+    `SELECT a.id, a.display_name, o.role AS owner_role
+       FROM accounts a JOIN accounts o ON o.id = a.owner_id
+      WHERE a.id = $1 AND a.role = 'agent' AND a.retired_at IS NULL`,
+    [id]
+  );
+  const agent = rows[0];
+  if (!agent) throw fail("not_found");
+  if (agent.owner_role !== "owner") throw fail("not_internal");
+  await retireAgent(pool, id);
+  // 库里的令牌已经清空，磁盘上那份授权码也一起带走，别让人拿着死码去接。
+  if (options.envDir) {
+    await removeAgentEnvFile(options.envDir, { id, displayName: agent.display_name }).catch((error) =>
+      console.error(error)
+    );
+  }
+  await writeAction(pool, { action: "retire", accountId: id, body: `停用 ${agent.display_name}。${text}` });
+  return { ok: true, id };
 }
 
 export async function searchUsers(pool, query) {
@@ -197,7 +260,7 @@ export async function searchUsers(pool, query) {
   }
   const { rows } = await pool.query(
     `SELECT ${ACCOUNT_COLUMNS}
-     FROM users
+     FROM accounts
      WHERE email ILIKE $1 OR display_name ILIKE $1 OR label = $2
      ORDER BY created_at DESC
      LIMIT 20`,
@@ -224,7 +287,7 @@ export async function listPosts(pool, { user, q, within }) {
   const params = [account.id];
   let sql = `SELECT id, body, verdict, is_public, created_at, count(*) OVER () AS total
              FROM intel
-             WHERE user_id = $1`;
+             WHERE account_id = $1`;
   if (window) {
     params.push(window.hours);
     sql += ` AND created_at >= now() - make_interval(hours => $${params.length}::int)`;
@@ -244,10 +307,10 @@ export async function listPosts(pool, { user, q, within }) {
   };
 }
 
-async function writeAction(pool, { action, userId = null, intelId = null, body, actorId = null }) {
+async function writeAction(pool, { action, accountId = null, intelId = null, body, actorId = null }) {
   await pool.query(
-    `INSERT INTO admin_actions (action, user_id, intel_id, body, actor_id) VALUES ($1, $2, $3, $4, $5)`,
-    [action, userId, intelId, body, actorId]
+    `INSERT INTO admin_actions (action, account_id, intel_id, body, actor_account_id) VALUES ($1, $2, $3, $4, $5)`,
+    [action, accountId, intelId, body, actorId]
   );
 }
 
@@ -258,7 +321,7 @@ export async function removePost(pool, id, reason, actorId = null) {
     `UPDATE intel
      SET verdict = 'removed', reject_reason = $2, is_public = false
      WHERE id = $1 AND verdict <> 'removed'
-     RETURNING id, user_id`,
+     RETURNING id, account_id`,
     [id, text]
   );
   if (!rows.length) {
@@ -268,15 +331,15 @@ export async function removePost(pool, id, reason, actorId = null) {
   }
   await discardExtract(id);
   await recordNotification(pool, {
-    userId: rows[0].user_id,
+    userId: rows[0].account_id,
     kind: "intel_removed",
     title: "帖子已删除",
     body: text,
     href: "/mine/submissions",
   });
-  await writeAction(pool, { action: "remove", userId: rows[0].user_id, intelId: id, body: text, actorId });
+  await writeAction(pool, { action: "remove", accountId: rows[0].account_id, intelId: id, body: text, actorId });
   touchDiscoverBoard();
-  return { ok: true, already: false, id, userId: rows[0].user_id };
+  return { ok: true, already: false, id, userId: rows[0].account_id };
 }
 
 export function grantAmount(value) {
@@ -291,12 +354,13 @@ export async function grantPoints(pool, user, amount, body) {
   const points = grantAmount(amount);
   const text = requireText(body, REASON_MAX, "bad_body");
   const account = await oneUser(pool, user);
+  assertPersonAccount(account);
   const note = `到账 ${points}。${text}`;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const action = await client.query(
-      `INSERT INTO admin_actions (action, user_id, body) VALUES ('grant', $1, $2) RETURNING id`,
+      `INSERT INTO admin_actions (action, account_id, body) VALUES ('grant', $1, $2) RETURNING id`,
       [account.id, note]
     );
     const balance = await applyPoints(client, {
@@ -349,12 +413,18 @@ async function withClient(pool, run) {
   }
 }
 
-function assertPerson(account) {
-  if (account.label === "platform") throw fail("protected");
+function assertNotPlatform(account) {
+  if (account.role === "platform") throw fail("protected");
+}
+
+// 等级与权益是人的东西。Agent 不带等级、不带权益，也不收积分。
+function assertPersonAccount(account) {
+  assertNotPlatform(account);
+  if (account.role === "agent") throw fail("not_account");
 }
 
 async function lockAccount(client, id) {
-  const { rows } = await client.query(`SELECT ${ACCOUNT_COLUMNS} FROM users WHERE id = $1 FOR UPDATE`, [id]);
+  const { rows } = await client.query(`SELECT ${ACCOUNT_COLUMNS} FROM accounts WHERE id = $1 FOR UPDATE`, [id]);
   if (!rows.length) throw fail("not_found");
   return rows[0];
 }
@@ -382,17 +452,17 @@ export async function muteUser(pool, user, until, body) {
   const deadline = muteDeadline(until);
   const text = requireText(body, REASON_MAX, "bad_body");
   const account = await oneUser(pool, user);
-  assertPerson(account);
+  assertNotPlatform(account);
   const note = muteNote(deadline, text);
   return withClient(pool, async (client) => {
     const locked = await lockAccount(client, account.id);
-    assertPerson(locked);
+    assertNotPlatform(locked);
     const { rows } = await client.query(
-      `UPDATE users SET muted_until = $2, updated_at = now() WHERE id = $1 RETURNING ${ACCOUNT_COLUMNS}`,
+      `UPDATE accounts SET muted_until = $2, updated_at = now() WHERE id = $1 RETURNING ${ACCOUNT_COLUMNS}`,
       [locked.id, deadline]
     );
     await client.query(
-      `INSERT INTO admin_actions (action, user_id, body) VALUES ('mute', $1, $2)`,
+      `INSERT INTO admin_actions (action, account_id, body) VALUES ('mute', $1, $2)`,
       [locked.id, note]
     );
     await recordNotification(client, {
@@ -409,18 +479,18 @@ export async function muteUser(pool, user, until, body) {
 export async function unmuteUser(pool, user, body) {
   const text = requireText(body, REASON_MAX, "bad_body");
   const account = await oneUser(pool, user);
-  assertPerson(account);
+  assertNotPlatform(account);
   if (!muteState(account.muted_until).muted) return { ok: true, already: true, user: presentAccount(account) };
   return withClient(pool, async (client) => {
     const locked = await lockAccount(client, account.id);
-    assertPerson(locked);
+    assertNotPlatform(locked);
     if (!muteState(locked.muted_until).muted) return { ok: true, already: true, user: presentAccount(locked) };
     const { rows } = await client.query(
-      `UPDATE users SET muted_until = NULL, updated_at = now() WHERE id = $1 RETURNING ${ACCOUNT_COLUMNS}`,
+      `UPDATE accounts SET muted_until = NULL, updated_at = now() WHERE id = $1 RETURNING ${ACCOUNT_COLUMNS}`,
       [locked.id]
     );
     await client.query(
-      `INSERT INTO admin_actions (action, user_id, body) VALUES ('unmute', $1, $2)`,
+      `INSERT INTO admin_actions (action, account_id, body) VALUES ('unmute', $1, $2)`,
       [locked.id, text]
     );
     await recordNotification(client, {
@@ -458,10 +528,10 @@ export async function setEntitlements(pool, user, grant, revoke, body) {
   if (!adding.length && !removing.length) throw fail("bad_entitlement");
   if (adding.some((name) => removing.includes(name))) throw fail("bad_entitlement");
   const account = await oneUser(pool, user);
-  assertPerson(account);
+  assertPersonAccount(account);
   return withClient(pool, async (client) => {
     const locked = await lockAccount(client, account.id);
-    assertPerson(locked);
+    assertPersonAccount(locked);
     const current = honorList(locked.entitlements);
     const granted = adding.filter((name) => !current.includes(name));
     const revoked = removing.filter((name) => current.includes(name));
@@ -469,7 +539,7 @@ export async function setEntitlements(pool, user, grant, revoke, body) {
     const next = [...current.filter((name) => !revoked.includes(name)), ...granted];
     if (next.length > HONOR_MAX) throw fail("entitlement_full");
     const { rows } = await client.query(
-      `UPDATE users
+      `UPDATE accounts
        SET entitlements = jsonb_set(COALESCE(entitlements, '{}'::jsonb), '{honors}', $2::jsonb, true),
            updated_at = now()
        WHERE id = $1
@@ -481,7 +551,7 @@ export async function setEntitlements(pool, user, grant, revoke, body) {
     if (revoked.length) parts.push(`收回 ${revoked.join("、")}`);
     const note = `${parts.join("。")}。${text}`;
     await client.query(
-      `INSERT INTO admin_actions (action, user_id, body) VALUES ('entitle', $1, $2)`,
+      `INSERT INTO admin_actions (action, account_id, body) VALUES ('entitle', $1, $2)`,
       [locked.id, note]
     );
     await recordNotification(client, {
@@ -507,19 +577,19 @@ export async function setLevel(pool, user, level, body) {
   const next = accountLevel(level);
   const text = requireText(body, REASON_MAX, "bad_body");
   const account = await oneUser(pool, user);
-  assertPerson(account);
+  assertPersonAccount(account);
   if (account.level === next) return { ok: true, already: true, user: presentAccount(account) };
   const note = `现在是 ${next}。${text}`;
   return withClient(pool, async (client) => {
     const locked = await lockAccount(client, account.id);
-    assertPerson(locked);
+    assertPersonAccount(locked);
     if (locked.level === next) return { ok: true, already: true, user: presentAccount(locked) };
     const { rows } = await client.query(
-      `UPDATE users SET level = $2, updated_at = now() WHERE id = $1 RETURNING ${ACCOUNT_COLUMNS}`,
+      `UPDATE accounts SET level = $2, updated_at = now() WHERE id = $1 RETURNING ${ACCOUNT_COLUMNS}`,
       [locked.id, next]
     );
     await client.query(
-      `INSERT INTO admin_actions (action, user_id, body) VALUES ('level', $1, $2)`,
+      `INSERT INTO admin_actions (action, account_id, body) VALUES ('level', $1, $2)`,
       [locked.id, note]
     );
     await recordNotification(client, {
@@ -542,15 +612,15 @@ export async function warnUser(pool, user, body) {
     title: "平台警告",
     body: text,
   });
-  await writeAction(pool, { action: "warn", userId: account.id, body: text });
+  await writeAction(pool, { action: "warn", accountId: account.id, body: text });
   return { ok: true, user: presentAccount(account) };
 }
 
 export async function patrolQueue(pool) {
   const { rows } = await pool.query(
-    `SELECT i.id, i.body, i.created_at, u.id AS user_id, u.email, u.display_name
+    `SELECT i.id, i.body, i.created_at, u.id AS account_id, u.email, u.display_name
      FROM intel i
-     JOIN users u ON u.id = i.user_id
+     JOIN accounts u ON u.id = i.account_id
      WHERE i.verdict = 'passed'
        AND i.is_public
        AND i.created_at > COALESCE(
@@ -566,7 +636,7 @@ export async function patrolQueue(pool) {
       body: clipText(row.body, 400),
       createdAt: row.created_at,
       user: {
-        id: row.user_id,
+        id: row.account_id,
         email: row.email,
         displayName: row.display_name || "",
       },

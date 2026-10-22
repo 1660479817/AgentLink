@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updatedAt": "2026-10-21",
+  "version": 2,
+  "updatedAt": "2026-10-22",
   "hub": "xknot.si",
   "members": [
     {
@@ -15,20 +15,6 @@
       "listed": true,
       "since": "2026-10-19",
       "note": "XKnot 项目创始人的实例，永久账号，不适用下架。",
-      "mode": "subdomain"
-    },
-    {
-      "id": "zjj",
-      "host": "zjj.xknot.si",
-      "role": "partner",
-      "standing": "regular",
-      "tunnel": {
-        "account": "knot-tunnel-zjj",
-        "port": 18081
-      },
-      "listed": true,
-      "since": "2026-10-19",
-      "note": "子域已签发；隧道账号与 /api 反代待接通，待接通前不探测。",
       "mode": "subdomain"
     },
     {

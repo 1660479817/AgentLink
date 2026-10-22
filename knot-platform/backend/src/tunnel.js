@@ -160,10 +160,7 @@ export async function applyManagedBlock({ file, block } = {}) {
  * 把命令交给调用方显示，人照着跑一次即可。
  */
 export async function restartTunnel({ exec = execFileAsync, platform = process.platform } = {}) {
-  const attempts =
-    platform === "darwin"
-      ? [["launchctl", ["kickstart", "-k", `gui/${process.getuid?.() ?? 501}/com.knot.entry-tunnel`]]]
-      : [["systemctl", ["restart", "knot-entry-tunnel"]]];
+  const attempts = tunnelUnitAttempts(platform);
   for (const [cmd, args] of attempts) {
     try {
       await exec(cmd, args);
@@ -173,6 +170,42 @@ export async function restartTunnel({ exec = execFileAsync, platform = process.p
     }
   }
   return { ok: false, command: attempts[0] ? `${attempts[0][0]} ${attempts[0][1].join(" ")}` : "" };
+}
+
+function tunnelUnitAttempts(platform = process.platform) {
+  const uid = process.getuid?.() ?? 501;
+  return platform === "darwin"
+    ? [["launchctl", ["kickstart", "-k", `gui/${uid}/com.knot.entry-tunnel`]]]
+    : [["systemctl", ["restart", "knot-entry-tunnel"]]];
+}
+
+/** 隧道有没有常驻单元。只探测，不动进程：要的是能在回包之前说真话。 */
+export async function tunnelUnitInstalled({ exec = execFileAsync, platform = process.platform } = {}) {
+  const uid = process.getuid?.() ?? 501;
+  const probe =
+    platform === "darwin"
+      ? ["launchctl", ["print", `gui/${uid}/com.knot.entry-tunnel`]]
+      : ["systemctl", ["cat", "knot-entry-tunnel"]];
+  try {
+    await exec(probe[0], probe[1]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 延迟重启隧道。
+ *
+ * 管理页很可能就是经这条隧道进来的：在请求里重启，等于把回包连着自己一起掐掉，
+ * 浏览器只会看到一个 502。所以先让响应写完，再换隧道。
+ */
+export function scheduleTunnelRestart({ delayMs = 700, restart = startTunnelAgent } = {}) {
+  const timer = setTimeout(() => {
+    void restart().catch(() => {});
+  }, delayMs);
+  timer.unref?.();
+  return timer;
 }
 
 const PLIST_LABEL = "com.knot.entry-tunnel";

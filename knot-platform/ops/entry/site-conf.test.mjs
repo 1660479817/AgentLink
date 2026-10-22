@@ -57,7 +57,8 @@ test("缓存区单独成一份，同一台入口主机只声明一次", () => {
 test("static 投放：发现页快照先看磁盘，缺了才回源", () => {
   const text = render({ KNOT_ENTRY_STATIC: "1" });
   assert.match(text, /location = \/discover\.json \{[\s\S]*?try_files \/discover\.json @knot_origin;/);
-  assert.match(text, /Cache-Control "public, max-age=0, must-revalidate"/);
+  // 首屏直接读快照：允许浏览器用 30 秒内的副本，不为校验再走一次跨境往返。
+  assert.match(text, /Cache-Control "public, max-age=30, stale-while-revalidate=300"/);
 });
 
 test("两种投放都保留管理接口、管理后台 404 与 ACME 目录", () => {
@@ -70,6 +71,16 @@ test("两种投放都保留管理接口、管理后台 404 与 ACME 目录", () 
   }
 });
 
+test("入口不为 /help 单独回源，它和任何不存在的路径一样走 SPA 兜底", () => {
+  for (const flag of ["1", ""]) {
+    const text = render({ KNOT_ENTRY_STATIC: flag });
+    // Agent 指引在中枢（xknot.si/knot-help）。入口只转运 /api 与静态站：
+    // 给 /help 留一条回源，就是每次白穿一次隧道去取一个不存在的页面。
+    assert.doesNotMatch(text, /location = \/help\b/);
+    assert.doesNotMatch(text, /\bhelpPage\b|knot-help\.md/);
+  }
+});
+
 test("两种投放都开 gzip，且只压文本类", () => {
   for (const flag of ["1", ""]) {
     const text = render({ KNOT_ENTRY_STATIC: flag });
@@ -79,8 +90,8 @@ test("两种投放都开 gzip，且只压文本类", () => {
     assert.match(text, /^\s*gzip_proxied any;$/m);
     assert.match(text, /gzip_types[^;]*application\/json/);
     assert.match(text, /gzip_types[^;]*text\/css/);
-    // /help 走 text/markdown，不列进来就一点不压。
-    assert.match(text, /gzip_types[^;]*text\/markdown/);
+    // 入口不发文档（Agent 指引在中枢 xknot.si/knot-help），没有 markdown 可压。
+    assert.doesNotMatch(text, /^\s*gzip_types[^;\n]*text\/markdown/m);
     // 图片与字体已经压过，不要再走一遍。
     assert.doesNotMatch(text, /gzip_types[^;]*image\/(jpeg|png)/);
   }
@@ -108,13 +119,13 @@ test("两种投放都把访问日志写进同一个文件，格式只在 log.con
 
 test("入口的 server_name 来自 KNOT_DOMAIN", () => {
   const text = render({
-    KNOT_DOMAIN: "zjj.xknot.si",
-    KNOT_ENTRY_CERT: "/etc/letsencrypt/live/zjj.xknot.si/fullchain.pem",
-    KNOT_ENTRY_KEY: "/etc/letsencrypt/live/zjj.xknot.si/privkey.pem",
+    KNOT_DOMAIN: "cpswang.xknot.si",
+    KNOT_ENTRY_CERT: "/etc/letsencrypt/live/cpswang.xknot.si/fullchain.pem",
+    KNOT_ENTRY_KEY: "/etc/letsencrypt/live/cpswang.xknot.si/privkey.pem",
     KNOT_ENTRY_STATIC: "1",
   });
-  assert.match(text, /server_name zjj\.xknot\.si;/);
-  assert.match(text, /ssl_certificate \/etc\/letsencrypt\/live\/zjj\.xknot\.si\/fullchain\.pem;/);
+  assert.match(text, /server_name cpswang\.xknot\.si;/);
+  assert.match(text, /ssl_certificate \/etc\/letsencrypt\/live\/cpswang\.xknot\.si\/fullchain\.pem;/);
 });
 
 test("回源复用长连接：upstream 按端口命名，所有反代都带 Connection 空值", () => {

@@ -3,8 +3,9 @@
 // 文件在 sites/<站点>/profile.json：
 //   { "formatVersion": 2, "updatedAt": "YYYY-MM-DD", "site": { ... } }
 //
-// 九项全是扁平的字符串（tags 是字符串数组），不按语种拆分：主理人填什么，
-// 本站就显示什么，中枢原样取回。另一半（签发区：id、url、since、tier、status）
+// 十项全是扁平值（tags 是字符串数组），不按语种拆分：主理人填什么，
+// 本站就显示什么，中枢原样取回。唯一的语种字段是 `locale`：站点默认的界面语言，
+// 由主理人定，跟着访客自己的选择走。另一半（签发区：id、url、since、tier、status）
 // 由中枢决定，写在 sites/<站点>/xknot.env，这里只读、不写。
 //
 // 校验规则以 xknot.si/ops/profile-schema.mjs 为准，这里是同一套规则的最小实现。
@@ -13,6 +14,8 @@
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+
+import { parseLocale } from "@knot/locale";
 
 export const FORMAT_VERSION = 2;
 
@@ -29,7 +32,7 @@ export const LIMITS = {
   tags: 9,
 };
 
-export const FIELDS = ["name", "tagline", "intro", "logo", "owner", "contact", "region", "timezone", "tags"];
+export const FIELDS = ["name", "locale", "tagline", "intro", "logo", "owner", "contact", "region", "timezone", "tags"];
 
 const REGION_RE = /^[A-Z]{2}$/;
 
@@ -135,6 +138,13 @@ export function cleanSite(input) {
   const name = cleanText(input.name, LIMITS.name);
   if (name) site.name = name;
 
+  // 站点默认的界面语言。必填与否由界面把关；这里只拦取值，写错的整份不收。
+  if (input.locale != null && input.locale !== "") {
+    const locale = parseLocale(input.locale);
+    if (locale) site.locale = locale;
+    else problems.push("locale: must be zh-CN, zh-TW or en");
+  }
+
   const tagline = cleanText(input.tagline, LIMITS.tagline);
   if (tagline) site.tagline = tagline;
 
@@ -168,7 +178,7 @@ export function cleanSite(input) {
   return { ok: problems.length === 0, problems, site: problems.length ? null : site };
 }
 
-/** WebUI 与分享图要的站点身份。九项里只有这六项会出现在本站界面上。 */
+/** WebUI 与分享图要的站点身份。十项里只有这六项会出现在本站界面上。 */
 export function brandView(site) {
   const source = site || {};
   return {
@@ -207,6 +217,9 @@ function partialSite(raw) {
   for (const key of ["name", "tagline", "intro", "logo", "owner", "contact", "region", "timezone"]) {
     if (typeof raw[key] === "string" && raw[key].trim()) out[key] = raw[key].trim();
   }
+  // 语种写错了不能原样带出去：页面会拿它去查目录，查不到就是一片 key。
+  const locale = parseLocale(raw.locale);
+  if (locale) out.locale = locale;
   if (Array.isArray(raw.tags)) out.tags = raw.tags.filter((tag) => typeof tag === "string" && tag.trim());
   return Object.keys(out).length ? out : null;
 }

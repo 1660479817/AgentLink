@@ -12,12 +12,15 @@ import {
   removePost,
   searchUsers,
   issueInternalAgent,
+  listAgents,
+  retireInternalAgent,
   setEntitlements,
   setLevel,
   tokensMatch,
   unmuteUser,
   warnUser,
 } from "../admin.js";
+import { parseLocale } from "@knot/locale";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
 import { federationStatus } from "../federation.js";
 import { joinStatePath, readJoinState, saveJoinState } from "../joinState.js";
@@ -28,16 +31,18 @@ import {
   fetchProgress,
   handoffValid,
   renderManagedBlock,
-  startTunnelAgent,
+  scheduleTunnelRestart,
   submitPublicKey,
   tunnelEnvPath,
   tunnelKeyPath,
+  tunnelUnitInstalled,
 } from "../tunnel.js";
 import {
   backendUnit,
   issuedValid,
   joinEnvPath,
   joinValues,
+  readRelayValues,
   scheduleRestart,
   writeJoinEnv,
 } from "../issued.js";
@@ -85,13 +90,19 @@ function sendAdminError(res, error) {
   ) {
     return res.status(400).json({ error: code });
   }
-  if (code === "env_unconfigured" || code === "env_failed") {
+  if (code === "env_unconfigured" || code === "env_failed" || code === "owner_unconfigured") {
     return res.status(503).json({ error: code });
   }
   if (code === "profile_unconfigured") return res.status(503).json({ error: "profile_unconfigured" });
   if (code === "not_found") return res.status(404).json({ error: code });
   if (code === "not_pending") return res.status(409).json({ error: code });
   if (code === "name_taken") return res.status(409).json({ error: code });
+  if (code === "agent_slots_full" || code === "users_full") {
+    return res.status(409).json({ error: code });
+  }
+  if (code === "not_internal" || code === "bad_owner" || code === "not_account") {
+    return res.status(400).json({ error: code });
+  }
   if (code === "code_taken") return res.status(409).json({ error: code });
   if (code === "ambiguous" || code === "protected") {
     return res.status(409).json({ error: code, users: error.users || undefined });
@@ -100,17 +111,19 @@ function sendAdminError(res, error) {
   return res.status(500).json({ error: "internal" });
 }
 
-// 实例本机端口：隧道把入口的回环端口转到这里。以站点对外的那个 origin 为准，
-// 它由部署脚本写进 platform.env；解析不出端口时退回进程的 PORT。
-function localPortOf(publicWebOrigin) {
-  try {
-    const url = new URL(String(publicWebOrigin || ""));
-    if (url.port) return Number(url.port);
-    return url.protocol === "https:" ? 443 : 80;
-  } catch {
-    return Number(process.env.PORT) || 8080;
-  }
+// 隧道落回本机的端口：入口的回环端口转到这里，所以它必须是 Backend 自己监听的端口。
+// 不能从 PUBLIC_WEB_ORIGIN 猜：接上 XKnot 之后那个 origin 是入口上的 https 地址，
+// 没有端口，猜出来只会是 443，而实例这一侧 443 上什么都没有。
+export function tunnelLocalPort(port, env = process.env) {
+  const listen = Number(port);
+  if (Number.isInteger(listen) && listen > 0) return listen;
+  const fromEnv = Number(env.PORT);
+  if (Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+  return 8080;
 }
+
+// 没有常驻单元时给管理员照抄的一条命令。
+const TUNNEL_MANUAL_COMMAND = "bash ops/scripts/run-entry-tunnel.sh";
 
 // 生成（或复用）隧道密钥并把公钥交到案例页。私钥留在 sites/<站点>/，权限 600。
 async function deliverPublicKey({ profile, application }) {
@@ -125,8 +138,9 @@ async function deliverPublicKey({ profile, application }) {
   return { ...submitted, created: key.created };
 }
 
-export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, publicWebOrigin = "", profile = null }) {
+export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, publicWebOrigin = "", profile = null, port = 0 }) {
   const router = Router();
+  const localPort = tunnelLocalPort(port);
   if (uploadDir) ensureUploadDir(uploadDir);
   const sponsorUpload = multer({
     storage: multer.diskStorage({
@@ -198,7 +212,8 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
         site: state.site || {},
         subdomain: req.body?.subdomain,
         email: req.body?.email,
-        locale: req.body?.locale,
+        // 中枢用这一项选邮件语言。界面不传时用站点自己的默认语种，不另猜。
+        locale: parseLocale(req.body?.locale) || state.site?.locale,
         hubOrigin: hubOriginOf({ status }),
       });
 
@@ -276,13 +291,18 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
           host: handoff.host,
           port: Number(handoff.port),
           keyPath: tunnelKeyPath(path.dirname(profile.file)),
-          localPort: localPortOf(publicWebOrigin),
+          localPort,
         });
         const applied = await applyManagedBlock({ file: local.tunnelEnv, block });
         if (applied.error) local.error = applied.error;
         else {
           local.changed = applied.changed;
-          if (applied.changed) local.restart = await startTunnelAgent();
+          if (applied.changed) {
+            // 这一页很可能就是经隧道打开的：在这里重启等于把回包一起掐掉。
+            scheduleTunnelRestart();
+            const installed = await tunnelUnitInstalled();
+            local.restart = { ok: installed, deferred: true, command: TUNNEL_MANUAL_COMMAND };
+          }
         }
       }
 
@@ -297,11 +317,13 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
             return "";
           }
         })();
+        // 自动接通不签发委托发信凭据：文件里已有的那两项原样带过去，别抹掉。
+        const relay = await readRelayValues(joinEnvPath(siteDir));
         const written = await writeJoinEnv({
           file: joinEnvPath(siteDir),
-          values: joinValues({ issued: result.data.issued, hubOrigin }),
+          values: joinValues({ issued: result.data.issued, hubOrigin, ...relay }),
         });
-        if (written.error) local.joinError = written.error;
+        if (written.error) local.joinError = written.detail || written.error;
         else if (written.changed) {
           local.joined = true;
           // 进程里的值是启动时读的，接入件要生效必须重启。
@@ -337,22 +359,30 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
         host: handoff.host,
         port: Number(handoff.port),
         keyPath: tunnelKeyPath(siteDir),
-        localPort: localPortOf(publicWebOrigin),
+        localPort,
       });
       const applied = await applyManagedBlock({ file: tunnelEnvPath(siteDir), block });
       if (applied.error) return res.status(500).json({ error: applied.error });
-      const restart = await startTunnelAgent();
-      res.json({ ok: true, changed: applied.changed, restart });
+      // 内容没变就别重启：重启会掐断这一页（它可能正走这条隧道）。
+      if (!applied.changed) return res.json({ ok: true, changed: false, restart: null });
+      scheduleTunnelRestart();
+      const installed = await tunnelUnitInstalled();
+      res.json({
+        ok: true,
+        changed: true,
+        restart: { ok: installed, deferred: true, command: TUNNEL_MANUAL_COMMAND },
+      });
     } catch (error) {
       sendAdminError(res, error);
     }
   });
 
   // 站点档案：签发区只读、来自接入件；自述区可编辑，写 sites/<站点>/profile.json。
-  router.get("/profile", (_req, res) => {
+  // 两个方法回同一份视图：保存之后表单要立刻拿到签发区，不能等下一次 GET。
+  function profileView() {
     const status = federationStatus({ agentEnvDir, publicWebOrigin });
     const state = profile?.view() || { site: null, updatedAt: null, problems: [] };
-    res.json({
+    return {
       issued: {
         id: status.running.instanceId || "",
         url: status.running.issuedUrl || String(publicWebOrigin || "").replace(/\/+$/, ""),
@@ -364,18 +394,18 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
       updatedAt: state.updatedAt,
       problems: state.problems,
       file: profile?.file || null,
-    });
+    };
+  }
+
+  router.get("/profile", (_req, res) => {
+    res.json(profileView());
   });
 
   router.put("/profile", async (req, res) => {
     try {
-      const state = await profile.save({ site: req.body?.site });
-      res.json({
-        site: state.site,
-        updatedAt: state.updatedAt,
-        problems: state.problems,
-        file: profile.file || null,
-      });
+      if (!profile) return res.status(503).json({ error: "profile_unconfigured" });
+      await profile.save({ site: req.body?.site });
+      res.json(profileView());
     } catch (error) {
       sendAdminError(res, error);
     }
@@ -451,6 +481,22 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
       const options = { envDir: agentEnvDir };
       if (Object.hasOwn(body, "specialties")) options.specialties = body.specialties;
       res.json(await issueInternalAgent(pool, body.name, options));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.get("/agents", async (_req, res) => {
+    try {
+      res.json(await listAgents(pool));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.post("/agents/:id/retire", async (req, res) => {
+    try {
+      res.json(await retireInternalAgent(pool, req.params.id, req.body?.body, { envDir: agentEnvDir }));
     } catch (error) {
       sendAdminError(res, error);
     }

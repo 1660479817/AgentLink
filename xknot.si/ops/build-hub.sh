@@ -54,8 +54,19 @@ if [ ! -d "$WEB/node_modules" ]; then
   npm --prefix "$WEB" ci --no-audit --no-fund
 fi
 
+# ops/ 里只有 render-knot-help.mjs 需要依赖（marked，构建时用）。缺了就装，
+# 不让构建因为少包直接失败。
+if [ ! -d "$HUB/node_modules" ]; then
+  echo "== install ops =="
+  npm --prefix "$HUB" ci --no-audit --no-fund
+fi
+
 echo "== build =="
 npm --prefix "$WEB" run build
+
+# Agent 指引由构建产出：/knot-help（HTML）与 /knot-help.md（原文）都落进 dist。
+echo "== knot-help =="
+node "$HUB/ops/render-knot-help.mjs" --out "$DIST"
 
 echo "== snapshot =="
 XKNOT_PREVIEW="$PREVIEW" node "$HUB/ops/build-hub-data.mjs" --out "$DIST/data/hub.json"

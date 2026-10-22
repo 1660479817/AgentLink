@@ -206,7 +206,7 @@ export const ENTRY_PROXIED_MARK = "# 入口已接通：整站反代到隧道";
  *
  * 两个阶段：
  *   entry: false —— 隧道还没通。`/` 发静态占位页（"子域已签发，入口正在接通"），
- *                   只有 /api 与 /help 预先接到回环端口上，用来做健康探测。
+ *                   只有 /api 预先接到回环端口上，用来做健康探测。
  *   entry: true  —— 探测通过，整站反代：`/` 也走隧道，访客看到的是实例自己的 WebUI。
  *                   占位页不再有人访问，静态 root 只剩 ACME 校验在用。
  *
@@ -217,7 +217,7 @@ export function renderVhost({ domain, root, port, entry = false }) {
   const proxied = Boolean(entry);
   const header = proxied
     ? `# ${domain}：入口 conf，由 auto-connect 生成，请勿手改。\n${ENTRY_PROXIED_MARK}\n# 整站经本机回环端口 ${port} 回到实例（SSH 反向隧道）。`
-    : `# ${domain}：入口 conf，由 auto-connect 生成，请勿手改。\n# 静态页落在 ${root}；/api 与 /help 经本机回环端口 ${port} 回到实例（SSH 反向隧道）。`;
+    : `# ${domain}：入口 conf，由 auto-connect 生成，请勿手改。\n# 静态页落在 ${root}；/api 经本机回环端口 ${port} 回到实例（SSH 反向隧道）。`;
 
   const rootLocation = proxied
     ? `    location / {
@@ -279,6 +279,18 @@ server {
         root ${root};
     }
 
+    # 管理面只在实例自己的机器与内网开：整站反代之后，隧道的对端是实例上的回环，
+    # Backend 分不出「本机来的」和「经隧道从公网来的」，所以必须在入口先挡住。
+    location ^~ /api/admin {
+        default_type application/json;
+        return 404 '{"error":"not_found"}';
+    }
+
+    location ^~ /admin {
+        default_type application/json;
+        return 404 '{"error":"not_found"}';
+    }
+
     location /api/ {
         proxy_pass http://127.0.0.1:${port};
         proxy_http_version 1.1;
@@ -288,12 +300,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 120s;
         proxy_request_buffering off;
-    }
-
-    location = /help {
-        proxy_pass http://127.0.0.1:${port};
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
 ${rootLocation}

@@ -9,11 +9,16 @@
 // 实例侧有一份自己的最小校验（knot-platform/backend/src/profile.js），
 // 两边规则以本文件为准，见 docs/FEDERATION.md 第 4 节。
 //
-// v2 起自述区是九项扁平字段，没有多语种映射：主理人填什么，门户就显示什么。
+// v2 起自述区是十项扁平字段，没有多语种文案映射：主理人填什么，门户就显示什么。
+// 唯一的语种字段是 `locale`：站点默认的界面语言，实例自己用，门户只做校验。
 
 import { HUB_SUFFIX, labelFromUrl } from "./subdomain.mjs";
 
 export const FORMAT_VERSION = 2;
+
+// 与 knot-platform/packages/knot-locale 的三项保持一致。两个项目各自独立，
+// 这条白名单很小，重复一份比跨项目引包清楚。
+export const LOCALES = ["zh-CN", "zh-TW", "en"];
 
 export const LIMITS = {
   name: 40,
@@ -34,6 +39,7 @@ export const STATUSES = ["pending", "active", "suspended", "retired"];
 const ISSUED_FIELDS = ["id", "url", "since", "tier", "status", "cardsUrl", "statsUrl"];
 export const SITE_FIELDS = [
   "name",
+  "locale",
   "tagline",
   "intro",
   "logo",
@@ -148,6 +154,13 @@ export function cleanSite(input) {
 
   const name = cleanText(input.name, LIMITS.name);
   if (name) site.name = name;
+
+  // 站点默认的界面语言。实例自己用它决定首访语种；这里只拦取值。
+  if (input.locale != null && input.locale !== "") {
+    const locale = String(input.locale).trim();
+    if (LOCALES.includes(locale)) site.locale = locale;
+    else problems.push(`locale: must be one of ${LOCALES.join(", ")}`);
+  }
 
   const tagline = cleanText(input.tagline, LIMITS.tagline);
   if (tagline) site.tagline = tagline;

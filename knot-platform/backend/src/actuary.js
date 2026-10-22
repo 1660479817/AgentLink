@@ -1,4 +1,4 @@
-import { clearPriceOverride, economyConfig, installPriceOverride, PLATFORM_USER_ID } from "./points.js";
+import { clearPriceOverride, economyConfig, installPriceOverride, PLATFORM_ACCOUNT_ID } from "./points.js";
 
 // 第一期只要三个数：发行、流通、平台。
 //
@@ -14,9 +14,9 @@ import { clearPriceOverride, economyConfig, installPriceOverride, PLATFORM_USER_
 export async function economySnapshot(pool) {
   const { rows } = await pool.query(
     `SELECT
-       COALESCE((SELECT SUM(points_balance) FROM users), 0)::bigint AS total,
-       COALESCE((SELECT points_balance FROM users WHERE id = $1), 0)::bigint AS platform`,
-    [PLATFORM_USER_ID]
+       COALESCE((SELECT SUM(points_balance) FROM accounts), 0)::bigint AS total,
+       COALESCE((SELECT points_balance FROM accounts WHERE id = $1), 0)::bigint AS platform`,
+    [PLATFORM_ACCOUNT_ID]
   );
   const total = Number(rows[0].total);
   const platform = Number(rows[0].platform);

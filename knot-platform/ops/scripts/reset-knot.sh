@@ -59,47 +59,179 @@ restart_backend() {
 
 stop_backend
 
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v admin_email="${KNOT_ADMIN_EMAIL:-}" <<'SQL'
 DROP SCHEMA IF EXISTS knot_keep CASCADE;
 CREATE SCHEMA knot_keep;
 
+-- 账户只有一张表。重建前后都按 accounts 原样搬运：人、Agent、主理人、平台账号
+-- 的角色与归属都在这一行里，不再分 users / delegations 两张表拼。
+--
+-- 0.3.x 还是 users 结构：人、内部 Agent 都在 users 里，主理人是 email = KNOT_ADMIN_EMAIL
+-- 且 side = 'external' 的那一行；内部 Agent 的 email 也是同一个地址，靠 side = 'internal'
+-- 区分。这里拼成新表的一行，否则从旧库升级就只剩「清空重建」一条路。
+CREATE TABLE knot_keep.meta AS SELECT :'admin_email'::text AS admin_email;
+
 DO $$
-BEGIN
-  IF EXISTS (
+DECLARE
+  has_accounts boolean := to_regclass('public.accounts') IS NOT NULL;
+  has_locale boolean := EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'locale'
-  ) THEN
-    EXECUTE $q$
-      CREATE TABLE knot_keep.users AS
-      SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, label, locale, created_at, updated_at
-      FROM users
-    $q$;
-  ELSE
-    EXECUTE $q$
-      CREATE TABLE knot_keep.users AS
-      SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, label,
-             NULL::text AS locale, created_at, updated_at
-      FROM users
-    $q$;
+  );
+BEGIN
+  IF NOT has_accounts AND to_regclass('public.users') IS NULL THEN
+    RAISE EXCEPTION '库里既没有 accounts 也没有 users：空库请先跑 backend/scripts/migrate.js，不要用 reset-knot.sh 初始化。';
   END IF;
+  IF has_accounts THEN
+    CREATE TABLE knot_keep.accounts AS
+    SELECT id, role, side, email, display_name, owner_id, token_hash, label, avatar_upload_id,
+           level, entitlements, points_balance, muted_until, specialties, locale, bio, retired_at,
+           created_at, updated_at
+    FROM accounts
+    WHERE role <> 'platform';
+  ELSE
+    IF has_locale THEN
+      EXECUTE $q$
+        CREATE TABLE knot_keep.accounts AS
+        SELECT u.id,
+               CASE WHEN u.side = 'internal' THEN 'agent'
+                    WHEN lower(u.email) = lower((SELECT admin_email FROM knot_keep.meta)) THEN 'owner'
+                    ELSE 'user' END AS role,
+               CASE WHEN u.side = 'internal'
+                      OR lower(u.email) = lower((SELECT admin_email FROM knot_keep.meta)) THEN 'internal'
+                    ELSE 'external' END AS side,
+               CASE WHEN u.side = 'internal' THEN NULL
+                    WHEN u.label = 'tester' THEN 'tester@knot.local'
+                    WHEN u.email IS NOT NULL THEN u.email
+                    ELSE 'legacy-' || u.id::text || '@knot.local' END AS email,
+               u.display_name,
+               NULL::uuid AS owner_id,
+               d.token_hash,
+               u.label, u.avatar_upload_id, u.level, u.entitlements, u.points_balance,
+               u.muted_until, u.specialties,
+               -- 旧库的语种没经过新约束校验：认不出来的就留空，交给站点默认。
+               CASE WHEN u.locale IN ('zh-CN', 'zh-TW', 'en') THEN u.locale ELSE NULL END AS locale,
+               left(COALESCE(u.bio, ''), 200) AS bio,
+               CASE WHEN u.side = 'internal' AND d.token_hash IS NULL THEN now() ELSE NULL END AS retired_at,
+               u.created_at, u.updated_at
+        FROM users u
+        LEFT JOIN delegations d ON d.user_id = u.id
+        -- 平台账号在旧库里也是一行 users（label = 'platform'）。新基线会自己插那一行，
+        -- 带着它搬过去会撞主键，也会把机器身份变成一个人。
+        WHERE COALESCE(u.label, '') <> 'platform'
+      $q$;
+    ELSE
+      EXECUTE $q$
+        CREATE TABLE knot_keep.accounts AS
+        SELECT u.id,
+               CASE WHEN u.side = 'internal' THEN 'agent'
+                    WHEN lower(u.email) = lower((SELECT admin_email FROM knot_keep.meta)) THEN 'owner'
+                    ELSE 'user' END AS role,
+               CASE WHEN u.side = 'internal'
+                      OR lower(u.email) = lower((SELECT admin_email FROM knot_keep.meta)) THEN 'internal'
+                    ELSE 'external' END AS side,
+               CASE WHEN u.side = 'internal' THEN NULL
+                    WHEN u.label = 'tester' THEN 'tester@knot.local'
+                    WHEN u.email IS NOT NULL THEN u.email
+                    ELSE 'legacy-' || u.id::text || '@knot.local' END AS email,
+               u.display_name,
+               NULL::uuid AS owner_id,
+               d.token_hash,
+               u.label, u.avatar_upload_id, u.level, u.entitlements, u.points_balance,
+               u.muted_until, u.specialties,
+               NULL::text AS locale, left(COALESCE(u.bio, ''), 200) AS bio,
+               CASE WHEN u.side = 'internal' AND d.token_hash IS NULL THEN now() ELSE NULL END AS retired_at,
+               u.created_at, u.updated_at
+        FROM users u
+        LEFT JOIN delegations d ON d.user_id = u.id
+        WHERE COALESCE(u.label, '') <> 'platform'
+      $q$;
+    END IF;
+    -- 内部 Agent 必须挂在主理人名下。旧库里没有主理人行时，别等到 DROP 之后才失败。
+    IF EXISTS (SELECT 1 FROM knot_keep.accounts WHERE role = 'agent')
+       AND NOT EXISTS (SELECT 1 FROM knot_keep.accounts WHERE role = 'owner') THEN
+      RAISE EXCEPTION '旧库里没有主理人账号（email = KNOT_ADMIN_EMAIL 且 side = external）。先用主理人登录一次，或手动补一行 owner，再重跑。';
+    END IF;
+    UPDATE knot_keep.accounts
+    SET owner_id = (SELECT id FROM knot_keep.accounts WHERE role = 'owner' LIMIT 1)
+    WHERE role = 'agent' AND owner_id IS NULL;
+    -- 旧模型里 Agent 自己也有钱包，新模型的钱归主人：先把 Agent 余额并回主理人。
+    -- 新库要求 Agent 行余额为 0、不带等级与权益，清零这一步不做，插入会被 CHECK 挡住。
+    UPDATE knot_keep.accounts o
+    SET points_balance = o.points_balance + COALESCE((
+      SELECT sum(a.points_balance) FROM knot_keep.accounts a WHERE a.role = 'agent'
+    ), 0)
+    WHERE o.role = 'owner';
+    UPDATE knot_keep.accounts
+    SET points_balance = 0, level = 1, entitlements = '{}'::jsonb
+    WHERE role = 'agent';
+    -- 新库的称呼唯一性不看大小写，旧库只管大小写敏感的重名。补一次去重，
+    -- 只改大小写撞车的那几行，后缀取自 id，不会再撞到别的称呼。
+    -- 平台账号的称呼（Knot）由新基线插进来，和它同名的行也要让开。
+    -- 先按新库的长度上限截断，再谈重名；截断可能造出新的重名，所以排在去重之前。
+    UPDATE knot_keep.accounts
+    SET display_name = left(btrim(display_name), 40)
+    WHERE char_length(btrim(display_name)) > 40;
+    UPDATE knot_keep.accounts
+    SET display_name = left(btrim(display_name), 30) || ' ' || substr(replace(id::text, '-', ''), 1, 4)
+    WHERE lower(btrim(display_name)) = 'knot';
+    UPDATE knot_keep.accounts a
+    SET display_name = left(btrim(a.display_name), 30) || ' ' || substr(replace(a.id::text, '-', ''), 1, 4)
+    FROM (
+      SELECT id, row_number() OVER (
+               PARTITION BY lower(btrim(display_name)) ORDER BY created_at ASC, id ASC
+             ) AS n
+      FROM knot_keep.accounts
+    ) d
+    WHERE a.id = d.id AND d.n > 1;
+    -- 旧模型不数名额，新库的触发器最多只收 10 个在岗 Agent。
+    -- 超出的是历史遗留，保留行、清令牌，按停用处理，不让整次重建失败。
+    WITH ranked AS (
+      SELECT id, row_number() OVER (ORDER BY created_at ASC) AS n
+      FROM knot_keep.accounts WHERE role = 'agent' AND retired_at IS NULL
+    )
+    UPDATE knot_keep.accounts a
+    SET retired_at = now(), token_hash = NULL
+    FROM ranked r
+    WHERE a.id = r.id AND r.n > 10;
+  END IF;
+
+  -- 旧模型允许人给自己签发一枚令牌，用「本人」身份调 Agent 接口。新模型只有 Agent 有令牌；
+  -- 人的那一行留着哈希没有读者，清掉，免得看起来像一枚还能用的凭据。
+  UPDATE knot_keep.accounts SET token_hash = NULL WHERE role <> 'agent';
 END $$;
 
-CREATE TABLE knot_keep.sessions AS
-SELECT sid, user_id, expires_at, created_at FROM sessions;
-
-CREATE TABLE knot_keep.delegations AS
-SELECT user_id, token_hash, created_at FROM delegations;
+-- 旧库这两张表还叫 user_id。统一成 account_id 之后再写回。
+DO $$
+BEGIN
+  IF to_regclass('public.accounts') IS NOT NULL THEN
+    -- 只留人的会话；平台账号没有会话，Agent 靠令牌。
+    CREATE TABLE knot_keep.sessions AS
+    SELECT sid, account_id, expires_at, created_at FROM sessions
+    WHERE account_id IN (SELECT id FROM knot_keep.accounts);
+    CREATE TABLE knot_keep.uploads AS
+    SELECT u.id, u.account_id, u.storage_name, u.mime, u.original_name, u.created_at,
+           u.size, u.sha256, u.width, u.height
+    FROM uploads u
+    WHERE u.id IN (SELECT avatar_upload_id FROM accounts WHERE avatar_upload_id IS NOT NULL);
+  ELSE
+    CREATE TABLE knot_keep.sessions AS
+    SELECT sid, user_id AS account_id, expires_at, created_at FROM sessions
+    WHERE user_id IN (SELECT id FROM knot_keep.accounts);
+    CREATE TABLE knot_keep.uploads AS
+    SELECT u.id, u.user_id AS account_id, u.storage_name, u.mime, u.original_name, u.created_at,
+           u.size, u.sha256, u.width, u.height
+    FROM uploads u
+    WHERE u.id IN (SELECT avatar_upload_id FROM users WHERE avatar_upload_id IS NOT NULL);
+  END IF;
+END $$;
 
 CREATE TABLE knot_keep.login_keys AS
 SELECT id, email, key_hash, expires_at, used_at, created_at FROM login_keys;
 
-CREATE TABLE knot_keep.uploads AS
-SELECT u.id, u.user_id, u.storage_name, u.mime, u.original_name, u.created_at,
-       u.size, u.sha256, u.width, u.height
-FROM uploads u
-WHERE u.id IN (SELECT avatar_upload_id FROM users WHERE avatar_upload_id IS NOT NULL);
-
 DO $$
+DECLARE
+  has_accounts boolean := to_regclass('public.accounts') IS NOT NULL;
 BEGIN
   IF to_regclass('public.sponsors') IS NULL THEN
     EXECUTE $q$
@@ -122,14 +254,25 @@ BEGIN
              created_at, updated_at
       FROM sponsors
     $q$;
-    EXECUTE $q$
-      INSERT INTO knot_keep.uploads (id, user_id, storage_name, mime, original_name, created_at, size, sha256, width, height)
-      SELECT u.id, u.user_id, u.storage_name, u.mime, u.original_name, u.created_at,
-             u.size, u.sha256, u.width, u.height
-      FROM uploads u
-      WHERE u.id IN (SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL)
-        AND NOT EXISTS (SELECT 1 FROM knot_keep.uploads k WHERE k.id = u.id)
-    $q$;
+    IF has_accounts THEN
+      EXECUTE $q$
+        INSERT INTO knot_keep.uploads (id, account_id, storage_name, mime, original_name, created_at, size, sha256, width, height)
+        SELECT u.id, u.account_id, u.storage_name, u.mime, u.original_name, u.created_at,
+               u.size, u.sha256, u.width, u.height
+        FROM uploads u
+        WHERE u.id IN (SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL)
+          AND NOT EXISTS (SELECT 1 FROM knot_keep.uploads k WHERE k.id = u.id)
+      $q$;
+    ELSE
+      EXECUTE $q$
+        INSERT INTO knot_keep.uploads (id, account_id, storage_name, mime, original_name, created_at, size, sha256, width, height)
+        SELECT u.id, u.user_id, u.storage_name, u.mime, u.original_name, u.created_at,
+               u.size, u.sha256, u.width, u.height
+        FROM uploads u
+        WHERE u.id IN (SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL)
+          AND NOT EXISTS (SELECT 1 FROM knot_keep.uploads k WHERE k.id = u.id)
+      $q$;
+    END IF;
   ELSE
     EXECUTE $q$
       CREATE TABLE knot_keep.sponsors AS
@@ -150,34 +293,28 @@ cd "$KNOT_APP_DIR"
 node "$KNOT_APP_DIR/backend/scripts/migrate.js" --reset
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-INSERT INTO users (id, email, display_name, avatar_upload_id, level, entitlements, points_balance, label, locale, created_at, updated_at)
-SELECT id, email, display_name, NULL, level, entitlements, points_balance, label, locale, created_at, updated_at
-FROM knot_keep.users
-ON CONFLICT (id) DO UPDATE SET
-  email = EXCLUDED.email,
-  display_name = EXCLUDED.display_name,
-  level = EXCLUDED.level,
-  entitlements = EXCLUDED.entitlements,
-  points_balance = EXCLUDED.points_balance,
-  label = EXCLUDED.label,
-  locale = EXCLUDED.locale,
-  created_at = EXCLUDED.created_at,
-  updated_at = EXCLUDED.updated_at;
+-- 先人后 Agent：Agent 的 owner_id 指向已经存在的账号。
+INSERT INTO accounts (id, role, side, email, display_name, owner_id, token_hash, label, avatar_upload_id,
+                      level, entitlements, points_balance, muted_until, specialties, locale, bio, retired_at,
+                      created_at, updated_at)
+SELECT id, role, side, email, display_name, owner_id, token_hash, label, NULL,
+       level, entitlements, points_balance, muted_until, specialties, locale, bio, retired_at,
+       created_at, updated_at
+FROM knot_keep.accounts
+ORDER BY (role = 'agent') ASC, created_at ASC;
 
-INSERT INTO uploads (id, user_id, storage_name, mime, original_name, created_at, size, sha256, width, height)
-SELECT id, user_id, storage_name, mime, original_name, created_at, size, sha256, width, height
+-- 头像外键指向 uploads，所以上传行必须先落库，再回填 accounts.avatar_upload_id。
+INSERT INTO uploads (id, account_id, storage_name, mime, original_name, created_at, size, sha256, width, height)
+SELECT id, account_id, storage_name, mime, original_name, created_at, size, sha256, width, height
 FROM knot_keep.uploads;
 
-UPDATE users AS u
+UPDATE accounts AS a
 SET avatar_upload_id = k.avatar_upload_id
-FROM knot_keep.users AS k
-WHERE u.id = k.id AND k.avatar_upload_id IS NOT NULL;
+FROM knot_keep.accounts AS k
+WHERE a.id = k.id AND k.avatar_upload_id IS NOT NULL;
 
-INSERT INTO sessions (sid, user_id, expires_at, created_at)
-SELECT sid, user_id, expires_at, created_at FROM knot_keep.sessions;
-
-INSERT INTO delegations (user_id, token_hash, created_at)
-SELECT user_id, token_hash, created_at FROM knot_keep.delegations;
+INSERT INTO sessions (sid, account_id, expires_at, created_at)
+SELECT sid, account_id, expires_at, created_at FROM knot_keep.sessions;
 
 INSERT INTO login_keys (id, email, key_hash, expires_at, used_at, created_at)
 SELECT id, email, key_hash, expires_at, used_at, created_at FROM knot_keep.login_keys;

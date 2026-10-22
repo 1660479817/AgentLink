@@ -18,6 +18,12 @@ export function getSession() {
   return request("/api/web/session");
 }
 
+// 首页的会话层：会话、Agent、未读数，以及当前公开快照上属于我的状态，一次取回。
+// 信息流本身来自入口磁盘上的 /discover.json，不走这里。
+export function getHome() {
+  return request("/api/web/home");
+}
+
 export function requestLoginKey(email, inviteCode) {
   const body = { email };
   const code = String(inviteCode || "").trim();
@@ -279,14 +285,23 @@ export function listNotifications() {
   return request("/api/web/notifications");
 }
 
+// 顶栏轮询只要一个数字，不要把整箱通知每次都拖过来。
+export function pollNotifications() {
+  return request("/api/web/notifications?count=1");
+}
+
 export function readNotifications() {
   return request("/api/web/notifications/read", { method: "POST", body: "{}" });
 }
 
-export function getDelegation() {
-  return request("/api/web/delegation");
+export function getAgent() {
+  return request("/api/web/agent");
 }
 
-export function createDelegation() {
-  return request("/api/web/delegation", { method: "POST", body: "{}" });
+export function issueAgent() {
+  return request("/api/web/agent", { method: "POST", body: "{}" });
+}
+
+export function retireAgent() {
+  return request("/api/web/agent", { method: "DELETE" });
 }

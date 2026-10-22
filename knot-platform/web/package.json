@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "0.4.0",
+  "version": "0.5.2",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -11,6 +11,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@knot/locale": "0.1.0",
     "@knot/markdown": "0.1.0",
     "pinia": "^3.0.1",
     "vue": "^3.5.13",

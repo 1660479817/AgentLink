@@ -10,7 +10,7 @@ const TOKEN_KEY = "knot.admin.token";
 const VIEW_LOADERS = {
   overview: loadOverview,
   content: loadPatrol,
-  users: () => {},
+  users: loadAgents,
   site: loadSite,
   xknot: loadXknot,
 };
@@ -66,9 +66,20 @@ const HINTS = {
   bad_switch: "开关只能是开或关。",
   bad_registration_mode: "注册策略只写 open、invite 或 closed。",
   bad_args: "至少要改一项。",
+  profile_unconfigured: "这台机器还没有站点目录（KNOT_AGENT_ENV_DIR / KNOT_PROFILE_FILE），档案改不了。",
+  no_application: "还没有提交过接入申请，先在上面提交一次。",
+  not_ready: "中枢还没给出账号与端口，等入口配置完成。",
   bad_price: "价格要是整数，且满足最低不高于默认、默认不高于最高。",
   not_pending: "这份提议已经写入或已经收回。",
   bad_within: "时间窗写 24h、7d、2w 这类，最长 366d。",
+  agent_slots_full: "这个账号的 Agent 名额已经用完了。",
+  agent_unavailable: "Agent 没有签发成功，稍后再试。",
+  users_full: "外部账号已经到 90 个上限。",
+  not_internal: "这一行不是主理人名下的 Agent。",
+  bad_owner: "Agent 只能挂在主理人或外部账号名下。",
+  not_account: "这行不是账号（是 Agent 或平台账号）。积分、等级与禁言都记在人这一行。",
+  owner_unconfigured: "这台机器还没配 KNOT_ADMIN_EMAIL，主理人账号建不出来。",
+  retired: "这个 Agent 已经停用。",
 };
 
 const state = {
@@ -77,6 +88,7 @@ const state = {
   system: null,
   users: [],
   selectedUser: null,
+  agents: [],
   posts: null,
   patrol: [],
   invites: [],
@@ -203,6 +215,10 @@ function verifyMessage(error) {
 
 function humanError(error) {
   if (!error) return "请求没有完成。";
+  if (error.code === "bad_response") {
+    const status = error.status ? `（HTTP ${error.status}）` : "";
+    return `${HINTS.bad_response}${status} 多半是入口或隧道断了，先看 /api/health。`;
+  }
   const hint = HINTS[error.code];
   if (hint) return hint;
   if (error.status === 404) return "没有找到；确认这一页是从实例主机或同一内网打开的。";
@@ -250,7 +266,12 @@ async function api(pathname, options = {}) {
     try {
       data = JSON.parse(text);
     } catch {
-      data = { error: "bad_response" };
+      // 不是 JSON 就不是 Backend 回的话：多半是入口或隧道给的 502/404 网页。
+      // 把状态码带上，别再让人对着「没有返回 JSON」猜。
+      const error = new Error("bad_response");
+      error.code = "bad_response";
+      error.status = response.status;
+      throw error;
     }
   }
   if (!response.ok) {
@@ -752,16 +773,77 @@ async function submitIssue(event) {
   if (!data) return;
   const result = byId("issue-result");
   let message;
+  const agent = data.agent || {};
+  const who = `${agent.displayName || name}（${agent.id || "—"}）`;
   if (data.already) {
-    message = `已在：${data.user?.displayName || name}（${data.user?.id || "—"}），授权码没有换。`;
-  } else if (data.issued) {
-    message = `已签发：${data.user?.displayName || name}（${data.user?.id || "—"}）。授权码写在 ${
-      data.envFile || "KNOT_AGENT_ENV_DIR"
-    }，这里不会显示。`;
+    message = `已在：${who}，授权码没有换。要换码请停用它再签发。`;
+  } else if (data.created) {
+    message = `已签发：${who}。授权码写在 ${data.envFile || "KNOT_AGENT_ENV_DIR"}，这里不会显示。`;
   } else {
-    message = `账户已在：${data.user?.displayName || name}（${data.user?.id || "—"}），这次没有写授权码。`;
+    message = `已复起：${who}。新授权码写在 ${data.envFile || "KNOT_AGENT_ENV_DIR"}，这里不会显示。`;
   }
   setAlert(result, message, "ok");
+  loadAgents();
+}
+
+async function loadAgents() {
+  const data = await guard(() => api("/agents"));
+  if (!data) return;
+  state.agents = Array.isArray(data.agents) ? data.agents : [];
+  renderAgents(data);
+}
+
+function renderAgents(data) {
+  setText(
+    "agents-quota",
+    `内部 Agent ${data.internalUsed}/${data.internalLimit} · 外部账号 ${data.userUsed}/${data.userLimit}`
+  );
+  const list = byId("agents-list");
+  if (!list) return;
+  if (!state.agents.length) {
+    list.replaceChildren(el("p", { class: "muted", text: "还没有签发内部 Agent。" }));
+    return;
+  }
+  list.replaceChildren(
+    ...state.agents.map((agent) => {
+      const row = el(
+        "div",
+        { class: "user-row" },
+        el(
+          "span",
+          { class: "user-main" },
+          el("span", { class: "user-name", text: agent.displayName }),
+          el("span", {
+            class: "user-meta",
+            text: `${agent.id} · ${agent.retiredAt ? `已停用 ${fmtDate(agent.retiredAt)}` : "在岗"}`,
+          })
+        ),
+        el("span", { class: "user-side", text: agent.hasToken ? "有授权码" : "无授权码" })
+      );
+      if (!agent.retiredAt) {
+        row.append(
+          el("button", {
+            class: "button secondary",
+            type: "button",
+            text: "停用",
+            on: { click: () => retireAgent(agent) },
+          })
+        );
+      }
+      return row;
+    })
+  );
+}
+
+async function retireAgent(agent) {
+  const reason = window.prompt(`停用 ${agent.displayName} 的原因`, "停用");
+  if (reason == null) return;
+  const data = await guard(() =>
+    api(`/agents/${encodeURIComponent(agent.id)}/retire`, { method: "POST", body: { body: reason.trim() || "停用" } })
+  );
+  if (!data) return;
+  toast("已停用，授权码作废。", "ok");
+  loadAgents();
 }
 
 /* 站点 */
@@ -1186,15 +1268,21 @@ function renderFederation() {
 
 /* 站点档案：自述区在这里编辑，签发区只读 */
 // 字段清单只写一次：表单、填表、保存都从这张表走，避免三处各记一套名字。
-// v2 起没有多语种：一项一个输入框，填什么就存什么。
+// v2 起没有多语种文案：一项一个输入框；只有「默认语种」是下拉框。
 const PROFILE_FIELDS = [
   { key: "name", label: "名称", hint: "顶栏和门户卡片上的站点名，必填", max: 40 },
+  {
+    key: "locale",
+    label: "默认语种",
+    hint: "访客第一次打开看到的界面语言；改这里，没自己选过语种的人会跟着变",
+    select: true,
+  },
   { key: "tagline", label: "一句话介绍", hint: "访客看到的第一句", max: 60 },
   { key: "intro", label: "详细介绍", hint: "点开站点介绍后的一段话", max: 800, multiline: true },
   { key: "logo", label: "Logo 地址", hint: "https 开头的图片地址，可不填", max: 300 },
   { key: "owner", label: "主理人", hint: "这个站点背后的人，点站点名时看到", max: 40 },
   { key: "contact", label: "联系方式", hint: "公开的邮箱或主页，可不填", max: 120 },
-  { key: "region", label: "地区", hint: "两位国家码如 CN，或 GLOBAL · 只在 xknot.si 上显示", max: 2 },
+  { key: "region", label: "地区", hint: "两位国家码如 CN，或 GLOBAL · 只在 xknot.si 上显示", max: 6 },
   { key: "timezone", label: "时区", hint: "如 Asia/Shanghai · 只在 xknot.si 上显示", max: 40 },
   {
     key: "tags",
@@ -1214,7 +1302,31 @@ function fieldLabel(label, hint) {
   );
 }
 
+// 语言菜单只有这三项，与 Backend 的白名单一致。页面不打包，不引共享包。
+const SITE_LOCALES = [
+  { id: "zh-CN", label: "简体中文" },
+  { id: "zh-TW", label: "繁體中文" },
+  { id: "en", label: "English" },
+];
+
+const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+// 老档案没有这一项时给一个建议值：保存才落库，由主理人自己决定。
+function suggestedLocale(site) {
+  if (SITE_LOCALES.some((item) => item.id === site?.locale)) return site.locale;
+  const text = [site?.name, site?.tagline, site?.intro].filter(Boolean).join(" ");
+  return CJK.test(text) ? "zh-CN" : "en";
+}
+
 function profileInput(field) {
+  if (field.select) {
+    const select = el(
+      "select",
+      { dataset: { profileKey: field.key } },
+      ...SITE_LOCALES.map((item) => el("option", { value: item.id, text: item.label }))
+    );
+    return el("label", { class: "field" }, fieldLabel(field.label, field.hint), select);
+  }
   const input = el(field.multiline ? "textarea" : "input", {
     type: field.multiline ? null : "text",
     maxlength: field.max,
@@ -1252,6 +1364,9 @@ function fillProfileForm(site) {
     if (Array.isArray(value)) input.value = value.join(", ");
     else input.value = typeof value === "string" ? value : "";
   }
+  // 语种不从空开始：老档案没有这一项时先给一个建议值，保存才写进档案。
+  const localeInput = document.querySelector('[data-profile-key="locale"]');
+  if (localeInput) localeInput.value = suggestedLocale(site);
 }
 
 async function loadProfile() {
@@ -1354,7 +1469,7 @@ const PROGRESS_STATES = {
   failed: "接通停了，看失败的那一步。",
 };
 
-async function loadProgress() {
+async function loadProgress({ quiet = false } = {}) {
   const card = byId("connect-card");
   try {
     const data = await api("/xknot/progress");
@@ -1362,7 +1477,8 @@ async function loadProgress() {
     renderProgress();
   } catch (error) {
     if (handleAuth(error)) return;
-    if (card && !card.hidden) setAlert(byId("connect-note"), humanError(error), "error");
+    // 轮询时不报错：写接入件之后 Backend 会自己重启一下，那几秒的断线不用吓人。
+    if (!quiet && card && !card.hidden) setAlert(byId("connect-note"), humanError(error), "error");
   }
 }
 
@@ -1422,10 +1538,11 @@ function renderProgress() {
   if (run?.state === "active" && data.issued?.url) text += ` 已验收：${data.issued.url}`;
   if (local.error) text += ` 本地配置没写成：${local.error}`;
   else if (local.joinError) text += ` 接入件没写成：${local.joinError}`;
-  else if (local.restart && !local.restart.ok) {
-    text += ` 配置已写入；这台机器没有常驻单元，手动执行一次：${local.restart.command}`;
-  } else if (local.changed) text += " 隧道配置已写入并重启。";
-  else if (local.joined) text += " 接入件已写入，Backend 正在重启。";
+  if (local.changed) text += " 隧道配置已写入，隧道正在后台重启。";
+  if (local.restart && local.restart.deferred && !local.restart.ok) {
+    text += ` 这台机器没有常驻单元，手动执行一次：${local.restart.command}。`;
+  }
+  if (local.joined) text += " 接入件已写入，Backend 正在重启。";
 
   setAlert(note, text, run?.state === "active" ? "ok" : run?.lastError || local.error || local.joinError ? "error" : "ok");
   if (start) start.hidden = !handoff || run?.state === "active";
@@ -1438,19 +1555,22 @@ async function startTunnel() {
   try {
     const data = await api("/xknot/connect", { method: "POST" });
     const restart = data.restart || {};
+    if (data.changed === false) {
+      setAlert(byId("connect-note"), "隧道配置和上次一样，不用重启。", "ok");
+      await loadProgress();
+      return;
+    }
     setAlert(
       byId("connect-note"),
       restart.ok
-        ? "隧道已重启，等中枢探测通过。"
-        : `配置已写入；这台机器没有常驻单元，手动执行一次：${restart.command || "ops/scripts/run-entry-tunnel.sh"}`,
+        ? "隧道配置已写入，隧道在后台重启，几秒后点「刷新进度」。"
+        : `隧道配置已写入；这台机器没有常驻单元，手动执行一次：${restart.command || "bash ops/scripts/run-entry-tunnel.sh"}`,
       "ok"
     );
-    await loadProgress();
+    // 隧道正在重启：这时经隧道读进度只会拿到 502，别立刻读。
   } catch (error) {
     if (handleAuth(error)) return;
-    const message =
-      error.code === "not_ready" ? "中枢还没给出账号与端口，等入口配置完成。" : humanError(error);
-    setAlert(byId("connect-note"), message, "error");
+    setAlert(byId("connect-note"), humanError(error), "error");
   } finally {
     button.disabled = false;
   }
@@ -1556,7 +1676,8 @@ async function submitJoin(event) {
       body: {
         subdomain: joinState.label,
         email: byId("join-email").value.trim(),
-        locale: "zh-CN",
+        // 中枢用这一项选邮件语言：跟站点默认语种走。
+        locale: state.profile?.site?.locale || "zh-CN",
       },
     });
     const application = data.application || {};
@@ -1728,7 +1849,7 @@ function boot() {
     if (!state.token || document.hidden || state.view !== "xknot") return;
     const progress = state.progress;
     if (!progress?.application || progress.run?.state === "active") return;
-    void loadProgress();
+    void loadProgress({ quiet: true });
   }, 8000);
 }
 

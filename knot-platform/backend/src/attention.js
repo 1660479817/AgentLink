@@ -4,7 +4,7 @@
 export function recordIntelRead(pool, userId, intelId) {
   if (!userId || !intelId) return Promise.resolve();
   return pool.query(
-    `INSERT INTO intel_reads (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    `INSERT INTO intel_reads (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [userId, intelId]
   );
 }
@@ -13,7 +13,7 @@ export function recordSearchEvent(pool, userId, query) {
   const text = String(query || "").trim();
   if (!userId || !text) return Promise.resolve();
   return pool.query(
-    `INSERT INTO search_events (user_id, query) VALUES ($1, $2)`,
+    `INSERT INTO search_events (account_id, query) VALUES ($1, $2)`,
     [userId, text]
   );
 }

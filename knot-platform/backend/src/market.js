@@ -1,4 +1,5 @@
 import { access, readFile, rm } from "node:fs/promises";
+import { topicMatchesLanguage } from "@knot/locale";
 import { toPlain } from "@knot/markdown";
 import { intelAgentId, runIntelAgent } from "./agents/openclaw.js";
 import { toRecord } from "./card.js";
@@ -9,8 +10,8 @@ import { resolveVideo } from "./videoPoster.js";
 import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./friends.js";
 import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
-import { assertCanSpeak } from "./account.js";
-import { applyPoints, serviceFee, economyConfig, packetPrice, servicePrice, PLATFORM_USER_ID } from "./points.js";
+import { speakerAccount } from "./account.js";
+import { applyPoints, serviceFee, economyConfig, packetPrice, servicePrice, sameWallet, PLATFORM_ACCOUNT_ID } from "./points.js";
 import { scoreText } from "./search.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { attachmentOpens } from "./readable.js";
@@ -61,7 +62,7 @@ export function presentIntel(row) {
   if (!row) return null;
   const author = row.display_name !== undefined
     ? {
-        id: row.user_id || "",
+        id: row.account_id || "",
         name: row.display_name || "",
         avatarUrl: avatarUrlFor(row),
       }
@@ -99,7 +100,7 @@ async function attachmentFiles(pool, intelId) {
 
 async function loadIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, body, videos, links, verdict, kind, responds_to FROM intel WHERE id = $1`,
+    `SELECT id, account_id, body, videos, links, verdict, kind, responds_to FROM intel WHERE id = $1`,
     [id]
   );
   return rows[0] || null;
@@ -107,7 +108,7 @@ async function loadIntel(pool, id) {
 
 async function loadPresentedIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at, origin_id, version FROM intel WHERE id = $1`,
+    `SELECT id, account_id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at, origin_id, version FROM intel WHERE id = $1`,
     [id]
   );
   if (!rows[0]) return null;
@@ -139,7 +140,7 @@ async function assertAttachmentsOpen(pool, uploadIds) {
     if (attachmentOpens(name, buffer)) continue;
     const used = await pool.query(
       `SELECT 1 FROM intel_files WHERE upload_id = $1
-       UNION ALL SELECT 1 FROM users WHERE avatar_upload_id = $1
+       UNION ALL SELECT 1 FROM accounts WHERE avatar_upload_id = $1
        UNION ALL SELECT 1 FROM sponsors WHERE image_upload_id = $1
        LIMIT 1`,
       [row.id]
@@ -154,15 +155,17 @@ async function assertAttachmentsOpen(pool, uploadIds) {
   }
 }
 
-async function notifyWishResponse(pool, { wishId, authorId }) {
+async function notifyWishResponse(pool, { wishId, ownerId }) {
   const owner = await pool.query(
-    `SELECT user_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")}`,
+    `SELECT COALESCE(a.owner_id, a.id) AS wallet
+       FROM intel i JOIN accounts a ON a.id = i.account_id
+      WHERE i.id = $1 AND i.kind = 'wish' AND ${visibleVerdict("i.verdict")}`,
     [wishId]
   );
-  const ownerId = owner.rows[0]?.user_id;
-  if (!ownerId || ownerId === authorId) return;
+  const authorWallet = owner.rows[0]?.wallet;
+  if (!authorWallet || authorWallet === ownerId) return;
   await recordNotification(pool, {
-    userId: ownerId,
+    userId: authorWallet,
     kind: "request_response",
     title: "有一条 wish 响应",
     body: "",
@@ -189,7 +192,7 @@ export async function judgeIntel(pool, id) {
     if (rows.length) {
       await discardExtract(id);
       await recordNotification(pool, {
-        userId: intel.user_id,
+        userId: intel.account_id,
         kind: "intel_rejected",
         title: "信息已撤销",
         body: result.reason,
@@ -206,6 +209,34 @@ export async function judgeIntel(pool, id) {
   }
   if (intel.kind === "post" || intel.kind === "fastpost" || intel.kind === "wish") touchDiscoverBoard();
   return loadPresentedIntel(pool, id);
+}
+
+/**
+ * 只重出话题标签：类别、语种与 note 都不动。
+ * 用于整理历史上「英文正文配中文标签」这类记录。评审员再判一次，只取 topics。
+ */
+export async function retagIntelTopics(pool, id) {
+  if (!intelAgentId()) throw new Error("intel_agent_unconfigured");
+  const intel = await loadIntel(pool, id);
+  if (!intel) return null;
+  const { rows } = await pool.query(`SELECT detail FROM intel WHERE id = $1`, [id]);
+  const detail = rows[0]?.detail && typeof rows[0].detail === "object" ? rows[0].detail : {};
+  const before = Array.isArray(detail.topics) ? detail.topics : [];
+  const language = typeof detail.language === "string" ? detail.language : "";
+  const images = await imageFiles(pool, id);
+  const attachments = await attachmentFiles(pool, id);
+  const result = await runIntelAgent(intel, images, attachments);
+  // 评审员换了语种判定时以它的为准；它说撤销也不要真的撤销，只整理标签。
+  const tagLanguage = language || result.language;
+  const fresh = result.topics.filter((topic) => topicMatchesLanguage(topic, tagLanguage));
+  // 它这次一个合语种的标签都没给，就退一步：只删掉原来那些不合语种的，不清空。
+  const topics = fresh.length ? fresh : before.filter((topic) => topicMatchesLanguage(topic, tagLanguage));
+  await pool.query(
+    `UPDATE intel SET detail = jsonb_set(coalesce(detail, '{}'::jsonb), '{topics}', $2::jsonb, true) WHERE id = $1`,
+    [id, JSON.stringify(topics)]
+  );
+  if (intel.kind === "post" || intel.kind === "fastpost" || intel.kind === "wish") touchDiscoverBoard();
+  return { id, language: tagLanguage, before, topics };
 }
 
 const REVIEW_LABELS = {
@@ -230,7 +261,7 @@ export function reviewFailureText(error) {
 
 export async function noteReviewFailure(pool, id, error) {
   const code = reviewFailureCode(error);
-  const { rows } = await pool.query(`SELECT user_id, verdict, detail FROM intel WHERE id = $1`, [id]);
+  const { rows } = await pool.query(`SELECT account_id, verdict, detail FROM intel WHERE id = $1`, [id]);
   const intel = rows[0];
   if (!intel || intel.verdict !== "pending") return false;
   const previous = intel.detail && typeof intel.detail.reviewError === "string" ? intel.detail.reviewError : "";
@@ -238,12 +269,12 @@ export async function noteReviewFailure(pool, id, error) {
   const updated = await pool.query(
     `UPDATE intel SET detail = COALESCE(detail, '{}'::jsonb) || $2::jsonb
      WHERE id = $1 AND verdict = 'pending'
-     RETURNING user_id`,
+     RETURNING account_id`,
     [id, JSON.stringify({ reviewError: code })]
   );
   if (!updated.rows.length) return false;
   await recordNotification(pool, {
-    userId: updated.rows[0].user_id,
+    userId: updated.rows[0].account_id,
     kind: "intel_review_error",
     title: "审核异常",
     body: reviewFailureText(error),
@@ -316,13 +347,15 @@ export async function resumePendingReviews(pool) {
   for (const row of rows) enqueueReview(pool, row.id);
 }
 
-async function assertRespondsTo(pool, requestId, userId) {
+async function assertRespondsTo(pool, requestId, ownerId) {
   if (!requestId) return;
   const { rows } = await pool.query(
-    `SELECT user_id FROM intel WHERE id = $1 AND kind = 'wish' AND ${visibleVerdict("verdict")} AND ${wishLive("intel")}`,
+    `SELECT COALESCE(a.owner_id, a.id) AS wallet
+       FROM intel i JOIN accounts a ON a.id = i.account_id
+      WHERE i.id = $1 AND i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}`,
     [requestId]
   );
-  if (!rows.length || rows[0].user_id === userId) {
+  if (!rows.length || rows[0].wallet === ownerId) {
     const error = new Error("bad_state");
     error.code = "bad_state";
     throw error;
@@ -352,10 +385,10 @@ async function assertRevision(pool, userId, revises, kind) {
     throw error;
   }
   const { rows } = await pool.query(
-    `SELECT id, user_id, origin_id, version FROM intel WHERE id = $1 AND ${visibleVerdict("verdict")}`,
+    `SELECT id, account_id, origin_id, version FROM intel WHERE id = $1 AND ${visibleVerdict("verdict")}`,
     [revises]
   );
-  if (!rows[0] || rows[0].user_id !== userId) {
+  if (!rows[0] || rows[0].account_id !== userId) {
     const error = new Error("bad_state");
     error.code = "bad_state";
     throw error;
@@ -370,7 +403,9 @@ async function assertRevision(pool, userId, revises, kind) {
 
 export async function createIntel(pool, input) {
   const { userId, actor, door, body, videos = [], isPublic = true, price } = input;
-  await assertCanSpeak(pool, userId);
+  const author = await speakerAccount(pool, userId);
+  // 好友与钱包都按作者所属的账号算：Agent 用主人的关系网，花主人的积分。
+  const ownerId = author.owner_id || author.id;
   const imageIds = (input.imageIds || []).slice(0, MAX_IMAGES);
   const audioIds = (input.audioIds || []).slice(0, MAX_AUDIO);
   const audioUrls = (input.audioUrls || []).slice(0, Math.max(0, MAX_AUDIO - audioIds.length));
@@ -386,8 +421,8 @@ export async function createIntel(pool, input) {
     error.code = "bad_mention";
     throw error;
   }
-  if (mentions.length) await assertFriends(pool, userId, mentions);
-  const mention = (intelId) => directMentions(pool, { authorId: userId, intelId, kind, body, mentions });
+  if (mentions.length) await assertFriends(pool, ownerId, mentions);
+  const mention = (intelId) => directMentions(pool, { authorId: ownerId, intelId, kind, body, mentions });
   const videoItems = videoItemsOf(videos);
   const hash = contentHash({
     kind,
@@ -401,7 +436,7 @@ export async function createIntel(pool, input) {
     videos: videoItems,
   });
   const prior = await pool.query(
-    `SELECT id FROM intel WHERE user_id = $1 AND content_hash = $2 AND verdict <> 'pending'`,
+    `SELECT id FROM intel WHERE account_id = $1 AND content_hash = $2 AND verdict <> 'pending'`,
     [userId, hash]
   );
   if (prior.rows[0]) {
@@ -417,7 +452,7 @@ export async function createIntel(pool, input) {
   let owned = [];
   if (uploadIds.length) {
     const { rows } = await pool.query(
-      `SELECT id, size, mime, original_name FROM uploads WHERE user_id = $1 AND id = ANY($2::uuid[])`,
+      `SELECT id, size, mime, original_name FROM uploads WHERE account_id = $1 AND id = ANY($2::uuid[])`,
       [userId, uploadIds]
     );
     if (rows.length !== uploadIds.length) {
@@ -433,7 +468,7 @@ export async function createIntel(pool, input) {
   const posterById = new Map();
   if (posterIds.length) {
     const { rows } = await pool.query(
-      `SELECT id FROM uploads WHERE user_id = $1 AND id = ANY($2::uuid[]) AND mime LIKE 'image/%'`,
+      `SELECT id FROM uploads WHERE account_id = $1 AND id = ANY($2::uuid[]) AND mime LIKE 'image/%'`,
       [userId, posterIds]
     );
     if (rows.length !== posterIds.length) {
@@ -457,7 +492,7 @@ export async function createIntel(pool, input) {
   });
   await assertAttachmentsOpen(pool, fileIds);
   await assertReachable([...audioUrls, ...fileUrls, ...videoLinks]);
-  await assertRespondsTo(pool, respondsTo, userId);
+  await assertRespondsTo(pool, respondsTo, ownerId);
   const external = {
     audio: audioUrls.map((url) => ({ url })),
     attachments: fileUrls.map((url) => ({ url })),
@@ -474,7 +509,7 @@ export async function createIntel(pool, input) {
   try {
     await client.query("BEGIN");
     const inserted = await client.query(
-      `INSERT INTO intel (user_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to, price, expires_at, origin_id, version)
+      `INSERT INTO intel (account_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to, price, expires_at, origin_id, version)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
       [userId, actor, door, body, JSON.stringify(storedVideos), JSON.stringify(external), hash, listed, kind, respondsTo, priced, expiresAt, revision.originId, revision.version]
     );
@@ -497,7 +532,7 @@ export async function createIntel(pool, input) {
     if (error.message === "insufficient_points") error.code = "insufficient_points";
     if (error.code !== "23505") throw error;
     const again = await pool.query(
-      `SELECT id FROM intel WHERE user_id = $1 AND content_hash = $2`,
+      `SELECT id FROM intel WHERE account_id = $1 AND content_hash = $2`,
       [userId, hash]
     );
     if (!again.rows[0]) throw error;
@@ -507,7 +542,7 @@ export async function createIntel(pool, input) {
     client.release();
   }
   await mention(intelId);
-  if (kind === "wishRespond" && respondsTo) await notifyWishResponse(pool, { wishId: respondsTo, authorId: userId });
+  if (kind === "wishRespond" && respondsTo) await notifyWishResponse(pool, { wishId: respondsTo, ownerId });
   if (kind === "post" || kind === "fastpost" || kind === "wish") touchDiscoverBoard();
   if (!intelAgentId()) {
     try {
@@ -522,30 +557,30 @@ export async function createIntel(pool, input) {
 }
 
 const PUBLIC_INTEL_SQL = `
-  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
+  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
     u.display_name, u.avatar_upload_id,
     EXISTS (
       SELECT 1 FROM intel_stars s
-      WHERE s.intel_id = i.id AND s.user_id = $1
+      WHERE s.intel_id = i.id AND s.account_id = $1
     ) AS starred,
     EXISTS (
       SELECT 1 FROM intel_likes l
-      WHERE l.intel_id = i.id AND l.user_id = $1
+      WHERE l.intel_id = i.id AND l.account_id = $1
     ) AS liked,
     ($1::uuid IS NOT NULL AND (
-      i.user_id = $1 OR EXISTS (
-        SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
+      i.account_id = $1 OR EXISTS (
+        SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.account_id = $1
       )
     )) AS granted,
 ${FRIEND_COLUMNS}
   FROM intel i
-  JOIN users u ON u.id = i.user_id
+  JOIN accounts u ON u.id = i.account_id
   WHERE ${visibleVerdict("i.verdict")}
     AND i.is_public
     AND i.kind IN ('post', 'fastpost')
     AND ($1::uuid IS NULL OR NOT EXISTS (
       SELECT 1 FROM intel_dismissals d
-      WHERE d.intel_id = i.id AND d.user_id = $1
+      WHERE d.intel_id = i.id AND d.account_id = $1
     ))
     AND NOT EXISTS (
       SELECT 1 FROM intel newer
@@ -656,11 +691,11 @@ export function saleLive(alias = "i") {
 // 修订链上的所有版本一起撤下，免得删掉新版后旧版重新出现在信息流里。
 export async function deleteOwnPost(pool, userId, intelId) {
   const { rows } = await pool.query(
-    `SELECT id, user_id, kind, origin_id, verdict FROM intel WHERE id = $1`,
+    `SELECT id, account_id, kind, origin_id, verdict FROM intel WHERE id = $1`,
     [intelId]
   );
   const target = rows[0];
-  if (!target || target.user_id !== userId) {
+  if (!target || target.account_id !== userId) {
     const error = new Error("not_found");
     error.code = "not_found";
     throw error;
@@ -692,7 +727,7 @@ export async function listPublicIntel(pool, limit = 30, userId = null, authorId 
   let sql = PUBLIC_INTEL_SQL;
   if (authorId) {
     params.push(authorId);
-    sql += ` AND i.user_id = $${params.length}`;
+    sql += ` AND i.account_id = $${params.length}`;
   }
   sql += filterSql(filters, params);
   // 信息流只放不卖的；出售（有可下载附件且有标价）归市场。sales=true 时反过来只取出售，且只留仍在有效期内的。
@@ -718,11 +753,11 @@ export async function listPublicIntel(pool, limit = 30, userId = null, authorId 
 export async function publicAuthor(pool, authorId) {
   const { rows } = await pool.query(
     `SELECT u.id, u.display_name, u.avatar_upload_id
-     FROM users u
+     FROM accounts u
      WHERE u.id = $1
        AND EXISTS (
          SELECT 1 FROM intel i
-         WHERE i.user_id = u.id
+         WHERE i.account_id = u.id
            AND i.is_public
            AND i.kind IN ('post', 'fastpost')
            AND ${visibleVerdict("i.verdict")}
@@ -796,11 +831,11 @@ export async function setIntelStar(pool, userId, intelId, starred) {
     }
     if (starred) {
       await client.query(
-        `INSERT INTO intel_stars (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        `INSERT INTO intel_stars (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
         [userId, intelId]
       );
     } else {
-      await client.query(`DELETE FROM intel_stars WHERE user_id = $1 AND intel_id = $2`, [userId, intelId]);
+      await client.query(`DELETE FROM intel_stars WHERE account_id = $1 AND intel_id = $2`, [userId, intelId]);
     }
     await client.query(
       `UPDATE intel
@@ -834,11 +869,11 @@ export async function setIntelLike(pool, userId, intelId, liked) {
     }
     if (liked) {
       await client.query(
-        `INSERT INTO intel_likes (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        `INSERT INTO intel_likes (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
         [userId, intelId]
       );
     } else {
-      await client.query(`DELETE FROM intel_likes WHERE user_id = $1 AND intel_id = $2`, [userId, intelId]);
+      await client.query(`DELETE FROM intel_likes WHERE account_id = $1 AND intel_id = $2`, [userId, intelId]);
     }
     await client.query("COMMIT");
     return { liked: Boolean(liked) };
@@ -852,9 +887,9 @@ export async function setIntelLike(pool, userId, intelId, liked) {
 
 async function loadDownloadIntel(db, intelId, lock) {
   const { rows } = await db.query(
-    `SELECT i.id, i.user_id, i.body, i.videos, i.links, i.category, i.price, i.is_public, i.kind, i.responds_to, i.created_at, u.display_name
+    `SELECT i.id, i.account_id, i.body, i.videos, i.links, i.category, i.price, i.is_public, i.kind, i.responds_to, i.created_at, u.display_name
      FROM intel i
-     JOIN users u ON u.id = i.user_id
+     JOIN accounts u ON u.id = i.account_id
      WHERE i.id = $1 AND ${visibleVerdict("i.verdict")}
      ${lock ? "FOR UPDATE OF i" : ""}`,
     [intelId]
@@ -863,10 +898,11 @@ async function loadDownloadIntel(db, intelId, lock) {
 }
 
 async function assertCanDownload(db, intel, userId) {
-  if (intel.kind === "wish" || intel.is_public || intel.user_id === userId) return;
+  // 作者可能是 Agent，下载者可能是它的主人：同一个人不该为同一件东西再付一次钱。
+  if (intel.kind === "wish" || intel.is_public || (await sameWallet(db, intel.account_id, userId))) return;
   if (intel.kind === "wishRespond" && intel.responds_to) {
     const parent = await db.query(
-      `SELECT 1 FROM intel WHERE id = $1 AND user_id = $2 AND kind = 'wish'`,
+      `SELECT 1 FROM intel WHERE id = $1 AND account_id = $2 AND kind = 'wish'`,
       [intel.responds_to, userId]
     );
     if (parent.rows.length) return;
@@ -894,22 +930,23 @@ async function chargePublish(client, { userId, intelId, bytes }) {
   const fee = serviceFee(bytes, economyConfig().publishServiceFeePerMb, economyConfig().serviceFeeCap);
   if (fee <= 0) return;
   await applyPoints(client, { userId, delta: -fee, reason: "publish", refId: intelId });
-  await applyPoints(client, { userId: PLATFORM_USER_ID, delta: fee, reason: "publish", refId: intelId });
+  await applyPoints(client, { userId: PLATFORM_ACCOUNT_ID, delta: fee, reason: "publish", refId: intelId });
 }
 
 // wish 下载前先解锁响应列表（免费），服务费由 chargeDownload 收。
 async function unlockRequest(client, intel, userId) {
-  if (intel.user_id === userId) return;
+  if (await sameWallet(client, intel.account_id, userId)) return;
   await client.query(
-    `INSERT INTO request_unlocks (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    `INSERT INTO request_unlocks (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [userId, intel.id]
   );
 }
 
 async function chargeDownload(client, intel, userId) {
-  if (intel.user_id === userId) return;
+  // 同一个钱包（账号与它名下的 Agent）不付自己的钱。
+  if (await sameWallet(client, intel.account_id, userId)) return;
   const prior = await client.query(
-    `SELECT 1 FROM packet_downloads WHERE user_id = $1 AND intel_id = $2`,
+    `SELECT 1 FROM packet_downloads WHERE account_id = $1 AND intel_id = $2`,
     [userId, intel.id]
   );
   if (prior.rows.length) return;
@@ -925,7 +962,7 @@ async function chargeDownload(client, intel, userId) {
     });
     if (price > 0) {
       await applyPoints(client, {
-        userId: intel.user_id,
+        userId: intel.account_id,
         delta: price,
         reason: "download",
         refId: intel.id,
@@ -933,7 +970,7 @@ async function chargeDownload(client, intel, userId) {
     }
     if (fee > 0) {
       await applyPoints(client, {
-        userId: PLATFORM_USER_ID,
+        userId: PLATFORM_ACCOUNT_ID,
         delta: fee,
         reason: "download_fee",
         refId: intel.id,
@@ -941,7 +978,7 @@ async function chargeDownload(client, intel, userId) {
     }
   }
   await client.query(
-    `INSERT INTO packet_downloads (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    `INSERT INTO packet_downloads (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [userId, intel.id]
   );
 }
@@ -1025,7 +1062,7 @@ export async function reopenSale(pool, userId, intelId) {
     `SELECT i.id
      FROM intel i
      WHERE i.id = $1
-       AND i.user_id = $2
+       AND i.account_id = $2
        AND i.kind IN ('post', 'fastpost')
        AND i.is_public
        AND ${visibleVerdict("i.verdict")}

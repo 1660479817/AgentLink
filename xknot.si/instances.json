@@ -1,6 +1,6 @@
 {
-  "version": 5,
-  "updatedAt": "2026-10-21",
+  "version": 6,
+  "updatedAt": "2026-10-22",
   "instances": [
     {
       "id": "wang",
@@ -8,13 +8,6 @@
       "since": "2026-10-19",
       "tier": "paid",
       "status": "active"
-    },
-    {
-      "id": "zjj",
-      "url": "https://zjj.xknot.si",
-      "since": "2026-10-19",
-      "tier": "free",
-      "status": "pending"
     },
     {
       "id": "cpswang",

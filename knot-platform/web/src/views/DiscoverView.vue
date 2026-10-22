@@ -5,8 +5,9 @@ import InformationCard from "../components/InformationCard.vue";
 import ShareComposer from "../components/ShareComposer.vue";
 import SnapComposer from "../components/SnapComposer.vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { addCardFriend, closeInformation, discoverSelf, dismissInformation, downloadInformation, fetchFacets, getInformation, listInformation, listPeople, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
+import { addCardFriend, closeInformation, discoverSelf, dismissInformation, downloadInformation, fetchFacets, getHome, getInformation, listInformation, listPeople, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
 import FilterBar from "../components/FilterBar.vue";
+import { browserStorage, readBoardCache } from "../boardCache.js";
 import { applyDiscoverSelf, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
 import { errorText, nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
@@ -22,9 +23,11 @@ import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
 const pending = readAhead();
+// 首帧优先用本机留下的那一份快照：刷新后不必等隧道就能画出来。
+const cachedBoard = readDiscoverMemory() || readBoardCache(browserStorage());
 const opening = pending
   ? { information: pending.information || [], requests: pending.requests || [], people: pending.people || [], facets: pending.facets || { categories: [], topics: [] } }
-  : paintDiscover(readDiscoverMemory(), session.user?.id);
+  : paintDiscover(cachedBoard, session.user?.id);
 const items = ref(opening.information);
 const people = ref(opening.people || []);
 const facets = ref(opening.facets || { categories: [], topics: [] });
@@ -59,7 +62,7 @@ let railDrag = null;
 let feedPoll = null;
 let refreshing = false;
 // 公开快照已经带着 facets 时，首屏不再为它多走一次接口。
-let facetsFromBoard = false;
+let facetsFromBoard = Boolean(cachedBoard?.facets);
 const FEED_POLL_MS = 60 * 1000;
 
 onMounted(() => {
@@ -162,23 +165,48 @@ async function loadMore() {
   }
 }
 
-async function patchSelf(painted) {
-  if (!session.user) return painted;
-  const ids = (painted.information || []).map((item) => item.id);
-  try {
-    return applyDiscoverSelf(painted, await discoverSelf(ids));
-  } catch {
-    return painted;
-  }
+// 把个人状态叠到已经在屏幕上的这一列。只看当前的 items，不覆盖刷新期间新加进来的帖子。
+function applySelf(self) {
+  if (!self || typeof self !== "object") return;
+  items.value = applyDiscoverSelf({ information: items.value, requests: [] }, self).information;
+}
+
+// 会话与个人状态一次取回。首屏已经画了快照，所以这一条迟一点不影响页面出现。
+let personalising = null;
+function personalise() {
+  if (personalising) return personalising;
+  personalising = (async () => {
+    try {
+      if (!session.userKnown) {
+        // 还不知道是谁：/home 把会话、Agent、未读数和快照上的个人状态一起带回来。
+        const data = await getHome();
+        session.applyHome(data);
+        notifications.setUnread(data.unread);
+        // 没有会话时不要叠：空状态会让本来该藏起来的操作（加好友等）显示出来。
+        if (data.user) applySelf(data.self);
+        return;
+      }
+      if (!session.user) return;
+      const ids = items.value.map((item) => item.id);
+      applySelf(await discoverSelf(ids));
+    } catch {
+      /* 隧道没通时保留公开快照那一屏，登录态等下一次刷新 */
+    }
+  })();
+  return personalising.finally(() => {
+    personalising = null;
+  });
 }
 
 async function loadLive(options = {}) {
   const q = searchQ.value;
   const author = authorQ.value;
   // 公开快照关掉时用户条没有快照可画，首屏跟信息流一起取一次。
-  const rosterTask = people.value.length ? null : listPeople().catch(() => null);
-  const info = q ? await searchInformation(q, activeFilters.value) : await listInformation(author, null, activeFilters.value);
-  const roster = await rosterTask;
+  // 两条请求互不依赖，一起发，少等一次往返。
+  const [info, roster] = await Promise.all([
+    q ? searchInformation(q, activeFilters.value) : listInformation(author, null, activeFilters.value),
+    people.value.length ? Promise.resolve(null) : listPeople().catch(() => null),
+  ]);
   if (Array.isArray(roster?.people)) people.value = roster.people;
   filterAuthor.value = author ? info.author || null : null;
   const painted = { information: info.information || [], requests: [], people: people.value, facets: facets.value };
@@ -188,14 +216,19 @@ async function loadLive(options = {}) {
 
 async function loadBoard() {
   const board = await fetchDiscoverBoard();
+  facetsFromBoard = Boolean(board.facets);
   if (readAhead() && !coveredBy(board)) {
-    showPainted(await patchSelf(revealDiscover(readAhead())));
+    // 刚发布过：先把那一屏画出来，个人状态稍后再叠，不挡着首屏。
+    // people 与 facets 沿用当前值，`/discover.json` 里那一份不一定包含刚发的这条。
+    const ahead = revealDiscover(readAhead());
+    showPainted({ information: ahead.information, requests: ahead.requests, people: people.value, facets: facets.value });
+    void personalise();
     return;
   }
   if (readAhead()) rememberAhead(null);
-  const painted = await patchSelf(paintDiscover(board, session.user?.id));
-  showPainted(painted);
-  facetsFromBoard = true;
+  // 先画公开快照，不等任何一次跨境往返。
+  showPainted(paintDiscover(board, session.user?.id));
+  void personalise();
 }
 
 // 快照里带了 facets 就直接用。只有走实时接口、或快照没带这一项时，才回源取一次。
@@ -213,8 +246,11 @@ async function load(options = {}) {
   // 公开快照关掉时直接走实时接口。
   const live = options.live === true || hasFilter.value || session.site.publicBoard === false;
   try {
-    if (live) await loadLive({ ahead: options.live === true && !hasFilter.value });
-    else await loadBoard();
+    if (live) {
+      await loadLive({ ahead: options.live === true && !hasFilter.value });
+      // 走实时接口时首屏没有经过 loadBoard，会话与个人状态在这里补一次。
+      void personalise();
+    } else await loadBoard();
   } catch {
     if (hasFilter.value) {
       items.value = [];
@@ -223,10 +259,12 @@ async function load(options = {}) {
       moreAvailable.value = false;
       return;
     }
-    if (!live && (readAhead() || readDiscoverMemory())) return;
+    // 本机已经有可画的一屏（刚发布的、或上一份快照）时，不要退回空信息流。
+    if (!live && (readAhead() || readDiscoverMemory() || opening.information.length)) return;
     if (!live) {
       try {
         await loadLive();
+        void personalise();
         return;
       } catch {
         /* the feed stays empty below */
@@ -243,6 +281,8 @@ async function load(options = {}) {
 
 async function refreshFeed() {
   if (refreshing || !feedReady.value || loadingMore.value || searchQ.value) return;
+  // 首屏那一次 /home 没赶上（隧道抖了一下）时，在这里补：只补会话，不换信息流。
+  if (!session.userKnown) void personalise();
   refreshing = true;
   try {
     const [info, roster] = await Promise.all([

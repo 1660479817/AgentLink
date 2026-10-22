@@ -185,9 +185,13 @@ curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 
 ## instances.json 备注
 
-清单里当前有两个实例：自营旗舰 `wang`（`https://wang.xknot.si`）和社区成员 `zjj`（`https://zjj.xknot.si`），两者都是 `subdomain` 模式。`zjj` 仍在交接期，清单 `status` 还是 `pending`，运行状态显示「未探测」；`/api/health` 验收通过后把 `status` 改成 `active`（见 `docs/HANDOFF.md`）。清单里没有探测地址字段，地址恒为 `url` + `/api/health`。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
+清单里当前有两个实例：自营旗舰 `wang`（`https://wang.xknot.si`）和社区成员 `cpswang`（`https://cpswang.xknot.si`），两者都是 `subdomain` 模式、`status: active`。清单里没有探测地址字段，地址恒为 `url` + `/api/health`。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
 
-`zjj` 的子域已签发，但入口还没有 `/api` 反代，属交接期：清单 `status` 仍是 `pending`，运行状态 `unknown`。接通后把 `status` 改成 `active`，名册 `mode` 保持 `subdomain`；探测地址恒为 `https://zjj.xknot.si/api/health`，不用登记。步骤见实例侧的 `knot-platform/ops/entry/zjj-tunnel.md`，交付规则见 `xknot.si/docs/HANDOFF.md`。
+## 新增与下架实例
+
+新增一条：先改 `federation.json`（身份、隧道账号与端口），再改 `instances.json`（签发区），然后 `npm run validate`。下架一条：两个文件同时删掉这条，再删入口主机上的 conf 与静态根；`var/health.json` 与 `var/status.json` 下次巡检会自然丢掉它，`var/profiles/` 里的副本要手工删。子域跟着 `*.xknot.si` 的泛解析走，没有单独的 DNS 记录要清。
+
+历史：`zjj`（2026-10-19 签发、未接通）是早期试验，2026-10-22 已下架并删除登记与入口文件。
 
 ## 实例侧
 

@@ -49,7 +49,7 @@ WITH poster_uploads AS (
 ),
 used AS (
   SELECT upload_id AS id FROM intel_files
-  UNION SELECT avatar_upload_id FROM users WHERE avatar_upload_id IS NOT NULL
+  UNION SELECT avatar_upload_id FROM accounts WHERE avatar_upload_id IS NOT NULL
   UNION SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL
   UNION SELECT id FROM poster_uploads WHERE id IS NOT NULL
 )
@@ -70,7 +70,7 @@ WITH poster_uploads AS (
 ),
 used AS (
   SELECT upload_id AS id FROM intel_files
-  UNION SELECT avatar_upload_id FROM users WHERE avatar_upload_id IS NOT NULL
+  UNION SELECT avatar_upload_id FROM accounts WHERE avatar_upload_id IS NOT NULL
   UNION SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL
   UNION SELECT id FROM poster_uploads WHERE id IS NOT NULL
 )
@@ -95,7 +95,7 @@ WITH poster_uploads AS (
 ),
 used AS (
   SELECT upload_id AS id FROM intel_files
-  UNION SELECT avatar_upload_id FROM users WHERE avatar_upload_id IS NOT NULL
+  UNION SELECT avatar_upload_id FROM accounts WHERE avatar_upload_id IS NOT NULL
   UNION SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL
   UNION SELECT id FROM poster_uploads WHERE id IS NOT NULL
 )

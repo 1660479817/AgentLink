@@ -15,14 +15,14 @@ const SS = `Recv-Q Send-Q Local Address:Port   Peer Address:Port Process
 const PS = ` 190681 sshd-session: knot-tunnel@notty
  190678 sshd-session: knot-tunnel [priv]
  190746 sshd-session: knot-tunnel-cpswang@notty
- 193384 sshd-session: knot-tunnel-zjj
+ 193384 sshd-session: knot-tunnel-example
  231001 sshd-session: ec2-user@pts/2
 `;
 
 const MEMBERS = [
   { id: "wang", tunnel: { account: "knot-tunnel" } },
   { id: "cpswang", tunnel: { account: "knot-tunnel-cpswang" } },
-  { id: "zjj", tunnel: { account: "knot-tunnel-zjj" } },
+  { id: "example", tunnel: { account: "knot-tunnel-example" } },
 ];
 
 test("ss rows keep the peer address and the pid, and skip the header", () => {
@@ -38,7 +38,7 @@ test("three sshd process names count: the -N session, the priv monitor, and a ba
   assert.equal(sessions.get(190681), "knot-tunnel");
   assert.equal(sessions.get(190678), "knot-tunnel");
   // 刚连上、还没打上 @notty 的那种，线上真的出现过：漏一种就少一个实例。
-  assert.equal(sessions.get(193384), "knot-tunnel-zjj");
+  assert.equal(sessions.get(193384), "knot-tunnel-example");
   assert.equal(sessions.get(231001), "ec2-user");
 });
 
@@ -47,7 +47,7 @@ test("only roster tunnel accounts become ids; other logins are ignored", () => {
   assert.deepEqual(peers, {
     wang: { ip: "119.123.195.96", account: "knot-tunnel" },
     cpswang: { ip: "119.123.195.96", account: "knot-tunnel-cpswang" },
-    zjj: { ip: "2001:db8::99", account: "knot-tunnel-zjj" },
+    example: { ip: "2001:db8::99", account: "knot-tunnel-example" },
   });
   // ec2-user 是运营者自己的会话，地址再像也不参与。
   assert.equal(Object.keys(peers).length, 3);

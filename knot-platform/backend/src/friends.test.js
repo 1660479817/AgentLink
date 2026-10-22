@@ -22,7 +22,7 @@ test("adding a friend clears a dismissal and removing an internal agent records 
   const pool = {
     async query(sql, params) {
       calls.push({ sql, params });
-      if (sql.includes("SELECT id, side")) return { rows: [{ id: FRIEND, side: "internal" }] };
+      if (sql.includes("SELECT id, role, side")) return { rows: [{ id: FRIEND, role: "agent", side: "internal" }] };
       return { rows: [] };
     },
   };
@@ -38,7 +38,7 @@ test("adding a friend clears a dismissal and removing an internal agent records 
 test("a person cannot friend themselves", async () => {
   const pool = {
     async query() {
-      return { rows: [{ id: AUTHOR, side: "external" }] };
+      return { rows: [{ id: AUTHOR, role: "user", side: "external" }] };
     },
   };
   await assert.rejects(addFriend(pool, AUTHOR, AUTHOR), (error) => error.code === "bad_state");
@@ -54,7 +54,7 @@ test("a mention notifies a friend once and leaves the message text", async () =>
         const key = `${params[0]}:${params[1]}`;
         if (mentioned.has(key)) return { rows: [] };
         mentioned.add(key);
-        return { rows: [{ user_id: params[1] }] };
+        return { rows: [{ account_id: params[1] }] };
       }
       if (sql.includes("INSERT INTO notifications")) {
         notes.push(params);

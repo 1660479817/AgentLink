@@ -86,8 +86,8 @@ test("an empty inbox still has the shape", async () => {
 test("every agent response carries the inbox", async () => {
   const pool = {
     async query(sql) {
-      if (sql.includes("JOIN delegations")) {
-        return { rows: [{ id: USER_ID, email: "a@example.com", side: "internal" }] };
+      if (sql.includes("token_hash = $1")) {
+        return { rows: [{ id: USER_ID, owner_id: USER_ID, display_name: "豆包" }] };
       }
       if (sql.includes("GROUP BY kind")) {
         return {
@@ -139,11 +139,11 @@ test("every agent response carries the inbox", async () => {
 test("a failed summary still returns the payload", async () => {
   const pool = {
     async query(sql) {
-      if (sql.includes("JOIN delegations")) {
-        return { rows: [{ id: USER_ID, email: "a@example.com", side: "internal" }] };
+      if (sql.includes("token_hash = $1")) {
+        return { rows: [{ id: USER_ID, owner_id: USER_ID, display_name: "豆包" }] };
       }
       if (sql.includes("GROUP BY kind")) throw new Error("db down");
-      if (sql.includes("FROM users WHERE id = $1")) {
+      if (sql.includes("FROM accounts a")) {
         return {
           rows: [
             {
@@ -185,8 +185,13 @@ test("a failed summary still returns the payload", async () => {
 test("register/key returns the token even when the inbox fails", async () => {
   const pool = dbPool((sql) => {
     if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "k1" }] };
-    if (sql.includes("INSERT INTO users")) return { rows: [{ id: USER_ID, points_balance: 100 }] };
-    if (sql.includes("INSERT INTO delegations")) return { rows: [{ created_at: "2026-10-16T09:00:00.000Z" }] };
+    if (sql.includes("role = 'owner'")) return { rows: [] };
+    if (sql.includes("INSERT INTO accounts")) return { rows: [{ id: USER_ID, points_balance: 100, role: "user" }] };
+    if (sql.includes("FROM accounts WHERE id = $1")) {
+      return { rows: [{ id: USER_ID, role: "user", display_name: "甲", points_balance: 100 }] };
+    }
+    if (sql.includes("owner_id = $1 AND role = 'agent'")) return { rows: [{ id: "agent-1", display_name: "甲 的 Agent" }] };
+    if (sql.includes("token_hash = $2")) return { rows: [{ id: "agent-1", display_name: "甲 的 Agent", created_at: "t" }] };
     if (sql.includes("GROUP BY kind")) throw new Error("db down");
     return { rows: [] };
   });
@@ -213,8 +218,13 @@ test("register/key returns the token even when the inbox fails", async () => {
 test("register/key carries the inbox on the first reply", async () => {
   const pool = dbPool((sql) => {
     if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "k1" }] };
-    if (sql.includes("INSERT INTO users")) return { rows: [{ id: USER_ID, points_balance: 100 }] };
-    if (sql.includes("INSERT INTO delegations")) return { rows: [{ created_at: "2026-10-16T09:00:00.000Z" }] };
+    if (sql.includes("role = 'owner'")) return { rows: [] };
+    if (sql.includes("INSERT INTO accounts")) return { rows: [{ id: USER_ID, points_balance: 100, role: "user" }] };
+    if (sql.includes("FROM accounts WHERE id = $1")) {
+      return { rows: [{ id: USER_ID, role: "user", display_name: "甲", points_balance: 100 }] };
+    }
+    if (sql.includes("owner_id = $1 AND role = 'agent'")) return { rows: [{ id: "agent-1", display_name: "甲 的 Agent" }] };
+    if (sql.includes("token_hash = $2")) return { rows: [{ id: "agent-1", display_name: "甲 的 Agent", created_at: "t" }] };
     if (sql.includes("GROUP BY kind")) return { rows: [{ kind: "warning", n: 2 }] };
     if (sql.includes("(read_at IS NULL) DESC")) {
       return {

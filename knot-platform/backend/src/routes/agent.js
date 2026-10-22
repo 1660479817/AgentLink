@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
 import { listRequestResponses, listRequests } from "../requests.js";
@@ -14,7 +14,7 @@ import {
   sendFeedback,
 } from "../login.js";
 import { bioText, displayNameText, muteState, specialtyList, storedSpecialties } from "../account.js";
-import { decideAgentAccess, suppliedAgentEmail } from "../agentAccess.js";
+import { agentByToken, agentIssueError, ensurePersonalAgent } from "../agentAccount.js";
 import { listFriends } from "../friends.js";
 import {
   createIntel,
@@ -74,20 +74,15 @@ function bearerToken(header) {
   return String(header || "").replace(/^Bearer\s+/i, "").trim();
 }
 
-async function userFromAccess(pool, header, emailRaw) {
-  const supplied = suppliedAgentEmail(emailRaw);
-  if (supplied.error) return supplied;
-  const token = bearerToken(header);
+async function requireAccess(pool, req, res) {
+  const token = bearerToken(req.headers.authorization);
   if (!token) return { error: "bad_token", status: 401 };
-  const tokenHash = createHash("sha256").update(token).digest("hex");
-  const { rows } = await pool.query(
-    `SELECT u.id, u.email, u.side
-     FROM users u
-     JOIN delegations d ON d.user_id = u.id
-     WHERE d.token_hash = $1`,
-    [tokenHash]
-  );
-  return decideAgentAccess(rows[0], supplied.email);
+  const agent = await agentByToken(pool, token);
+  if (!agent) return { error: "bad_token", status: 401 };
+  // 信箱与积分都属于账号（Agent 的主人），令牌只决定「谁在发」。
+  const accountId = agent.owner_id || agent.id;
+  res.locals.noticeUserId = accountId;
+  return { userId: agent.id, accountId, side: agent.side };
 }
 
 function readDelivery(body, limits = {}) {
@@ -123,12 +118,14 @@ function readDelivery(body, limits = {}) {
   };
 }
 
-function presentUser(row) {
+function presentAccount(row) {
   const entitlements = row.entitlements && typeof row.entitlements === "object" ? row.entitlements : {};
   const mute = muteState(row.muted_until);
   return {
     id: row.id,
-    email: row.email,
+    role: row.role,
+    ownerId: row.owner_id || null,
+    email: row.email || null,
     displayName: row.display_name || "",
     avatarUrl: avatarUrlFor(row),
     level: row.level,
@@ -141,13 +138,19 @@ function presentUser(row) {
   };
 }
 
-async function loadUser(pool, userId) {
+async function loadAccount(pool, accountId) {
   const { rows } = await pool.query(
-    `SELECT id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, specialties, bio
-     FROM users WHERE id = $1`,
-    [userId]
+    `SELECT a.id, a.role, a.owner_id, a.email, a.display_name, a.avatar_upload_id,
+            COALESCE(o.level, a.level) AS level,
+            COALESCE(o.entitlements, a.entitlements) AS entitlements,
+            a.muted_until, a.specialties, a.bio,
+            COALESCE(o.points_balance, a.points_balance) AS points_balance
+       FROM accounts a
+       LEFT JOIN accounts o ON o.id = a.owner_id
+      WHERE a.id = $1`,
+    [accountId]
   );
-  return rows[0] ? presentUser(rows[0]) : null;
+  return rows[0] ? presentAccount(rows[0]) : null;
 }
 
 export function agentRouter({ pool, uploadDir }) {
@@ -203,10 +206,8 @@ export function agentRouter({ pool, uploadDir }) {
     next();
   });
 
-  async function accessFor(req, res, emailRaw) {
-    const access = await userFromAccess(pool, req.headers.authorization, emailRaw);
-    if (access.userId) res.locals.noticeUserId = access.userId;
-    return access;
+  async function accessFor(req, res) {
+    return requireAccess(pool, req, res);
   }
 
   function acceptFile(kind) {
@@ -226,7 +227,7 @@ export function agentRouter({ pool, uploadDir }) {
   }
 
   async function storeUpload(req, res, kind) {
-    const access = await accessFor(req, res, req.body?.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const name = uploadName(req.file.originalname);
     if (kind === "file" && isAttachmentUpload(req.file) && !isArchiveUpload(req.file)) {
@@ -257,6 +258,8 @@ export function agentRouter({ pool, uploadDir }) {
     res.json({ ok: true });
   });
 
+  // 外部 Agent 自注册：人的邮箱收密钥，Agent 拿密钥换自己的令牌。
+  // 一本账号只有一个 Agent 名额，重复调用就是换令牌（旧令牌立即失效）。
   router.post("/register/key", async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     const key = normalizeLoginKey(req.body?.key);
@@ -264,37 +267,47 @@ export function agentRouter({ pool, uploadDir }) {
     if (!key) return res.status(400).json({ error: "bad_key" });
     const redeemed = await redeemLoginKey(pool, email, key);
     if (redeemed.error) return res.status(redeemed.status).json({ error: redeemed.error });
-    const token = randomBytes(24).toString("base64url");
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const { rows } = await pool.query(
-      `INSERT INTO delegations (user_id, token_hash)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, created_at = now()
-       RETURNING created_at`,
-      [redeemed.userId, tokenHash]
+    const person = await pool.query(
+      `SELECT id, role, display_name, points_balance FROM accounts WHERE id = $1`,
+      [redeemed.userId]
     );
+    if (person.rows[0]?.role !== "user") return res.status(403).json({ error: "not_user" });
+    let issued;
+    try {
+      issued = await ensurePersonalAgent(pool, person.rows[0]);
+    } catch (error) {
+      const failure = agentIssueError(error);
+      return res.status(failure.status).json({ error: failure.error });
+    }
     // 让包装器去捎信箱，摘要失败时 token 照常返回，不被拖垮。
     res.locals.noticeUserId = redeemed.userId;
     res.status(201).json({
-      token,
+      token: issued.token,
+      agentId: issued.id,
+      displayName: issued.displayName,
       email,
       pointsBalance: redeemed.pointsBalance,
-      createdAt: rows[0].created_at,
+      createdAt: issued.createdAt,
     });
   });
 
   router.get("/profile", async (req, res) => {
-    const access = await accessFor(req, res, req.query.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    const user = await loadUser(pool, access.userId);
+    const user = await loadAccount(pool, access.userId);
     if (!user) return res.status(401).json({ error: "bad_token" });
     res.json({ user });
   });
 
   router.patch("/profile", async (req, res) => {
-    const access = await accessFor(req, res, req.body?.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const hasName = typeof req.body?.displayName === "string";
+    // 内部 Agent 的名字就是它的 OpenClaw id，也是授权码文件名（agents/<名字>.local.env）。
+    // 允许改名会让运维脚本认不出它，再签发一次就成了第二个 Agent。
+    if (hasName && req.body.displayName.trim() && access.side === "internal") {
+      return res.status(403).json({ error: "name_locked" });
+    }
     let name;
     if (hasName) {
       try {
@@ -355,12 +368,12 @@ export function agentRouter({ pool, uploadDir }) {
     }
     params.push(access.userId);
     try {
-      await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+      await pool.query(`UPDATE accounts SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "name_taken" });
       throw error;
     }
-    res.json({ user: await loadUser(pool, access.userId) });
+    res.json({ user: await loadAccount(pool, access.userId) });
   });
 
   router.post("/uploads", acceptFile("image"), (req, res) => storeUpload(req, res, "image"));
@@ -368,7 +381,7 @@ export function agentRouter({ pool, uploadDir }) {
   router.post("/files", acceptFile("file"), (req, res) => storeUpload(req, res, "file"));
 
   router.post("/intel", async (req, res) => {
-    const access = await accessFor(req, res, req.body?.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const delivery = readDelivery(req.body);
     if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
@@ -408,7 +421,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.post("/intel/:id/download", async (req, res) => {
-    const access = await accessFor(req, res, req.body?.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
     try {
@@ -420,13 +433,13 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.get("/requests", async (req, res) => {
-    const access = await accessFor(req, res, req.query.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     res.json({ requests: await listRequests(pool, access.userId) });
   });
 
   router.get("/requests/:id/responses", async (req, res) => {
-    const access = await accessFor(req, res, req.query.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
     const result = await listRequestResponses(pool, access.userId, req.params.id);
@@ -436,7 +449,7 @@ export function agentRouter({ pool, uploadDir }) {
 
   // 读取公开信息流：与网页同一份记录。带授权码，个人态（关掉的、星、赞、已下载、好友）按这个账户算。
   router.get("/information", async (req, res) => {
-    const access = await accessFor(req, res, req.query.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const author = String(req.query.author || "").trim();
     if (author && !UUID.test(author)) return res.json({ information: [], author: null });
@@ -450,7 +463,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.get("/search", async (req, res) => {
-    const access = await accessFor(req, res, req.query.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const q = String(req.query.q || "").trim();
     if (!q) return res.json({ information: [] });
@@ -460,7 +473,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.get("/intel/:id", async (req, res) => {
-    const access = await accessFor(req, res, req.query.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const id = String(req.params.id || "");
     if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
@@ -472,7 +485,7 @@ export function agentRouter({ pool, uploadDir }) {
   // 删除自己的一条 post/fastpost：记录留在库里，只记为 removed 并取消公开。
   // 修订链上的历史版本一并撤下。不是自己的、没有这条返回 not_found。
   router.delete("/intel/:id", async (req, res) => {
-    const access = await accessFor(req, res, req.query.email ?? req.body?.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const id = String(req.params.id || "");
     if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
@@ -485,7 +498,7 @@ export function agentRouter({ pool, uploadDir }) {
 
   // 标记读过：从 information/search 拿到 id 后记一笔读痕迹。loadPublicIntel 读到即记，重复读不重复记。
   router.post("/intel/:id/look", async (req, res) => {
-    const access = await accessFor(req, res, req.body?.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const id = String(req.params.id || "");
     if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
@@ -497,7 +510,7 @@ export function agentRouter({ pool, uploadDir }) {
   // 信息检索：自然语言检索要求落成 wish，交给平台「信息检索员」后台执行。
   // 结果打包成 wishRespond（带报告附件），请求方到 wish 里下载时按平台统一检索价付费。
   router.post("/retrieve", async (req, res) => {
-    const access = await accessFor(req, res, req.body?.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
     if (!query) return res.status(400).json({ error: "bad_body" });
@@ -515,25 +528,25 @@ export function agentRouter({ pool, uploadDir }) {
   });
 
   router.get("/friends", async (req, res) => {
-    const access = await accessFor(req, res, req.query.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    res.json({ friends: await listFriends(pool, access.userId) });
+    res.json({ friends: await listFriends(pool, access.accountId) });
   });
 
   router.get("/notifications", async (req, res) => {
-    const access = await accessFor(req, res, req.query.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    res.json(await listNotifications(pool, access.userId));
+    res.json(await listNotifications(pool, access.accountId));
   });
 
   router.post("/notifications/read", async (req, res) => {
-    const access = await accessFor(req, res, req.body?.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    res.json(await markNotificationsRead(pool, access.userId));
+    res.json(await markNotificationsRead(pool, access.accountId));
   });
 
   router.post("/feedback", async (req, res) => {
-    const access = await accessFor(req, res, req.body?.email);
+    const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const kind = req.body?.kind;
     if (kind !== "suggestion" && kind !== "complaint") return res.status(400).json({ error: "bad_kind" });

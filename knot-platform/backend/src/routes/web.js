@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { readFile, rm } from "node:fs/promises";
@@ -10,12 +10,13 @@ import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../fri
 import { loadDiscoverSelf, emptyDiscoverSelf, listActivePeople } from "../discoverBoard.js";
 import { listFacets } from "../facets.js";
 import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, reopenSale, searchPublicIntel, setIntelLike, setIntelStar } from "../market.js";
-import { listNotifications, markNotificationsRead } from "../notifications.js";
+import { listNotifications, markNotificationsRead, unreadCount } from "../notifications.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
-import { adminEmail, isAdminUser, normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
+import { isOwnerAccount, normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
 import { removePost } from "../admin.js";
-import { bioText, displayNameText, muteState } from "../account.js";
+import { agentLimitOf, bioText, displayNameText, muteState } from "../account.js";
+import { agentIssueError, ensurePersonalAgent, findAgentsOf, retireAgent } from "../agentAccount.js";
 import { economyReport } from "../actuary.js";
 import { policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, sessionTtlMs } from "../middleware/session.js";
@@ -25,7 +26,7 @@ import { listPublicSponsors } from "../sponsors.js";
 import { loadTipSummary, tipIntel } from "../tips.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
-import { parseLocale, regionForRequest } from "../locale.js";
+import { DEFAULT_SITE_LOCALE, parseLocale } from "@knot/locale";
 import { guestBrowsing, siteConfig } from "../system.js";
 import { acceptAvatar, ensureCardImage, ensureUploadDir, newStorageName } from "../uploads.js";
 import { readableBlobPath, tmpDir } from "../storage.js";
@@ -41,15 +42,16 @@ function envBytes(name, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-const USER_COLUMNS = `id, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, locale, bio`;
+const USER_COLUMNS = `id, role, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, locale, bio`;
 
 function presentUser(row) {
   const entitlements = row.entitlements && typeof row.entitlements === "object" ? row.entitlements : {};
   const mute = muteState(row.muted_until);
   return {
     id: row.id,
+    role: row.role,
     email: row.email,
-    admin: Boolean(row.email) && row.email === adminEmail(),
+    admin: row.role === "owner",
     displayName: row.display_name || "",
     avatarUrl: avatarUrlFor(row),
     level: row.level,
@@ -63,7 +65,7 @@ function presentUser(row) {
 }
 
 async function loadUser(pool, id) {
-  const { rows } = await pool.query(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]);
+  const { rows } = await pool.query(`SELECT ${USER_COLUMNS} FROM accounts WHERE id = $1`, [id]);
   return rows[0] ? presentUser(rows[0]) : null;
 }
 
@@ -95,7 +97,7 @@ const INTEL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 
 // 站内浏览开关关掉时，没有会话就拿不到内容。信息流、搜索、深链、分享图都一样。
 function contentGate(req, res, next) {
-  if (req.user || guestBrowsing()) return next();
+  if (req.account || guestBrowsing()) return next();
   return res.status(401).json({ error: "no_session" });
 }
 
@@ -118,10 +120,17 @@ async function withUploads(pool, rows) {
   return rows.map((row) => ({ ...row, attachments: byId.get(row.id) || [] }));
 }
 
-export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
+export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, agentDoc }) {
   // 站点身份只用于展示：顶栏名称和分享文案。系统开关仍在 session.site。
-  // v2 起是九项扁平字符串，填什么就显示什么，不再按语种取。
+  // v2 起是十项扁平字段，填什么就显示什么，不再按语种取；`locale` 是站点默认界面语言。
   ensureUploadDir(uploadDir);
+
+  // Agent 指引住在联邦中枢，不随实例发版。地址由 Backend 给出，WebUI 不写死：
+  // 本地联调、镜像站或多中枢部署时，改 KNOT_HUB_ORIGIN 一处就够。
+  const doc = {
+    page: agentDoc?.page || "https://xknot.si/knot-help",
+    raw: agentDoc?.raw || "https://xknot.si/knot-help.md",
+  };
 
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, tmpDir(uploadDir)),
@@ -175,7 +184,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     const userId = redeemed.userId;
     const sid = randomBytes(24).toString("hex");
     const expires = new Date(Date.now() + sessionTtlMs());
-    await pool.query(`INSERT INTO sessions (sid, user_id, expires_at) VALUES ($1, $2, $3)`, [
+    await pool.query(`INSERT INTO sessions (sid, account_id, expires_at) VALUES ($1, $2, $3)`, [
       sid,
       userId,
       expires,
@@ -185,13 +194,73 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.get("/session", async (req, res) => {
+    // 带会话身份，任何一层共享缓存都不要留。
+    res.set("Cache-Control", "no-store");
     const policy = policyConfig();
-    const region = regionForRequest(req);
+    // 站点默认语种由主理人在 /admin 里定。这里不按访客 IP 或 Accept-Language 猜：
+    // 访客自己的选择在 WebUI 的本地存储与 accounts.locale 里，比这一项优先。
+    const defaultLocale = parseLocale(profile?.view().site?.locale) || DEFAULT_SITE_LOCALE;
     const site = siteConfig();
     const identity = brandView(profile?.view().site);
-    if (!req.user) return res.json({ user: null, policy, region, site, brand: identity });
-    const user = await loadUser(pool, req.user.id);
-    res.json({ user, policy, region, site, brand: identity });
+    if (!req.account) {
+      return res.json({ user: null, policy, defaultLocale, site, brand: identity, agentDoc: doc, agentDelegated: false });
+    }
+    // Agent 是否已开通和会话一起回：顶栏不必再为这一项单独穿一次隧道。
+    const [user, agents] = await Promise.all([loadUser(pool, req.account.id), findAgentsOf(pool, req.account.id)]);
+    res.json({ user, policy, defaultLocale, site, brand: identity, agentDoc: doc, agentDelegated: agents.length > 0 });
+  });
+
+  // 首页的会话层：一次往返拿齐会话、Agent、未读数，以及「当前公开快照上属于我的状态」。
+  //
+  // 信息流本身来自入口磁盘上的 /discover.json，不从这里发。这里只补公开快照里不可能有的东西：
+  // 登录的人是谁、关掉了哪些卡、点亮了哪些星、有没有未读通知。
+  // 首屏先画快照，这一条回来后再叠上去，所以它迟一点不影响页面出现。
+  router.get("/home", async (req, res) => {
+    // 这是给某个人的一屏：不存浏览器缓存，也不许共享缓存留。
+    res.set("Cache-Control", "no-store");
+    const policy = policyConfig();
+    const defaultLocale = parseLocale(profile?.view().site?.locale) || DEFAULT_SITE_LOCALE;
+    const site = siteConfig();
+    const brand = brandView(profile?.view().site);
+    if (!req.account) {
+      return res.json({
+        user: null,
+        policy,
+        defaultLocale,
+        site,
+        brand,
+        agentDoc: doc,
+        agentDelegated: false,
+        unread: 0,
+        boardVersion: null,
+        self: emptyDiscoverSelf(),
+      });
+    }
+    const user = await loadUser(pool, req.account.id);
+    if (!user) return res.status(401).json({ error: "no_session" });
+    // 三件互不依赖的事一起发：少一次等待，就少一次跨境往返。
+    const [agents, unread, snapshot] = await Promise.all([
+      findAgentsOf(pool, req.account.id),
+      unreadCount(pool, req.account.id),
+      typeof board === "function" ? board().catch(() => null) : Promise.resolve(null),
+    ]);
+    // 状态按快照里的 id 算，和浏览器刚画的那一屏对得上。
+    const ids = (Array.isArray(snapshot?.information) ? snapshot.information : [])
+      .map((item) => item?.id)
+      .filter(Boolean);
+    const self = ids.length ? await loadDiscoverSelf(pool, req.account.id, ids) : emptyDiscoverSelf();
+    res.json({
+      user,
+      policy,
+      defaultLocale,
+      site,
+      brand,
+      agentDoc: doc,
+      agentDelegated: agents.length > 0,
+      unread,
+      boardVersion: snapshot?.version || null,
+      self,
+    });
   });
 
   router.delete("/session", async (req, res) => {
@@ -202,7 +271,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.patch("/profile", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const hasName = typeof req.body?.displayName === "string";
     let name;
     if (hasName) {
@@ -218,7 +287,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
       if (raw === null || raw === "") {
         avatarId = null;
       } else {
-        const checked = await acceptAvatar(pool, uploadDir, req.user.id, raw);
+        const checked = await acceptAvatar(pool, uploadDir, req.account.id, raw);
         if (checked.error) return res.status(400).json({ error: checked.error });
         avatarId = checked.id;
       }
@@ -254,18 +323,18 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
       params.push(bio);
       sets.push(`bio = $${params.length}`);
     }
-    params.push(req.user.id);
+    params.push(req.account.id);
     try {
-      await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
+      await pool.query(`UPDATE accounts SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "name_taken" });
       throw error;
     }
-    res.json({ user: await loadUser(pool, req.user.id) });
+    res.json({ user: await loadUser(pool, req.account.id) });
   });
 
   router.post("/uploads", (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     upload.single("file")(req, res, (err) => {
       if (err) {
         const tooBig = err.code === "LIMIT_FILE_SIZE";
@@ -277,7 +346,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     });
   }, async (req, res) => {
     try {
-      const stored = await storeUploadedFile({ uploadDir, pool, userId: req.user.id, file: req.file, kind: "image" });
+      const stored = await storeUploadedFile({ uploadDir, pool, userId: req.account.id, file: req.file, kind: "image" });
       res.status(201).json({ id: stored.id, url: stored.url });
     } catch (error) {
       sendUploadError(res, error);
@@ -285,7 +354,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.post("/audio", (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     audioUpload.single("file")(req, res, (err) => {
       if (err) {
         const tooBig = err.code === "LIMIT_FILE_SIZE";
@@ -301,7 +370,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
       const stored = await storeUploadedFile({
         uploadDir,
         pool,
-        userId: req.user.id,
+        userId: req.account.id,
         file: req.file,
         kind: "audio",
         name,
@@ -313,7 +382,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.post("/files", (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     attachment.single("file")(req, res, (err) => {
       if (err) {
         const tooBig = err.code === "LIMIT_FILE_SIZE";
@@ -342,7 +411,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
       const stored = await storeUploadedFile({
         uploadDir,
         pool,
-        userId: req.user.id,
+        userId: req.account.id,
         file: req.file,
         kind: "file",
         name,
@@ -363,8 +432,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
 
   async function readableUpload(req) {
     const { rows } = await pool.query(
-      `SELECT u.storage_name, u.mime, u.original_name, u.user_id,
-              EXISTS (SELECT 1 FROM users p WHERE p.avatar_upload_id = u.id) AS avatar,
+      `SELECT u.storage_name, u.mime, u.original_name, u.account_id,
+              EXISTS (SELECT 1 FROM accounts p WHERE p.avatar_upload_id = u.id) AS avatar,
               EXISTS (SELECT 1 FROM sponsors s WHERE s.image_upload_id = u.id) AS sponsor
        FROM uploads u
        WHERE u.id = $1`,
@@ -373,7 +442,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     if (!rows.length) return null;
     const row = rows[0];
     // 关闭站内浏览时，除头像和赞助图外，内容媒体也要有会话。
-    if (!req.user && !guestBrowsing() && !row.avatar && !row.sponsor) return null;
+    if (!req.account && !guestBrowsing() && !row.avatar && !row.sponsor) return null;
     const image = String(row.mime || "").startsWith("image/");
     // SVG 带脚本，直接打开 URL 就是同源执行。历史上没有这类记录，也不给它开口子。
     if (String(row.mime || "").toLowerCase() === "image/svg+xml") return null;
@@ -383,7 +452,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     const audience = row.avatar || row.sponsor
       ? MEDIA_PUBLIC
       : image || audio
-        ? await mediaAudience(pool, req.params.id, req.user?.id || null)
+        ? await mediaAudience(pool, req.params.id, req.account?.id || null)
         : null;
     if (audience === null) return null;
     const filePath = readableBlobPath(uploadDir, row.storage_name);
@@ -422,7 +491,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.post("/intel", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
     let images = [];
     let audio;
@@ -442,7 +511,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     }
     try {
       const intel = await createIntel(pool, {
-        userId: req.user.id,
+        userId: req.account.id,
         actor: "person",
         door: "webui",
         body,
@@ -467,13 +536,13 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.get("/submissions", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
       `SELECT id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at, origin_id, version
        FROM intel
-       WHERE user_id = $1 AND door = 'webui'
+       WHERE account_id = $1 AND door = 'webui'
        ORDER BY created_at DESC`,
-      [req.user.id]
+      [req.account.id]
     );
     // 一次把这一批的附件取齐，不再每条一次查询。
     const files = await filesByIntel(pool, rows.map((row) => row.id));
@@ -485,7 +554,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     const q = String(req.query.q || "").trim();
     if (!q) return res.json({ information: [] });
     const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
-    const rows = await searchPublicIntel(pool, q, req.user?.id || null, filters);
+    const rows = await searchPublicIntel(pool, q, req.account?.id || null, filters);
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
@@ -494,7 +563,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.get("/requests", contentGate, async (req, res) => {
-    res.json({ requests: await listRequests(pool, req.user?.id || null) });
+    res.json({ requests: await listRequests(pool, req.account?.id || null) });
   });
 
   router.get("/people", contentGate, async (_req, res) => {
@@ -502,21 +571,21 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.get("/responses", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    res.json({ responses: await listMyResponses(pool, req.user.id) });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    res.json({ responses: await listMyResponses(pool, req.account.id) });
   });
 
   router.get("/looks", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    res.json({ looks: await listLooks(pool, req.user.id) });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    res.json({ looks: await listLooks(pool, req.account.id) });
   });
 
   router.post("/requests/:id/look", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     try {
-      const look = await lookRequest(pool, req.user.id, id);
+      const look = await lookRequest(pool, req.account.id, id);
       res.json({ look });
     } catch (error) {
       httpError(res, error);
@@ -524,24 +593,24 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.get("/requests/:id/responses", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return res.status(404).json({ error: "not_found" });
     }
-    const result = await listRequestResponses(pool, req.user.id, id);
+    const result = await listRequestResponses(pool, req.account.id, id);
     if (result.error) return res.status(result.status).json({ error: result.error });
     res.json(result);
   });
 
   router.post("/intel/:id/download", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return res.status(404).json({ error: "not_found" });
     }
     try {
-      const result = await downloadPacket(pool, req.user.id, id, uploadDir, { zip: true });
+      const result = await downloadPacket(pool, req.account.id, id, uploadDir, { zip: true });
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Disposition", attachmentDisposition(result.downloadName));
       res.setHeader("Content-Length", fs.statSync(result.zipPath).size);
@@ -602,7 +671,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     const before = String(req.query.before || "").trim();
     const anchor = before && INTEL_ID.test(before) ? before : null;
     const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since, sales: req.query.sales === "1" };
-    const rows = await listPublicIntel(pool, 30, req.user?.id || null, author || null, anchor, filters);
+    const rows = await listPublicIntel(pool, 30, req.account?.id || null, author || null, anchor, filters);
     const information = (await withUploads(pool, rows)).map(publicCard);
     if (!author) return res.json({ information });
     res.json({ information, author: await publicAuthor(pool, author) });
@@ -614,10 +683,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
               u.display_name, u.avatar_upload_id
        FROM intel i
-       JOIN users u ON u.id = i.user_id
+       JOIN accounts u ON u.id = i.account_id
        WHERE COALESCE(i.origin_id, i.id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $1::uuid)
          AND i.kind IN ('post', 'fastpost') AND i.is_public AND ${visibleVerdict("i.verdict")}
        ORDER BY i.version DESC
@@ -630,15 +699,15 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   });
 
   router.post("/discover-self", contentGate, async (req, res) => {
-    if (!req.user) return res.json(emptyDiscoverSelf());
+    if (!req.account) return res.json(emptyDiscoverSelf());
     const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))]
       .filter((id) => INTEL_ID.test(id))
       .slice(0, 80);
-    res.json(await loadDiscoverSelf(pool, req.user.id, ids));
+    res.json(await loadDiscoverSelf(pool, req.account.id, ids));
   });
 
   router.post("/intel/:id/dismiss", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return res.status(404).json({ error: "not_found" });
@@ -646,21 +715,21 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     const { rows } = await pool.query(`SELECT id FROM intel WHERE id = $1 AND ${visibleVerdict("verdict")} AND is_public`, [id]);
     if (!rows.length) return res.status(404).json({ error: "not_found" });
     await pool.query(
-      `INSERT INTO intel_dismissals (user_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [req.user.id, id]
+      `INSERT INTO intel_dismissals (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [req.account.id, id]
     );
     res.json({ ok: true });
   });
 
   // 平台层关闭：绑定为管理员的人类账号点「关闭」，卡片对所有用户不可见。
   router.post("/intel/:id/close", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    if (!(await isAdminUser(pool, req.user.id))) return res.status(403).json({ error: "not_admin" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    if (!(await isOwnerAccount(pool, req.account.id))) return res.status(403).json({ error: "not_admin" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const reason = String(req.body?.reason ?? "").trim() || "平台关闭";
     try {
-      res.json(await removePost(pool, id, reason, req.user.id));
+      res.json(await removePost(pool, id, reason, req.account.id));
     } catch (error) {
       httpError(res, error);
     }
@@ -668,24 +737,24 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
 
   // 再次开放到期的出售帖：仅作者，免费，把有效期重置为平台时长。
   router.post("/intel/:id/reopen", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     try {
-      res.json({ intel: await reopenSale(pool, req.user.id, id) });
+      res.json({ intel: await reopenSale(pool, req.account.id, id) });
     } catch (error) {
       httpError(res, error);
     }
   });
 
   async function writeStar(req, res, starred) {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return res.status(404).json({ error: "not_found" });
     }
     try {
-      res.json(await setIntelStar(pool, req.user.id, id, starred));
+      res.json(await setIntelStar(pool, req.account.id, id, starred));
     } catch (error) {
       if (error.code === "not_found") return res.status(404).json({ error: "not_found" });
       console.error(error);
@@ -697,13 +766,13 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   router.delete("/intel/:id/star", (req, res) => writeStar(req, res, false));
 
   async function writeLike(req, res, liked) {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return res.status(404).json({ error: "not_found" });
     }
     try {
-      res.json(await setIntelLike(pool, req.user.id, id, liked));
+      res.json(await setIntelLike(pool, req.account.id, id, liked));
     } catch (error) {
       if (error.code === "not_found") return res.status(404).json({ error: "not_found" });
       console.error(error);
@@ -719,71 +788,71 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     try {
-      res.json(await loadTipSummary(pool, req.user?.id || null, id));
+      res.json(await loadTipSummary(pool, req.account?.id || null, id));
     } catch (error) {
       httpError(res, error);
     }
   });
 
   router.post("/intel/:id/tip", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     try {
-      res.json(await tipIntel(pool, req.user.id, id, req.body?.amount));
+      res.json(await tipIntel(pool, req.account.id, id, req.body?.amount));
     } catch (error) {
       httpError(res, error);
     }
   });
 
   router.get("/stars", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.user_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, u.display_name, u.avatar_upload_id,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, u.display_name, u.avatar_upload_id,
         TRUE AS starred,
         EXISTS (
-          SELECT 1 FROM intel_likes l WHERE l.intel_id = i.id AND l.user_id = $1
+          SELECT 1 FROM intel_likes l WHERE l.intel_id = i.id AND l.account_id = $1
         ) AS liked,
-        (i.user_id = $1 OR EXISTS (
-          SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
+        (i.account_id = $1 OR EXISTS (
+          SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.account_id = $1
         )) AS granted,
 ${FRIEND_COLUMNS}
        FROM intel_stars s
        JOIN intel i ON i.id = s.intel_id
-       JOIN users u ON u.id = i.user_id
-       WHERE s.user_id = $1 AND ${visibleVerdict("i.verdict")} AND i.is_public
+       JOIN accounts u ON u.id = i.account_id
+       WHERE s.account_id = $1 AND ${visibleVerdict("i.verdict")} AND i.is_public
          AND NOT EXISTS (
            SELECT 1 FROM intel_dismissals d
-           WHERE d.intel_id = i.id AND d.user_id = s.user_id
+           WHERE d.intel_id = i.id AND d.account_id = s.account_id
          )
        ORDER BY s.created_at DESC`,
-      [req.user.id]
+      [req.account.id]
     );
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });
   });
 
   router.get("/friends", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    res.json({ friends: await listFriends(pool, req.user.id) });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    res.json({ friends: await listFriends(pool, req.account.id) });
   });
 
   router.delete("/friends/:id", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     try {
-      res.json(await removeFriend(pool, req.user.id, id));
+      res.json(await removeFriend(pool, req.account.id, id));
     } catch (error) {
       httpError(res, error);
     }
   });
 
   async function writeFriend(req, res, friend) {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
+    if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     try {
-      res.json(await setCardFriend(pool, req.user.id, id, friend));
+      res.json(await setCardFriend(pool, req.account.id, id, friend));
     } catch (error) {
       httpError(res, error);
     }
@@ -793,38 +862,67 @@ ${FRIEND_COLUMNS}
   router.delete("/intel/:id/friend", (req, res) => writeFriend(req, res, false));
 
   router.get("/notifications", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    res.json(await listNotifications(pool, req.user.id));
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    // ?count=1 只回红点的数字。顶栏轮询用它，整箱通知留给通知页。
+    if (req.query.count === "1") return res.json({ unread: await unreadCount(pool, req.account.id) });
+    res.json(await listNotifications(pool, req.account.id));
   });
 
   router.post("/notifications/read", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    res.json(await markNotificationsRead(pool, req.user.id));
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    res.json(await markNotificationsRead(pool, req.account.id));
   });
 
-  router.post("/delegation", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    const token = randomBytes(24).toString("base64url");
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const { rows } = await pool.query(
-      `INSERT INTO delegations (user_id, token_hash)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, created_at = now()
-       RETURNING created_at`,
-      [req.user.id, tokenHash]
-    );
-    res.status(201).json({ token, createdAt: rows[0].created_at });
+  // 我的 Agent：外部账号在这里自助开通/换令牌/停用（一本账号一个名额）。
+  // 主理人的内部 Agent 从管理端签发，这里只读，不代替管理端。
+  router.get("/agent", async (req, res) => {
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    const { rows } = await pool.query(`SELECT id, role FROM accounts WHERE id = $1`, [req.account.id]);
+    const account = rows[0];
+    if (!account) return res.status(401).json({ error: "no_session" });
+    const agents = await findAgentsOf(pool, account.id);
+    res.json({
+      role: account.role,
+      limit: agentLimitOf(account),
+      selfService: account.role === "user",
+      agents: agents.map((agent) => ({
+        id: agent.id,
+        displayName: agent.display_name,
+        createdAt: agent.created_at,
+        hasToken: agent.has_token,
+      })),
+    });
   });
 
-  router.get("/delegation", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    const { rows } = await pool.query(`SELECT created_at FROM delegations WHERE user_id = $1`, [req.user.id]);
-    res.json({ delegated: rows.length > 0, createdAt: rows[0]?.created_at ?? null });
+  router.post("/agent", async (req, res) => {
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    const { rows } = await pool.query(`SELECT id, role, display_name FROM accounts WHERE id = $1`, [req.account.id]);
+    const account = rows[0];
+    if (!account) return res.status(401).json({ error: "no_session" });
+    if (account.role !== "user") return res.status(403).json({ error: "not_user" });
+    try {
+      const issued = await ensurePersonalAgent(pool, account);
+      // 新建回 201，只是换了一枚码回 200：后者没有多出任何资源。
+      res.status(issued.created ? 201 : 200).json({
+        token: issued.token,
+        agent: { id: issued.id, displayName: issued.displayName, createdAt: issued.createdAt },
+      });
+    } catch (error) {
+      const failure = agentIssueError(error);
+      res.status(failure.status).json({ error: failure.error });
+    }
   });
 
-  router.delete("/delegation", async (req, res) => {
-    if (!req.user) return res.status(401).json({ error: "no_session" });
-    await pool.query(`DELETE FROM delegations WHERE user_id = $1`, [req.user.id]);
+  router.delete("/agent", async (req, res) => {
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    const { rows } = await pool.query(`SELECT id, role FROM accounts WHERE id = $1`, [req.account.id]);
+    const account = rows[0];
+    if (!account) return res.status(401).json({ error: "no_session" });
+    // 主理人名下的内部 Agent 从管理端停用：这里一并放开的话，一个 WebUI 请求
+    // 就能把评审员、管理员这些在岗 Agent 全停掉。外部账号只管自己那一个名额。
+    if (account.role !== "user") return res.status(403).json({ error: "not_user" });
+    const agents = await findAgentsOf(pool, account.id);
+    for (const agent of agents) await retireAgent(pool, agent.id);
     res.json({ ok: true });
   });
 

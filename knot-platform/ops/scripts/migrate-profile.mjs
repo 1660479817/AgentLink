@@ -14,14 +14,18 @@
 // 站点目录默认从 KNOT_PROFILE_FILE 推导，其次是 KNOT_DEPLOY_ROOT/sites/<站点>，
 // 最后是仓库里的 sites/<站点>。所以在实例主机上直接跑 current/ops/scripts/ 里的这份也可以。
 //
-// 已经存在 profile.json 时不写档案，只把 site.env 和 --env 给的伴生配置里的旧键删掉：
-// 迁移只补空缺，不覆盖主理人后来写的内容。
+// 已经存在 profile.json 时不覆盖主理人写的内容，只补两项：
+//   * 缺 `site.locale` 的旧档案，补一个按文案推断的默认语种（保存一次就不再推）；
+//   * 把 site.env 与伴生配置里的旧 KNOT_SITE_* 键删掉。
+//
+// 默认语种只在档案里没有这一项时写入；主理人后来在 /admin 改过就归他。
 
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseEnv } from "@knot/config";
+import { inferLocale, isLocale } from "@knot/locale";
 import { FORMAT_VERSION } from "../../backend/src/profile.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -65,6 +69,8 @@ export function siteFromLegacy(env) {
   const contact = text(env.KNOT_SITE_OWNER_CONTACT);
 
   const site = { name: name || "Knot" };
+  // 旧配置没有语种字段：按文案推一个写进档案，之后主理人可以在 /admin 改。
+  site.locale = inferLocale([name, tagline, note].join(" "));
   if (tagline) site.tagline = tagline.slice(0, 60);
   if (note) site.intro = note.slice(0, 800);
   // logo 只接受 https 地址：站内相对路径在新契约里没有意义（中枢可能不在这台机器上）。
@@ -93,6 +99,9 @@ export function siteFromV1(profile) {
   const tagline = firstOf(profile.intro?.oneLine);
   const intro = firstOf(profile.intro?.long);
   const owner = firstOf(profile.owner);
+  // v1 的 languages 就是主理人当时声明的语种，优先用它；没有才按文案推。
+  const declared = Array.isArray(profile.languages) ? profile.languages.find((item) => isLocale(item)) : null;
+  site.locale = declared || inferLocale([site.name, tagline, intro].join(" "));
   if (tagline) site.tagline = tagline;
   if (intro) site.intro = intro;
   if (owner) site.owner = owner;
@@ -209,9 +218,40 @@ export function main(argv) {
     }
   };
 
-  // v2 档案已经在位就只清旧键；v1 档案在上面已经转成 v2，走的是写入分支。
+  // v2 档案已经在位：不覆盖主理人写的字段，只补缺的 locale。
+  // 补的值按文案推一次，之后归主理人；/admin 的表单也会先预填同一个建议值。
+  let localeBackfill = null;
+  if (
+    existing?.formatVersion === FORMAT_VERSION &&
+    existing.site &&
+    typeof existing.site === "object" &&
+    !Array.isArray(existing.site) &&
+    !isLocale(existing.site.locale)
+  ) {
+    const site = existing.site;
+    localeBackfill = {
+      ...existing,
+      updatedAt: new Date().toISOString().slice(0, 10),
+      site: {
+        ...site,
+        locale: inferLocale([site.name, site.tagline, site.intro].filter(Boolean).join(" ")),
+      },
+    };
+  }
+
   if (existing?.formatVersion === FORMAT_VERSION) {
-    console.log(`${profileFile} 已存在（v${FORMAT_VERSION}），不覆盖。`);
+    console.log(`${profileFile} 已存在（v${FORMAT_VERSION}），其它字段不覆盖。`);
+    if (localeBackfill) {
+      if (dryRun) {
+        console.log(`--- ${profileFile}（补 site.locale）---`);
+        console.log(JSON.stringify(localeBackfill, null, 2));
+      } else {
+        writeFileSync(profileFile, `${JSON.stringify(localeBackfill, null, 2)}\n`);
+        console.log(
+          `补上 ${path.relative(process.cwd(), profileFile)} 的 site.locale=${localeBackfill.site.locale}（之后可在 /admin 改）`,
+        );
+      }
+    }
     if (stripped === source) {
       writeCompanions();
       return 0;

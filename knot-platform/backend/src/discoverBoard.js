@@ -1,74 +1,75 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
-import { access, mkdir, rename, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { DEFAULT_SITE_LOCALE, parseLocale } from "@knot/locale";
 import { toRecord } from "./card.js";
 import { setDiscoverPublisher } from "./discoverPublish.js";
 import { filesByIntel, visibleVerdict } from "./information.js";
 import { listFacets } from "./facets.js";
 import { listPublicIntel, presentIntel } from "./market.js";
 import { avatarUrlFor } from "./avatars.js";
-import { publicBoardEnabled } from "./system.js";
+import { brandView } from "./profile.js";
+import { publicBoardEnabled, siteConfig } from "./system.js";
 import { wishLive } from "./wish.js";
 
 // 最近发过公开信息的人。Internal Personal Agent 也算；平台自己的系统账号不算。
 const PEOPLE_SQL = `
-  SELECT i.user_id AS id, u.display_name, u.avatar_upload_id, max(i.created_at) AS last_at
+  SELECT i.account_id AS id, u.display_name, u.avatar_upload_id, max(i.created_at) AS last_at
   FROM intel i
-  JOIN users u ON u.id = i.user_id
+  JOIN accounts u ON u.id = i.account_id
   WHERE i.kind IN ('post', 'fastpost')
     AND i.is_public
     AND ${visibleVerdict("i.verdict")}
-    AND COALESCE(u.label, '') <> 'platform'
+    AND COALESCE(u.role, '') <> 'platform'
     AND i.created_at > now() - interval '7 days'
-  GROUP BY i.user_id, u.display_name, u.avatar_upload_id
+  GROUP BY i.account_id, u.display_name, u.avatar_upload_id
   ORDER BY last_at DESC
   LIMIT $1
 `;
 
 const WISH_SQL = `
-  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.user_id, i.actor, i.created_at, i.updated_at, i.expires_at
+  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.account_id, i.actor, i.created_at, i.updated_at, i.expires_at
   FROM intel i
   WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
   ORDER BY i.created_at DESC
 `;
 
 const SELF_SQL = `
-  SELECT i.id, i.kind, i.user_id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.is_public, i.verdict, i.created_at, i.updated_at,
-    (i.user_id = $1) AS mine,
+  SELECT i.id, i.kind, i.account_id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.is_public, i.verdict, i.created_at, i.updated_at,
+    (i.account_id = $1) AS mine,
     EXISTS (
-      SELECT 1 FROM intel_dismissals d WHERE d.user_id = $1 AND d.intel_id = i.id
+      SELECT 1 FROM intel_dismissals d WHERE d.account_id = $1 AND d.intel_id = i.id
     ) AS dismissed,
     EXISTS (
-      SELECT 1 FROM intel_stars s WHERE s.user_id = $1 AND s.intel_id = i.id
+      SELECT 1 FROM intel_stars s WHERE s.account_id = $1 AND s.intel_id = i.id
     ) AS starred,
     EXISTS (
-      SELECT 1 FROM intel_likes l WHERE l.user_id = $1 AND l.intel_id = i.id
+      SELECT 1 FROM intel_likes l WHERE l.account_id = $1 AND l.intel_id = i.id
     ) AS liked,
     (
-      i.user_id = $1 OR EXISTS (
-        SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.user_id = $1
+      i.account_id = $1 OR EXISTS (
+        SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.account_id = $1
       )
     ) AS granted,
     (
-      i.user_id <> $1
+      i.account_id <> $1
       AND NOT EXISTS (
-        SELECT 1 FROM friend_dismissals fd WHERE fd.user_id = $1 AND fd.friend_id = i.user_id
+        SELECT 1 FROM friend_dismissals fd WHERE fd.account_id = $1 AND fd.friend_id = i.account_id
       )
       AND (
-        u.side = 'internal'
+        (u.role = 'agent' AND u.side = 'internal')
         OR EXISTS (
-          SELECT 1 FROM friendships fs WHERE fs.user_id = $1 AND fs.friend_id = i.user_id
+          SELECT 1 FROM friendships fs WHERE fs.account_id = $1 AND fs.friend_id = i.account_id
         )
       )
     ) AS friend,
-    CASE WHEN i.kind = 'wish' AND i.user_id = $1 THEN (
+    CASE WHEN i.kind = 'wish' AND i.account_id = $1 THEN (
       SELECT count(*)::int FROM intel r
       WHERE r.responds_to = i.id AND r.kind = 'wishRespond' AND ${visibleVerdict("r.verdict")}
     ) ELSE NULL END AS response_count
   FROM intel i
-  JOIN users u ON u.id = i.user_id
+  JOIN accounts u ON u.id = i.account_id
   WHERE i.id = ANY($2::uuid[])
     AND ${visibleVerdict("i.verdict")}
     AND (
@@ -100,7 +101,7 @@ function publicPost(row, files) {
 function publicWish(row, files) {
   return {
     ...toRecord(row, { files, granted: false }),
-    authorId: row.user_id,
+    authorId: row.account_id,
     mine: false,
     unlocked: false,
     responseCount: null,
@@ -112,7 +113,7 @@ export function publicPerson(row) {
   return {
     id: row.id,
     name: row.display_name || "",
-    avatarUrl: avatarUrlFor({ user_id: row.id, avatar_upload_id: row.avatar_upload_id }),
+    avatarUrl: avatarUrlFor({ account_id: row.id, avatar_upload_id: row.avatar_upload_id }),
     lastAt: lastAt && !Number.isNaN(lastAt.getTime()) ? lastAt.toISOString() : null,
   };
 }
@@ -122,10 +123,10 @@ export async function listActivePeople(pool, limit = 20) {
   return rows.map(publicPerson);
 }
 
-export async function assembleDiscoverBoard(pool) {
+export async function assembleDiscoverBoard(pool, meta = {}) {
   // 公开快照关掉时写一份空板，入口主机下一次推送就会把旧内容清掉。
   if (!publicBoardEnabled()) {
-    return { information: [], requests: [], people: [], facets: { categories: [], topics: [] } };
+    return { ...meta, information: [], requests: [], people: [], facets: { categories: [], topics: [] } };
   }
   const posts = await listPublicIntel(pool, 30, null);
   const { rows: wishes } = await pool.query(WISH_SQL);
@@ -133,11 +134,33 @@ export async function assembleDiscoverBoard(pool) {
   const facets = await listFacets(pool);
   const files = await filesByIntel(pool, [...posts.map((row) => row.id), ...wishes.map((row) => row.id)]);
   return {
+    ...meta,
     information: posts.map((row) => publicPost(row, files.get(row.id) || [])),
     requests: wishes.map((row) => publicWish(row, files.get(row.id) || [])),
     people,
     facets,
   };
+}
+
+// 入口上的这份快照是首屏的全部来源，所以它也要带上「这个站点怎么开门」和站点身份。
+// WebUI 在会话接口回来之前就能按这份定顶栏、定语种、决定要不要停在登录页。
+export function discoverBoardMeta({ profile, now = () => new Date() } = {}) {
+  const site = profile?.view().site;
+  const stamp = now();
+  return {
+    version: stamp instanceof Date ? stamp.toISOString() : String(stamp),
+    site: siteConfig(),
+    brand: brandView(site),
+    locale: parseLocale(site?.locale) || DEFAULT_SITE_LOCALE,
+  };
+}
+
+export async function readDiscoverBoard(boardDir) {
+  try {
+    return JSON.parse(await readFile(jsonPath(boardDir), "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 export function presentDiscoverSelf(rows) {
@@ -166,7 +189,7 @@ function jsonPath(boardDir) {
 }
 
 export async function writeDiscoverBoard(env, deps = {}) {
-  const board = await assembleDiscoverBoard(env.pool);
+  const board = await assembleDiscoverBoard(env.pool, env.meta ? env.meta() : {});
   const dest = jsonPath(env.boardDir);
   const tmp = `${dest}.${randomUUID()}.tmp`;
   await mkdir(env.boardDir, { recursive: true });
@@ -241,17 +264,20 @@ function startWishSweep(env) {
   return timer;
 }
 
-export function bindDiscoverBoard({ pool, uploadDir, boardDir }) {
+export function bindDiscoverBoard({ pool, uploadDir, boardDir, profile }) {
   const env = {
     pool,
     uploadDir,
     boardDir: path.resolve(boardDir || process.env.DISCOVER_BOARD_DIR || path.join(uploadDir, "board")),
+    meta: () => discoverBoardMeta({ profile }),
   };
   setDiscoverPublisher(() => scheduleDiscoverWrite(env, pushDiscoverBoard));
   scheduleDiscoverWrite(env, pushDiscoverBoard);
   startWishSweep(env);
   return {
     dir: env.boardDir,
+    // 给 `/api/web/home` 用的只读副本：首屏画的那份快照和这里读到的必须是同一份。
+    read: () => readDiscoverBoard(env.boardDir),
     file: async () => {
       const file = jsonPath(env.boardDir);
       try {

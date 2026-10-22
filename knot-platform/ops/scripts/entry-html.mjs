@@ -19,24 +19,21 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { inferLocale, isLocale } from "@knot/locale";
+
 const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ESCAPES[char]);
 }
 
-const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
-
 /**
- * 静态 HTML 的 lang 要描述页面里真正写着的那段文字。
- * 地区码优先；没有可用地区码时看文字本身有没有中日韩字符。
+ * 静态 HTML 的 lang 描述页面里真正写着的那段文字。
+ * 档案里的 `locale` 是主理人自己定的，直接用；还没有这一项的旧档案按文案推一次。
  */
-export function documentLang({ region, text } = {}) {
-  const code = String(region || "").toUpperCase();
-  if (code === "CN") return "zh-CN";
-  if (code === "TW" || code === "HK" || code === "MO") return "zh-TW";
-  if (CJK.test(String(text || ""))) return "zh-CN";
-  return "en";
+export function documentLang({ locale, text } = {}) {
+  if (isLocale(locale)) return locale;
+  return inferLocale(text);
 }
 
 /** 按字符截断，避免把 emoji 或中文切一半。 */
@@ -49,12 +46,13 @@ function cleanSite(site, fallbackName) {
   const name = String(site?.name || "").trim() || fallbackName;
   return {
     name,
+    // 站点默认语种：主理人在 /admin 里定。旧档案没有这一项时留空，下面按文案推一次。
+    locale: isLocale(site?.locale) ? site.locale : "",
     tagline: String(site?.tagline || "").trim(),
     intro: String(site?.intro || "").trim(),
     logo: /^https:\/\//i.test(String(site?.logo || "")) ? String(site.logo).trim() : "",
     owner: String(site?.owner || "").trim(),
     contact: String(site?.contact || "").trim(),
-    region: String(site?.region || "").trim(),
   };
 }
 
@@ -76,7 +74,7 @@ export function renderEntryHtml(template, { site, origin, fallbackName = "Knot" 
 
   const info = cleanSite(site, fallbackName);
   const text = [info.name, info.tagline, info.intro].filter(Boolean).join(" ");
-  const lang = documentLang({ region: info.region, text });
+  const lang = documentLang({ locale: info.locale, text });
   const description = clip(info.intro || info.tagline || info.name, 160);
   const title = clip(info.tagline ? `${info.name} · ${info.tagline}` : info.name, 70);
 
@@ -147,7 +145,7 @@ export function renderRobots(origin) {
 
 export function renderSitemap(origin) {
   const base = String(origin || "").replace(/\/+$/, "");
-  // 只有这两个地址是真正的静态页。其余路由要么回源（/help），要么是账户态页面。
+  // 只有这两个地址是真正的静态页。其余路由要么回源（/api），要么是账户态页面。
   // 不写 lastmod：档案的 updatedAt 是「站点介绍改于何时」，拿它当页面更新时间是假的。
   const urls = ["/", "/discover"].map(
     (pathname) => `  <url>\n    <loc>${escapeHtml(base + pathname)}</loc>\n  </url>`,

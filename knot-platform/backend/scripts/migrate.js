@@ -9,38 +9,45 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.join(__dirname, "..", "migrations");
 const argv = process.argv.slice(2);
 const STATUS_ONLY = argv.includes("--status");
-// 旧结构会整库重建。只有明确要求时才做，绝不在普通部署里顺手清库。
+// 整库重建会清空数据。只有明确要求时才做，绝不在普通部署里顺手清库。
 const ALLOW_RESET = argv.includes("--reset") || /^(1|true|yes|on)$/i.test(process.env.KNOT_ALLOW_SCHEMA_RESET || "");
 
 function hash(text) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
+async function resetSchema(client) {
+  console.warn("==> 按 --reset 重建 public schema（账号、内容、积分全部清空）");
+  await client.query("DROP SCHEMA IF EXISTS public CASCADE");
+  await client.query("CREATE SCHEMA public");
+}
+
 async function main() {
   const { databaseUrl } = loadBootstrapConfig();
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
+
   const present = await client.query(
-    `SELECT to_regclass('public.users') AS users,
-            to_regclass('public.persons') AS persons,
+    `SELECT to_regclass('public.accounts') AS accounts,
+            to_regclass('public.users') AS users,
             to_regclass('public.expressions') AS expressions`
   );
   const marker = present.rows[0] || {};
-  // persons / expressions 是更早的表结构。有它们说明这个库不是当前版本建的。
-  const legacy = Boolean(marker.persons || marker.expressions);
-  if (legacy && !ALLOW_RESET) {
+  // accounts 是当前基线；users / expressions 是更早的结构（含把 Agent 塞进 users 的那一版）。
+  const legacy = Boolean(marker.users || marker.expressions) && !marker.accounts;
+  if (ALLOW_RESET) {
+    // --reset 就是「这份代码不认库里的旧结构，整库按基线重来」。库里记录着的旧迁移名
+    // 也一并清掉，否则下面那道 stale 检查会把人堵在一个 --reset 也解不开的循环里。
+    await resetSchema(client);
+  } else if (legacy) {
     await client.end();
     console.error(
-      "这个库用的是旧表结构（persons / expressions）。重建会清空数据，所以默认不动。\n" +
+      "这个库用的是旧结构（users / expressions），不能原地升级。\n" +
+        "重建会清空账号与内容，所以默认不动。\n" +
         "确认要清空并重建：node backend/scripts/migrate.js --reset\n" +
         "想先备份：./ops/scripts/backup-knot.sh"
     );
     process.exit(1);
-  }
-  if (legacy) {
-    console.warn("==> 旧表结构：按 --reset 重建 public schema");
-    await client.query("DROP SCHEMA IF EXISTS public CASCADE");
-    await client.query("CREATE SCHEMA public");
   }
 
   await client.query(`
@@ -50,13 +57,24 @@ async function main() {
       checksum TEXT
     )
   `);
-  // 老库的 schema_migrations 没有 checksum 列。
   await client.query("ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT");
 
   const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
   const applied = new Map(
     (await client.query("SELECT name, checksum FROM schema_migrations")).rows.map((row) => [row.name, row.checksum])
   );
+
+  // 库里记着这份代码没有的迁移，说明库比代码旧或旧。基线名没变时更要拦住。
+  const known = new Set(files);
+  const stale = [...applied.keys()].filter((name) => !known.has(name));
+  if (stale.length) {
+    await client.end();
+    console.error(
+      `schema_migrations 里有当前代码没有的迁移：${stale.join("、")}\n` +
+        "这份代码只保留一份基线（001_accounts.sql）。旧库请重建：node backend/scripts/migrate.js --reset"
+    );
+    process.exit(1);
+  }
 
   const pending = [];
   for (const file of files) {
@@ -70,7 +88,9 @@ async function main() {
     const recorded = applied.get(file);
     if (recorded && recorded !== sum) {
       await client.end();
-      console.error(`迁移文件被改过：${file}\n已执行的是另一份内容。不要改历史迁移，新增一个。`);
+      console.error(
+        `迁移文件被改过：${file}\n已执行的是另一份内容。基线只能整库重建：--reset`
+      );
       process.exit(1);
     }
     if (!recorded) await client.query("UPDATE schema_migrations SET checksum = $2 WHERE name = $1", [file, sum]);

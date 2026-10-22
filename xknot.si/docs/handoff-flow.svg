@@ -124,7 +124,7 @@
       <text x="1041" y="243" font-size="11" fill="#65676B">入口出现 1808x 监听</text>
 
       <text x="1041" y="293" font-size="12.5" font-weight="600" fill="#111">中枢：补 /api 反代</text>
-      <text x="1041" y="313" font-size="11" fill="#333">/api/、/help；/api/admin 404</text>
+      <text x="1041" y="313" font-size="11" fill="#333">/api；/api/admin 404</text>
       <text x="1041" y="327" font-size="11" fill="#65676B">nginx -t 后 reload</text>
 
       <text x="1041" y="377" font-size="12.5" font-weight="600" fill="#111">中枢：探测 → active</text>

@@ -34,8 +34,11 @@ function site() {
 test("the legacy keys become one flat self-described site", () => {
   assert.deepEqual(siteFromLegacy({ KNOT_SITE_NAME: "王家小站", KNOT_SITE_TAGLINE: "只收值得换的信息。" }), {
     name: "王家小站",
+    // 旧配置没有语种：按文案推一个写进档案，之后由主理人改。
+    locale: "zh-CN",
     tagline: "只收值得换的信息。",
   });
+  assert.equal(siteFromLegacy({ KNOT_SITE_NAME: "Knot", KNOT_SITE_TAGLINE: "a site for agents" }).locale, "en");
 });
 
 test("a logo must be https, because the hub reads it from another machine", () => {
@@ -103,6 +106,7 @@ test("a v1 profile is upgraded in place, keeping the Chinese wording", () => {
   assert.equal(upgraded.formatVersion, 2);
   assert.deepEqual(upgraded.site, {
     name: "王家小站",
+    locale: "zh-CN",
     tagline: "只收值得换的信息。",
     intro: "Nightly notes.",
     logo: "https://example.test/logo.png",
@@ -112,6 +116,41 @@ test("a v1 profile is upgraded in place, keeping the Chinese wording", () => {
     timezone: "Asia/Shanghai",
     tags: ["信息交换", "Agent"],
   });
+});
+
+test("a v2 profile without locale gets one, and nothing else changes", () => {
+  const dir = site();
+  writeFileSync(path.join(dir, "site.env"), "PORT=8081\n");
+  const before = {
+    formatVersion: 2,
+    updatedAt: "2026-10-20",
+    site: { name: "Nightly notes", tagline: "Kept by hand", owner: "Paul" },
+  };
+  writeFileSync(path.join(dir, "profile.json"), JSON.stringify(before));
+
+  // 先看一眼会写什么。
+  assert.equal(main(["--dir", dir, "--dry-run"]), 0);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(dir, "profile.json"), "utf8")), before);
+
+  assert.equal(main(["--dir", dir]), 0);
+  const after = JSON.parse(readFileSync(path.join(dir, "profile.json"), "utf8"));
+  assert.equal(after.site.locale, "en");
+  assert.equal(after.site.owner, "Paul");
+  assert.equal(after.site.name, "Nightly notes");
+
+  // 第二次跑不再动它：主理人后来改的语种不会被推断覆盖。
+  writeFileSync(path.join(dir, "profile.json"), JSON.stringify({ ...after, site: { ...after.site, locale: "zh-TW" } }));
+  assert.equal(main(["--dir", dir]), 0);
+  assert.equal(JSON.parse(readFileSync(path.join(dir, "profile.json"), "utf8")).site.locale, "zh-TW");
+});
+
+test("a profile with no self-description is left alone", () => {
+  const dir = site();
+  writeFileSync(path.join(dir, "site.env"), "PORT=8081\n");
+  const before = { formatVersion: 2, updatedAt: "2026-10-20", site: null };
+  writeFileSync(path.join(dir, "profile.json"), JSON.stringify(before));
+  assert.equal(main(["--dir", dir]), 0);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(dir, "profile.json"), "utf8")), before);
 });
 
 test("a dry run prints the plan and leaves every file alone", () => {

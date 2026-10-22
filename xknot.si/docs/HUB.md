@@ -17,6 +17,7 @@
 | 站点档案取回 | 构建步骤 | 构建时拉取 `url` + `/api/federation/profile`，写 `var/profiles/{id}.json` |
 | 数据快照 | 构建步骤 | 合并清单（签发区）、档案副本（自述区）、探测、活动数据与橱窗，写 `dist/data/hub.json` |
 | 橱窗拉取 | 构建步骤 | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
+| Agent 指引 | 构建步骤 | 仓库根 `docs/KNOT_HELP.md` 渲染成 `dist/knot-help.html`，并原样复制成 `dist/knot-help.md` |
 
 门户本身仍然是静态文件，所有实例数据在构建时写入。数据侧唯一的写入口是加入申请：它不写 `instances.json`，提交即通过并落一条 `approved` 记录；随后由人或命令行把条目写进清单，再重新构建。申请接口不能改变任何已上线的条目。
 
@@ -74,7 +75,7 @@ xknot.si/
 │   ├── local-hub.mjs            本机入口：静态站、安全头与反代，对齐 nginx
 │   ├── local-stack.mjs          本地部署编排：临时数据目录、随机端口、起停
 │   ├── deploy-local.sh          一键本地部署：校验、构建、启动
-│   ├── entry/                   已签发子域的成品 conf 与交接 runbook（zjj）
+│   ├── entry/                   已签发子域的手工 conf 与交接 runbook（当前为空）
 │   ├── check-health.mjs         健康探测，写 var/health.json
 │   ├── watch-health.mjs         定时巡检：24 小时提醒、7 天隐藏、恢复自动回
 │   ├── traffic.mjs              入口访问日志 → 按子域的日流量，写 var/traffic/
@@ -89,6 +90,8 @@ xknot.si/
 │   ├── xknot-traffic.service    流量聚合单元（oneshot）
 │   ├── xknot-traffic.timer      流量聚合定时器（每小时）
 │   ├── build-hub-data.mjs       合并清单、探测、活动数据与橱窗，写 data/hub.json
+│   ├── doc-page.mjs             通用文档页：markdown → 单页 HTML + 原文，门户上所有静态文档共用
+│   ├── render-knot-help.mjs     把仓库根 docs/KNOT_HELP.md 发成 /knot-help 与 /knot-help.md
 │   ├── build-federation-map.mjs 生成联邦地图示意图（仓库根 docs/knot-federation-map.svg）
 │   ├── build-world-dots.mjs     生成世界底图（web/src/lib/world.js）
 │   ├── cards.mjs                读 var/cards/ 下的橱窗与预览样例合并
@@ -251,7 +254,7 @@ npm run test     # 纯逻辑单元测试
 ./xknot.si/ops/build-hub.sh --offline  # 跳过探测，复用 var/health.json
 ```
 
-脚本顺序固定：校验清单 → 探测健康 → 取回档案 → 安装依赖（仅首次）→ 构建 → 写 `dist/data/hub.json`。全程在本机完成，不连接远端。
+脚本顺序固定：校验清单 → 探测健康 → 取回档案 → 安装依赖（仅首次）→ 构建 → 出 Agent 指引 → 写 `dist/data/hub.json`。全程在本机完成，不连接远端。
 
 页面取数规则：
 

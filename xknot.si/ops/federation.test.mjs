@@ -38,7 +38,7 @@ test("the founder is a permanent account and cannot be unlisted", async () => {
 test("exactly one founder is allowed", async () => {
   const { roster, manifest } = await load();
   const broken = clone(roster);
-  broken.members.find((member) => member.id === "zjj").role = "founder";
+  broken.members.find((member) => member.id === "cpswang").role = "founder";
   const problems = validateRoster(broken, manifest);
   assert.ok(problems.some(([id, errors]) => id === "—" && errors.some((e) => e.startsWith("founder:"))));
 });
@@ -46,9 +46,9 @@ test("exactly one founder is allowed", async () => {
 test("tunnel accounts and ports must be unique", async () => {
   const { roster, manifest } = await load();
   const broken = clone(roster);
-  broken.members.find((member) => member.id === "zjj").tunnel = { account: "knot-tunnel", port: 18080 };
+  broken.members.find((member) => member.id === "cpswang").tunnel = { account: "knot-tunnel", port: 18080 };
   const problems = validateRoster(broken, manifest);
-  const errors = problems.find(([id]) => id === "zjj")?.[1] || [];
+  const errors = problems.find(([id]) => id === "cpswang")?.[1] || [];
   assert.ok(errors.some((e) => e.startsWith("tunnel.account: duplicate")));
   assert.ok(errors.some((e) => e.startsWith("tunnel.port: duplicate")));
 });
@@ -70,12 +70,12 @@ test("the published host must sit under the hub", async () => {
   const { roster, manifest } = await load();
 
   const outside = clone(roster);
-  outside.members.find((member) => member.id === "zjj").host = "zjj.example";
+  outside.members.find((member) => member.id === "cpswang").host = "cpswang.example";
   const otherwise = clone(manifest);
-  otherwise.instances.find((instance) => instance.id === "zjj").url = "https://zjj.example";
+  otherwise.instances.find((instance) => instance.id === "cpswang").url = "https://cpswang.example";
   assert.ok(
     validateRoster(outside, otherwise).some(([id, errors]) =>
-      id === "zjj" && errors.some((e) => e.startsWith("host: must be under xknot.si"))
+      id === "cpswang" && errors.some((e) => e.startsWith("host: must be under xknot.si"))
     )
   );
 });
@@ -84,8 +84,8 @@ test("a member listed in the roster must exist in the manifest, and the reverse"
   const { roster, manifest } = await load();
 
   const missingEntry = clone(roster);
-  missingEntry.members.find((member) => member.id === "zjj").listed = false;
-  assert.ok(validateRoster(missingEntry, manifest).some(([id, errors]) => id === "zjj" && errors[0].includes("present in instances.json")));
+  missingEntry.members.find((member) => member.id === "cpswang").listed = false;
+  assert.ok(validateRoster(missingEntry, manifest).some(([id, errors]) => id === "cpswang" && errors[0].includes("present in instances.json")));
 
   const orphan = clone(manifest);
   orphan.instances.push({ ...orphan.instances[0], id: "ghost" });
@@ -95,17 +95,17 @@ test("a member listed in the roster must exist in the manifest, and the reverse"
 test("the roster host must match the published url host", async () => {
   const { roster, manifest } = await load();
   const broken = clone(manifest);
-  broken.instances.find((instance) => instance.id === "zjj").url = "https://zj.example";
+  broken.instances.find((instance) => instance.id === "cpswang").url = "https://zj.example";
   const problems = validateRoster(roster, broken);
-  assert.ok(problems.some(([id, errors]) => id === "zjj" && errors.some((e) => e.startsWith("host:"))));
+  assert.ok(problems.some(([id, errors]) => id === "cpswang" && errors.some((e) => e.startsWith("host:"))));
 });
 
 test("a listed member needs since, and reserved hosts stay out of the manifest", async () => {
   const { roster, manifest } = await load();
 
   const noDate = clone(roster);
-  noDate.members.find((member) => member.id === "zjj").since = null;
-  assert.ok(validateRoster(noDate, manifest).some(([id, errors]) => id === "zjj" && errors.includes("since: required")));
+  noDate.members.find((member) => member.id === "cpswang").since = null;
+  assert.ok(validateRoster(noDate, manifest).some(([id, errors]) => id === "cpswang" && errors.includes("since: required")));
 
   const leaked = clone(manifest);
   leaked.instances.push({ ...leaked.instances[0], id: "travel", url: "https://travel.xknot.si" });
@@ -123,11 +123,11 @@ test("the founder must stay in the paid tier", async () => {
 test("unknown enum values are rejected", async () => {
   const { roster, manifest } = await load();
   const broken = clone(roster);
-  const zjj = broken.members.find((member) => member.id === "zjj");
-  zjj.role = "owner";
-  zjj.standing = "trial";
-  zjj.mode = "vpn";
-  const errors = validateRoster(broken, manifest).find(([id]) => id === "zjj")?.[1] || [];
+  const partner = broken.members.find((member) => member.id === "cpswang");
+  partner.role = "owner";
+  partner.standing = "trial";
+  partner.mode = "vpn";
+  const errors = validateRoster(broken, manifest).find(([id]) => id === "cpswang")?.[1] || [];
   assert.ok(errors.some((e) => e.startsWith("role:")));
   assert.ok(errors.some((e) => e.startsWith("standing:")));
   assert.ok(errors.some((e) => e.startsWith("mode:")));

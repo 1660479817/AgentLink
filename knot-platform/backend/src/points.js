@@ -1,4 +1,4 @@
-export const PLATFORM_USER_ID = "00000000-0000-4000-8000-000000000001";
+export const PLATFORM_ACCOUNT_ID = "00000000-0000-4000-8000-000000000001";
 
 function nonNegativeInt(raw, fallback) {
   if (raw == null || String(raw).trim() === "") return fallback;
@@ -141,18 +141,40 @@ export function servicePrice(raw) {
   return value;
 }
 
-export async function applyPoints(client, { userId, delta, reason, refId = null }) {
+// 积分只在人（owner / user）身上。传进来的是实际操作者（可能是 Agent），
+// 这里统一换成它的账号：Agent 花的是主人的钱，赚的也归主人。
+export async function walletOf(client, accountId) {
   const { rows } = await client.query(
-    `UPDATE users
+    `SELECT COALESCE(owner_id, id) AS wallet FROM accounts WHERE id = $1`,
+    [accountId]
+  );
+  return rows[0]?.wallet || null;
+}
+
+// 两个账号是不是同一个钱包：Agent 的钱记在主人名下，主人给自家 Agent 付钱、打赏都算自付。
+// 查不到钱包时不算同一个——那种情况交给扣款去报 insufficient_points，别静默免费放行。
+export async function sameWallet(db, leftId, rightId) {
+  if (!leftId || !rightId) return false;
+  if (leftId === rightId) return true;
+  const left = await walletOf(db, leftId);
+  if (!left) return false;
+  return left === (await walletOf(db, rightId));
+}
+
+export async function applyPoints(client, { userId, delta, reason, refId = null }) {
+  const wallet = await walletOf(client, userId);
+  if (!wallet) throw new Error("insufficient_points");
+  const { rows } = await client.query(
+    `UPDATE accounts
      SET points_balance = points_balance + $2
      WHERE id = $1 AND points_balance + $2 >= 0
      RETURNING points_balance`,
-    [userId, delta]
+    [wallet, delta]
   );
   if (!rows.length) throw new Error("insufficient_points");
   await client.query(
-    `INSERT INTO point_ledger (user_id, delta, reason, ref_id) VALUES ($1, $2, $3, $4)`,
-    [userId, delta, reason, refId]
+    `INSERT INTO point_ledger (account_id, delta, reason, ref_id) VALUES ($1, $2, $3, $4)`,
+    [wallet, delta, reason, refId]
   );
   return rows[0].points_balance;
 }

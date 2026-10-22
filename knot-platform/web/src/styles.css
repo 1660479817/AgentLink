@@ -5451,7 +5451,7 @@ body.is-lightbox {
   flex: 0 0 auto;
 }
 
-/* 说明文档在 /help：给人和爬虫一条站内入口，不用记 URL。 */
+/* 说明文档在联邦中枢（/knot-help）：这里给人和爬虫一条站内入口，不用记 URL。 */
 .gate-delegate-help {
   margin: 0.2rem 0 0;
   text-align: right;

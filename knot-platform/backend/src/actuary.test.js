@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { economyReport, economySnapshot } from "./actuary.js";
-import { PLATFORM_USER_ID } from "./points.js";
+import { PLATFORM_ACCOUNT_ID } from "./points.js";
 
 function poolReturning({ total, platform }) {
   const calls = [];
@@ -47,7 +47,7 @@ test("an empty platform reads zeros", async () => {
 test("the platform row is the one it reads, and the ledger is not consulted", async () => {
   const { calls, pool } = poolReturning({ total: 1, platform: 0 });
   await economySnapshot(pool);
-  assert.deepEqual(calls[0].params, [PLATFORM_USER_ID]);
+  assert.deepEqual(calls[0].params, [PLATFORM_ACCOUNT_ID]);
   assert.match(calls[0].sql, /SUM\(points_balance\)/);
   assert.equal(calls[0].sql.includes("point_ledger"), false);
 });

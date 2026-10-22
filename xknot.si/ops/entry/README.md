@@ -14,10 +14,7 @@
 
 ## 现有条目
 
-| 文件 | 说明 |
-|------|------|
-| `zjj.xknot.si.conf` | zjj 的入口 conf，当前是静态占位版（无 `/api` 反代） |
-| `zjj-tunnel.md` | zjj 的接通 runbook：伙伴做 A、C 两段，工作人员做 B、D、E 三段 |
+暂无。`cpswang` 的入口 conf 由自动接通写进 `/etc/nginx/conf.d/cpswang.xknot.si.conf`，不留在仓库里；需要手工维护的签发记录才放这里。
 
 ## 为什么和中枢配置放在一起
 

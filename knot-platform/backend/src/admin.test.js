@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import express from "express";
 import {
@@ -19,8 +22,9 @@ import {
   unmuteUser,
   warnUser,
 } from "./admin.js";
-import { assertCanSpeak, muteState } from "./account.js";
-import { adminRouter } from "./routes/admin.js";
+import { muteState, speakerAccount } from "./account.js";
+import { createProfileStore } from "./profile.js";
+import { adminRouter, tunnelLocalPort } from "./routes/admin.js";
 import { installSystemPolicy, resetSystemPolicy } from "./system.js";
 
 // 管理员邮箱现在必须来自配置；这个文件里签发的内部账户共用这个测试值。
@@ -39,6 +43,14 @@ test("loopback is the machine itself", () => {
   assert.equal(tokensMatch("secret", "other"), false);
   assert.equal(tokensMatch("", ""), false);
   assert.equal(clipText("  a   b  ", 10), "a b");
+});
+
+test("the tunnel lands on the port the backend listens on", () => {
+  // 接上 XKnot 之后对外 origin 是 https://<子域>，没有端口；不能从它猜出 443。
+  assert.equal(tunnelLocalPort(8081), 8081);
+  assert.equal(tunnelLocalPort(0, { PORT: "9090" }), 9090);
+  assert.equal(tunnelLocalPort(undefined, {}), 8080);
+  assert.equal(tunnelLocalPort(-1, {}), 8080);
 });
 
 test("the admin door opens to the intranet, never to the public", () => {
@@ -76,7 +88,7 @@ test("remove records the reason and tells the author", async () => {
   const pool = {
     async query(sql, params) {
       calls.push({ sql, params });
-      if (sql.includes("UPDATE intel")) return { rows: [{ id: params[0], user_id: USER_ID }] };
+      if (sql.includes("UPDATE intel")) return { rows: [{ id: params[0], account_id: USER_ID }] };
       if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
       return { rows: [] };
     },
@@ -98,14 +110,14 @@ test("a web close records which human admin did it", async () => {
   const pool = {
     async query(sql, params) {
       calls.push({ sql, params });
-      if (sql.includes("UPDATE intel")) return { rows: [{ id: params[0], user_id: USER_ID }] };
+      if (sql.includes("UPDATE intel")) return { rows: [{ id: params[0], account_id: USER_ID }] };
       if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
       return { rows: [] };
     },
   };
   await removePost(pool, POST_ID, "平台关闭", ADMIN_ID);
   const action = calls.find((call) => call.sql.includes("admin_actions"));
-  assert.match(action.sql, /actor_id/);
+  assert.match(action.sql, /actor_account_id/);
   assert.equal(action.params[0], "remove");
   assert.equal(action.params[1], USER_ID);
   assert.equal(action.params[4], ADMIN_ID);
@@ -134,7 +146,8 @@ test("grant adds the amount once and tells the person", async () => {
     async query(sql, params) {
       calls.push({ sql, params });
       if (sql.includes("INSERT INTO admin_actions")) return { rows: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }] };
-      if (sql.includes("UPDATE users")) return { rows: [{ points_balance: 150 }] };
+      if (sql.includes("COALESCE(owner_id, id)")) return { rows: [{ wallet: params[0] }] };
+      if (sql.includes("UPDATE accounts")) return { rows: [{ points_balance: 150 }] };
       if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
       return { rows: [] };
     },
@@ -142,7 +155,7 @@ test("grant adds the amount once and tells the person", async () => {
   };
   const pool = {
     async query(sql) {
-      if (sql.includes("FROM users")) {
+      if (sql.includes("FROM accounts")) {
         return {
           rows: [{ id: USER_ID, email: "a@example.com", display_name: "甲", label: "tester", points_balance: 100 }],
         };
@@ -173,7 +186,7 @@ test("grant adds the amount once and tells the person", async () => {
 test("a grant needs one account, a positive amount, and a reason", async () => {
   const pool = {
     async query(sql) {
-      if (sql.includes("FROM users")) {
+      if (sql.includes("FROM accounts")) {
         return {
           rows: [
             { id: USER_ID, email: "a@example.com", display_name: "甲", label: null, points_balance: 1 },
@@ -228,7 +241,7 @@ function accountPool(user, onClient) {
     calls,
     pool: {
       async query(sql) {
-        if (sql.includes("FROM users")) return { rows: [user] };
+        if (sql.includes("FROM accounts")) return { rows: [user] };
         throw new Error(sql);
       },
       async connect() {
@@ -246,7 +259,7 @@ test("mute blocks new speech until the deadline", async () => {
 
   const { calls, pool } = accountPool(PERSON, (sql, params) => {
     if (sql.includes("FOR UPDATE")) return { rows: [PERSON] };
-    if (sql.includes("UPDATE users")) return { rows: [{ ...PERSON, muted_until: params[1] }] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ ...PERSON, muted_until: params[1] }] };
     if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
     return { rows: [] };
   });
@@ -262,7 +275,7 @@ test("mute blocks new speech until the deadline", async () => {
 
   const timed = accountPool(PERSON, (sql, params) => {
     if (sql.includes("FOR UPDATE")) return { rows: [PERSON] };
-    if (sql.includes("UPDATE users")) return { rows: [{ ...PERSON, muted_until: params[1] }] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ ...PERSON, muted_until: params[1] }] };
     if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
     return { rows: [] };
   });
@@ -284,7 +297,7 @@ test("mute blocks new speech until the deadline", async () => {
     muteUser(
       {
         async query() {
-          return { rows: [{ ...PERSON, label: "platform" }] };
+          return { rows: [{ ...PERSON, role: "platform" }] };
         },
         async connect() {
           throw new Error("should not mute");
@@ -313,7 +326,7 @@ test("unmute is quiet when the account can already speak", async () => {
   const muted = { ...PERSON, muted_until: new Date("9999-12-31T00:00:00.000Z") };
   const { calls, pool } = accountPool(muted, (sql) => {
     if (sql.includes("FOR UPDATE")) return { rows: [muted] };
-    if (sql.includes("UPDATE users")) return { rows: [{ ...PERSON, muted_until: null }] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ ...PERSON, muted_until: null }] };
     if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
     return { rows: [] };
   });
@@ -327,7 +340,7 @@ test("honors are granted and revoked by the names given", async () => {
   const held = { ...PERSON, entitlements: { honors: ["早期用户"] } };
   const { calls, pool } = accountPool(held, (sql) => {
     if (sql.includes("FOR UPDATE")) return { rows: [held] };
-    if (sql.includes("UPDATE users")) return { rows: [{ ...held, entitlements: { honors: ["早期用户", "审稿"] } }] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ ...held, entitlements: { honors: ["早期用户", "审稿"] } }] };
     if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
     return { rows: [] };
   });
@@ -335,7 +348,7 @@ test("honors are granted and revoked by the names given", async () => {
   assert.deepEqual(result.granted, ["审稿"]);
   assert.deepEqual(result.revoked, []);
   assert.deepEqual(result.user.entitlements, ["早期用户", "审稿"]);
-  const saved = calls.find((call) => call.sql.includes("UPDATE users"));
+  const saved = calls.find((call) => call.sql.includes("UPDATE accounts"));
   assert.equal(saved.params[1], JSON.stringify(["早期用户", "审稿"]));
   assert.equal(calls.find((call) => call.sql.includes("notifications")).params[2], "权益已更新");
 
@@ -377,7 +390,7 @@ test("level changes once and leaves the platform account alone", async () => {
 
   const { calls, pool } = accountPool(PERSON, (sql) => {
     if (sql.includes("FOR UPDATE")) return { rows: [PERSON] };
-    if (sql.includes("UPDATE users")) return { rows: [{ ...PERSON, level: 3 }] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ ...PERSON, level: 3 }] };
     if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
     return { rows: [] };
   });
@@ -397,7 +410,7 @@ test("level changes once and leaves the platform account alone", async () => {
     setLevel(
       {
         async query() {
-          return { rows: [{ ...PERSON, label: "platform" }] };
+          return { rows: [{ ...PERSON, role: "platform" }] };
         },
         async connect() {
           throw new Error("should not change");
@@ -413,7 +426,7 @@ test("level changes once and leaves the platform account alone", async () => {
 
 test("speech stops while a mute is in force", async () => {
   await assert.rejects(
-    assertCanSpeak(
+    speakerAccount(
       {
         async query() {
           return { rows: [{ muted_until: new Date(Date.now() + 60_000) }] };
@@ -423,7 +436,7 @@ test("speech stops while a mute is in force", async () => {
     ),
     (error) => error.code === "muted"
   );
-  await assertCanSpeak(
+  await speakerAccount(
     {
       async query() {
         return { rows: [{ muted_until: new Date(Date.now() - 60_000) }] };
@@ -433,10 +446,25 @@ test("speech stops while a mute is in force", async () => {
   );
 });
 
+test("an agent goes quiet when the account it belongs to is muted", async () => {
+  // 禁言落在账号上，换个门从 Agent 发也一样停。
+  await assert.rejects(
+    speakerAccount(
+      {
+        async query() {
+          return { rows: [{ muted_until: null, owner_muted_until: new Date(Date.now() + 60_000) }] };
+        },
+      },
+      USER_ID
+    ),
+    (error) => error.code === "muted"
+  );
+});
+
 test("a warning needs one account", async () => {
   const pool = {
     async query(sql) {
-      if (sql.includes("FROM users")) {
+      if (sql.includes("FROM accounts")) {
         return {
           rows: [
             { id: USER_ID, email: "a@example.com", display_name: "甲", label: null },
@@ -455,7 +483,7 @@ test("listing posts stays on that one account", async () => {
   const pool = {
     async query(sql, params) {
       seen.push(params);
-      if (sql.includes("FROM users")) {
+      if (sql.includes("FROM accounts")) {
         return { rows: [{ id: USER_ID, email: "a@example.com", display_name: "甲", label: "tester" }] };
       }
       return { rows: [{ id: POST_ID, body: "一条帖子", verdict: "passed", is_public: true, created_at: "t" }] };
@@ -481,7 +509,7 @@ test("a time window lists that person's posts since then", async () => {
   const pool = {
     async query(sql, params) {
       seen.push({ sql, params });
-      if (sql.includes("FROM users")) {
+      if (sql.includes("FROM accounts")) {
         return { rows: [{ id: USER_ID, email: "a@example.com", display_name: "甲", label: "" }] };
       }
       return {
@@ -504,6 +532,53 @@ function listen(app) {
     const server = app.listen(0, "127.0.0.1", () => resolve(server));
   });
 }
+
+test("profile: saving returns the issued side too, and says so when it cannot write", async () => {
+  // PUT 只回自述区时，页面拿它重画会把签发区与「已接入」一起抹掉。
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-admin-profile-"));
+  const store = createProfileStore({ file: path.join(dir, "profile.json") });
+  const withProfile = express();
+  withProfile.use(express.json());
+  withProfile.use(
+    "/api/admin",
+    adminRouter({ pool: { query: async () => ({ rows: [] }) }, token: "secret", profile: store, port: 8081 })
+  );
+  const server = await listen(withProfile);
+  try {
+    const port = server.address().port;
+    const saved = await fetch(`http://127.0.0.1:${port}/api/admin/profile`, {
+      method: "PUT",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ site: { name: "cpswang" } }),
+    });
+    assert.equal(saved.status, 200);
+    const body = await saved.json();
+    assert.equal(body.site.name, "cpswang");
+    assert.ok(body.issued, "the save response must carry the issued side");
+    assert.equal(typeof body.issued, "object");
+    assert.ok("file" in body);
+  } finally {
+    server.close();
+  }
+
+  // 没有站点目录：明确的 503，不是 500 internal。
+  const bare = express();
+  bare.use(express.json());
+  bare.use("/api/admin", adminRouter({ pool: { query: async () => ({ rows: [] }) }, token: "secret" }));
+  const server2 = await listen(bare);
+  try {
+    const port = server2.address().port;
+    const response = await fetch(`http://127.0.0.1:${port}/api/admin/profile`, {
+      method: "PUT",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ site: { name: "cpswang" } }),
+    });
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, "profile_unconfigured");
+  } finally {
+    server2.close();
+  }
+});
 
 test("the admin door checks the token before it acts", async () => {
   const app = express();
@@ -666,37 +741,40 @@ test("the economy door hands back the three numbers and attention counters", asy
   }
 });
 
-const ISSUED_USER = {
+const OWNER_ID = "44444444-4444-4444-8444-444444444444";
+
+const AGENT_ROW = {
   id: USER_ID,
-  email: "manwjh@gmail.com",
-  display_name: "豆包",
-  label: "",
+  role: "agent",
   side: "internal",
+  email: null,
+  display_name: "豆包",
+  owner_id: OWNER_ID,
+  label: null,
   level: 1,
   entitlements: {},
-  points_balance: 100,
+  points_balance: 0,
   muted_until: null,
   specialties: ["网页搜索", "资料整理"],
+  retired_at: null,
 };
 
-function issuePool({ existing = false, delegation = false, copies = 1 } = {}) {
+function issuePool({ existing = null, retireFails = false } = {}) {
   const calls = [];
   const pool = {
     async query(sql, params) {
       calls.push({ sql, params });
+      if (sql.includes("role = 'owner'")) return { rows: [{ id: OWNER_ID }], rowCount: 1 };
       if (sql.includes("lower(btrim(display_name))")) {
-        if (!existing) return { rows: [], rowCount: 0 };
-        const row = { id: USER_ID, points_balance: 80, side: "internal" };
-        return { rows: Array.from({ length: copies }, () => row), rowCount: copies };
+        return existing ? { rows: [existing], rowCount: 1 } : { rows: [], rowCount: 0 };
       }
-      if (sql.includes("INSERT INTO users")) return { rows: [{ id: USER_ID, points_balance: 100 }], rowCount: 1 };
-      if (sql.includes("FROM delegations")) {
-        return delegation ? { rows: [{ ok: 1 }], rowCount: 1 } : { rows: [], rowCount: 0 };
+      if (sql.includes("INSERT INTO accounts")) return { rows: [{ id: USER_ID, display_name: params[1], created_at: "t" }], rowCount: 1 };
+      if (sql.includes("retired_at = NULL")) return { rows: [{ id: USER_ID, display_name: "豆包", created_at: "t" }], rowCount: 1 };
+      if (sql.includes("retired_at = now()")) {
+        return retireFails ? { rows: [], rowCount: 0 } : { rows: [{ id: USER_ID }], rowCount: 1 };
       }
-      if (sql.includes("INSERT INTO delegations") || sql.includes("UPDATE users SET specialties") || sql.includes("DELETE FROM") || sql.includes("admin_actions")) {
-        return { rows: [], rowCount: 1 };
-      }
-      if (sql.includes("specialties FROM users")) return { rows: [ISSUED_USER], rowCount: 1 };
+      if (sql.includes("DELETE FROM accounts") || sql.includes("admin_actions")) return { rows: [], rowCount: 1 };
+      if (sql.includes("SELECT") && sql.includes("FROM accounts WHERE id = $1")) return { rows: [AGENT_ROW], rowCount: 1 };
       throw new Error(`unexpected ${sql}`);
     },
   };
@@ -718,10 +796,12 @@ test("issuing an internal agent writes the code once and leaves it out of the re
   assert.equal(written.issued.displayName, "豆包");
   assert.match(written.issued.token, /^[A-Za-z0-9_-]+$/);
   const digest = createHash("sha256").update(written.issued.token).digest("hex");
-  const delegation = calls.find((call) => call.sql.includes("INSERT INTO delegations"));
-  assert.deepEqual(delegation.params, [USER_ID, digest]);
-  const specialties = calls.find((call) => call.sql.includes("UPDATE users SET specialties"));
-  assert.equal(specialties.params[1], JSON.stringify(["网页搜索", "资料整理"]));
+  const insert = calls.find((call) => call.sql.includes("INSERT INTO accounts"));
+  assert.equal(insert.params[0], OWNER_ID);
+  assert.equal(insert.params[2], digest);
+  assert.equal(insert.params[3], JSON.stringify(["网页搜索", "资料整理"]));
+  // Agent 只落在 accounts 一行里：没有第二张关系表要写。
+  assert.equal(calls.some((call) => /delegations/.test(call.sql)), false);
   const action = calls.find((call) => call.sql.includes("admin_actions"));
   assert.equal(action.params[0], USER_ID);
   assert.equal(action.params[1], "签发 豆包。特长 网页搜索、资料整理");
@@ -729,20 +809,19 @@ test("issuing an internal agent writes the code once and leaves it out of the re
   assert.equal(result.issued, true);
   assert.equal(result.already, false);
   assert.equal(result.envFile, "/tmp/knot-agents/豆包.local.env");
-  assert.deepEqual(result.user.specialties, ["网页搜索", "资料整理"]);
+  assert.equal(result.agent.id, USER_ID);
+  assert.equal(result.agent.ownerId, OWNER_ID);
   assert.equal(JSON.stringify(result).includes(written.issued.token), false);
   assert.equal(action.params[1].includes(written.issued.token), false);
 });
 
-test("an existing internal agent keeps its code and specialties", async () => {
-  const { pool, calls } = issuePool({ existing: true, delegation: true });
+test("issuing the same name again leaves the working code alone", async () => {
+  const { pool, calls } = issuePool({ existing: AGENT_ROW });
   let written = false;
   const result = await issueInternalAgent(pool, "豆包", {
     envDir: "/tmp/knot-agents",
-    specialties: ["网页搜索"],
     writeEnv: async () => {
       written = true;
-      return "/tmp/should-not";
     },
   });
   assert.equal(written, false);
@@ -751,20 +830,29 @@ test("an existing internal agent keeps its code and specialties", async () => {
   assert.equal(result.already, true);
   assert.equal(result.envFile, null);
   assert.equal(calls.some((call) => call.sql.includes("admin_actions")), false);
-  assert.equal(calls.some((call) => call.sql.includes("UPDATE users")), false);
+  assert.equal(calls.some((call) => call.sql.includes("UPDATE accounts")), false);
 });
 
-test("a missing code is written again without creating a second account", async () => {
-  const { pool, calls } = issuePool({ existing: true, delegation: false });
+test("a retired agent is revived under the same identity with a new code", async () => {
+  const retired = { ...AGENT_ROW, retired_at: "yesterday" };
+  const { pool, calls } = issuePool({ existing: retired });
+  let written;
   const result = await issueInternalAgent(pool, "豆包", {
     envDir: "/tmp/knot-agents",
-    writeEnv: async () => "/tmp/knot-agents/豆包.local.env",
+    specialties: ["资料整理"],
+    writeEnv: async (dir, issued) => {
+      written = issued;
+      return `${dir}/豆包.local.env`;
+    },
   });
   assert.equal(result.created, false);
   assert.equal(result.issued, true);
-  assert.equal(calls.some((call) => call.sql.includes("INSERT INTO users")), false);
+  assert.equal(result.already, false);
+  assert.match(written.token, /^[A-Za-z0-9_-]+$/);
+  const revive = calls.find((call) => call.sql.includes("retired_at = NULL"));
+  assert.deepEqual(revive.params, [USER_ID, createHash("sha256").update(written.token).digest("hex"), JSON.stringify(["资料整理"])]);
+  assert.equal(calls.some((call) => call.sql.includes("INSERT INTO accounts")), false);
   assert.equal(calls.some((call) => call.sql.includes("admin_actions")), true);
-  assert.equal(calls.find((call) => call.sql.includes("admin_actions")).params[1], "签发 豆包");
 });
 
 test("a failed code file removes the new account", async () => {
@@ -778,25 +866,53 @@ test("a failed code file removes the new account", async () => {
     }),
     (error) => error.code === "env_failed"
   );
-  assert.equal(calls.some((call) => call.sql.includes("DELETE FROM delegations")), true);
-  assert.equal(calls.some((call) => call.sql.includes("DELETE FROM users")), true);
+  assert.equal(calls.some((call) => call.sql.includes("DELETE FROM accounts")), true);
   assert.equal(calls.some((call) => call.sql.includes("admin_actions")), false);
 });
 
-test("issuing needs one unused name and a directory for the code", async () => {
+test("a failed code file puts a revived agent back to rest", async () => {
+  const retired = { ...AGENT_ROW, retired_at: "yesterday" };
+  const { pool, calls } = issuePool({ existing: retired });
+  await assert.rejects(
+    issueInternalAgent(pool, "豆包", {
+      envDir: "/tmp/knot-agents",
+      writeEnv: async () => {
+        throw new Error("disk full");
+      },
+    }),
+    (error) => error.code === "env_failed"
+  );
+  assert.equal(calls.some((call) => call.sql.includes("retired_at = now()")), true);
+  assert.equal(calls.some((call) => call.sql.includes("DELETE FROM accounts")), false);
+  assert.equal(calls.some((call) => call.sql.includes("admin_actions")), false);
+});
+
+test("issuing needs an owner, an unused name, and a directory for the code", async () => {
   const closed = {
     async query() {
       throw new Error("should not look up");
     },
   };
-  await assert.rejects(issueInternalAgent(closed, "豆 包", { envDir: "/tmp" }), (error) => error.code === "bad_name");
+  await assert.rejects(issueInternalAgent(closed, "  ", { envDir: "/tmp" }), (error) => error.code === "bad_name");
   await assert.rejects(issueInternalAgent(closed, "豆包", {}), (error) => error.code === "env_unconfigured");
   await assert.rejects(
     issueInternalAgent(closed, "豆包", { envDir: "/tmp", specialties: ["搜索，下载"] }),
     (error) => error.code === "bad_specialty"
   );
-  const { pool } = issuePool({ existing: true, copies: 2 });
-  await assert.rejects(issueInternalAgent(pool, "豆包", { envDir: "/tmp" }), (error) => error.code === "ambiguous");
+
+  const noOwner = {
+    async query() {
+      return { rows: [] };
+    },
+  };
+  await assert.rejects(issueInternalAgent(noOwner, "豆包", { envDir: "/tmp" }), (error) => error.code === "owner_unconfigured");
+
+  // 同名的人或外部 Agent 占着这个名字，不能拿来当内部 Agent。
+  const taken = issuePool({ existing: { ...AGENT_ROW, role: "user", owner_id: null, retired_at: null } });
+  await assert.rejects(
+    issueInternalAgent(taken.pool, "豆包", { envDir: "/tmp" }),
+    (error) => error.code === "name_taken"
+  );
 });
 
 test("the issue door refuses a blank name and a missing directory", async () => {

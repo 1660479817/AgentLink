@@ -35,5 +35,8 @@
     "deploy": "./ops/deploy-hub.sh",
     "deploy:api": "./ops/deploy-api.sh",
     "build:world": "node ops/build-world-dots.mjs"
+  },
+  "devDependencies": {
+    "marked": "^18.1.1"
   }
 }

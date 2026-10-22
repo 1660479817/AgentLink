@@ -15,10 +15,10 @@ import { adminRouter } from "./routes/admin.js";
 import { adminPageRouter } from "./routes/adminPage.js";
 import { webRouter } from "./routes/web.js";
 import { loadEconomyPolicy } from "./actuary.js";
+import { ensureOwner } from "./login.js";
 import { resumePendingReviews } from "./market.js";
 import { resumePendingRetrievals } from "./retrieval.js";
 import { agentRouter } from "./routes/agent.js";
-import { renderHelp } from "./helpPage.js";
 import { loadSystemPolicy, publicBoardEnabled } from "./system.js";
 
 // 产品版本跟着本包的 package.json 走，别在这里另写一份。
@@ -40,6 +40,16 @@ await profile.reload();
 
 // 先读系统开关，公开快照的首次写入和下面的内容接口都按它来。
 await loadSystemPolicy(pool);
+
+// 主理人账号跟着 KNOT_ADMIN_EMAIL 走：启动时补上或改绑，幂等。
+// 人只能靠它登录；内部 Agent 都挂在它名下。
+try {
+  await ensureOwner(pool);
+} catch (error) {
+  // 账号配置错了就不该带着半套身份起来：给一行原因，然后退出。
+  console.error(`knot-backend 启动中止：${error.message}`);
+  process.exit(1);
+}
 
 const app = express();
 app.set("trust proxy", 1);
@@ -82,19 +92,13 @@ app.get("/api/health", (_req, res) => {
   res.json(payload);
 });
 
-// help.md 与 backend/ 同级，随平台一起发版。
-const helpPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../help.md");
+// Agent 指引只有一份，在仓库根 docs/KNOT_HELP.md，由联邦中枢发布（xknot.si/knot-help）。
+// 它不属于任何一个实例，实例也不提供文档端点：`/help` 在这里没有页面，和任何
+// 不存在的路径一样落到 SPA 兜底。WebUI 的入口地址从下面注入会话，页面不自己拼。
+const AGENT_DOC_ORIGIN = String(process.env.KNOT_HUB_ORIGIN || "https://xknot.si").replace(/\/+$/, "");
 
-app.get("/help", (req, res) => {
-  fs.readFile(helpPath, "utf8", (err, text) => {
-    if (err) return res.status(404).type("text/plain").send("not_found");
-    const page = renderHelp(text, req.headers.accept);
-    res.set("Content-Type", page.contentType);
-    res.set("Vary", "Accept");
-    res.set("Cache-Control", "no-cache");
-    res.send(page.body);
-  });
-});
+// 快照要在 WebUI 路由之前绑定：首页的会话层会按同一份快照算「哪些卡属于我」。
+const discoverBoard = bindDiscoverBoard({ pool, uploadDir: bootstrap.uploadDir, profile });
 
 app.use(
   "/api/web",
@@ -103,6 +107,8 @@ app.use(
     sessionCookieName: bootstrap.sessionCookieName,
     uploadDir: bootstrap.uploadDir,
     profile,
+    board: discoverBoard.read,
+    agentDoc: { page: `${AGENT_DOC_ORIGIN}/knot-help`, raw: `${AGENT_DOC_ORIGIN}/knot-help.md` },
   })
 );
 app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir }));
@@ -122,17 +128,18 @@ app.use(
     uploadDir: bootstrap.uploadDir,
     agentEnvDir: bootstrap.agentEnvDir,
     publicWebOrigin: bootstrap.publicWebOrigin,
+    port: bootstrap.port,
     profile,
   })
 );
-
-const discoverBoard = bindDiscoverBoard({ pool, uploadDir: bootstrap.uploadDir });
 
 app.get("/discover.json", async (_req, res, next) => {
   if (!publicBoardEnabled()) return res.status(404).json({ error: "not_found" });
   try {
     const file = await discoverBoard.file();
-    res.set("Cache-Control", "public, max-age=0, must-revalidate");
+    // 允许浏览器直接用 30 秒内的那一份，过期后仍在后台校验一段时间。
+    // 内容变化由 Backend 主动推送，页面不必每次打开都为校验多走一趟。
+    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=300");
     res.type("application/json; charset=utf-8");
     res.sendFile(file);
   } catch (error) {

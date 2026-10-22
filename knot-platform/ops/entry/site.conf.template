@@ -5,8 +5,10 @@
 # 一份配置服务一个 xknot.si 子域入口（KNOT_DOMAIN）。
 # 入口只做三件事：
 #   1. 提供 WebUI 静态文件（KNOT_ENTRY_SERVE=static），或整站回源（=proxy）；
-#   2. 把 /api、/help 反代到回源端口（隧道或同机 Backend）；
+#   2. 把 /api 反代到回源端口（隧道或同机 Backend）；
 #   3. 给 /discover.json 和 /api/web/uploads/ 加缓存（仅 static 投放）。
+# 入口不发文档：Agent 指引在 xknot.si/knot-help，实例没有 /help 页，
+# 它和任何不存在的路径一样落到 SPA 兜底，入口不为它单独回源。
 #
 # 缓存区（proxy_cache_path）不在这里声明：同一台入口主机只允许一次，放在 cache.conf.template，
 # 由 push-entry.sh 单独装成 knot-cache.conf。
@@ -36,14 +38,14 @@ server {
     # 不在这里开，JS/CSS/JSON 就按原文发出去：主包 263KB，压完约 84KB。
     # gzip_proxied any 让穿过隧道的 /api 响应也压（JSON 收益最大）。
     # gzip_types 里不放图片/字体：jpeg、png、woff2 本来就压过了。
-    # text/markdown 给 /help：它由 Backend 以 text/markdown 发出，20KB 原文，
-    # 不列进来就完全不压。xml 给 sitemap。
+    # 这里不放 text/markdown：入口只出 WebUI 与快照，不发文档（Agent 指引在中枢
+    # xknot.si/knot-help）。xml 给 sitemap。
     gzip on;
     gzip_vary on;
     gzip_min_length 1024;
     gzip_comp_level 5;
     gzip_proxied any;
-    gzip_types text/plain text/css text/javascript application/javascript application/json application/manifest+json image/svg+xml text/markdown application/xml text/xml;
+    gzip_types text/plain text/css text/javascript application/javascript application/json application/manifest+json image/svg+xml application/xml text/xml;
 
     location /.well-known/acme-challenge/ {
         root {{KNOT_ENTRY_WEB_ROOT}};
@@ -116,14 +118,8 @@ server {
         proxy_send_timeout 120s;
     }
 
-    location = /help {
-        proxy_pass http://knot_entry_{{KNOT_ENTRY_PROXY_PORT}};
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto {{#KNOT_ENTRY_SSL}}https{{/KNOT_ENTRY_SSL}}{{^KNOT_ENTRY_SSL}}$scheme{{/KNOT_ENTRY_SSL}};
-        proxy_read_timeout 30s;
-    }
+    # 入口不认 /help：Agent 指引是协议层文档，在 xknot.si/knot-help。实例没有这个页面，
+    # 它和任何不存在的路径一样走下面的 SPA 兜底。
 
 {{#KNOT_ENTRY_STATIC}}
     location = /index.html {
@@ -141,10 +137,14 @@ server {
     }
 
     # 发现页的公开快照。文件由平台推上来；还没有文件时回到回源端口。
+    #
+    # 允许浏览器用 30 秒内的那一份：首屏本来就要等它，回源校验一次就是一次跨境往返。
+    # 内容变化由 Backend 主动推送，读者最多晚 30 秒看到新帖，换来的是打开即画。
+    # 过期后仍先给旧的、后台再校验，缓存过期的那一下也不会白屏。
     location = /discover.json {
         root {{KNOT_ENTRY_WEB_ROOT}};
         try_files /discover.json @knot_origin;
-        add_header Cache-Control "public, max-age=0, must-revalidate";
+        add_header Cache-Control "public, max-age=30, stale-while-revalidate=300";
         add_header X-Content-Type-Options nosniff always;
         add_header Referrer-Policy strict-origin-when-cross-origin always;
     }

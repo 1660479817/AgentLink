@@ -145,7 +145,7 @@ npm run build                                    # 校验、探测、构建
 ```text
 浏览器 ──HTTPS──▶ 公网入口（nginx + 证书）
                      ├── /、/assets/ ──▶ 入口主机上的磁盘 /var/www/<id>（静态）
-                     └── /api/、/help ─▶ 127.0.0.1:18081
+                     └── /api/ ─▶ 127.0.0.1:18081
                                               │  入口 sshd 上的回环端口
                                               ▼
                                      反向隧道（实例主动连出）
@@ -259,7 +259,7 @@ IP 变了不需要改任何清单字段：实例重新连出、入口主机的�
 
 - 中枢 nginx：`ops/xknot.si.conf`；中枢部署笔记：`ops/README-deploy-aws.md`
 - 公网入口模板（实例侧）：`../../knot-platform/ops/entry/README.md`
-- 已签发子域的入口（中枢侧）：`../ops/entry/`，如 `zjj.xknot.si.conf` 与 `zjj-tunnel.md`
+- 已签发子域的入口（中枢侧）：`../ops/entry/`，只放需要手工维护的 conf 与 runbook；`cpswang` 由自动接通写入，不在仓库里
 
 收费与子域服务不在中枢订单链路里发生（见 README「收录与收费」）。
 

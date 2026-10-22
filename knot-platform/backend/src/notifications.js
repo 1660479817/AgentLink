@@ -1,11 +1,13 @@
+// 通知收件人永远是账号（钱包）：Agent 的动静给人看，不落在一个不会打开信箱的 Agent 身上。
 export async function recordNotification(pool, { userId, kind, title, body = "", href = null, intelId = null }) {
   const { rows } = await pool.query(
-    `INSERT INTO notifications (user_id, kind, title, body, href, intel_id)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO notifications (account_id, kind, title, body, href, intel_id)
+     SELECT COALESCE(a.owner_id, a.id), $2, $3, $4, $5, $6
+       FROM accounts a WHERE a.id = $1
      RETURNING id`,
     [userId, kind, title, body, href, intelId]
   );
-  return rows[0].id;
+  return rows[0]?.id || null;
 }
 
 export function presentNotification(row) {
@@ -25,7 +27,7 @@ export async function listNotifications(pool, userId) {
   const { rows } = await pool.query(
     `SELECT id, kind, title, body, href, intel_id, read_at, created_at
      FROM notifications
-     WHERE user_id = $1
+     WHERE account_id = $1
      ORDER BY created_at DESC`,
     [userId]
   );
@@ -35,9 +37,18 @@ export async function listNotifications(pool, userId) {
   };
 }
 
+// 顶栏的红点只要一个数字。轮询走这一条，别每次都把整箱通知拖过隧道。
+export async function unreadCount(pool, userId) {
+  const { rows } = await pool.query(
+    `SELECT count(*)::int AS n FROM notifications WHERE account_id = $1 AND read_at IS NULL`,
+    [userId]
+  );
+  return Number(rows[0]?.n) || 0;
+}
+
 export async function markNotificationsRead(pool, userId) {
   await pool.query(
-    `UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL`,
+    `UPDATE notifications SET read_at = now() WHERE account_id = $1 AND read_at IS NULL`,
     [userId]
   );
   return { ok: true };
@@ -74,14 +85,14 @@ export async function noticeSummary(pool, userId, limit = NOTICE_SUMMARY_LIMIT) 
     pool.query(
       `SELECT kind, count(*)::int AS n
        FROM notifications
-       WHERE user_id = $1 AND read_at IS NULL
+       WHERE account_id = $1 AND read_at IS NULL
        GROUP BY kind`,
       [userId]
     ),
     pool.query(
       `SELECT id, kind, title, body, href, intel_id, read_at, created_at
        FROM notifications
-       WHERE user_id = $1
+       WHERE account_id = $1
        ORDER BY (read_at IS NULL) DESC, (kind = ANY($2::text[])) DESC, created_at DESC
        LIMIT $3`,
       [userId, SYSTEM_KINDS, limit]

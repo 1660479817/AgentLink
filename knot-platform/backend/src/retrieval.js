@@ -5,7 +5,7 @@ import { runRetrievalAgent } from "./agents/openclaw.js";
 import { loadBootstrapConfig } from "./config.js";
 import { createIntel, searchPublicIntel } from "./market.js";
 import { recordNotification } from "./notifications.js";
-import { economyConfig, PLATFORM_USER_ID } from "./points.js";
+import { economyConfig, PLATFORM_ACCOUNT_ID } from "./points.js";
 import { newStorageName, storagePath } from "./uploads.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -33,7 +33,7 @@ export async function createRetrieval(pool, { userId, actor, door, query }) {
     hours: 24,
   });
   const { rows } = await pool.query(
-    `INSERT INTO retrieval_jobs (wish_id, user_id, query) VALUES ($1, $2, $3) RETURNING id`,
+    `INSERT INTO retrieval_jobs (wish_id, account_id, query) VALUES ($1, $2, $3) RETURNING id`,
     [intel.kMeta.id, userId, text],
   );
   enqueueRetrieval(pool, rows[0].id);
@@ -96,9 +96,9 @@ async function storeReport(pool, uploadDir, report, query) {
   await writeFile(file, report, "utf8");
   try {
     const { rows } = await pool.query(
-      `INSERT INTO uploads (user_id, storage_name, mime, original_name, size, sha256)
+      `INSERT INTO uploads (account_id, storage_name, mime, original_name, size, sha256)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [PLATFORM_USER_ID, storageName, "text/markdown", reportFileName(query), bytes, sha256],
+      [PLATFORM_ACCOUNT_ID, storageName, "text/markdown", reportFileName(query), bytes, sha256],
     );
     return rows[0].id;
   } catch (error) {
@@ -112,7 +112,7 @@ async function storeReport(pool, uploadDir, report, query) {
 // 返回 true 表示这次失败后已排入重试；调用方据此保留尝试计数，别在重试前把它清掉。
 async function processRetrieval(pool, jobId) {
   const { rows } = await pool.query(
-    `SELECT id, wish_id, user_id, query, status FROM retrieval_jobs WHERE id = $1`,
+    `SELECT id, wish_id, account_id, query, status FROM retrieval_jobs WHERE id = $1`,
     [jobId],
   );
   const job = rows[0];
@@ -124,7 +124,7 @@ async function processRetrieval(pool, jobId) {
 
   let internal = [];
   try {
-    internal = await searchPublicIntel(pool, job.query, PLATFORM_USER_ID, {});
+    internal = await searchPublicIntel(pool, job.query, PLATFORM_ACCOUNT_ID, {});
   } catch (error) {
     // 内部检索失败不中断任务，只把空命中交给检索员（它还能用外部工具）。
     console.error(error);
@@ -158,7 +158,7 @@ async function processRetrieval(pool, jobId) {
 
   try {
     const intel = await createIntel(pool, {
-      userId: PLATFORM_USER_ID,
+      userId: PLATFORM_ACCOUNT_ID,
       actor: "platform",
       door: "platform",
       body: `信息检索：${clip(job.query, 80)}`,
@@ -184,7 +184,7 @@ async function processRetrieval(pool, jobId) {
 
 async function notifyRetrievalFailed(pool, job) {
   await recordNotification(pool, {
-    userId: job.user_id,
+    userId: job.account_id,
     kind: "retrieval_failed",
     title: "信息检索没有完成",
     body: `「${clip(job.query, 60)}」这次检索没做成，积分未扣，可重新提交。`,
@@ -203,7 +203,7 @@ async function runOne(pool, jobId) {
     console.error(error);
     await markFailed(pool, jobId, error.message || "retrieval_failed");
     try {
-      const { rows } = await pool.query(`SELECT id, wish_id, user_id, query FROM retrieval_jobs WHERE id = $1`, [jobId]);
+      const { rows } = await pool.query(`SELECT id, wish_id, account_id, query FROM retrieval_jobs WHERE id = $1`, [jobId]);
       if (rows[0]) await notifyRetrievalFailed(pool, rows[0]);
     } catch (notifyError) {
       console.error(notifyError);

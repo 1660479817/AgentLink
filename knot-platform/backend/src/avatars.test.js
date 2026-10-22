@@ -25,7 +25,7 @@ test("a chosen picture replaces the default, and the author id wins over the pos
     "/api/web/uploads/11111111-1111-1111-1111-111111111111"
   );
   assert.equal(avatarUrlFor({ id: "person" }), defaultAvatarUrl("person"));
-  assert.equal(avatarUrlFor({ id: "post", user_id: "person" }), defaultAvatarUrl("person"));
+  assert.equal(avatarUrlFor({ id: "post", account_id: "person" }), defaultAvatarUrl("person"));
   assert.equal(avatarUrlFor(null), null);
 });
 

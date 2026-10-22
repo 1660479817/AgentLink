@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assembleDiscoverBoard, presentDiscoverSelf, publicPerson, writeDiscoverBoard } from "./discoverBoard.js";
+import { assembleDiscoverBoard, discoverBoardMeta, presentDiscoverSelf, publicPerson, readDiscoverBoard, writeDiscoverBoard } from "./discoverBoard.js";
 import { setDiscoverPublisher, touchDiscoverBoard } from "./discoverPublish.js";
 import { installSystemPolicy } from "./system.js";
 
@@ -30,7 +30,7 @@ function pool() {
     responds_to: null,
     verdict: "passed",
     reject_reason: null,
-    user_id: AUTHOR,
+    account_id: AUTHOR,
     is_public: true,
     created_at: "2026-10-15T00:00:00.000Z",
     updated_at: "2026-10-15T00:00:00.000Z",
@@ -52,7 +52,7 @@ function pool() {
     category: "",
     kind: "wish",
     is_public: false,
-    user_id: AUTHOR,
+    account_id: AUTHOR,
     verdict: "pending",
     created_at: "2026-10-15T01:00:00.000Z",
     updated_at: "2026-10-15T01:00:00.000Z",
@@ -64,7 +64,7 @@ function pool() {
       if (sql.includes("SELECT f.intel_id")) {
         return { rows: [{ intel_id: POST, id: FILE, mime: "image/jpeg", original_name: "a.jpg" }, { intel_id: POST, id: "sound", mime: "audio/mpeg", original_name: "a.mp3" }] };
       }
-      if (sql.includes("GROUP BY i.user_id")) {
+      if (sql.includes("GROUP BY i.account_id")) {
         return { rows: [{ id: AUTHOR, display_name: "甲", avatar_upload_id: null, last_at: "2026-10-15T03:00:00.000Z" }] };
       }
       if (sql.includes("i.kind = 'wish'")) return { rows: [wish] };
@@ -86,7 +86,7 @@ test("the public board drops personal fields and keeps the wish author", async (
   assert.equal(card.mine, false);
   assert.equal(card.author.id, AUTHOR);
   assert.equal(card.author.name, "甲");
-  assert.equal(card.user_id, undefined);
+  assert.equal(card.account_id, undefined);
   assert.equal(card.images[0].url, `/api/web/uploads/${FILE}/display`);
   assert.equal(card.audio[0].url, "/api/web/uploads/sound");
   assert.equal(board.requests[0].authorId, AUTHOR);
@@ -130,6 +130,36 @@ test("writing the board keeps image addresses", async () => {
     const saved = JSON.parse(await readFile(path.join(dir, "discover.json"), "utf8"));
     assert.equal(saved.information[0].granted, false);
     assert.equal(saved.requests[0].authorId, AUTHOR);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("快照带上站点开关与身份，首帧不必先问会话", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-board-"));
+  try {
+    const meta = discoverBoardMeta({ now: () => new Date("2026-10-22T00:00:00.000Z") });
+    assert.equal(meta.version, "2026-10-22T00:00:00.000Z");
+    assert.equal(meta.site.publicBoard, true);
+    assert.equal(meta.site.guestBrowsing, true);
+    assert.equal(meta.brand.contact, "");
+    assert.equal(meta.locale, "zh-CN");
+
+    await writeDiscoverBoard({ pool: pool(), uploadDir: dir, boardDir: dir, meta: () => meta });
+    const saved = await readDiscoverBoard(dir);
+    assert.equal(saved.version, meta.version);
+    assert.deepEqual(saved.site, meta.site);
+    assert.equal(saved.information[0].id, POST);
+    assert.equal(saved.information[0].personal, false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("读不到快照时返回 null，不抛异常", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-board-"));
+  try {
+    assert.equal(await readDiscoverBoard(dir), null);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

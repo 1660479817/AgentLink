@@ -9,7 +9,6 @@ import {
   MAX_HEIGHT,
   MAX_PREVIEW_HEIGHT,
   SHARE_HOST,
-  SHARE_LINE,
   SHARE_PAGE,
   buildSharePoster,
   ensureSharePoster,
@@ -105,7 +104,9 @@ test("the picture shows the post, the introduction, and a code for the site", as
   const layout = await buildSharePoster({ ...content, preview: "" });
   assert.match(layout.svg, /一条给 Agent 读的信息 &amp; &lt;说明&gt;/);
   assert.match(layout.svg, /讲解\.mp3/);
-  assert.match(layout.svg, new RegExp(SHARE_LINE));
+  // 页脚文字现在只占左栏，标语会折成两行，按首尾两段检查。
+  assert.match(layout.svg, /面向 AI 时代/);
+  assert.match(layout.svg, /信息交换网。/);
   assert.match(layout.svg, new RegExp(SHARE_HOST));
   assert.equal(layout.svg.includes("ytimg"), false);
   assert.equal(layout.svg.includes("youtube"), false);
@@ -118,7 +119,12 @@ test("the picture shows the post, the introduction, and a code for the site", as
   assert.ok(layout.contentTop > 56);
   assert.match(layout.svg, /用户/);
   assert.ok(layout.height > layout.footerTop);
-  assert.ok(layout.qr.y > layout.prTextBottom);
+  // 页脚改成横排两栏：固定信息区不超过 460px，二维码贴右内边距。
+  const footerHeight = layout.height - layout.footerTop;
+  assert.ok(footerHeight <= 460, `footer ${footerHeight}`);
+  assert.ok(layout.qr.y >= layout.footerTop);
+  assert.ok(layout.qr.y + layout.qr.size <= layout.footerTop + footerHeight);
+  assert.equal(layout.qr.x + layout.qr.size + 12, 1080 - 72);
   assert.match(layout.svg, new RegExp(`<rect x="0" y="${layout.footerTop}" width="1080"`));
   assert.match(layout.svg, /rx="20" fill="#FFFFFF"/);
 
@@ -340,6 +346,31 @@ test("the QR points at the post's discover deep link", async () => {
   const withId = await buildSharePoster({ id: "22222222-2222-4222-8222-222222222222", body: "短", video: false, audioName: "", fileName: "", image: false, preview: "" });
   const withoutId = await buildSharePoster({ body: "短", video: false, audioName: "", fileName: "", image: false, preview: "" });
   assert.notEqual(withId.qr.dark, withoutId.qr.dark);
+  // 深链二维码比首页二维码大一圈，但整条页脚仍然压在 460px 以内。
+  assert.ok(withId.qr.size > withoutId.qr.size);
+  assert.ok(withId.height - withId.footerTop <= 460);
+});
+
+test("a long site name and tagline still fit the footer columns", async () => {
+  const site = {
+    // 子域很长时二维码版本变高，像素自动降到 7，页脚仍然压在 460 以内。
+    page: "https://a-very-long-subdomain.xknot.si",
+    host: "a-very-long-subdomain.xknot.si",
+    name: "一个名字特别长的站点".repeat(4),
+    line: "面向 AI 时代、服务于 Agent 的信息交换网。".repeat(3),
+  };
+  const layout = await buildSharePoster(
+    { id: "6fab96ff-ac84-4822-8e4c-4448a78e7be6", body: "短", video: false, audioName: "", fileName: "", image: false, preview: "" },
+    site
+  );
+  // 页脚高度只由二维码和白边决定，文字再长也不再拉高整张图。
+  // 二维码模块数随 id 内容变（33、37 或 41），整条固定区在 424–456 之间。
+  const footerHeight = layout.height - layout.footerTop;
+  assert.ok(footerHeight >= 400 && footerHeight <= 460, `footer ${footerHeight}`);
+  assert.match(layout.svg, /…/);
+  // 二维码贴右内边距，左边留给文字与两栏之间的间距。
+  assert.equal(layout.qr.pixel, 7);
+  assert.equal(layout.qr.x, 1080 - 72 - 12 - layout.qr.size);
 });
 
 test("the head composites the author's avatar over the letter fallback", async () => {

@@ -130,17 +130,11 @@ watch(
   () => releaseWatch?.poke()
 );
 
-watch(
-  () => session.user,
-  (user) => {
-    if (user) notifications.load();
-  }
-);
-
 onMounted(() => {
-  if (session.user) notifications.load();
+  // 首屏的未读数由 /api/web/home 一起带回来，这里不再单独取一次。
+  // 轮询只要那个数字，不把整箱通知每 30 秒拖过一次隧道。
   notificationsPoll = startPolling({
-    fn: () => notifications.load(),
+    fn: () => notifications.poll(),
     intervalMs: NOTIFICATIONS_POLL_MS,
     when: () => Boolean(session.user),
   });
@@ -287,8 +281,8 @@ onUnmounted(() => {
             <FriendsIcon class="shortcut-icon" aria-hidden="true" />
             <span class="shortcut-label">{{ t("rail.friends") }}</span>
           </RouterLink>
-          <!-- /help 是 Backend 直接发的文档页，不是 SPA 路由，所以用 a 不用 RouterLink。 -->
-          <a href="/help" class="shortcut">
+          <!-- Agent 指引在联邦中枢，是个外部链接，所以用 a 不用 RouterLink。 -->
+          <a :href="session.agentDoc.page" class="shortcut" target="_blank" rel="noopener noreferrer">
             <HelpIcon class="shortcut-icon" aria-hidden="true" />
             <span class="shortcut-label">{{ t("rail.help") }}</span>
           </a>
@@ -300,7 +294,7 @@ onUnmounted(() => {
       <main id="main-content" class="layout">
         <RememberLoginCard />
         <p v-if="session.user && session.agentDelegated === false" class="agent-login-guide" role="status">
-          {{ t("agentGuide.hint", { origin: siteOrigin }) }}
+          {{ t("agentGuide.hint", { doc: session.agentDoc.raw, origin: siteOrigin }) }}
         </p>
         <OutboxNotice />
         <slot />
