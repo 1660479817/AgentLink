@@ -110,7 +110,8 @@ print_status() {
   echo "状态      已接入"
   echo "实例 id   ${id:-（缺）}"
   echo "中枢      ${origin:-（缺）}"
-  echo "委托发信  ${relay:-（用本机 SMTP）}"  echo "凭据      $(mask "$token")"
+  echo "委托发信  ${relay:-（用本机 SMTP）}"
+  echo "凭据      $(mask "$token")"
   [[ -n "$issued" ]] && echo "签发日    $issued"
   echo "权限      $perms$([[ "$perms" == "600" ]] || echo '（应为 600）')"
   echo

@@ -135,6 +135,12 @@ local 部署到这里就够了。要接入 xknot.si 子域，再填 `KNOT_ENTRY_
 
 `KNOT_ENTRY_HOST`、`KNOT_TUNNEL_USER` 由上面几项推出来，不用手写。
 
+接入 XKnot 之后，`/admin` 的 XKnot 栏会接管隧道这一组：实例自己生成 `sites/<站点>/tunnel_ed25519`（私钥 `600`，只在站点目录里），把公钥交到案例页，拿到中枢给的入口主机、账号与端口后写进 `sites/<站点>/tunnel.env`（整份文件由界面维护，`# >>> XKnot 自动接通` 段内是账号、私钥路径与两个端口），再重启 `com.knot.entry-tunnel`。
+
+隧道单独放 `tunnel.env` 而不是并进 `site.env`：`site.env` 归 `deploy-site.sh`（入口开关、公开地址、站点身份），`tunnel.env` 归界面。两份各改各的，重新部署也不会把接通配置冲掉；要改回手工配置，删掉 `tunnel.env` 再在 `site.env` 里写那一组键即可。`run-entry-tunnel.sh` 先读 `site.env`、再用 `tunnel.env` 覆盖，只要求 `KNOT_TUNNEL=1`（入口 conf 由中枢生成时不必开 `KNOT_ENTRY_ENABLED`）。密钥丢了不要重用旧名：换一个 `KNOT_TUNNEL_KEY` 让实例重新生成并提交，中枢会从建账号那一步重跑。
+
+中枢验收通过（`run.state` 变 `active`）后，实例还会把签发区写成 `sites/<站点>/xknot.env`（`XKNOT_INSTANCE_ID`、`XKNOT_ISSUED_URL`、`XKNOT_ISSUED_AT`、`XKNOT_TIER`、`XKNOT_HUB_ORIGIN`，`600`），并重启 Backend 让它生效——这一份就是 `/api/federation/profile` 与门户上那条档案的来源。内容一致时不重写、不重启。
+
 ### 1.2 实例主机的运行时参数
 
 `deploy-site.sh` 把站点、数据库、目录、备份和入口推送项写进目标机的 `sites/<站点>/platform.env`，权限 `600`。邮件、价格、存储、智能体这些只属于这台机器的键，第一次部署时按 schema 里的默认值补进去，之后归运维，部署不会再改。
@@ -468,7 +474,7 @@ node ops/scripts/config.mjs sites             # 列出站点与 platform.env 状
    ./ops/scripts/push-entry.sh --site <站点>
    ```
 
-   `push-entry.sh` 只处理这一个 `entry.<标签>.xknot.si.env`：渲染 [`entry/site.conf.template`](./entry/site.conf.template)、按 `KNOT_ENTRY_SERVE` 同步 `web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建。仓库里不带任何具体域名的 conf——入口由站点配置生成。
+   `push-entry.sh` 只处理这一个 `entry.<标签>.xknot.si.env`：渲染 [`entry/site.conf.template`](./entry/site.conf.template)、按 `KNOT_ENTRY_SERVE` 同步 `web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建。`static` 投放时还会用 `entry-html.mjs` 把站点自述写进入口首页，并生成 `robots.txt` 与 `sitemap.xml`（见 [`entry/README.md`](./entry/README.md)）。仓库里不带任何具体域名的 conf——入口由站点配置生成。
 
 3. **证书**。入口配置引用的证书必须已经存在。webroot 与 `KNOT_ENTRY_WEB_ROOT` 一致：
 

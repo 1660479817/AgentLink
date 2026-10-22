@@ -1,0 +1,217 @@
+// 自动接通的端侧动作：密钥、案例页接口、托管段、重启命令。
+//
+// 全部用假 exec / 假 fetch 跑：不生成真密钥、不访问网络，也不会动到 site.env。
+
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import {
+  MANAGED_END,
+  MANAGED_START,
+  applyManagedBlock,
+  caseEndpoint,
+  deployRootOf,
+  ensureTunnelKey,
+  fetchProgress,
+  handoffValid,
+  renderManagedBlock,
+  renderAgentPlist,
+  restartTunnel,
+  startTunnelAgent,
+  submitPublicKey,
+  tunnelEnvPath,
+  tunnelKeyPath,
+} from "./tunnel.js";
+
+const CASE_URL = "https://xknot.si/case/DrBwXKN_EPZm";
+
+test("case url: the case key maps to the capability endpoints and nothing else", () => {
+  assert.equal(caseEndpoint(CASE_URL, "progress"), "https://xknot.si/api/case/DrBwXKN_EPZm/progress");
+  assert.equal(caseEndpoint(`${CASE_URL}/`, "public-key"), "https://xknot.si/api/case/DrBwXKN_EPZm/public-key");
+  // 不是案例链接就直接拒绝：不能把别的地址当成上传口。
+  assert.equal(caseEndpoint("https://xknot.si/admin/abc", "progress"), null);
+  assert.equal(caseEndpoint("javascript:alert(1)", "progress"), null);
+  assert.equal(caseEndpoint("", "progress"), null);
+});
+
+test("key: an existing public key is reused, not rotated", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-key-"));
+  const file = tunnelKeyPath(dir);
+  await writeFile(`${file}.pub`, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExisting site\n");
+  let called = 0;
+
+  const key = await ensureTunnelKey({ file, exec: async () => { called += 1; } });
+  assert.equal(key.created, false);
+  assert.match(key.publicKey, /^ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExisting/);
+  assert.equal(called, 0, "ssh-keygen must not run when .pub exists");
+});
+
+test("key: a missing key is generated with no passphrase", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-key-"));
+  const file = tunnelKeyPath(dir);
+  let args = null;
+
+  const key = await ensureTunnelKey({
+    file,
+    comment: "knot-tunnel-local",
+    exec: async (cmd, argv) => {
+      args = [cmd, ...argv];
+      await writeFile(`${file}.pub`, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINew knot-tunnel-local\n");
+      await writeFile(file, "PRIVATE");
+    },
+  });
+
+  assert.equal(key.created, true);
+  assert.deepEqual(args.slice(0, 2), ["ssh-keygen", "-t"]);
+  assert.ok(args.includes("ed25519"));
+  assert.ok(args.includes(""), "empty passphrase");
+  assert.ok(args.includes("-C"));
+  assert.ok(args.includes("knot-tunnel-local"));
+});
+
+test("key: keygen failure is reported, not swallowed", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-key-"));
+  const key = await ensureTunnelKey({
+    file: tunnelKeyPath(dir),
+    exec: async () => {
+      throw new Error("permission denied");
+    },
+  });
+  assert.equal(key.error, "keygen_failed");
+});
+
+test("submit: posts the public key as a form and accepts the case page redirect", async () => {
+  let request = null;
+  const result = await submitPublicKey({
+    caseUrl: CASE_URL,
+    publicKey: "ssh-ed25519 AAAA test\n",
+    fetchImpl: async (url, init) => {
+      request = { url, init };
+      return { status: 303 };
+    },
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(request.url, "https://xknot.si/api/case/DrBwXKN_EPZm/public-key");
+  assert.equal(request.init.method, "POST");
+  assert.match(request.init.headers["content-type"], /x-www-form-urlencoded/);
+  assert.equal(new URLSearchParams(request.init.body).get("publicKey"), "ssh-ed25519 AAAA test");
+});
+
+test("submit: a rejected key does not look like success", async () => {
+  const result = await submitPublicKey({
+    caseUrl: CASE_URL,
+    publicKey: "not-a-key",
+    fetchImpl: async () => ({ status: 400 }),
+  });
+  assert.equal(result.error, "rejected");
+  assert.equal(result.status, 400);
+});
+
+test("progress: read by case key, and a hub error is surfaced", async () => {
+  const ok = await fetchProgress({
+    caseUrl: CASE_URL,
+    fetchImpl: async () => ({ status: 200, json: async () => ({ run: { state: "awaiting_tunnel" } }) }),
+  });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.data.run.state, "awaiting_tunnel");
+
+  const failed = await fetchProgress({ caseUrl: CASE_URL, fetchImpl: async () => ({ status: 404 }) });
+  assert.equal(failed.error, "hub_error");
+  assert.equal(failed.status, 404);
+});
+
+test("handoff: account, host and port are all checked before they reach site.env", () => {
+  assert.equal(handoffValid({ host: "54.169.33.64", account: "knot-tunnel-cpswang", port: 18090 }), true);
+  assert.equal(handoffValid({ host: "entry.xknot.si", account: "knot-tunnel-zjj", port: 18081 }), true);
+  // 注入：账号或主机不能带空格、分号、换行。
+  assert.equal(handoffValid({ host: "h", account: "knot-tunnel-a\nKNOT_TUNNEL=0", port: 18090 }), false);
+  assert.equal(handoffValid({ host: "a b", account: "acct", port: 18090 }), false);
+  assert.equal(handoffValid({ host: "h", account: "acct", port: 80 }), false);
+  assert.equal(handoffValid(null), false);
+});
+
+test("managed block: replaces only its own section and is idempotent", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-env-"));
+  assert.equal(tunnelEnvPath(dir), path.join(dir, "tunnel.env"));
+  const file = tunnelEnvPath(dir);
+  await writeFile(file, "# 手工加的一行留给以后\nKNOT_TUNNEL_LOCAL_PORT=9999\n");
+
+  const block = renderManagedBlock({
+    account: "knot-tunnel-cpswang",
+    host: "54.169.33.64",
+    port: 18090,
+    keyPath: "/sites/local/tunnel_ed25519",
+    localPort: 8081,
+  });
+
+  const first = await applyManagedBlock({ file, block });
+  assert.equal(first.changed, true);
+  const once = await readFile(file, "utf8");
+  assert.match(once, /^# 手工加的一行留给以后/);
+  assert.match(once, /KNOT_TUNNEL_SSH=knot-tunnel-cpswang@54\.169\.33\.64/);
+  assert.match(once, /KNOT_TUNNEL_REMOTE_PORT=18090/);
+  assert.match(once, /KNOT_TUNNEL_LOCAL_PORT=8081/);
+  assert.ok(once.includes(MANAGED_START) && once.includes(MANAGED_END));
+
+  const second = await applyManagedBlock({ file, block });
+  assert.equal(second.changed, false, "rewriting the same block must not churn the file");
+
+  const updated = await applyManagedBlock({ file, block: block.replace("18090", "18091") });
+  assert.equal(updated.changed, true);
+  const twice = await readFile(file, "utf8");
+  assert.equal(twice.match(/KNOT_TUNNEL_REMOTE_PORT=/g).length, 1);
+  assert.match(twice, /KNOT_TUNNEL_REMOTE_PORT=18091/);
+  assert.equal(twice.match(new RegExp(MANAGED_START, "g")).length, 1);
+  assert.match(twice, /^# 手工加的一行留给以后/);
+});
+
+test("restart: a missing unit is reported with the command to run", async () => {
+  const result = await restartTunnel({
+    platform: "linux",
+    exec: async () => {
+      throw new Error("Unit knot-entry-tunnel.service not found.");
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.command, /systemctl restart knot-entry-tunnel/);
+});
+
+test("restart: a successful kickstart says so", async () => {
+  const result = await restartTunnel({ platform: "linux", exec: async () => ({}) });
+  assert.equal(result.ok, true);
+});
+
+test("agent plist: template placeholders are all filled", () => {
+  const text = renderAgentPlist(
+    "<string>__KNOT_SITE__</string><string>__KNOT_HOME__</string><string>__KNOT_CURRENT__/ops/run.sh</string>",
+    { site: "local", home: "/Users/me/knot", current: "/Users/me/knot/current" }
+  );
+  assert.equal(text.includes("__KNOT_"), false);
+  assert.match(text, /<string>local<\/string>/);
+  assert.match(text, /\/Users\/me\/knot\/current\/ops\/run\.sh/);
+});
+
+test("agent: no template and no unit reports the command instead of pretending", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-agent-"));
+  const result = await startTunnelAgent({
+    cwd: path.join(dir, "releases", "x", "backend"),
+    site: "local",
+    platform: "darwin",
+    exec: async () => {
+      throw new Error("Could not find service");
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.command, /run-entry-tunnel\.sh/);
+});
+
+test("deploy root: found from both the release layout and the dev layout", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "knot-root-"));
+  await mkdir(path.join(root, "sites", "local"), { recursive: true });
+  assert.equal(deployRootOf(path.join(root, "releases", "knot-1", "backend")), root);
+  assert.equal(deployRootOf(path.join(root, "backend")), root);
+});

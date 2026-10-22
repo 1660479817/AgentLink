@@ -98,7 +98,7 @@ nextTick(openCamera);
         @change="pickPhoto"
       />
       <div class="intel-photo-frame" :class="{ 'has-photo': previewUrls.length }">
-        <img v-if="previewUrls.length" :src="previewUrls[photoActive]" alt="" class="intel-photo-frame-img" />
+        <img v-if="previewUrls.length" :src="previewUrls[photoActive]" :alt="t('home.image')" class="intel-photo-frame-img" />
         <button v-else type="button" class="intel-photo-empty" :disabled="busy" @click="openCamera">
           <CameraIcon class="intel-camera-icon" aria-hidden="true" />
           <span>{{ t("home.intelCapture") }}</span>
@@ -153,7 +153,7 @@ nextTick(openCamera);
             :disabled="busy"
             @click="photoIndex = index"
           >
-            <img :src="url" alt="" />
+            <img :src="url" :alt="t('home.image')" />
           </button>
           <AppButton
             v-if="images.length < MAX_IMAGES"

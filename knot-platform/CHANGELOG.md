@@ -12,9 +12,23 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
 
 ### 变更
 
+- **入口开始记访问日志，中枢按子域聚合流量**。入口模板新增 `access_log /var/log/nginx/knot-access.log knot_json`：只记 `$uri` 不记查询串，`$host` 作为唯一的子域标识。`log_format` 单独放在 `ops/entry/log.conf.template`，由 `push-entry.sh` 装成 `knot-log.conf`，同一台入口主机只声明一次——写进 `site.conf.template` 会让第二个子域过不了 `nginx -t`。中枢侧 `xknot.si/ops/traffic.mjs` 每小时把日志按天、按实例聚合成 `var/traffic/{id}.json`：请求数、字节、状态码、缓存命中、p50/p95、近似去重、爬虫占比、热门路径与来源主机；原始日志 7 天、聚合 30 天，产物里不留 IP 与完整 referer。同时新增 `ops/node-status.mjs` 把探测、隧道对端、位置、流量合成一份 `var/status.json`，控制台的实例行显示「昨日 N 次 · X」，并把「隧道断开」与「接口不通」分成两种故障。
+- **接入过程全自动收尾：隧道配置与接入件各归一处**。中枢把入口主机、账号与端口交出来之后，`/admin` 的 XKnot 栏把隧道写进新文件 `sites/<站点>/tunnel.env`（不再往 `site.env` 里塞托管段）。`site.env` 归 `deploy-site.sh`，`tunnel.env` 归界面，重新部署不会把接通配置冲掉；`deploy-site.sh` 见到 `tunnel.env` 就装 `com.knot.entry-tunnel`，即使 `site.env` 仍是 `KNOT_ENTRY_ENABLED=0`。`run-entry-tunnel.sh` 先读 `site.env`、再用 `tunnel.env` 覆盖，并且只要求 `KNOT_TUNNEL=1`。验收通过（`run.state = active`）后，实例按中枢给出的 `issued` 写 `sites/<站点>/xknot.env`（`600`），内容一致时不重写，写进去了才重启 Backend——这一份就是 `/api/federation/profile` 与门户那条档案的来源。部署根改为向上找 `sites/`，`<root>/releases/<版本>/backend` 与 `<root>/backend` 两种布局都认。
+- **`XKNOT_TIER` 认 `free` / `paid`**。中枢现在只签发这两档，实例侧枚举还是早期的 `demo / partner / community`，拿一份 `free` 的接入件重启就起不来（`Backend 没有启动：环境变量不合法`）。旧的三个值仍可读，模板与 `docs/CONFIG.md` 一并重出。
+
+- **隧道被系统级 VPN 打死时能自己退出重连**。`run-entry-tunnel.sh` 加上 `-o ConnectTimeout=15`：WARP 接管到入口主机的 TCP 时，握手能成、密钥交换卡住，没有超时这个 ssh 会一直挂着，launchd 以为它还活着，`/api/*` 就整段 502 而不是快速失败后重连。`ops/entry/README.md` 同时改掉了「绑物理网卡」的建议：正解是把入口主机 IP 排进 WARP 的分流（`warp-cli tunnel ip add`），排进去之后不要再绑 `BindInterface`，两者一起用会出现「banner 读得到、ssh 却一直挂着」的症状。
+- **分享长图降到 75 档并改渐进式**。正文不再截断以后，长帖的图能到 `1080×13461`、两兆多，而入口在新加坡、读者在国内，实测这段链路只有几十 KB/s，一张图要传几十秒。同一批图按 75 档 + `progressive` 重画，字节少三分之一（2.2MB → 1.5MB），编码时间也从 2.4 秒降到 1.7 秒；长图在手机上看不出画质差别。`shareMetaKey` 的版本号抬到 `4`，已存的旧图会在下次访问时按新参数重画一次。
+- **推入口时把站点自述写进首页 HTML**。构建产物只有 SPA 空壳，`<title>` 恒为 `Knot`，搜索、分享预览和不执行 JS 的抓取都读不到内容。`push-entry.sh` 在 `static` 投放时用新的 `ops/scripts/entry-html.mjs` 生成入口的 `index.html`：`title`、`description`、canonical、Open Graph、Twitter Card、JSON-LD 与 `<noscript>` 自我介绍都由 `sites/<站点>/profile.json` 填；同时生成 `robots.txt` 与 `sitemap.xml`。不改运行时架构，入口仍然只放静态文件。
+- **首页轮播不再把文档撑宽**。`.gate-carousel` 加 `overflow-x: clip`：390px 下 `scrollWidth` 从 440 回到 390，360px 下从 406 回到 360；用 `clip` 而不是 `hidden`，纵向的浮动阴影仍然可见。
+- **信息流图片与视频封面补替代文本**。图片没有单独的 alt 字段，改从同一条记录的正文摘要生成（`web/src/mediaLabel.js`），多图带上「第 n 张，共 m 张」；裸的 `alt=""` 只留给头像、站点标这类装饰图。
+- **`/help` 与中枢门户补 gzip**。入口的 `gzip_types` 加上 `text/markdown`（`/help` 20KB 原文一直没压）；`xknot.si` 的门户 nginx 此前完全没开 gzip，154KB 主包按原文发，现补上文本类压缩。
+- **语言不再在没有 Cloudflare 头时恒为英文**。入口是直连 nginx，`CF-IPCountry` 一直为空，`regionForRequest` 永远回 `en`，于是中文访客看到英文导航配中文正文。服务端改为回落到 `Accept-Language`（`XX` 与 `T1` 不算真实地区），首屏在会话回来之前先看 `navigator.languages`。
+- **登录有「发送中 / 登录中」状态**。发码与登录时按钮文案随之变化并带 `aria-busy`，等待期间不再只有一个灰按钮。
+- **`/help` 有了站内入口**。左侧快捷栏与首页的 Agent 委派卡片各加一条，`/help` 是 Backend 直接发的文档页，用普通链接而不是 SPA 路由。
 - **站点档案拆成签发区与自述区**。签发区（`id`、`url`、`since`、`tier`、`status`）只来自中枢签发的接入件；自述区（名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签）由主理人在 `/admin` 的 XKnot 栏编辑，写 `sites/<站点>/profile.json`，通过新的公开接口 `GET /api/federation/profile` 对外，中枢按地址取回副本。`site.env` 里的 `KNOT_SITE_NAME`、`KNOT_SITE_TAGLINE`、`KNOT_SITE_LOGO`、`KNOT_SITE_OWNER`、`KNOT_SITE_OWNER_NOTE`、`KNOT_SITE_OWNER_CONTACT` 六项取消；旧站点跑一次 `ops/scripts/migrate-profile.mjs` 即可迁移。字段与规则见 `docs/PROFILE.md`。
 - **自述区改为 `formatVersion: 2`：九项扁平字段，不再有多语种映射**。`name`、`tagline`、`intro`、`logo`、`owner`、`contact`、`region`、`timezone`、`tags` 全部是单值；主理人用哪种语言写，本站与门户就显示哪种。`shortName`、`operator`、`vertical`、`themeColor`、`languages`、`regions`、`social`、`termsUrl`、`privacyUrl`、`moderationUrl` 移除。`tags` 是自由文本，最多 9 个、每个 16 字，忽略大小写去重。`GET /api/federation/profile` 的返回改为 `{ formatVersion, issued, site, updatedAt }`，`GET /api/admin/profile` 与 `PUT /api/admin/profile` 的载荷同步改成 `site`；`GET /api/web/session` 的 `brand` 变成六个扁平字符串。`migrate-profile.mjs` 会把 v1 档案按简中优先就地升级。
 - 新增 `GET /api/admin/profile` 与 `PUT /api/admin/profile`：一次返回签发区与自述区，保存前整份校验，校验不过返回逐条 `problems` 且不落盘。
+- **接入只有签发子域一种，客户端不再声明接入形态**。「接入 XKnot」提交的载荷去掉 `mode` 字段：中枢一律按 `subdomain` 处理，`mode` 不是 `subdomain` 或带了 `domain` 的请求返回 `400 not_supported`。已有自有域名的站点不走联邦这一步，它自己就是入口，也不需要从联邦门户跳转。契约见 `xknot.si/docs/FEDERATION.md`。
 - **管理后台的 XKnot 栏多了「接入 XKnot」**：第一次接入在这里选一个二级域名、填联系邮箱、提交一次；已接入的站点重新填就是更新。子域输入框带 `.xknot.si` 后缀和「检查」按钮，走新接口 `GET /api/admin/xknot/subdomain` 代问中枢 `/api/subdomains/check`，不通时按钮不可点并写明原因（少于 6 位、保留名、已占用），不让人填完才发现签不了。`POST /api/admin/xknot/apply` 把上面的自述交给中枢 `POST /api/applications`，中枢的 400 与 409 原样带回。新增配置 `KNOT_HUB_ORIGIN`（默认 `https://xknot.si`），部署模板与 `docs/CONFIG.md` 同步。
 - 卡片底栏的点赞换成硬币图标，功能改为打赏。点开小弹窗选金额（1、5、10、20 或自填 1–10000 的整数），积分从读者余额原数转给作者，平台不抽成；弹窗显示余额、这条累计收到的打赏和自己已经给过多少。新增 `GET /api/web/intel/:id/tips`、`POST /api/web/intel/:id/tip` 与迁移 `031_intel_tips.sql`；`point_ledger` 记 `tip` 与 `tip_in` 两行，作者收到一条 `tip` 通知。
 - 标价为 0 时卡片头不再显示「0」角标，分享长图的卡片头也一样：现在发布不收费，这个数字没有信息量。
@@ -67,7 +81,7 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
 - `ops/entry/` 不再放任何具体域名的 conf（`wang.xknot.si.conf`、`knot.zenheart.net.conf` 等删除）：入口由站点配置生成，模板是 [`ops/entry/site.conf.template`](./ops/entry/site.conf.template)。
 - 入口按范围分两处，规则写进 `xknot.si/docs/NAMING.md` 与 [`../docs/concepts.md`](../docs/concepts.md)：**可复用的模板**留 `knot-platform/ops/entry/`；**中枢替伙伴装的成品 conf 与接通 runbook** 放 [`../xknot.si/ops/entry/`](../xknot.si/ops/entry/)（`zjj.xknot.si.conf`、`zjj-tunnel.md`），因为装它们的是中枢工作人员。判断标准：换个实例还能用就是前者。
 - 删除 `ops/nginx/knot.conf`：它是一份没人引用的「同机 nginx 反代样例」，与 `ops/entry/site.conf.template` 重复；官方拓扑里实例自己不跑 nginx。
-- 删除 `ops/entry/subdomain-fixed-ip.md`：名册只有 `own-domain` 与 `subdomain`，「签发子域 + DNS 指到伙伴固定 IP」两头都不算，`validate-federation.mjs` 会拒绝。保留一份不能上线的 runbook 只会误导；要固定 IP 就用伙伴自己的域名走 `own-domain`。
+- 删除 `ops/entry/subdomain-fixed-ip.md`：名册只有 `own-domain` 与 `subdomain`，「签发子域 + DNS 指到伙伴固定 IP」两头都不算，`validate-federation.mjs` 会拒绝。保留一份不能上线的 runbook 只会误导；要固定 IP 就用自有域名自建站点，不走联邦。（`own-domain` 已在 2026-10-21 停用，见 `xknot.si/docs/HANDOFF.md` 的修订表。）
 
 ### 术语与标识改名
 

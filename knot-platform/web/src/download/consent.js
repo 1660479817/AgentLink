@@ -3,6 +3,7 @@ import { reactive, ref } from "vue";
 export const downloadConsent = ref(null);
 
 export function downloadOffer({ price = 0, fee = 0, granted = false, mine = false, balance = 0 } = {}) {
+
   const amount = Math.max(0, Number(price) || 0) + Math.max(0, Number(fee) || 0);
   const points = Number(balance);
   if (mine) return { kind: "own", amount: 0, short: false };
@@ -11,10 +12,6 @@ export function downloadOffer({ price = 0, fee = 0, granted = false, mine = fals
     return { kind: "charge", amount, short: Number.isFinite(points) && points < amount };
   }
   return { kind: "free", amount: 0, short: false };
-}
-
-export function downloadCharge(input) {
-  return downloadOffer(input).amount;
 }
 
 function finish(result) {

@@ -189,6 +189,9 @@ watch(
           <span>{{ copied ? t("gate.delegateCopied") : t("gate.delegateCopy") }}</span>
         </AppButton>
       </div>
+      <p class="gate-delegate-help">
+        <a href="/help">{{ t("gate.helpLink") }}</a>
+      </p>
     </div>
   </section>
 </template>

@@ -122,11 +122,19 @@ test("提交申请：自述区转成中枢的字段，201 原样带回", async (
     assert.equal(response.status, 201);
     const data = await response.json();
     assert.equal(data.application.id, "XK-1");
-    assert.equal(sent.mode, "subdomain");
+    assert.equal("mode" in sent, false);
     assert.equal(sent.subdomain, "nordhavn");
     assert.equal(sent.operator, "Lin");
     assert.equal(sent.intro, SITE.tagline);
     assert.equal(sent.region, "NO");
+
+    // 编号与案例链接只在这个响应里出现一次：底账要留下，刷新后还能看进度。
+    const recorded = await call("/xknot/application");
+    assert.equal(recorded.status, 200);
+    const state = await recorded.json();
+    assert.equal(state.application.id, "XK-1");
+    assert.equal(state.application.caseUrl, `${HUB}/case/k`);
+    assert.ok(state.file.endsWith("join.json"));
   }, { site: SITE });
 });
 

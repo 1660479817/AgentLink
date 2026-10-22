@@ -81,7 +81,9 @@ function changeEmail() {
     <p v-if="inviteMode" class="muted auth-hint">{{ t("mine.inviteHint") }}</p>
     <p v-else-if="closedMode" class="muted auth-hint">{{ t("mine.closedHint") }}</p>
     <div class="form-actions">
-      <AppButton type="submit" :disabled="busy || !email.trim()">{{ t("mine.sendKey") }}</AppButton>
+      <AppButton type="submit" :disabled="busy || !email.trim()" :aria-busy="busy">
+        {{ busy ? t("mine.sendingKey") : t("mine.sendKey") }}
+      </AppButton>
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
   </form>
@@ -102,7 +104,9 @@ function changeEmail() {
       @input="loginKey = $event.target.value.replace(/\D/g, '').slice(0, 6)"
     />
     <div class="form-actions">
-      <AppButton type="submit" :disabled="busy || loginKey.length !== 6">{{ t("mine.enter") }}</AppButton>
+      <AppButton type="submit" :disabled="busy || loginKey.length !== 6" :aria-busy="busy">
+        {{ busy ? t("mine.signingIn") : t("mine.enter") }}
+      </AppButton>
       <AppButton variant="secondary" type="button" :disabled="busy" @click="changeEmail">
         {{ t("mine.changeEmail") }}
       </AppButton>

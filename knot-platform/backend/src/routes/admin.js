@@ -1,4 +1,5 @@
 import { Router } from "express";
+import path from "node:path";
 import multer from "multer";
 import {
   bearerToken,
@@ -19,7 +20,27 @@ import {
 } from "../admin.js";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
 import { federationStatus } from "../federation.js";
+import { joinStatePath, readJoinState, saveJoinState } from "../joinState.js";
 import { checkSubdomain, hubOriginOf, submitApplication } from "../xknotJoin.js";
+import {
+  applyManagedBlock,
+  ensureTunnelKey,
+  fetchProgress,
+  handoffValid,
+  renderManagedBlock,
+  startTunnelAgent,
+  submitPublicKey,
+  tunnelEnvPath,
+  tunnelKeyPath,
+} from "../tunnel.js";
+import {
+  backendUnit,
+  issuedValid,
+  joinEnvPath,
+  joinValues,
+  scheduleRestart,
+  writeJoinEnv,
+} from "../issued.js";
 import { applyPriceProposal, economySnapshot, priceSchedule, proposePrices } from "../actuary.js";
 import { attentionSnapshot } from "../attention.js";
 import { touchDiscoverBoard } from "../discoverPublish.js";
@@ -79,6 +100,31 @@ function sendAdminError(res, error) {
   return res.status(500).json({ error: "internal" });
 }
 
+// 实例本机端口：隧道把入口的回环端口转到这里。以站点对外的那个 origin 为准，
+// 它由部署脚本写进 platform.env；解析不出端口时退回进程的 PORT。
+function localPortOf(publicWebOrigin) {
+  try {
+    const url = new URL(String(publicWebOrigin || ""));
+    if (url.port) return Number(url.port);
+    return url.protocol === "https:" ? 443 : 80;
+  } catch {
+    return Number(process.env.PORT) || 8080;
+  }
+}
+
+// 生成（或复用）隧道密钥并把公钥交到案例页。私钥留在 sites/<站点>/，权限 600。
+async function deliverPublicKey({ profile, application }) {
+  const siteDir = profile?.file ? path.dirname(profile.file) : null;
+  if (!siteDir || !application?.caseUrl) return null;
+  const key = await ensureTunnelKey({
+    file: tunnelKeyPath(siteDir),
+    comment: `knot-tunnel-${process.env.KNOT_SITE || "site"}`,
+  });
+  if (key.error) return key;
+  const submitted = await submitPublicKey({ caseUrl: application.caseUrl, publicKey: key.publicKey });
+  return { ...submitted, created: key.created };
+}
+
 export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, publicWebOrigin = "", profile = null }) {
   const router = Router();
   if (uploadDir) ensureUploadDir(uploadDir);
@@ -134,6 +180,14 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
     }
   });
 
+  // 已经交过哪一张单：编号与案例链接只在中枢的 201 响应里出现一次，
+  // 记在站点目录里，刷新页面后还能接着看进度。邮件只是通知。
+  router.get("/xknot/application", async (_req, res) => {
+    const file = joinStatePath(profile?.file);
+    const state = await readJoinState(file);
+    res.json({ application: state?.application || null, file });
+  });
+
   // 把自述区与选定的子域交给中枢。第一次接入与补交用的是同一个入口；
   // 已经是成员时中枢会按地址判重，这里不另做判断。
   router.post("/xknot/apply", async (req, res) => {
@@ -148,7 +202,19 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
         hubOrigin: hubOriginOf({ status }),
       });
 
-      if (result.ok) return res.status(201).json({ application: result.application });
+      if (result.ok) {
+        // 底账写失败不影响这次申请：中枢那边已经受理，页面仍要拿到编号。
+        const file = joinStatePath(profile?.file);
+        await saveJoinState(file, result.application).catch((error) => {
+          console.error("join state:", error.message);
+        });
+        // 公钥是前置阶段唯一的输入：提交成功就顺手生成并交上去，
+        // 这一步失败不回滚申请（案例页仍可手工补交），进度里会显示缺什么。
+        await deliverPublicKey({ profile, application: result.application }).catch((error) => {
+          console.error("tunnel key:", error.message);
+        });
+        return res.status(201).json({ application: result.application });
+      }
       if (result.error === "incomplete") {
         return res.status(400).json({ error: "incomplete", fields: result.fields });
       }
@@ -158,6 +224,125 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
       if (result.error === "duplicate") return res.status(409).json({ error: "duplicate" });
       if (result.error === "rate_limited") return res.status(429).json({ error: "rate_limited" });
       return res.status(502).json({ error: result.error });
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  // ---- 自动接通（端侧） ----
+  //
+  // 中枢拨不进 NAT 后的实例，所以这里每一个动作都由实例主动发起：
+  // 交公钥、读进度、拿到账号与端口后写隧道配置并重启。
+
+  router.post("/xknot/tunnel-key", async (_req, res) => {
+    try {
+      const file = joinStatePath(profile?.file);
+      const state = await readJoinState(file);
+      if (!state?.application?.caseUrl) return res.status(409).json({ error: "no_application" });
+      const result = await deliverPublicKey({ profile, application: state.application });
+      if (!result) return res.status(503).json({ error: "profile_unconfigured" });
+      if (result.error) return res.status(502).json({ error: result.error, status: result.status });
+      res.json({ ok: true, created: Boolean(result.created) });
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  router.get("/xknot/progress", async (_req, res) => {
+    try {
+      const state = await readJoinState(joinStatePath(profile?.file));
+      if (!state?.application?.caseUrl) {
+        return res.json({ application: null, run: null, handoff: null });
+      }
+      const result = await fetchProgress({ caseUrl: state.application.caseUrl });
+      if (result.error) {
+        return res.status(502).json({ error: result.error, application: state.application });
+      }
+
+      const local = {
+        tunnelEnv: profile?.file ? tunnelEnvPath(path.dirname(profile.file)) : null,
+        keyFile: profile?.file ? tunnelKeyPath(path.dirname(profile.file)) : null,
+        changed: false,
+        restart: null,
+        error: null,
+      };
+
+      // 中枢把账号、端口、入口主机给出来之后，不必等人再点一次：
+      // 这一步是幂等的，写进去的内容一样时 changed 为 false，不会反复重启隧道。
+      const handoff = result.data?.handoff;
+      if (handoffValid(handoff) && local.tunnelEnv) {
+        const block = renderManagedBlock({
+          account: handoff.account,
+          host: handoff.host,
+          port: Number(handoff.port),
+          keyPath: tunnelKeyPath(path.dirname(profile.file)),
+          localPort: localPortOf(publicWebOrigin),
+        });
+        const applied = await applyManagedBlock({ file: local.tunnelEnv, block });
+        if (applied.error) local.error = applied.error;
+        else {
+          local.changed = applied.changed;
+          if (applied.changed) local.restart = await startTunnelAgent();
+        }
+      }
+
+      // 验收通过之后，把接入件写到站点目录：/api/federation/profile 与门户上的档案
+      // 都靠它。写进去还要重启 Backend 才生效，所以只在内容真的变了时重启一次。
+      if (result.data?.run?.state === "active" && issuedValid(result.data.issued) && profile?.file) {
+        const siteDir = path.dirname(profile.file);
+        const hubOrigin = (() => {
+          try {
+            return new URL(state.application.caseUrl).origin;
+          } catch {
+            return "";
+          }
+        })();
+        const written = await writeJoinEnv({
+          file: joinEnvPath(siteDir),
+          values: joinValues({ issued: result.data.issued, hubOrigin }),
+        });
+        if (written.error) local.joinError = written.error;
+        else if (written.changed) {
+          local.joined = true;
+          // 进程里的值是启动时读的，接入件要生效必须重启。
+          // 但别在这里等它：重启会掐断这次响应，面板只会看到断线。
+          const unit = await backendUnit();
+          local.restart = { ok: unit.installed, command: unit.command, deferred: true };
+          if (unit.installed) scheduleRestart();
+        }
+      }
+
+      res.json({ ...result.data, local });
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  // 中枢给出账号、端口与入口主机之后，写托管段并重启隧道。
+  // 只写 tunnel.env：那里的键固定几个、值都过格式校验；site.env 仍归 deploy-site.sh。
+  router.post("/xknot/connect", async (_req, res) => {
+    try {
+      const state = await readJoinState(joinStatePath(profile?.file));
+      if (!state?.application?.caseUrl) return res.status(409).json({ error: "no_application" });
+      const siteDir = profile?.file ? path.dirname(profile.file) : null;
+      if (!siteDir) return res.status(503).json({ error: "profile_unconfigured" });
+
+      const result = await fetchProgress({ caseUrl: state.application.caseUrl });
+      if (result.error) return res.status(502).json({ error: result.error });
+      const handoff = result.data?.handoff;
+      if (!handoffValid(handoff)) return res.status(409).json({ error: "not_ready", run: result.data?.run || null });
+
+      const block = renderManagedBlock({
+        account: handoff.account,
+        host: handoff.host,
+        port: Number(handoff.port),
+        keyPath: tunnelKeyPath(siteDir),
+        localPort: localPortOf(publicWebOrigin),
+      });
+      const applied = await applyManagedBlock({ file: tunnelEnvPath(siteDir), block });
+      if (applied.error) return res.status(500).json({ error: applied.error });
+      const restart = await startTunnelAgent();
+      res.json({ ok: true, changed: applied.changed, restart });
     } catch (error) {
       sendAdminError(res, error);
     }

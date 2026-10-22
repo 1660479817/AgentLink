@@ -101,6 +101,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_ENTRY_CACHE_ZONE` | `knot_uploads` |  | nginx proxy_cache 区名。 |
 | `KNOT_ENTRY_CACHE_SIZE` | `2g` |  | 缓存上限，nginx 写法，如 2g。 |
 | `KNOT_ENTRY_MAX_BODY` | `52m` |  | 入口主机接受的请求体上限。必须大于后端附件上限，否则大文件在 nginx 就被截断。 |
+| `KNOT_ENTRY_ACCESS_LOG` | `/var/log/nginx/knot-access.log` |  | 入口访问日志。同一台入口主机上的子域共用一个文件，按 $host 分；中枢的流量聚合读它。 |
 | `KNOT_ENTRY_PROXY_PORT` | `18080` |  | 入口回源端口。nginx 把 /api 和 /help 转到这里，隧道再转回实例主机。 |
 | `KNOT_ENTRY_SSL` | `1` |  | 1 监听 443 并配证书；0 只监听 80，证书还没签好时用。 |
 | `KNOT_ENTRY_CERT` | 见说明 |  | 证书链。留空由 KNOT_DOMAIN 推导。 |
@@ -227,7 +228,7 @@ node ops/scripts/config.mjs check --xknot --site <站点>     # 只校验这一�
 | `XKNOT_HUB_RELAY_TOKEN` | （空） |  | 中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。 |
 | `XKNOT_ISSUED_URL` | （空） |  | 中枢签发的对外地址。签发区的一部分，与清单里的 url 一致；节点只读。 |
 | `XKNOT_ISSUED_AT` | （空） |  | 签发日期（YYYY-MM-DD）。签发区的一部分，对外报作 since。 |
-| `XKNOT_TIER` | （空） |  | 中枢签发的层级。签发区的一部分；留空时对外不报这一项。 |
+| `XKNOT_TIER` | （空） |  | 中枢签发的层级：free 或 paid（早期的 demo / partner / community 仍可读）。签发区的一部分；留空时对外不报这一项。 |
 | `XKNOT_STATUS` | （空） |  | 中枢签发的状态。签发区的一部分；留空时对外不报这一项。 |
 
 ## 校验

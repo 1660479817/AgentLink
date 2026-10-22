@@ -8,6 +8,8 @@ import { packetAudio, photoUrls } from "../packet.js";
 const props = defineProps({
   images: { type: Array, default: () => [] },
   audio: { type: Array, default: () => [] },
+  // 这条记录的正文摘要，透传给图片的 alt。
+  label: { type: String, default: "" },
 });
 
 const photos = computed(() => photoUrls(props.images));
@@ -15,7 +17,7 @@ const clips = computed(() => packetAudio(props.audio));
 </script>
 
 <template>
-  <PhotoGallery :photos="photos" />
+  <PhotoGallery :photos="photos" :label="label" />
   <div v-if="clips.length" class="information-audio">
     <template v-for="file in clips" :key="file.id || file.url || file.name">
       <audio v-if="file.url" :src="file.url" controls :aria-label="file.name || t('home.audio')" />

@@ -1,13 +1,19 @@
 #!/bin/bash
 # 实例主机主动连出，把入口的回源端口转到本机 Knot Backend。
 #
-# 账号、私钥和端口来自 sites/<站点>/site.env：
-#   KNOT_ENTRY_ENABLED=1
-#   KNOT_ENTRY_SSH=user@entry-host
+# 账号、私钥和端口来自两处，后者覆盖前者：
+#   sites/<站点>/site.env       手工部署时的入口与隧道项
+#   sites/<站点>/tunnel.env     XKnot 自动接通写入的托管件（由管理界面维护）
+#
+# 托管件里的键：
 #   KNOT_TUNNEL=1
-#   KNOT_TUNNEL_SSH=          # 留空 => knot-tunnel@<入口主机>
-#   KNOT_TUNNEL_KEY=~/.ssh/knot-entry
-#   KNOT_ENTRY_PROXY_PORT=18080
+#   KNOT_TUNNEL_SSH=<隧道账号>@<入口主机>
+#   KNOT_TUNNEL_KEY=<站点目录>/tunnel_ed25519
+#   KNOT_TUNNEL_REMOTE_PORT=<中枢分配的回环端口>
+#   KNOT_TUNNEL_LOCAL_PORT=<本机 Backend 端口>
+#
+# 接管隧道之后不再要求 KNOT_ENTRY_ENABLED：那个键是「本机也负责往入口推 conf」，
+# 而接入 xknot.si 之后入口 conf 由中枢生成，本机只需要连出去。
 #
 # 入口主机上的 sshd 规则见 ops/entry/sshd-tunnel.conf.template。
 set -euo pipefail
@@ -16,17 +22,28 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
 
-if ! knot_enabled KNOT_ENTRY_ENABLED || ! knot_enabled KNOT_TUNNEL; then
-  echo "KNOT_ENTRY_ENABLED 或 KNOT_TUNNEL 未开启，隧道不启动"
+TUNNEL_ENV="${KNOT_SITE_DIR:-}/tunnel.env"
+if [[ -n "${KNOT_SITE_DIR:-}" && -f "$TUNNEL_ENV" ]]; then
+  # shellcheck disable=SC1090
+  source "$TUNNEL_ENV"
+fi
+
+if ! knot_enabled KNOT_TUNNEL; then
+  echo "KNOT_TUNNEL 未开启，隧道不启动"
   exit 0
 fi
-knot_require KNOT_ENTRY_SSH "在 sites/$KNOT_SITE/site.env 里配置 KNOT_ENTRY_SSH=user@entry-host。"
+knot_require KNOT_TUNNEL_SSH "在 sites/$KNOT_SITE/tunnel.env 里写 KNOT_TUNNEL_SSH=<账号>@<入口主机>。"
+knot_require KNOT_TUNNEL_REMOTE_PORT "在 sites/$KNOT_SITE/tunnel.env 里写 KNOT_TUNNEL_REMOTE_PORT。"
 
 KEY="$(knot_expand_path "$KNOT_TUNNEL_KEY")"
+# ConnectTimeout 是给系统级 VPN 留的：WARP 一类全局 TUN 接管到入口主机的
+# TCP 时，握手能成但密钥交换的大包过不去，没有超时这个 ssh 会一直挂着，
+# launchd 以为它还活着，/api 就一直是 502 而不是快速失败后重连。
 exec /usr/bin/ssh -N \
   -i "$KEY" \
   -o BatchMode=yes \
   -o IdentitiesOnly=yes \
+  -o ConnectTimeout=15 \
   -o ExitOnForwardFailure=yes \
   -o ServerAliveInterval=30 \
   -o ServerAliveCountMax=3 \

@@ -257,7 +257,7 @@ function submit() {
       <div v-if="active" class="share-more">
         <div v-if="previewUrls.length" class="share-photos">
           <div v-for="(url, index) in previewUrls" :key="url" class="share-photo">
-            <img :src="url" alt="" />
+            <img :src="url" :alt="t('home.image')" />
             <AppButton
               variant="icon"
               type="button"
@@ -287,7 +287,7 @@ function submit() {
             {{ t("home.posterPick") }}
           </AppButton>
           <span v-if="posterPreview" class="share-poster-thumb">
-            <img :src="posterPreview" alt="" />
+            <img :src="posterPreview" :alt="t('home.formVideo')" />
             <AppButton
               variant="icon"
               type="button"

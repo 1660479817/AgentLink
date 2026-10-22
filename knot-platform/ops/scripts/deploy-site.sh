@@ -392,7 +392,10 @@ case "$RUNTIME" in
     # 否则它会反复去执行已不存在的 run-edge-tunnel.sh。
     knot_bootout_launchd com.knot.edge-tunnel
     rm -f "$HOME/Library/LaunchAgents/com.knot.edge-tunnel.plist"
-    if knot_enabled KNOT_ENTRY_ENABLED && knot_enabled KNOT_TUNNEL; then
+    # 隧道单元：手写 site.env 的，或中枢自动接通写的 tunnel.env，任一成立就装。
+    # 后者是「接入 xknot.si」的常态：site.env 仍是 local（不推入口 conf），
+    # 账号与端口在 tunnel.env 里，连出去这件事归中枢管。
+    if [[ -f "${KNOT_SITE_DIR:-}/tunnel.env" ]] || { knot_enabled KNOT_ENTRY_ENABLED && knot_enabled KNOT_TUNNEL; }; then
       echo "==> install entry tunnel LaunchAgent"
       knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.entry-tunnel.plist" com.knot.entry-tunnel
     else

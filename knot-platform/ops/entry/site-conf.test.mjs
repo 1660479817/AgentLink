@@ -14,6 +14,7 @@ const BASE = {
   KNOT_ENTRY_WEB_ROOT: "/var/www/wang",
   KNOT_ENTRY_MAX_BODY: "52m",
   KNOT_ENTRY_PROXY_PORT: "18080",
+  KNOT_ENTRY_ACCESS_LOG: "/var/log/nginx/knot-access.log",
   KNOT_ENTRY_CACHE_DIR: "/var/cache/nginx/knot_uploads",
   KNOT_ENTRY_CACHE_ZONE: "knot_uploads",
   KNOT_ENTRY_CACHE_SIZE: "2g",
@@ -78,9 +79,31 @@ test("两种投放都开 gzip，且只压文本类", () => {
     assert.match(text, /^\s*gzip_proxied any;$/m);
     assert.match(text, /gzip_types[^;]*application\/json/);
     assert.match(text, /gzip_types[^;]*text\/css/);
+    // /help 走 text/markdown，不列进来就一点不压。
+    assert.match(text, /gzip_types[^;]*text\/markdown/);
     // 图片与字体已经压过，不要再走一遍。
     assert.doesNotMatch(text, /gzip_types[^;]*image\/(jpeg|png)/);
   }
+});
+
+test("两种投放都把访问日志写进同一个文件，格式只在 log.conf 里声明一次", () => {
+  for (const flag of ["1", ""]) {
+    const text = render({ KNOT_ENTRY_STATIC: flag });
+    assert.match(text, /^\s*access_log \/var\/log\/nginx\/knot-access\.log knot_json;$/m);
+    // log_format 只能出现一次，放进每个子域的 conf 会让第二个子域过不了 nginx -t。
+    assert.doesNotMatch(text, /log_format/);
+  }
+  const log = renderTemplate(
+    readFileSync(fileURLToPath(new URL("./log.conf.template", import.meta.url)), "utf8"),
+    {},
+  );
+  assert.equal(log.match(/log_format knot_json/g).length, 1);
+  // 子域靠 $host 分；查询串可能带令牌，不记。
+  const directive = log.slice(log.indexOf("log_format knot_json"));
+  assert.match(directive, /\$host/);
+  assert.match(directive, /"\$uri"/);
+  assert.doesNotMatch(directive, /\$request_uri|\$args/);
+  assert.match(directive, /escape=json/);
 });
 
 test("入口的 server_name 来自 KNOT_DOMAIN", () => {

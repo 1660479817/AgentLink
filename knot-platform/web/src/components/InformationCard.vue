@@ -9,6 +9,7 @@ import { t } from "../i18n/index.js";
 import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, PaperclipIcon, RemovedIcon, ShareIcon, StarIcon, TipIcon, UserIcon } from "../icons/index.js";
 import { containsImage, isMarkdown, parse, toHtml, toPlain } from "@knot/markdown";
 import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoUrls } from "../packet.js";
+import { altLabel } from "../mediaLabel.js";
 import { expiryOf, hoursLeftAt } from "../record.js";
 import { useCardActionsStore } from "../stores/cardActions.js";
 import { timeAgo } from "../time.js";
@@ -63,6 +64,8 @@ const markdown = computed(() => isMarkdown(props.body));
 const blocks = computed(() => (markdown.value ? parse(props.body) : []));
 const bodyPlain = computed(() => (markdown.value ? toPlain(props.body) : props.body));
 const bodyHtml = computed(() => toHtml(blocks.value));
+// 图片没有单独的替代文本，拿正文摘要当 alt；正文为空时退回「图片」。
+const mediaLabel = computed(() => altLabel(bodyPlain.value));
 const posted = computed(() => timeAgo(props.createdAt));
 // 现在发布不收费，价格总是 0；0 元的角标没有信息量，干脆不画。
 const showPrice = computed(() => Number(props.price) > 0);
@@ -255,7 +258,7 @@ watch(
         {{ t(bodyOpen ? "home.less" : "home.more") }}
       </button>
     </div>
-    <PhotoGallery :photos="photos" />
+    <PhotoGallery :photos="photos" :label="mediaLabel" />
     <ul v-if="!photos.length && pendingImages.length" class="information-files">
       <li v-for="(file, index) in pendingImages" :key="file.id || `${file.name}-${index}`">
         <span class="information-file">
@@ -273,7 +276,7 @@ watch(
         </span>
       </template>
     </div>
-    <VideoFrame v-if="links[0]" :url="links[0].url" :poster="links[0].poster || ''" :play-url="links[0].playUrl || ''" />
+    <VideoFrame v-if="links[0]" :url="links[0].url" :poster="links[0].poster || ''" :play-url="links[0].playUrl || ''" :label="mediaLabel" />
     <ul v-if="files.length" class="information-files">
       <li v-for="(file, index) in files" :key="file.id || `${file.name}-${index}`">
         <span class="information-file">
@@ -327,6 +330,6 @@ watch(
       </button>
     </div>
     <p v-if="notice" class="error card-notice" role="alert">{{ notice }}</p>
-    <PhotoLightbox :photos="viewer.photos" :open="viewer.open" :index="viewer.index" @close="viewer.open = false" />
+    <PhotoLightbox :photos="viewer.photos" :label="mediaLabel" :open="viewer.open" :index="viewer.index" @close="viewer.open = false" />
   </article>
 </template>

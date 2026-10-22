@@ -86,7 +86,7 @@ knot_render_entry() {
     fi
     export KNOT_DOMAIN KNOT_ENTRY_STATIC
     export KNOT_ENTRY_WEB_ROOT KNOT_ENTRY_CONF KNOT_ENTRY_CERT KNOT_ENTRY_KEY
-    export KNOT_ENTRY_SSL KNOT_ENTRY_PROXY_PORT KNOT_ENTRY_MAX_BODY
+    export KNOT_ENTRY_SSL KNOT_ENTRY_PROXY_PORT KNOT_ENTRY_MAX_BODY KNOT_ENTRY_ACCESS_LOG
     node "$SCRIPT_DIR/render-config.mjs" "$KNOT_APP_DIR/ops/entry/site.conf.template" "$out"
   )
 }
@@ -102,6 +102,18 @@ SSL="$(knot_entry_value "$ENTRY_FILE" KNOT_ENTRY_SSL)"
 SERVE="${SERVE:-static}"
 
 [[ "$HOST" == "$KNOT_DOMAIN" ]] || knot_fail "入口文件名必须是 entry.$KNOT_DOMAIN.env，里面的 KNOT_DOMAIN 现在是 ${HOST}。"
+
+# 访问日志格式同一台入口主机只声明一次：log_format 重复定义会让整份配置过不了 nginx -t。
+# static 与 proxy 都要装，日志才分得出子域。
+LOG_CONF="$(dirname "${CONF:-/etc/nginx/conf.d/knot.conf}")/knot-log.conf"
+scp "${SSH_OPTS[@]}" "$KNOT_APP_DIR/ops/entry/log.conf.template" "$KNOT_ENTRY_SSH:/tmp/knot-log.conf"
+echo "==> install $LOG_CONF"
+ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "
+  set -e
+  sudo mkdir -p '$(dirname "$LOG_CONF")'
+  sudo cp /tmp/knot-log.conf '$LOG_CONF'
+  sudo touch '$KNOT_ENTRY_ACCESS_LOG'
+"
 
 # 缓存区同一台入口主机只声明一次。
 if [[ "$SERVE" == "static" ]]; then
@@ -119,6 +131,21 @@ if [[ "$SERVE" == "static" ]]; then
   rsync -az --delete \
     -e "ssh ${SSH_OPTS[*]}" \
     "$KNOT_APP_DIR/web/dist/" "$KNOT_ENTRY_SSH:/tmp/knot-web/"
+
+  # 构建产物只有 SPA 空壳：首页标题、介绍、OG 都靠 JS 之后才有。
+  # 推到入口时补一份静态化的首页，搜索与分享预览才读得到；顺带生成 robots 与 sitemap。
+  # proxy 投放不在这里做：那种入口的页面由 Backend 发，改了本地文件也送不出去。
+  if [[ "$SSL" == "0" ]]; then ENTRY_ORIGIN="http://$HOST"; else ENTRY_ORIGIN="https://$HOST"; fi
+  echo "==> 生成入口首页与 robots/sitemap（${ENTRY_ORIGIN}）"
+  node "$SCRIPT_DIR/entry-html.mjs" \
+    --in "$KNOT_APP_DIR/web/dist/index.html" \
+    --out "$TMP_DIR/entry" \
+    --origin "$ENTRY_ORIGIN" \
+    --profile "$KNOT_SITE_DIR/profile.json" \
+    --name "${HOST%%.*}"
+  scp "${SSH_OPTS[@]}" \
+    "$TMP_DIR/entry/index.html" "$TMP_DIR/entry/robots.txt" "$TMP_DIR/entry/sitemap.xml" \
+    "$KNOT_ENTRY_SSH:/tmp/knot-web/"
 fi
 
 if [[ "$SSL" != "0" ]]; then

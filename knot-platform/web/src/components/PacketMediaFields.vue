@@ -75,7 +75,7 @@ defineExpose({
     />
     <div v-if="previews.length" class="share-photos">
       <div v-for="(url, index) in previews" :key="url" class="share-photo">
-        <img :src="url" alt="" />
+        <img :src="url" :alt="t('home.image')" />
         <AppButton
           variant="icon"
           type="button"
@@ -105,7 +105,7 @@ defineExpose({
         {{ t("home.posterPick") }}
       </AppButton>
       <span v-if="posterPreview" class="share-poster-thumb">
-        <img :src="posterPreview" alt="" />
+        <img :src="posterPreview" :alt="t('home.formVideo')" />
         <AppButton
           variant="icon"
           type="button"

@@ -34,12 +34,12 @@ test("hubOriginOf：接入件优先，其次是联调覆盖，最后是联邦入
 
 test("applicationPayload：字段名对一次，长度按中枢上限截断", () => {
   const payload = applicationPayload(SITE, { subdomain: "nordhavn", email: "hi@example.com" });
-  assert.equal(payload.mode, "subdomain");
+  assert.equal("mode" in payload, false, "接入形态不由客户端声明");
   assert.equal(payload.operator, "Lin");
   assert.equal(payload.email, "hi@example.com");
   assert.equal(payload.region, "NO");
   assert.equal(payload.intro, SITE.tagline);
-  assert.equal(payload.tags, "长文, 设计");
+  assert.deepEqual(payload.tags, ["长文", "设计"], "标签按数组交，空格不被拆开");
   assert.equal(payload.agree, true);
 
   assert.equal(applicationPayload({ ...SITE, region: "中国" }).region, "GLOBAL");
@@ -114,7 +114,7 @@ test("submitApplication：本地缺项不发出请求，中枢的拒绝原样带
       assert.equal(url, "https://hub.example/api/applications");
       const body = JSON.parse(init.body);
       assert.equal(body.subdomain, "nordhavn");
-      assert.equal(body.mode, "subdomain");
+      assert.equal("mode" in body, false);
       return reply(201, { application: { id: "XK-1", caseUrl: "https://hub.example/case/k" } });
     },
   });
@@ -137,4 +137,34 @@ test("submitApplication：本地缺项不发出请求，中枢的拒绝原样带
     fetchImpl: async () => reply(409, { error: "duplicate" }),
   });
   assert.equal(duplicate.error, "duplicate");
+});
+
+test("submitApplication：老中枢要 mode 时补发一次，新中枢不收到这个字段", async () => {
+  const bodies = [];
+  const legacy = await submitApplication({
+    site: SITE,
+    subdomain: "nordhavn",
+    hubOrigin: "https://hub.example",
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      if (!("mode" in body)) return reply(400, { error: "invalid", fields: { mode: "required" } });
+      return reply(201, { application: { id: "XK-2", caseUrl: "https://hub.example/case/k2" } });
+    },
+  });
+  assert.equal(legacy.ok, true);
+  assert.equal(legacy.application.id, "XK-2");
+  assert.equal(bodies.length, 2);
+  assert.equal("mode" in bodies[0], false);
+  assert.equal(bodies[1].mode, "subdomain");
+
+  // 其它字段不合格时不要拿 mode 去试探：一次就够。
+  const broken = await submitApplication({
+    site: SITE,
+    subdomain: "nordhavn",
+    hubOrigin: "https://hub.example",
+    fetchImpl: async () => reply(400, { error: "invalid", fields: { email: "invalid" } }),
+  });
+  assert.equal(broken.error, "invalid");
+  assert.equal(broken.fields.email, "invalid");
 });

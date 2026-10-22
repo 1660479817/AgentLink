@@ -36,10 +36,6 @@ export function setLocale(next) {
   applyLang(next);
 }
 
-export function getLocale() {
-  return locale.value;
-}
-
 function lookup(catalog, parts) {
   let node = catalog;
   for (const part of parts) node = node?.[part];

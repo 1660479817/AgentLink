@@ -983,3 +983,57 @@ textarea:focus {
     max-width: none;
   }
 }
+
+/* ---- 自动接通进度：每一步一行，状态与错误码都写在同一行里 ---- */
+.steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 1.2rem 7.5rem 1fr;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fafafa;
+  overflow-wrap: anywhere;
+}
+
+.steps .step-mark {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.steps .step-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.steps .step-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.steps li.is-done .step-mark {
+  color: var(--ok);
+}
+
+.steps li.is-failed {
+  border-color: #fecaca;
+  background: var(--danger-soft);
+}
+
+.steps li.is-failed .step-mark,
+.steps li.is-failed .step-note {
+  color: var(--danger);
+}
+
+.steps li.is-running .step-mark {
+  color: var(--accent);
+}

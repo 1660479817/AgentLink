@@ -10,7 +10,7 @@ import RememberLoginCard from "../components/RememberLoginCard.vue";
 import SiteOwnerDialog from "../components/SiteOwnerDialog.vue";
 import XknotMark from "../components/XknotMark.vue";
 import { downloadConsent } from "../download/consent.js";
-import { BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, HelpIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { listSponsors } from "../api.js";
 import { hasDraft, runningEntry, startReleaseWatch } from "../release.js";
@@ -287,6 +287,11 @@ onUnmounted(() => {
             <FriendsIcon class="shortcut-icon" aria-hidden="true" />
             <span class="shortcut-label">{{ t("rail.friends") }}</span>
           </RouterLink>
+          <!-- /help 是 Backend 直接发的文档页，不是 SPA 路由，所以用 a 不用 RouterLink。 -->
+          <a href="/help" class="shortcut">
+            <HelpIcon class="shortcut-icon" aria-hidden="true" />
+            <span class="shortcut-label">{{ t("rail.help") }}</span>
+          </a>
         </div>
         <div class="rail-locale">
           <LocaleSwitch variant="field" />

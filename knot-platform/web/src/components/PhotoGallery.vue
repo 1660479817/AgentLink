@@ -2,9 +2,12 @@
 import { ref } from "vue";
 import PhotoLightbox from "./PhotoLightbox.vue";
 import { t } from "../i18n/index.js";
+import { photoAlt } from "../mediaLabel.js";
 
 const props = defineProps({
   photos: { type: Array, default: () => [] },
+  // 同一条记录的正文摘要。没有独立替代文本字段，拿它当 alt 的底。
+  label: { type: String, default: "" },
 });
 
 const open = ref(false);
@@ -26,8 +29,14 @@ function openAt(position) {
       :aria-label="t('home.enlargeImage')"
       @click="openAt(position)"
     >
-      <img :src="url" alt="" class="information-photo" loading="lazy" decoding="async" />
+      <img
+        :src="url"
+        :alt="photoAlt(t, props.label, position, props.photos.length)"
+        class="information-photo"
+        loading="lazy"
+        decoding="async"
+      />
     </button>
   </div>
-  <PhotoLightbox :photos="props.photos" :open="open" :index="index" @close="open = false" />
+  <PhotoLightbox :photos="props.photos" :label="props.label" :open="open" :index="index" @close="open = false" />
 </template>

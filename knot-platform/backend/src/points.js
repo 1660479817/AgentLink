@@ -156,18 +156,3 @@ export async function applyPoints(client, { userId, delta, reason, refId = null 
   );
   return rows[0].points_balance;
 }
-
-export async function adjustPoints(pool, entry) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const balance = await applyPoints(client, entry);
-    await client.query("COMMIT");
-    return balance;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}

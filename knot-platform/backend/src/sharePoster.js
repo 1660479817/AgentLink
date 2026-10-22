@@ -49,6 +49,9 @@ const INNER = WIDTH - PAD * 2;
 export const MAX_HEIGHT = 24576;
 // 预览图最高占 5 倍内容宽，超出的竖图按顶部裁切，不让一张图吃掉整张海报。
 export const MAX_PREVIEW_HEIGHT = INNER * 5;
+// 分享图是给人看一眼就存的，不是印刷品。90 档压出来两兆多，出海链路要传几十秒；
+// 75 档加渐进式约省三分之一字节，手机上放大也看不出差别，所以画质让一步。
+export const POSTER_JPEG_QUALITY = 75;
 const GAP = 32;
 const HOLD = 280;
 const BODY_SIZE = 40;
@@ -393,7 +396,8 @@ export function shareHead(row) {
 export function shareMetaKey(card) {
   const head = card?.head || {};
   const site = shareSite();
-  const payload = ["3", site.page, site.name, site.line, head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0), head.avatarKey || ""].join("\u0001");
+  // 版本号是编码参数的版本：换画质、换宽度都要抬一档，旧图才会按新参数重画一次。
+  const payload = ["4", site.page, site.name, site.line, head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0), head.avatarKey || ""].join("\u0001");
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
 
@@ -694,7 +698,7 @@ export async function renderSharePoster(content) {
   }
   let image = sharp(Buffer.from(layout.svg));
   if (composites.length) image = image.composite(composites);
-  return image.jpeg({ quality: 90, mozjpeg: true }).toBuffer();
+  return image.jpeg({ quality: POSTER_JPEG_QUALITY, progressive: true, mozjpeg: true }).toBuffer();
 }
 
 export function sharePosterPath(uploadDir, intelId, contentHash, metaKey) {

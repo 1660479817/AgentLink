@@ -3,11 +3,14 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import AppButton from "./AppButton.vue";
 import { t } from "../i18n/index.js";
 import { BackIcon, CloseIcon } from "../icons/index.js";
+import { photoAlt } from "../mediaLabel.js";
 
 const props = defineProps({
   photos: { type: Array, default: () => [] },
   open: { type: Boolean, default: false },
   index: { type: Number, default: 0 },
+  // 卡片传进来的正文摘要，和大图外面那张缩略图用同一个 alt。
+  label: { type: String, default: "" },
 });
 
 const emit = defineEmits(["close"]);
@@ -16,6 +19,7 @@ const panel = ref(null);
 const current = ref(0);
 const count = computed(() => props.photos.length);
 const photo = computed(() => props.photos[current.value] || "");
+const alt = computed(() => photoAlt(t, props.label, current.value, count.value));
 
 let restoreFocus = null;
 
@@ -80,7 +84,7 @@ onBeforeUnmount(release);
       :aria-label="t('home.imageViewer')"
       @click="emit('close')"
     >
-      <img class="photo-lightbox-image" :src="photo" alt="" />
+      <img class="photo-lightbox-image" :src="photo" :alt="alt" />
       <p v-if="count > 1" class="photo-lightbox-count">{{ t("home.imageCount", { n: current + 1, total: count }) }}</p>
       <AppButton
         class="photo-lightbox-close"

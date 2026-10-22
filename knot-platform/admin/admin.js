@@ -85,6 +85,8 @@ const state = {
   editingSponsor: null,
   federation: null,
   profile: null,
+  joinApplication: null,
+  progress: null,
   toastTimer: null,
 };
 
@@ -1085,6 +1087,7 @@ function mailLabel(mail) {
 
 function loadXknot() {
   void loadProfile();
+  void loadProgress();
   if (byId("fed-details")?.open) void loadFederation();
 }
 
@@ -1258,6 +1261,7 @@ async function loadProfile() {
     const data = await api("/profile");
     state.profile = data;
     renderProfile();
+    await loadJoinApplication();
   } catch (error) {
     if (handleAuth(error)) return;
     showBanner(humanError(error));
@@ -1303,6 +1307,181 @@ function joinHint(min = 6) {
 
 // 已接入就把「提交」收起来，没接入就只显示提交那一张。
 // 自述区与提交是两条线：改了档案不会自动重交，避免每存一次就发一张单。
+// 已交的申请记在站点目录里：刷新、换浏览器之后仍能从卡片上打开案例页。
+async function loadJoinApplication() {
+  try {
+    const data = await api("/xknot/application");
+    state.joinApplication = data?.application || null;
+  } catch (error) {
+    if (handleAuth(error)) return;
+    state.joinApplication = null;
+  }
+  renderJoinRecord();
+}
+
+/* 自动接通：进度按步骤显示，卡住的那一步带原因。 */
+
+const CONNECT_STEPS = {
+  allocate: "分端口与账号",
+  publish: "写清单与名册",
+  account: "建隧道账号 · 装公钥",
+  sshd: "入口 sshd 规则",
+  static: "静态占位页",
+  dns: "子域解析",
+  vhost: "入口反代",
+  tls: "证书与 /api",
+};
+
+const CONNECT_ERRORS = {
+  dns_missing: "子域还解析不到入口主机，等泛解析 *.xknot.si 生效后会自动重试。",
+  tls_failed: "证书没签下来，中枢稍后自动重试。",
+  sshd_config_invalid: "入口 sshd 配置没过语法检查，已经在那一台机器上停住。",
+  nginx_config_invalid: "入口 nginx 配置没过语法检查，已经在那一台机器上停住。",
+  account_failed: "隧道账号没建成，看入口主机的用户与权限。",
+  public_key_missing: "这一侧还没把公钥交上去。点「刷新进度」会重新交一次。",
+  port_exhausted: "可用端口发完了，要人工扩一段。",
+  roster_invalid: "清单与名册对不上，签发停在写文件这一步。",
+  url_taken: "这个地址已经挂在别的 id 下。",
+  id_taken: "这个 id 已经被别的地址占用。",
+  write_failed: "入口主机上写文件失败。",
+  application_closed: "这张申请已经不在通过状态，接通停止。",
+};
+
+const PROGRESS_STATES = {
+  provisioning: "中枢正在配置入口。",
+  awaiting_tunnel: "入口侧已完成，等你这一侧把隧道起来。",
+  active: "已上线：公网 /api/health 通过。",
+  failed: "接通停了，看失败的那一步。",
+};
+
+async function loadProgress() {
+  const card = byId("connect-card");
+  try {
+    const data = await api("/xknot/progress");
+    state.progress = data;
+    renderProgress();
+  } catch (error) {
+    if (handleAuth(error)) return;
+    if (card && !card.hidden) setAlert(byId("connect-note"), humanError(error), "error");
+  }
+}
+
+function renderProgress() {
+  const card = byId("connect-card");
+  if (!card) return;
+  const data = state.progress;
+  const application = data?.application || null;
+  const start = byId("connect-start");
+  const note = byId("connect-note");
+  const list = byId("connect-steps");
+
+  card.hidden = !application;
+  if (!application) {
+    if (start) start.hidden = true;
+    return;
+  }
+
+  const run = data.run || null;
+  const steps = Array.isArray(run?.steps) ? run.steps : [];
+  if (!steps.length) {
+    list.replaceChildren(
+      el(
+        "li",
+        { class: "is-running" },
+        el("span", { class: "step-mark", text: "…" }),
+        el("span", { class: "step-name", text: "等待中枢接手" }),
+        el("span", { class: "step-note", text: `申请 ${application.id}` })
+      )
+    );
+  } else {
+    list.replaceChildren(
+      ...steps.map((step) => {
+        const failed = step.state === "failed" || (step.state !== "done" && Boolean(step.error));
+        const done = step.state === "done";
+        const name = CONNECT_STEPS[step.id] || step.id;
+        const text = failed
+          ? CONNECT_ERRORS[step.error] || step.error || "这一步失败了。"
+          : step.note || (done ? "完成" : "待办");
+        return el(
+          "li",
+          { class: failed ? "is-failed" : done ? "is-done" : "is-running" },
+          el("span", { class: "step-mark", text: failed ? "!" : done ? "✓" : "…" }),
+          el("span", { class: "step-name", text: name }),
+          el("span", { class: "step-note", text })
+        );
+      })
+    );
+  }
+
+  const summary = run ? PROGRESS_STATES[run.state] || run.state : "已提交，等中枢接手。";
+  const handoff = data.handoff;
+  const local = data.local || {};
+  let text = handoff
+    ? `${summary} 账号 ${handoff.account} · 入口 ${handoff.host} · 端口 ${handoff.port}`
+    : summary;
+  if (run?.state === "active" && data.issued?.url) text += ` 已验收：${data.issued.url}`;
+  if (local.error) text += ` 本地配置没写成：${local.error}`;
+  else if (local.joinError) text += ` 接入件没写成：${local.joinError}`;
+  else if (local.restart && !local.restart.ok) {
+    text += ` 配置已写入；这台机器没有常驻单元，手动执行一次：${local.restart.command}`;
+  } else if (local.changed) text += " 隧道配置已写入并重启。";
+  else if (local.joined) text += " 接入件已写入，Backend 正在重启。";
+
+  setAlert(note, text, run?.state === "active" ? "ok" : run?.lastError || local.error || local.joinError ? "error" : "ok");
+  if (start) start.hidden = !handoff || run?.state === "active";
+}
+
+async function startTunnel() {
+  const button = byId("connect-start");
+  button.disabled = true;
+  setAlert(byId("connect-note"), "正在写隧道配置…", "ok");
+  try {
+    const data = await api("/xknot/connect", { method: "POST" });
+    const restart = data.restart || {};
+    setAlert(
+      byId("connect-note"),
+      restart.ok
+        ? "隧道已重启，等中枢探测通过。"
+        : `配置已写入；这台机器没有常驻单元，手动执行一次：${restart.command || "ops/scripts/run-entry-tunnel.sh"}`,
+      "ok"
+    );
+    await loadProgress();
+  } catch (error) {
+    if (handleAuth(error)) return;
+    const message =
+      error.code === "not_ready" ? "中枢还没给出账号与端口，等入口配置完成。" : humanError(error);
+    setAlert(byId("connect-note"), message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderJoinRecord() {
+  const node = byId("join-record");
+  if (!node) return;
+  const application = state.joinApplication;
+  if (!application?.id) {
+    node.hidden = true;
+    node.replaceChildren();
+    return;
+  }
+  const submitted = String(application.submittedAt || "").slice(0, 10);
+  node.replaceChildren(
+    el("span", {
+      text: `已提交申请 ${application.id}（${application.status || "pending"}）${submitted ? ` · ${submitted}` : ""}。`,
+    }),
+    application.caseUrl
+      ? el("a", {
+          href: application.caseUrl,
+          target: "_blank",
+          rel: "noopener",
+          text: "查看进度",
+        })
+      : null
+  );
+  node.hidden = false;
+}
+
 function renderJoin(data) {
   const card = byId("join-card");
   const issuedCard = byId("issued-card");
@@ -1381,6 +1560,15 @@ async function submitJoin(event) {
       },
     });
     const application = data.application || {};
+    state.joinApplication = application.id
+      ? {
+          id: application.id,
+          caseUrl: application.caseUrl || "",
+          status: application.status || "pending",
+          submittedAt: application.createdAt || new Date().toISOString(),
+        }
+      : null;
+    renderJoinRecord();
     const result = byId("join-result");
     result.replaceChildren(
       el("span", { text: `已提交，申请编号 ${application.id || "（中枢没返回）"}。` }),
@@ -1399,6 +1587,8 @@ async function submitJoin(event) {
     // 成功之后不再允许重复点：同一地址再交一张会被中枢判重。
     resetJoinCheck();
     button.hidden = true;
+    // 公钥在服务端已经顺手交上去了，这里直接开始读进度。
+    void loadProgress();
   } catch (error) {
     if (handleAuth(error)) return;
     const message =
@@ -1479,6 +1669,8 @@ function bindEvents() {
   byId("profile-reload").addEventListener("click", () => renderProfile());
   byId("join-check").addEventListener("click", () => void checkJoinSubdomain());
   byId("join-form").addEventListener("submit", submitJoin);
+  byId("connect-refresh").addEventListener("click", () => void loadProgress());
+  byId("connect-start").addEventListener("click", () => void startTunnel());
   byId("join-subdomain").addEventListener("input", () => {
     // 查过之后又改了名字，之前的「可用」就不再算数。
     resetJoinCheck();
@@ -1529,6 +1721,15 @@ function boot() {
   const saved = sessionStorage.getItem(TOKEN_KEY) || "";
   if (saved) enter(saved);
   else showLogin();
+
+  // 接通是两边各推进一段：中枢配置完还要等这一侧起隧道。
+  // 只在 XKnot 栏打开、且这张单还没上线时轻量轮询，别让它变成一个常驻请求。
+  window.setInterval(() => {
+    if (!state.token || document.hidden || state.view !== "xknot") return;
+    const progress = state.progress;
+    if (!progress?.application || progress.run?.state === "active") return;
+    void loadProgress();
+  }, 8000);
 }
 
 boot();

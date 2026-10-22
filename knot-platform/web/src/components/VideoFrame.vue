@@ -8,9 +8,15 @@ const props = defineProps({
   url: { type: String, required: true },
   poster: { type: String, default: "" },
   playUrl: { type: String, default: "" },
+  // 同一条记录的正文摘要，给封面和播放器一个可念的名字。
+  label: { type: String, default: "" },
 });
 
 const frame = computed(() => videoFrame(props.url, props.poster, props.playUrl));
+const summary = computed(() => String(props.label || "").trim());
+const named = computed(() => summary.value || t("home.video"));
+// 没有正文摘要时只说「视频」，别拼成「播放视频：视频」。
+const playLabel = computed(() => (summary.value ? t("home.videoPlay", { label: summary.value }) : t("home.video")));
 const playing = ref(false);
 const posterOk = ref(true);
 const player = ref(null);
@@ -37,7 +43,7 @@ watch(
 
 <template>
   <div v-if="frame" class="information-video">
-    <img v-if="cover && !playing" class="information-video-poster" :src="cover" alt="" @error="hidePoster" />
+    <img v-if="cover && !playing" class="information-video-poster" :src="cover" :alt="named" @error="hidePoster" />
     <video
       v-else-if="!playing && frame.kind === 'file'"
       class="information-video-poster"
@@ -51,7 +57,7 @@ watch(
       v-if="!playing && frame.kind !== 'open'"
       type="button"
       class="information-video-open"
-      :aria-label="t('home.video')"
+      :aria-label="playLabel"
       @click="start"
     >
       <VideoIcon class="information-video-mark" aria-hidden="true" />
@@ -63,7 +69,7 @@ watch(
       target="_blank"
       rel="noopener noreferrer"
       :aria-label="t('home.videoOpenExternal')"
-      :title="t('home.videoOpenExternal')"
+      :title="named"
     >
       <VideoIcon class="information-video-mark" aria-hidden="true" />
       <span class="information-video-external">{{ t("home.videoOpenExternal") }}</span>
@@ -71,7 +77,7 @@ watch(
     <iframe
       v-else-if="frame.kind === 'iframe'"
       :src="frame.src"
-      :title="t('home.video')"
+      :title="named"
       allow="fullscreen; picture-in-picture"
       allowfullscreen
       referrerpolicy="strict-origin-when-cross-origin"
@@ -84,7 +90,7 @@ watch(
       controls
       playsinline
       autoplay
-      :aria-label="t('home.video')"
+      :aria-label="named"
     />
   </div>
 </template>

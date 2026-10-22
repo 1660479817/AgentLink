@@ -28,16 +28,22 @@ server {
 
     client_max_body_size {{KNOT_ENTRY_MAX_BODY}};
 
+    # 每个子域一行访问日志，格式在 knot-log.conf（同一台入口主机只装一次）。
+    # 同一份文件按 $host 区分，聚合见 xknot.si/ops/traffic.mjs。
+    access_log {{KNOT_ENTRY_ACCESS_LOG}} knot_json;
+
     # 入口这一层没有 http 级的 gzip（同一台机上别的 vhost 各写各的，不共享），
     # 不在这里开，JS/CSS/JSON 就按原文发出去：主包 263KB，压完约 84KB。
     # gzip_proxied any 让穿过隧道的 /api 响应也压（JSON 收益最大）。
     # gzip_types 里不放图片/字体：jpeg、png、woff2 本来就压过了。
+    # text/markdown 给 /help：它由 Backend 以 text/markdown 发出，20KB 原文，
+    # 不列进来就完全不压。xml 给 sitemap。
     gzip on;
     gzip_vary on;
     gzip_min_length 1024;
     gzip_comp_level 5;
     gzip_proxied any;
-    gzip_types text/plain text/css text/javascript application/javascript application/json application/manifest+json image/svg+xml;
+    gzip_types text/plain text/css text/javascript application/javascript application/json application/manifest+json image/svg+xml text/markdown application/xml text/xml;
 
     location /.well-known/acme-challenge/ {
         root {{KNOT_ENTRY_WEB_ROOT}};

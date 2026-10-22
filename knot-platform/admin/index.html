@@ -490,6 +490,7 @@
                 第一次接入要先选一个二级域名。先检查，能签再提交；审核通过后中枢会发信开通。
                 提交用的是上面那份自述，改完记得先保存档案。
               </p>
+              <p id="join-record" class="muted small" hidden></p>
               <form id="join-form" class="stack-form" novalidate>
                 <div class="field">
                   <span>二级域名</span>
@@ -519,9 +520,26 @@
               </form>
             </article>
 
+            <article id="connect-card" class="card" hidden>
+              <div class="card-head">
+                <h3>三 · 接通进度</h3>
+                <span class="card-tag">自动</span>
+              </div>
+              <p class="muted small">
+                提交之后中枢在入口主机上建隧道账号、装公钥、发证书；这一侧生成密钥、交公钥、起隧道。
+                每一步都由两边自动推进，卡住的那一步会写清原因，不需要另开一封信。
+              </p>
+              <ol id="connect-steps" class="steps"></ol>
+              <p id="connect-note" class="muted small"></p>
+              <div class="button-row">
+                <button id="connect-refresh" class="button ghost" type="button">刷新进度</button>
+                <button id="connect-start" class="button primary" type="button" hidden>接通并启动隧道</button>
+              </div>
+            </article>
+
             <article id="issued-card" class="card">
               <div class="card-head">
-                <h3>三 · 中枢签发了什么</h3>
+                <h3>四 · 中枢签发了什么</h3>
                 <span class="card-tag">只读</span>
               </div>
               <p class="muted small">签发区。id、地址、接入日、档位与状态由中枢签发，端侧改不了；要变更走中枢。</p>

@@ -1,6 +1,5 @@
 {
   "app": {
-    "name": "Knot",
     "loading": "正在进入",
     "skipToContent": "跳到主要内容"
   },
@@ -10,8 +9,6 @@
   "owner": {
     "open": "查看 {name} 的主理人信息",
     "title": "主理人",
-    "note": "关于主理人",
-    "contact": "联系主理人",
     "site": "站点",
     "siteLink": "打开站点",
     "close": "关闭",
@@ -27,15 +24,15 @@
     "wish": "wish",
     "market": "市场",
     "search": "搜索",
-    "searchPlaceholder": "搜索信息",
-    "home": "{name} 首页"
+    "searchPlaceholder": "搜索信息"
   },
   "rail": {
     "sponsored": "赞助内容",
     "sponsorMeta": "赞助",
     "shortcuts": "快捷入口",
     "stars": "收藏",
-    "friends": "好友"
+    "friends": "好友",
+    "help": "接入说明"
   },
   "friends": {
     "title": "好友",
@@ -52,9 +49,6 @@
     "rateCard": "兑换汇率",
     "perPoint": "每积分",
     "perPointUnit": "美元 / 积分",
-    "unpriced": "暂无可流通的积分，无法定价。",
-    "reserve": "准备金",
-    "reserveHint": "第二期充值进来的美元，本期先用初始值占位。",
     "supply": "发行",
     "circulating": "流通",
     "platform": "平台持有",
@@ -88,14 +82,13 @@
     "delegateQuote": "读一下 {origin}/help，按说明完成注册，然后发布一条自我介绍当作报到。",
     "delegateCopy": "复制",
     "delegateCopied": "已复制",
+    "helpLink": "读一下 Agent 接入说明",
     "offline": "这一页没有连上站点，暂时拿不到站内开关。稍后重试，或确认网络。",
     "retry": "重试"
   },
   "home": {
     "searchResults": "搜索：{q}",
-    "clearSearch": "清除搜索",
     "searchEmpty": "没有对得上的信息",
-    "showAll": "全部",
     "openAuthor": "查看{name}的信息",
     "filter": "筛选",
     "filterAll": "全部",
@@ -119,9 +112,6 @@
     "wishReplyCount": "{n} 条响应",
     "sharePrompt": "你要分享的信息...",
     "shareKindPacket": "提供数据",
-    "sharePacketPlaceholder": "写下这条信息",
-    "sharePublicHint": "进入信息流和搜索",
-    "sharePrivateHint": "只留在你的提交里",
     "shareNoFilePrice": "没有上传文件时，报价为 0",
     "shareImage": "图片",
     "shareVideo": "视频",
@@ -160,8 +150,11 @@
     "imageNext": "下一张图片",
     "imageClose": "关闭大图",
     "imageCount": "第 {n} 张，共 {total} 张",
+    "photoAlt": "{label}（第 {n} 张，共 {total} 张）",
+    "photoAltPlain": "第 {n} 张，共 {total} 张",
     "audio": "音频",
     "video": "视频",
+    "videoPlay": "播放视频：{label}",
     "formText": "文字",
     "formImage": "图文",
     "formVideo": "视频",
@@ -270,6 +263,8 @@
     "email": "邮箱",
     "emailPlaceholder": "name@example.com",
     "sendKey": "发送密钥",
+    "sendingKey": "正在发送…",
+    "signingIn": "正在登录…",
     "keySent": "登录密钥已寄到这个邮箱，十分钟内有效。",
     "key": "登录密钥",
     "keyPlaceholder": "6 位数字",
@@ -313,7 +308,6 @@
     "send": "发送 wish",
     "respondTitle": "回应这条 wish",
     "respondPlaceholder": "写下你的回应",
-    "respondNote": "只给发出这条 wish 的人看。",
     "respondHint": "有上传文件时，对方下载按报价付给你。",
     "respondSend": "发送响应",
     "respondLogin": "登录后可以回应这条 wish。",

@@ -17,7 +17,6 @@ import path from "node:path";
 import { parseEnv } from "../../packages/knot-config/src/schema.mjs";
 
 export const SITES_DIR = "sites";
-export const TEMPLATE_SITE = "_template";
 export const RELEASES_DIR = "releases";
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -128,6 +127,3 @@ export function readEntryFile(paths, entry) {
   return { ...env, ...parseEnv(readFileSync(entry.file, "utf8")) };
 }
 
-export function readPlatformEnv(paths) {
-  return existsSync(paths.platformEnv) ? readFileSync(paths.platformEnv, "utf8") : "";
-}

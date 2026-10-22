@@ -21,6 +21,7 @@ sites/<站点>/entry.<标签>.xknot.si.env  这个子域的静态根、conf、�
 | 路径 | 用途 |
 |------|------|
 | `site.conf.template` | 一个 xknot.si 子域入口的 nginx 配置（由 `site.env` 叠加入口文件渲染） |
+| `log.conf.template` | 入口访问日志格式 `knot_json`，同一台入口主机只声明一次 |
 | `cache.conf.template` | 入口上传缓存区，同一台入口主机只声明一次 |
 | `sshd-tunnel.conf.template` | 入口隧道账号的 sshd Match 块（变量化） |
 | `sshd-knot-tunnel.conf` | 上面模板渲染出来的成品，`knot-tunnel` + `18080` 的实例 |
@@ -64,6 +65,34 @@ KNOT_ENTRY_SERVE=static        # 或 proxy
 `proxy` 的好处是页面与接口永远来自同一次构建，代价是每个静态文件都要穿一次隧道。
 `/api/admin` 与 `/admin` 的 404、`/api/web/uploads/` 的缓存、ACME 目录在两种投放里一致，
 只有「首页与静态资源从哪来」不同。
+
+## 访问日志
+
+两种投放都写 `/var/log/nginx/knot-access.log`，格式 `knot_json`（`log.conf.template`）。目的是让中枢能按 `$host` 分出每个子域的流量，见 `xknot.si/docs/HUB.md` 第 11 节。
+
+- `log_format` 只能声明一次，所以单独一份 `knot-log.conf`，由 `push-entry.sh` 装到 conf 同目录；**不要**写进 `site.conf.template`，否则装第二个子域时 `nginx -t` 会因为重复定义失败。
+- 只记 `$uri`，不记查询串：分享令牌与搜索词不该进日志。
+- 文件用默认的 `/etc/logrotate.d/nginx` 轮转（匹配 `*.log`）；名字带 `knot-` 是为了不和别的项目混在一起。
+- 中枢的流量聚合服务要读这份文件；日志是 `0640 root:adm` 时，把该服务用户加进 `adm` 组。
+
+## 入口首页不是构建产物
+
+`web/dist/index.html` 是 SPA 空壳：`<title>Knot</title>`，`#app` 里什么都没有。直接推上去，
+搜索收录、社交平台预览、不执行 JS 的抓取都拿不到一个字。
+
+`static` 投放时 `push-entry.sh` 会在 rsync 之后调 `ops/scripts/entry-html.mjs`，用
+`sites/<站点>/profile.json` 生成三份文件，再送到入口主机：
+
+| 文件 | 内容 |
+|------|------|
+| `index.html` | `title`、`description`、canonical、Open Graph、Twitter Card、JSON-LD、`<noscript>` 简介；`#app` 与构建产物里的资源引用原样保留 |
+| `robots.txt` | 放行页面，挡住 `/api/` 与 `/admin`，指向 sitemap |
+| `sitemap.xml` | 只列 `/` 与 `/discover` 两个真实静态页 |
+
+- 站点名、介绍、logo 改了以后，重推一次入口即可，不用重新构建。
+- 档案里 `region` 决定 `lang`；没有地区码时看文字里有没有中日韩字符。
+- `proxy` 投放不做这一步：页面由回源的 Backend 发，改入口磁盘上的文件没有用。
+- 生成的文件和 `web/dist` 一起进 `/var/www/<id>`；`/discover.json` 与 `/media/` 仍由 `push-discover.sh` 单独推，互不覆盖。
 
 ## 落地（入口主机）
 
@@ -119,7 +148,7 @@ macOS 用 [`../launchd/com.knot.entry-tunnel.plist`](../launchd/com.knot.entry-t
 
 隧道由实例机主动连出，走实例机自己的出口。实例机上如果开了 Cloudflare WARP（或别的全局 TUN），到入口主机的 TCP 会被它接管：握手从两百毫秒掉到一秒以上，SSH 会话还会被 reset，LaunchAgent 反复重启，表现出来就是 `/api/*` 一会儿两秒、一会儿 502。入口主机 `sshd` 里隧道来源变成 `104.28.x.x` 这类 Cloudflare 出口就是它。
 
-排查与绕开：
+排查：
 
 ```bash
 # 实例机：去入口主机应该走物理网卡，不是 utun*
@@ -129,12 +158,27 @@ route get <入口主机 IP>
 sudo journalctl -u sshd --since "-10 min" | grep "Accepted.*knot-tunnel"
 ```
 
-优先在 WARP 控制台的分流（split tunnel）里把入口主机 IP 排到 WARP 之外；改不了控制台时，在实例机的 `~/.ssh/config` 里给这个 IP 绑物理网卡（接口名按机器改）：
+**正解是把入口主机 IP 排进 WARP 的分流**，让它从一开始就不进隧道：
 
+```bash
+warp-cli tunnel ip add <入口主机 IP>      # 写进本机 WARP 配置，重启后仍在
+warp-cli tunnel ip list | grep <入口主机 IP>
 ```
+
+排进分流之后，`~/.ssh/config` **不要再绑 `BindInterface`**。两个一起用会出另一种症状：TCP 连得上、`nc` 也能读到 `SSH-2.0-OpenSSH_…` 的 banner，但密钥交换那几个大包过不去，`ssh` 一直挂着不报错。这时候 launchd 以为隧道还活着，`/api` 不是快速失败重连，而是整段 502：
+
+```bash
+# 症状：banner 有，ssh 挂着
+nc -w 6 <入口主机 IP> 22 < /dev/null | head -1
+ssh -vv -i <隧道私钥> -o ConnectTimeout=8 <隧道账号>@<入口主机 IP> echo ok
+
+# 只留超时设置，去掉 BindInterface
 Host <入口主机 IP>
-    BindInterface en1
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
 ```
+
+`run-entry-tunnel.sh` 里带 `-o ConnectTimeout=15`：万一握手又卡住，它会自己退出来让 launchd 重连，不会一直占着不放。
 
 ### 回源要复用连接
 
@@ -151,6 +195,11 @@ ss -lntp | grep <回源端口>
 # 公网
 curl -sI https://<标签>.xknot.si/
 curl -s https://<标签>.xknot.si/api/health
+
+# 首页 HTML 里应当有站点名与介绍，不是只有 <title>Knot</title>
+curl -s https://<标签>.xknot.si/ | grep -E '<title>|og:description|<noscript>'
+curl -s https://<标签>.xknot.si/robots.txt
+curl -s https://<标签>.xknot.si/sitemap.xml
 
 # 模板已经开了 gzip 与 HTTP/2，这两条要能对上
 curl -s --http2 -o /dev/null -w '%{http_version}\n' https://<标签>.xknot.si/

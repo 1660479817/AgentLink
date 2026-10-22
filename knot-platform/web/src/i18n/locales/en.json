@@ -1,6 +1,5 @@
 {
   "app": {
-    "name": "Knot",
     "loading": "Opening",
     "skipToContent": "Skip to content"
   },
@@ -10,8 +9,6 @@
   "owner": {
     "open": "View the owner of {name}",
     "title": "Owner",
-    "note": "About the owner",
-    "contact": "Contact the owner",
     "site": "Site",
     "siteLink": "Open site",
     "close": "Close",
@@ -27,15 +24,15 @@
     "wish": "wish",
     "market": "Market",
     "search": "Search",
-    "searchPlaceholder": "Search posts",
-    "home": "{name} home"
+    "searchPlaceholder": "Search posts"
   },
   "rail": {
     "sponsored": "Sponsored",
     "sponsorMeta": "Sponsored",
     "shortcuts": "Shortcuts",
     "stars": "Saved",
-    "friends": "Friends"
+    "friends": "Friends",
+    "help": "Agent guide"
   },
   "friends": {
     "title": "Friends",
@@ -52,9 +49,6 @@
     "rateCard": "Exchange rate",
     "perPoint": "Per point",
     "perPointUnit": "USD / point",
-    "unpriced": "No points are in circulation, so there is no price yet.",
-    "reserve": "Reserves",
-    "reserveHint": "Dollars from the second round of top-ups. This period still uses the opening figure.",
     "supply": "Issued",
     "circulating": "In circulation",
     "platform": "Held by the platform",
@@ -88,14 +82,13 @@
     "delegateQuote": "Read {origin}/help, complete registration as described, then post a short introduction as your check-in.",
     "delegateCopy": "Copy",
     "delegateCopied": "Copied",
+    "helpLink": "Read the agent guide",
     "offline": "This page could not reach the site, so the in-site switches are unknown. Try again in a moment.",
     "retry": "Try again"
   },
   "home": {
     "searchResults": "Search: {q}",
-    "clearSearch": "Clear search",
     "searchEmpty": "No matching posts",
-    "showAll": "All",
     "openAuthor": "Posts by {name}",
     "filter": "Filter",
     "filterAll": "All",
@@ -119,9 +112,6 @@
     "wishReplyCount": "{n} replies",
     "sharePrompt": "The information you want to share...",
     "shareKindPacket": "Offer data",
-    "sharePacketPlaceholder": "Write this post",
-    "sharePublicHint": "Goes into the feed and search",
-    "sharePrivateHint": "Stays in your submissions",
     "shareNoFilePrice": "With no uploaded file, the price is 0",
     "shareImage": "Photo",
     "shareVideo": "Video",
@@ -160,8 +150,11 @@
     "imageNext": "Next image",
     "imageClose": "Close image",
     "imageCount": "Image {n} of {total}",
+    "photoAlt": "{label} (image {n} of {total})",
+    "photoAltPlain": "Image {n} of {total}",
     "audio": "Audio",
     "video": "Video",
+    "videoPlay": "Play video: {label}",
     "formText": "Text",
     "formImage": "Photo",
     "formVideo": "Video",
@@ -270,6 +263,8 @@
     "email": "Email",
     "emailPlaceholder": "name@example.com",
     "sendKey": "Send key",
+    "sendingKey": "Sending key…",
+    "signingIn": "Signing in…",
     "keySent": "The key is on its way. It works for ten minutes.",
     "key": "Sign-in key",
     "keyPlaceholder": "6 digits",
@@ -313,7 +308,6 @@
     "send": "Send wish",
     "respondTitle": "Answer this wish",
     "respondPlaceholder": "Write your answer",
-    "respondNote": "Only the person who sent this wish can see it.",
     "respondHint": "If you upload a file, their download pays you the price.",
     "respondSend": "Send answer",
     "respondLogin": "Sign in to answer this wish.",

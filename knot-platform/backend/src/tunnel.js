@@ -1,0 +1,249 @@
+// 自动接通（端侧）：生成隧道密钥、把公钥交上去、按中枢给的参数写好隧道并拉起。
+//
+// 顺序是被拓扑逼出来的：实例在 NAT 后，中枢拨不进来，所以每一步都由实例主动发起。
+// 这里只做四件小事，每件都能单独重试：
+//   1. 第一次接入时生成一对 ed25519 密钥，私钥留在站点目录里；
+//   2. 把公钥贴进案例页（与手工粘贴是同一个接口）；
+//   3. 读中枢的接通进度，把错误码原样交给管理界面；
+//   4. 拿到账号、端口与入口主机后，写 site.env 的托管段并重启隧道。
+//
+// 私钥不出本机；中枢只收到公钥。
+
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+const ACCOUNT_RE = /^[a-z][a-z0-9-]{0,30}$/;
+const HOST_RE = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i;
+const KEY_FILE = "tunnel_ed25519";
+
+export const MANAGED_START = "# >>> XKnot 自动接通（由管理界面写入，勿手改）";
+export const MANAGED_END = "# <<< XKnot 自动接通";
+
+export function tunnelKeyPath(siteDir) {
+  return path.join(String(siteDir), KEY_FILE);
+}
+
+// 隧道托管件与 site.env 分开放：
+// site.env 归 deploy-site.sh 管（入口开关、公开地址、站点身份），
+// tunnel.env 归 /admin 的 XKnot 栏管（账号、端口、私钥）。两拨人改同一个文件早晚互相盖。
+export function tunnelEnvPath(siteDir) {
+  return path.join(String(siteDir), "tunnel.env");
+}
+
+/** 已有公钥就用它，没有才生成；重复调用不会换掉正在用的密钥。 */
+export async function ensureTunnelKey({ file, comment = "knot-tunnel", exec = execFileAsync } = {}) {
+  if (!file) return { error: "no_file" };
+  try {
+    const publicKey = (await readFile(`${file}.pub`, "utf8")).trim();
+    if (publicKey) return { publicKey, created: false };
+  } catch {
+    // 还没有，往下生成。
+  }
+
+  await mkdir(path.dirname(file), { recursive: true });
+  try {
+    await exec("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", comment, "-f", file]);
+    await chmod(file, 0o600);
+    const publicKey = (await readFile(`${file}.pub`, "utf8")).trim();
+    if (!publicKey) return { error: "keygen_failed" };
+    return { publicKey, created: true };
+  } catch (error) {
+    return { error: "keygen_failed", detail: error.message };
+  }
+}
+
+/** 案例链接 → 同一能力键下的接口地址。只接受 http(s) 与纯键名。 */
+export function caseEndpoint(caseUrl, action) {
+  let url;
+  try {
+    url = new URL(String(caseUrl || ""));
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const match = /^\/case\/([A-Za-z0-9_-]{6,64})\/?$/.exec(url.pathname);
+  if (!match) return null;
+  return `${url.origin}/api/case/${match[1]}/${action}`;
+}
+
+export async function submitPublicKey({ caseUrl, publicKey, fetchImpl = fetch } = {}) {
+  const target = caseEndpoint(caseUrl, "public-key");
+  if (!target) return { error: "bad_case_url" };
+  const body = new URLSearchParams({ publicKey: String(publicKey || "").trim() }).toString();
+  try {
+    const response = await fetchImpl(target, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+      redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
+    });
+    // 中枢受理后回 303 到案例页；非 3xx/2xx 说明键格式或键本身不对。
+    if (response.status === 303 || response.status === 200) return { ok: true };
+    return { error: "rejected", status: response.status };
+  } catch (error) {
+    return { error: "unreachable", detail: error.message };
+  }
+}
+
+export async function fetchProgress({ caseUrl, fetchImpl = fetch } = {}) {
+  const target = caseEndpoint(caseUrl, "progress");
+  if (!target) return { error: "bad_case_url" };
+  try {
+    const response = await fetchImpl(target, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.status !== 200) return { error: "hub_error", status: response.status };
+    return { ok: true, data: await response.json() };
+  } catch (error) {
+    return { error: "unreachable", detail: error.message };
+  }
+}
+
+export function handoffValid(handoff) {
+  if (!handoff || typeof handoff !== "object") return false;
+  const account = String(handoff.account || "");
+  const host = String(handoff.host || "");
+  const port = Number(handoff.port);
+  return ACCOUNT_RE.test(account) && HOST_RE.test(host) && Number.isInteger(port) && port >= 1024 && port <= 65535;
+}
+
+/** 写进 tunnel.env 的那一段。键名与 site-config.sh / run-entry-tunnel.sh 读的一致。 */
+export function renderManagedBlock({ account, host, port, keyPath, localPort }) {
+  return `${MANAGED_START}
+KNOT_TUNNEL=1
+KNOT_TUNNEL_SSH=${account}@${host}
+KNOT_TUNNEL_KEY=${keyPath}
+KNOT_TUNNEL_REMOTE_PORT=${port}
+KNOT_TUNNEL_LOCAL_PORT=${localPort}
+${MANAGED_END}`;
+}
+
+/**
+ * 只替换托管段，文件里其它内容与注释保持原样。
+ * 没有托管段就追加；重复写入同一份内容时 changed 为 false。
+ */
+export async function applyManagedBlock({ file, block } = {}) {
+  if (!file) return { error: "no_file" };
+  let current = "";
+  try {
+    current = await readFile(file, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") return { error: "read_failed" };
+  }
+
+  const start = current.indexOf(MANAGED_START);
+  const end = current.indexOf(MANAGED_END);
+  let next;
+  if (start >= 0 && end > start) {
+    next = `${current.slice(0, start)}${block}${current.slice(end + MANAGED_END.length)}`;
+  } else {
+    next = `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${block}\n`;
+  }
+
+  if (next === current) return { changed: false };
+  const temp = `${file}.${process.pid}.tmp`;
+  await writeFile(temp, next, { mode: 0o600 });
+  await rename(temp, file);
+  return { changed: true };
+}
+
+/**
+ * 让隧道进程用上新配置。装了常驻单元就重启它；没有单元时不假装成功，
+ * 把命令交给调用方显示，人照着跑一次即可。
+ */
+export async function restartTunnel({ exec = execFileAsync, platform = process.platform } = {}) {
+  const attempts =
+    platform === "darwin"
+      ? [["launchctl", ["kickstart", "-k", `gui/${process.getuid?.() ?? 501}/com.knot.entry-tunnel`]]]
+      : [["systemctl", ["restart", "knot-entry-tunnel"]]];
+  for (const [cmd, args] of attempts) {
+    try {
+      await exec(cmd, args);
+      return { ok: true, command: `${cmd} ${args.join(" ")}` };
+    } catch {
+      // 没装单元是正常情况（开发机、只部署了 Backend）：继续试下一步。
+    }
+  }
+  return { ok: false, command: attempts[0] ? `${attempts[0][0]} ${attempts[0][1].join(" ")}` : "" };
+}
+
+const PLIST_LABEL = "com.knot.entry-tunnel";
+
+/**
+ * 从 Backend 的 cwd 反推部署根。
+ *
+ * 两种布局都要认：
+ *   <root>/releases/<版本>/backend   发布包
+ *   <root>/backend                   开发机上直接跑源码
+ * 所以不数层数，向上找带 sites/ 的那一层（sites/ 是站点配置的家，哪一层有它就是哪一层）。
+ */
+export function deployRootOf(cwd = process.cwd()) {
+  let dir = path.resolve(String(cwd));
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (existsSync(path.join(dir, "sites"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return path.resolve(String(cwd), "..");
+}
+
+export function renderAgentPlist(template, { site, home, current }) {
+  return String(template)
+    .replaceAll("__KNOT_SITE__", site)
+    .replaceAll("__KNOT_HOME__", home)
+    .replaceAll("__KNOT_CURRENT__", current);
+}
+
+/**
+ * 部署时没装隧道单元（例如填写申请那一刻站点还没接通），这里补装一次：
+ * 只写用户自己的 LaunchAgent，不动系统目录；已装过就直接重启。
+ *
+ * 拿不到模板或不在 macOS 时返回 ok:false 与一条可复制的启动命令。
+ */
+export async function startTunnelAgent({
+  cwd = process.cwd(),
+  site = process.env.KNOT_SITE || "",
+  exec = execFileAsync,
+  platform = process.platform,
+} = {}) {
+  const restarted = await restartTunnel({ exec, platform });
+  if (restarted.ok) return restarted;
+
+  if (platform !== "darwin" || !site) return restarted;
+
+  const root = deployRootOf(cwd);
+  const template = path.join(root, "current", "ops", "launchd", `${PLIST_LABEL}.plist`);
+  let source;
+  try {
+    source = await readFile(template, "utf8");
+  } catch {
+    return { ...restarted, command: "bash ops/scripts/run-entry-tunnel.sh" };
+  }
+
+  const plist = renderAgentPlist(source, {
+    site,
+    home: root,
+    current: path.join(root, "current"),
+  });
+  const target = path.join(os.homedir(), "Library", "LaunchAgents", `${PLIST_LABEL}.plist`);
+  const uid = process.getuid?.() ?? 501;
+  try {
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, plist, { mode: 0o644 });
+    await exec("launchctl", ["bootout", `gui/${uid}/${PLIST_LABEL}`]).catch(() => {});
+    await exec("launchctl", ["bootstrap", `gui/${uid}`, target]);
+    await exec("launchctl", ["kickstart", "-k", `gui/${uid}/${PLIST_LABEL}`]);
+    return { ok: true, command: `launchctl kickstart -k gui/${uid}/${PLIST_LABEL}`, installed: true };
+  } catch {
+    return { ...restarted, command: `launchctl bootstrap gui/${uid} ${target}` };
+  }
+}

@@ -416,6 +416,14 @@ const SITE_KEYS = [
     desc: "入口主机接受的请求体上限。必须大于后端附件上限，否则大文件在 nginx 就被截断。",
   },
   {
+    key: "KNOT_ENTRY_ACCESS_LOG",
+    group: "entry",
+    type: "path",
+    default: "/var/log/nginx/knot-access.log",
+    scope: ["entry"],
+    desc: "入口访问日志。同一台入口主机上的子域共用一个文件，按 $host 分；中枢的流量聚合读它。",
+  },
+  {
     key: "KNOT_ENTRY_PROXY_PORT",
     group: "entry",
     type: "port",
@@ -804,9 +812,11 @@ const XKNOT_KEYS = [
     key: "XKNOT_TIER",
     group: "xknot",
     type: "enum",
-    values: ["demo", "partner", "community"],
+    // free / paid 是现在中枢签发的两档；demo / partner / community 是早期名单，
+    // 仍认它们，免得老实例把接入件拿过来重启就起不来。
+    values: ["free", "paid", "demo", "partner", "community"],
     default: "",
-    desc: "中枢签发的层级。签发区的一部分；留空时对外不报这一项。",
+    desc: "中枢签发的层级：free 或 paid（早期的 demo / partner / community 仍可读）。签发区的一部分；留空时对外不报这一项。",
   },
   {
     key: "XKNOT_STATUS",
@@ -1413,7 +1423,7 @@ export function renderJoinExample() {
 // 首次写接入文件。values 来自中枢接入件，未给的键留空并注释掉。
 export function renderJoinFile(values = {}) {
   const parts = [
-    "# XKnot 接入文件。由 ops/scripts/join-xknot.sh 写入，权限 600。",
+    "# XKnot 接入文件。由 ops/scripts/join-xknot.sh 或管理界面的 XKnot 栏写入，权限 600。",
     "# 键名与语义见联邦契约 xknot.si/docs/FEDERATION.md 第 7.4 节；不要增删键名。",
     "# 值来自中枢签发，不要手改；换实例请重新领一份。",
   ];

@@ -111,6 +111,9 @@ echo "==> stage $RELEASE_NAME"
 rsync -a \
   --exclude node_modules \
   --exclude artifacts \
+  --exclude releases \
+  --exclude current \
+  --exclude deployed.json \
   --exclude var \
   --exclude .git \
   --exclude 'sites' \

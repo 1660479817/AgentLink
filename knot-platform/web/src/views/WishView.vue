@@ -31,6 +31,7 @@ import { cardIsMine } from "../discoverBoard.js";
 import { feeOf, priceOf, wishIsLive } from "../record.js";
 import { startPolling } from "../polling.js";
 import { timeAgo } from "../time.js";
+import { altLabel } from "../mediaLabel.js";
 import { t } from "../i18n/index.js";
 import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
@@ -765,7 +766,7 @@ async function dismissSale(item) {
       </div>
       <p v-if="wish.kMeta?.verdict === 'rejected' && wish.kMeta?.rejectReason" class="wish-reason">{{ wish.kMeta.rejectReason }}</p>
       <WishCopy v-if="wish.body" :body="wish.body" />
-      <RecordMedia :images="wish.images" :audio="wish.audio" />
+      <RecordMedia :images="wish.images" :audio="wish.audio" :label="altLabel(wish.body)" />
       <ul v-if="fileRows(wish).length" class="wish-files">
         <li v-for="(file, index) in fileRows(wish)" :key="`${file.name}-${index}`" class="wish-file">
           <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
@@ -774,7 +775,7 @@ async function dismissSale(item) {
           </span>
         </li>
       </ul>
-      <VideoFrame v-if="wish.videos?.[0]" :url="wish.videos[0].url" :poster="wish.videos[0].poster || ''" :play-url="wish.videos[0].playUrl || ''" />
+      <VideoFrame v-if="wish.videos?.[0]" :url="wish.videos[0].url" :poster="wish.videos[0].poster || ''" :play-url="wish.videos[0].playUrl || ''" :label="altLabel(wish.body)" />
       <div class="wish-responses">
         <p class="wish-responses-label">{{ t("wish.responses") }}</p>
         <p v-if="(wish.kMeta?.verdict === 'passed' || wish.kMeta?.verdict === 'pending') && !wish.responses.length" class="muted">{{ t("wish.responsesEmpty") }}</p>
@@ -787,7 +788,7 @@ async function dismissSale(item) {
             <span v-if="item.kMeta?.language"> · {{ item.kMeta.language }}</span>
           </p>
           <p v-if="item.body" class="bounty-reply-body">{{ toPlain(item.body) }}</p>
-          <RecordMedia :images="item.images" :audio="item.audio" />
+          <RecordMedia :images="item.images" :audio="item.audio" :label="altLabel(item.body)" />
           <ul v-if="fileRows(item).length" class="wish-files">
             <li v-for="(file, index) in fileRows(item)" :key="`${file.name}-${index}`" class="wish-file">
               <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
@@ -796,7 +797,7 @@ async function dismissSale(item) {
               </span>
             </li>
           </ul>
-          <VideoFrame v-if="item.videos?.[0]" :url="item.videos[0].url" :poster="item.videos[0].poster || ''" :play-url="item.videos[0].playUrl || ''" />
+          <VideoFrame v-if="item.videos?.[0]" :url="item.videos[0].url" :poster="item.videos[0].poster || ''" :play-url="item.videos[0].playUrl || ''" :label="altLabel(item.body)" />
           <AppButton
             v-if="fileRows(item).length"
             variant="secondary"
@@ -836,7 +837,7 @@ async function dismissSale(item) {
         <div class="wish-target">
           <ActorMark :actor="item.wish.actor" />
           <WishCopy v-if="item.wish.body" :body="item.wish.body" />
-          <RecordMedia :images="item.wish.images" :audio="item.wish.audio" />
+          <RecordMedia :images="item.wish.images" :audio="item.wish.audio" :label="altLabel(item.wish.body)" />
           <ul v-if="fileRows(item.wish).length" class="wish-files">
             <li v-for="(file, index) in fileRows(item.wish)" :key="`${file.name}-${index}`" class="wish-file">
               <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
@@ -845,7 +846,7 @@ async function dismissSale(item) {
               </span>
             </li>
           </ul>
-          <VideoFrame v-if="item.wish.videos?.[0]" :url="item.wish.videos[0].url" :poster="item.wish.videos[0].poster || ''" :play-url="item.wish.videos[0].playUrl || ''" />
+          <VideoFrame v-if="item.wish.videos?.[0]" :url="item.wish.videos[0].url" :poster="item.wish.videos[0].poster || ''" :play-url="item.wish.videos[0].playUrl || ''" :label="altLabel(item.wish.body)" />
         </div>
         <ol class="wish-stages">
           <li class="wish-stage is-done">
@@ -895,7 +896,7 @@ async function dismissSale(item) {
                 </p>
                 <p v-if="reply.kMeta?.verdict === 'rejected' && reply.kMeta?.rejectReason" class="wish-reason">{{ reply.kMeta.rejectReason }}</p>
                 <p v-if="reply.body" class="bounty-reply-body">{{ toPlain(reply.body) }}</p>
-                <RecordMedia :images="reply.images" :audio="reply.audio" />
+                <RecordMedia :images="reply.images" :audio="reply.audio" :label="altLabel(reply.body)" />
                 <ul v-if="fileRows(reply).length" class="wish-files">
                   <li v-for="(file, index) in fileRows(reply)" :key="`${file.name}-${index}`" class="wish-file">
                     <PaperclipIcon class="wish-file-icon" aria-hidden="true" />
@@ -904,7 +905,7 @@ async function dismissSale(item) {
                     </span>
                   </li>
                 </ul>
-                <VideoFrame v-if="reply.videos?.[0]" :url="reply.videos[0].url" :poster="reply.videos[0].poster || ''" :play-url="reply.videos[0].playUrl || ''" />
+                <VideoFrame v-if="reply.videos?.[0]" :url="reply.videos[0].url" :poster="reply.videos[0].poster || ''" :play-url="reply.videos[0].playUrl || ''" :label="altLabel(reply.body)" />
               </div>
               <template v-if="!item.responses.length && session.user && respondId === item.wish.id">
                 <form id="wish-reply-form" class="share-dialog" @submit.prevent="submitReply">

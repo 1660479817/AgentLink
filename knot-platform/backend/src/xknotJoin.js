@@ -70,14 +70,13 @@ export function applicationPayload(site = {}, { subdomain = "", email = "", loca
   const region = String(site.region || "").trim().toUpperCase();
   return {
     name: cut(site.name, 40),
-    mode: "subdomain",
     subdomain: cut(subdomain, 40).toLowerCase(),
     intro: cut(site.tagline || site.intro, 60),
     operator: cut(site.owner, 80),
     email: cut(email || site.contact, 120),
     region: /^[A-Z]{2}$/.test(region) ? region : "GLOBAL",
     timezone: cut(site.timezone, 40) || "UTC",
-    tags: Array.isArray(site.tags) ? site.tags.join(", ") : "",
+    tags: Array.isArray(site.tags) ? site.tags.slice(0, 9) : [],
     agree: true,
     locale,
   };
@@ -102,16 +101,24 @@ export async function submitApplication({ site, subdomain, email, locale, hubOri
   if (missing.length) return { error: "incomplete", fields: missing };
 
   const hub = hubOriginOf({ hubOrigin });
-  try {
-    const { status, data } = await callHub(
+  const post = (body) =>
+    callHub(
       `${hub}/api/applications`,
       {
         method: "POST",
         headers: { accept: "application/json", "content-type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       },
       fetchImpl
     );
+
+  try {
+    let { status, data } = await post(payload);
+    // 老中枢（0.2.0 及更早）把 mode 当必填，新中枢反过来拒绝它。
+    // 只在对方明确要 mode 时补发一次，不把停用的字段写回常规请求。
+    if (status === 400 && data?.fields?.mode === "required") {
+      ({ status, data } = await post({ ...payload, mode: "subdomain" }));
+    }
     if (status === 201) return { ok: true, application: data?.application || null };
     if (status === 400) return { error: "invalid", fields: data?.fields || {} };
     if (status === 409) return { error: "duplicate" };

@@ -32,10 +32,29 @@ export function writeStored(storage, key, value) {
   }
 }
 
-export function bootLocale(pin, seen) {
+export function bootLocale(pin, seen, tags = navigatorTags()) {
   if (isLocale(pin)) return pin;
   if (isLocale(seen)) return seen;
-  return "en";
+  const hint = localeFromTags(tags);
+  return isLocale(hint) ? hint : "en";
+}
+
+/**
+ * 浏览器偏好里第一条简中 / 繁中 / 英文。首屏在会话接口回来之前就要定语言，
+ * 这一眼比默认 en 准；导航先出英文、正文再变中文，读起来像半页没翻完。
+ */
+function localeFromTags(tags = []) {
+  for (const tag of tags) {
+    const value = String(tag || "").trim().toLowerCase();
+    if (value.startsWith("zh")) return /hant|tw|hk|mo/.test(value) ? "zh-TW" : "zh-CN";
+    if (value.startsWith("en")) return "en";
+  }
+  return "";
+}
+
+function navigatorTags() {
+  if (typeof navigator === "undefined") return [];
+  return [...(navigator.languages || []), navigator.language].filter(Boolean);
 }
 
 /**

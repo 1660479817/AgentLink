@@ -69,10 +69,15 @@
 | PUT | `/api/admin/profile` | `/admin` | `{ site }` 整份替换；校验不过返回 400 `bad_profile` 和 `problems` |
 | GET | `/api/admin/xknot/subdomain?label=` | `/admin` | 把标签转发到中枢的 `GET /api/subdomains/check`，返回 `available`、`reason` 与候选建议 |
 | POST | `/api/admin/xknot/apply` | `/admin` | 把自述与联系邮箱交给中枢的 `POST /api/applications`；中枢的状态码与 `fields` 原样带回 |
+| GET | `/api/admin/xknot/application` | `/admin` | 本地底账：已交申请的编号、案例链接、状态与提交时间；没有记录时 `application` 为 `null` |
+
+`POST /api/admin/xknot/apply` 成功后会把这四项写进与 `profile.json` 同级的 `join.json`（权限 `600`）。案例链接本身就是能力凭据，不进版本库、不进发布包；邮件只是同步通知，刷新页面后从「接入 XKnot」卡片还能打开进度。
 
 `/api/web/session` 里的 `brand` 是 `site` 的子集（名称、一句话介绍、长介绍、logo、主理人、联系方式），本站 WebUI 只用这六项。
 
 `/api/federation/profile` 只读，不接受写入：主理人改档案只在本机 `/admin` 里做，中枢没有收件接口。
+
+入口首页的 `title`、`description`、Open Graph 与 `<noscript>` 简介也来自这份档案，但它们是**推入口时生成的静态 HTML**，不是每次请求现算：改完档案要重推一次入口（`push-entry.sh`）才会换掉。生成规则见 [`ops/entry/README.md`](../ops/entry/README.md)。
 
 ## 5. 在 /admin 里编辑
 

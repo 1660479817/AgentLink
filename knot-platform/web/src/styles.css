@@ -5274,6 +5274,9 @@ body.is-lightbox {
   touch-action: pan-y;
   user-select: none;
   cursor: grab;
+  /* 左右两张卡片要靠位移露在容器外。clip 只切横向，纵向的浮动阴影还看得见；
+     hidden 会把 overflow-y 变成 auto，反而多出一条纵向滚动条。 */
+  overflow-x: clip;
 }
 
 .carousel-item {
@@ -5446,6 +5449,28 @@ body.is-lightbox {
   width: 1.05rem;
   height: 1.05rem;
   flex: 0 0 auto;
+}
+
+/* 说明文档在 /help：给人和爬虫一条站内入口，不用记 URL。 */
+.gate-delegate-help {
+  margin: 0.2rem 0 0;
+  text-align: right;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.gate-delegate-help a {
+  /* 手机上这条也要好点：撑到 44px 的触摸高度。 */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 0.25rem;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.gate-delegate-help a:hover {
+  text-decoration: underline;
 }
 
 .gate-enter {

@@ -31,19 +31,6 @@ export const LIMITS = {
 
 export const FIELDS = ["name", "tagline", "intro", "logo", "owner", "contact", "region", "timezone", "tags"];
 
-/** 站点没交档案时用它：留空，让 WebUI 用自己的兜底。 */
-export const EMPTY_SITE = Object.freeze({
-  name: null,
-  tagline: null,
-  intro: null,
-  logo: "",
-  owner: null,
-  contact: "",
-  region: null,
-  timezone: null,
-  tags: [],
-});
-
 const REGION_RE = /^[A-Z]{2}$/;
 
 export function isHttpsUrl(value) {

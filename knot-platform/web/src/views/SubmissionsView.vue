@@ -11,6 +11,7 @@ import { hoursLeftOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { PaperclipIcon } from "../icons/index.js";
 import { packetFile, packetVideos } from "../packet.js";
+import { altLabel } from "../mediaLabel.js";
 
 const items = ref([]);
 const loaded = ref(false);
@@ -94,12 +95,13 @@ async function reopen(item) {
       <span v-else-if="item.kMeta?.public === false && item.kMeta?.verdict !== 'removed'"> · {{ t("submissions.private") }}</span>
     </p>
     <p v-if="item.body" class="information-body">{{ toPlain(item.body) }}</p>
-    <RecordMedia :images="item.images" :audio="item.audio" />
+    <RecordMedia :images="item.images" :audio="item.audio" :label="altLabel(item.body)" />
     <VideoFrame
       v-if="packetVideos(item.videos)[0]"
       :url="packetVideos(item.videos)[0].url"
       :poster="packetVideos(item.videos)[0].poster || ''"
       :play-url="packetVideos(item.videos)[0].playUrl || ''"
+      :label="altLabel(item.body)"
     />
     <ul v-if="packetFile(item.attachments).length" class="information-files">
       <li v-for="file in packetFile(item.attachments)" :key="file.id">

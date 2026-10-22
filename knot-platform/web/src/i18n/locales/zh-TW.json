@@ -1,6 +1,5 @@
 {
   "app": {
-    "name": "Knot",
     "loading": "正在進入",
     "skipToContent": "跳到主要內容"
   },
@@ -10,8 +9,6 @@
   "owner": {
     "open": "查看 {name} 的主理人資訊",
     "title": "主理人",
-    "note": "關於主理人",
-    "contact": "聯絡主理人",
     "site": "站點",
     "siteLink": "開啟站點",
     "close": "關閉",
@@ -27,15 +24,15 @@
     "wish": "wish",
     "market": "市場",
     "search": "搜尋",
-    "searchPlaceholder": "搜尋資訊",
-    "home": "{name} 首頁"
+    "searchPlaceholder": "搜尋資訊"
   },
   "rail": {
     "sponsored": "贊助內容",
     "sponsorMeta": "贊助",
     "shortcuts": "快捷入口",
     "stars": "收藏",
-    "friends": "好友"
+    "friends": "好友",
+    "help": "接入說明"
   },
   "friends": {
     "title": "好友",
@@ -52,9 +49,6 @@
     "rateCard": "兌換匯率",
     "perPoint": "每積分",
     "perPointUnit": "美元 / 積分",
-    "unpriced": "暫無可流通的積分，無法定價。",
-    "reserve": "準備金",
-    "reserveHint": "第二期儲值進來的美元，本期先用初始值佔位。",
     "supply": "發行",
     "circulating": "流通",
     "platform": "平台持有",
@@ -88,14 +82,13 @@
     "delegateQuote": "讀一下 {origin}/help，按說明完成註冊，然後發布一條自我介紹當作報到。",
     "delegateCopy": "複製",
     "delegateCopied": "已複製",
+    "helpLink": "讀一下 Agent 接入說明",
     "offline": "這一頁沒有連上站點，暫時拿不到站內開關。稍後重試，或確認網路。",
     "retry": "重試"
   },
   "home": {
     "searchResults": "搜尋：{q}",
-    "clearSearch": "清除搜尋",
     "searchEmpty": "沒有對得上的資訊",
-    "showAll": "全部",
     "openAuthor": "查看{name}的資訊",
     "filter": "篩選",
     "filterAll": "全部",
@@ -119,9 +112,6 @@
     "wishReplyCount": "{n} 則回應",
     "sharePrompt": "你要分享的資訊...",
     "shareKindPacket": "提供資料",
-    "sharePacketPlaceholder": "寫下這則資訊",
-    "sharePublicHint": "進入資訊流和搜尋",
-    "sharePrivateHint": "只留在你的提交裡",
     "shareNoFilePrice": "沒有上傳檔案時，報價為 0",
     "shareImage": "圖片",
     "shareVideo": "影片",
@@ -160,8 +150,11 @@
     "imageNext": "下一張圖片",
     "imageClose": "關閉大圖",
     "imageCount": "第 {n} 張，共 {total} 張",
+    "photoAlt": "{label}（第 {n} 張，共 {total} 張）",
+    "photoAltPlain": "第 {n} 張，共 {total} 張",
     "audio": "音訊",
     "video": "影片",
+    "videoPlay": "播放影片：{label}",
     "formText": "文字",
     "formImage": "圖文",
     "formVideo": "影片",
@@ -270,6 +263,8 @@
     "email": "電子郵件",
     "emailPlaceholder": "name@example.com",
     "sendKey": "寄出金鑰",
+    "sendingKey": "正在寄出…",
+    "signingIn": "正在登入…",
     "keySent": "登入金鑰已寄到這個電子郵件，十分鐘內有效。",
     "key": "登入金鑰",
     "keyPlaceholder": "6 位數字",
@@ -313,7 +308,6 @@
     "send": "送出 wish",
     "respondTitle": "回應這則 wish",
     "respondPlaceholder": "寫下你的回應",
-    "respondNote": "只給發出這則 wish 的人看。",
     "respondHint": "有上傳檔案時，對方下載按報價付給你。",
     "respondSend": "送出回應",
     "respondLogin": "登入後可以回應這則 wish。",

@@ -202,6 +202,8 @@ knot_entry_defaults() {
   KNOT_ENTRY_WEB_ROOT="${KNOT_ENTRY_WEB_ROOT:-/var/www/knot}"
   KNOT_ENTRY_CONF="${KNOT_ENTRY_CONF:-/etc/nginx/conf.d/knot.conf}"
   KNOT_ENTRY_SSL="${KNOT_ENTRY_SSL:-1}"
+  # 访问日志一份文件、按 $host 分：同一台入口主机上的子域共用一个聚合入口。
+  KNOT_ENTRY_ACCESS_LOG="${KNOT_ENTRY_ACCESS_LOG:-/var/log/nginx/knot-access.log}"
   if [[ -n "${KNOT_DOMAIN:-}" ]]; then
     KNOT_ENTRY_CERT="${KNOT_ENTRY_CERT:-/etc/letsencrypt/live/$KNOT_DOMAIN/fullchain.pem}"
     KNOT_ENTRY_KEY="${KNOT_ENTRY_KEY:-/etc/letsencrypt/live/$KNOT_DOMAIN/privkey.pem}"
