@@ -37,9 +37,11 @@
 
 ## 入口这一层什么时候不存在
 
-实例**用自己的域名**（`own-domain`）时，没有入口主机，也没有回源隧道：DNS 直接指向实例主机，实例自己跑 nginx、自己签证书。`sites/<站点>/` 下不写 `entry.<域名>.env`，名册 `mode` 是 `own-domain`、`tunnel` 为 `null`。加入方式见 [xknot.si/docs/JOIN.md](../xknot.si/docs/JOIN.md) 第 2 节。
+**联邦成员一律走入口主机 + 回源隧道。** 名册 `mode` 只有一个取值 `subdomain`，`tunnel` 必填；清单 `url` 必须是中枢签发的 `https://<标签>.xknot.si`。接入方式见 [xknot.si/docs/JOIN.md](../xknot.si/docs/JOIN.md) 第 2 节。
 
-**签发子域（`某名.xknot.si`）一律走入口主机 + 回源隧道。** 「子域指到伙伴自己的固定 IP、不走隧道」这个组合不在契约里（名册只有两种 `mode`，它两头都不算），`validate-federation.mjs` 会拒绝，也没有落地步骤。
+实例如果**用自己的域名**对外，它就不需要加入联邦这一步：没有入口主机，也没有回源隧道，DNS 直接指向实例主机，实例自己跑 nginx、自己签证书。这类站点不登记 `instances.json`，也不参与联邦探测。
+
+**「子域指到伙伴自己的固定 IP、不走隧道」不在契约里**：`validate-federation.mjs` 会拒绝，也没有落地步骤。要固定 IP 就用自有域名自建站点。
 
 ## 不要再用这些词
 
