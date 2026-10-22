@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 实例主机主动连出，把入口的回源端口转到本机 Knot Backend。
 #
 # 账号、私钥和端口来自两处，后者覆盖前者：

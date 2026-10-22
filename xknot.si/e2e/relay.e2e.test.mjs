@@ -138,7 +138,7 @@ test("relay: 没凭据、伪造凭据都是 401", async () => {
 test("relay: 实例被暂停后立刻 403，不用重启接口", async () => {
   const paused = structuredClone(DEFAULT_MANIFEST);
   paused.updatedAt = "2026-01-02";
-  paused.instances.find((item) => item.id === "e2e-node").status = "paused";
+  paused.instances.find((item) => item.id === "e2e-node").status = "suspended";
   await stack.setManifest(paused);
 
   const result = await relay({ body: message });

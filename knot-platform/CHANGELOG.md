@@ -8,11 +8,13 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的
 - **内容修订序号**：`kMeta.version`，一条内容在它修订链里的序号，从 1 起。
 - **修订 lineage**：`kMeta.originId` 指向首版，同一篇的多个版本串成一条链。
 
-## [Unreleased]
+## [0.4.0] — 2026-10-22
 
 ### 变更
 
-- **入口开始记访问日志，中枢按子域聚合流量**。入口模板新增 `access_log /var/log/nginx/knot-access.log knot_json`：只记 `$uri` 不记查询串，`$host` 作为唯一的子域标识。`log_format` 单独放在 `ops/entry/log.conf.template`，由 `push-entry.sh` 装成 `knot-log.conf`，同一台入口主机只声明一次——写进 `site.conf.template` 会让第二个子域过不了 `nginx -t`。中枢侧 `xknot.si/ops/traffic.mjs` 每小时把日志按天、按实例聚合成 `var/traffic/{id}.json`：请求数、字节、状态码、缓存命中、p50/p95、近似去重、爬虫占比、热门路径与来源主机；原始日志 7 天、聚合 30 天，产物里不留 IP 与完整 referer。同时新增 `ops/node-status.mjs` 把探测、隧道对端、位置、流量合成一份 `var/status.json`，控制台的实例行显示「昨日 N 次 · X」，并把「隧道断开」与「接口不通」分成两种故障。
+- **产品版本 `0.3.0` → `0.4.0`**。`knot-platform/package.json`、`backend`、`web` 与共享包 `@knot/config` 同步抬版本，`/api/health` 的 `version` 跟着走。
+
+- **入口开始记访问日志，中枢按子域聚合流量**。入口模板新增 `access_log /var/log/nginx/knot-access.log knot_json`：只记 `$uri` 不记查询串，`$host` 作为唯一的子域标识。`log_format` 单独放在 `ops/entry/log.conf.template`，由 `push-entry.sh` 装成 `knot-log.conf`，同一台入口主机只声明一次——写进 `site.conf.template` 会让第二个子域过不了 `nginx -t`。中枢侧 `xknot.si/ops/traffic.mjs` 每小时把日志按天、按实例聚合成 `var/traffic/{id}.json`：请求数、字节、状态码、缓存命中、p50/p95、近似去重、爬虫占比、热门路径与来源主机；原始日志 7 天、聚合 30 天，产物里不留 IP 与完整 referer。同时新增 `xknot.si/ops/node-status.mjs` 把探测、隧道对端、位置、流量合成一份 `var/status.json`，控制台的实例行显示「昨日 N 次 · X」，并把「隧道断开」与「接口不通」分成两种故障。
 - **接入过程全自动收尾：隧道配置与接入件各归一处**。中枢把入口主机、账号与端口交出来之后，`/admin` 的 XKnot 栏把隧道写进新文件 `sites/<站点>/tunnel.env`（不再往 `site.env` 里塞托管段）。`site.env` 归 `deploy-site.sh`，`tunnel.env` 归界面，重新部署不会把接通配置冲掉；`deploy-site.sh` 见到 `tunnel.env` 就装 `com.knot.entry-tunnel`，即使 `site.env` 仍是 `KNOT_ENTRY_ENABLED=0`。`run-entry-tunnel.sh` 先读 `site.env`、再用 `tunnel.env` 覆盖，并且只要求 `KNOT_TUNNEL=1`。验收通过（`run.state = active`）后，实例按中枢给出的 `issued` 写 `sites/<站点>/xknot.env`（`600`），内容一致时不重写，写进去了才重启 Backend——这一份就是 `/api/federation/profile` 与门户那条档案的来源。部署根改为向上找 `sites/`，`<root>/releases/<版本>/backend` 与 `<root>/backend` 两种布局都认。
 - **`XKNOT_TIER` 认 `free` / `paid`**。中枢现在只签发这两档，实例侧枚举还是早期的 `demo / partner / community`，拿一份 `free` 的接入件重启就起不来（`Backend 没有启动：环境变量不合法`）。旧的三个值仍可读，模板与 `docs/CONFIG.md` 一并重出。
 
@@ -145,7 +147,7 @@ LaunchAgent 会在下次 `deploy-site.sh` 时装成 `com.knot.entry-tunnel`，�
 - facets 动态阈值：类别与话题按频次中位数取阈值，取代写死的 5/2。冷启动时长尾不再够不到门槛。
 - 注意力打点：`intel_reads` 记读痕迹、`search_events` 记检索事件，`/api/admin/economy` 多返回 `attention: { reads, searches }`，先量化「筛选与压缩」供精算师看，暂不扣费。
 - 内容修订 lineage：`post` / `fastpost` 可带 `revises` 修订已有记录，`kMeta.originId` 指向首版、`version` 递增；信息流和搜索每个 origin 只显示最新可见版。
-- `/api/health` 返回 `version`，读自 `apps/knot-platform/package.json`。
+- `/api/health` 返回 `version`，读自 `knot-platform/package.json`。
 - 信息检索（平台管理 Agent「信息检索员」`knot-retrieval`）：
   - `POST /api/agent/retrieve` 收自然语言检索要求，落成一条 `wish`，后台检索员执行「内部信息流检索 → agent 整合 + 外部补充 → 报告打包成附件 → `wishRespond`」，请求方到 wish 里下载。
   - 收费服务：价格由平台统一设定（`economy_policy.retrieval_price`，环境变量 `KNOT_RETRIEVAL_PRICE`，默认 10），下载检索结果时收「检索价 + 下载服务费」，检索价归平台。
@@ -153,7 +155,7 @@ LaunchAgent 会在下次 `deploy-site.sh` 时装成 `com.knot.entry-tunnel`，�
 
 ### 变更
 
-- `apps/knot-platform` 与 `apps/web` 版本 `0.1.0` → `0.2.0`。
+- `knot-platform` 与 `web` 版本 `0.1.0` → `0.2.0`。
 - `kMeta.version` 语义从「恒为 1」改为「修订链序号」，新增 `kMeta.originId`。
 - 检索降噪：`searchPublicIntel` 改为「完整命中优先 + 相关度排序」，不再只看权重。查询「个人助理」这类词，只碰到一两个零散字的日报不再挤进前 30。
 - 迁移 `022_intel_revision.sql`：`intel` 加 `origin_id`、`version`，已有行各自是独立首版。

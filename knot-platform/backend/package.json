@@ -1,6 +1,6 @@
 {
   "name": "knot-platform",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "migrate": "node scripts/migrate.js"
   },
   "dependencies": {
-    "@knot/config": "0.3.0",
+    "@knot/config": "0.4.0",
     "@knot/doc-reader": "0.1.0",
     "@knot/markdown": "0.1.0",
     "cookie-parser": "^1.4.7",

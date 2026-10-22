@@ -108,7 +108,7 @@ L1 装在两处，按谁有权改划分：
 | `id` | 小写字母、数字、连字符，2–32 位，清单内唯一，不可改 |
 | `url` | 身份地址，各语种共用。恒为中枢签发的 `https://<标签>.xknot.si`；落在其它域名下会被校验拒绝 |
 | `since` | ISO 日期，收录日 |
-| `tier` | `demo`、`free`、`paid`（旧值 `partner` / `community` 按同档兼容） |
+| `tier` | `demo`、`free`、`paid`。清单只收这三个值；早期快照里的 `partner` / `community` 门户按同档排序 |
 | `status` | `pending`、`active`、`suspended`、`retired`。`pending` 只表示已收录、未验收 |
 | `statsUrl` | 可空。有值时拉取 L2 活动数据 |
 | `cardsUrl` | 可空。有值时拉取 L3 橱窗 |

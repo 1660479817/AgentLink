@@ -24,8 +24,7 @@
 | `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
 | `wang.xknot.si` | 创始实例 | XKnot 项目创始人的实例，永久账号，不适用下架；`tier=paid` |
 | `zjj.xknot.si` | 伙伴实例 | 社区成员，动态 IP 经入口隧道接入（子域已签发，隧道待接通） |
-| `travel.xknot.si` | 预留 | 旅行垂直（版式示例，尚未上线） |
-| `ai.xknot.si` | 预留 | AI 垂直（版式示例，尚未上线） |
+| `cpswang.xknot.si` | 伙伴实例 | 社区成员，子域与入口隧道已接通，2026-10-21 收录；`tier=free` |
 
 `xknot.si` 是联盟门户本身；其余子域是**实例**，每个跑一套 Knot 实例（当前实现是 `knot-platform`，含 WebUI、Backend 与 OpenClaw 配套）：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与门户单线联系，门户只读。接入只依赖两样东西：`/api/health` 与中枢签发的接入件，与实例用什么软件、怎么部署无关。站点怎么介绍自己由主理人在实例的 `/admin` 里写，中枢按 `GET /api/federation/profile` 取回，不需要提交或审批。
 
@@ -40,7 +39,7 @@
 
 | 层 | 能力 | 内容 |
 |----|------|------|
-| L1 | 站点档案 | 签发区（中枢写：`id`、`url`、`since`、`tier`、`status`）+ 自述区（主理人在实例里写：名称、简介、区域、语言、运营方、联系方式） |
+| L1 | 站点档案 | 签发区（中枢写：`id`、`url`、`since`、`tier`、`status`）+ 自述区（主理人在实例里写：名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签） |
 | L2 | 运行状态 | 构建时探测 `/api/health`，给出健康点、上次正常时间、可用率 |
 | L2 | 活动数据 | 构建时拉取 `statsUrl`，只取窗口计数，页面上标「伙伴公开的数据」 |
 | L3 | 热点橱窗 | 构建时拉取 `cardsUrl`，最多 6 张卡片，点开回原站 |
@@ -60,7 +59,7 @@
 | 分组 | 全球、东亚、东南亚、南亚、中亚、中东、欧洲、北美、拉美、非洲、大洋洲、其他 |
 | 语言判定 | 依据路径前缀；无 GeoIP 请求 |
 
-语言和区域互相独立：新加坡的旅行实例可以是 `regions: ["SG","MY"]`、`languages: ["en","zh-CN"]`。规则见 [docs/I18N.md](docs/I18N.md)。
+语言和区域互相独立：语种是界面文案的路径前缀，区域是站点档案里的 `region`（ISO 3166-1 alpha-2）和门户的分组；两者不互相推导。站点自述是单值字段，不按语种拆分。规则见 [docs/I18N.md](docs/I18N.md)。
 
 ## 实施里程碑
 
@@ -152,6 +151,8 @@ npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_
 | [docs/HUB.md](docs/HUB.md) | 中枢的实现、运行形态和验收清单 |
 | [docs/E2E.md](docs/E2E.md) | 本地部署形态、测试分层、覆盖矩阵与排障 |
 | [docs/JOIN.md](docs/JOIN.md) | 加入说明：申请流程与接入形态（签发子域 + 入口隧道） |
+| [docs/HANDOFF.md](docs/HANDOFF.md) | 收录交付单：签发到接通的步骤与验收 |
+| [docs/PARTNER-MAIL.md](docs/PARTNER-MAIL.md) | 发给伙伴的邮件模板与发信规范 |
 | [docs/federation.svg](docs/federation.svg) | 架构图 |
 | [instances.json](instances.json) | 实例清单：签发区字段 |
 | [federation.json](federation.json) | 联邦名册：成员身份、接入模式、隧道账号与端口 |

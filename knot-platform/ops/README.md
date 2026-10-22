@@ -74,7 +74,7 @@ node ops/scripts/config.mjs init <站点>
 
 从 0.4 之前的版本迁移：`node ops/scripts/migrate-profile.mjs --site <站点>` 把旧的 `KNOT_SITE_*` 六项搬进 `profile.json`，再从 `site.env` 删掉。
 
-WebUI 顶栏左上角是固定的 `XKnot` 标识（`public/logos/xknot-mark.svg`），所有站点一致。站点自己的名字在顶栏正中，站点 logo 用在登录卡和未登录首页。顶栏不设搜索按钮；点站点名打开主理人弹窗。
+WebUI 顶栏左上角是固定的 `XKnot` 标识（`web/public/logos/xknot-mark.svg`），所有站点一致。站点自己的名字在顶栏正中，站点 logo 用在登录卡和未登录首页。顶栏不设搜索按钮；点站点名打开主理人弹窗。
 
 local 部署到这里就够了。要接入 xknot.si 子域，再填 `KNOT_ENTRY_ENABLED=1`、`KNOT_ENTRY_SSH`、`KNOT_DOMAIN` 和 `KNOT_PUBLIC_ORIGIN`；要从开发机发布，填 `KNOT_DEPLOY_SSH`。
 
@@ -488,7 +488,7 @@ node ops/scripts/config.mjs sites             # 列出站点与 platform.env 状
 `KNOT_ENTRY_SERVE` 决定首页从入口主机上的磁盘出（`static`）还是也走隧道（`proxy`），总览见
 [`entry/README.md`](./entry/README.md)。子域怎么申请、清单怎么登记见 [`JOIN.md`](../../xknot.si/docs/JOIN.md)。
 
-**同机每个子域要有独立的隧道账号和回环端口**，不能共用（`Match` 首条匹配生效，`PermitListen` 只允许一个端口）。账号与端口分配见 [`xknot.si/federation.json`](../../xknot.si/federation.json) 的 `entry` 段；签发交接流程见 [`xknot.si/docs/HANDOFF.md`](../../xknot.si/docs/HANDOFF.md)。
+**同机每个子域要有独立的隧道账号和回环端口**，不能共用（`Match` 首条匹配生效，`PermitListen` 只允许一个端口）。账号与端口分配见 [`xknot.si/federation.json`](../../xknot.si/federation.json) 每个成员的 `tunnel.account` 与 `tunnel.port`；签发交接流程见 [`xknot.si/docs/HANDOFF.md`](../../xknot.si/docs/HANDOFF.md)。
 
 实例主机开启 `KNOT_ENTRY_ENABLED=1` 后，`deploy-site.sh` 会装 `com.knot.entry-tunnel`，并由 Backend 在公开内容变化后调用 `push-discover.sh` 推送 `/discover.json`。推页面用的 `KNOT_ENTRY_SSH_KEY` 和实例主机推快照用的 `KNOT_ENTRY_PUSH_KEY` 可以不是同一把。手动补推：
 

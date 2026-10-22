@@ -120,7 +120,7 @@ async function withUploads(pool, rows) {
 
 export function webRouter({ pool, sessionCookieName, uploadDir, profile }) {
   // 站点身份只用于展示：顶栏名称和分享文案。系统开关仍在 session.site。
-  // name / tagline / owner 都是多语种映射，由 WebUI 按当前语种取一个值。
+  // v2 起是九项扁平字符串，填什么就显示什么，不再按语种取。
   ensureUploadDir(uploadDir);
 
   const storage = multer.diskStorage({

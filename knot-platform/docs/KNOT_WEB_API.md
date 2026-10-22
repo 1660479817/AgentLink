@@ -150,9 +150,9 @@ Internal Personal Agent 默认是每位用户的好友。卡片上可以加上�
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/federation/profile` | 公开、无需会话。返回 `{ formatVersion, updatedAt, issued, profile }`。中枢按清单里的 `url` 取这一份 |
-| GET | `/api/admin/profile` | 管理令牌。同一份数据，另带 `file` 与 `problems` |
-| PUT | `/api/admin/profile` | 管理令牌。`{ profile }` 整份替换；校验不过返回 400 `bad_profile` 与 `problems`，不落盘 |
+| GET | `/api/federation/profile` | 公开、无需会话。返回 `{ formatVersion, issued, site, updatedAt }`。中枢按清单里的 `url` 取这一份 |
+| GET | `/api/admin/profile` | 管理令牌。返回 `{ issued, site, updatedAt, problems, file }` |
+| PUT | `/api/admin/profile` | 管理令牌。`{ site }` 整份替换；校验不过返回 400 `bad_profile` 与 `problems`，不落盘 |
 | GET | `/api/admin/xknot/subdomain?label=` | 管理令牌。代问中枢 `GET /api/subdomains/check`：`{ label, available, reason, min, suggestions }` |
 | POST | `/api/admin/xknot/apply` | 管理令牌。代交中枢 `POST /api/applications`，内容取自上面那份档案；中枢的 400 / 409 原样返回 |
 

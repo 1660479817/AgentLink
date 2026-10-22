@@ -42,8 +42,12 @@ xknot.si/
 │   ├── validate.mjs       申请表字段校验（纯函数）
 │   ├── manifest.mjs       申请 → instances.json 条目，生成后自检
 │   ├── edit.mjs           控制台改实例配置：两份文件整份校验后原子写回
+│   ├── publish.mjs        申请通过后把实例写进清单与名册（幂等，可随自动接通重试）
+│   ├── provision.mjs      自动接通的状态机：分配、发布、账号、sshd、静态根、DNS、反代、证书，逐步幂等
+│   ├── backfill.mjs       给清单里已有、库里没有申请单的实例补一张已通过的申请
 │   ├── relay.mjs          委托发信的字段校验与消息组装（纯函数）
 │   ├── mail.mjs           SMTP 客户端（net/tls，无外部依赖）与邮件组装
+│   ├── member-mail.mjs    成员入口的一次性登录信（不进可补发的事件表）
 │   ├── notify.mjs         伙伴与内部邮件模板注册表（11 + 3，三语）
 │   ├── pages.mjs          /case/、/claim/ 两个无脚本页面
 │   ├── mail-test.mjs      发一封测试信（npm run mail:test）
@@ -59,6 +63,7 @@ xknot.si/
 │   ├── FEDERATION.md      中枢与实例的契约
 │   ├── HUB.md             本文件
 │   ├── JOIN.md            加入说明：申请、域名与隧道
+│   ├── E2E.md             本地部署形态、测试分层与覆盖矩阵
 │   ├── HANDOFF.md         子域签发到实例接通的交付单
 │   ├── PARTNER-MAIL.md    发给伙伴的邮件模板与发信规范
 │   ├── federation.svg     架构图
@@ -66,18 +71,26 @@ xknot.si/
 ├── ops/
 │   ├── xknot.si.conf            门户与接口的 nginx 配置
 │   ├── dev.mjs                  同时拉起接口与 Vite
+│   ├── local-hub.mjs            本机入口：静态站、安全头与反代，对齐 nginx
+│   ├── local-stack.mjs          本地部署编排：临时数据目录、随机端口、起停
+│   ├── deploy-local.sh          一键本地部署：校验、构建、启动
+│   ├── entry/                   已签发子域的成品 conf 与交接 runbook（zjj）
 │   ├── check-health.mjs         健康探测，写 var/health.json
 │   ├── watch-health.mjs         定时巡检：24 小时提醒、7 天隐藏、恢复自动回
 │   ├── traffic.mjs              入口访问日志 → 按子域的日流量，写 var/traffic/
 │   ├── node-status.mjs          合成节点状态：探测、隧道、位置、流量 → var/status.json
 │   ├── peers.mjs                隧道对端 → 出口 IP：读 ss/ps，对名册的隧道账号
 │   ├── geoip.mjs                出口 IP → 国家码：DB-IP Lite，写 var/geoip/locations.json
+│   ├── subdomain.mjs            子域名归一、保留名与长度校验、候选建议
+│   ├── probe-target.mjs         探测地址与开关：按清单 url 拼 /api/health
 │   ├── provision-worker.mjs     自动接通常驻：开通入口、切换反代，顺带采集位置
 │   ├── xknot-health.service     巡检服务单元（oneshot）
 │   ├── xknot-health.timer       巡检定时器（每 15 分钟）
 │   ├── xknot-traffic.service    流量聚合单元（oneshot）
 │   ├── xknot-traffic.timer      流量聚合定时器（每小时）
 │   ├── build-hub-data.mjs       合并清单、探测、活动数据与橱窗，写 data/hub.json
+│   ├── build-federation-map.mjs 生成联邦地图示意图（仓库根 docs/knot-federation-map.svg）
+│   ├── build-world-dots.mjs     生成世界底图（web/src/lib/world.js）
 │   ├── cards.mjs                读 var/cards/ 下的橱窗与预览样例合并
 │   ├── stats.mjs                读 var/stats/ 下的活动数据与预览样例合并
 │   ├── fetch-guard.mjs          拉取守卫：https、DNS、超时、大小、原子写
@@ -329,7 +342,7 @@ npm run test     # 纯逻辑单元测试
 
 目录里的钟点是**实例自己时区**的当前时刻，每 20 秒刷新一次，并带 `UTC±X` 偏移。这条信息让「分布在不同时区、由不同的人维护」在版面上直接可见，不再只是一句声明。区域仍只用于筛选，不参与排序。
 
-分级的排序规则不变：`demo` → `paid` → `free`（旧值 `partner` / `community` 按同档兼容），同级按 `since`，再按 `id`。
+分级的排序规则不变：`demo` → `paid` → `free`（早期快照里的 `partner` 按 `paid`、`community` 按 `free` 排），同级按 `since`，再按 `id`。写清单时只认新三档，由 `ops/validate-instances.mjs` 拦住旧值。
 
 标签筛选：只在有站点用了标签时出现，跟在区域那行下面；选项是全部加实际出现过的标签值，按首次出现排序，点一个就只看带这个标签的站点。
 
@@ -859,7 +872,7 @@ node server/admin-cli.mjs access XK-2026-XXXXXX --id wang
 
 `ops/node-status.mjs` 把四者合成 `var/status.json`：一个节点一条，字段各带采集时间。任一采集结束后调用 `refreshStatus()` 重算，整份原子替换；最后写入者胜，最坏情况是快照晚一个节拍。控制台按节点读这一份，不再分别打开四份文件。
 
-`manifest.status` 与 `probe.status` 是两件事：前者是中枢的上架决定，后者是那一刻的可达性。前者是 `pending` / `paused` 时，后者可能还是上一次的结果，所以颜色由控制台组合，不在数据层混成一个枚举。
+`manifest.status` 与 `probe.status` 是两件事：前者是中枢的上架决定，后者是那一刻的可达性。前者是 `pending` / `suspended` 时，后者可能还是上一次的结果，所以颜色由控制台组合，不在数据层混成一个枚举。
 
 ### 11.2 入口流量
 
