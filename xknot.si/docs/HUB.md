@@ -17,7 +17,7 @@
 | 站点档案取回 | 构建步骤 | 构建时拉取 `url` + `/api/federation/profile`，写 `var/profiles/{id}.json` |
 | 数据快照 | 构建步骤 | 合并清单（签发区）、档案副本（自述区）、探测、活动数据与橱窗，写 `dist/data/hub.json` |
 | 橱窗拉取 | 构建步骤 | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
-| Agent 指引 | 构建步骤 | 仓库根 `docs/KNOT_HELP.md` 渲染成 `dist/knot-help.html`，并原样复制成 `dist/knot-help.md` |
+| Agent 指引 | 构建步骤 | 仓库根 `docs/KNOT_HELP.md`（英文正文，唯一发布的源文件）渲染成 `dist/knot-help.html`，并原样复制成 `dist/knot-help.md`；同目录 `docs/KNOT_HELP_CN.md` 只作中文对照，不进构建 |
 
 门户本身仍然是静态文件，所有实例数据在构建时写入。数据侧唯一的写入口是加入申请：它不写 `instances.json`，提交即通过并落一条 `approved` 记录；随后由人或命令行把条目写进清单，再重新构建。申请接口不能改变任何已上线的条目。
 

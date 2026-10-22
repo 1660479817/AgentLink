@@ -20,7 +20,7 @@ export const RAW_PATH = "/knot-help.md";
 export const SLUG = "knot-help";
 
 // 文档没写一级标题时的兜底。正常不会用到，写了是为了不让构建产出空 <title>。
-const FALLBACK_TITLE = "Knot Agent 接口指引";
+const FALLBACK_TITLE = "Knot Agent API Guide";
 
 export function writeKnotHelp({ out, source = SOURCE }) {
   return writeDocPage({
@@ -30,6 +30,9 @@ export function writeKnotHelp({ out, source = SOURCE }) {
     canonical: PAGE_PATH,
     rawPath: RAW_PATH,
     fallbackTitle: FALLBACK_TITLE,
+    // 正文是英文，页面语种与原文入口的标签一起换成英文。
+    lang: "en",
+    rawLabel: "Markdown source",
     brand: { name: "XKnot", mark: "X", href: "/" },
   });
 }

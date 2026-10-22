@@ -1,6 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
-import { honorList, muteState, specialtyList, storedSpecialties, displayNameText, AGENT_LIMIT, USER_LIMIT } from "./account.js";
-import { createAgent, findAgentsOf, mapAgentError, removeAgentEnvFile, retireAgent, reviveAgent, writeAgentEnvFile } from "./agentAccount.js";
+import {
+  bioText,
+  honorList,
+  muteState,
+  specialtyList,
+  storedSpecialties,
+  displayNameText,
+  agentLimitOf,
+  AGENT_LIMIT,
+  USER_LIMIT,
+} from "./account.js";
+import { createAgent, findAgentsOf, mapAgentError, removeAgentEnvFile, retireAgent, reviveAgent, updateAgentEnvName, writeAgentEnvFile } from "./agentAccount.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { discardExtract } from "./extracts.js";
 import { recordNotification } from "./notifications.js";
@@ -14,7 +24,7 @@ const LEVEL_MAX = 100;
 const HONOR_MAX = 8;
 const HONOR_NAME = 20;
 const MUTE_FOREVER = new Date(Date.UTC(9999, 11, 31));
-const ACCOUNT_COLUMNS = `id, role, side, email, display_name, owner_id, label, level, entitlements, points_balance, muted_until, specialties, retired_at`;
+const ACCOUNT_COLUMNS = `id, role, side, email, display_name, owner_id, label, level, entitlements, points_balance, muted_until, specialties, bio, retired_at`;
 const RECENT_LIMIT = 30;
 const WINDOW_LIMIT = 200;
 const WITHIN_MAX_HOURS = 24 * 366;
@@ -92,6 +102,7 @@ function presentAccount(row) {
     ownerId: row.owner_id || null,
     email: row.email || null,
     displayName: row.display_name || "",
+    bio: row.bio || "",
     label: row.label || "",
     level: row.level ?? 1,
     entitlements: honorList(row.entitlements),
@@ -144,6 +155,190 @@ async function oneUser(pool, query) {
 
 function presentIssued(row) {
   return { ...presentAccount(row), specialties: storedSpecialties(row.specialties) };
+}
+
+// 管理端的总名册：平台账号、主理人、外部账号，以及每个账号名下的 Agent。
+// 账号模型收成一张 accounts 之后，人、Agent、平台身份只是 role 不同，
+// 所以列表一次全取回来，由页面按 side / role 分组，不再分两个接口拼。
+const ROSTER_COLUMNS = `${ACCOUNT_COLUMNS}, created_at, (token_hash IS NOT NULL) AS has_token`;
+
+function presentAgent(row, ownerName = "") {
+  return {
+    id: row.id,
+    role: "agent",
+    side: row.side || null,
+    ownerId: row.owner_id || null,
+    ownerName,
+    displayName: row.display_name,
+    bio: row.bio || "",
+    createdAt: row.created_at,
+    retiredAt: row.retired_at || null,
+    hasToken: Boolean(row.has_token),
+    specialties: storedSpecialties(row.specialties),
+  };
+}
+
+export async function listAccountRoster(pool) {
+  const { rows } = await pool.query(
+    `SELECT ${ROSTER_COLUMNS}
+       FROM accounts
+      ORDER BY CASE role WHEN 'platform' THEN 0 WHEN 'owner' THEN 1 WHEN 'user' THEN 2 ELSE 3 END,
+               created_at ASC`
+  );
+
+  const agentsByOwner = new Map();
+  const nameById = new Map(rows.filter((row) => row.role !== "agent").map((row) => [row.id, row.display_name]));
+  for (const row of rows) {
+    if (row.role !== "agent" || !row.owner_id) continue;
+    const list = agentsByOwner.get(row.owner_id) || [];
+    list.push(presentAgent(row, nameById.get(row.owner_id) || ""));
+    agentsByOwner.set(row.owner_id, list);
+  }
+
+  const people = rows.filter((row) => row.role !== "agent");
+  const accounts = people.map((row) => {
+    const agents = agentsByOwner.get(row.id) || [];
+    return {
+      ...presentAccount(row),
+      createdAt: row.created_at,
+      agentLimit: agentLimitOf({ role: row.role }),
+      agentUsed: agents.filter((agent) => !agent.retiredAt).length,
+      agents,
+    };
+  });
+
+  const sumAgents = (account) => account.agents.filter((agent) => !agent.retiredAt).length;
+  return {
+    quota: {
+      // 内部名额是主理人名下在岗的 Agent 数，与库里的触发器同一个口径。
+      internalAgents: {
+        used: accounts.filter((account) => account.role === "owner").reduce((sum, account) => sum + sumAgents(account), 0),
+        limit: AGENT_LIMIT.owner,
+      },
+      // 外部账号数不算带 label 的测试员，与触发器里 label IS NULL 一致。
+      externalAccounts: {
+        used: people.filter((row) => row.role === "user" && !row.retired_at && !row.label).length,
+        limit: USER_LIMIT,
+      },
+      externalAgents: {
+        used: accounts.filter((account) => account.role === "user").reduce((sum, account) => sum + sumAgents(account), 0),
+      },
+    },
+    accounts,
+  };
+}
+
+// 管理端能改的身份资料：主理人，以及主理人名下的内部 Agent。
+// 外部账号的资料归账号自己在「我的」里改，管理端只读：替一个人改称呼与简介，
+// 等于用他的身份说话，而管理端要做的是审核与处置，不是代笔。
+function editableIdentity(row) {
+  if (!row) throw fail("not_found");
+  if (row.role === "owner") return "account";
+  if (row.role === "agent" && row.owner_role === "owner") return "agent";
+  throw fail("not_editable");
+}
+
+export async function updateManagedAccount(pool, id, patch = {}, options = {}) {
+  if (!UUID.test(String(id || ""))) throw fail("not_found");
+  const { rows } = await pool.query(
+    `SELECT a.${ACCOUNT_COLUMNS.split(", ").join(", a.")}, o.role AS owner_role
+       FROM accounts a
+       LEFT JOIN accounts o ON o.id = a.owner_id
+      WHERE a.id = $1`,
+    [id]
+  );
+  const row = rows[0];
+  const kind = editableIdentity(row);
+  const body = patch && typeof patch === "object" ? patch : {};
+
+  const sets = ["updated_at = now()"];
+  const params = [];
+  const notes = [];
+  let renamed = null;
+
+  if (Object.hasOwn(body, "displayName")) {
+    let name;
+    try {
+      name = displayNameText(body.displayName);
+    } catch {
+      throw fail("bad_name");
+    }
+    if (name === row.display_name) {
+      // 原样提交不算错，也不写一行没有变化的流水。
+    } else {
+      params.push(name);
+      sets.push(`display_name = $${params.length}`);
+      notes.push(`称呼 ${row.display_name} → ${name}`);
+      renamed = name;
+    }
+  }
+
+  if (Object.hasOwn(body, "bio")) {
+    let bio;
+    try {
+      bio = bioText(body.bio);
+    } catch {
+      throw fail("bad_bio");
+    }
+    if (bio !== (row.bio || "")) {
+      params.push(bio);
+      sets.push(`bio = $${params.length}`);
+      notes.push(bio ? "简介已更新" : "简介已清空");
+    }
+  }
+
+  if (Object.hasOwn(body, "specialties")) {
+    if (kind !== "agent") throw fail("bad_args");
+    let specialties;
+    try {
+      specialties = specialtyList(body.specialties);
+    } catch {
+      throw fail("bad_specialty");
+    }
+    const before = storedSpecialties(row.specialties);
+    if (specialties.join("\u0000") !== before.join("\u0000")) {
+      params.push(JSON.stringify(specialties));
+      sets.push(`specialties = $${params.length}::jsonb`);
+      notes.push(`特长 ${specialties.length ? specialties.join("、") : "已清空"}`);
+    }
+  }
+
+  if (sets.length === 1) throw fail("empty_body");
+
+  params.push(id);
+  let updated;
+  try {
+    updated = await pool.query(
+      `UPDATE accounts SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING ${ACCOUNT_COLUMNS}`,
+      params
+    );
+  } catch (error) {
+    if (error.code === "23505") throw fail("name_taken");
+    throw error;
+  }
+  const saved = updated.rows[0];
+  if (!saved) throw fail("not_found");
+
+  // 内部 Agent 改了称呼：授权码文件里那一行名字跟着改，令牌与文件名都不动。
+  // 文件改不成就把库里的称呼退回去，别让文件和账号对不上。
+  let envFile = null;
+  if (renamed && kind === "agent" && options.envDir) {
+    try {
+      envFile = await updateAgentEnvName(options.envDir, { id, displayName: renamed });
+    } catch (error) {
+      await pool
+        .query(`UPDATE accounts SET display_name = $2, updated_at = now() WHERE id = $1`, [id, row.display_name])
+        .catch((failure) => console.error(failure));
+      throw fail("env_failed");
+    }
+  }
+
+  const who = kind === "agent" ? `内部 Agent ${row.display_name}` : `主理人 ${row.display_name}`;
+  // 流水沿用 config：admin_actions.action 是基线里定死的枚举，
+  // 改主理人/内部 Agent 的资料属于站内配置变更，说明写在 body 里。
+  await writeAction(pool, { action: "config", accountId: id, body: `改 ${who} 的资料：${notes.join("；")}。` });
+
+  return { ok: true, kind, account: presentAccount(saved), envFile };
 }
 
 // 内部 Agent 只能挂在主理人名下，最多 10 个。名额由库里的触发器守，这里把错误翻成接口错误。
@@ -228,7 +423,9 @@ export async function listAgents(pool) {
   };
 }
 
-export async function retireInternalAgent(pool, id, reason, options = {}) {
+// 停用任意一行的 Agent：内部（主理人名下）与外部（外部账号名下）都走这里。
+// 外部账号在「我的」里也能自己停，管理端这一条是给泄漏的令牌与巡查兜底用的。
+export async function retireManagedAgent(pool, id, reason, options = {}) {
   if (!UUID.test(String(id || ""))) throw fail("not_found");
   const text = requireText(reason, REASON_MAX, "bad_body");
   const { rows } = await pool.query(
@@ -239,16 +436,17 @@ export async function retireInternalAgent(pool, id, reason, options = {}) {
   );
   const agent = rows[0];
   if (!agent) throw fail("not_found");
-  if (agent.owner_role !== "owner") throw fail("not_internal");
   await retireAgent(pool, id);
   // 库里的令牌已经清空，磁盘上那份授权码也一起带走，别让人拿着死码去接。
+  // 外部 Agent 没有授权码文件，这里只会得到 ENOENT。
   if (options.envDir) {
     await removeAgentEnvFile(options.envDir, { id, displayName: agent.display_name }).catch((error) =>
       console.error(error)
     );
   }
-  await writeAction(pool, { action: "retire", accountId: id, body: `停用 ${agent.display_name}。${text}` });
-  return { ok: true, id };
+  const where = agent.owner_role === "owner" ? "内部" : "外部";
+  await writeAction(pool, { action: "retire", accountId: id, body: `停用 ${where} Agent ${agent.display_name}。${text}` });
+  return { ok: true, id, ownerRole: agent.owner_role };
 }
 
 export async function searchUsers(pool, query) {

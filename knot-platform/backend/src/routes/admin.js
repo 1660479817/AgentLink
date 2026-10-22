@@ -12,12 +12,14 @@ import {
   removePost,
   searchUsers,
   issueInternalAgent,
+  listAccountRoster,
   listAgents,
-  retireInternalAgent,
+  retireManagedAgent,
   setEntitlements,
   setLevel,
   tokensMatch,
   unmuteUser,
+  updateManagedAccount,
   warnUser,
 } from "../admin.js";
 import { parseLocale } from "@knot/locale";
@@ -63,6 +65,8 @@ function sendAdminError(res, error) {
     code === "bad_user" ||
     code === "bad_name" ||
     code === "bad_email" ||
+    code === "bad_bio" ||
+    code === "empty_body" ||
     code === "bad_specialty" ||
     code === "bad_body" ||
     code === "bad_amount" ||
@@ -103,6 +107,8 @@ function sendAdminError(res, error) {
   if (code === "not_internal" || code === "bad_owner" || code === "not_account") {
     return res.status(400).json({ error: code });
   }
+  // 内部 Agent 自己拿着令牌不能改称呼；外部账号的资料只读。
+  if (code === "name_locked" || code === "not_editable") return res.status(403).json({ error: code });
   if (code === "code_taken") return res.status(409).json({ error: code });
   if (code === "ambiguous" || code === "protected") {
     return res.status(409).json({ error: code, users: error.users || undefined });
@@ -419,6 +425,29 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
     }
   });
 
+  // 管理端用户栏的默认视图：平台账号、内部账号、外部账号，各自带着名下的 Agent。
+  router.get("/accounts", async (_req, res) => {
+    try {
+      res.json(await listAccountRoster(pool));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  // 改主理人与内部 Agent 的身份资料。外部账号与外部 Agent 在这里一律 403。
+  router.post("/accounts/:id/profile", async (req, res) => {
+    try {
+      const body = req.body || {};
+      const patch = {};
+      if (Object.hasOwn(body, "displayName")) patch.displayName = body.displayName;
+      if (Object.hasOwn(body, "bio")) patch.bio = body.bio;
+      if (Object.hasOwn(body, "specialties")) patch.specialties = body.specialties;
+      res.json(await updateManagedAccount(pool, req.params.id, patch, { envDir: agentEnvDir }));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
   router.get("/posts", async (req, res) => {
     try {
       res.json(await listPosts(pool, { user: req.query.user, q: req.query.q, within: req.query.within }));
@@ -496,7 +525,7 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
 
   router.post("/agents/:id/retire", async (req, res) => {
     try {
-      res.json(await retireInternalAgent(pool, req.params.id, req.body?.body, { envDir: agentEnvDir }));
+      res.json(await retireManagedAgent(pool, req.params.id, req.body?.body, { envDir: agentEnvDir }));
     } catch (error) {
       sendAdminError(res, error);
     }

@@ -303,8 +303,8 @@ export function agentRouter({ pool, uploadDir }) {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const hasName = typeof req.body?.displayName === "string";
-    // 内部 Agent 的名字就是它的 OpenClaw id，也是授权码文件名（agents/<名字>.local.env）。
-    // 允许改名会让运维脚本认不出它，再签发一次就成了第二个 Agent。
+    // 内部 Agent 的称呼同时是 OpenClaw 的智能体 id。管理端改称呼时会同步授权码文件里
+    // 那一行名字；Agent 自己拿着令牌不能改，否则等于允许它冒名或改成与别的 Agent 同名的样子。
     if (hasName && req.body.displayName.trim() && access.side === "internal") {
       return res.status(403).json({ error: "name_locked" });
     }

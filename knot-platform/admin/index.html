@@ -12,10 +12,10 @@
     <section id="login-view" class="login" hidden>
       <form id="login-form" class="login-card" autocomplete="off">
         <p class="eyebrow">Knot</p>
-        <h1>管理后台</h1>
-        <p class="login-lead">这一页只在实例主机自己或同一内网打开。粘贴实例主机上的管理令牌后进入。</p>
+        <h1 data-i18n="login.title">管理后台</h1>
+        <p class="login-lead" data-i18n="login.lead"></p>
         <label class="field">
-          <span>管理令牌</span>
+          <span data-i18n="login.token"></span>
           <input
             id="token-input"
             name="token"
@@ -27,36 +27,75 @@
           />
         </label>
         <p id="login-error" class="alert" role="alert" hidden></p>
-        <button id="login-submit" class="button primary" type="submit">进入</button>
+        <button id="login-submit" class="button primary" type="submit">
+          <span class="icon" data-icon="enter" aria-hidden="true"></span>
+          <span data-i18n="login.submit"></span>
+        </button>
         <p class="login-hint">
-          令牌在 <code>sites/&lt;站点&gt;/platform.env</code> 的 <code>KNOT_ADMIN_TOKEN</code>，
-          或管理员工作区的 <code>.admin-token</code>。它不进仓库，也不要发给别人。
+          <span data-i18n="login.hintBefore"></span>
+          <code>sites/&lt;站点&gt;/platform.env</code>
+          <span data-i18n="login.hintMid"></span>
+          <code>KNOT_ADMIN_TOKEN</code>
+          <span data-i18n="login.hintAfter"></span>
+          <code>.admin-token</code>
+          <span data-i18n="login.hintTail"></span>
         </p>
+        <label class="locale-picker login-locale" for="login-locale-select">
+          <span class="icon" data-icon="globe" aria-hidden="true"></span>
+          <span class="visually-hidden" data-i18n="topbar.language"></span>
+          <select id="login-locale-select" class="locale-select" data-locale-select></select>
+        </label>
       </form>
     </section>
 
     <div id="admin-view" class="admin" hidden>
       <header class="topbar">
         <div class="topbar-brand">
-          <span class="brand-mark">K</span>
+          <span class="brand-mark" aria-hidden="true">K</span>
           <div>
-            <h1>Knot 管理后台</h1>
-            <p id="topbar-note" class="topbar-note">仅内网可用</p>
+            <h1 data-i18n="topbar.title"></h1>
+            <p id="topbar-note" class="topbar-note"></p>
           </div>
         </div>
         <div class="topbar-actions">
-          <button id="refresh-button" class="button ghost" type="button">刷新本页</button>
-          <button id="logout-button" class="button ghost" type="button">更换令牌</button>
+          <label class="locale-picker" for="locale-select">
+            <span class="icon" data-icon="globe" aria-hidden="true"></span>
+            <span class="visually-hidden" data-i18n="topbar.language"></span>
+            <select id="locale-select" class="locale-select" data-locale-select></select>
+          </label>
+          <button id="refresh-button" class="button ghost" type="button">
+            <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+            <span data-i18n="topbar.refresh"></span>
+          </button>
+          <button id="logout-button" class="button ghost" type="button">
+            <span class="icon" data-icon="key" aria-hidden="true"></span>
+            <span data-i18n="topbar.logout"></span>
+          </button>
         </div>
       </header>
 
       <div class="shell">
-        <nav class="side-nav" aria-label="管理栏目">
-          <button class="nav-button is-active" type="button" data-view="overview">概览</button>
-          <button class="nav-button" type="button" data-view="content">内容</button>
-          <button class="nav-button" type="button" data-view="users">用户</button>
-          <button class="nav-button" type="button" data-view="site">站点</button>
-          <button class="nav-button" type="button" data-view="xknot">XKnot</button>
+        <nav class="side-nav" data-i18n-aria-label="nav.label">
+          <button class="nav-button is-active" type="button" data-view="overview">
+            <span class="icon" data-icon="overview" aria-hidden="true"></span>
+            <span data-i18n="nav.overview"></span>
+          </button>
+          <button class="nav-button" type="button" data-view="content">
+            <span class="icon" data-icon="content" aria-hidden="true"></span>
+            <span data-i18n="nav.content"></span>
+          </button>
+          <button class="nav-button" type="button" data-view="users">
+            <span class="icon" data-icon="users" aria-hidden="true"></span>
+            <span data-i18n="nav.users"></span>
+          </button>
+          <button class="nav-button" type="button" data-view="site">
+            <span class="icon" data-icon="site" aria-hidden="true"></span>
+            <span data-i18n="nav.site"></span>
+          </button>
+          <button class="nav-button" type="button" data-view="xknot">
+            <span class="icon" data-icon="globe" aria-hidden="true"></span>
+            <span data-i18n="nav.xknot"></span>
+          </button>
         </nav>
 
         <main class="main">
@@ -65,51 +104,99 @@
           <section class="view" data-view="overview">
             <div class="view-head">
               <div>
-                <h2>概览</h2>
-                <p class="muted">平台发行、流通、平台留存，以及注意力打点。</p>
+                <h2 data-i18n="overview.title"></h2>
+                <p class="muted" data-i18n="overview.lead"></p>
               </div>
-              <button id="overview-refresh" class="button ghost" type="button">刷新</button>
+              <button id="overview-refresh" class="button ghost" type="button">
+                <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                <span data-i18n="common.refresh"></span>
+              </button>
             </div>
 
-            <div class="stat-grid">
-              <article class="stat">
-                <p class="stat-label">发行</p>
-                <p id="ov-issued" class="stat-value">—</p>
-                <p class="stat-note">平台累计发出去的积分</p>
-              </article>
-              <article class="stat">
-                <p class="stat-label">流通</p>
-                <p id="ov-circulating" class="stat-value">—</p>
-                <p class="stat-note">还在用户手里的部分</p>
-              </article>
-              <article class="stat">
-                <p class="stat-label">平台</p>
-                <p id="ov-platform" class="stat-value">—</p>
-                <p class="stat-note">平台收回的部分</p>
-              </article>
-              <article class="stat">
-                <p class="stat-label">读痕迹</p>
-                <p id="ov-reads" class="stat-value">—</p>
-                <p class="stat-note">累计打开记录次数</p>
-              </article>
-              <article class="stat">
-                <p class="stat-label">检索</p>
-                <p id="ov-searches" class="stat-value">—</p>
-                <p class="stat-note">累计搜索次数</p>
-              </article>
-            </div>
+            <section class="stat-section" aria-labelledby="economy-heading">
+              <h3 id="economy-heading" class="group-title" data-i18n="overview.economy"></h3>
+              <div class="stat-grid">
+                <article class="stat">
+                  <div class="stat-top">
+                    <span class="stat-icon" data-icon="coin" aria-hidden="true"></span>
+                    <p class="stat-label" data-i18n="overview.issued"></p>
+                  </div>
+                  <p id="ov-issued" class="stat-value">—</p>
+                  <p class="stat-note" data-i18n="overview.issuedNote"></p>
+                </article>
+                <article class="stat">
+                  <div class="stat-top">
+                    <span class="stat-icon is-ok" data-icon="arrows" aria-hidden="true"></span>
+                    <p class="stat-label" data-i18n="overview.circulating"></p>
+                  </div>
+                  <p id="ov-circulating" class="stat-value">—</p>
+                  <p class="stat-note" data-i18n="overview.circulatingNote"></p>
+                </article>
+                <article class="stat">
+                  <div class="stat-top">
+                    <span class="stat-icon is-muted" data-icon="bank" aria-hidden="true"></span>
+                    <p class="stat-label" data-i18n="overview.platform"></p>
+                  </div>
+                  <p id="ov-platform" class="stat-value">—</p>
+                  <p class="stat-note" data-i18n="overview.platformNote"></p>
+                </article>
+              </div>
+            </section>
 
-            <div class="split">
+            <section class="stat-section" aria-labelledby="attention-heading">
+              <h3 id="attention-heading" class="group-title" data-i18n="overview.attention"></h3>
+              <div class="stat-grid">
+                <article class="stat">
+                  <div class="stat-top">
+                    <span class="stat-icon" data-icon="eye" aria-hidden="true"></span>
+                    <p class="stat-label" data-i18n="overview.reads"></p>
+                  </div>
+                  <p id="ov-reads" class="stat-value">—</p>
+                  <p class="stat-note" data-i18n="overview.readsNote"></p>
+                </article>
+                <article class="stat">
+                  <div class="stat-top">
+                    <span class="stat-icon" data-icon="search" aria-hidden="true"></span>
+                    <p class="stat-label" data-i18n="overview.searches"></p>
+                  </div>
+                  <p id="ov-searches" class="stat-value">—</p>
+                  <p class="stat-note" data-i18n="overview.searchesNote"></p>
+                </article>
+              </div>
+            </section>
+
+            <div class="overview-grid">
               <article class="card">
-                <h3>站点开关</h3>
-                <dl id="ov-system" class="facts"></dl>
-                <p class="muted small">改开关到「站点」栏。</p>
+                <div class="card-head">
+                  <div class="head-stack">
+                    <h3 data-i18n="overview.switches"></h3>
+                    <p class="muted small" data-i18n="overview.switchesHint"></p>
+                  </div>
+                </div>
+                <div id="ov-system" class="state-list"></div>
+                <div class="card-foot">
+                  <button class="button secondary compact" type="button" data-go="site">
+                    <span class="icon" data-icon="site" aria-hidden="true"></span>
+                    <span data-i18n="overview.goSite"></span>
+                  </button>
+                </div>
               </article>
+
               <article class="card">
-                <h3>今日巡查</h3>
-                <p id="ov-patrol-count" class="stat-value small-value">—</p>
-                <p class="muted small">上次巡查之后新留下的公开帖。</p>
-                <button class="button secondary" type="button" data-go="content">去内容栏处理</button>
+                <div class="card-head">
+                  <div class="head-stack">
+                    <h3 data-i18n="overview.patrol"></h3>
+                    <p class="muted small" data-i18n="overview.patrolHint"></p>
+                  </div>
+                  <span id="ov-patrol-count" class="card-tag">—</span>
+                </div>
+                <div id="ov-patrol-list" class="compact-list"></div>
+                <div class="card-foot">
+                  <button class="button secondary compact" type="button" data-go="content">
+                    <span class="icon" data-icon="content" aria-hidden="true"></span>
+                    <span data-i18n="overview.goContent"></span>
+                  </button>
+                </div>
               </article>
             </div>
           </section>
@@ -117,389 +204,622 @@
           <section class="view" data-view="content" hidden>
             <div class="view-head">
               <div>
-                <h2>内容</h2>
-                <p class="muted">按账户查帖子并删除；处理本轮巡查。</p>
+                <h2 data-i18n="content.title"></h2>
+                <p class="muted" data-i18n="content.lead"></p>
               </div>
             </div>
 
-            <article class="card">
-              <h3>查帖</h3>
-              <form id="posts-form" class="inline-form">
-                <label class="field grow">
-                  <span>账户</span>
-                  <input id="posts-user" type="text" placeholder="邮箱、称呼或用户 id" required />
-                </label>
-                <label class="field">
-                  <span>正文片段</span>
-                  <input id="posts-q" type="text" placeholder="可不填" />
-                </label>
-                <label class="field">
-                  <span>时间窗</span>
-                  <input id="posts-within" type="text" placeholder="如 7d，可不填" />
-                </label>
-                <button class="button primary" type="submit">查询</button>
-              </form>
-              <p id="posts-summary" class="muted result-summary"></p>
-              <div class="table-wrap">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>时间</th>
-                      <th>状态</th>
-                      <th>公开</th>
-                      <th>正文</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody id="posts-list"></tbody>
-                </table>
-              </div>
-            </article>
+            <div class="content-layout">
+              <div class="content-main">
+                <article class="card">
+                  <div class="card-head">
+                    <div class="head-stack">
+                      <h3 data-i18n="content.search"></h3>
+                      <p class="muted small" data-i18n="content.searchHint"></p>
+                    </div>
+                    <span class="card-tag" data-i18n="content.searchTag"></span>
+                  </div>
+                  <form id="posts-form" class="search-form">
+                    <label class="field grow">
+                      <span data-i18n="content.account"></span>
+                      <input
+                        id="posts-user"
+                        type="text"
+                        data-i18n-placeholder="content.accountPlaceholder"
+                        required
+                      />
+                    </label>
+                    <label class="field">
+                      <span data-i18n="content.body"></span>
+                      <input id="posts-q" type="text" data-i18n-placeholder="content.bodyPlaceholder" />
+                    </label>
+                    <label class="field field-narrow">
+                      <span data-i18n="content.within"></span>
+                      <input
+                        id="posts-within"
+                        type="text"
+                        data-i18n-placeholder="content.withinPlaceholder"
+                      />
+                    </label>
+                    <button id="posts-submit" class="button primary" type="submit">
+                      <span class="icon" data-icon="search" aria-hidden="true"></span>
+                      <span data-i18n="content.query"></span>
+                    </button>
+                  </form>
 
-            <article class="card">
-              <div class="card-head">
-                <h3>巡查</h3>
-                <button id="patrol-refresh" class="button ghost" type="button">刷新</button>
+                  <p id="posts-summary" class="result-summary" hidden></p>
+
+                  <div id="posts-empty" class="empty-block">
+                    <span class="empty-mark" data-icon="content" aria-hidden="true"></span>
+                    <p class="empty-title" data-i18n="content.emptyIdleTitle"></p>
+                    <p class="muted small" data-i18n="content.emptyIdle"></p>
+                  </div>
+
+                  <div id="posts-list" class="post-list" aria-live="polite"></div>
+                </article>
               </div>
-              <p class="muted small">违法、欺诈、隐私或骚扰才删除并警告；拿不准的不要动。</p>
-              <div id="patrol-list" class="stack"></div>
-              <form id="patrol-form" class="stack-form">
-                <label class="field">
-                  <span>巡查记录</span>
-                  <textarea id="patrol-body" rows="3" placeholder="删了哪篇、警告了谁、哪几篇拿不准；没有要处理的也写「无」。" required></textarea>
-                </label>
-                <button class="button primary" type="submit">记下这次巡查</button>
-              </form>
-            </article>
+
+              <aside class="content-side">
+                <article class="card">
+                  <div class="card-head">
+                    <div class="head-stack">
+                      <h3 data-i18n="content.patrol"></h3>
+                      <p class="muted small" data-i18n="content.patrolHint"></p>
+                    </div>
+                    <div class="head-actions">
+                      <span id="patrol-count" class="card-tag">—</span>
+                      <button id="patrol-refresh" class="button ghost compact" type="button">
+                        <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                        <span data-i18n="common.refresh"></span>
+                      </button>
+                    </div>
+                  </div>
+                  <div id="patrol-list" class="stack"></div>
+                  <form id="patrol-form" class="stack-form patrol-form">
+                    <label class="field">
+                      <span data-i18n="content.patrolRecord"></span>
+                      <textarea
+                        id="patrol-body"
+                        rows="3"
+                        data-i18n-placeholder="content.patrolPlaceholder"
+                        required
+                      ></textarea>
+                    </label>
+                    <button class="button primary" type="submit">
+                      <span class="icon" data-icon="check" aria-hidden="true"></span>
+                      <span data-i18n="content.patrolSave"></span>
+                    </button>
+                  </form>
+                </article>
+              </aside>
+            </div>
           </section>
 
           <section class="view" data-view="users" hidden>
             <div class="view-head">
               <div>
-                <h2>用户</h2>
-                <p class="muted">找账户，发放积分、警告、禁言、改等级和权益。</p>
+                <h2 data-i18n="users.title"></h2>
+                <p class="muted" data-i18n="users.lead"></p>
               </div>
+              <button id="users-refresh" class="button ghost" type="button">
+                <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                <span data-i18n="common.refresh"></span>
+              </button>
+            </div>
+
+            <div id="users-quota" class="quota-strip" data-i18n-aria-label="users.quota"></div>
+
+            <div class="users-layout">
+              <article class="card roster-card">
+                <div class="card-head roster-head">
+                  <div class="head-stack">
+                    <h3 data-i18n="users.roster"></h3>
+                    <p id="roster-count" class="muted small"></p>
+                  </div>
+                  <span class="legend" aria-hidden="true">
+                    <span class="legend-item">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="8" r="3.5" />
+                        <path d="M5 19c0-3.5 3-6 7-6s7 2.5 7 6" />
+                      </svg>
+                      <span data-i18n="users.legendPerson"></span>
+                    </span>
+                    <span class="legend-item">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 7.2V4.6" />
+                        <circle cx="12" cy="3.8" r="0.85" fill="currentColor" stroke="none" />
+                        <rect x="5.5" y="7.2" width="13" height="10.2" rx="2.6" />
+                        <circle cx="9.6" cy="11.6" r="0.85" fill="currentColor" stroke="none" />
+                        <circle cx="14.4" cy="11.6" r="0.85" fill="currentColor" stroke="none" />
+                        <path d="M9.5 14.6h5" />
+                      </svg>
+                      <span data-i18n="users.legendAgent"></span>
+                    </span>
+                  </span>
+                </div>
+
+                <form id="users-form" class="search-row" role="search">
+                  <label class="field search-field">
+                    <span class="visually-hidden" data-i18n="users.filterLabel"></span>
+                    <span class="search-glyph" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                        <circle cx="11" cy="11" r="5.5" />
+                        <path d="M16 16 20 20" />
+                      </svg>
+                    </span>
+                    <input
+                      id="users-q"
+                      type="search"
+                      data-i18n-placeholder="users.filterPlaceholder"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                  </label>
+                  <button class="button secondary" type="submit" data-i18n="users.filter"></button>
+                </form>
+
+                <div id="users-list" class="user-list" aria-busy="false"></div>
+              </article>
+
+              <aside class="detail-column" data-i18n-aria-label="users.detailLabel">
+                <div id="detail-empty" class="card detail-empty">
+                  <span class="detail-empty-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="8" r="3.5" />
+                      <path d="M5 19.5c0-3.5 3-6 7-6s7 2.5 7 6" />
+                    </svg>
+                  </span>
+                  <p class="detail-empty-title" data-i18n="users.emptyTitle"></p>
+                  <p class="muted small" data-i18n="users.emptyHint"></p>
+                </div>
+
+                <article id="user-panel" class="card detail-card" hidden>
+                  <header class="detail-head">
+                    <span id="user-mark" class="identity-mark" aria-hidden="true"></span>
+                    <div class="detail-title">
+                      <h3 id="user-summary"></h3>
+                      <p id="user-note" class="muted small"></p>
+                    </div>
+                    <button
+                      id="user-clear"
+                      class="icon-button"
+                      type="button"
+                      data-i18n-aria-label="users.close"
+                      data-i18n-title="users.close"
+                    >
+                      <span class="icon" data-icon="close" aria-hidden="true"></span>
+                    </button>
+                  </header>
+
+                  <section class="detail-block" aria-labelledby="identity-heading">
+                    <div class="block-head">
+                      <h4 id="identity-heading" data-i18n="users.identity"></h4>
+                      <span id="identity-mode" class="card-tag">—</span>
+                    </div>
+
+                    <form id="identity-form" class="stack-form" novalidate hidden>
+                      <label class="field">
+                        <span data-i18n="users.name"></span>
+                        <input id="identity-name" type="text" maxlength="40" autocomplete="off" spellcheck="false" />
+                        <span id="identity-name-hint" class="field-hint"></span>
+                      </label>
+                      <label class="field">
+                        <span data-i18n="users.bio"></span>
+                        <textarea
+                          id="identity-bio"
+                          rows="3"
+                          maxlength="200"
+                          data-i18n-placeholder="users.bioPlaceholder"
+                        ></textarea>
+                        <span id="identity-bio-count" class="field-hint">0 / 200</span>
+                      </label>
+                      <label id="identity-specialty-field" class="field" hidden>
+                        <span data-i18n="users.specialties"></span>
+                        <input
+                          id="identity-specialties"
+                          type="text"
+                          autocomplete="off"
+                          data-i18n-placeholder="users.specialtiesPlaceholder"
+                        />
+                        <span class="field-hint" data-i18n="users.specialtiesHint"></span>
+                      </label>
+                      <p id="identity-error" class="alert" role="alert" hidden></p>
+                      <div class="button-row">
+                        <button id="identity-save" class="button primary" type="submit">
+                          <span class="icon" data-icon="check" aria-hidden="true"></span>
+                          <span data-i18n="users.save"></span>
+                        </button>
+                        <button id="identity-reset" class="button ghost" type="button" data-i18n="users.reset"></button>
+                      </div>
+                    </form>
+
+                    <p id="identity-readonly" class="inline-note" hidden></p>
+                    <dl id="identity-facts" class="facts"></dl>
+                  </section>
+
+                  <section id="user-actions" class="detail-block" aria-labelledby="actions-heading" hidden>
+                    <div class="block-head">
+                      <h4 id="actions-heading" data-i18n="users.actions"></h4>
+                      <span class="card-tag" data-i18n="users.actionsTag"></span>
+                    </div>
+                    <p id="actions-note" class="inline-note" hidden></p>
+                    <div class="action-grid">
+                      <form id="grant-form" class="action-form">
+                        <h4 data-i18n="users.grant"></h4>
+                        <label class="field">
+                          <span data-i18n="users.amount"></span>
+                          <input id="grant-amount" type="number" min="1" step="1" required />
+                        </label>
+                        <label class="field">
+                          <span data-i18n="users.reason"></span>
+                          <input id="grant-body" type="text" required />
+                        </label>
+                        <button class="button primary" type="submit" data-i18n="users.grantSubmit"></button>
+                      </form>
+
+                      <form id="warn-form" class="action-form">
+                        <h4 data-i18n="users.warn"></h4>
+                        <label class="field">
+                          <span data-i18n="users.warnBody"></span>
+                          <textarea id="warn-body" rows="3" required></textarea>
+                        </label>
+                        <button class="button secondary" type="submit" data-i18n="users.warnSubmit"></button>
+                      </form>
+
+                      <form id="mute-form" class="action-form">
+                        <h4 data-i18n="users.mute"></h4>
+                        <label class="field">
+                          <span data-i18n="users.until"></span>
+                          <select id="mute-until">
+                            <option value="24h" data-i18n="users.mute24h"></option>
+                            <option value="7d" selected data-i18n="users.mute7d"></option>
+                            <option value="2w" data-i18n="users.mute2w"></option>
+                            <option value="forever" data-i18n="users.muteForever"></option>
+                          </select>
+                        </label>
+                        <label class="field">
+                          <span data-i18n="users.reason"></span>
+                          <input id="mute-body" type="text" required />
+                        </label>
+                        <button class="button secondary" type="submit" data-i18n="users.muteSubmit"></button>
+                      </form>
+
+                      <form id="unmute-form" class="action-form">
+                        <h4 data-i18n="users.unmute"></h4>
+                        <label class="field">
+                          <span data-i18n="users.reason"></span>
+                          <input id="unmute-body" type="text" required />
+                        </label>
+                        <button class="button secondary" type="submit" data-i18n="users.unmuteSubmit"></button>
+                      </form>
+
+                      <form id="level-form" class="action-form">
+                        <h4 data-i18n="users.level"></h4>
+                        <label class="field">
+                          <span data-i18n="users.levelValue"></span>
+                          <input id="level-value" type="number" min="1" max="100" step="1" required />
+                        </label>
+                        <label class="field">
+                          <span data-i18n="users.reason"></span>
+                          <input id="level-body" type="text" required />
+                        </label>
+                        <button class="button secondary" type="submit" data-i18n="users.levelSubmit"></button>
+                      </form>
+
+                      <form id="entitlement-form" class="action-form">
+                        <h4 data-i18n="users.entitlement"></h4>
+                        <label class="field">
+                          <span data-i18n="users.entitlementGrant"></span>
+                          <input
+                            id="entitlement-grant"
+                            type="text"
+                            data-i18n-placeholder="users.entitlementGrantPlaceholder"
+                          />
+                        </label>
+                        <label class="field">
+                          <span data-i18n="users.entitlementRevoke"></span>
+                          <input id="entitlement-revoke" type="text" />
+                        </label>
+                        <label class="field">
+                          <span data-i18n="users.reason"></span>
+                          <input id="entitlement-body" type="text" required />
+                        </label>
+                        <button class="button secondary" type="submit" data-i18n="users.entitlementSubmit"></button>
+                      </form>
+                    </div>
+                  </section>
+                </article>
+              </aside>
             </div>
 
             <article class="card">
-              <form id="users-form" class="inline-form">
-                <label class="field grow">
-                  <span>查找账户</span>
-                  <input id="users-q" type="text" placeholder="邮箱、称呼、用户 id 或 label" required />
-                </label>
-                <button class="button primary" type="submit">查找</button>
-              </form>
-              <div id="users-list" class="user-list"></div>
-            </article>
-
-            <article id="user-panel" class="card" hidden>
-              <div class="card-head">
-                <h3 id="user-summary">账户</h3>
-                <button id="user-clear" class="button ghost" type="button">收起</button>
+              <div class="card-head issue-head">
+                <div class="head-stack">
+                  <h3 data-i18n="users.issue"></h3>
+                  <p class="muted small" data-i18n="users.issueHint"></p>
+                </div>
               </div>
-              <p id="user-note" class="muted small"></p>
-
-              <div class="action-grid">
-                <form id="grant-form" class="action-form">
-                  <h4>发放积分</h4>
-                  <label class="field">
-                    <span>数量</span>
-                    <input id="grant-amount" type="number" min="1" step="1" required />
-                  </label>
-                  <label class="field">
-                    <span>原因</span>
-                    <input id="grant-body" type="text" required />
-                  </label>
-                  <button class="button primary" type="submit">发放</button>
-                </form>
-
-                <form id="warn-form" class="action-form">
-                  <h4>警告</h4>
-                  <label class="field">
-                    <span>原文</span>
-                    <textarea id="warn-body" rows="3" required></textarea>
-                  </label>
-                  <button class="button secondary" type="submit">发出警告</button>
-                </form>
-
-                <form id="mute-form" class="action-form">
-                  <h4>禁言</h4>
-                  <label class="field">
-                    <span>期限</span>
-                    <select id="mute-until">
-                      <option value="24h">24 小时</option>
-                      <option value="7d" selected>7 天</option>
-                      <option value="2w">2 周</option>
-                      <option value="forever">直到平台解除</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span>原因</span>
-                    <input id="mute-body" type="text" required />
-                  </label>
-                  <button class="button secondary" type="submit">禁言</button>
-                </form>
-
-                <form id="unmute-form" class="action-form">
-                  <h4>解除禁言</h4>
-                  <label class="field">
-                    <span>原因</span>
-                    <input id="unmute-body" type="text" required />
-                  </label>
-                  <button class="button secondary" type="submit">解除</button>
-                </form>
-
-                <form id="level-form" class="action-form">
-                  <h4>等级</h4>
-                  <label class="field">
-                    <span>新等级（1–100）</span>
-                    <input id="level-value" type="number" min="1" max="100" step="1" required />
-                  </label>
-                  <label class="field">
-                    <span>原因</span>
-                    <input id="level-body" type="text" required />
-                  </label>
-                  <button class="button secondary" type="submit">保存等级</button>
-                </form>
-
-                <form id="entitlement-form" class="action-form">
-                  <h4>权益</h4>
-                  <label class="field">
-                    <span>授予（逗号分隔）</span>
-                    <input id="entitlement-grant" type="text" placeholder="早期用户" />
-                  </label>
-                  <label class="field">
-                    <span>收回（逗号分隔）</span>
-                    <input id="entitlement-revoke" type="text" />
-                  </label>
-                  <label class="field">
-                    <span>原因</span>
-                    <input id="entitlement-body" type="text" required />
-                  </label>
-                  <button class="button secondary" type="submit">更新权益</button>
-                </form>
-              </div>
-            </article>
-
-            <article class="card">
-              <h3>签发 Internal Personal Agent 账户</h3>
-              <p class="muted small">授权码只写进文件，这里不会显示。已有账户不会换码。</p>
+              <p id="issue-quota" class="inline-note"></p>
               <form id="issue-form" class="inline-form">
                 <label class="field grow">
-                  <span>称呼</span>
-                  <input id="issue-name" type="text" placeholder="例如 豆包" required />
+                  <span data-i18n="users.issueName"></span>
+                  <input
+                    id="issue-name"
+                    type="text"
+                    data-i18n-placeholder="users.issueNamePlaceholder"
+                    required
+                  />
                 </label>
                 <label class="field grow">
-                  <span>特长（逗号分隔）</span>
-                  <input id="issue-specialties" type="text" placeholder="网页搜索, 资料整理" />
+                  <span data-i18n="users.issueSpecialties"></span>
+                  <input
+                    id="issue-specialties"
+                    type="text"
+                    data-i18n-placeholder="users.issueSpecialtiesPlaceholder"
+                  />
                 </label>
-                <button class="button primary" type="submit">签发</button>
+                <button id="issue-submit" class="button primary" type="submit">
+                  <span class="icon" data-icon="plus" aria-hidden="true"></span>
+                  <span data-i18n="users.issueSubmit"></span>
+                </button>
               </form>
               <p id="issue-result" class="alert" role="status" hidden></p>
-            </article>
-
-            <article class="card">
-              <h3>内部 Agent 与名额</h3>
-              <p id="agents-quota" class="muted small"></p>
-              <div id="agents-list" class="user-list"></div>
             </article>
           </section>
 
           <section class="view" data-view="site" hidden>
             <div class="view-head">
               <div>
-                <h2>站点</h2>
-                <p class="muted">开门开关、邀请码、赞助位和价格表。</p>
+                <h2 data-i18n="site.title"></h2>
+                <p class="muted" data-i18n="site.lead"></p>
               </div>
+              <button id="site-refresh" class="button ghost" type="button">
+                <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                <span data-i18n="common.refresh"></span>
+              </button>
             </div>
 
-            <article class="card">
-              <h3>开门方式</h3>
-              <form id="system-form" class="stack-form">
-                <label class="check">
-                  <input id="system-guest" type="checkbox" />
-                  <span>允许未登录浏览站内；关掉后公开快照也会一起关。</span>
-                </label>
-                <label class="check">
-                  <input id="system-board" type="checkbox" />
-                  <span>写公开快照（<code>/discover.json</code>）。</span>
-                </label>
-                <label class="field">
-                  <span>注册</span>
-                  <select id="system-registration">
-                    <option value="open">开放</option>
-                    <option value="invite">需要邀请码</option>
-                    <option value="closed">暂停注册</option>
-                  </select>
-                </label>
-                <p id="system-updated" class="muted small"></p>
-                <button class="button primary" type="submit">保存开关</button>
-              </form>
-            </article>
-
-            <article class="card">
-              <div class="card-head">
-                <h3>邀请码</h3>
-                <button id="invites-refresh" class="button ghost" type="button">刷新</button>
-              </div>
-              <form id="invite-form" class="inline-form">
-                <label class="field">
-                  <span>可用次数</span>
-                  <input id="invite-max-uses" type="number" min="1" max="10000" step="1" value="1" />
-                </label>
-                <label class="field">
-                  <span>有效期</span>
-                  <input id="invite-expires" type="text" placeholder="如 7d，可不填" />
-                </label>
-                <label class="field">
-                  <span>备注</span>
-                  <input id="invite-note" type="text" placeholder="可不填" />
-                </label>
-                <label class="field">
-                  <span>指定码</span>
-                  <input id="invite-code" type="text" placeholder="可不填，4–32 位" />
-                </label>
-                <button class="button primary" type="submit">签发</button>
-              </form>
-              <p id="invite-result" class="alert" role="status" hidden></p>
-              <div class="table-wrap">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>邀请码</th>
-                      <th>剩余</th>
-                      <th>到期</th>
-                      <th>备注</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody id="invites-list"></tbody>
-                </table>
-              </div>
-            </article>
-
-            <article class="card">
-              <div class="card-head">
-                <h3>右侧赞助位</h3>
-                <button id="sponsors-refresh" class="button ghost" type="button">刷新</button>
-              </div>
-              <form id="sponsor-form" class="stack-form">
-                <h4 id="sponsor-form-title">新增一条</h4>
-                <input id="sponsor-id" type="hidden" />
-                <div class="inline-form">
-                  <label class="field grow">
-                    <span>标题</span>
-                    <input id="sponsor-title" type="text" required />
-                  </label>
-                  <label class="field grow">
-                    <span>链接</span>
-                    <input id="sponsor-href" type="text" placeholder="https://… 或 /站内路径" required />
-                  </label>
+            <div class="site-grid">
+              <article class="card">
+                <div class="card-head">
+                  <div class="head-stack">
+                    <h3 data-i18n="site.gate"></h3>
+                    <p class="muted small" data-i18n="site.gateHint"></p>
+                  </div>
                 </div>
-                <div class="inline-form">
-                  <label class="field grow">
-                    <span>图片地址或上传 id</span>
-                    <input id="sponsor-image" type="text" placeholder="可不填" />
+                <form id="system-form" class="stack-form">
+                  <label class="toggle-row">
+                    <span class="toggle-copy">
+                      <span class="toggle-title" data-i18n="site.guest"></span>
+                      <span class="toggle-hint" data-i18n="site.guestHint"></span>
+                    </span>
+                    <input id="system-guest" class="toggle-input" type="checkbox" role="switch" />
+                  </label>
+                  <label class="toggle-row">
+                    <span class="toggle-copy">
+                      <span class="toggle-title" data-i18n="site.board"></span>
+                      <span class="toggle-hint" data-i18n="site.boardHint"></span>
+                    </span>
+                    <input id="system-board" class="toggle-input" type="checkbox" role="switch" />
                   </label>
                   <label class="field">
-                    <span>本机图片</span>
-                    <input id="sponsor-file" type="file" accept="image/jpeg,image/png,image/gif,image/webp" />
+                    <span data-i18n="site.registration"></span>
+                    <select id="system-registration">
+                      <option value="open" data-i18n="registration.open"></option>
+                      <option value="invite" data-i18n="registration.invite"></option>
+                      <option value="closed" data-i18n="registration.closed"></option>
+                    </select>
                   </label>
-                  <button id="sponsor-upload" class="button secondary" type="button">上传</button>
+                  <p id="system-updated" class="muted small"></p>
+                  <div class="button-row">
+                    <button class="button primary" type="submit">
+                      <span class="icon" data-icon="check" aria-hidden="true"></span>
+                      <span data-i18n="site.saveGate"></span>
+                    </button>
+                  </div>
+                </form>
+              </article>
+
+              <article class="card">
+                <div class="card-head">
+                  <div class="head-stack">
+                    <h3 data-i18n="site.invites"></h3>
+                    <p class="muted small" data-i18n="site.invitesHint"></p>
+                  </div>
+                  <button id="invites-refresh" class="button ghost compact" type="button">
+                    <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                    <span data-i18n="common.refresh"></span>
+                  </button>
                 </div>
-                <div class="inline-form">
-                  <label class="field grow">
-                    <span>短说明</span>
-                    <input id="sponsor-caption" type="text" />
+                <form id="invite-form" class="inline-form invite-form">
+                  <label class="field field-narrow">
+                    <span data-i18n="site.inviteUses"></span>
+                    <input id="invite-max-uses" type="number" min="1" max="10000" step="1" value="1" />
+                  </label>
+                  <label class="field field-narrow">
+                    <span data-i18n="site.inviteExpiry"></span>
+                    <input
+                      id="invite-expires"
+                      type="text"
+                      data-i18n-placeholder="site.inviteExpiryPlaceholder"
+                    />
                   </label>
                   <label class="field grow">
-                    <span>广告主</span>
-                    <input id="sponsor-source" type="text" />
+                    <span data-i18n="site.inviteNote"></span>
+                    <input id="invite-note" type="text" />
                   </label>
+                  <label class="field grow">
+                    <span data-i18n="site.inviteCode"></span>
+                    <input
+                      id="invite-code"
+                      type="text"
+                      data-i18n-placeholder="site.inviteCodePlaceholder"
+                    />
+                  </label>
+                  <button class="button primary" type="submit">
+                    <span class="icon" data-icon="plus" aria-hidden="true"></span>
+                    <span data-i18n="site.inviteIssue"></span>
+                  </button>
+                </form>
+                <p id="invite-result" class="alert" role="status" hidden></p>
+                <div id="invites-list" class="invite-list"></div>
+              </article>
+
+              <article class="card site-wide">
+                <div class="card-head">
+                  <div class="head-stack">
+                    <h3 data-i18n="site.sponsors"></h3>
+                    <p class="muted small" data-i18n="site.sponsorsHint"></p>
+                  </div>
+                  <button id="sponsors-refresh" class="button ghost compact" type="button">
+                    <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                    <span data-i18n="common.refresh"></span>
+                  </button>
+                </div>
+                <form id="sponsor-form" class="stack-form">
+                  <h4 id="sponsor-form-title" class="subhead"></h4>
+                  <input id="sponsor-id" type="hidden" />
+                  <div class="form-grid">
+                    <label class="field grow">
+                      <span data-i18n="site.sponsorTitle"></span>
+                      <input id="sponsor-title" type="text" required />
+                    </label>
+                    <label class="field grow">
+                      <span data-i18n="site.sponsorHref"></span>
+                      <input
+                        id="sponsor-href"
+                        type="text"
+                        data-i18n-placeholder="site.sponsorHrefPlaceholder"
+                        required
+                      />
+                    </label>
+                  </div>
+                  <div class="form-grid">
+                    <label class="field grow">
+                      <span data-i18n="site.sponsorImage"></span>
+                      <input
+                        id="sponsor-image"
+                        type="text"
+                        data-i18n-placeholder="site.sponsorImagePlaceholder"
+                      />
+                    </label>
+                    <label class="field grow">
+                      <span data-i18n="site.sponsorFile"></span>
+                      <input
+                        id="sponsor-file"
+                        type="file"
+                        accept="image/jpeg,image/png,image/gif,image/webp"
+                      />
+                    </label>
+                    <label class="field field-narrow">
+                      <span class="visually-hidden" data-i18n="site.sponsorUpload"></span>
+                      <button id="sponsor-upload" class="button secondary" type="button">
+                        <span class="icon" data-icon="upload" aria-hidden="true"></span>
+                        <span data-i18n="site.sponsorUpload"></span>
+                      </button>
+                    </label>
+                  </div>
+                  <div class="form-grid">
+                    <label class="field grow">
+                      <span data-i18n="site.sponsorCaption"></span>
+                      <input id="sponsor-caption" type="text" />
+                    </label>
+                    <label class="field grow">
+                      <span data-i18n="site.sponsorSource"></span>
+                      <input id="sponsor-source" type="text" />
+                    </label>
+                  </div>
+                  <div class="button-row">
+                    <button class="button primary" type="submit" data-i18n="site.sponsorSave"></button>
+                    <button id="sponsor-cancel" class="button ghost" type="button" hidden data-i18n="site.sponsorCancel"></button>
+                  </div>
+                </form>
+                <div id="sponsors-list" class="sponsor-list"></div>
+              </article>
+
+              <article class="card site-wide">
+                <div class="card-head">
+                  <div class="head-stack">
+                    <h3 data-i18n="site.prices"></h3>
+                    <p class="muted small" data-i18n="site.pricesHint"></p>
+                  </div>
+                  <button id="prices-refresh" class="button ghost compact" type="button">
+                    <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                    <span data-i18n="common.refresh"></span>
+                  </button>
+                </div>
+                <p id="prices-summary" class="inline-note"></p>
+                <div class="price-group">
+                  <h4 class="subhead" data-i18n="site.priceGroupList"></h4>
+                  <div class="price-grid">
+                    <label class="field"><span data-i18n="price.defaultPrice"></span><input id="price-defaultPrice" type="number" min="0" step="1" /></label>
+                    <label class="field"><span data-i18n="price.priceMin"></span><input id="price-priceMin" type="number" min="0" step="1" /></label>
+                    <label class="field"><span data-i18n="price.priceMax"></span><input id="price-priceMax" type="number" min="0" step="1" /></label>
+                  </div>
+                </div>
+                <div class="price-group">
+                  <h4 class="subhead" data-i18n="site.priceGroupFee"></h4>
+                  <div class="price-grid">
+                    <label class="field"><span data-i18n="price.publishServiceFeePerMb"></span><input id="price-publishServiceFeePerMb" type="number" min="0" step="1" /></label>
+                    <label class="field"><span data-i18n="price.downloadServiceFeePerMb"></span><input id="price-downloadServiceFeePerMb" type="number" min="0" step="1" /></label>
+                    <label class="field"><span data-i18n="price.serviceFeeCap"></span><input id="price-serviceFeeCap" type="number" min="0" step="1" /></label>
+                    <label class="field"><span data-i18n="price.pointUsdCents"></span><input id="price-pointUsdCents" type="number" min="0" step="1" /></label>
+                    <label class="field"><span data-i18n="price.retrievalPrice"></span><input id="price-retrievalPrice" type="number" min="0" step="1" /></label>
+                  </div>
                 </div>
                 <div class="button-row">
-                  <button class="button primary" type="submit">保存</button>
-                  <button id="sponsor-cancel" class="button ghost" type="button" hidden>取消编辑</button>
+                  <button id="price-propose" class="button secondary" type="button">
+                    <span class="icon" data-icon="edit" aria-hidden="true"></span>
+                    <span data-i18n="site.propose"></span>
+                  </button>
+                  <button id="price-apply" class="button primary" type="button" hidden>
+                    <span class="icon" data-icon="check" aria-hidden="true"></span>
+                    <span data-i18n="site.apply"></span>
+                  </button>
                 </div>
-              </form>
-              <div class="table-wrap">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>顺序</th>
-                      <th>标题</th>
-                      <th>链接</th>
-                      <th>说明</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody id="sponsors-list"></tbody>
-                </table>
-              </div>
-            </article>
-
-            <article class="card">
-              <div class="card-head">
-                <h3>价格表</h3>
-                <button id="prices-refresh" class="button ghost" type="button">刷新</button>
-              </div>
-              <p id="prices-summary" class="muted small"></p>
-              <div class="price-grid">
-                <label class="field"><span>默认标价</span><input id="price-defaultPrice" type="number" min="0" step="1" /></label>
-                <label class="field"><span>最低标价</span><input id="price-priceMin" type="number" min="0" step="1" /></label>
-                <label class="field"><span>最高标价</span><input id="price-priceMax" type="number" min="0" step="1" /></label>
-                <label class="field"><span>发布服务费 / MB</span><input id="price-publishServiceFeePerMb" type="number" min="0" step="1" /></label>
-                <label class="field"><span>下载服务费 / MB</span><input id="price-downloadServiceFeePerMb" type="number" min="0" step="1" /></label>
-                <label class="field"><span>服务费封顶</span><input id="price-serviceFeeCap" type="number" min="0" step="1" /></label>
-                <label class="field"><span>每积分美分</span><input id="price-pointUsdCents" type="number" min="0" step="1" /></label>
-                <label class="field"><span>信息检索价</span><input id="price-retrievalPrice" type="number" min="0" step="1" /></label>
-              </div>
-              <div class="button-row">
-                <button id="price-propose" class="button secondary" type="button">提交一份提议</button>
-                <button id="price-apply" class="button primary" type="button" hidden>同意并写入</button>
-              </div>
-            </article>
+              </article>
+            </div>
           </section>
 
           <section class="view" data-view="xknot" hidden>
             <div class="view-head">
               <div>
-                <h2>XKnot</h2>
-                <p class="muted">三块：本站点怎么介绍自己，你拥有、随时能改；接入 XKnot 提交一次；中枢签发了什么，只读。排障信息收在最后一栏里。</p>
+                <h2 data-i18n="xknot.title"></h2>
+                <p class="muted" data-i18n="xknot.lead"></p>
               </div>
-              <button id="federation-refresh" class="button ghost" type="button">刷新</button>
+              <button id="federation-refresh" class="button ghost" type="button">
+                <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                <span data-i18n="common.refresh"></span>
+              </button>
             </div>
 
             <article class="card">
               <div class="card-head">
-                <h3>一 · 本站点怎么介绍自己</h3>
-                <span class="card-tag">可编辑</span>
+                <h3 data-i18n="xknot.profile"></h3>
+                <span class="card-tag" data-i18n="xknot.profileTag"></span>
               </div>
-              <p class="muted small">自述区。主理人拥有这一份，中枢只会取回去展示，不需要任何审批。只有名称必填。</p>
+              <p class="muted small" data-i18n="xknot.profileHint"></p>
               <form id="profile-form" class="stack-form" novalidate>
                 <div id="profile-fields" class="form-grid"></div>
                 <p id="profile-note" class="muted small"></p>
                 <p id="profile-problems" class="muted small" hidden></p>
                 <div class="button-row">
-                  <button id="profile-save" class="button primary" type="submit">保存档案</button>
-                  <button id="profile-reload" class="button ghost" type="button">放弃改动</button>
+                  <button id="profile-save" class="button primary" type="submit" data-i18n="xknot.save"></button>
+                  <button id="profile-reload" class="button ghost" type="button" data-i18n="xknot.reload"></button>
                 </div>
               </form>
             </article>
 
             <article id="join-card" class="card" hidden>
               <div class="card-head">
-                <h3>二 · 接入 XKnot</h3>
-                <span class="card-tag">提交一次</span>
+                <h3 data-i18n="xknot.join"></h3>
+                <span class="card-tag" data-i18n="xknot.joinTag"></span>
               </div>
-              <p class="muted small">
-                第一次接入要先选一个二级域名。先检查，能签再提交；审核通过后中枢会发信开通。
-                提交用的是上面那份自述，改完记得先保存档案。
-              </p>
+              <p class="muted small" data-i18n="xknot.joinHint"></p>
               <p id="join-record" class="muted small" hidden></p>
               <form id="join-form" class="stack-form" novalidate>
                 <div class="field">
-                  <span>二级域名</span>
+                  <span data-i18n="xknot.subdomain"></span>
                   <div class="host-row">
                     <input
                       id="join-subdomain"
@@ -511,79 +831,85 @@
                       placeholder="your-site"
                     />
                     <span class="host-suffix">.xknot.si</span>
-                    <button id="join-check" class="button ghost" type="button">检查</button>
+                    <button id="join-check" class="button ghost" type="button" data-i18n="xknot.check"></button>
                   </div>
-                  <p id="join-subdomain-note" class="muted small">至少 6 个字符；短号留给以后。</p>
+                  <p id="join-subdomain-note" class="muted small"></p>
                 </div>
                 <label class="field">
-                  <span>联系邮箱 · 开通与变更都寄这里</span>
-                  <input id="join-email" type="email" maxlength="120" autocomplete="email" placeholder="you@example.com" />
+                  <span data-i18n="xknot.email"></span>
+                  <input
+                    id="join-email"
+                    type="email"
+                    maxlength="120"
+                    autocomplete="email"
+                    data-i18n-placeholder="xknot.emailPlaceholder"
+                  />
                 </label>
                 <p id="join-result" class="muted small"></p>
                 <div class="button-row">
-                  <button id="join-submit" class="button primary" type="submit" disabled>提交申请</button>
+                  <button id="join-submit" class="button primary" type="submit" disabled data-i18n="xknot.submit"></button>
                 </div>
               </form>
             </article>
 
             <article id="connect-card" class="card" hidden>
               <div class="card-head">
-                <h3>三 · 接通进度</h3>
-                <span class="card-tag">自动</span>
+                <h3 data-i18n="xknot.connect"></h3>
+                <span class="card-tag" data-i18n="xknot.connectTag"></span>
               </div>
-              <p class="muted small">
-                提交之后中枢在入口主机上建隧道账号、装公钥、发证书；这一侧生成密钥、交公钥、起隧道。
-                每一步都由两边自动推进，卡住的那一步会写清原因，不需要另开一封信。
-              </p>
+              <p class="muted small" data-i18n="xknot.connectHint"></p>
               <ol id="connect-steps" class="steps"></ol>
               <p id="connect-note" class="muted small"></p>
               <div class="button-row">
-                <button id="connect-refresh" class="button ghost" type="button">刷新进度</button>
-                <button id="connect-start" class="button primary" type="button" hidden>接通并启动隧道</button>
+                <button id="connect-refresh" class="button ghost" type="button" data-i18n="xknot.connectRefresh"></button>
+                <button id="connect-start" class="button primary" type="button" hidden data-i18n="xknot.connectStart"></button>
               </div>
             </article>
 
             <article id="issued-card" class="card">
               <div class="card-head">
-                <h3>四 · 中枢签发了什么</h3>
-                <span class="card-tag">只读</span>
+                <h3 data-i18n="xknot.issued"></h3>
+                <span class="card-tag" data-i18n="xknot.issuedTag"></span>
               </div>
-              <p class="muted small">签发区。id、地址、接入日、档位与状态由中枢签发，端侧改不了；要变更走中枢。</p>
+              <p class="muted small" data-i18n="xknot.issuedHint"></p>
               <dl id="profile-issued" class="facts"></dl>
               <p id="profile-public" class="muted small note-gap"></p>
             </article>
 
             <details id="fed-details" class="card fold">
-              <summary>接入与探测 <span class="muted small">排障时再打开</span></summary>
+              <summary>
+                <span data-i18n="xknot.details"></span>
+                <span class="muted small" data-i18n="xknot.detailsHint"></span>
+              </summary>
               <div class="fold-body">
                 <div class="split">
                   <section class="fold-block">
-                    <h4>接入件与进程</h4>
+                    <h4 data-i18n="xknot.artifacts"></h4>
                     <dl id="fed-facts" class="facts"></dl>
                     <p id="fed-file" class="muted small note-gap"></p>
                   </section>
                   <section class="fold-block">
-                    <h4>中枢会看到什么</h4>
+                    <h4 data-i18n="xknot.health"></h4>
                     <dl id="fed-health-facts" class="facts"></dl>
-                    <p class="muted small note-gap">探测结果存在中枢的 var/health.json。</p>
+                    <p class="muted small note-gap" data-i18n="xknot.healthHint"></p>
                   </section>
                 </div>
 
                 <section class="fold-block">
-                  <h4>状态信号</h4>
+                  <h4 data-i18n="xknot.signals"></h4>
                   <ul id="fed-signals" class="signal-list"></ul>
                 </section>
 
                 <section id="fed-drift-card" class="fold-block" hidden>
-                  <h4>变更未生效</h4>
-                  <p class="muted small">接入件和 Backend 进程里的值不一样；重启 Backend 才会换成文件里的值。</p>
+                  <h4 data-i18n="xknot.drift"></h4>
+                  <p class="muted small" data-i18n="xknot.driftHint"></p>
                   <div class="table-wrap">
                     <table class="table">
                       <thead>
                         <tr>
-                          <th>键</th>
-                          <th>接入件</th>
-                          <th>进程里正在用</th>
+                          <th data-i18n="xknot.key"></th>
+                          <th data-i18n="xknot.stored"></th>
+                          <th data-i18n="xknot.running"></th>
                         </tr>
                       </thead>
                       <tbody id="fed-drift"></tbody>

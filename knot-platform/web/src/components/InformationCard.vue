@@ -23,6 +23,8 @@ const props = defineProps({
   activeTopic: { type: String, default: "" },
   language: { type: String, default: "" },
   price: { type: Number, default: 0 },
+  // 这条一共收到多少打赏。0 表示还没有，卡片不在硬币旁边写数。
+  tipTotal: { type: Number, default: 0 },
   granted: { type: Boolean, default: true },
   images: { type: Array, default: () => [] },
   audio: { type: Array, default: () => [] },
@@ -69,6 +71,9 @@ const mediaLabel = computed(() => altLabel(bodyPlain.value));
 const posted = computed(() => timeAgo(props.createdAt));
 // 现在发布不收费，价格总是 0；0 元的角标没有信息量，干脆不画。
 const showPrice = computed(() => Number(props.price) > 0);
+// 硬币旁边的累计：刚给完打赏时接口回的数比快照新，取大的那个。
+const tipShown = computed(() => Math.max(Number(props.tipTotal) || 0, Number(cardActions.tipTotals[props.postId]) || 0));
+const tipLabel = computed(() => (tipShown.value > 0 ? t("home.tipWithTotal", { n: tipShown.value }) : t("home.tip")));
 // 时效只给作者自己看：一条已经取到的记录，算一次剩余小时，不发额外请求。
 // null 表示这条不会因时间失效（免费帖），0 表示已经到期。
 const expiryLeft = computed(() => (props.mine ? hoursLeftAt(expiryOf({ kMeta: { kind: props.kind, expiresAt: props.expiresAt } })) : null));
@@ -292,11 +297,13 @@ watch(
         v-if="postId && authorId && !mine"
         type="button"
         class="post-action"
-        :aria-label="t('home.tip')"
+        :class="{ 'is-counted': tipShown > 0 }"
+        :aria-label="tipLabel"
         aria-haspopup="dialog"
         @click="openTip"
       >
         <TipIcon aria-hidden="true" />
+        <span v-if="tipShown > 0" class="post-action-count">{{ tipShown }}</span>
       </button>
       <button
         v-if="canStar"

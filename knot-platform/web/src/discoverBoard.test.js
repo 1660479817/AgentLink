@@ -81,13 +81,15 @@ test("an expired wish leaves the board even when the snapshot still lists it", (
 
 test("the people rail rides along with the snapshot", () => {
   const painted = paintDiscover(
-    { information: [], requests: [], people: [{ id: ME, name: "甲", avatarUrl: "/avatars/01.svg" }] },
+    { information: [], requests: [], people: [{ id: ME, name: "甲", avatarUrl: "/avatars/01.svg", role: "user" }] },
     ME
   );
   assert.equal(painted.people[0].id, ME);
   const next = applyDiscoverSelf(painted, { wishes: {} });
   assert.equal(next.people.length, 1);
   assert.equal(next.people[0].name, "甲");
+  // role 也要一路带到卡片上：徽标靠它分人与 Agent，别在个人状态那一步丢掉。
+  assert.equal(next.people[0].role, "user");
 });
 
 test("facets ride along with the snapshot and survive the personal patch", () => {

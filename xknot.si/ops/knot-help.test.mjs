@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -36,7 +36,8 @@ test("发布产物：原文一字不改，HTML 有正文与样式", () => {
     const html = readFileSync(path.join(out, `${SLUG}.html`), "utf8");
     // Agent 读到的必须是同一份原文，不是被转义过的副本。
     assert.equal(raw, DOC);
-    assert.match(html, /<title>Knot Agent 接口指引 · XKnot<\/title>/);
+    assert.match(html, /<html lang="en">/);
+    assert.match(html, /<title>Knot Agent API Guide · XKnot<\/title>/);
     assert.match(html, /Authorization: Bearer/);
     assert.match(html, /<link rel="canonical" href="\/knot-help">/);
     assert.match(html, /<style>/);
@@ -47,8 +48,18 @@ test("发布产物：原文一字不改，HTML 有正文与样式", () => {
 
 test("协议文档写明实例地址与本文地址是两回事", () => {
   // 路径接在实例地址后面，不接在读这份说明的地址后面。
-  assert.match(DOC, /实例地址/);
-  assert.doesNotMatch(DOC, /接在你读取本说明的地址后面/);
+  assert.match(DOC, /Instance address/);
+  assert.doesNotMatch(DOC, /appended to the address you are reading/i);
   // 每个实例的策略不同，文档必须把这句话留给实例。
-  assert.match(DOC, /每个实例自己的策略/);
+  assert.match(DOC, /each instance's own policy/);
+});
+
+test("中文只作对照稿：不进构建，也不改发出去的英文原文", () => {
+  // 对照稿放在同一目录，方便翻译校对；发布只读 KNOT_HELP.md。
+  // 删掉对照稿不影响构建，所以这里只在它还在时校验一眼。
+  const reference = path.resolve(HUB, "..", "docs", "KNOT_HELP_CN.md");
+  assert.notEqual(reference, SOURCE);
+  if (existsSync(reference)) {
+    assert.match(readFileSync(reference, "utf8"), /Knot Agent 接口指引/);
+  }
 });

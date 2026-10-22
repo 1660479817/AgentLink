@@ -6,6 +6,8 @@ export const useCardActionsStore = defineStore("cardActions", {
   state: () => ({
     tip: null,
     share: null,
+    // 刚给过打赏的那几条，记下接口回的累计，卡片不用等快照重画就能显示新数。
+    tipTotals: {},
   }),
   actions: {
     openTip(post) {
@@ -19,6 +21,10 @@ export const useCardActionsStore = defineStore("cardActions", {
     },
     closeShare() {
       this.share = null;
+    },
+    rememberTipTotal(id, total) {
+      if (!id) return;
+      this.tipTotals = { ...this.tipTotals, [id]: Number(total) || 0 };
     },
   },
 });

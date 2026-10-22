@@ -132,6 +132,7 @@ onMounted(load);
       :category="item.kMeta?.category || ''"
       :language="item.kMeta?.language || ''"
       :price="priceOf(item)"
+      :tip-total="Number(item.tipTotal) || 0"
       :granted="item.granted !== false"
       :images="item.images || []"
       :audio="item.audio || []"

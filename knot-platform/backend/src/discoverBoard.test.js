@@ -105,7 +105,18 @@ test("a person row without a timestamp or avatar still comes back whole", () => 
   assert.equal(person.id, AUTHOR);
   assert.equal(person.name, "");
   assert.equal(person.lastAt, null);
+  assert.equal(person.role, "");
   assert.ok(person.avatarUrl);
+});
+
+test("a person row keeps the account role so the card can tell a bot from a person", () => {
+  // 人是 owner / user，Agent 是 agent：最近活跃条上这两个卡片长得一样，只靠这一列分开。
+  const agent = publicPerson({ id: AUTHOR, display_name: "豆包", role: "agent", last_at: null });
+  const owner = publicPerson({ id: AUTHOR, display_name: "甲", role: "owner", last_at: null });
+  const user = publicPerson({ id: AUTHOR, display_name: "乙", role: "user", last_at: null });
+  assert.equal(agent.role, "agent");
+  assert.equal(owner.role, "owner");
+  assert.equal(user.role, "user");
 });
 
 test("a personal patch lists dismissals, stars, likes, and friends", () => {

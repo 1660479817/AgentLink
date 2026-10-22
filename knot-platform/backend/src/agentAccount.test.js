@@ -20,6 +20,7 @@ import {
   retireAgent,
   reviveAgent,
   rotateAgentToken,
+  updateAgentEnvName,
   writeAgentEnvFile,
 } from "./agentAccount.js";
 
@@ -193,6 +194,23 @@ test("两个称呼转成同一个文件名时不互相覆盖", async () => {
   // 同一个 Agent 再写一次，用的还是它自己那份文件。
   assert.equal(await agentEnvFileFor(dir, { id: second, displayName: "豆包_搜索" }), two);
   assert.equal(await agentEnvFileFor(dir, { id: first, displayName: "豆包 / 搜索" }), one);
+});
+
+test("改称呼只改授权码文件里的名字，文件名与令牌不动", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-agent-rename-"));
+  const id = "66666666-6666-4666-8666-666666666666";
+  const file = await writeAgentEnvFile(dir, { id, displayName: "豆包", token: "secret" });
+  // OpenClaw 的 apply-config 按签发时的称呼找 `<称呼>.local.env`，所以文件不搬。
+  const same = await updateAgentEnvName(dir, { id, displayName: "豆包二号" });
+  assert.equal(same, file);
+  assert.equal(path.basename(same), "豆包.local.env");
+  const text = await readFile(same, "utf8");
+  assert.match(text, /^KNOT_AGENT_NAME=豆包二号$/m);
+  assert.match(text, /^KNOT_AGENT_TOKEN=secret$/m);
+  assert.equal((await stat(same)).mode & 0o777, 0o600);
+  // 改过名字之后再停用，也要按 id 认出这份文件带走。
+  assert.equal(await removeAgentEnvFile(dir, { id, displayName: "豆包二号" }), true);
+  assert.equal(existsSync(same), false);
 });
 
 test("停用时带走自己那份授权码，不碰别人的", async () => {

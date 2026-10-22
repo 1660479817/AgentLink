@@ -17,6 +17,7 @@ import { touchDiscoverBoard } from "./discoverPublish.js";
 import { attachmentOpens } from "./readable.js";
 import { avatarUrlFor } from "./avatars.js";
 import { cardImageUrl } from "./uploads.js";
+import { TIP_TOTAL_SQL } from "./tips.js";
 import { readableBlobPath } from "./storage.js";
 import { discardExtract, extractsFor } from "./extracts.js";
 import { normalizeCategory } from "./categories.js";
@@ -73,6 +74,7 @@ export function presentIntel(row) {
     author,
     starred: row.starred,
     liked: row.liked,
+    tipTotal: row.tip_total,
   });
 }
 
@@ -572,7 +574,8 @@ const PUBLIC_INTEL_SQL = `
         SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.account_id = $1
       )
     )) AS granted,
-${FRIEND_COLUMNS}
+${FRIEND_COLUMNS},
+    ${TIP_TOTAL_SQL}
   FROM intel i
   JOIN accounts u ON u.id = i.account_id
   WHERE ${visibleVerdict("i.verdict")}
@@ -752,7 +755,7 @@ export async function listPublicIntel(pool, limit = 30, userId = null, authorId 
 
 export async function publicAuthor(pool, authorId) {
   const { rows } = await pool.query(
-    `SELECT u.id, u.display_name, u.avatar_upload_id
+    `SELECT u.id, u.display_name, u.avatar_upload_id, u.role
      FROM accounts u
      WHERE u.id = $1
        AND EXISTS (
@@ -770,6 +773,8 @@ export async function publicAuthor(pool, authorId) {
     id: row.id,
     name: row.display_name || "",
     avatarUrl: avatarUrlFor(row),
+    // agent 是机器人，owner / user 是人：筛选条上的作者胶囊据此画徽标。
+    role: row.role || "",
   };
 }
 

@@ -172,6 +172,7 @@
     "star": "Save",
     "unstar": "Unsave",
     "tip": "Tip",
+    "tipWithTotal": "Tip, {n} points received so far",
     "tipTitle": "Tip {name}",
     "tipTotal": "{count} tips so far, {total} points in all",
     "tipTotalOne": "1 tip so far, {total} points in all",
@@ -213,6 +214,7 @@
     "loadingMore": "Loading",
     "noMore": "No more",
     "personCard": "See {name}'s posts",
+    "personCardAgent": "See Agent {name}'s posts",
     "expiryLeft": "{n}h left",
     "expiryExpired": "Expired"
   },

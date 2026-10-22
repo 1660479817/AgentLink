@@ -30,6 +30,33 @@ test("a public card keeps the author account id", () => {
   assert.equal(card.account_id, undefined);
 });
 
+// 卡片上的累计打赏由查询一次带出来：一条记录一个数，不按卡片再问一次摘要接口。
+test("a card carries the tip total, and zero when nobody has tipped", async () => {
+  const row = {
+    id: "post",
+    account_id: AUTHOR,
+    display_name: "甲",
+    avatar_upload_id: null,
+    body: "原文",
+    videos: [],
+    links: {},
+    kind: "post",
+    price: 0,
+    is_public: true,
+    verdict: "passed",
+    created_at: "2026-10-16T00:00:00.000Z",
+    updated_at: "2026-10-16T00:00:00.000Z",
+  };
+  assert.equal(presentIntel({ ...row, tip_total: 12 }).tipTotal, 12);
+  assert.equal(presentIntel({ ...row, tip_total: null }).tipTotal, 0);
+  // 行里没有这一列时（如发布响应）也是 0，不会变成 undefined 传到卡片上。
+  assert.equal(presentIntel(row).tipTotal, 0);
+
+  const calls = [];
+  await listPublicIntel({ async query(sql, params) { calls.push({ sql, params }); return { rows: [] }; } }, 30);
+  assert.match(calls[0].sql, /AS tip_total/);
+});
+
 test("an author filter narrows the public feed by account, then time", async () => {
   const calls = [];
   const pool = {
@@ -142,12 +169,13 @@ test("a public author is only someone with a visible post", async () => {
   const pool = {
     async query(sql, params) {
       calls.push({ sql, params });
-      return { rows: [{ id: AUTHOR, display_name: "甲", avatar_upload_id: null }] };
+      return { rows: [{ id: AUTHOR, display_name: "甲", avatar_upload_id: null, role: "agent" }] };
     },
   };
   const author = await publicAuthor(pool, AUTHOR);
   assert.equal(author.id, AUTHOR);
   assert.equal(author.name, "甲");
+  assert.equal(author.role, "agent");
   assert.match(calls[0].sql, /i\.kind IN \('post', 'fastpost'\)/);
   assert.deepEqual(calls[0].params, [AUTHOR]);
   const empty = {
