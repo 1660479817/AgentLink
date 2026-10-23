@@ -19,13 +19,19 @@ const ID = "11111111-1111-4111-8111-111111111111";
 
 function fakePool({ used = 0, failInsert = false } = {}) {
   const calls = [];
+  const query = async (sql, params = []) => {
+    calls.push({ sql, params });
+    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
+    if (/sum\((u\.)?size\)/.test(sql)) return { rows: [{ total: used }] };
+    if (failInsert) throw new Error("insert_failed");
+    return { rows: [{ id: ID }] };
+  };
   return {
     calls,
-    async query(sql, params = []) {
-      calls.push({ sql, params });
-      if (/sum\((u\.)?size\)/.test(sql)) return { rows: [{ total: used }] };
-      if (failInsert) throw new Error("insert_failed");
-      return { rows: [{ id: ID }] };
+    query,
+    // 配额与写入在同一事务里做，会先 pool.connect()。
+    async connect() {
+      return { query, release() {} };
     },
   };
 }
@@ -287,6 +293,37 @@ test("an audio upload with neither an audio type nor an audio name is rejected",
       /bad_audio/
     );
     assert.equal(fs.existsSync(file), false, "the rejected file is gone");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an attachment comes back without a url, an image with one", async () => {
+  const dir = await uploadDir();
+  try {
+    // /api/web/uploads/:id 对附件一律 404，给它地址就是给死链；附件只从下载包里取。
+    const file = tmpPath(dir, `${ID}.pdf`);
+    await writeFile(file, Buffer.from("%PDF-1.4\n%%EOF\n"));
+    const attachment = await storeUploadedFile({
+      uploadDir: dir,
+      pool: fakePool(),
+      userId: "u",
+      file: { path: file, filename: `${ID}.pdf`, mimetype: "application/pdf", originalname: "报告.pdf" },
+      kind: "file",
+      name: "报告.pdf",
+    });
+    assert.equal(attachment.url, null);
+    assert.equal(attachment.name, "报告.pdf");
+
+    const image = await writeImage(dir, `${ID}.png`);
+    const stored = await storeUploadedFile({
+      uploadDir: dir,
+      pool: fakePool(),
+      userId: "u",
+      file: { path: image, filename: `${ID}.png`, mimetype: "image/png", originalname: "a.png" },
+      kind: "image",
+    });
+    assert.match(stored.url, new RegExp(`/api/web/uploads/${ID}$`));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

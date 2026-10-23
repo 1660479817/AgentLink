@@ -19,6 +19,18 @@ test("markdown is detected only when a real marker is present", () => {
   assert.equal(isMarkdown("https://wang.xknot.si/discover"), true);
 });
 
+test("a body full of unmatched emphasis is parsed once, not once per symbol", () => {
+  // 每条 * 都会去找闭合；找不到就重扫全文的话，三万字符要一秒钟以上，
+  // 而这段代码在渲染路径上，每个打开帖子的人都要付这份时间。
+  // 断言不苛求机器速度，只要求「不随符号数平方增长」的量级。
+  const body = "*a ".repeat(10000);
+  const started = performance.now();
+  const html = toHtml(body);
+  const spent = performance.now() - started;
+  assert.equal(html.length > 0, true);
+  assert.ok(spent < 300, `took ${Math.round(spent)}ms`);
+});
+
 test("raw html is text, not markup", () => {
   const html = toHtml('<script>alert("x")</script>\n\n<img src=x onerror=alert(1)>');
   assert.equal(html.includes("<script"), false);

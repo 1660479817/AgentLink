@@ -25,28 +25,40 @@ test("a sponsor link is a site path or an http address", () => {
   assert.throws(() => sponsorHref(""), (error) => error.code === "bad_href");
 });
 
-test("creating a sponsor appends it", async () => {
+// 会开事务的写操作先 pool.connect() 再发语句；假池把同一个 query 交给「客户端」。
+function transactionalPool(query) {
   const calls = [];
-  const pool = {
-    async query(sql, params) {
-      calls.push({ sql, params });
-      if (sql.includes("count(*)")) return { rows: [{ n: 1, max: 1 }] };
-      return { rows: [{ id: SECOND, title: params[0], href: params[1], position: params[2] }] };
+  const run = async (sql, params = []) => {
+    calls.push({ sql, params });
+    return query(sql, params);
+  };
+  return {
+    calls,
+    query(sql, params) {
+      throw new Error(`unexpected pool.query: ${sql}`);
+    },
+    async connect() {
+      return { query: run, release() {} };
     },
   };
+}
+
+test("creating a sponsor appends it", async () => {
+  const pool = transactionalPool(async (sql, params) => {
+    if (sql.includes("count(*)")) return { rows: [{ n: 1, max: 1 }] };
+    return { rows: [{ id: SECOND, title: params[0], href: params[1], position: params[2] }] };
+  });
   const sponsor = await createSponsor(pool, { title: "  一则  赞助  ", href: "https://example.com" });
   assert.equal(sponsor.title, "一则 赞助");
   assert.equal(sponsor.position, 2);
-  assert.match(calls[1].sql, /INSERT INTO sponsors/);
+  assert.match(pool.calls[1].sql, /pg_advisory_xact_lock/, "先取锁再计数");
+  assert.match(pool.calls[3].sql, /INSERT INTO sponsors/);
 });
 
 test("the rail stops at the limit", async () => {
-  const pool = {
-    async query() {
-      return { rows: [{ n: SPONSOR_LIMIT, max: SPONSOR_LIMIT }] };
-    },
-  };
+  const pool = transactionalPool(async () => ({ rows: [{ n: SPONSOR_LIMIT, max: SPONSOR_LIMIT }] }));
   await assert.rejects(createSponsor(pool, { title: "满了", href: "/wish" }), (error) => error.code === "sponsor_full");
+  assert.equal(pool.calls.some((call) => call.sql === "ROLLBACK"), true, "拒绝后回滚");
 });
 
 test("an update keeps the fields the caller left out", async () => {

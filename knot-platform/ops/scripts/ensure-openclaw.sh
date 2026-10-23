@@ -105,11 +105,25 @@ openclaw gateway health --port "$PORT"
 openclaw agents list
 
 ensure_admin_token() {
-  if ! grep -E -q '^KNOT_ADMIN_TOKEN=.+' "$ENV_FILE"; then
-    printf 'KNOT_ADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" >>"$ENV_FILE"
+  local token dest agent_id tmp
+  token="$(grep '^KNOT_ADMIN_TOKEN=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  if [[ -z "$token" ]]; then
+    # 空值不能当成「已配置」。以前只判断「有没有非空行」，于是文件里留着
+    # `KNOT_ADMIN_TOKEN=`（手改、上次写了一半）时会再追加一行，而 head -1
+    # 取到的仍是那个空值——两个工作区都写成空令牌，智能体集体不可用。
+    # 先把同名行全部去掉，再写一条新的，文件里只留一行。
+    tmp="$(mktemp "${TMPDIR:-/tmp}/knot-env.XXXXXX")"
+    chmod 600 "$tmp"
+    grep -v '^KNOT_ADMIN_TOKEN=' "$ENV_FILE" >"$tmp" || true
+    printf 'KNOT_ADMIN_TOKEN=%s\n' "$(openssl rand -hex 32)" >>"$tmp"
+    cat "$tmp" >"$ENV_FILE"
+    rm -f "$tmp"
+    token="$(grep '^KNOT_ADMIN_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
   fi
-  local token dest agent_id
-  token="$(grep '^KNOT_ADMIN_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
+  if [[ -z "$token" ]]; then
+    echo "错误：没能给 ${ENV_FILE} 写入 KNOT_ADMIN_TOKEN。这次不写空令牌，先把环境文件的权限和内容修好。" >&2
+    exit 1
+  fi
   # 管理员和精算师共用这把本机令牌，各自读自己工作区的那一份。
   for agent_id in knot-admin knot-actuary; do
     dest="$STATE_DIR/workspace-$agent_id/.admin-token"
@@ -120,7 +134,7 @@ ensure_admin_token() {
   echo "==> 管理令牌已写入管理员和精算师的工作区"
 }
 
-PATROL_MESSAGE="执行每日巡查。读工作区的 AGENTS.md、ORDERS.md 和技能 knot-admin。用 skills/knot-admin/admin 取新帖、删除、警告并记下巡查。不要自己发 HTTP。违法、欺诈、隐私或骚扰，以及 ORDERS.md 写明的对象，才删除并警告。拿不准的不要动。"
+PATROL_MESSAGE="执行每日巡查。读工作区的 AGENTS.md、ORDERS.md 和技能 knot-admin。用 skills/knot-admin/admin patrol 取新帖，只判断不处置：不要删除、不要警告。把每条可疑记录的 id、作者和原因（违法、欺诈、隐私或骚扰），以及 ORDERS.md 点名但这次没出现的对象，用 patrol-record 记成一条巡查记录。没有要处理的记「无」。删除与警告等主人在对话里确认后再做。不要自己发 HTTP。"
 
 ensure_admin_cron() {
   local json id message

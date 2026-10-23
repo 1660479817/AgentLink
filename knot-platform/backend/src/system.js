@@ -116,20 +116,33 @@ export function parseSystemPatch(body) {
   return patch;
 }
 
+const POLICY_COLUMNS = Object.freeze({
+  guestBrowsing: "guest_browsing",
+  registrationMode: "registration_mode",
+  publicBoard: "public_board",
+});
+
 export async function saveSystemPolicy(pool, body) {
   const patch = parseSystemPatch(body);
   const next = { ...current, ...patch };
+  // 只把这次真的改了的列交给 ON CONFLICT 覆盖：用进程内的 current 拼出一行再整体写入，
+  // 两个并发 PATCH（各改一个开关）会互相抹掉对方（S12-12）。没提到的列保持库里的值，
+  // 写入后用 RETURNING 的实际值刷新内存，别拿本进程可能已经过期的 current 当准。
+  const touched = Object.keys(patch);
+  const updates = touched.map((key) => `${POLICY_COLUMNS[key]} = EXCLUDED.${POLICY_COLUMNS[key]}`);
   const { rows } = await pool.query(
     `INSERT INTO system_policy (id, guest_browsing, registration_mode, public_board, updated_at)
      VALUES (1, $1, $2, $3, now())
      ON CONFLICT (id) DO UPDATE
-       SET guest_browsing = EXCLUDED.guest_browsing,
-           registration_mode = EXCLUDED.registration_mode,
-           public_board = EXCLUDED.public_board,
-           updated_at = now()
-     RETURNING updated_at`,
+       SET ${updates.join(", ")}, updated_at = now()
+     RETURNING guest_browsing, registration_mode, public_board, updated_at`,
     [next.guestBrowsing, next.registrationMode, next.publicBoard]
   );
-  installSystemPolicy({ ...next, updatedAt: stamp(rows[0]?.updated_at) });
+  installSystemPolicy({
+    guestBrowsing: rows[0].guest_browsing,
+    registrationMode: rows[0].registration_mode,
+    publicBoard: rows[0].public_board,
+    updatedAt: stamp(rows[0]?.updated_at),
+  });
   return systemPolicyView();
 }

@@ -1,4 +1,9 @@
 #!/bin/bash
+# 工作区里的入口：只把参数交给同目录的 node 脚本。
+# 加 set -euo pipefail 是为了在 cd 失败时立刻停下——否则 dir 会是空串，
+# 下一行把 /read.mjs 交给 node，报的是「模块找不到」，真实原因（目录不在）看不到。
+set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH:-/usr/bin:/bin}"
 dir="$(cd "$(dirname "$0")" && pwd)"
+[[ -n "$dir" ]] || { echo "找不到脚本所在目录：$0" >&2; exit 1; }
 exec node "$dir/read.mjs" "$@"

@@ -9,18 +9,28 @@ function iso(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+// wish 列表的上限。这几张表只增不删：没有上限时，用得越久，一次请求要把越多行
+// 连同附件一起 map 完再穿过入口隧道。wish 本身有时效，列表按时间倒序，一页足够。
+const WISH_LIST_LIMIT = 100;
+// 一条 wish 的响应通常只有几条；给一个上限防止异常账号刷出无界结果。
+const RESPONSE_LIST_LIMIT = 200;
+
 export async function listRequests(pool, viewerId = null) {
   const { rows } = await pool.query(
     `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.account_id, i.actor, i.created_at, i.updated_at, i.expires_at,
             (SELECT count(*)::int FROM intel r
              WHERE r.responds_to = i.id AND r.kind = 'wishRespond' AND ${visibleVerdict("r.verdict")}) AS response_count,
             EXISTS (
+              -- 解锁同样按钱包判：Agent 解锁过的 wish，主人看得到响应列表；反之亦然（S04-07）。
               SELECT 1 FROM request_unlocks u
-              WHERE u.intel_id = i.id AND u.account_id = $1
+              JOIN accounts ua ON ua.id = u.account_id
+              WHERE u.intel_id = i.id
+                AND COALESCE(ua.owner_id, ua.id) = COALESCE((SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $1), $1)
             ) AS unlocked
      FROM intel i
      WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
-     ORDER BY i.created_at DESC`,
+     ORDER BY i.created_at DESC
+     LIMIT ${WISH_LIST_LIMIT}`,
     [viewerId]
   );
   const files = await filesByIntel(pool, rows.map((row) => row.id));
@@ -45,7 +55,8 @@ export async function listMyResponses(pool, userId) {
      FROM intel r
      LEFT JOIN intel q ON q.id = r.responds_to AND q.kind = 'wish'
      WHERE r.account_id = $1 AND r.kind = 'wishRespond'
-     ORDER BY r.created_at DESC`,
+     ORDER BY r.created_at DESC
+     LIMIT ${WISH_LIST_LIMIT}`,
     [userId]
   );
   const files = await filesByIntel(pool, rows.flatMap((row) => [row.id, row.responds_to]));
@@ -80,13 +91,17 @@ export async function listLooks(pool, userId) {
     `SELECT i.id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.created_at, i.updated_at, i.expires_at,
             l.created_at AS looked_at,
             EXISTS (
+              -- 解锁同样按钱包判：Agent 解锁过的 wish，主人看得到响应列表；反之亦然（S04-07）。
               SELECT 1 FROM request_unlocks u
-              WHERE u.intel_id = i.id AND u.account_id = $1
+              JOIN accounts ua ON ua.id = u.account_id
+              WHERE u.intel_id = i.id
+                AND COALESCE(ua.owner_id, ua.id) = COALESCE((SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $1), $1)
             ) AS unlocked
      FROM request_looks l
      JOIN intel i ON i.id = l.intel_id AND i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
      WHERE l.account_id = $1
-     ORDER BY l.created_at DESC`,
+     ORDER BY l.created_at DESC
+     LIMIT ${WISH_LIST_LIMIT}`,
     [userId]
   );
   const files = await filesByIntel(pool, rows.map((row) => row.id));
@@ -132,13 +147,17 @@ export async function listRequestResponses(pool, userId, requestId) {
     `SELECT i.id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.reject_reason, i.category, i.price, i.kind, i.is_public, i.created_at, i.updated_at,
             i.account_id, u.display_name, u.avatar_upload_id, u.role, u.agent_type,
             EXISTS (
+              -- 响应列表的「已解锁」按钱包判，与 market.js 的 granted 同一口径（S04-07）。
               SELECT 1 FROM packet_downloads pd
-              WHERE pd.intel_id = i.id AND pd.account_id = $2
+              JOIN accounts pa ON pa.id = pd.account_id
+              WHERE pd.intel_id = i.id
+                AND COALESCE(pa.owner_id, pa.id) = COALESCE((SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $2), $2)
             ) AS granted
      FROM intel i
      JOIN accounts u ON u.id = i.account_id
      WHERE i.responds_to = $1 AND i.kind = 'wishRespond' AND ${visibleVerdict("i.verdict")}
-     ORDER BY i.created_at ASC`,
+     ORDER BY i.created_at ASC
+     LIMIT ${RESPONSE_LIST_LIMIT}`,
     [requestId, userId]
   );
   const files = await filesByIntel(pool, rows.map((row) => row.id));

@@ -51,6 +51,10 @@ test("missingFields：名称、主理人、介绍、可用的邮箱", () => {
   assert.deepEqual(missingFields(applicationPayload(SITE)), []);
   const payload = applicationPayload({ name: "", owner: "", contact: "https://example.com", tagline: "" });
   assert.deepEqual(missingFields(payload), ["name", "operator", "email", "intro"]);
+  // 超长邮箱不先截断：截出来的前缀可能仍像合法地址，交上去的联系方式就错了。
+  const long = applicationPayload(SITE, { email: "a".repeat(120) + "@example.com" });
+  assert.deepEqual(missingFields(long), ["email"]);
+  assert.equal([...long.email].length, 132, "原样交出去，由 missingFields 报错");
 });
 
 test("checkSubdomain：结论原样转回，不自己判", async () => {

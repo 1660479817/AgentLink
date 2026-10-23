@@ -1,6 +1,6 @@
 import express from "express";
 import { existsSync } from "node:fs";
-import { isIntranetAddress } from "../admin.js";
+import { adminDoorAddress, isIntranetAddress } from "../admin.js";
 
 // 管理后台只在内网提供：实例主机自己（回环）与同一内网的机器。
 // 它不是 /api/admin：这里发的是静态页，
@@ -21,7 +21,7 @@ export const ADMIN_CSP = [
 ].join("; ");
 
 export function adminPageGuard(req, res, next) {
-  if (!isIntranetAddress(req.socket?.remoteAddress)) {
+  if (!isIntranetAddress(adminDoorAddress(req))) {
     return res.status(404).type("text/plain; charset=utf-8").send("not_found");
   }
   res.setHeader("Content-Security-Policy", ADMIN_CSP);

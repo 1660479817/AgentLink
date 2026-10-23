@@ -3,10 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
+import { archiveSources, buildZip, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
 import { derivedDir } from "./storage.js";
 
-const INTEL = "23737bf5-537f-441f-bc86-bf230d1cf9ed";
+const INTEL = "33333333-3333-4333-8333-333333333333";
 
 function unzip(buffer) {
   const files = [];
@@ -112,8 +112,7 @@ test("the first download builds one zip and the next one reuses it", async () =>
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("a missing source file does not leave a zip", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "knot-zip-"));
+test("a missing source file does not leave a zip", async () => {  const root = fs.mkdtempSync(path.join(os.tmpdir(), "knot-zip-"));
   const upload = path.join(root, "uploads");
   fs.mkdirSync(upload);
   const sources = [{ label: "图片", name: "图.png", storageName: "missing.bin" }];
@@ -123,4 +122,13 @@ test("a missing source file does not leave a zip", async () => {
   );
   assert.equal(fs.existsSync(path.join(derivedDir(upload, "packets"), `${INTEL}.zip`)), false);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+// ZIP 的条目数与大小字段分别是 16 位与 32 位。超了 writeUInt16LE/32LE 会抛 RangeError，
+// 到调用方就变成 500；这里先给出一个明确的 packet_too_large。
+test("a packet beyond the zip format limits fails clearly instead of a RangeError", () => {
+  const empty = Buffer.alloc(0);
+  const many = Array.from({ length: 0x10000 }, (_item, index) => ({ name: `${index}.txt`, data: empty }));
+  assert.throws(() => buildZip(many), (error) => error.code === "packet_too_large");
+  assert.throws(() => buildZip([{ name: "x".repeat(0x10000), data: empty }]), (error) => error.code === "packet_too_large");
 });

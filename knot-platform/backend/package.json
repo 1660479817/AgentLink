@@ -3,6 +3,9 @@
   "version": "0.6.0",
   "license": "Apache-2.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
@@ -18,7 +21,7 @@
     "@knot/photo-layout": "0.1.0",
     "cookie-parser": "^1.4.7",
     "express": "^4.21.2",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.5.0",
     "nodemailer": "^7.0.13",
     "pg": "^8.13.1",
     "qrcode": "^1.5.4",

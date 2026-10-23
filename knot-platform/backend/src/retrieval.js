@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runRetrievalAgent } from "./agents/openclaw.js";
 import { loadBootstrapConfig } from "./config.js";
+import { visibleVerdict } from "./information.js";
 import { createIntel, searchPublicIntel } from "./market.js";
 import { recordNotification } from "./notifications.js";
 import { economyConfig, PLATFORM_ACCOUNT_ID } from "./points.js";
@@ -21,6 +22,33 @@ function clip(text, max) {
 //
 // 重复提交是常态：代理超时后会重发同一句。createIntel 对相同正文返回同一条 wish，
 // 所以这里对 retrieval_jobs 用 upsert，重复提交认回原来那个任务，不再撞唯一约束。
+// 登记任务并决定这次要不要重跑。重复提交是常态：同一个 wish 的任务行用 upsert，
+// 认回原来那一行，不再撞唯一约束。
+//   pending / running  → 已经在跑，认回原任务，不重排、不重扣；
+//   done 且已有可见响应 → 已经交付，认回原任务；
+//   done 但响应被撤销/删除 → 重新排队，否则请求方永远卡在这条 wish 上；
+//   新行 / failed → 改成 pending 并安排执行。
+export async function prepareRetrievalJob(pool, { wishId, userId, query }) {
+  const { rows } = await pool.query(
+    `INSERT INTO retrieval_jobs (wish_id, account_id, query) VALUES ($1, $2, $3)
+     ON CONFLICT (wish_id) DO UPDATE SET query = EXCLUDED.query
+     RETURNING id, status`,
+    [wishId, userId, query],
+  );
+  const job = rows[0];
+  if (job.status === "pending" || job.status === "running") {
+    return { jobId: job.id, status: job.status, duplicate: true, run: false };
+  }
+  if (job.status === "done" && (await existingResponseId(pool, wishId))) {
+    return { jobId: job.id, status: "done", duplicate: true, run: false };
+  }
+  await pool.query(
+    `UPDATE retrieval_jobs SET status = 'pending', error = NULL, attempts = 0, updated_at = now() WHERE id = $1`,
+    [job.id],
+  );
+  return { jobId: job.id, status: "pending", duplicate: false, run: true };
+}
+
 export async function createRetrieval(pool, { userId, actor, door, query }) {
   const text = clip(query, 400);
   if (!text) {
@@ -36,27 +64,9 @@ export async function createRetrieval(pool, { userId, actor, door, query }) {
     kind: "wish",
     hours: 24,
   });
-  const { rows } = await pool.query(
-    `INSERT INTO retrieval_jobs (wish_id, account_id, query) VALUES ($1, $2, $3)
-     ON CONFLICT (wish_id) DO UPDATE SET query = EXCLUDED.query
-     RETURNING id, status`,
-    [intel.kMeta.id, userId, text],
-  );
-  const job = rows[0];
-  // 已经在跑或已经做完：认回原任务，不重排、不重扣。
-  if (job.status === "pending" || job.status === "running") {
-    return { wish: intel, jobId: job.id, status: job.status, duplicate: true };
-  }
-  // 已完成但结果被终审撤销或删除：不能把请求方永远卡在这条 wish 上，重新排一次。
-  if (job.status === "done" && (await existingResponseId(pool, intel.kMeta.id))) {
-    return { wish: intel, jobId: job.id, status: "done", duplicate: true };
-  }
-  await pool.query(
-    `UPDATE retrieval_jobs SET status = 'pending', error = NULL, attempts = 0, updated_at = now() WHERE id = $1`,
-    [job.id],
-  );
-  enqueueRetrieval(pool, job.id);
-  return { wish: intel, jobId: job.id, status: "pending", duplicate: false };
+  const job = await prepareRetrievalJob(pool, { wishId: intel.kMeta.id, userId, query: text });
+  if (job.run) enqueueRetrieval(pool, job.jobId);
+  return { wish: intel, jobId: job.jobId, status: job.status, duplicate: job.duplicate };
 }
 
 const queue = [];
@@ -129,12 +139,25 @@ async function storeReport(pool, uploadDir, report, query) {
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [PLATFORM_ACCOUNT_ID, storageName, "text/markdown", reportFileName(query), bytes, sha256],
     );
-    return rows[0].id;
+    return { id: rows[0].id, storageName };
   } catch (error) {
     // 写库失败时删掉刚写的报告，否则审计里会多一个没有库记录的文件。
     await rm(file, { force: true }).catch(() => {});
     throw error;
   }
+}
+
+// 发布失败时收掉刚写的报告：重试会再写一份，不删就只能等 gc-uploads.mjs。
+// 只删没被任何记录引用的行——发布其实已经提交、只是后续步骤抛错时，附件还在用。
+async function discardReport(pool, uploadDir, upload) {
+  const { rowCount } = await pool.query(
+    `DELETE FROM uploads u
+      WHERE u.id = $1
+        AND NOT EXISTS (SELECT 1 FROM intel_files f WHERE f.upload_id = u.id)`,
+    [upload.id],
+  );
+  if (!rowCount) return;
+  await rm(storagePath(uploadDir, upload.storageName), { force: true }).catch(() => {});
 }
 
 // 这条 wish 是否已经有可用响应。重试前先认一次：上一次可能已经把结果发出去了，
@@ -143,7 +166,7 @@ async function storeReport(pool, uploadDir, report, query) {
 export async function existingResponseId(pool, wishId) {
   const { rows } = await pool.query(
     `SELECT id FROM intel
-      WHERE responds_to = $1 AND kind = 'wishRespond' AND verdict NOT IN ('rejected', 'removed')
+      WHERE responds_to = $1 AND kind = 'wishRespond' AND ${visibleVerdict("verdict")}
       ORDER BY created_at DESC LIMIT 1`,
     [wishId],
   );
@@ -175,7 +198,9 @@ async function processRetrieval(pool, jobId) {
 
   let internal = [];
   try {
-    internal = await searchPublicIntel(pool, job.query, PLATFORM_ACCOUNT_ID, {});
+    // 内部检索不记打点：它不是「有人搜过」，记到平台账号上会污染检索次数，
+    // 精算师看到的用量也就不对了。
+    internal = await searchPublicIntel(pool, job.query, null, {});
   } catch (error) {
     // 内部检索失败不中断任务，只把空命中交给检索员（它还能用外部工具）。
     console.error(error);
@@ -198,9 +223,9 @@ async function processRetrieval(pool, jobId) {
   }
 
   const { uploadDir } = loadBootstrapConfig();
-  let uploadId;
+  let upload;
   try {
-    uploadId = await storeReport(pool, uploadDir, report, job.query);
+    upload = await storeReport(pool, uploadDir, report, job.query);
   } catch (error) {
     await markFailed(pool, jobId, error.message || "report_store_failed");
     await notifyRetrievalFailed(pool, job);
@@ -213,13 +238,15 @@ async function processRetrieval(pool, jobId) {
       actor: "platform",
       door: "platform",
       body: `信息检索：${clip(job.query, 80)}`,
-      fileIds: [uploadId],
+      fileIds: [upload.id],
       kind: "wishRespond",
       respondsTo: job.wish_id,
       price: economyConfig().retrievalPrice,
     });
     await markDone(pool, jobId, intel.kMeta.id);
   } catch (error) {
+    // 没发出去的报告是孤儿：删掉再重排，否则每次重试都多留一份文件与 uploads 行。
+    await discardReport(pool, uploadDir, upload).catch((cleanupError) => console.error(cleanupError));
     // 响应发布失败重试；超过次数记为失败。
     if ((Number(job.attempts) || 0) + 1 < maxAttempts) {
       const attempt = Number(job.attempts) + 2;

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assembleDiscoverBoard, discoverBoardMeta, presentDiscoverSelf, publicPerson, readDiscoverBoard, writeDiscoverBoard } from "./discoverBoard.js";
+import { assembleDiscoverBoard, discoverBoardMeta, presentDiscoverSelf, publicPerson, readDiscoverBoard, wishSweepSql, writeDiscoverBoard } from "./discoverBoard.js";
 import { setDiscoverPublisher, touchDiscoverBoard } from "./discoverPublish.js";
 import { installSystemPolicy } from "./system.js";
 
@@ -66,6 +66,10 @@ function pool() {
       }
       if (sql.includes("GROUP BY i.account_id")) {
         return { rows: [{ id: AUTHOR, display_name: "甲", avatar_upload_id: null, last_at: "2026-10-15T03:00:00.000Z" }] };
+      }
+      // 筛选栏的计数在库里聚合（FACET_SQL），回来的是 kind / value / n 三列。
+      if (sql.includes("'category' AS kind")) {
+        return { rows: [{ kind: "category", value: "价格", n: 5 }] };
       }
       if (sql.includes("i.kind = 'wish'")) return { rows: [wish] };
       if (sql.includes("now() - interval '7 days'")) return { rows: [post, post, post, post, post] };
@@ -198,4 +202,14 @@ test("the board is empty when public browsing is off", async () => {
   } finally {
     installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: true });
   }
+});
+
+test("the expiry sweep counts a missing expires_at from created_at, same as the live filter", () => {
+  const sql = wishSweepSql("i");
+  // 两个边界都必须用同一个兜底表达式：只看 expires_at 非空会让旧 wish 到期后
+  // 留在 discover.json 里，直到别的内容变动才被重写（S14-07）。
+  assert.equal(sql.match(/COALESCE\(i\.expires_at, i\.created_at \+ interval '24 hours'\)/g).length, 2);
+  assert.match(sql, /> \$1/);
+  assert.match(sql, /<= \$2/);
+  assert.match(sql, /LIMIT 1/);
 });

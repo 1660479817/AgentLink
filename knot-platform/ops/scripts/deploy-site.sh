@@ -95,15 +95,39 @@ CONFIG_ARGS=(--site "$KNOT_SITE")
 # ---- 0. 发布包 ----
 # 允许 --artifact 指 tar.gz：解到暂存区，再把代码目录切过去。
 STAGING=""
+TMP_REL=""
+PREV_TARGET=""
+# 停过服务、又没走到「新版本已探活通过」就退出时，退出码不会自己把站点拉起来。
+# 这两个标记让 cleanup 判断要不要兜底回滚（见下面的 trap）。
+SERVICE_STOPPED=0
+DEPLOY_LIVE=0
+RESCUE_DONE=0
 cleanup() {
+  local code=$?
   if [[ -n "$STAGING" && -d "$STAGING" ]]; then
     rm -rf "$STAGING"
+  fi
+  # 同名重装时解包目录要等停服务后才换名；中途失败就别把它留在 releases/ 里。
+  if [[ -n "$TMP_REL" && -d "$TMP_REL" ]]; then
+    rm -rf "$TMP_REL"
   fi
   # 只删自己拿的那把锁：接管过别人的之后，别把继任者的锁一起删掉。
   if [[ -n "${LOCK_DIR:-}" && -f "$LOCK_DIR/pid" ]]; then
     if [[ "$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")" == "$$" ]]; then
       rm -rf "$LOCK_DIR"
     fi
+  fi
+  # 服务已经停了、新版本又没通过探活就退出（迁移、写 platform.env、装 unit 都可能
+  # 失败，set -e 会直接跳到这里）：把 current 切回上一个版本再拉起来。
+  # 否则站点一直停着，而部署输出里只有一行报错，没人知道还要手动重启。
+  if (( SERVICE_STOPPED == 1 && DEPLOY_LIVE == 0 && RESCUE_DONE == 0 )); then
+    RESCUE_DONE=1
+    echo "部署没有跑完（退出码 ${code}），把 Backend 拉回上一个版本。" >&2
+    if [[ -n "$PREV_TARGET" ]]; then
+      ln -sfn "$PREV_TARGET" "$KNOT_DEPLOY_ROOT/current"
+      echo "    current → ${PREV_TARGET}" >&2
+    fi
+    restart_backend || echo "警告：自动拉起失败，请手动重启（./ops/scripts/run-knot-platform.sh）。" >&2
   fi
   return 0
 }
@@ -159,6 +183,16 @@ if [[ "$REL_PLATFORM" != "$HOST_PLATFORM" && "$ALLOW_PLATFORM_MISMATCH" != 1 ]];
   knot_fail "发布包是 ${REL_PLATFORM}，这台机器是 ${HOST_PLATFORM}。
    原生模块（如 sharp）不能跨平台。请在这台机器同平台的环境里重新构建。
 确知没问题时加 --allow-platform-mismatch。"
+fi
+
+# 发布包必须自带生产依赖。目标机不跑 npm ci（ops/README.md 的交付前提），
+# 而 --no-modules 打出来的包名与默认包完全一样，只在 BUILD.json 的 modules
+# 字段上有差别。以前这个字段没人读：解包后 node_modules 是空的，部署一路走到
+# 探活才失败，报错看起来像「后端起不来」，查不出是包装错了。
+REL_MODULES="$(node "$SCRIPT_DIR/artifact.mjs" field modules "$MANIFEST")"
+if [[ "$REL_MODULES" != "true" ]]; then
+  knot_fail "这个发布包不带 node_modules（BUILD.json 里 modules=${REL_MODULES:-false}）。
+目标机不跑 npm ci，装上去起不来。用不带 --no-modules 的 ./ops/scripts/build.sh 重新打包。"
 fi
 
 # ---- 1. 站点配置 ----
@@ -325,6 +359,7 @@ printf '%s\n' "$$" > "$LOCK_DIR/pid"
 # ---- 2. 装发布包 ----
 mkdir -p "$KNOT_RELEASES_DIR"
 APP_PHYSICAL="$(cd "$KNOT_APP_DIR" && pwd -P)"
+REPLACE_PENDING=0
 if [[ "$APP_PHYSICAL" != "$(cd "$KNOT_RELEASES_DIR" && pwd -P)/$REL_NAME" ]]; then
   echo "==> install $REL_DIR"
   TMP_REL="$KNOT_RELEASES_DIR/.$REL_NAME.$$"
@@ -332,13 +367,21 @@ if [[ "$APP_PHYSICAL" != "$(cd "$KNOT_RELEASES_DIR" && pwd -P)/$REL_NAME" ]]; th
   mkdir -p "$TMP_REL"
   rsync -a --delete "$KNOT_APP_DIR/" "$TMP_REL/"
   chmod +x "$TMP_REL/ops/scripts/"*.sh 2>/dev/null || true
-  rm -rf "$REL_DIR"
-  mv "$TMP_REL" "$REL_DIR"
+  if [[ -e "$REL_DIR" ]]; then
+    # 同名重装：脚本名由代码内容算出，所以覆盖安装是常态，而 REL_DIR 此刻
+    # 很可能正是正在跑的那一份代码。先别删——服务还开着，后面还有几步要用它。
+    # 记下来，停服务之后再换（第 4 步），这样删的不会是在跑的目录。
+    REPLACE_PENDING=1
+    KNOT_APP_DIR="$(cd "$TMP_REL" && pwd -P)"
+  else
+    mv "$TMP_REL" "$REL_DIR"
+    TMP_REL=""
+    KNOT_APP_DIR="$(cd "$REL_DIR" && pwd -P)"
+  fi
 else
   echo "==> already installed $REL_DIR"
+  KNOT_APP_DIR="$(cd "$REL_DIR" && pwd -P)"
 fi
-# 后面所有步骤都用装好的那一份，不用暂存区。
-KNOT_APP_DIR="$(cd "$REL_DIR" && pwd -P)"
 export KNOT_APP_DIR
 
 VENV_SCRIPTS="$KNOT_APP_DIR/ops/scripts"
@@ -376,17 +419,61 @@ else
       "$VENV_SCRIPTS/ensure-knot-postgres.sh"
   fi
   # 端口上已经有库时也要确保 knot 这个库存在；已存在就忽略。
-  "$KNOT_PG_BIN/createdb" -h 127.0.0.1 -p "$KNOT_PGPORT" -U knot knot 2>/dev/null || true
-  DATABASE_URL="postgres://knot@127.0.0.1:$KNOT_PGPORT/knot"
+  # 新建的库是 scram 认证，口令在站点目录的 pg-knot-password（0600）；
+  # 老库是 trust，没有这个文件，照旧不带口令。
+  PG_PW_FILE="$KNOT_SITE_DIR/pg-knot-password"
+  PG_PW=""
+  if [[ -f "$PG_PW_FILE" ]]; then PG_PW="$(cat "$PG_PW_FILE" 2>/dev/null || true)"; fi
+  if ! CREATEDB_OUT="$(PGPASSWORD="$PG_PW" "$KNOT_PG_BIN/createdb" -h 127.0.0.1 -p "$KNOT_PGPORT" -U knot knot 2>&1)"; then
+    case "$CREATEDB_OUT" in
+      *"already exists"*) ;;
+      *)
+        knot_fail "createdb 失败：${CREATEDB_OUT}"
+        ;;
+    esac
+  fi
+  DATABASE_URL="postgres://knot${PG_PW:+:$PG_PW}@127.0.0.1:$KNOT_PGPORT/knot"
 fi
 export DATABASE_URL
 
-# ---- 4. 停服务 → 迁移 ----
+# ---- 4. 停服务 → 换目录（同名重装）→ 迁移 ----
 case "$RUNTIME" in
   launchd) knot_bootout_launchd com.knot.platform ;;
   systemd) knot_systemctl stop knot-backend 2>/dev/null || true ;;
   *) ;;
 esac
+SERVICE_STOPPED=1
+
+# 同名重装到这一步才换目录：上面用的还是旧的那一份（配置预检、私钥检查都读它），
+# 现在服务停了，删掉再换名不会动到正在运行的代码。换完 current 会短暂悬空，
+# 紧接着第 5 步会重指；这期间站点本来就是停的。
+if (( REPLACE_PENDING == 1 )); then
+  if [[ "$RUNTIME" == "none" ]]; then
+    # 没有服务管理器时进程还跑在旧目录上（脚本是从 current/ 拉起的）。
+    # 先停掉它再删目录，否则它随后的 require 会命中「文件已删除」。
+    MANUAL_PID_FILE="$KNOT_DEPLOY_ROOT/var/run/backend.pid"
+    if [[ -f "$MANUAL_PID_FILE" ]]; then
+      OLD_PID="$(cat "$MANUAL_PID_FILE" 2>/dev/null || true)"
+      if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
+        echo "==> stop backend (pid ${OLD_PID})"
+        kill "$OLD_PID" 2>/dev/null || true
+        for _ in $(seq 1 50); do
+          kill -0 "$OLD_PID" 2>/dev/null || break
+          sleep 0.1
+        done
+      fi
+      rm -f "$MANUAL_PID_FILE"
+    fi
+  fi
+  echo "==> replace $REL_DIR"
+  rm -rf "$REL_DIR"
+  mv "$TMP_REL" "$REL_DIR"
+  TMP_REL=""
+  KNOT_APP_DIR="$(cd "$REL_DIR" && pwd -P)"
+  export KNOT_APP_DIR
+  VENV_SCRIPTS="$KNOT_APP_DIR/ops/scripts"
+  chmod +x "$VENV_SCRIPTS/"*.sh 2>/dev/null || true
+fi
 
 echo "==> migrate"
 migrated=0
@@ -401,7 +488,9 @@ done
 cat "$MIGRATE_LOG"
 rm -f "$MIGRATE_LOG"
 if [[ "$migrated" != 1 ]]; then
-  # 迁移失败时把旧版本拉回来，别让站点空着。
+  # 迁移失败时把旧版本拉回来，别让站点空着。这里已经自己处理过收尾，
+  # 别再让 cleanup 重复重启一次。
+  RESCUE_DONE=1
   if [[ -n "$PREV_TARGET" ]]; then
     knot_warn "迁移失败。当前版本仍是 ${PREV_TARGET}。"
     ln -sfn "$PREV_TARGET" "$KNOT_DEPLOY_ROOT/current"
@@ -476,6 +565,9 @@ case "$RUNTIME" in
     echo "==> install systemd units"
     knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-backend.service" knot-backend.service
     if [[ -n "$KNOT_BACKUP_DIR" ]]; then
+      # 告警单元要先装上：knot-backup.service 的 OnFailure= 指向它，
+      # 缺了它失败时 systemd 只会再报一条「unit not found」。
+      knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-backup-alert.service" knot-backup-alert.service
       knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-backup.service" knot-backup.service
       knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-backup.timer" knot-backup.timer
       knot_systemctl enable --now knot-backup.timer
@@ -509,12 +601,23 @@ if [[ "$healthy" == 1 ]]; then
   RUNNING_RELEASE="$(node -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).release || "")) } catch {}' "$BODY")"
   RUNNING_COMMIT="$(node -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).commit || "")) } catch {}' "$BODY")"
   # 发布包名以 BUILD.json 为准；老版本没有 release 字段时退回比版本号。
-  if [[ -n "$RUNNING_RELEASE" ]]; then
-    if [[ "$RUNNING_RELEASE" != "$REL_NAME" ]]; then
-      knot_warn "探活报的发布包是 ${RUNNING_RELEASE}，本次装的是 ${REL_NAME}。可能还有一个旧进程占着端口。"
+  # 端口上答话的不是本次装的这一份，就说明旧进程还占着端口、新进程根本没起来。
+  # 这种情况以前只 warn 一句再照常写 deployed.json，于是「部署成功」但线上是旧代码。
+  MISMATCH=""
+  if [[ -n "$RUNNING_RELEASE" && "$RUNNING_RELEASE" != "$REL_NAME" ]]; then
+    MISMATCH="探活报的发布包是 ${RUNNING_RELEASE}，本次装的是 ${REL_NAME}。"
+  elif [[ -z "$RUNNING_RELEASE" && -n "$RUNNING_VERSION" && "$RUNNING_VERSION" != "$REL_VERSION" ]]; then
+    MISMATCH="探活报的版本是 ${RUNNING_VERSION}，发布包是 ${REL_VERSION}。"
+  fi
+  if [[ -n "$MISMATCH" ]]; then
+    knot_warn "${MISMATCH} 端口上答话的是别的版本，很可能还有一个旧进程占着端口。"
+    RESCUE_DONE=1
+    if [[ -n "$PREV_TARGET" && "$NO_ROLLBACK" != 1 ]]; then
+      ln -sfn "$PREV_TARGET" "$KNOT_DEPLOY_ROOT/current"
+      restart_backend || true
+      knot_fail "本次部署没有生效（${MISMATCH}）。current 已切回 ${PREV_TARGET}，先找出占着 $KNOT_PORT 的旧进程。"
     fi
-  elif [[ -n "$RUNNING_VERSION" && "$RUNNING_VERSION" != "$REL_VERSION" ]]; then
-    knot_warn "探活报的版本是 ${RUNNING_VERSION}，发布包是 ${REL_VERSION}。可能还有一个旧进程占着端口。"
+    knot_fail "本次部署没有生效（${MISMATCH}）。先找出占着 $KNOT_PORT 的旧进程，再重跑部署。"
   fi
   if [[ -n "$RUNNING_COMMIT" && "$RUNNING_COMMIT" != "$REL_COMMIT" ]]; then
     knot_warn "探活报的提交是 ${RUNNING_COMMIT}，发布包是 ${REL_COMMIT}。"
@@ -546,9 +649,13 @@ if [[ "$healthy" == 1 ]]; then
         ;;
     esac
   fi
+  # 走到这里新版本已经在跑、版本也对得上：后面 openclaw 之类的步骤再失败，
+  # 不该把线上好好的版本回滚掉。
+  DEPLOY_LIVE=1
 else
   if [[ -n "$PREV_TARGET" && "$NO_ROLLBACK" != 1 ]]; then
     knot_warn "新版本没有通过探活，回滚到 $PREV_TARGET"
+    RESCUE_DONE=1
     ln -sfn "$PREV_TARGET" "$KNOT_DEPLOY_ROOT/current"
     restart_backend
     if curl -sf "http://127.0.0.1:$KNOT_PORT/api/health" >/dev/null 2>&1; then

@@ -114,7 +114,7 @@ WebUI 顶栏左上角是固定的 `XKnot` 标识（`web/public/logos/xknot-mark.
 | 实例主机 | `KNOT_SYSTEMD_DIR` | `/etc/systemd/system` | Linux 上 systemd unit 的安装目录 |
 | 实例主机 | `KNOT_SERVICE_USER` | `knot` | Linux 上跑 Backend 的系统账号 |
 | 远程发布 | `KNOT_DEPLOY_SSH` | 空 | 空表示在实例主机本机跑 `deploy-site.sh` |
-| 远程发布 | `KNOT_DEPLOY_DIR` | `~/knot/AgentLink/knot-platform` | 远端**部署根**：`sites/`、`releases/`、`current`、`var/` 都在这里 |
+| 远程发布 | `KNOT_DEPLOY_DIR` | 空（按站点名推导为 `~/knot/<站点>`） | 远端**部署根**：`sites/`、`releases/`、`current`、`var/` 都在这里 |
 | 远程发布 | `KNOT_DEPLOY_SSH_KEY` | 空 | 空则用 ssh 默认密钥或 `ssh-agent` |
 | 远程发布 | `KNOT_DEPLOY_VERIFY_URL` | `http://<实例主机>:<KNOT_PORT>/api/health` | 发布后验收地址 |
 | 远程发布 | `KNOT_DEPLOY_KEEP` | `5` | 实例主机保留几个历史发布包；当前版本和回滚目标永远保留 |
@@ -162,6 +162,7 @@ WebUI 顶栏左上角是固定的 `XKnot` 标识（`web/public/logos/xknot-mark.
 node ops/scripts/config.mjs template --write            # sites/_template/site.env
 node ops/scripts/config.mjs platform-template --write   # sites/_template/platform.env
 node ops/scripts/config.mjs xknot-template --write      # sites/_template/xknot.env
+node ops/scripts/config.mjs entry-template --write      # sites/_template/entry.example.env
 node ops/scripts/config.mjs docs --write                # docs/CONFIG.md
 ```
 
@@ -271,7 +272,7 @@ Knot Backend → 公开快照 → 入口主机 WebUI 目录
 
 ### 3.2 目录布局
 
-部署根是 `KNOT_DEPLOY_DIR`（默认 `~/knot/AgentLink/knot-platform`）：
+部署根是 `KNOT_DEPLOY_DIR`（留空按站点名推导为 `~/knot/<站点>`）：
 
 ```text
 <部署根>/
@@ -288,6 +289,8 @@ Knot Backend → 公开快照 → 入口主机 WebUI 目录
 ```
 
 `current` 是唯一的切换点：回滚只改这个符号链接再重启。`sites/` 和 `var/` 在发布包外面，所以换版本不会碰配置和数据。日志、上传目录、`STATIC_WEB_DIR` 都写成经 `current` 的稳定路径。
+
+**一个部署根只放一个站点。** `--site` 只区分配置目录，运行槽位不是按站点分的：`current`、`releases/`、`deployed.json`、`var/run/backend.pid` 与 LaunchAgent 的 label（`com.knot.platform`）都在部署根这一层共用。两个站点共用一个部署根时，后部署的那个会把 `current` 切走，先部署的站点重启后跑的是别人的代码；`KNOT_DEPLOY_KEEP` 的清理也只认得自己那一份，另一个站点的活动版本会被当成旧包删掉。同一台机器要跑两个站点，就给每个站点一个 `KNOT_DEPLOY_DIR`。
 
 ### 3.3 构建（开发机）
 
@@ -308,7 +311,7 @@ knot-<版本>-<提交>[-dirty]-<平台>.tar.gz.sha256
 | --- | --- |
 | `--skip-test` | 跳过单测（不推荐） |
 | `--skip-install` | 复用现有 `node_modules`，不跑 `npm ci` |
-| `--no-modules` | 不带 `node_modules`，目标机自己装生产依赖 |
+| `--no-modules` | 不带 `node_modules`。只用于手工拷走自己装；`deploy-site.sh` 会拒绝这种包（目标机不跑 `npm ci`） |
 | `--out <目录>` | 换个输出目录（默认 `KNOT_ARTIFACT_DIR`） |
 
 平台标签是 `darwin-arm64`、`linux-x64` 这样的组合。原生模块（`sharp`）不能跨平台，所以发布包只装到同平台的机器上；部署时会校验，确实要混用时加 `--allow-platform-mismatch`。工作区有未提交改动时，包名带 `-dirty`。
@@ -527,7 +530,7 @@ ssh -L 8081:127.0.0.1:8080 <KNOT_DEPLOY_SSH>
 - **从站点过来（日常走这条）**：在同一内网的电脑上打开站点的 WebUI（域名即可），用 `KNOT_ADMIN_EMAIL` 那个邮箱登录，进「我的」，主理人会在资料卡上方看到「管理后台」。点「进入管理后台」当场打开；不在那台机器上时点「复制链接」，把链接拿到同一内网的设备上打开。链接是一次性票据，五分钟内有效；日常进入不需要任何人去翻文件找令牌。进去之后浏览器上留一枚 30 天的管理凭据，以后再打开 `/admin` 直接进；「退出」清掉它。
 - **直接打开 `/admin` 并粘令牌（应急）**：令牌在实例主机 `sites/<站点>/platform.env` 的 `KNOT_ADMIN_TOKEN`（或管理员工作区的 `.admin-token`）。手动粘的这一枚只存在这个标签页的 `sessionStorage`，关掉标签页即清除。
 
-两者都只在内网有效。票据怎么走：`POST /api/web/admin-handoff`（要主理人会话）发一枚 `t1.<exp>.<nonce>.<sig>`，页面把它放进 `http://<实例主机>:<端口>/admin/#t=<票据>` 的片段里——片段不发给服务器，访问日志里没有——admin 页面启动时换成 `POST /api/admin/handoff/claim` 的 30 天凭据。票据与凭据都用 `KNOT_ADMIN_TOKEN` 派生的密钥签名，主令牌本身不出服务器；换主令牌，两者一起作废。要吊销这台浏览器上的凭据，换掉令牌并重启 Backend。实例有多个网卡、或想写死一个地址时，在 `platform.env` 写 `KNOT_ADMIN_ORIGIN`（如 `http://192.168.3.91:8080`），不写就按 `KNOT_BIND_HOST` 与网卡推断。
+两者都只在内网有效。票据怎么走：`POST /api/web/admin-handoff`（要主理人会话）发一枚 `t1.<exp>.<nonce>.<sig>`，页面把它放进 `http://<实例主机>:<端口>/admin/#t=<票据>` 的片段里——片段不发给服务器，访问日志里没有——admin 页面启动时换成 `POST /api/admin/handoff/claim` 的 30 天凭据。票据与凭据都用 `KNOT_ADMIN_TOKEN` 派生的密钥签名，主令牌本身不出服务器；换主令牌，两者一起作废。要吊销这台浏览器上的凭据，换掉令牌并重启 Backend。实例有多个网卡、或想写死一个地址时，在 `platform.env` 写 `KNOT_ADMIN_ORIGIN`（如 `http://192.0.2.10:8080`），不写就按 `KNOT_BIND_HOST` 与网卡推断。
 
 页面分五栏：
 

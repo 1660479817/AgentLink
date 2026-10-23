@@ -153,6 +153,21 @@ test("保留份数按 KNOT_BACKUP_KEEP 清理", { skip: !HAS_RSYNC }, () => {
   assert.equal(snapshotDirs(ctx.backups).length, 2);
 });
 
+test("清理时不删掉最近一份全量快照", { skip: !HAS_RSYNC }, () => {
+  // 全量快照能恢复数据库，config-only 的不能。升级前连着跑几次 config-only，
+  // 按目录数清理会把唯一一份带 knot.dump 的挤出去，之后就再也恢复不了数据库。
+  const ctx = scaffold({ siteEnv: ["KNOT_BACKUP_KEEP=2"] });
+  const full = path.join(ctx.backups, "knot-20260101-000000");
+  write(full + "/knot.dump", "dump\n");
+  run(ctx);
+  run(ctx);
+  run(ctx);
+
+  assert.ok(existsSync(path.join(full, "knot.dump")), "最近一份全量快照被删掉了");
+  // KEEP 之外只多留这一份，不能变成「永远不清理」。
+  assert.equal(snapshotDirs(ctx.backups).length, 3);
+});
+
 test("KNOT_BACKUP_SITES=0 只备份数据库相关部分", { skip: !HAS_RSYNC }, () => {
   const ctx = scaffold({ siteEnv: ["KNOT_BACKUP_SITES=0"] });
   run(ctx);

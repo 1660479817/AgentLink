@@ -28,6 +28,7 @@ const HINTS = {
   bad_invite_expiry: "有效期写 24h、7d、2w 这类，最长 366d。",
   bad_invite_note: "备注最多 200 字。",
   code_taken: "这个邀请码已经有人用了，换一个。",
+  bad_mime: "图片只收 JPEG、PNG、GIF、WebP 四种，按扩展名判断（.jpg/.jpeg/.png/.gif/.webp）。先转成其中一种再上传。",
 };
 
 function switchValue(name, value) {
@@ -321,7 +322,11 @@ async function request(spec, { token, fetchImpl, baseUrl, read }) {
       throw error;
     }
     const name = path.basename(spec.file);
-    const type = IMAGE_TYPES[path.extname(name).toLowerCase()] || "application/octet-stream";
+    const type = IMAGE_TYPES[path.extname(name).toLowerCase()];
+    // SKILL.md 说只收 JPEG、PNG、GIF、WebP。以前不在表里的一律按
+    // application/octet-stream 发出去，由后端 bad_mime 拒——智能体拿到的
+    // 只有一句英文错误，不知道为什么、该怎么改。本地先拦，给同一套措辞。
+    if (!type) return { code: 1, body: { error: "bad_mime", hint: HINTS.bad_mime } };
     const form = new FormData();
     form.append("file", new Blob([bytes], { type }), name);
     body = form;

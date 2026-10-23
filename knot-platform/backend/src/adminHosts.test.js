@@ -6,14 +6,14 @@ const interfaces = {
   lo0: [{ address: "127.0.0.1", family: "IPv4", internal: true }],
   en0: [
     { address: "fe80::1", family: "IPv6", internal: false },
-    { address: "192.168.3.91", family: "IPv4", internal: false },
+    { address: "192.168.1.10", family: "IPv4", internal: false },
   ],
   en1: [{ address: "10.0.0.7", family: 4, internal: false }],
   utun: [{ address: "172.20.1.2", family: "IPv4", internal: false }],
 };
 
 test("私有网段与回环", () => {
-  for (const address of ["10.1.2.3", "172.16.0.1", "172.31.255.1", "192.168.3.91", "169.254.1.1"]) {
+  for (const address of ["10.1.2.3", "172.16.0.1", "172.31.255.1", "192.168.1.10", "169.254.1.1"]) {
     assert.equal(isPrivateIPv4(address), true, address);
   }
   for (const address of ["8.8.8.8", "172.32.0.1", "11.0.0.1", "192.169.1.1", "not-an-ip"]) {
@@ -24,7 +24,7 @@ test("私有网段与回环", () => {
   assert.equal(isLoopbackHost("::1"), true);
   assert.equal(isLoopbackHost("localhost"), true);
   assert.equal(isLoopbackHost("127.0.0.1:8081"), false);
-  assert.equal(isLoopbackHost("192.168.3.91"), false);
+  assert.equal(isLoopbackHost("192.168.1.10"), false);
 });
 
 test("绑定回环：只给本机地址", () => {
@@ -34,12 +34,12 @@ test("绑定回环：只给本机地址", () => {
 });
 
 test("绑定一个具体内网地址：就用它", () => {
-  assert.deepEqual(listAdminHosts({ bindHost: "192.168.3.91", port: 8080, interfaces }), ["http://192.168.3.91:8080"]);
+  assert.deepEqual(listAdminHosts({ bindHost: "192.168.1.10", port: 8080, interfaces }), ["http://192.168.1.10:8080"]);
 });
 
 test("绑定通配地址：枚举私有 IPv4，常见网段在前", () => {
   assert.deepEqual(listAdminHosts({ bindHost: "0.0.0.0", port: 8080, interfaces }), [
-    "http://192.168.3.91:8080",
+    "http://192.168.1.10:8080",
     "http://10.0.0.7:8080",
     "http://172.20.1.2:8080",
   ]);
@@ -61,7 +61,7 @@ test("出口域名是 IP 时不会把它当成内网管理地址", () => {
     listAdminHosts({
       bindHost: "0.0.0.0",
       port: 8080,
-      publicOrigin: "http://192.168.3.91:8080",
+      publicOrigin: "http://192.168.1.10:8080",
       interfaces,
       env: {},
     }),

@@ -81,7 +81,8 @@ mask() {
   elif (( ${#value} <= 12 )); then
     printf '****'
   else
-    printf '%s…%s' "${value:0:8}" "${value: -4}"
+    # 只看前 4 位与长度：后 4 位也属于真随机段，而 --status 的输出常被贴进工单。
+    printf '%s…（%d 位）' "${value:0:4}" "${#value}"
   fi
 }
 
@@ -143,9 +144,13 @@ if [[ -z "$PAYLOAD" ]]; then
 fi
 
 TMP_PAYLOAD=""
+TMP_DRYRUN=""
 cleanup() {
   if [[ -n "$TMP_PAYLOAD" && -f "$TMP_PAYLOAD" ]]; then
     rm -f "$TMP_PAYLOAD"
+  fi
+  if [[ -n "$TMP_DRYRUN" && -f "$TMP_DRYRUN" ]]; then
+    rm -f "$TMP_DRYRUN"
   fi
   return 0
 }
@@ -163,11 +168,22 @@ fi
 
 if (( DRY_RUN )); then
   echo "(dry-run) 会用 $PAYLOAD 写入 $JOIN_ENV"
-  node "$KNOT_APP_DIR/ops/scripts/config.mjs" join --site "$KNOT_SITE" --in "$PAYLOAD" --out "$JOIN_ENV.dryrun"
-  rm -f "$JOIN_ENV.dryrun"
+  # 接入件里是能用的凭据。dry-run 不该在站点目录里留一份带令牌的文件：
+  # 落成 mktemp 的 600 临时文件，失败时由 trap 清掉（config.mjs 报错会直接退出，
+  # 走不到下面那行 rm）。以前写的是 $JOIN_ENV.dryrun，没有先改权限，也只在成功路径删。
+  TMP_DRYRUN="$(mktemp "${TMPDIR:-/tmp}/xknot-dryrun.XXXXXX")"
+  chmod 600 "$TMP_DRYRUN"
+  node "$KNOT_APP_DIR/ops/scripts/config.mjs" join --site "$KNOT_SITE" --in "$PAYLOAD" --out "$TMP_DRYRUN"
+  rm -f "$TMP_DRYRUN"
+  TMP_DRYRUN=""
   exit 0
 fi
 
+# 目标文件已存在时 writeOut 的 mode 不会生效（只有创建时才算），
+# 所以先把它收到 600，写完再对一次。新建的文件由 config.mjs 直接用 600 创建。
+if [[ -f "$JOIN_ENV" ]]; then
+  chmod 600 "$JOIN_ENV" 2>/dev/null || true
+fi
 node "$KNOT_APP_DIR/ops/scripts/config.mjs" join --site "$KNOT_SITE" --in "$PAYLOAD" --out "$JOIN_ENV"
 chmod 600 "$JOIN_ENV"
 

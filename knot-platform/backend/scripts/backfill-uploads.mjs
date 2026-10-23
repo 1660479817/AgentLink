@@ -12,7 +12,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import pg from "pg";
 import { loadBootstrapConfig } from "../src/config.js";
-import { blobPath, blobsDir, readableBlobPath } from "../src/storage.js";
+import { USED_UPLOADS_SQL, blobPath, blobsDir, readableBlobPath } from "../src/storage.js";
 import { readImageMeta } from "../src/uploadStore.js";
 
 const APPLY = process.argv.includes("--apply");
@@ -144,21 +144,9 @@ async function main() {
     console.log(`磁盘上 ${files.size} 个文件没有库记录，${human(orphanBytes)}（审计脚本会列出；GC 按宽限期跳过最近上传的）`);
   }
 
+  // 与 GC 共用同一份引用集合：少一类引用就会把仍在用的图报成孤儿（S11-11）。
   const orphans = await client.query(
-    `WITH poster_uploads AS (
-       SELECT DISTINCT (regexp_match(video->>'poster',
-         '/api/web/uploads/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/display'))[1]::uuid AS id
-       FROM intel i
-       CROSS JOIN LATERAL jsonb_array_elements(
-         CASE WHEN jsonb_typeof(i.videos) = 'array' THEN i.videos ELSE '[]'::jsonb END
-       ) AS video
-     ),
-     used AS (
-       SELECT upload_id AS id FROM intel_files
-       UNION SELECT avatar_upload_id FROM accounts WHERE avatar_upload_id IS NOT NULL
-       UNION SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL
-       UNION SELECT id FROM poster_uploads WHERE id IS NOT NULL
-     )
+    `WITH used AS (${USED_UPLOADS_SQL})
      SELECT count(*)::int AS n, COALESCE(sum(size), 0) AS bytes
      FROM uploads u WHERE NOT EXISTS (SELECT 1 FROM used x WHERE x.id = u.id)`
   );

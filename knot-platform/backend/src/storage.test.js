@@ -6,9 +6,11 @@ import path from "node:path";
 import test from "node:test";
 import {
   DERIVED_KINDS,
+  USED_UPLOADS_SQL,
   blobPath,
   derivedDir,
   ensureLayout,
+  keepDerivedFile,
   legacyBlobPath,
   readableBlobPath,
   shardOf,
@@ -57,4 +59,34 @@ test("reads fall back to the old root layout while the migration has not run", a
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+// 引用集合只写一份给审计脚本和 GC 用。少一类就会把仍在用的原件报成孤儿，
+// 照清单清理就是删掉正文里还嵌着的图（S11-09、S11-11）。
+test("the shared reference SQL covers every way an upload can be used", () => {
+  for (const fragment of [
+    "FROM intel_files",
+    "avatar_upload_id FROM accounts",
+    "image_upload_id FROM sponsors",
+    "v->>'poster'",
+    "regexp_matches(",
+  ]) {
+    assert.ok(USED_UPLOADS_SQL.includes(fragment), fragment);
+  }
+  // 正文里嵌的地址用 match 而不是 regexp_match：一行可能有多个，要展开成多行。
+  assert.match(USED_UPLOADS_SQL, /regexp_matches\(\s*i\.body,[\s\S]*'g'\s*\)/);
+});
+
+test("a derived file is kept only while its subject exists", () => {
+  // display 的文件名是 <storage_name>.jpg，原件名本身带扩展名。
+  const names = new Set(["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png"]);
+  const ids = new Set(["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"]);
+  assert.equal(keepDerivedFile("display", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA.PNG.jpg", names, ids), true);
+  assert.equal(keepDerivedFile("display", "cccccccc-cccc-4ccc-8ccc-cccccccccccc.jpg", names, ids), false);
+  assert.equal(keepDerivedFile("packets", "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB.zip", names, ids), true);
+  assert.equal(keepDerivedFile("extracts", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.md", names, ids), true);
+  assert.equal(keepDerivedFile("shares", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", names, ids), true);
+  assert.equal(keepDerivedFile("shares", "dddddddd-dddd-4ddd-8ddd-dddddddddddd", names, ids), false);
+  // 认不出的种类不动：宁可漏删，不要删错。
+  assert.equal(keepDerivedFile("unknown", "anything", names, ids), true);
 });

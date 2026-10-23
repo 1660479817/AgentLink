@@ -2,6 +2,7 @@ import { Router } from "express";
 import path from "node:path";
 import multer from "multer";
 import {
+  adminDoorAddress,
   bearerToken,
   isIntranetAddress,
   grantPoints,
@@ -23,12 +24,13 @@ import {
   unmuteUser,
   updateManagedAccount,
   warnUser,
+  writeAction,
 } from "../admin.js";
 import { parseLocale } from "@knot/locale";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
 import { federationStatus } from "../federation.js";
 import { joinStatePath, readJoinState, saveJoinState } from "../joinState.js";
-import { checkSubdomain, hubOriginOf, submitApplication } from "../xknotJoin.js";
+import { checkSubdomain, hubOriginOf, pinnedCaseUrl, submitApplication } from "../xknotJoin.js";
 import {
   applyManagedBlock,
   ensureTunnelKey,
@@ -54,7 +56,7 @@ import { applyPriceProposal, economySnapshot, priceSchedule, proposePrices } fro
 import { attentionSnapshot } from "../attention.js";
 import { touchDiscoverBoard } from "../discoverPublish.js";
 import { createInvite, disableInvite, listInvites } from "../invites.js";
-import { saveSystemPolicy, systemPolicyView } from "../system.js";
+import { installSystemPolicy, saveSystemPolicy, systemPolicyView } from "../system.js";
 import { ensureUploadDir, newStorageName } from "../uploads.js";
 import { tmpDir } from "../storage.js";
 
@@ -108,8 +110,9 @@ function sendAdminError(res, error) {
   if (code === "agent_slots_full" || code === "users_full") {
     return res.status(409).json({ error: code });
   }
+  // not_internal 是越权：外部 Agent 的码归它的主人，管理端不读。
   if (code === "not_internal" || code === "bad_owner" || code === "not_account") {
-    return res.status(400).json({ error: code });
+    return res.status(code === "not_internal" ? 403 : 400).json({ error: code });
   }
   // 内部 Agent 自己拿着令牌不能改称呼；外部账号的资料只读。
   if (code === "name_locked" || code === "not_editable") return res.status(403).json({ error: code });
@@ -136,7 +139,8 @@ export function tunnelLocalPort(port, env = process.env) {
 const TUNNEL_MANUAL_COMMAND = "bash ops/scripts/run-entry-tunnel.sh";
 
 // 生成（或复用）隧道密钥并把公钥交到案例页。私钥留在 sites/<站点>/，权限 600。
-async function deliverPublicKey({ profile, application }) {
+// hubOrigin 用来钉住案例地址：只对配置的那一个中枢发请求。
+async function deliverPublicKey({ profile, application, hubOrigin = "" }) {
   const siteDir = profile?.file ? path.dirname(profile.file) : null;
   if (!siteDir || !application?.caseUrl) return null;
   const key = await ensureTunnelKey({
@@ -144,8 +148,14 @@ async function deliverPublicKey({ profile, application }) {
     comment: `knot-tunnel-${process.env.KNOT_SITE || "site"}`,
   });
   if (key.error) return key;
-  const submitted = await submitPublicKey({ caseUrl: application.caseUrl, publicKey: key.publicKey });
+  const submitted = await submitPublicKey({ caseUrl: application.caseUrl, publicKey: key.publicKey, hubOrigin });
   return { ...submitted, created: key.created };
+}
+
+// 公钥这一步的结果压成三个字段：交没交上、是不是新生成的、失败原因。
+function keyStatus(result) {
+  if (!result) return { delivered: false, created: false, error: "no_application" };
+  return { delivered: !result.error, created: Boolean(result.created), error: result.error || "" };
 }
 
 export function adminRouter({
@@ -166,7 +176,7 @@ export function adminRouter({
       destination: (_req, _file, cb) => cb(null, tmpDir(uploadDir)),
       filename: (_req, file, cb) => cb(null, newStorageName(file.originalname)),
     }),
-    limits: { fileSize: 8 * 1024 * 1024 },
+    limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 10, parts: 20 },
     fileFilter: (_req, file, cb) => {
       if (String(file.mimetype || "").startsWith("image/")) cb(null, true);
       else cb(new Error("bad_mime"));
@@ -178,7 +188,7 @@ export function adminRouter({
   // 它就是「还没有凭据」的那一步。内网检查与其余端点一致；公网入口那一段
   // nginx 本来就不会把 /api/admin 送到实例，所以这里只是第二道相同的门。
   router.post("/handoff/claim", (req, res) => {
-    if (!isIntranetAddress(req.socket?.remoteAddress)) {
+    if (!isIntranetAddress(adminDoorAddress(req))) {
       return res.status(404).json({ error: "not_found" });
     }
     if (!handoff?.configured) return res.status(503).json({ error: "admin_unconfigured" });
@@ -189,7 +199,7 @@ export function adminRouter({
   });
 
   router.use((req, res, next) => {
-    if (!isIntranetAddress(req.socket?.remoteAddress)) {
+    if (!isIntranetAddress(adminDoorAddress(req))) {
       return res.status(404).json({ error: "not_found" });
     }
     if (!String(token || "").trim()) {
@@ -258,15 +268,23 @@ export function adminRouter({
       if (result.ok) {
         // 底账写失败不影响这次申请：中枢那边已经受理，页面仍要拿到编号。
         const file = joinStatePath(profile?.file);
-        await saveJoinState(file, result.application).catch((error) => {
+        // caseUrl 只留指向这个中枢的：远端把它改成内网地址时，本地不认（S12-02）。
+        const hub = hubOriginOf({ status });
+        const application = result.application
+          ? { ...result.application, caseUrl: pinnedCaseUrl(result.application.caseUrl, hub) }
+          : result.application;
+        await saveJoinState(file, application).catch((error) => {
           console.error("join state:", error.message);
         });
         // 公钥是前置阶段唯一的输入：提交成功就顺手生成并交上去，
         // 这一步失败不回滚申请（案例页仍可手工补交），进度里会显示缺什么。
-        await deliverPublicKey({ profile, application: result.application }).catch((error) => {
+        // 结果一并回给界面：申请被受理、公钥却没收下时，人要知道该补哪一步，
+        // 不能只留一行日志等人去翻（S12-08）。
+        const key = await deliverPublicKey({ profile, application, hubOrigin: hub }).catch((error) => {
           console.error("tunnel key:", error.message);
+          return { error: "keygen_failed" };
         });
-        return res.status(201).json({ application: result.application });
+        return res.status(201).json({ application: result.application, key: keyStatus(key) });
       }
       if (result.error === "incomplete") {
         return res.status(400).json({ error: "incomplete", fields: result.fields });
@@ -292,7 +310,12 @@ export function adminRouter({
       const file = joinStatePath(profile?.file);
       const state = await readJoinState(file);
       if (!state?.application?.caseUrl) return res.status(409).json({ error: "no_application" });
-      const result = await deliverPublicKey({ profile, application: state.application });
+      const status = federationStatus({ agentEnvDir, publicWebOrigin });
+      const result = await deliverPublicKey({
+        profile,
+        application: state.application,
+        hubOrigin: hubOriginOf({ status }),
+      });
       if (!result) return res.status(503).json({ error: "profile_unconfigured" });
       if (result.error) return res.status(502).json({ error: result.error, status: result.status });
       res.json({ ok: true, created: Boolean(result.created) });
@@ -307,7 +330,9 @@ export function adminRouter({
       if (!state?.application?.caseUrl) {
         return res.json({ application: null, run: null, handoff: null });
       }
-      const result = await fetchProgress({ caseUrl: state.application.caseUrl });
+      // 只向配置的中枢读进度：join.json 里的 caseUrl 可能是被改过的（S12-02）。
+      const hubOrigin = hubOriginOf({ status: federationStatus({ agentEnvDir, publicWebOrigin }) });
+      const result = await fetchProgress({ caseUrl: state.application.caseUrl, hubOrigin });
       if (result.error) {
         return res.status(502).json({ error: result.error, application: state.application });
       }
@@ -347,13 +372,7 @@ export function adminRouter({
       // 都靠它。写进去还要重启 Backend 才生效，所以只在内容真的变了时重启一次。
       if (result.data?.run?.state === "active" && issuedValid(result.data.issued) && profile?.file) {
         const siteDir = path.dirname(profile.file);
-        const hubOrigin = (() => {
-          try {
-            return new URL(state.application.caseUrl).origin;
-          } catch {
-            return "";
-          }
-        })();
+        // 接入件里的中枢地址用校验过的那个，不从 caseUrl 现算：它可能是被改过的数据。
         // 自动接通不签发委托发信凭据：文件里已有的那两项原样带过去，别抹掉。
         const relay = await readRelayValues(joinEnvPath(siteDir));
         const written = await writeJoinEnv({
@@ -386,7 +405,8 @@ export function adminRouter({
       const siteDir = profile?.file ? path.dirname(profile.file) : null;
       if (!siteDir) return res.status(503).json({ error: "profile_unconfigured" });
 
-      const result = await fetchProgress({ caseUrl: state.application.caseUrl });
+      const hubOrigin = hubOriginOf({ status: federationStatus({ agentEnvDir, publicWebOrigin }) });
+      const result = await fetchProgress({ caseUrl: state.application.caseUrl, hubOrigin });
       if (result.error) return res.status(502).json({ error: result.error });
       const handoff = result.data?.handoff;
       if (!handoffValid(handoff)) return res.status(409).json({ error: "not_ready", run: result.data?.run || null });
@@ -558,7 +578,16 @@ export function adminRouter({
   router.get("/agents/:id/token", async (req, res) => {
     try {
       res.set("Cache-Control", "no-store");
-      res.json(await readManagedAgentToken(pool, req.params.id, { envDir: agentEnvDir }));
+      const found = await readManagedAgentToken(pool, req.params.id, { envDir: agentEnvDir });
+      // 明文等于那把 30 天有效的管理凭据：每读一次记一条流水，
+      // 真泄漏时至少能看出谁在什么时候把它取走了（S13-10）。
+      // 记不下来就不给：没有痕迹的读取比读不到更糟。
+      await writeAction(pool, {
+        action: "config",
+        accountId: found.id,
+        body: `读取内部 Agent「${found.id}」的明文令牌`,
+      });
+      res.json(found);
     } catch (error) {
       sendAdminError(res, error);
     }
@@ -633,7 +662,7 @@ export function adminRouter({
 
   router.post("/patrol", async (req, res) => {
     try {
-      res.json(await recordPatrol(pool, req.body?.body));
+      res.json(await recordPatrol(pool, req.body?.body, req.body?.through));
     } catch (error) {
       sendAdminError(res, error);
     }
@@ -698,27 +727,55 @@ export function adminRouter({
     }
   });
 
+  // 业务变更与 admin_actions 在同一事务里提交：审计写失败时不能留下已经生效的
+  // 配置或邀请码，还让管理端以为没成功（S12-11）。
+  async function auditedWrite(action, work, bodyText) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await work(client);
+      const body = bodyText(result);
+      if (body) await client.query(`INSERT INTO admin_actions (action, body) VALUES ($1, $2)`, [action, body]);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   router.get("/system", (_req, res) => {
     res.json({ system: systemPolicyView() });
   });
 
   router.patch("/system", async (req, res) => {
+    const before = systemPolicyView();
     try {
-      const before = systemPolicyView();
-      const system = await saveSystemPolicy(pool, req.body || {});
-      const changed = [
-        before.guestBrowsing !== system.guestBrowsing ? "站内浏览" : "",
-        before.registrationMode !== system.registrationMode ? `注册=${system.registrationMode}` : "",
-        before.publicBoard !== system.publicBoard ? "公开快照" : "",
-      ].filter(Boolean);
-      if (changed.length) {
-        await pool.query(`INSERT INTO admin_actions (action, body) VALUES ('config', $1)`, [changed.join("、")]);
-        if (before.guestBrowsing !== system.guestBrowsing || before.publicBoard !== system.publicBoard) {
-          touchDiscoverBoard();
-        }
+      let changed = [];
+      // saveSystemPolicy 只认 query，事务客户端也一样用；配置与流水一起提交。
+      const system = await auditedWrite(
+        "config",
+        async (client) => {
+          const saved = await saveSystemPolicy(client, req.body || {});
+          changed = [
+            before.guestBrowsing !== saved.guestBrowsing ? "站内浏览" : "",
+            before.registrationMode !== saved.registrationMode ? `注册=${saved.registrationMode}` : "",
+            before.publicBoard !== saved.publicBoard ? "公开快照" : "",
+          ].filter(Boolean);
+          return saved;
+        },
+        () => (changed.length ? changed.join("、") : "")
+      );
+      // 事务回滚过就说明配置没落下，touchDiscoverBoard 也不能跑。
+      if (changed.length && (before.guestBrowsing !== system.guestBrowsing || before.publicBoard !== system.publicBoard)) {
+        touchDiscoverBoard();
       }
       res.json({ system });
     } catch (error) {
+      // saveSystemPolicy 已经改过进程里的那份，回滚后要改回去。
+      installSystemPolicy(before);
       sendAdminError(res, error);
     }
   });
@@ -733,8 +790,11 @@ export function adminRouter({
 
   router.post("/invites", async (req, res) => {
     try {
-      const invite = await createInvite(pool, req.body || {});
-      await pool.query(`INSERT INTO admin_actions (action, body) VALUES ('invite', $1)`, [`签发邀请码 ${invite.code}`]);
+      const invite = await auditedWrite(
+        "invite",
+        (client) => createInvite(client, req.body || {}),
+        (result) => `签发邀请码 ${result.code}`
+      );
       res.status(201).json({ invite });
     } catch (error) {
       sendAdminError(res, error);
@@ -743,8 +803,11 @@ export function adminRouter({
 
   router.post("/invites/:id/disable", async (req, res) => {
     try {
-      const result = await disableInvite(pool, req.params.id);
-      await pool.query(`INSERT INTO admin_actions (action, body) VALUES ('invite', $1)`, [`停用邀请码 ${result.invite.code}`]);
+      const result = await auditedWrite(
+        "invite",
+        (client) => disableInvite(client, req.params.id),
+        (value) => `停用邀请码 ${value.invite.code}`
+      );
       res.json(result);
     } catch (error) {
       sendAdminError(res, error);

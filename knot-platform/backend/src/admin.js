@@ -41,6 +41,16 @@ export function isLoopbackAddress(address) {
   return ip === "127.0.0.1" || ip === "::1";
 }
 
+// 管理门的来源地址。实例前面常有一层本机反代（入口隧道把远端请求落到 127.0.0.1），
+// 这时 remoteAddress 恒为回环，拿它判定必然放行（S12-07）。
+// 只有对端确实是回环时才信代理写的 X-Forwarded-For（由 trust proxy 1 解成 req.ip）：
+// 内网里直连端口的请求改不了自己的对端地址，伪造 XFF 也不会被当成回环。
+export function adminDoorAddress(req) {
+  const peer = req?.socket?.remoteAddress;
+  if (isLoopbackAddress(peer)) return String(req?.ip || peer || "");
+  return String(peer || "");
+}
+
 // 管理面只给「自己这台机器」和「同一内网」：回环，加 IPv4 私有地址
 // （10/8、172.16/12、192.168/16）、链路本地（169.254/16），
 // 以及 IPv6 的唯一本地地址（fc00::/7）与链路本地（fe80::/10）。
@@ -591,7 +601,7 @@ export async function listPosts(pool, { user, q, within }) {
   };
 }
 
-async function writeAction(pool, { action, accountId = null, intelId = null, body, actorId = null }) {
+export async function writeAction(pool, { action, accountId = null, intelId = null, body, actorId = null }) {
   await pool.query(
     `INSERT INTO admin_actions (action, account_id, intel_id, body, actor_account_id) VALUES ($1, $2, $3, $4, $5)`,
     [action, accountId, intelId, body, actorId]
@@ -605,32 +615,39 @@ export async function removePost(pool, id, reason, { actorId = null, platformClo
   // 用「同 origin 还有更新的可见版本」隐藏旧版；只把新版置为 removed 时，旧版
   // 会立刻重新可见（S11-01）。作者删除 deleteOwnPost 已是这个口径，这里对齐。
   // 被点的可能是链上任意一版，用子查询取它所属的 COALESCE(origin_id, id)。
-  const { rows } = await pool.query(
-    `UPDATE intel
-     SET verdict = 'removed', reject_reason = $2, is_public = false
-     WHERE verdict <> 'removed'
-       AND COALESCE(origin_id, id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $1)
-     RETURNING id, account_id`,
-    [id, text]
-  );
-  if (!rows.length) {
-    const existing = await pool.query(`SELECT id FROM intel WHERE id = $1 AND verdict = 'removed'`, [id]);
-    if (!existing.rows.length) throw fail("not_found");
-    return { ok: true, already: true, id };
-  }
-  // 链上每一版都有自己的摘要文件，一起清掉，免得撤下后还占着磁盘。
-  for (const row of rows) await discardExtract(row.id);
-  await recordNotification(pool, {
-    userId: rows[0].account_id,
-    kind: "intel_removed",
-    title: "帖子已删除",
-    body: text,
-    href: "/mine/submissions",
-    data: platformClosed ? { platformClosed: true } : { reason: text },
+  // 撤下、通知、审计三件事在一个事务里：只提交前一半会留下「帖没了、作者不知道、
+  // 流水也没有」的半完成状态，而接口只会回一个 500，管理员以为没删成（S11-06）。
+  const outcome = await withClient(pool, async (client) => {
+    const { rows } = await client.query(
+      `UPDATE intel
+       SET verdict = 'removed', reject_reason = $2, is_public = false
+       WHERE verdict <> 'removed'
+         AND COALESCE(origin_id, id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $1)
+       RETURNING id, account_id`,
+      [id, text]
+    );
+    if (!rows.length) {
+      const existing = await client.query(`SELECT id FROM intel WHERE id = $1 AND verdict = 'removed'`, [id]);
+      if (!existing.rows.length) throw fail("not_found");
+      return { rows: [], already: true };
+    }
+    await recordNotification(client, {
+      userId: rows[0].account_id,
+      kind: "intel_removed",
+      title: "帖子已删除",
+      body: text,
+      href: "/mine/submissions",
+      data: platformClosed ? { platformClosed: true } : { reason: text },
+    });
+    await writeAction(client, { action: "remove", accountId: rows[0].account_id, intelId: id, body: text, actorId });
+    return { rows, already: false };
   });
-  await writeAction(pool, { action: "remove", accountId: rows[0].account_id, intelId: id, body: text, actorId });
+  if (outcome.already) return { ok: true, already: true, id };
+  // 链上每一版都有自己的摘要文件，一起清掉，免得撤下后还占着磁盘。
+  // 删盘不进事务：它不可回滚，放进事务里反而会留下「库回滚了、文件已经没了」。
+  for (const row of outcome.rows) await discardExtract(row.id);
   touchDiscoverBoard();
-  return { ok: true, already: false, id, userId: rows[0].account_id };
+  return { ok: true, already: false, id, userId: outcome.rows[0].account_id };
 }
 
 export function grantAmount(value) {
@@ -650,6 +667,29 @@ export async function grantPoints(pool, user, amount, body) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // 同一账户的发放串行化，并在短窗口内认作同一次操作的重放：
+    // 双击、超时重试都会带一模一样的收件人、金额与理由，没有这一步就是两笔到账（S13-05）。
+    // 换理由再发不受影响；这是防重放，不是限次。
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`knot:grant:${account.id}`]);
+    const replay = await client.query(
+      `SELECT id FROM admin_actions
+        WHERE action = 'grant' AND account_id = $1 AND body = $2
+          AND created_at > now() - interval '10 minutes'
+        ORDER BY created_at DESC LIMIT 1`,
+      [account.id, note]
+    );
+    if (replay.rows.length) {
+      const current = await client.query(`SELECT points_balance FROM accounts WHERE id = $1`, [account.id]);
+      await client.query("COMMIT");
+      const pointsBalance = Number(current.rows[0]?.points_balance) || 0;
+      return {
+        ok: true,
+        duplicate: true,
+        amount: points,
+        user: { ...presentAccount(account), pointsBalance },
+        pointsBalance,
+      };
+    }
     const action = await client.query(
       `INSERT INTO admin_actions (action, account_id, body) VALUES ('grant', $1, $2) RETURNING id`,
       [account.id, note]
@@ -902,17 +942,25 @@ export async function setLevel(pool, user, level, body) {
 export async function warnUser(pool, user, body) {
   const account = await oneUser(pool, user);
   const text = requireText(body, REASON_MAX, "bad_body");
-  await recordNotification(pool, {
-    userId: account.id,
-    kind: "warning",
-    title: "平台警告",
-    body: text,
-    data: { note: text },
+  // 警告与流水同一事务：只写进通知、流水失败时，用户已经收到警告，
+  // 而管理端既看不到这次操作也重试不了（S11-13）。
+  await withClient(pool, async (client) => {
+    await recordNotification(client, {
+      userId: account.id,
+      kind: "warning",
+      title: "平台警告",
+      body: text,
+      data: { note: text },
+    });
+    await writeAction(client, { action: "warn", accountId: account.id, body: text });
   });
-  await writeAction(pool, { action: "warn", accountId: account.id, body: text });
   return { ok: true, user: presentAccount(account) };
 }
 
+// 巡查队列的下界是「上一轮报告实际覆盖到的那条帖」，不是「上一份报告写下的时刻」。
+// 用提交时刻做水位有两个漏洞：巡查期间新发的帖、以及积压超过 LIMIT 的那一批，
+// 创建时间都早于新水位，从此再也不会出现在队列里（S11-05）。
+// 覆盖到哪条记在 admin_actions.intel_id 上：一条 patrol 流水指向本轮看的最后一条。
 export async function patrolQueue(pool) {
   const { rows } = await pool.query(
     `SELECT i.id, i.body, i.created_at, u.id AS account_id, u.email, u.display_name
@@ -921,28 +969,41 @@ export async function patrolQueue(pool) {
      WHERE i.verdict = 'passed'
        AND i.is_public
        AND i.created_at > COALESCE(
-         (SELECT max(created_at) FROM admin_actions WHERE action = 'patrol'),
+         (SELECT covered.created_at
+            FROM admin_actions a
+            JOIN intel covered ON covered.id = a.intel_id
+           WHERE a.action = 'patrol' AND a.intel_id IS NOT NULL
+           ORDER BY a.created_at DESC
+           LIMIT 1),
          now() - interval '1 day'
        )
      ORDER BY i.created_at ASC
      LIMIT 40`
   );
-  return {
-    posts: rows.map((row) => ({
-      id: row.id,
-      body: clipText(row.body, 400),
-      createdAt: row.created_at,
-      user: {
-        id: row.account_id,
-        email: row.email,
-        displayName: row.display_name || "",
-      },
-    })),
-  };
+  const posts = rows.map((row) => ({
+    id: row.id,
+    body: clipText(row.body, 400),
+    createdAt: row.created_at,
+    user: {
+      id: row.account_id,
+      email: row.email,
+      displayName: row.display_name || "",
+    },
+  }));
+  // through 交给页面原样回传：报告提交时用它推进水位。
+  return { posts, through: posts.length ? posts[posts.length - 1].id : null };
 }
 
-export async function recordPatrol(pool, body) {
+export async function recordPatrol(pool, body, through = null) {
   const text = requireText(body, REPORT_MAX, "bad_body");
-  await writeAction(pool, { action: "patrol", body: text });
-  return { ok: true };
+  let anchor = null;
+  if (through != null && String(through).trim()) {
+    anchor = String(through).trim();
+    if (!UUID.test(anchor)) throw fail("bad_args");
+    // 水位要靠这条帖子的 created_at，帖不在就退回「不推进」，别写一条指空的流水。
+    const { rows } = await pool.query(`SELECT id FROM intel WHERE id = $1`, [anchor]);
+    if (!rows.length) throw fail("not_found");
+  }
+  await writeAction(pool, { action: "patrol", intelId: anchor, body: text });
+  return { ok: true, through: anchor };
 }

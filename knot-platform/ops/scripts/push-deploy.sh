@@ -212,13 +212,28 @@ fi
 # 把本机展开过的 ~ 换成目标机的 home。配置里的 `~` 在被 source 时
 # 会先展开成本机 home，直接当远端路径会写到不存在的地方。
 DEPLOY_DIR="$KNOT_DEPLOY_DIR"
-REMOTE_HOME="$("${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" 'printf %s "$HOME"')"
+# 取最后一行：登录 banner 会混进 stdout，整段当路径会把命令发到奇怪的地方。
+REMOTE_HOME="$("${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" 'printf %s "$HOME"' | tail -n 1)"
+case "$REMOTE_HOME" in
+  /*) ;;
+  *)
+    knot_fail "目标机返回的 home 不是绝对路径：'${REMOTE_HOME}'。检查 ssh 登录 banner 或 shell 启动脚本的输出。"
+    ;;
+esac
 case "$DEPLOY_DIR" in
   "~") DEPLOY_DIR="$REMOTE_HOME" ;;
   "~/"*) DEPLOY_DIR="$REMOTE_HOME/${DEPLOY_DIR#\~/}" ;;
   "$HOME") DEPLOY_DIR="$REMOTE_HOME" ;;
   "$HOME"/*) DEPLOY_DIR="$REMOTE_HOME${DEPLOY_DIR#"$HOME"}" ;;
 esac
+
+# 部署前的版本：健康检查失败时用它把远端切回去。取值走位置参数，
+# 不拼进远端 shell 文本。
+PREV_REMOTE="$("${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- "$DEPLOY_DIR" <<'REMOTE' | tail -n 1
+set -eu
+readlink "$1/current" 2>/dev/null || true
+REMOTE
+)"
 
 echo "==> $REL_NAME  $PLATFORM"
 echo "    → $KNOT_DEPLOY_SSH:$DEPLOY_DIR"
@@ -238,9 +253,11 @@ echo "==> upload artifact"
 rsync -az -e "$RSYNC_E" "$ARTIFACT" "$ARTIFACT.sha256" "$KNOT_DEPLOY_SSH:$DEPLOY_DIR/artifacts/"
 
 # 站点配置不进发布包：它属于这台机器，而且 platform.env 里有密钥。
+# 先建一个 600 的空文件再写：`cat > file && chmod 600` 之间文件按 umask（通常 644）
+# 存在，里面的 DATABASE_URL 与委托发信令牌在这段时间对同机其他用户可读。
 REMOTE_SITE="sites/$KNOT_SITE"
 echo "==> site → $KNOT_DEPLOY_SSH:$DEPLOY_DIR/$REMOTE_SITE/site.env"
-"${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "cat > '$DEPLOY_DIR/$REMOTE_SITE/site.env' && chmod 600 '$DEPLOY_DIR/$REMOTE_SITE/site.env'" <"$KNOT_SITE_ENV"
+"${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "install -m 600 /dev/null '$DEPLOY_DIR/$REMOTE_SITE/site.env' && cat > '$DEPLOY_DIR/$REMOTE_SITE/site.env'" <"$KNOT_SITE_ENV"
 
 # 子域入口也随站点走：目标机上的 push-discover.sh 要按入口找静态根，
 # 在目标机上补推入口主机时也要读这份文件。
@@ -248,23 +265,37 @@ for entry_file in "$KNOT_SITE_DIR"/entry.*.env; do
   [[ -f "$entry_file" ]] || continue
   REMOTE_ENTRY="$REMOTE_SITE/$(basename "$entry_file")"
   echo "==> entry → $KNOT_DEPLOY_SSH:$DEPLOY_DIR/$REMOTE_ENTRY"
-  "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "cat > '$DEPLOY_DIR/$REMOTE_ENTRY' && chmod 600 '$DEPLOY_DIR/$REMOTE_ENTRY'" <"$entry_file"
+  "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "install -m 600 /dev/null '$DEPLOY_DIR/$REMOTE_ENTRY' && cat > '$DEPLOY_DIR/$REMOTE_ENTRY'" <"$entry_file"
 done
 
 # ---- 5. 在目标机解包并安装 ----
-REMOTE_ARGS="--site '$KNOT_SITE' --deploy-root '$DEPLOY_DIR'"
-[[ -n "$RUNTIME_ARG" ]] && REMOTE_ARGS="$REMOTE_ARGS --runtime '$RUNTIME_ARG'"
-
 echo "==> remote install"
-"${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" "
-  set -e
-  INCOMING='$DEPLOY_DIR/.incoming/$REL_NAME'
-  rm -rf \"\$INCOMING\"
-  mkdir -p \"\$INCOMING\"
-  tar -xzf '$DEPLOY_DIR/artifacts/$ARTIFACT_BASE' -C \"\$INCOMING\"
-  KNOT_DEPLOY_ROOT='$DEPLOY_DIR' \"\$INCOMING/$REL_NAME/ops/scripts/deploy-site.sh\" $REMOTE_ARGS
-  rm -rf \"\$INCOMING\"
-"
+# 远端脚本固定走 stdin，值全部用位置参数传：发布包名来自文件名，含一个单引号
+# 就能在实例主机上跳出引号、以部署用户执行任意命令，紧接着还是 rm -rf。
+# 解包目录也改成 mktemp：同一主机并发部署时不再共用 .incoming/<名字>。
+"${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- \
+  "$DEPLOY_DIR" "$REL_NAME" "$ARTIFACT_BASE" "$KNOT_SITE" "${RUNTIME_ARG:-}" <<'REMOTE'
+set -eu
+deploy_dir="$1"
+rel_name="$2"
+artifact="$3"
+site="$4"
+runtime="$5"
+
+case "$rel_name" in
+  "" | */* | *..*) echo "发布包名不合法：${rel_name}" >&2; exit 2 ;;
+esac
+incoming="$(mktemp -d "${deploy_dir}/.incoming/knot-XXXXXX")"
+trap 'rm -rf "$incoming"' EXIT
+tar -xzf "${deploy_dir}/artifacts/${artifact}" -C "$incoming"
+if [ -n "$runtime" ]; then
+  KNOT_DEPLOY_ROOT="$deploy_dir" "${incoming}/${rel_name}/ops/scripts/deploy-site.sh" \
+    --site "$site" --deploy-root "$deploy_dir" --runtime "$runtime"
+else
+  KNOT_DEPLOY_ROOT="$deploy_dir" "${incoming}/${rel_name}/ops/scripts/deploy-site.sh" \
+    --site "$site" --deploy-root "$deploy_dir"
+fi
+REMOTE
 
 # ---- 6. 验收 ----
 VERIFY_URL="$KNOT_DEPLOY_VERIFY_URL"
@@ -282,6 +313,26 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 if [[ "$verified" != 1 ]]; then
+  # 远端已经切了 current，健康检查不过就是 502 一直挂着等人手工回滚。
+  # 部署前记下的版本还可用就自动切回去，别把线上停在坏版本。
+  PREV_NAME="${PREV_REMOTE#releases/}"
+  if [[ -n "$PREV_NAME" && "$PREV_NAME" != "$REL_NAME" ]]; then
+    echo "==> 健康检查没过，远端回滚到 ${PREV_NAME}" >&2
+    "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- "$DEPLOY_DIR" "$KNOT_SITE" "$PREV_NAME" <<'REMOTE' || true
+set -eu
+deploy_dir="$1"
+site="$2"
+target="$3"
+KNOT_DEPLOY_ROOT="$deploy_dir" "$deploy_dir/current/ops/scripts/rollback.sh" --site "$site" --to "$target"
+REMOTE
+    for _ in $(seq 1 15); do
+      if curl -sf "$VERIFY_URL" >/dev/null 2>&1; then
+        knot_fail "新版本 ${REL_NAME} 没有通过健康检查，已回滚到 ${PREV_NAME}（现在可达）。看 $DEPLOY_DIR/var/log/。"
+      fi
+      sleep 1
+    done
+    knot_fail "新版本 ${REL_NAME} 没有通过健康检查，回滚到 ${PREV_NAME} 后仍不可达：${VERIFY_URL}。"
+  fi
   knot_fail "健康检查没有通过：$VERIFY_URL"
 fi
 curl -sf -o /dev/null -w "web %{http_code}\n" "http://${KNOT_DEPLOY_SSH#*@}:$KNOT_PORT/"

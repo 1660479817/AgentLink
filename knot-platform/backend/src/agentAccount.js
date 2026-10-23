@@ -40,10 +40,13 @@ export function agentIssueError(error) {
 
 export async function agentByToken(pool, token) {
   const hash = hashAgentToken(token);
+  // 邮箱取「这个 Agent 自己的，没有就取主人的」：反馈邮件要能回信，
+  // 而内部/外部 Agent 行通常没有 email（注册时记在人的账号上）。
   const { rows } = await pool.query(
-    `SELECT id, side, display_name, owner_id
-       FROM accounts
-      WHERE token_hash = $1 AND role = 'agent' AND retired_at IS NULL`,
+    `SELECT a.id, a.side, a.display_name, a.owner_id, COALESCE(a.email, o.email) AS email
+       FROM accounts a
+       LEFT JOIN accounts o ON o.id = a.owner_id
+      WHERE a.token_hash = $1 AND a.role = 'agent' AND a.retired_at IS NULL`,
     [hash]
   );
   return rows[0] || null;

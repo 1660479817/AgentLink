@@ -1,3 +1,5 @@
+import { loadBootstrapConfig } from "../config.js";
+
 const DEFAULT_SESSION_TTL_DAYS = 30;
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -26,15 +28,23 @@ export function createSessionMiddleware({ pool, sessionCookieName }) {
   };
 }
 
+// 公开入口是 https 时给 Cookie 加 Secure。实例可以被绑到 0.0.0.0 供同一内网打开
+// /admin（CONFIG 允许），那时同一个 Cookie 也会走内网明文 http；带上 Secure，
+// 浏览器就不会在明文连接上发送它。本地 http 站点不加，否则登录会话根本存不下。
+function cookieSecure() {
+  return String(loadBootstrapConfig().publicWebOrigin || "").startsWith("https:");
+}
+
 export function setSessionCookie(res, sessionCookieName, sid) {
   res.cookie(sessionCookieName, sid, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
+    secure: cookieSecure(),
     maxAge: sessionTtlMs(),
   });
 }
 
 export function clearSessionCookie(res, sessionCookieName) {
-  res.clearCookie(sessionCookieName, { httpOnly: true, sameSite: "lax", path: "/" });
+  res.clearCookie(sessionCookieName, { httpOnly: true, sameSite: "lax", path: "/", secure: cookieSecure() });
 }

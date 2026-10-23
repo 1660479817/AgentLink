@@ -6,6 +6,7 @@
 node ops/scripts/config.mjs template --write           # sites/_template/site.env
 node ops/scripts/config.mjs platform-template --write  # sites/_template/platform.env
 node ops/scripts/config.mjs xknot-template --write     # sites/_template/xknot.env
+node ops/scripts/config.mjs entry-template --write      # sites/_template/entry.example.env
 node ops/scripts/config.mjs docs --write               # 重新生成本文
 ```
 
@@ -35,6 +36,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `sites/<站点>/profile.json` | 自述区：名称、默认语种、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（十项扁平字段）。不进版本库 | 主理人，在 `/admin` 的 XKnot 栏编辑 |
 | `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。权限 600 | 部署脚本 |
 | `sites/<站点>/xknot.env` | 实例 id、中枢地址、签发日期与委托发信凭据。权限 600 | 中枢签发，`join-xknot.sh` 写入 |
+| `sites/<站点>/tunnel.env` | 回源隧道的账号、私钥文件名与本机/入口端口（`KNOT_TUNNEL` 一组）。权限 600 | `/admin` 的 XKnot 栏自动接通时写入 |
 | `sites/<站点>/entry.<标签>.xknot.si.env` | 接入 xknot.si 子域时的入口：域名、静态根、conf、证书。一个站点一份 | 运维 |
 | `sites/<站点>/agents/` | Internal Personal Agent 的授权码，权限 700 | 脚本 |
 
@@ -81,7 +83,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `KNOT_DEPLOY_SSH` | （空） |  | 实例主机的 ssh 目标，形如 user@host。留空表示目标就是这台机器，直接就地跑 deploy-site.sh。 |
-| `KNOT_DEPLOY_DIR` | `~/knot/site` |  | 实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。和源码仓库分开，按站点命名，例如 ~/knot/wang。 |
+| `KNOT_DEPLOY_DIR` | 见说明 |  | 实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。留空按站点名推导为 ~/knot/<站点>；一个部署根只放一个站点，不要和源码仓库或用另一站点的目录。 |
 | `KNOT_DEPLOY_SSH_KEY` | （空） |  | 发布用的私钥。留空用 ssh 默认身份。 |
 | `KNOT_DEPLOY_VERIFY_URL` | 见说明 |  | 部署后探活的地址。留空按 http://<实例主机>:<KNOT_PORT>/api/health 推导。 |
 | `KNOT_DEPLOY_KEEP` | `5` |  | 实例主机上保留几个历史发布包。当前版本和回滚目标永远保留，多的按时间清掉。 |
@@ -93,7 +95,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | --- | --- | --- | --- |
 | `KNOT_ENTRY_ENABLED` | `0` |  | 1 表示部署时由这台机器把 WebUI 与 nginx 配置推到 KNOT_ENTRY_SSH；0 表示不碰入口主机（只在本机，或入口已由中枢自动接通）。 |
 | `KNOT_ENTRY_SSH` | （空） |  | 入口主机的 ssh 目标。 |
-| `KNOT_ENTRY_SSH_KEY` | `$HOME/.ssh/id_rsa` |  | 在开发机上推页面用的私钥。 |
+| `KNOT_ENTRY_SSH_KEY` | （空） |  | 在开发机上推页面用的私钥。留空用 ssh 默认身份或 ssh-agent；入口主机通常不认 id_rsa，要用专用的部署钥，例如 $HOME/.ssh/<专用部署钥>。 |
 | `KNOT_ENTRY_PUSH_KEY` | `$HOME/.ssh/knot-entry-publish` |  | 在实例主机上推公开快照用的私钥，可以和 KNOT_ENTRY_SSH_KEY 不是同一把。 |
 | `KNOT_ENTRY_WEB_ROOT` | `/var/www/knot` |  | 入口主机上放 WebUI 的目录。 |
 | `KNOT_ENTRY_CONF` | `/etc/nginx/conf.d/knot.conf` |  | 入口主机上的 nginx 站点配置路径。 |
@@ -176,7 +178,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `KNOT_COUPON_FACE` | 见说明 | 券面值（积分）。留空等于 KNOT_DEFAULT_PRICE。 |
+| `KNOT_COUPON_FACE` | 见说明 | 券面值（积分）。留空等于夹进 [KNOT_PRICE_MIN, KNOT_PRICE_MAX] 之后的 KNOT_DEFAULT_PRICE。 |
 | `KNOT_COUPON_TTL_DAYS` | `30` | 券有效期（天）。 |
 | `KNOT_COUPON_MAX` | `1` | 每个账户持有的未使用券上限。 |
 | `KNOT_COUPON_SIGNUP` | `1` | 新注册自动发一张：1 开，0 关。 |
@@ -222,7 +224,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `KNOT_ADMIN_TOKEN` | （空） | 内网管理接口 /api/admin 和管理后台 /admin 的令牌。由 ensure-openclaw.sh 写入，运维不要手改。 |
-| `KNOT_ADMIN_ORIGIN` | （空） | 管理后台链接里写死的内网地址，例如 http://192.168.3.91:8080。留空时按 KNOT_BIND_HOST 与网卡推断；多网卡或隧道拓扑下可以用它写死，绑回环时也能给出内网链接。 |
+| `KNOT_ADMIN_ORIGIN` | （空） | 管理后台链接里写死的内网地址，例如 http://192.0.2.10:8080。留空时按 KNOT_BIND_HOST 与网卡推断；多网卡或隧道拓扑下可以用它写死，绑回环时也能给出内网链接。 |
 
 ## XKnot 接入配置（`sites/<站点>/xknot.env`）
 

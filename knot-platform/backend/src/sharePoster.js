@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { access, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import QRCode from "qrcode";
@@ -22,6 +23,26 @@ export const SHARE_HOST = new URL(SHARE_PAGE).host;
 export const SHARE_NAME = "Knot";
 export const SHARE_LINE = "面向 AI 时代、服务于 Agent 的信息交换网。";
 
+// 站点档案只在落款里用到，但 shareSite() 每取一张图会走两次（锁 key 与画图）。
+// 每次同步读一遍 profile.json 是白读；按文件 mtime + 大小记住上一次的结果，
+// 档案改过（写了新的 mtime）自然重读（S12-13）。
+let siteProfileCache = { key: "", site: null };
+function cachedSiteProfile(env, config) {
+  const file = profileFilePath(env, config.agentEnvDir);
+  let stamp = "missing";
+  try {
+    const info = statSync(file);
+    stamp = `${info.mtimeMs}:${info.size}`;
+  } catch {
+    /* 没有档案时走兜底文案 */
+  }
+  const key = `${file}\u0000${stamp}`;
+  if (siteProfileCache.key === key) return siteProfileCache.site;
+  const { site } = readProfileSync(file);
+  siteProfileCache = { key, site: site || null };
+  return siteProfileCache.site;
+}
+
 export function shareSite(env = process.env) {
   const config = loadBootstrapConfig(env);
   // 没有部署配置时回落到 schema 里的默认地址，测试和本地开发不受影响。
@@ -33,7 +54,7 @@ export function shareSite(env = process.env) {
     /* 保留默认主机名 */
   }
   // 落款取自站点档案（自述区）；没填时用兜底文案，图不会缺字。
-  const { site } = readProfileSync(profileFilePath(env, config.agentEnvDir));
+  const site = cachedSiteProfile(env, config);
   return {
     page,
     host,
@@ -436,12 +457,23 @@ async function inkWidth(text, size, weight = "") {
   return info.width || 0;
 }
 
+// 键里带任意文本（称呼、类别、站点名、附件名），不封顶就会随长尾文本一直长（S12-13）。
+// 一张海报量到的字串远小于这个数，留最近用到的那些就够；命中时挪到队尾，最久没用的先走。
+const WIDTH_CACHE_MAX = 2000;
 const widthCache = new Map();
 async function measureWidth(text, size, weight = "") {
   const key = `${size}\u0000${weight}\u0000${text}`;
   const cached = widthCache.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    widthCache.delete(key);
+    widthCache.set(key, cached);
+    return cached;
+  }
   const value = await inkWidth(text, size, weight);
+  while (widthCache.size >= WIDTH_CACHE_MAX) {
+    const oldest = widthCache.keys().next().value;
+    widthCache.delete(oldest);
+  }
   widthCache.set(key, value);
   return value;
 }

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
-import { blobPath, derivedDir, ensureLayout, legacyBlobPath, readableBlobPath } from "./storage.js";
+import { blobPath, derivedDir, ensureLayout, readableBlobPath } from "./storage.js";
 
 export const AVATAR_PX = 512;
 const AVATAR_JPEG_QUALITY = 85;
@@ -126,9 +126,22 @@ function webpSize(buffer) {
   return null;
 }
 
-export function avatarBufferError(buffer) {
-  const size = imageSize(buffer);
-  if (!size || size.width !== size.height || size.width < 1) return "bad_avatar_square";
+// 文件头只能做快筛：24 字节的伪造 PNG 也能在头里声明 64×64。头像最后要落成一张
+// 真图，最终判定必须真解一次；上限防的是一张超大图在解码时把内存打满（S14-10）。
+const AVATAR_MAX_PIXELS = 4096 * 4096;
+
+export async function avatarBufferError(buffer) {
+  let meta;
+  try {
+    meta = await sharp(buffer, { limitInputPixels: AVATAR_MAX_PIXELS }).metadata();
+    // metadata 只读到文件头；再解一次像素，确认不是截断或半截文件。
+    await sharp(buffer, { limitInputPixels: AVATAR_MAX_PIXELS }).resize(1, 1, { fit: "inside" }).toBuffer();
+  } catch {
+    return "bad_avatar_square";
+  }
+  const width = Number(meta.width) || 0;
+  const height = Number(meta.height) || 0;
+  if (!width || width !== height || width < 1) return "bad_avatar_square";
   return null;
 }
 
@@ -136,7 +149,7 @@ export async function fitAvatar(buffer) {
   const size = imageSize(buffer);
   if (!size || size.width <= AVATAR_PX) return null;
   // 透明头像转成 JPEG 会把透明区域压成纯黑，先垫白底。
-  return sharp(buffer)
+  return sharp(buffer, { limitInputPixels: AVATAR_MAX_PIXELS })
     .rotate()
     .resize(AVATAR_PX, AVATAR_PX, { fit: "cover" })
     .flatten({ background: AVATAR_FLATTEN_BACKGROUND })
@@ -146,7 +159,7 @@ export async function fitAvatar(buffer) {
 
 export async function acceptAvatar(pool, uploadDir, userId, uploadId) {
   const { rows } = await pool.query(
-    `SELECT id, storage_name, mime FROM uploads WHERE id = $1 AND account_id = $2 AND mime LIKE 'image/%'`,
+    `SELECT id, storage_name, mime, original_name FROM uploads WHERE id = $1 AND account_id = $2 AND mime LIKE 'image/%'`,
     [uploadId, userId]
   );
   if (!rows.length) return { error: "bad_avatar" };
@@ -157,7 +170,7 @@ export async function acceptAvatar(pool, uploadDir, userId, uploadId) {
   } catch {
     return { error: "bad_avatar" };
   }
-  const error = avatarBufferError(buffer);
+  const error = await avatarBufferError(buffer);
   if (error) return { error };
   let fitted;
   try {
@@ -165,46 +178,30 @@ export async function acceptAvatar(pool, uploadDir, userId, uploadId) {
   } catch {
     return { error: "bad_avatar" };
   }
+  // 已经够小、是方图：直接用原来那一行，不必改写任何字节。
   if (!fitted) return { id: row.id };
-  const ext = path.extname(row.storage_name);
-  const nextName =
-    ext.toLowerCase() === ".jpg" || ext.toLowerCase() === ".jpeg"
-      ? row.storage_name
-      : `${path.basename(row.storage_name, ext)}.jpg`;
-  // 重写后文件字节、摘要和尺寸都变了，行里必须一起更新，否则配额和审计都按旧值算。
+
+  // 转换产物另起一行，不动原行。那张图可能正被某条帖子当附件引用：
+  // 原地改 storage_name/size/sha256 会把帖子里的图换成 512 裁图，原件不可恢复（S14-05）。
+  const name = `${randomUUID()}.jpg`;
   const sha256 = createHash("sha256").update(fitted).digest("hex");
-  const dest = storagePath(uploadDir, nextName);
+  const dest = storagePath(uploadDir, name);
   const tmp = `${dest}.${randomUUID()}.tmp`;
   try {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    // 先写临时名再改名：写到一半失败时，旧头像还在，不会被半截文件盖掉。
+    // 先写临时名再改名：写到一半失败时不留下半截文件。
     fs.writeFileSync(tmp, fitted);
     fs.renameSync(tmp, dest);
-    await pool.query(
-      `UPDATE uploads
-       SET storage_name = $1, mime = 'image/jpeg', size = $2, sha256 = $3, width = $4, height = $5
-       WHERE id = $6`,
-      [nextName, fitted.length, sha256, AVATAR_PX, AVATAR_PX, row.id]
+    const inserted = await pool.query(
+      `INSERT INTO uploads (account_id, storage_name, mime, original_name, size, sha256, width, height)
+       VALUES ($1, $2, 'image/jpeg', $3, $4, $5, $6, $6)
+       RETURNING id`,
+      [userId, name, row.original_name || null, fitted.length, sha256, AVATAR_PX]
     );
-    if (nextName !== row.storage_name) {
-      fs.rmSync(readableBlobPath(uploadDir, row.storage_name), { force: true });
-      fs.rmSync(storagePath(uploadDir, row.storage_name), { force: true });
-    }
-    // 旧布局根目录里若还留着一份，也清掉；读的时候总是优先 blobs/。
-    fs.rmSync(legacyBlobPath(uploadDir, row.storage_name), { force: true });
+    return { id: inserted.rows[0]?.id };
   } catch {
     fs.rmSync(tmp, { force: true });
-    if (nextName === row.storage_name) {
-      // 文件名没变，改名已经盖掉了原文件；写库失败就写回原来的字节，别让库和磁盘对不上。
-      try {
-        fs.writeFileSync(dest, buffer);
-      } catch {
-        // 写不回也只能留着，审计脚本会报出来。
-      }
-    } else {
-      fs.rmSync(dest, { force: true });
-    }
+    fs.rmSync(dest, { force: true });
     return { error: "bad_avatar" };
   }
-  return { id: row.id };
 }

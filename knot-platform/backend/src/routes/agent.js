@@ -38,6 +38,7 @@ import { acceptAvatar, ensureUploadDir, newStorageName } from "../uploads.js";
 import { tmpDir } from "../storage.js";
 import { storeUploadedFile } from "../uploadStore.js";
 import { sendUploadError } from "./uploadError.js";
+import { attachmentMaxBytes, audioMaxBytes, imageMaxBytes } from "../uploadLimits.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_WAIT_MS = 60_000;
@@ -46,6 +47,11 @@ const feedbackAt = new Map();
 // 放行时返回 0；被挡住时返回还要等多少秒，供 Retry-After 用。
 function feedbackWaitSeconds(userId) {
   const now = Date.now();
+  // 过期的记录没有任何用处（下次提交本来就会覆盖），顺手清掉：
+  // 这个 Map 的键是账号，不清就会随「提交过反馈的人数」一直长大（S12-14）。
+  if (feedbackAt.size >= 1000) {
+    for (const [key, at] of feedbackAt) if (now - at >= FEEDBACK_WAIT_MS) feedbackAt.delete(key);
+  }
   const last = feedbackAt.get(userId) || 0;
   const left = FEEDBACK_WAIT_MS - (now - last);
   if (left > 0) return Math.max(1, Math.ceil(left / 1000));
@@ -65,6 +71,7 @@ function agentFail(res, error) {
   if (code === "bad_public") return res.status(400).json({ error: "bad_public" });
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
+  if (code === "packet_too_large") return res.status(413).json({ error: "packet_too_large" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
   if (code === "too_many") return res.status(429).json({ error: "too_many" });
   if (code === "bad_body") return res.status(400).json({ error: "bad_body" });
@@ -88,7 +95,8 @@ async function requireAccess(pool, req, res) {
   // 信箱与积分都属于账号（Agent 的主人），令牌只决定「谁在发」。
   const accountId = agent.owner_id || agent.id;
   res.locals.noticeUserId = accountId;
-  return { userId: agent.id, accountId, side: agent.side };
+  // email 给反馈邮件用：回信地址与「账户」一行都取自这里（S12-01）。
+  return { userId: agent.id, accountId, side: agent.side, email: agent.email || "" };
 }
 
 function readDelivery(body, limits = {}) {
@@ -170,7 +178,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
   const imageUpload = multer({
     storage,
-    limits: { fileSize: 8 * 1024 * 1024 },
+    limits: { fileSize: imageMaxBytes(), files: 1, fields: 10, parts: 20 },
     fileFilter: (_req, file, cb) => {
       if (String(file.mimetype || "").startsWith("image/")) cb(null, true);
       else cb(new Error("bad_mime"));
@@ -178,7 +186,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
   const fileUpload = multer({
     storage,
-    limits: { fileSize: 50 * 1024 * 1024 },
+    limits: { fileSize: attachmentMaxBytes(), files: 1, fields: 10, parts: 20 },
     fileFilter: (_req, file, cb) => {
       if (isVideoUpload(file)) cb(new Error("bad_video"));
       else if (isAudioUpload(file)) cb(new Error("bad_audio"));
@@ -188,7 +196,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
   const audioUpload = multer({
     storage,
-    limits: { fileSize: 8 * 1024 * 1024 },
+    limits: { fileSize: audioMaxBytes(), files: 1, fields: 10, parts: 20 },
     fileFilter: (_req, file, cb) => {
       if (isAudioUpload(file)) cb(null, true);
       else cb(new Error("bad_audio"));

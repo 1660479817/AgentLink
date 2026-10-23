@@ -1,3 +1,4 @@
+import { verdictVisible } from "./information.js";
 import { walletOf } from "./points.js";
 import { cardImageUrl } from "./uploads.js";
 
@@ -36,7 +37,7 @@ export async function mediaAudience(pool, uploadId, userId) {
   // 公开优先于「你是作者」：同一条记录既是自己的、又是公开的，就按公开缓存。
   // 先走完这一轮再决定要不要查查看者的钱包——公开图片是大多数，不该为它多打一次库。
   for (const row of rows) {
-    const visible = row.verdict === "pending" || row.verdict === "passed";
+    const visible = verdictVisible(row.verdict);
     if (!visible) continue;
     if ((row.kind === "post" || row.kind === "fastpost") && row.is_public) return MEDIA_PUBLIC;
     if (row.kind === "wish") return MEDIA_PUBLIC;
@@ -47,7 +48,7 @@ export async function mediaAudience(pool, uploadId, userId) {
   if (!wallet) return null;
   let audience = null;
   for (const row of rows) {
-    const visible = row.verdict === "pending" || row.verdict === "passed";
+    const visible = verdictVisible(row.verdict);
     // 作者本人不限终审状态：撤销或删除之后，自己的提交记录里还要能看原图。
     if (row.wallet === wallet) audience = MEDIA_PRIVATE;
     else if (visible && row.kind === "wishRespond" && row.wish_wallet === wallet) audience = MEDIA_PRIVATE;

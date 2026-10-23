@@ -239,7 +239,24 @@ cat "$DEST/manifest.txt"
 
 if [[ "$KEEP" =~ ^[0-9]+$ ]] && (( KEEP > 0 )); then
   # 只删 knot-* 快照目录，latest 是符号链接。时间戳命名，字典序就是时间序。
+  # 但按目录数清理不分类型：--config-only 的快照和全量快照同名同目录，升级前
+  # 顺手跑几次只含配置的，就能把唯一一份带 knot.dump 的全量快照挤出 KEEP 之外。
+  # 所以先挑出最近一份全量快照，清到它时跳过——至少总留一份能恢复数据库的。
+  FULL_KEEP=""
+  while IFS= read -r old; do
+    [[ -n "$old" ]] || continue
+    if [[ -f "$old/knot.dump" ]]; then
+      FULL_KEEP="$old"
+      break
+    fi
+  done <<EOF
+$(find "$BACKUP_DIR" -maxdepth 1 -mindepth 1 -type d -name 'knot-*' | sort -r)
+EOF
   find "$BACKUP_DIR" -maxdepth 1 -mindepth 1 -type d -name 'knot-*' | sort -r | tail -n +$((KEEP + 1)) | while IFS= read -r old; do
+    if [[ -n "$FULL_KEEP" && "$old" == "$FULL_KEEP" ]]; then
+      echo "==> 保留最近一份全量快照 $(basename "$old")（不在 KEEP 计数内）"
+      continue
+    fi
     echo "==> 清理旧快照 $old"
     rm -rf "$old"
   done

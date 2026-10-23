@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import express from "express";
-import { noticeGroup, noticeSummary, presentNotification } from "./notifications.js";
+import { listNotifications, noticeGroup, noticeSummary, presentNotification } from "./notifications.js";
 import { agentRouter } from "./routes/agent.js";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -77,8 +77,49 @@ test("the summary counts by group and keeps a constant shape", async () => {
   assert.ok(!seen[1][1].includes("mention"));
 });
 
-test("an empty inbox still has the shape", async () => {
+// 通知只增不删，也没有清理任务：通知页取一页就够，红点单独数全箱的未读。
+test("the inbox page is bounded while the unread count covers the whole box", async () => {
+  const calls = [];
   const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("count(*)")) return { rows: [{ n: 7 }] };
+      return {
+        rows: [
+          {
+            id: "n1",
+            kind: "warning",
+            title: "平台警告",
+            body: "",
+            href: null,
+            intel_id: null,
+            read_at: null,
+            created_at: "2026-10-16T09:00:00.000Z",
+            data: {},
+          },
+          {
+            id: "n2",
+            kind: "mention",
+            title: "有人@了你",
+            body: "",
+            href: "/discover",
+            intel_id: null,
+            read_at: "2026-10-16T08:00:00.000Z",
+            created_at: "2026-10-16T08:00:00.000Z",
+            data: {},
+          },
+        ],
+      };
+    },
+  };
+  const inbox = await listNotifications(pool, USER_ID);
+  assert.equal(inbox.notifications.length, 2);
+  // 未读不能从这一页里数：更早的未读不在这 50 条里。
+  assert.equal(inbox.unread, 7);
+  assert.match(calls.find((call) => call.sql.includes("FROM notifications")).sql, /LIMIT 50/);
+});
+
+test("an empty inbox still has the shape", async () => {  const pool = {
     async query() {
       return { rows: [] };
     },

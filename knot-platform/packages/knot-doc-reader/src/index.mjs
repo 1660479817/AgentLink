@@ -17,11 +17,23 @@ const EXTRACT_CAP = 200_000;
 const MAX_ZIP_ENTRIES = 2048;
 const MAX_ENTRY_UNPACKED = 32 * 1024 * 1024;
 const MAX_TOTAL_UNPACKED = 64 * 1024 * 1024;
+// PDF 只在最后抽三段，但每一页的文本都要先取出来才能抽。一本几万页的
+// 文件会在进程里堆出几百 MB，评审员随之被 OOM 掉。超过这个页数直接当坏文件。
+const MAX_PDF_PAGES = 500;
+
+// 实体里的码点由文件写定，可以是 U+110000 这种越过 Unicode 上限的值。直接交给
+// String.fromCodePoint 会抛 RangeError，而这个函数在 readDocument 的 try 里，
+// 于是一个畸形实体就让整份文档变成 unreadable。解析不了的单个实体保留原文，
+// 只丢这一处，不影响其余正文。
+function fromCodePoint(code, original) {
+  if (!Number.isInteger(code) || code < 0 || code > 0x10ffff) return original;
+  return String.fromCodePoint(code);
+}
 
 export function decodeXml(value) {
   return String(value || "")
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
+    .replace(/&#x([0-9a-f]+);/gi, (match, hex) => fromCodePoint(parseInt(hex, 16), match))
+    .replace(/&#(\d+);/g, (match, dec) => fromCodePoint(Number(dec), match))
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
@@ -333,6 +345,7 @@ async function pdfUnits(bytes) {
   try {
     const count = pdf.pageCount || 0;
     if (!count) throw new Error("unreadable");
+    if (count > MAX_PDF_PAGES) throw new Error("bad_file");
     const units = [];
     for (let page = 1; page <= count; page += 1) {
       const text = typeof pdf.getPageText === "function" ? pdf.getPageText(page) : pdf.text({ pages: [page] });
@@ -358,7 +371,11 @@ async function unitsOf(name, bytes) {
   throw new Error("bad_file");
 }
 
+// 大小闸不能只装在 CLI 的 allowedPath 里：Backend 自己 readFile 整个文件后直接
+// 调这两个函数，绕开了 CLI。50 MB 的文档在这里已经全在内存里，再看一次长度是
+// 为了让库本身也守住上限，而不是靠每个调用方记得先量。
 export async function extractDocumentText(name, bytes) {
+  if (!bytes || bytes.length > MAX_BYTES) return "";
   try {
     const found = await unitsOf(name, bytes);
     const text = pack(found.units).join("\n\n").trim();
@@ -370,6 +387,7 @@ export async function extractDocumentText(name, bytes) {
 }
 
 export async function readDocument(name, bytes, range = {}) {
+  if (!bytes || bytes.length > MAX_BYTES) return { ok: false, error: "bad_file" };
   let kind = "";
   let parts = [];
   try {

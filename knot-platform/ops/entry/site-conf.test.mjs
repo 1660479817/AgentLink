@@ -158,3 +158,25 @@ test("KNOT_ENTRY_SSL=0 时只监听 80，不写证书，也不开 HTTP/2", () =>
   assert.doesNotMatch(text, /http2 on;/);
   assert.match(text, /listen 80;/);
 });
+
+test("真实客户端地址单独成一份，只信任 Cloudflare 网段", () => {
+  const realip = readFileSync(fileURLToPath(new URL("./realip.conf", import.meta.url)), "utf8");
+  // 不声明这个头，CF 网段配了也白配：$remote_addr 仍是边缘地址。
+  assert.equal(realip.match(/^\s*real_ip_header CF-Connecting-IP;$/gm)?.length, 1);
+  // nginx 的 set_real_ip_from 只能一个网段一行，没有列表写法。
+  assert.match(realip, /^set_real_ip_from 104\.16\.0\.0\/13;$/m);
+  assert.match(realip, /^set_real_ip_from 2606:4700::\/32;$/m);
+  // 全放行等于允许任何人伪造这个头，直连入口就能换掉自己的 IP。
+  assert.doesNotMatch(realip, /set_real_ip_from (0\.0\.0\.0\/0|::\/0);/);
+  // 同一台入口主机一份，http 级：不能带 server 块。
+  assert.doesNotMatch(realip, /server \{/);
+});
+
+test("每个子域的 conf 不重复声明 real_ip", () => {
+  for (const flag of ["1", ""]) {
+    const text = render({ KNOT_ENTRY_STATIC: flag });
+    // 每个子域各写一份，后装的那份会盖掉前一份，同一台机上还多一处要同步。
+    assert.doesNotMatch(text, /^\s*real_ip_header/m);
+    assert.doesNotMatch(text, /^\s*set_real_ip_from/m);
+  }
+});

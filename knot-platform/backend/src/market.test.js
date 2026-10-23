@@ -339,7 +339,7 @@ test("a review failure names the exception and says the record stays visible", (
 });
 
 test("the same review failure is told once, and a new one is told again", async () => {
-  const id = "23737bf5-537f-441f-bc86-bf230d1cf9ed";
+  const id = "33333333-3333-4333-8333-333333333333";
   const userId = "11111111-1111-4111-8111-111111111111";
   const notes = [];
   let detail = null;
@@ -688,4 +688,146 @@ test("the duplicate check only counts records that are still live", async () => 
   const dedup = seen.find((sql) => /^SELECT id FROM intel/.test(sql.trim()));
   assert.match(dedup, /verdict IN \('pending', 'passed'\)/);
   assert.doesNotMatch(dedup, /verdict <> 'pending'/);
+});
+
+// 修订版本号必须在同一个事务里、锁住 origin 行之后再取：两笔并发修订各自
+// 「查 MAX 再 +1」会拿到同一个号，而信息流只按 version 大小去重，同号的两版会同时留在流里。
+test("a revision takes its version under the origin row lock, inside the publish transaction", async () => {
+  const base = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const origin = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const clientSteps = [];
+  const poolSteps = [];
+  const client = {
+    async query(sql, params) {
+      clientSteps.push({ sql, params });
+      if (sql === "BEGIN" || sql === "ROLLBACK" || sql === "COMMIT") return { rows: [] };
+      if (sql.includes("FOR UPDATE")) return { rows: [{ id: origin }] };
+      if (sql.includes("MAX(version)")) return { rows: [{ v: 4 }] };
+      if (sql.startsWith("INSERT INTO intel")) return { rows: [] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async query(sql, params) {
+      poolSteps.push({ sql, params });
+      if (/FROM accounts a/.test(sql)) return { rows: [{ id: AUTHOR, owner_id: null, muted_until: null }] };
+      if (sql.includes("SELECT id, account_id, origin_id, version")) {
+        return { rows: [{ id: base, account_id: AUTHOR, origin_id: origin, version: 4 }] };
+      }
+      if (sql.startsWith("SELECT id FROM intel")) return { rows: [] };
+      return { rows: [] };
+    },
+    async connect() {
+      return client;
+    },
+  };
+  await assert.rejects(
+    createIntel(pool, { userId: AUTHOR, actor: "person", door: "webui", kind: "post", body: "修订", revises: base, isPublic: true })
+  );
+  const lockAt = clientSteps.findIndex((step) => step.sql.includes("FOR UPDATE"));
+  const maxAt = clientSteps.findIndex((step) => step.sql.includes("MAX(version)"));
+  assert.ok(lockAt >= 0, "修订要先锁 origin 行");
+  assert.ok(maxAt > lockAt, "取号必须在锁之后");
+  // 取号不能留在事务外：连接池上不应再看到这条查询。
+  assert.equal(poolSteps.some((step) => step.sql.includes("MAX(version)")), false);
+  const insert = clientSteps.find((step) => step.sql.startsWith("INSERT INTO intel"));
+  assert.equal(insert.params[12], origin);
+  assert.equal(insert.params[13], 5);
+});
+
+// 只有外链附件的帖子填了价，价格会被 packetPrice(0, …) 静默抹成 0。宁可直接报错，
+// 也不要给出一张「有附件、标了价、其实不卖」的卡片。
+test("a price on a post with only external attachments is refused, not silently zeroed", async () => {
+  const pool = {
+    async query(sql) {
+      if (/FROM accounts a/.test(sql)) return { rows: [{ id: AUTHOR, owner_id: null, muted_until: null }] };
+      if (sql.startsWith("SELECT id FROM intel")) return { rows: [] };
+      return { rows: [] };
+    },
+    async connect() {
+      throw new Error("价格校验不该走到事务");
+    },
+  };
+  await assert.rejects(
+    createIntel(pool, {
+      userId: AUTHOR,
+      actor: "person",
+      door: "webui",
+      kind: "post",
+      body: "只有外链附件",
+      fileUrls: ["https://example.com/report.pdf"],
+      price: 20,
+      isPublic: true,
+    }),
+    (error) => error.code === "bad_price"
+  );
+});
+
+// 管理端的「重新终审」或并发重入会拿到一条已经终审过的记录。这条路径也要装配附件，
+// 否则返回的卡片没有图片与附件，只有行上的字段。
+test("re-judging a settled record returns the same assembled card", async () => {
+  const id = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  const pool = {
+    async query(sql) {
+      if (sql.includes("SELECT id, account_id, body, videos, links, verdict, kind, responds_to")) {
+        return { rows: [{ id, account_id: AUTHOR, body: "正文", videos: [], links: {}, verdict: "passed", kind: "post", responds_to: null }] };
+      }
+      if (sql.includes("FROM intel WHERE id = $1")) {
+        return {
+          rows: [{
+            id,
+            account_id: AUTHOR,
+            actor: "person",
+            body: "正文",
+            videos: [],
+            links: {},
+            content_hash: "h",
+            detail: null,
+            verdict: "passed",
+            reject_reason: null,
+            category: "",
+            price: 0,
+            is_public: true,
+            kind: "post",
+            responds_to: null,
+            weight: 0,
+            created_at: "2026-10-16T00:00:00.000Z",
+            updated_at: "2026-10-16T00:00:00.000Z",
+            expires_at: null,
+            origin_id: null,
+            version: 1,
+          }],
+        };
+      }
+      if (sql.includes("FROM intel_files")) {
+        return {
+          rows: [{
+            intel_id: id,
+            id: "99999999-9999-4999-8999-999999999999",
+            mime: "application/pdf",
+            original_name: "报告.pdf",
+            size: 1024,
+            width: null,
+            height: null,
+          }],
+        };
+      }
+      throw new Error(`不该走到这条 SQL：${sql.slice(0, 60)}`);
+    },
+  };
+  const card = await judgeIntel(pool, id);
+  assert.equal(card.id, id);
+  assert.equal(card.attachments.length, 1);
+  assert.equal(card.attachments[0].name, "报告.pdf");
+  assert.equal(card.kMeta.verdict, "passed");
+});
+
+test("a missing record is judged as nothing, not an empty card", async () => {
+  const pool = {
+    async query() {
+      return { rows: [] };
+    },
+  };
+  assert.equal(await judgeIntel(pool, "12121212-1212-4212-8212-121212121212"), null);
 });

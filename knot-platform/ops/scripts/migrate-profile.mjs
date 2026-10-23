@@ -20,7 +20,7 @@
 //
 // 默认语种只在档案里没有这一项时写入；主理人后来在 /admin 改过就归他。
 
-import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -128,15 +128,35 @@ export function siteFromV1(profile) {
 
 /** 删掉旧键，保留注释与其余配置。 */
 export function stripLegacyKeys(source) {
-  const out = [];
+  const rows = [];
   for (const line of source.split("\n")) {
     const key = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*=/)?.[1];
     if (key && LEGACY_KEYS.includes(key)) continue;
     // 只服务这六项的说明行也一并删掉，免得留下无主注释。
     if (/^# (站点名|一句话介绍|站点自己的 logo|主理人（owner）)/.test(line)) continue;
-    out.push(line);
+    rows.push(line);
   }
-  return out.join("\n").replace(/\n{3,}/g, "\n\n");
+  return rows.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * 就地覆盖配置是这次迁移里最危险的一步：非原子写入遇到失败或磁盘满，
+ * 留下的是一份被截断的 site.env / platform.env，而后者是运行时唯一来源。
+ * 所以先留一份 .bak，再写临时文件、换名，权限沿用原文件。
+ */
+function writeInPlace(file, text) {
+  if (existsSync(file)) {
+    const backup = `${file}.bak`;
+    if (!existsSync(backup)) copyFileSync(file, backup);
+  }
+  const tmp = `${file}.tmp-${process.pid}`;
+  writeFileSync(tmp, text, { mode: 0o600 });
+  try {
+    chmodSync(tmp, statSync(file).mode & 0o777);
+  } catch {
+    /* 新建的文件就用 0600 */
+  }
+  renameSync(tmp, file);
 }
 
 /**
@@ -154,8 +174,17 @@ function siteDir(argv, site) {
   return path.join(root ? path.resolve(root) : ROOT, "sites", site);
 }
 
+/** 站点名会成为 sites/<名字> 的一段路径，`.` 与 `..` 和带斜线的值都要挡掉。 */
+function siteNameOk(name) {
+  return /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(String(name || ""));
+}
+
 export function main(argv) {
   const site = arg(argv, "site", process.env.KNOT_SITE || "local");
+  if (!siteNameOk(site)) {
+    console.error(`站点名不合法：${JSON.stringify(site)}。只允许字母、数字、点、下划线和短横线，且不能以点开头。`);
+    return 2;
+  }
   const dir = siteDir(argv, site);
   const dryRun = argv.includes("--dry-run");
   const siteEnv = path.join(dir, "site.env");
@@ -170,10 +199,27 @@ export function main(argv) {
   }
 
   let existing = null;
+  // 「文件不存在」和「文件存在但写坏了」是两件事。主理人手工编辑 profile.json
+  // 留下一个尾逗号时，以前会被当成「没有档案」，随后按 site.env 旧值整份覆盖：
+  // 名称、介绍、主理人全部退回部署前的值。这里只放过 ENOENT。
+  let existingRaw = null;
   try {
-    existing = JSON.parse(readFileSync(profileFile, "utf8"));
-  } catch {
-    /* 不存在或读不动，按没有档案处理 */
+    existingRaw = readFileSync(profileFile, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.error(`读不到 ${profileFile}（${error.code || error.message}）`);
+      return 1;
+    }
+  }
+  if (existingRaw !== null) {
+    try {
+      existing = JSON.parse(existingRaw);
+    } catch (error) {
+      console.error(
+        `${profileFile} 不是合法 JSON：${error.message}。先把它修好再跑；这个脚本不会覆盖一份读不懂的档案。`
+      );
+      return 1;
+    }
   }
 
   const env = parseEnv(source);
@@ -213,7 +259,7 @@ export function main(argv) {
         console.log(entry.after);
         continue;
       }
-      writeFileSync(entry.file, entry.after);
+      writeInPlace(entry.file, entry.after);
       console.log(`清理 ${path.relative(process.cwd(), entry.file)} 里的 KNOT_SITE_* 旧键`);
     }
   };
@@ -246,7 +292,7 @@ export function main(argv) {
         console.log(`--- ${profileFile}（补 site.locale）---`);
         console.log(JSON.stringify(localeBackfill, null, 2));
       } else {
-        writeFileSync(profileFile, `${JSON.stringify(localeBackfill, null, 2)}\n`);
+        writeInPlace(profileFile, `${JSON.stringify(localeBackfill, null, 2)}\n`);
         console.log(
           `补上 ${path.relative(process.cwd(), profileFile)} 的 site.locale=${localeBackfill.site.locale}（之后可在 /admin 改）`,
         );
@@ -260,7 +306,7 @@ export function main(argv) {
       console.log(`--- ${siteEnv}（去掉旧键）---`);
       console.log(stripped);
     } else {
-      writeFileSync(siteEnv, stripped);
+      writeInPlace(siteEnv, stripped);
       console.log(`清理 ${path.relative(process.cwd(), siteEnv)} 里的 KNOT_SITE_* 旧键`);
     }
     writeCompanions();
@@ -276,8 +322,8 @@ export function main(argv) {
     return 0;
   }
 
-  writeFileSync(profileFile, `${JSON.stringify(payload, null, 2)}\n`);
-  writeFileSync(siteEnv, stripped);
+  writeInPlace(profileFile, `${JSON.stringify(payload, null, 2)}\n`);
+  writeInPlace(siteEnv, stripped);
   console.log(`写入 ${path.relative(process.cwd(), profileFile)}`);
   console.log(`清理 ${path.relative(process.cwd(), siteEnv)} 里的 KNOT_SITE_* 旧键`);
   writeCompanions();

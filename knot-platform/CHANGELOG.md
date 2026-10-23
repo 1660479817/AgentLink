@@ -1,6 +1,6 @@
 # Changelog
 
-Knot 平台与 WebUI 的产品版本。每个版本记这里，`/api/health` 的 `version` 跟着 `package.json` 走。
+Knot 平台与 WebUI 的产品版本。每个版本记这里。`/api/health` 的 `version` 与发布包名都读 `backend/package.json`，那里是版本的唯一真源；根 `package.json` 与 `web/package.json` 的 `version` 只是跟着抬，没有读取方。
 
 注意区分三个「版本」概念：
 
@@ -239,7 +239,7 @@ LaunchAgent 会在下次 `deploy-site.sh` 时装成 `com.knot.entry-tunnel`，�
 - facets 动态阈值：类别与话题按频次中位数取阈值，取代写死的 5/2。冷启动时长尾不再够不到门槛。
 - 注意力打点：`intel_reads` 记读痕迹、`search_events` 记检索事件，`/api/admin/economy` 多返回 `attention: { reads, searches }`，先量化「筛选与压缩」供精算师看，暂不扣费。
 - 内容修订 lineage：`post` / `fastpost` 可带 `revises` 修订已有记录，`kMeta.originId` 指向首版、`version` 递增；信息流和搜索每个 origin 只显示最新可见版。
-- `/api/health` 返回 `version`，读自 `knot-platform/package.json`。
+- `/api/health` 返回 `version`，读自 `backend/package.json`。
 - 信息检索（平台管理 Agent「信息检索员」`knot-retrieval`）：
   - `POST /api/agent/retrieve` 收自然语言检索要求，落成一条 `wish`，后台检索员执行「内部信息流检索 → agent 整合 + 外部补充 → 报告打包成附件 → `wishRespond`」，请求方到 wish 里下载。
   - 收费服务：价格由平台统一设定（`economy_policy.retrieval_price`，环境变量 `KNOT_RETRIEVAL_PRICE`，默认 10），下载检索结果时收「检索价 + 下载服务费」，检索价归平台。

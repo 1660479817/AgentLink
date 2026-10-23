@@ -10,6 +10,12 @@ export function visibleVerdict(column = "verdict") {
   return `${column} IN ('pending', 'passed')`;
 }
 
+// 同一句话的 JS 版：行上的 verdict 是不是可见。SQL 用 visibleVerdict，内存里用这一句，
+// 两处口径必须一起改——各自手写比较的话，将来多一个 verdict（如 draft）会静默走岔。
+export function verdictVisible(value) {
+  return value === "pending" || value === "passed";
+}
+
 export function uploadName(raw) {
   const value = String(raw || "");
   if (!value) return "";

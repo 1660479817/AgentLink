@@ -118,18 +118,20 @@ function encryptDict(buffer) {
   const refs = [...region.matchAll(/\/Encrypt\s+(\d+)\s+(\d+)\s+R/g)];
   if (refs.length) {
     const ref = refs[refs.length - 1];
-    const marker = `${ref[1]} ${ref[2]} obj`;
-    const at = buffer.toString("latin1").lastIndexOf(marker);
+    // 对象本体可能落在文件中段：按字节找 marker，不把整个 buffer 复制成 latin1 字符串。
+    // 附件上限 50 MiB，整份复制一次就是几十 MB，而且这里是同步路径，复制期间事件循环停着。
+    const marker = Buffer.from(`${ref[1]} ${ref[2]} obj`, "latin1");
+    const at = buffer.lastIndexOf(marker);
     if (at < 0) return "";
-    return dictAt(buffer.toString("latin1"), at);
+    // 字典本身很短，只把 marker 之后的一段转成字符串；配平到 64 KiB 还没收口就当没找到。
+    return dictAt(buffer.toString("latin1", at, Math.min(buffer.length, at + 65536)), 0);
   }
   const inline = region.match(/\/Encrypt\s*<</);
   if (!inline) return "";
   return dictAt(region, inline.index + "/Encrypt".length);
 }
 
-function fileIdOf(buffer) {
-  const tail = buffer.subarray(Math.max(0, buffer.length - 65536)).toString("latin1");
+function fileIdOf(tail) {
   const ids = [...tail.matchAll(/\/ID\s*\[\s*<([0-9A-Fa-f\s]+)>/g)];
   if (!ids.length) return null;
   const hex = ids[ids.length - 1][1].replace(/\s+/g, "");
@@ -139,6 +141,7 @@ function fileIdOf(buffer) {
 
 function pdfOpens(buffer) {
   if (!buffer || buffer.length < 8 || buffer.toString("latin1", 0, 5) !== "%PDF-") return false;
+  // 头尾各看一眼就够判定：只读 64 KiB，别把整份附件转成字符串。
   const tail = buffer.subarray(Math.max(0, buffer.length - 65536)).toString("latin1");
   if (!tail.includes("startxref") && !tail.includes("%%EOF")) return false;
   const dict = encryptDict(buffer);
@@ -148,7 +151,7 @@ function pdfOpens(buffer) {
   const perms = Number(dict.match(/\/P\s+(-?\d+)/)?.[1] || 0);
   const o = hexValue(dict, "O");
   const u = hexValue(dict, "U");
-  const fileId = fileIdOf(buffer);
+  const fileId = fileIdOf(tail);
   if (!o || !u || !fileId) return false;
   return emptyPasswordMatches({
     o,
