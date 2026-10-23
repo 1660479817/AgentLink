@@ -1,0 +1,7 @@
+# S06 — knot-platform
+# 3 个文件, 464 行
+# 输出：audit/code/S06.md
+
+265	source	knot-platform/CHANGELOG.md
+25	source	knot-platform/package.json
+174	source	knot-platform/README.md

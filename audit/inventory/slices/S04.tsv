@@ -1,0 +1,27 @@
+# S04 — docs
+# 23 个文件, 1045 行
+# 输出：audit/code/S04.md
+
+16	asset	docs/API.md
+62	asset	docs/concepts.md
+64	asset	docs/concepts.svg
+262	asset	docs/KNOT_HELP_CN.md
+262	asset	docs/KNOT_HELP.md
+141	asset	docs/knot-federation-map.svg
+0	binary	docs/png/60bade14e9523f821afcd248d6b80fb1.jpg
+0	binary	docs/png/xknot-lockup-inverse.png
+0	binary	docs/png/xknot-lockup-inverse@2x.png
+0	binary	docs/png/xknot-lockup-mono.png
+0	binary	docs/png/xknot-lockup-mono@2x.png
+0	binary	docs/png/xknot-lockup.png
+0	binary	docs/png/xknot-lockup@2x.png
+0	binary	docs/png/xknot-mark-1024.png
+0	binary	docs/png/xknot-mark-128.png
+0	binary	docs/png/xknot-mark-256.png
+0	binary	docs/png/xknot-mark-512.png
+127	asset	docs/README.md
+7	asset	docs/soul-questions.md
+29	asset	docs/xknot-lockup-inverse.svg
+29	asset	docs/xknot-lockup-mono.svg
+29	asset	docs/xknot-lockup.svg
+17	asset	docs/xknot-mark.svg

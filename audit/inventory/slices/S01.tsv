@@ -1,0 +1,10 @@
+# S01 — .cursor
+# 6 个文件, 313 行
+# 输出：audit/code/S01.md
+
+59	source	.cursor/rules/knot-agent-doc.mdc
+34	source	.cursor/rules/knot-buttons.mdc
+18	source	.cursor/rules/knot-diagrams.mdc
+78	source	.cursor/rules/knot-frontend-ui.mdc
+86	source	.cursor/rules/xknot-blog.mdc
+38	source	.cursor/rules/xknot-repo-structure.mdc

@@ -1,0 +1,51 @@
+# S11 — knot-platform/backend
+# 47 个文件, 6949 行
+# 输出：audit/code/S11.md
+
+7	source	knot-platform/backend/.env.example
+542	source	knot-platform/backend/migrations/001_accounts.sql
+27	source	knot-platform/backend/package.json
+173	source	knot-platform/backend/scripts/backfill-uploads.mjs
+77	source	knot-platform/backend/scripts/ensure-internal-agent.mjs
+300	source	knot-platform/backend/scripts/gc-uploads.mjs
+313	source	knot-platform/backend/scripts/import-legacy-content.mjs
+56	source	knot-platform/backend/scripts/import-legacy-content.test.mjs
+147	source	knot-platform/backend/scripts/migrate-storage-layout.mjs
+192	source	knot-platform/backend/scripts/migrate.js
+93	source	knot-platform/backend/scripts/milestone-clean.mjs
+92	source	knot-platform/backend/scripts/purge-intel.mjs
+42	source	knot-platform/backend/scripts/reindex-search.mjs
+90	source	knot-platform/backend/src/account.js
+38	source	knot-platform/backend/src/account.test.js
+202	source	knot-platform/backend/src/actuary.js
+98	source	knot-platform/backend/src/actuary.test.js
+935	source	knot-platform/backend/src/admin.js
+94	source	knot-platform/backend/src/adminHosts.js
+70	source	knot-platform/backend/src/adminHosts.test.js
+338	source	knot-platform/backend/src/agentAccount.js
+226	source	knot-platform/backend/src/agentAccount.test.js
+371	source	knot-platform/backend/src/agents/openclaw.js
+78	source	knot-platform/backend/src/agents/openclaw.test.js
+65	source	knot-platform/backend/src/agentTypes.js
+53	source	knot-platform/backend/src/agentTypes.test.js
+59	source	knot-platform/backend/src/attention.js
+46	source	knot-platform/backend/src/avatars.js
+127	source	knot-platform/backend/src/avatars.test.js
+207	source	knot-platform/backend/src/brand.test.js
+21	source	knot-platform/backend/src/buildInfo.js
+146	source	knot-platform/backend/src/card.js
+68	source	knot-platform/backend/src/categories.js
+61	source	knot-platform/backend/src/categories.test.js
+45	source	knot-platform/backend/src/config.js
+10	source	knot-platform/backend/src/db.js
+302	source	knot-platform/backend/src/discoverBoard.js
+201	source	knot-platform/backend/src/discoverBoard.test.js
+14	source	knot-platform/backend/src/discoverPublish.js
+81	source	knot-platform/backend/src/extracts.js
+53	source	knot-platform/backend/src/extracts.test.js
+53	source	knot-platform/backend/src/facets.js
+61	source	knot-platform/backend/src/facets.test.js
+215	source	knot-platform/backend/src/federation.js
+193	source	knot-platform/backend/src/federation.test.js
+180	source	knot-platform/backend/src/friends.js
+87	source	knot-platform/backend/src/friends.test.js
