@@ -30,7 +30,7 @@ import {
 } from "./pages.mjs";
 import { RELAY_LIMITS, domainOf, relayMessage, validateRelayRequest } from "./relay.mjs";
 import { ipHash } from "./store.mjs";
-import { LIMITS, validateApplication } from "./validate.mjs";
+import { LIMITS, normalizePublicKey, validateApplication } from "./validate.mjs";
 
 const BODY_LIMIT = 16 * 1024;
 const COOKIE = "xknot_admin";
@@ -1135,8 +1135,10 @@ export function createApp({ store, config }) {
 
       if (action === "public-key") {
         const body = await readBody(req);
-        const text = String(body.publicKey || "").trim();
-        if (!/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9-]+)\s+[A-Za-z0-9+/=]+(\s+.*)?$/.test(text) || text.length > 1000) {
+        // 校验只在 validate.mjs 一处：这里、store.setPublicKey、provision 写
+        // authorized_keys 之前都过同一个函数，不再各写一条正则。
+        const text = normalizePublicKey(body.publicKey);
+        if (!text) {
           res.writeHead(303, { location: `/case/${key}`, "cache-control": "no-store" });
           return res.end();
         }

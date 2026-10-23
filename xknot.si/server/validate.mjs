@@ -120,3 +120,31 @@ export function validateApplication(input) {
     value: { name, subdomain: subdomain || null, url, operator, email, region, timezone, intro, tags },
   };
 }
+
+// SSH 公钥。这个值最后会被逐字写进入口主机的 authorized_keys，所以它是
+// 「要落进 root 属主文件的文本」，不是普通表单字段。
+//
+// 只认一行：类型 + base64 + 可选注释。关键是分隔符只允许空格/制表符——
+// 用 \s 会连换行一起匹配，于是 `ssh-ed25519 AAAA\ncommand="…" ssh-ed25519 BBBB`
+// 能整串通过，再被写成两行。这不是理论：\s 在 JS 里包含 \r\n。
+//
+// 注释里同样不许出现控制字符，否则一行变两行的入口又被打开。
+export const MAX_PUBLIC_KEY = 1000;
+
+const KEY_TYPE_RE = /^(?:ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9-]+|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-[a-z0-9-]+@openssh\.com)$/;
+
+export function normalizePublicKey(value) {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text || text.length > MAX_PUBLIC_KEY) return null;
+  // 先挡控制字符：任何 \r \n \0 都意味着「这是多行」或「想截断写入」。
+  if (/[\u0000-\u001f\u007f]/.test(text)) return null;
+  const parts = text.split(/[ ]+/);
+  const [type, body] = parts;
+  if (!KEY_TYPE_RE.test(type)) return null;
+  if (!body || !/^[A-Za-z0-9+/]+={0,2}$/.test(body) || body.length < 16) return null;
+  // 注释可以缺省，但不能为空串（避免双空格被当成"有注释"）。
+  const comment = parts.slice(2).join(" ");
+  if (parts.length > 2 && !comment) return null;
+  return comment ? `${type} ${body} ${comment}` : `${type} ${body}`;
+}

@@ -50,11 +50,19 @@ OPENCLAW_MODE="$(printf '%s' "${KNOT_BACKUP_OPENCLAW:-auto}" | tr '[:upper:]' '[
 # OpenClaw 自己的状态目录。不读 site.env：这是 openclaw 的约定，不是 Knot 的配置项。
 OPENCLAW_DIR="$HOME/.openclaw"
 
+# ---- 并发保护 ----
+# 两份备份同时跑会同时写 latest 链接、同时按 KEEP 删目录，结果是快照数对不上、
+# 甚至删掉对方刚写完的那一份。锁放在备份根，和快照文件同一个卷。
+# shellcheck source=lib/lock.sh
+source "$SCRIPT_DIR/lib/lock.sh"
+knot_lock "$BACKUP_DIR/.backup.lock" "备份" || exit 1
+
 STAMP="$(date +%Y%m%d-%H%M%S)"
 DEST="$BACKUP_DIR/knot-$STAMP"
 LATEST="$BACKUP_DIR/latest"
 DONE=0
 cleanup() {
+  knot_unlock
   if (( DONE == 0 )); then
     echo "备份未完成，清掉 $DEST" >&2
     rm -rf "$DEST"

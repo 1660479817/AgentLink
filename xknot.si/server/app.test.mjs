@@ -9,7 +9,7 @@ import { createApp } from "./app.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry } from "./manifest.mjs";
 import { openMemoryStore } from "./store.mjs";
 import { checkLabel } from "../ops/subdomain.mjs";
-import { normalizeTags, validateApplication } from "./validate.mjs";
+import { normalizePublicKey, normalizeTags, validateApplication } from "./validate.mjs";
 
 const valid = {
   name: "北港",
@@ -1047,4 +1047,25 @@ test("api: overview reads tunnel and traffic from the node status document", asy
   assert.equal(data.instances.trafficRequests, 12);
   assert.equal(data.instances.trafficBytes, 3456);
   assert.equal(data.instances.tunnelsDown, 1);
+});
+
+// 公钥最后会被逐字写进入口主机的 authorized_keys。只认一行是硬要求：
+// 原正则用 \s+ 做分隔，而 \s 包含换行，于是「类型 空格 base64 换行 第二行」
+// 能整串通过——这条测试盯的就是那个洞。
+test("a public key is one line, and a smuggled second line is refused", () => {
+  const good = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAbcdefghijklmnop paul@laptop";
+  assert.equal(normalizePublicKey(good), good);
+  assert.equal(normalizePublicKey(`  ${good}  `), good, "首尾空白可以去掉");
+  assert.equal(normalizePublicKey("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAbcdefghijklmnop"), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAbcdefghijklmnop", "注释可省");
+
+  const smuggled = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAA\ncommand=\"touch /tmp/x\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBBB host";
+  assert.equal(normalizePublicKey(smuggled), null);
+  assert.equal(normalizePublicKey(good.replace(" ", "\r\n")), null);
+  assert.equal(normalizePublicKey("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAA\u0000x"), null);
+  assert.equal(normalizePublicKey("ssh-ed25519;id AAAAC3NzaC1lZDI1NTE5AAAAIAbcdefghijklmnop"), null);
+  assert.equal(normalizePublicKey("ssh-ed25519 not-base64!!"), null);
+  assert.equal(normalizePublicKey("ssh-ed25519 short"), null);
+  assert.equal(normalizePublicKey("ssh-ed25519 " + "A".repeat(2000)), null);
+  assert.equal(normalizePublicKey(""), null);
+  assert.equal(normalizePublicKey(null), null);
 });

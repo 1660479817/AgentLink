@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { saveReviewExtract } from "./extracts.js";
-import { compareByWeight, deleteOwnPost, isDownloadableFile, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
+import { compareByWeight, createIntel, deleteOwnPost, isDownloadableFile, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
 import { clearSearchCache } from "./searchCache.js";
 import { serviceFee, packetPrice, policyConfig } from "./points.js";
 
@@ -604,4 +604,87 @@ test("a review that blows up still lands the transcript it already wrote into th
   }
   assert.equal(updates.length, 1);
   assert.match(String(updates[0][1]), /正文/);
+});
+
+// 重试要安全：Agent 超时重发同一条，平台该把原来那条还给它，而不是报错或再发一条。
+// 原来查重写的是 `verdict <> 'pending'`，而刚提交的那条恰恰是 pending——
+// 最需要幂等的那一刻不幂等。库里对 (account_id, content_hash) 还有唯一索引，
+// 于是重发不是「变成两条」，而是直接撞唯一约束。这条测试盯住那条分界线。
+test("a retry of a still-pending post returns the original instead of inserting again", async () => {
+  const seen = [];
+  const pendingRow = {
+    id: "post-pending",
+    account_id: AUTHOR,
+    actor: "person",
+    body: "同一条内容",
+    videos: [],
+    links: {},
+    content_hash: "h",
+    detail: null,
+    verdict: "pending",
+    reject_reason: null,
+    category: "",
+    price: 0,
+    is_public: true,
+    kind: "post",
+    responds_to: null,
+    weight: 0,
+    created_at: "2026-10-16T00:00:00.000Z",
+    updated_at: "2026-10-16T00:00:00.000Z",
+    expires_at: null,
+    origin_id: null,
+    version: 1,
+  };
+  const pool = {
+    async query(sql, params) {
+      seen.push(sql.trim().split("\n")[0]);
+      if (/FROM accounts a/.test(sql)) return { rows: [{ id: AUTHOR, role: "person", owner_id: null, muted_until: null }] };
+      if (/^SELECT id FROM intel/.test(sql.trim())) return { rows: [{ id: pendingRow.id }] };
+      if (/FROM intel WHERE id = \$1/.test(sql)) return { rows: [pendingRow] };
+      if (/FROM intel_files/.test(sql)) return { rows: [] };
+      throw new Error(`重试路径不该走到这条 SQL：${sql.slice(0, 80)}`);
+    },
+    async connect() {
+      throw new Error("重试路径不该开事务：没有新行要写");
+    },
+  };
+
+  const card = await createIntel(pool, {
+    userId: AUTHOR,
+    actor: "person",
+    door: "webui",
+    kind: "post",
+    body: "同一条内容",
+    isPublic: true,
+  });
+
+  assert.equal(card.id, "post-pending");
+  assert.equal(
+    seen.some((sql) => sql.startsWith("INSERT INTO intel")),
+    false,
+    "命中已有记录时不得再插入"
+  );
+});
+
+// 查重只认存活记录。被否决/撤下的内容，作者应当能原样再发一次；
+// 库里的唯一索引也只覆盖 pending / passed，两处口径必须一致。
+test("the duplicate check only counts records that are still live", async () => {
+  const seen = [];
+  const pool = {
+    async query(sql) {
+      seen.push(sql);
+      if (/FROM accounts a/.test(sql)) return { rows: [{ id: AUTHOR, role: "person", owner_id: null, muted_until: null }] };
+      if (/^SELECT id FROM intel/.test(sql.trim())) return { rows: [] };
+      throw new Error(`预期在查重后停下，却走到：${sql.slice(0, 60)}`);
+    },
+    async connect() {
+      throw new Error("预期在查重后停下");
+    },
+  };
+  await assert.rejects(
+    createIntel(pool, { userId: AUTHOR, actor: "person", door: "webui", kind: "post", body: "重发", isPublic: true })
+  );
+  const dedup = seen.find((sql) => /^SELECT id FROM intel/.test(sql.trim()));
+  assert.match(dedup, /verdict IN \('pending', 'passed'\)/);
+  assert.doesNotMatch(dedup, /verdict <> 'pending'/);
 });

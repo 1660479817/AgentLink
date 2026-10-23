@@ -441,8 +441,15 @@ export async function createIntel(pool, input) {
     fileUrls,
     videos: videoItems,
   });
+  // 查重只跳过「已被否决/撤下」的记录：那种情况下作者应该能重发一次。
+  // 但 pending 必须算命中——刚提交完的那条正是 pending，而超时重发恰恰发生在
+  // 那一刻。原来写的是 `verdict <> 'pending'`，于是 KNOT_HELP 承诺的
+  // 「重试安全」在执行里只对通过审核的记录成立，等于最需要幂等的时候不幂等。
   const prior = await pool.query(
-    `SELECT id FROM intel WHERE account_id = $1 AND content_hash = $2 AND verdict <> 'pending'`,
+    `SELECT id FROM intel
+      WHERE account_id = $1 AND content_hash = $2 AND verdict IN ('pending', 'passed')
+      ORDER BY created_at ASC
+      LIMIT 1`,
     [userId, hash]
   );
   if (prior.rows[0]) {
@@ -538,7 +545,10 @@ export async function createIntel(pool, input) {
     if (error.message === "insufficient_points") error.code = "insufficient_points";
     if (error.code !== "23505") throw error;
     const again = await pool.query(
-      `SELECT id FROM intel WHERE account_id = $1 AND content_hash = $2`,
+      `SELECT id FROM intel
+        WHERE account_id = $1 AND content_hash = $2 AND verdict IN ('pending', 'passed')
+        ORDER BY created_at ASC
+        LIMIT 1`,
       [userId, hash]
     );
     if (!again.rows[0]) throw error;
