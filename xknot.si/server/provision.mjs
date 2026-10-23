@@ -201,6 +201,18 @@ server {
 
 export const ENTRY_PROXIED_MARK = "# 入口已接通：整站反代到隧道";
 
+// 入口这一层不做压缩，JS/CSS/JSON 就按原文发出去：WebUI 主包 109KB，压完约 68KB。
+// 同一个 http 块里别的 vhost 各写各的，所以只能写在这份 conf 的 server 里。
+// gzip_proxied any 让穿过隧道的 /api 响应也压——JSON 收益最大。
+// 不放图片/字体：jpeg、png、woff2 本来就压过了；不放 markdown：入口只出 WebUI 与快照。
+const GZIP_BLOCK = `    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_comp_level 5;
+    gzip_proxied any;
+    gzip_types text/plain text/css text/javascript application/javascript application/json application/manifest+json image/svg+xml application/xml text/xml;
+`;
+
 /**
  * 443 的完整入口 conf。
  *
@@ -212,25 +224,38 @@ export const ENTRY_PROXIED_MARK = "# 入口已接通：整站反代到隧道";
  *
  * 同一条腿只认一个事实：隧道没通就发占位页，通了就整站过隧道。不做「/ 看静态、
  * 其他看隧道」那种混合，否则首页永远停在占位页（0.1 的真实事故就是这一条）。
+ *
+ * 整站反代也要拿到和 static 投放同档的传输层：HTTP/2、gzip、隧道连接复用。
+ * 这三项与「页面从磁盘出还是从隧道回」无关；少了它们，每个静态文件都要多穿一次
+ * 跨境往返、按原文传，109KB 的主包会当 109KB 发出去。
  */
 export function renderVhost({ domain, root, port, entry = false }) {
   const proxied = Boolean(entry);
+  const upstream = `knot_entry_${port}`;
   const header = proxied
     ? `# ${domain}：入口 conf，由 auto-connect 生成，请勿手改。\n${ENTRY_PROXIED_MARK}\n# 整站经本机回环端口 ${port} 回到实例（SSH 反向隧道）。`
     : `# ${domain}：入口 conf，由 auto-connect 生成，请勿手改。\n# 静态页落在 ${root}；/api 经本机回环端口 ${port} 回到实例（SSH 反向隧道）。`;
 
+  // 回源统一走 upstream 才能复用连接：一条新 TCP 要穿隧道重建一次 channel，
+  // 跨境多一个 RTT。keepalive_timeout 压在 Backend 的 keepAliveTimeout（Node 默认 5s）之下。
+  const upstreamBlock = `upstream ${upstream} {
+    server 127.0.0.1:${port};
+    keepalive 16;
+    keepalive_timeout 4s;
+}
+`;
+
   const rootLocation = proxied
     ? `    location / {
-        proxy_pass http://127.0.0.1:${port};
+        proxy_pass http://${upstream};
         proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 120s;
         proxy_request_buffering off;
-        add_header X-Content-Type-Options nosniff always;
-        add_header Referrer-Policy strict-origin-when-cross-origin always;
     }`
     : `    location = /index.html {
         root ${root};
@@ -249,6 +274,7 @@ export function renderVhost({ domain, root, port, entry = false }) {
 
   return `${header}
 
+${upstreamBlock}
 server {
     listen 80;
     listen [::]:80;
@@ -266,6 +292,7 @@ server {
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
+    http2 on;
     server_name ${domain};
 
     ssl_certificate /etc/letsencrypt/live/${domain}/fullchain.pem;
@@ -275,6 +302,7 @@ server {
 
     client_max_body_size 52m;
 
+${GZIP_BLOCK}
     location /.well-known/acme-challenge/ {
         root ${root};
     }
@@ -292,8 +320,9 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://127.0.0.1:${port};
+        proxy_pass http://${upstream};
         proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
