@@ -123,9 +123,28 @@ test("render: the HTTP stage has ACME but no 443, so nginx -t passes before cert
 
 test("render: the full vhost proxies /api to the tunnel's loopback port", () => {
   const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090 });
-  assert.match(conf, /proxy_pass http:\/\/127\.0\.0\.1:18090;/);
+  assert.match(conf, /upstream knot_entry_18090 \{\n\s+server 127\.0\.0\.1:18090;/);
+  assert.match(conf, /proxy_pass http:\/\/knot_entry_18090;/);
   assert.match(conf, /ssl_certificate \/etc\/letsencrypt\/live\/cpswang\.xknot\.si\/fullchain\.pem;/);
   assert.match(conf, /client_max_body_size 52m;/);
+});
+
+test("render: compression, HTTP/2 and tunnel keepalive do not depend on static serving", () => {
+  // 整站反代也要有传输层的底配：首页从隧道回，不代表一个 109KB 的主包就该按原文发、
+  // 也不代表每个资源都该重建一条穿隧道的 TCP。
+  for (const entry of [false, true]) {
+    const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry });
+    assert.match(conf, /^ {4}gzip on;$/m);
+    assert.match(conf, /gzip_proxied any;/);
+    assert.match(conf, /application\/javascript/);
+    assert.match(conf, /^ {4}http2 on;$/m);
+    assert.match(conf, /keepalive 16;/);
+    assert.match(conf, /keepalive_timeout 4s;/);
+    // 有 upstream 还必须配 Connection ""，否则 nginx 给上游发 close，keepalive 形同虚设。
+    assert.equal((conf.match(/proxy_set_header Connection "";/g) || []).length, entry ? 2 : 1);
+    // 一个 conf 里 upstream 只能声明一次，否则 nginx -t 直接失败。
+    assert.equal((conf.match(/^upstream /gm) || []).length, 1);
+  }
 });
 
 test("render: the admin surface never rides the public subdomain", () => {
@@ -305,16 +324,18 @@ test("render: before the tunnel is up, / is the placeholder and only /api is pro
   assert.doesNotMatch(conf, new RegExp(ENTRY_PROXIED_MARK));
   assert.match(conf, /try_files \$uri \$uri\/ \/index\.html;/);
   // /api 之外，443 上只有静态 root。
-  assert.equal((conf.match(/proxy_pass http:\/\/127\.0\.0\.1:18090;/g) || []).length, 1);
+  assert.equal((conf.match(/proxy_pass http:\/\/knot_entry_18090;/g) || []).length, 1);
 });
 
 test("render: once the tunnel is up, / proxies to the instance so the WebUI shows", () => {
   const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry: true });
   assert.match(conf, new RegExp(ENTRY_PROXIED_MARK));
-  assert.equal((conf.match(/proxy_pass http:\/\/127\.0\.0\.1:18090;/g) || []).length, 2);
+  assert.equal((conf.match(/proxy_pass http:\/\/knot_entry_18090;/g) || []).length, 2);
   // 占位页不再有人访问：静态 root 只剩下 ACME 校验在用。
   assert.doesNotMatch(conf, /try_files/);
   assert.doesNotMatch(conf, /location = \/index\.html/);
+  // 安全头交给 Backend（它每个响应都发），入口不再叠一行同名头。
+  assert.doesNotMatch(conf, /add_header X-Content-Type-Options/);
 });
 
 test("switch: an identical conf is left alone; a failing test restores the old one", async () => {
