@@ -6,6 +6,7 @@ import { loadBootstrapConfig } from "./config.js";
 import { createIntel, searchPublicIntel } from "./market.js";
 import { recordNotification } from "./notifications.js";
 import { economyConfig, PLATFORM_ACCOUNT_ID } from "./points.js";
+import { searchConfig } from "./searchConfig.js";
 import { newStorageName, storagePath } from "./uploads.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -17,6 +18,9 @@ function clip(text, max) {
 
 // 把自然语言检索要求落成一条 wish，并登记检索任务，交给后台信息检索员执行。
 // 检索结果打包成 wishRespond（带报告附件），请求方到 wish 里下载时付费。
+//
+// 重复提交是常态：代理超时后会重发同一句。createIntel 对相同正文返回同一条 wish，
+// 所以这里对 retrieval_jobs 用 upsert，重复提交认回原来那个任务，不再撞唯一约束。
 export async function createRetrieval(pool, { userId, actor, door, query }) {
   const text = clip(query, 400);
   if (!text) {
@@ -33,11 +37,26 @@ export async function createRetrieval(pool, { userId, actor, door, query }) {
     hours: 24,
   });
   const { rows } = await pool.query(
-    `INSERT INTO retrieval_jobs (wish_id, account_id, query) VALUES ($1, $2, $3) RETURNING id`,
+    `INSERT INTO retrieval_jobs (wish_id, account_id, query) VALUES ($1, $2, $3)
+     ON CONFLICT (wish_id) DO UPDATE SET query = EXCLUDED.query
+     RETURNING id, status`,
     [intel.kMeta.id, userId, text],
   );
-  enqueueRetrieval(pool, rows[0].id);
-  return { wish: intel, jobId: rows[0].id };
+  const job = rows[0];
+  // 已经在跑或已经做完：认回原任务，不重排、不重扣。
+  if (job.status === "pending" || job.status === "running") {
+    return { wish: intel, jobId: job.id, status: job.status, duplicate: true };
+  }
+  // 已完成但结果被终审撤销或删除：不能把请求方永远卡在这条 wish 上，重新排一次。
+  if (job.status === "done" && (await existingResponseId(pool, intel.kMeta.id))) {
+    return { wish: intel, jobId: job.id, status: "done", duplicate: true };
+  }
+  await pool.query(
+    `UPDATE retrieval_jobs SET status = 'pending', error = NULL, attempts = 0, updated_at = now() WHERE id = $1`,
+    [job.id],
+  );
+  enqueueRetrieval(pool, job.id);
+  return { wish: intel, jobId: job.id, status: "pending", duplicate: false };
 }
 
 const queue = [];
@@ -50,22 +69,24 @@ function enqueueRetrieval(pool, jobId) {
   pumpRetrievals(pool);
 }
 
-const RETRIEVAL_MAX_ATTEMPTS = 3;
-const attempts = new Map();
-
 function retryDelay(attempt) {
   return Math.min(30 * 60 * 1000, 15_000 * 2 ** Math.min(attempt - 1, 6));
 }
 
-function scheduleRetry(pool, jobId) {
-  const attempt = (attempts.get(jobId) || 0) + 1;
-  attempts.set(jobId, attempt);
+function scheduleRetry(pool, jobId, attempt = 1) {
   const timer = setTimeout(() => enqueueRetrieval(pool, jobId), retryDelay(attempt));
   timer.unref();
 }
 
 async function markRunning(pool, jobId) {
-  await pool.query(`UPDATE retrieval_jobs SET status = 'running', updated_at = now() WHERE id = $1`, [jobId]);
+  // 只有还在排队的任务才领走。已经 done / failed 的行不能被重新跑起来：
+  // 重复入队或重启恢复时，无条件改成 running 会让一条已完成的检索再发一份结果。
+  const { rowCount } = await pool.query(
+    `UPDATE retrieval_jobs SET status = 'running', updated_at = now()
+      WHERE id = $1 AND status = 'pending'`,
+    [jobId],
+  );
+  return Boolean(rowCount);
 }
 
 async function markDone(pool, jobId, respondId) {
@@ -79,6 +100,14 @@ async function markFailed(pool, jobId, message) {
   await pool.query(
     `UPDATE retrieval_jobs SET status = 'failed', error = $2, updated_at = now() WHERE id = $1`,
     [jobId, clip(message, 400)],
+  );
+}
+
+// 失败一次就把尝试次数写回行里：进程重启不会把上限清零，运维也能从表里看到重试过几次。
+async function markRetry(pool, jobId) {
+  await pool.query(
+    `UPDATE retrieval_jobs SET status = 'pending', attempts = attempts + 1, updated_at = now() WHERE id = $1`,
+    [jobId],
   );
 }
 
@@ -108,17 +137,39 @@ async function storeReport(pool, uploadDir, report, query) {
   }
 }
 
+// 这条 wish 是否已经有可用响应。重试前先认一次：上一次可能已经把结果发出去了，
+// 只是没来得及把任务标成 done（进程被杀、或 markDone 那一刻数据库抖了一下）。
+// 不查这一下，重试会再发一份，请求方就为同一次检索看到两条付费响应。
+export async function existingResponseId(pool, wishId) {
+  const { rows } = await pool.query(
+    `SELECT id FROM intel
+      WHERE responds_to = $1 AND kind = 'wishRespond' AND verdict NOT IN ('rejected', 'removed')
+      ORDER BY created_at DESC LIMIT 1`,
+    [wishId],
+  );
+  return rows[0]?.id || null;
+}
+
 // 内部优先、外部补充：先用平台信息流检索，再把命中交给信息检索员整合（可用工具补外部）。
-// 返回 true 表示这次失败后已排入重试；调用方据此保留尝试计数，别在重试前把它清掉。
+// 返回 true 表示这次失败后已排入重试（计数已落库，调用方不必再管）。
 async function processRetrieval(pool, jobId) {
   const { rows } = await pool.query(
-    `SELECT id, wish_id, account_id, query, status FROM retrieval_jobs WHERE id = $1`,
+    `SELECT id, wish_id, account_id, query, status, attempts FROM retrieval_jobs WHERE id = $1`,
     [jobId],
   );
   const job = rows[0];
   if (!job || job.status === "done" || job.status === "failed") return false;
   if (!UUID.test(String(job.wish_id))) {
     await markFailed(pool, jobId, "bad_wish");
+    return false;
+  }
+  const maxAttempts = searchConfig().retrievalMaxAttempts;
+
+  // 先认已有的响应。上一次可能已经把结果发出去了，只是没来得及把任务标成 done
+  // （进程被杀、或 markDone 那一刻数据库抖了一下）。
+  const existing = await existingResponseId(pool, job.wish_id);
+  if (existing) {
+    await markDone(pool, jobId, existing);
     return false;
   }
 
@@ -135,10 +186,10 @@ async function processRetrieval(pool, jobId) {
   try {
     report = await runRetrievalAgent(job.query, internal, `retrieval-${jobId}`);
   } catch (error) {
-    const attempt = (attempts.get(jobId) || 0) + 1;
-    if (attempt < RETRIEVAL_MAX_ATTEMPTS) {
-      await pool.query(`UPDATE retrieval_jobs SET status = 'pending', updated_at = now() WHERE id = $1`, [jobId]);
-      scheduleRetry(pool, jobId);
+    if ((Number(job.attempts) || 0) + 1 < maxAttempts) {
+      const attempt = Number(job.attempts) + 2;
+      await markRetry(pool, jobId);
+      scheduleRetry(pool, jobId, attempt);
       return true;
     }
     await markFailed(pool, jobId, error.message || "retrieval_failed");
@@ -170,10 +221,10 @@ async function processRetrieval(pool, jobId) {
     await markDone(pool, jobId, intel.kMeta.id);
   } catch (error) {
     // 响应发布失败重试；超过次数记为失败。
-    const attempt = (attempts.get(jobId) || 0) + 1;
-    if (attempt < RETRIEVAL_MAX_ATTEMPTS) {
-      await pool.query(`UPDATE retrieval_jobs SET status = 'pending', updated_at = now() WHERE id = $1`, [jobId]);
-      scheduleRetry(pool, jobId);
+    if ((Number(job.attempts) || 0) + 1 < maxAttempts) {
+      const attempt = Number(job.attempts) + 2;
+      await markRetry(pool, jobId);
+      scheduleRetry(pool, jobId, attempt);
       return true;
     }
     await markFailed(pool, jobId, error.message || "respond_failed");
@@ -194,12 +245,9 @@ async function notifyRetrievalFailed(pool, job) {
 
 async function runOne(pool, jobId) {
   try {
-    await markRunning(pool, jobId);
-    // 已排入重试时保留计数，下一次失败才能数到上限；否则清掉这条任务的状态。
-    const retrying = await processRetrieval(pool, jobId);
-    if (!retrying) attempts.delete(jobId);
+    if (!(await markRunning(pool, jobId))) return;
+    await processRetrieval(pool, jobId);
   } catch (error) {
-    attempts.delete(jobId);
     console.error(error);
     await markFailed(pool, jobId, error.message || "retrieval_failed");
     try {
@@ -211,20 +259,26 @@ async function runOne(pool, jobId) {
   }
 }
 
+// 检索员队列：并发数可配（KNOT_RETRIEVAL_CONCURRENCY）。检索一次要调一轮检索员，
+// 串行时排在后面的请求会等到前一个超时才动，超时上限又是分钟级。
 function pumpRetrievals(pool) {
   if (pumping) return;
   pumping = true;
+  const width = searchConfig().retrievalConcurrency;
+  let active = 0;
   const step = () => {
-    const jobId = queue.shift();
-    if (!jobId) {
-      pumping = false;
-      return;
+    while (active < width) {
+      const jobId = queue.shift();
+      if (!jobId) break;
+      active += 1;
+      running.add(jobId);
+      runOne(pool, jobId).finally(() => {
+        running.delete(jobId);
+        active -= 1;
+        step();
+      });
     }
-    running.add(jobId);
-    runOne(pool, jobId).finally(() => {
-      running.delete(jobId);
-      step();
-    });
+    if (active === 0 && !queue.length) pumping = false;
   };
   step();
 }

@@ -79,9 +79,3 @@ export async function attachmentExtract(file) {
     return "";
   }
 }
-
-export async function extractsFor(ids) {
-  const { uploadDir } = loadBootstrapConfig();
-  const texts = await Promise.all((Array.isArray(ids) ? ids : []).map((id) => readExtract(uploadDir, id)));
-  return texts;
-}

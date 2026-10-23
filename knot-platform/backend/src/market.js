@@ -1,6 +1,5 @@
 import { access, readFile, rm } from "node:fs/promises";
 import { topicMatchesLanguage } from "@knot/locale";
-import { toPlain } from "@knot/markdown";
 import { intelAgentId, runIntelAgent } from "./agents/openclaw.js";
 import { toRecord } from "./card.js";
 import { loadBootstrapConfig } from "./config.js";
@@ -12,32 +11,20 @@ import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
 import { speakerAccount } from "./account.js";
 import { applyPoints, serviceFee, economyConfig, packetPrice, servicePrice, sameWallet, PLATFORM_ACCOUNT_ID } from "./points.js";
-import { scoreText } from "./search.js";
+import { compact, scoreCompact, uniqueGrams } from "./search.js";
+import { cacheGet, cacheSet, searchCacheKey } from "./searchCache.js";
+import { searchConfig } from "./searchConfig.js";
+import { refreshSearchIndex, searchIndexOf, searchTextOf } from "./searchIndex.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { attachmentOpens } from "./readable.js";
 import { avatarUrlFor } from "./avatars.js";
 import { cardImageUrl } from "./uploads.js";
 import { TIP_TOTAL_SQL } from "./tips.js";
 import { readableBlobPath } from "./storage.js";
-import { discardExtract, extractsFor } from "./extracts.js";
+import { discardExtract, readExtract } from "./extracts.js";
 import { normalizeCategory } from "./categories.js";
 import { wishExpiresAt, wishHours, wishLive } from "./wish.js";
 import { recordIntelRead, recordSearchEvent } from "./attention.js";
-
-function videoText(videos) {
-  if (!Array.isArray(videos)) return "";
-  return videos
-    .map((item) => (typeof item === "string" ? item : item?.url))
-    .filter((url) => typeof url === "string" && url)
-    .join(" ");
-}
-
-function intelText(row) {
-  const detail = row.detail && typeof row.detail === "object" ? row.detail : {};
-  const note = typeof detail.note === "string" ? detail.note : "";
-  const language = typeof detail.language === "string" ? detail.language : "";
-  return `${toPlain(String(row.body || ""))} ${note} ${language} ${videoText(row.videos)}`.trim();
-}
 
 async function imageFiles(pool, intelId) {
   const { uploadDir } = loadBootstrapConfig();
@@ -179,36 +166,45 @@ export async function judgeIntel(pool, id) {
   const intel = await loadIntel(pool, id);
   if (!intel || intel.verdict !== "pending") return presentIntel(intel);
   let result = { verdict: "pass", reason: "", note: "", category: "", language: "", topics: [] };
-  if (intelAgentId()) {
-    const images = await imageFiles(pool, id);
-    const attachments = await attachmentFiles(pool, id);
-    result = await runIntelAgent(intel, images, attachments);
-  }
-  if (result.verdict === "revoke") {
-    const { rows } = await pool.query(
-      `UPDATE intel SET verdict = 'rejected', reject_reason = $2, detail = NULL, category = ''
-       WHERE id = $1 AND verdict = 'pending'
-       RETURNING id`,
-      [id, result.reason]
-    );
-    if (rows.length) {
-      await discardExtract(id);
-      await recordNotification(pool, {
-        userId: intel.account_id,
-        kind: "intel_rejected",
-        title: "信息已撤销",
-        body: result.reason,
-        href: "/mine/submissions",
-      });
+  try {
+    if (intelAgentId()) {
+      const images = await imageFiles(pool, id);
+      const attachments = await attachmentFiles(pool, id);
+      result = await runIntelAgent(intel, images, attachments);
     }
-  } else {
-    const category = normalizeCategory(result.category);
-    await pool.query(
-      `UPDATE intel SET verdict = 'passed', reject_reason = NULL, category = $2, detail = $3::jsonb
-       WHERE id = $1 AND verdict = 'pending'`,
-      [id, category, JSON.stringify({ note: result.note || "", language: result.language || "", topics: result.topics || [] })]
-    );
+    if (result.verdict === "revoke") {
+      const { rows } = await pool.query(
+        `UPDATE intel SET verdict = 'rejected', reject_reason = $2, detail = NULL, category = ''
+         WHERE id = $1 AND verdict = 'pending'
+         RETURNING id`,
+        [id, result.reason]
+      );
+      if (rows.length) {
+        await discardExtract(id);
+        await recordNotification(pool, {
+          userId: intel.account_id,
+          kind: "intel_rejected",
+          title: "信息已撤销",
+          body: result.reason,
+          href: "/mine/submissions",
+        });
+      }
+    } else {
+      const category = normalizeCategory(result.category);
+      await pool.query(
+        `UPDATE intel SET verdict = 'passed', reject_reason = NULL, category = $2, detail = $3::jsonb
+         WHERE id = $1 AND verdict = 'pending'`,
+        [id, category, JSON.stringify({ note: result.note || "", language: result.language || "", topics: result.topics || [] })]
+      );
+    }
+  } finally {
+    // 评审员会先把图片描述与附件转写写到磁盘，再交回结果。它超时、报错或交回坏 JSON 时，
+    // 上面的分支一个都不会走，但磁盘上的转写已经存在了——如果不在这里重算，这一行的
+    // 索引就永远少一段文字，而且因为 search_bigrams 不为 NULL，兜底条件也救不回来。
+    // 放在 finally 里，成功失败都以磁盘上的转写为准；重算幂等，不会覆盖业务字段。
+    await refreshSearchIndex(pool, id).catch((error) => console.error(error));
   }
+  // 终审写了 note、语种与话题标签，这段文字参与检索，索引在上面已经重算过。
   if (intel.kind === "post" || intel.kind === "fastpost" || intel.kind === "wish") touchDiscoverBoard();
   return loadPresentedIntel(pool, id);
 }
@@ -237,6 +233,8 @@ export async function retagIntelTopics(pool, id) {
     `UPDATE intel SET detail = jsonb_set(coalesce(detail, '{}'::jsonb), '{topics}', $2::jsonb, true) WHERE id = $1`,
     [id, JSON.stringify(topics)]
   );
+  // 话题标签同样进检索文字（detail 参与索引），重打完要重算索引。
+  await refreshSearchIndex(pool, id).catch((error) => console.error(error));
   if (intel.kind === "post" || intel.kind === "fastpost" || intel.kind === "wish") touchDiscoverBoard();
   return { id, language: tagLanguage, before, topics };
 }
@@ -326,20 +324,26 @@ async function reviewOne(pool, id) {
   }
 }
 
+// 终审队列：并发数可配（KNOT_REVIEW_CONCURRENCY）。检索请求会同时产生 wish 与
+// wishRespond 两条记录，串行处理时一条卡住的终审会把整条队列堵在它后面。
 function pumpReviews(pool) {
   if (reviewPumping) return;
   reviewPumping = true;
+  const width = searchConfig().reviewConcurrency;
+  let active = 0;
   const step = () => {
-    const id = reviewQueue.shift();
-    if (!id) {
-      reviewPumping = false;
-      return;
+    while (active < width) {
+      const id = reviewQueue.shift();
+      if (!id) break;
+      active += 1;
+      reviewing.add(id);
+      reviewOne(pool, id).finally(() => {
+        reviewing.delete(id);
+        active -= 1;
+        step();
+      });
     }
-    reviewing.add(id);
-    reviewOne(pool, id).finally(() => {
-      reviewing.delete(id);
-      step();
-    });
+    if (active === 0 && !reviewQueue.length) reviewPumping = false;
   };
   step();
 }
@@ -545,6 +549,8 @@ export async function createIntel(pool, input) {
   }
   await mention(intelId);
   if (kind === "wishRespond" && respondsTo) await notifyWishResponse(pool, { wishId: respondsTo, ownerId });
+  // 先写索引再宣布内容变化：索引失败不该让发布失败，回填脚本与兜底条件都能兜住。
+  await refreshSearchIndex(pool, intelId).catch((error) => console.error(error));
   if (kind === "post" || kind === "fastpost" || kind === "wish") touchDiscoverBoard();
   if (!intelAgentId()) {
     try {
@@ -558,8 +564,8 @@ export async function createIntel(pool, input) {
   return loadPresentedIntel(pool, intelId);
 }
 
-const PUBLIC_INTEL_SQL = `
-  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
+const PUBLIC_INTEL_COLUMNS = `
+  i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
     u.display_name, u.avatar_upload_id,
     EXISTS (
       SELECT 1 FROM intel_stars s
@@ -576,6 +582,9 @@ const PUBLIC_INTEL_SQL = `
     )) AS granted,
 ${FRIEND_COLUMNS},
     ${TIP_TOTAL_SQL}
+`;
+
+const PUBLIC_INTEL_FROM = `
   FROM intel i
   JOIN accounts u ON u.id = i.account_id
   WHERE ${visibleVerdict("i.verdict")}
@@ -594,6 +603,12 @@ ${FRIEND_COLUMNS},
         AND ${visibleVerdict("newer.verdict")}
     )
 `;
+
+const PUBLIC_INTEL_SQL = `SELECT ${PUBLIC_INTEL_COLUMNS}${PUBLIC_INTEL_FROM}`;
+
+// 检索多取一列 search_compact：打分用它，不再按行读磁盘上的 extracts。
+// 只加在检索这一条投影上，信息流与深链不必多传一段长文本。
+const SEARCH_INTEL_SQL = `SELECT ${PUBLIC_INTEL_COLUMNS}, i.search_compact${PUBLIC_INTEL_FROM}`;
 
 export function compareByWeight(a, b) {
   const weight = (b.weight || 0) - (a.weight || 0);
@@ -778,25 +793,83 @@ export async function publicAuthor(pool, authorId) {
   };
 }
 
+// 检索兜底：未回填的行没有 search_compact，打分时现算。附件转写要读磁盘，
+// 所以只给排名靠前的一小批做磁盘读取；一次检索最多读这么多次文件。
+// 超出这批的行按正文、终审的一句、语种与视频链接打分，不读附件转写——
+// 这是回填完成前的降级，不是稳态；回填完成后这一整支都不再执行。
+const FALLBACK_DISK_READS = 200;
+
+// 公开检索。候选集由 GIN 索引给出（search_bigrams && 查询二元组），
+// 命中之后再在内存里按同一套二元组打分排序，所以召回不再受「权重前 500 行」的窗口限制。
+//
+// 两处兜底必须留着：
+//   1. search_bigrams IS NULL —— 回填还没跑到的行、或回填中途停下的行，照样能被搜到；
+//   2. 单字查询 —— 一个字的查询没有二元组，走 search_compact 的子串匹配。
 export async function searchPublicIntel(pool, query, userId = null, filters = {}) {
+  const config = searchConfig();
+  const text = String(query || "").trim().slice(0, config.queryMax);
+  if (!text) return [];
+
+  // 打点记的是「有人检索了」这件事，不是「这次真的查了库」：命中缓存也要记，
+  // 否则缓存会把检索次数越压越少，精算师看到的就不是真实用量。
+  recordSearchEvent(pool, userId, text).catch(() => {});
+
+  const key = searchCacheKey(text, userId, filters);
+  const cached = cacheGet(key, config.cacheTtlMs);
+  if (cached) return cached;
+
+  const phrase = compact(text);
+  // 全是标点的查询（"!!!"）归一化后是空串：一条都匹配不到，没必要去库里捞候选。
+  if (!phrase) return [];
+  const pieces = phrase.length > 1 ? uniqueGrams(phrase) : [];
   const params = [userId];
-  // 候选集上限 500：把「可能命中」的行收进内存打分。真正的内存墙在这里，v0.3 换 trigram / 向量后去掉全量拉取。
-  const sql = `${PUBLIC_INTEL_SQL}${filterSql(filters, params)} ORDER BY i.weight DESC, i.created_at DESC LIMIT 500`;
+  let sql = `${SEARCH_INTEL_SQL}${filterSql(filters, params)}`;
+  if (pieces.length) {
+    params.push(pieces);
+    sql += ` AND (i.search_bigrams IS NULL OR i.search_bigrams && $${params.length}::text[])`;
+  } else if (phrase) {
+    params.push(phrase);
+    sql += ` AND (i.search_bigrams IS NULL OR i.search_compact LIKE '%' || $${params.length} || '%')`;
+  }
+  params.push(config.candidates);
+  sql += ` ORDER BY i.weight DESC, i.created_at DESC LIMIT $${params.length}`;
   const { rows } = await pool.query(sql, params);
-  // 检索打点（只记不扣费）：先量化代理替人「筛选」的次数，供精算师看。
-  recordSearchEvent(pool, userId, query).catch(() => {});
-  const extracts = await extractsFor(rows.map((row) => row.id));
+
+  const unindexed = rows.filter((row) => typeof row.search_compact !== "string");
+  const fallback = new Map();
+  if (unindexed.length) {
+    let uploadDir = null;
+    let reads = 0;
+    for (const row of unindexed) {
+      let extract = "";
+      if (reads < FALLBACK_DISK_READS) {
+        uploadDir = uploadDir || loadBootstrapConfig().uploadDir;
+        extract = await readExtract(uploadDir, row.id);
+        reads += 1;
+      }
+      fallback.set(row.id, searchIndexOf(searchTextOf(row, extract)).compact);
+    }
+  }
+
   const scored = rows
-    .map((row, index) => ({ ...row, score: scoreText(query, `${intelText(row)} ${extracts[index] || ""}`) }))
+    .map((row) => ({
+      ...row,
+      score: scoreCompact(phrase, typeof row.search_compact === "string" ? row.search_compact : fallback.get(row.id) || ""),
+    }))
     .filter((row) => row.score > 0);
   // 完整命中（score >= 1）优先，别让「只碰到一两个字的日报」挤掉真正相关的结果；
   // 一个完整命中都没有时，才回退到部分命中，至少给点结果而不是空手。
   const exact = scored.filter((row) => row.score >= 1);
   const candidates = exact.length ? exact : scored;
   // 相关度优先；相关度相同时按权重、再按时间，与信息流保持一致。
-  return candidates
+  const found = candidates
     .sort((a, b) => (b.score - a.score) || compareByWeight(a, b))
-    .slice(0, 30);
+    .slice(0, config.results);
+  // 缓存里不留 search_compact：它是打分用的长文本（单行最多 8000 字），
+  // 一批候选扛着它进缓存会按「条数 × 结果数」放大内存占用，展示层也用不到。
+  const result = found.map(({ search_compact: _indexed, ...rest }) => rest);
+  cacheSet(key, result, config.cacheTtlMs);
+  return result;
 }
 
 // 给一批行挂上附件，再组装成同一份记录。Agent 读路径和信息流共用，保证 shape 一致。

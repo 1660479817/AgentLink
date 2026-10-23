@@ -71,7 +71,7 @@ async function main() {
     await client.end();
     console.error(
       `schema_migrations 里有当前代码没有的迁移：${stale.join("、")}\n` +
-        "这份代码只保留一份基线（001_accounts.sql）。旧库请重建：node backend/scripts/migrate.js --reset"
+        `这份代码的迁移是 ${files.join("、")}。旧库请重建：node backend/scripts/migrate.js --reset`
     );
     process.exit(1);
   }

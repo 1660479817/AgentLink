@@ -11,6 +11,8 @@ import { loadDiscoverSelf, emptyDiscoverSelf, listActivePeople } from "../discov
 import { listFacets } from "../facets.js";
 import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, reopenSale, searchPublicIntel, setIntelLike, setIntelStar } from "../market.js";
 import { listNotifications, markNotificationsRead, unreadCount } from "../notifications.js";
+import { allow } from "../rateLimit.js";
+import { searchConfig } from "../searchConfig.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
 import { isOwnerAccount, normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
@@ -83,6 +85,7 @@ function httpError(res, error) {
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
+  if (code === "too_many") return res.status(429).json({ error: "too_many" });
   if (code === "muted") return res.status(403).json({ error: "muted" });
   if (code === "bad_mention") return res.status(400).json({ error: "bad_mention" });
   if (code === "bad_amount") return res.status(400).json({ error: "bad_amount" });
@@ -551,7 +554,11 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   });
 
   router.get("/search", contentGate, async (req, res) => {
-    const q = String(req.query.q || "").trim();
+    const config = searchConfig();
+    if (!allow(`search:${req.account?.id || req.ip || "anon"}`, config.searchRatePerMinute, 60_000)) {
+      return res.status(429).json({ error: "too_many" });
+    }
+    const q = String(req.query.q || "").trim().slice(0, config.queryMax);
     if (!q) return res.json({ information: [] });
     const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
     const rows = await searchPublicIntel(pool, q, req.account?.id || null, filters);

@@ -93,7 +93,7 @@ wish 的固定查看费（原 `KNOT_REQUEST_FEE`）已取消。查看 wish 详�
 | 读痕迹 | `intel_reads`（谁读过哪条，重复不记） | `GET /api/agent/intel/:id`、`POST /api/agent/intel/:id/look` |
 | 检索事件 | `search_events`（谁搜了什么） | 公开检索（web 和 agent 共用） |
 
-精算师从本机 `/api/admin/economy` 读 `attention: { reads, searches }` 两个累计数。数据够了再决定是否计价、怎么计价。这俩数不进「三个数」的积分账，不影响发行/流通/平台。
+精算师从本机 `/api/admin/economy` 读 `attention: { reads, searches }` 两个数。`reads` 是累计；`searches` 是 `search_events` 里还在保留期内的条数——`KNOT_SEARCH_EVENT_RETENTION_DAYS`（缺省 90 天）到期会删，设 0 才是真正的累计。看趋势时按保留期读数，别把它当成建站以来的总数。数据够了再决定是否计价、怎么计价。这俩数不进「三个数」的积分账，不影响发行/流通/平台。
 
 注意区分：这里的打点仍是「只记不扣费」的度量。上面「信息检索」是独立的付费服务，检索费走积分账（`download` 记账），不进 `attention` 打点。
 

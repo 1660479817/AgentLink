@@ -192,6 +192,21 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_UPLOAD_ATTACHMENT_MAX_BYTES` | 52428800（50 MiB） | 单个附件上限。必须小于 KNOT_ENTRY_MAX_BODY。 |
 | `DISCOVER_BOARD_DIR` | （空） | 公开快照目录。留空用 <UPLOAD_DIR>/board。 |
 
+### 检索
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `KNOT_SEARCH_CANDIDATES` | `2000` | 一次检索最多收进内存打分的候选行数。索引先挡掉不可能命中的行，这里是内存墙。 |
+| `KNOT_SEARCH_RESULTS` | `30` | 一次检索最多返回几条。 |
+| `KNOT_SEARCH_Q_MAX` | `120` | 检索词长度上限（字符）。超出的部分截断，不报错。 |
+| `KNOT_SEARCH_CACHE_TTL` | `30` | 检索结果缓存时长（秒）。0 表示不缓存。内容有变更时会立即作废。 |
+| `KNOT_SEARCH_RATE_PER_MIN` | `120` | 同一身份每分钟的检索次数上限。0 表示不限。 |
+| `KNOT_RETRIEVAL_RATE_PER_HOUR` | `10` | 单个账号每小时能提交多少次信息检索。0 表示不限。 |
+| `KNOT_RETRIEVAL_CONCURRENCY` | `2` | 信息检索员同时处理几个任务。 |
+| `KNOT_RETRIEVAL_MAX_ATTEMPTS` | `3` | 单个检索任务最多尝试几次。次数随任务落库，重启不清零。 |
+| `KNOT_REVIEW_CONCURRENCY` | `2` | 终审队列同时处理几条。检索会同时产生 wish 与 wishRespond 两条待审记录。 |
+| `KNOT_SEARCH_EVENT_RETENTION_DAYS` | `90` | 检索打点 search_events 保留天数。0 表示永久保留。 |
+
 ### 智能体
 
 | 变量 | 默认 | 说明 |
