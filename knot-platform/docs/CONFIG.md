@@ -52,7 +52,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_DOMAIN` | （空） |  | xknot.si 签发的二级子域，形如 <标签>.xknot.si。只在本机访问时留空；接子域时与入口文件名一致。 |
 | `KNOT_HUB_ORIGIN` | `https://xknot.si` |  | 第一次接入时把申请提交到哪个中枢。默认联邦入口 xknot.si；本机联调可以指向 dev 中枢。 |
 | `KNOT_PORT` | `8080` |  | 实例主机上 Backend 监听的端口。 |
-| `KNOT_BIND_HOST` | `127.0.0.1` |  | Backend 绑定地址。本机与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。 |
+| `KNOT_BIND_HOST` | `127.0.0.1` |  | Backend 绑定地址。本机与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。绑回环时「我的」页生成的管理后台链接一定以 127.0.0.1 开头，复制到别的设备上打不开；对外是域名却只绑回环时，部署脚本会提醒一次。 |
 | `KNOT_SESSION_COOKIE_NAME` | `knot_sid` |  | 会话 Cookie 名。同一个域名下跑多个站点时要各不相同。 |
 | `KNOT_ADMIN_EMAIL` | （空） | 是 | 站点管理员邮箱。必填；用这个邮箱登录后拥有平台管理权限，建议与投诉也寄到这里。 |
 | `KNOT_SESSION_TTL_DAYS` | `30` |  | 登录会话有效期（天）。Cookie 和 sessions.expires_at 用同一个值。 |
@@ -222,7 +222,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `KNOT_ADMIN_TOKEN` | （空） | 内网管理接口 /api/admin 和管理后台 /admin 的令牌。由 ensure-openclaw.sh 写入，运维不要手改。 |
-| `KNOT_ADMIN_ORIGIN` | （空） | 管理后台链接里写死的内网地址，例如 http://192.168.3.91:8080。留空时按 KNOT_BIND_HOST 与网卡推断。 |
+| `KNOT_ADMIN_ORIGIN` | （空） | 管理后台链接里写死的内网地址，例如 http://192.168.3.91:8080。留空时按 KNOT_BIND_HOST 与网卡推断；多网卡或隧道拓扑下可以用它写死，绑回环时也能给出内网链接。 |
 
 ## XKnot 接入配置（`sites/<站点>/xknot.env`）
 

@@ -27,7 +27,8 @@ function fakePool(role, { agents = [], onWrite } = {}) {
       onWrite?.("create", params);
       return { rows: [{ id: AGENT, display_name: params[1], created_at: "2026-10-22T00:00:00.000Z" }] };
     }
-    if (sql.includes("owner_id = $1 AND role = 'agent'")) return { rows: [] };
+    // 换码路径现在整段在事务里：先在咨询锁内用这条查在岗行（LIMIT 1，无 ORDER BY）。
+    if (sql.includes("owner_id = $1 AND role = 'agent'")) return { rows: agents.slice(0, 1).map((agent) => ({ id: agent.id })) };
     if (sql.includes("UPDATE accounts") && sql.includes("retired_at = now()")) {
       onWrite?.("retire", params);
       return { rows: [{ id: params[0], owner_id: USER, display_name: "甲 的 Agent" }] };

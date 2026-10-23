@@ -16,7 +16,8 @@
 #   XKNOT_SERVICE    远端 systemd unit 名，默认 xknot-api
 #
 # 仓库里不写死任何主机。脚本按下面的顺序做事，任一步失败就停：
-#   同步 → 装配置 → nginx -t → daemon-reload → 重启接口 → reload nginx → 健康检查
+#   同步 → 备份并装配置 → nginx -t（不通过就回滚并退出）→ daemon-reload
+#   → 重启接口 → reload nginx → 健康检查
 set -euo pipefail
 
 HUB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -140,18 +141,48 @@ fi
 
 echo "==> install config"
 if [[ "$DRY_RUN" == 1 ]]; then
-  echo "(dry-run) install conf + units (api + provision + health.{service,timer} + traffic.{service,timer}), nginx -t, restart $SERVICE, reload nginx"
+  echo "(dry-run) backup + install conf (rollback on nginx -t failure), units (api + provision + health.{service,timer} + traffic.{service,timer}), restart $SERVICE, reload nginx"
 else
   ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "
     set -e
-    sudo install -m 644 /tmp/xknot.si.conf '$NGINX_CONF'
+    # unit 先装，nginx 配置最后装：unit 文件不参与 nginx -t，而 conf 校验失败时
+    # 必须停在 daemon-reload 之前，别让主机上的服务被换掉。
     sudo install -m 644 /tmp/xknot-api.service '/etc/systemd/system/$SERVICE.service'
     sudo install -m 644 /tmp/xknot-provision.service /etc/systemd/system/xknot-provision.service
     sudo install -m 644 /tmp/xknot-health.service /etc/systemd/system/xknot-health.service
     sudo install -m 644 /tmp/xknot-health.timer /etc/systemd/system/xknot-health.timer
     sudo install -m 644 /tmp/xknot-traffic.service /etc/systemd/system/xknot-traffic.service
     sudo install -m 644 /tmp/xknot-traffic.timer /etc/systemd/system/xknot-traffic.timer
-    sudo nginx -t
+
+    # nginx 配置：备份 → 落盘 → nginx -t → 不通过就回滚。
+    # 先覆盖再校验的话，校验失败时坏文件已经躺在 conf.d 里，脚本就此退出、不回滚；
+    # 此后任何一次 reload（certbot 续期、别的子域部署）都会因整棵配置树不合法而失败，
+    # 受影响的就不止这个站点了。
+    # 备份名不以 .conf 结尾，nginx 的 conf.d/*.conf 不会把它当配置读进来。
+    stamp=\$(date -u +%Y%m%dT%H%M%SZ)
+    bak=\"$NGINX_CONF.bak-\"\$stamp
+    had_conf=0
+    if [ -f '$NGINX_CONF' ]; then
+      # 用 install 而不是 cp -a：cp -a 会把原文件的修改时间一起带过去，
+      # 下面按时间裁备份时，几份备份时间相同，留下的就不是最近的那几份。
+      sudo install -m 644 '$NGINX_CONF' \"\$bak\"
+      had_conf=1
+    fi
+    sudo install -m 644 /tmp/xknot.si.conf '$NGINX_CONF'
+    if ! sudo nginx -t; then
+      if [ \"\$had_conf\" = 1 ]; then
+        sudo cp -a \"\$bak\" '$NGINX_CONF'
+        echo \"回滚：nginx -t 未通过，'$NGINX_CONF' 已恢复，副本在 \$bak\" >&2
+      else
+        # 原本没有这份配置：留着坏文件同样会让下一次 reload 失败。
+        sudo rm -f '$NGINX_CONF'
+        echo \"回滚：nginx -t 未通过，原本没有 '${NGINX_CONF}'，新装的那份已移除\" >&2
+      fi
+      exit 1
+    fi
+    # 备份只留最近 10 份，别让每次部署都多一个文件堆在 conf.d 里。
+    ls -1dt '$NGINX_CONF'.bak-* 2>/dev/null | tail -n +11 | sudo xargs -r rm -f || true
+
     sudo systemctl daemon-reload
     sudo systemctl enable '$SERVICE'
     sudo systemctl restart '$SERVICE'

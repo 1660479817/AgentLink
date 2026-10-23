@@ -348,6 +348,71 @@ async function guard(fn) {
   }
 }
 
+// 卡片内的错误位：失败要落在按钮下方。toast 会自己飘走，管理员回头找不到刚才那一步错在哪。
+function errorSlot(formId, slotId) {
+  if (slotId) return byId(slotId);
+  const form = byId(formId);
+  return form ? form.querySelector(".form-error") : null;
+}
+
+function formError(formId, message, slotId) {
+  const slot = errorSlot(formId, slotId);
+  if (slot) setAlert(slot, message, "error");
+  else if (message) toast(message, "error");
+}
+
+// 点一下就改库的接口，每成功一次就落一笔账（/points 直接追加一条 point_ledger），
+// 双击就是两笔。所有这类表单统一从这里进：请求期间禁用提交键，同一张表单不接受第二次进入。
+const BUSY_FORMS = new Set();
+
+async function writeForm(formId, run, slotId) {
+  if (!formId || BUSY_FORMS.has(formId)) return null;
+  const form = byId(formId);
+  const button = form ? form.querySelector('button[type="submit"]') : null;
+  // 文案可能挂在按键自身（data-i18n 在 button 上），也可能挂在里面的 span 上，两种都认。
+  const label = button
+    ? button.querySelector("[data-i18n]") || (button.dataset.i18n ? button : null)
+    : null;
+  const wasDisabled = button ? button.disabled : false;
+  BUSY_FORMS.add(formId);
+  formError(formId, "", slotId);
+  if (button) {
+    button.disabled = true;
+    if (label) label.textContent = t("common.sending");
+  }
+  try {
+    return await run();
+  } catch (error) {
+    if (handleAuth(error)) return null;
+    formError(formId, humanError(error), slotId);
+    return null;
+  } finally {
+    BUSY_FORMS.delete(formId);
+    if (button) {
+      button.disabled = wasDisabled;
+      // data-i18n 的键没动过，按它写回去即可；切语种时 applyI18n 也认这个键。
+      if (label) label.textContent = t(label.dataset.i18n);
+    }
+  }
+}
+
+async function writeButton(button, run, slotId) {
+  if (!button || button.disabled) return null;
+  button.disabled = true;
+  if (slotId) setAlert(byId(slotId), "", "error");
+  try {
+    return await run();
+  } catch (error) {
+    if (handleAuth(error)) return null;
+    if (slotId) formError("", humanError(error), slotId);
+    else toast(humanError(error), "error");
+    return null;
+  } finally {
+    // 成功后会整块重绘，这颗按键可能已经不在文档里；对游离节点赋值没有副作用。
+    button.disabled = false;
+  }
+}
+
 async function api(pathname, options = {}) {
   const headers = { Authorization: `Bearer ${state.token}` };
   const init = { method: options.method || "GET", headers };
@@ -693,12 +758,20 @@ function renderPosts() {
   if (summary) {
     const within = data.within ? t("content.summaryWithin", { within: data.within }) : "";
     summary.hidden = false;
+    // 后端只回一页（没给时间窗 30 条，给了 200 条），而 total 是匹配总数、不是这一页的条数。
+    // 两个数不相等时必须说出来，否则「共 N 条」会让人以为屏幕上是全部，更早的帖子就永远没人管。
+    const total = Number(data.total) || 0;
+    const rest = Math.max(0, total - posts.length);
+    const clipped = rest
+      ? t("content.summaryTruncated", { shown: fmtInt(posts.length), rest: fmtInt(rest) }) +
+        (data.within ? t("content.summaryNarrowWindow") : t("content.summaryNarrow"))
+      : "";
     summary.textContent =
       t("content.summary", {
         name: user.displayName || t("content.noName"),
         ident: user.email || user.id || "—",
         total: fmtInt(data.total),
-      }) + within;
+      }) + within + clipped;
   }
   if (!posts.length) {
     list.replaceChildren(emptyBlock("content.emptyList", "content"));
@@ -741,7 +814,7 @@ function patrolItem(post) {
       class: "button danger compact",
       type: "button",
       "aria-label": t("content.remove"),
-      on: { click: () => void patrolRemove(post) },
+      on: { click: (event) => void patrolRemove(post, event.currentTarget) },
     },
     iconEl("trash", 14),
     el("span", { text: t("content.remove") })
@@ -751,7 +824,7 @@ function patrolItem(post) {
     {
       class: "button secondary compact",
       type: "button",
-      on: { click: () => void patrolWarn(post) },
+      on: { click: (event) => void patrolWarn(post, event.currentTarget) },
     },
     iconEl("alert", 14),
     el("span", { text: t("content.warn") })
@@ -789,32 +862,38 @@ function renderPatrol() {
   list.replaceChildren(...state.patrol.map(patrolItem));
 }
 
-async function patrolRemove(post) {
+async function patrolRemove(post, button) {
   const reason = window.prompt(t("content.removeTitle"), "");
   if (reason == null) return;
   const text = reason.trim();
   if (!text) {
-    toast(t("content.reasonRequired"), "error");
+    formError("", t("content.reasonRequired"), "patrol-error");
     return;
   }
   if (!window.confirm(t("content.removeConfirm", { reason: text }))) return;
-  const result = await guard(() =>
-    api(`/posts/${encodeURIComponent(post.id)}/remove`, { method: "POST", body: { reason: text } })
+  const result = await writeButton(
+    button,
+    () => api(`/posts/${encodeURIComponent(post.id)}/remove`, { method: "POST", body: { reason: text } }),
+    "patrol-error"
   );
   if (!result) return;
   toast(result.already ? t("content.alreadyRemoved") : t("content.removed"), "ok");
   await loadPatrol();
 }
 
-async function patrolWarn(post) {
+async function patrolWarn(post, button) {
   const text = window.prompt(t("content.warnTitle"), "");
   if (text == null) return;
   const body = text.trim();
   if (!body) {
-    toast(t("content.warnRequired"), "error");
+    formError("", t("content.warnRequired"), "patrol-error");
     return;
   }
-  const result = await guard(() => api("/warnings", { method: "POST", body: { user: post.user?.id, body } }));
+  const result = await writeButton(
+    button,
+    () => api("/warnings", { method: "POST", body: { user: post.user?.id, body } }),
+    "patrol-error"
+  );
   if (!result) return;
   toast(t("content.warned"), "ok");
 }
@@ -823,10 +902,10 @@ async function recordPatrol(event) {
   event.preventDefault();
   const body = byId("patrol-body").value.trim();
   if (!body) {
-    toast(t("content.patrolNeeded"), "error");
+    formError("patrol-form", t("content.patrolNeeded"));
     return;
   }
-  const result = await guard(() => api("/patrol", { method: "POST", body: { body } }));
+  const result = await writeForm("patrol-form", () => api("/patrol", { method: "POST", body: { body } }));
   if (!result) return;
   byId("patrol-body").value = "";
   toast(t("content.patrolSaved"), "ok");
@@ -1417,14 +1496,16 @@ async function submitGrant(event) {
   const amount = Number(byId("grant-amount").value);
   const body = byId("grant-body").value.trim();
   if (!Number.isSafeInteger(amount) || amount <= 0) {
-    toast(t("users.amountBad"), "error");
+    formError("grant-form", t("users.amountBad"));
     return;
   }
   if (!body) {
-    toast(t("users.reasonRequired"), "error");
+    formError("grant-form", t("users.reasonRequired"));
     return;
   }
-  const data = await guard(() => api("/points", { method: "POST", body: { user: user.id, amount, body } }));
+  const data = await writeForm("grant-form", () =>
+    api("/points", { method: "POST", body: { user: user.id, amount, body } })
+  );
   if (!data) return;
   byId("grant-amount").value = "";
   byId("grant-body").value = "";
@@ -1438,10 +1519,12 @@ async function submitWarn(event) {
   if (!user) return;
   const body = byId("warn-body").value.trim();
   if (!body) {
-    toast(t("users.warnRequired"), "error");
+    formError("warn-form", t("users.warnRequired"));
     return;
   }
-  const data = await guard(() => api("/warnings", { method: "POST", body: { user: user.id, body } }));
+  const data = await writeForm("warn-form", () =>
+    api("/warnings", { method: "POST", body: { user: user.id, body } })
+  );
   if (!data) return;
   byId("warn-body").value = "";
   updateUser(data.user);
@@ -1454,10 +1537,10 @@ async function submitMute(event) {
   if (!user) return;
   const body = byId("mute-body").value.trim();
   if (!body) {
-    toast(t("users.reasonRequired"), "error");
+    formError("mute-form", t("users.reasonRequired"));
     return;
   }
-  const data = await guard(() =>
+  const data = await writeForm("mute-form", () =>
     api("/mute", { method: "POST", body: { user: user.id, until: byId("mute-until").value, body } })
   );
   if (!data) return;
@@ -1472,10 +1555,12 @@ async function submitUnmute(event) {
   if (!user) return;
   const body = byId("unmute-body").value.trim();
   if (!body) {
-    toast(t("users.reasonRequired"), "error");
+    formError("unmute-form", t("users.reasonRequired"));
     return;
   }
-  const data = await guard(() => api("/unmute", { method: "POST", body: { user: user.id, body } }));
+  const data = await writeForm("unmute-form", () =>
+    api("/unmute", { method: "POST", body: { user: user.id, body } })
+  );
   if (!data) return;
   byId("unmute-body").value = "";
   updateUser(data.user);
@@ -1489,14 +1574,16 @@ async function submitLevel(event) {
   const level = Number(byId("level-value").value);
   const body = byId("level-body").value.trim();
   if (!Number.isSafeInteger(level) || level < 1 || level > 100) {
-    toast(t("users.levelBad"), "error");
+    formError("level-form", t("users.levelBad"));
     return;
   }
   if (!body) {
-    toast(t("users.reasonRequired"), "error");
+    formError("level-form", t("users.reasonRequired"));
     return;
   }
-  const data = await guard(() => api("/level", { method: "POST", body: { user: user.id, level, body } }));
+  const data = await writeForm("level-form", () =>
+    api("/level", { method: "POST", body: { user: user.id, level, body } })
+  );
   if (!data) return;
   byId("level-body").value = "";
   updateUser(data.user);
@@ -1511,14 +1598,14 @@ async function submitEntitlements(event) {
   const revoke = splitList(byId("entitlement-revoke").value);
   const body = byId("entitlement-body").value.trim();
   if (!grant.length && !revoke.length) {
-    toast(t("users.entitlementNeeded"), "error");
+    formError("entitlement-form", t("users.entitlementNeeded"));
     return;
   }
   if (!body) {
-    toast(t("users.reasonRequired"), "error");
+    formError("entitlement-form", t("users.reasonRequired"));
     return;
   }
-  const data = await guard(() =>
+  const data = await writeForm("entitlement-form", () =>
     api("/entitlements", { method: "POST", body: { user: user.id, grant, revoke, body } })
   );
   if (!data) return;
@@ -1830,7 +1917,7 @@ async function createInvite(event) {
   if (expiresIn) body.expiresIn = expiresIn;
   if (note) body.note = note;
   if (code) body.code = code;
-  const data = await guard(() => api("/invites", { method: "POST", body }));
+  const data = await writeForm("invite-form", () => api("/invites", { method: "POST", body }), "invite-result");
   if (!data) return;
   setAlert(
     byId("invite-result"),

@@ -238,7 +238,44 @@
     "title": "通知",
     "hint": "撤销、审核异常、警告、积分、禁言、权益、回复和@会出现在这里。",
     "empty": "还没有通知",
-    "openLink": "查看详情"
+    "openLink": "查看详情",
+    "listSeparator": "、",
+    "kinds": {
+      "intel_rejected": "信息已撤销",
+      "intel_review_error": "审核异常",
+      "intel_removed": "帖子已删除",
+      "retrieval_failed": "信息检索没有完成",
+      "warning": "平台警告",
+      "request_response": "有一条 wish 响应",
+      "mention": "有人@了你",
+      "tip": "收到打赏",
+      "points_granted": "积分已到账",
+      "muted": "已被禁言",
+      "unmuted": "禁言已解除",
+      "entitled": "权益已更新",
+      "level_changed": "等级已更新"
+    },
+    "body": {
+      "pointsGranted": "到账 {amount}。",
+      "mutedUntil": "禁言至 {until}。",
+      "mutedForever": "禁言，直到平台解除。",
+      "entitledGranted": "获得 {names}。",
+      "entitledRevoked": "收回 {names}。",
+      "level": "现在是 {level}。",
+      "reviewError": "{label}（{code}）。",
+      "reviewTail": "这条记录仍然可见，稍后会再试。",
+      "retrievalFailed": "「{query}」这次检索没做成，积分未扣，可重新提交。",
+      "tip": "{giver} 打赏了你 {amount} 积分。",
+      "tipSomeone": "有人",
+      "removedByPlatform": "平台关闭。"
+    },
+    "review": {
+      "agent_timeout": "数据评审员超时",
+      "agent_failed": "数据评审员没有完成审核",
+      "agent_bad_json": "数据评审员没有交回可用结果",
+      "agent_empty": "数据评审员没有交回内容",
+      "other": "审核没有完成"
+    }
   },
   "submissions": {
     "title": "提交的信息",

@@ -366,6 +366,7 @@ test("the same review failure is told once, and a new one is told again", async 
   assert.equal(notes[0][2], "审核异常");
   assert.match(notes[0][3], /agent_timeout/);
   assert.equal(notes[0][4], "/mine/submissions");
+  assert.deepEqual(JSON.parse(notes[0][6]), { code: "agent_timeout", detail: "" });
   assert.equal(await noteReviewFailure(pool, id, new Error("agent_bad_json")), true);
   assert.equal(notes.length, 2);
   assert.match(notes[1][3], /没有交回可用结果/);

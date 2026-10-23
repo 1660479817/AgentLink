@@ -760,6 +760,8 @@ dropdb -h 127.0.0.1 -p <KNOT_PGPORT> -U knot knot_restore_drill
 ./ops/scripts/reset-knot.sh --yes
 ```
 
+脚本动手之前先看 `knot_keep`：上一次重建如果死在 `DROP SCHEMA public` 之后，那里是账号、会话、授权码与上传记录的唯一副本。发现里面有账号就先转存一份 `pg_dump` 到 `KNOT_BACKUP_DIR`（没配就 `var/backups/`）并停下，库一行不动，站点也不会被停。确认数据没问题后，用 `./ops/scripts/reset-knot.sh --yes --recover` 从这份副本回灌：跳过「清空再搬运」，直接重建表结构再写回。
+
 ## 8. 运行环境文件
 
 `sites/<站点>/platform.env` 只在目标机，不进仓库，权限 `600`。它保存运行时设置：数据库地址、邮件、价格、上传配额、备份目录、OpenClaw 智能体名。站点拓扑（域名、主机、入口、端口）在 `sites/<站点>/site.env`，不要在运行时文件里再写一份。写它的唯一入口是 `config.mjs env`；手工改也可以，下一次部署只会覆盖部署相关的键。

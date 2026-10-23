@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
 # 丢掉帖子和迁移历史，按当前结构重建。留下用户、会话、授权、头像和赞助。
 # 用法：./ops/scripts/reset-knot.sh --yes
+#       ./ops/scripts/reset-knot.sh --yes --recover   # 上一次没跑完，从 knot_keep 回灌
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@16/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-if [[ "${1:-}" != "--yes" ]]; then
+RESET_YES=0
+RECOVER=0
+for arg in "$@"; do
+  case "$arg" in
+    --yes) RESET_YES=1 ;;
+    --recover) RECOVER=1 ;;
+    *)
+      echo "未知参数：${arg}" >&2
+      exit 2
+      ;;
+  esac
+done
+if [[ "$RESET_YES" != 1 ]]; then
   echo "这会清空帖子、通知和积分流水，并重建表结构。用户、会话、授权和头像保留。" >&2
   echo "确认执行：./ops/scripts/reset-knot.sh --yes" >&2
+  echo "上一次重建没跑完、要从 knot_keep 回灌：./ops/scripts/reset-knot.sh --yes --recover" >&2
   exit 1
 fi
 
@@ -57,6 +71,51 @@ restart_backend() {
   fi
 }
 
+# ---- 上一次重建的残留 ----
+# 上一次重建如果死在 DROP SCHEMA public 之后，knot_keep 是账号、会话、授权码与上传
+# 记录的唯一副本。脚本里的 SQL 守卫会让重跑停下，但「停下」不解决「怎么救」：照它
+# 原来的提示，唯一明确的出路是把这份副本 DROP 掉，数据等于被放弃一次。所以先转存
+# 一份文件副本，再把回灌方式写进输出。这段必须在 stop_backend 之前：库还没动，
+# 站点别为一次注定中止的重建白停。
+KNOT_KEEP_ROWS="$(psql "$DATABASE_URL" -qAt -c "SELECT count(*) FROM knot_keep.accounts" 2>/dev/null || true)"
+if [[ -n "$KNOT_KEEP_ROWS" && "$KNOT_KEEP_ROWS" != "0" ]]; then
+  KEEP_BACKUP_DIR="$(knot_backup_dir "$(knot_expand_path "${KNOT_BACKUP_DIR:-}")")"
+  # 备份目录没配、写着 null、或者不可写时退到部署根下的 var/backups：
+  # 这里正在中止一次重建，不能因为落盘位置不理想就留不下副本。
+  if [[ -z "$KEEP_BACKUP_DIR" ]] || ! mkdir -p "$KEEP_BACKUP_DIR" 2>/dev/null; then
+    KEEP_BACKUP_DIR="$KNOT_DEPLOY_ROOT/var/backups"
+    mkdir -p "$KEEP_BACKUP_DIR"
+  fi
+  KEEP_DUMP="$KEEP_BACKUP_DIR/knot_keep-$(date -u +%Y%m%dT%H%M%SZ).dump"
+  if pg_dump "$DATABASE_URL" --schema=knot_keep -Fc --no-owner -f "$KEEP_DUMP"; then
+    echo "==> 上一次留下的 knot_keep（${KNOT_KEEP_ROWS} 个账号）已转存到 ${KEEP_DUMP}" >&2
+  else
+    echo "警告：knot_keep 转存失败，${KEEP_DUMP} 没有写成。" >&2
+    KEEP_DUMP=""
+  fi
+  if [[ "$RECOVER" != 1 ]]; then
+    {
+      echo "错误：knot_keep 里还有上一次重建留下的 ${KNOT_KEEP_ROWS} 个账号，上一次很可能没跑完。"
+      echo "那时 public 已经被清掉，这份 knot_keep 是账号、会话、授权码与上传记录的唯一副本。"
+      echo
+      if [[ -n "$KEEP_DUMP" ]]; then
+        echo "文件副本：${KEEP_DUMP}（pg_restore 可读，先确认数据对不对）"
+      else
+        echo "文件副本没有写成，动手之前先别清库。"
+      fi
+      echo "确认表结构重建不要紧，就从这份副本回灌（跳过「清空再搬运」）："
+      echo "  ${SCRIPT_DIR}/reset-knot.sh --yes --recover"
+      echo "确实不要这份数据，才手工执行："
+      echo "  psql \"\$DATABASE_URL\" -c 'DROP SCHEMA knot_keep CASCADE;'"
+    } >&2
+    exit 1
+  fi
+elif [[ "$RECOVER" == 1 ]]; then
+  echo "错误：--recover 要从 knot_keep 回灌，但库里没有 knot_keep.accounts，或者它是空的。" >&2
+  echo "没有可回灌的副本。正常情况下直接跑 ./ops/scripts/reset-knot.sh --yes。" >&2
+  exit 1
+fi
+
 stop_backend
 
 # 从这里开始站点是停着的。中途任何一步失败（set -e 会直接退出），
@@ -74,6 +133,11 @@ restore_backend_on_exit() {
 }
 trap restore_backend_on_exit EXIT
 
+if [[ "$RECOVER" == 1 ]]; then
+  # public 已经没了（上一次死在 DROP 之后）。结构交给下面的 migrate --reset 重建，
+  # knot_keep 原样留着给回灌用，不再搬运一次——它已经是 public 的全部内容。
+  echo "==> --recover：跳过搬运，直接从 knot_keep 回灌"
+else
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v admin_email="${KNOT_ADMIN_EMAIL:-}" <<'SQL'
 -- 上一次重建可能死在半路：那时 public 已经清掉，knot_keep 里是唯一一份账号、会话
 -- 与上传记录。无条件 DROP 会把它一起删掉，数据就再也找不回来了。
@@ -87,7 +151,7 @@ BEGIN
   SELECT count(*) INTO kept FROM knot_keep.accounts;
   IF kept > 0 THEN
     RAISE EXCEPTION 'knot_keep 里已经有上一次重建留下的 % 个账号，上一次很可能没跑完。', kept
-      USING HINT = '这是 public 被清掉之后唯一的备份。先查：SELECT id, email, role FROM knot_keep.accounts; 确认不再需要它，才执行 DROP SCHEMA knot_keep CASCADE; 然后重跑。';
+      USING HINT = '这是 public 被清掉之后唯一的备份。先查：SELECT id, email, role FROM knot_keep.accounts; 确认数据没问题，再用 ./ops/scripts/reset-knot.sh --yes --recover 从它回灌；确实不要了才执行 DROP SCHEMA knot_keep CASCADE;';
   END IF;
 END $$;
 DROP SCHEMA IF EXISTS knot_keep CASCADE;
@@ -317,6 +381,7 @@ END $$;
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 SQL
+fi
 
 echo "==> migrate"
 cd "$KNOT_APP_DIR"

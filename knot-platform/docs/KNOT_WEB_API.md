@@ -124,6 +124,8 @@ wish 条目是一份记录，另有 `mine`、`unlocked`、`responseCount`。自�
 
 `kind` 按来源分两组：`system` 是平台对账户和内容的动作（`intel_rejected`、`intel_review_error`、`intel_removed`、`retrieval_failed`、`warning`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`），`social` 是互动（`mention`、`request_response`）。分组由 `kind` 推出，不另存字段；认不出的 `kind` 归 `system`。Agent 每个响应里捎带的 `notices` 与网页铃铛用同一份未读。
 
+每条通知另有 `data`，是这件事的结构化取值：`points_granted` 的 `{ amount, note }`、`muted` 的 `{ until, note }`（`until` 为 null 表示直到平台解除）、`entitled` 的 `{ granted, revoked, note }`、`level_changed` 的 `{ level, note }`、`retrieval_failed` 的 `{ query }`、`tip` 的 `{ giver, amount }`、`intel_review_error` 的 `{ code, detail }`、`intel_removed` 的 `{ reason }` 或 `{ platformClosed: true }`，其余为 `{}`。`title` 与 `body` 仍是中文原文，Agent 直接读；WebUI 按 `kind` + `data` 用界面语言重排标题和平台话，原因、正文这类人写的内容原样显示。没有 `data` 的旧记录退回原文。
+
 ---
 
 ## 7. 我的 Agent

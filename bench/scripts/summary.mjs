@@ -68,15 +68,40 @@ export function parseSummaryData(raw) {
   const servedDur = metricValues(metrics.served_ms);
   const dur = servedDur.count ? servedDur : metricValues(metrics.http_req_duration);
 
+  // 写场景的清理结果。以前只有 k6 的 write_leftover 指标，summary 不读，
+  // 报告就看不到「这一轮发布了几条、删掉几条、还剩几条」。
+  const cleanupMetrics = ["write_cleanup_err", "write_created", "write_deleted", "write_leftover"];
+  const hasCleanup = cleanupMetrics.some((name) => metrics[name]);
+  const cleanupErr = metricValues(metrics.write_cleanup_err);
+  const createdCount = metricValues(metrics.write_created).count ?? null;
+  const deletedCount = metricValues(metrics.write_deleted).count ?? null;
+  const leftoverCount = metricValues(metrics.write_leftover).count ?? null;
+  const cleanup = hasCleanup
+    ? {
+        // write_cleanup_err 的分母是发帖成功数；一次失败都没有时 k6 不导出这条指标，
+        // 只要发生过发布就记 0，别把「没有失败」显示成「没有数据」。
+        errRate: cleanupErr.value ?? cleanupErr.rate ?? (createdCount > 0 ? 0 : null),
+        errCount: trueCount(cleanupErr),
+        created: createdCount,
+        deleted: deletedCount,
+        // write_leftover 只在有残留时出现；没有这条指标时用「发布 - 删除」补 0。
+        leftover:
+          leftoverCount ??
+          (createdCount != null && deletedCount != null ? Math.max(0, createdCount - deletedCount) : null),
+      }
+    : null;
+
   return {
     requests,
     served: servedCount,
     throttled: throttledCount,
     rps: totals.rate ?? null,
     // 错误率按「没有被限流的请求」算；429 不是错误，见上方说明。
-    errorRate: servedCount ? errCount / servedCount : 0,
+    // 一个请求都没被服务时记 null，不能记 0：0 会被读成「零错误」。
+    errorRate: servedCount ? errCount / servedCount : null,
     throttleRate: requests ? throttledCount / requests : 0,
     overall: { p50: dur.med ?? null, p95: dur["p(95)"] ?? null, p99: dur["p(99)"] ?? null },
     endpoints,
+    cleanup,
   };
 }

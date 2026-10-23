@@ -105,6 +105,7 @@ test("remove records the reason and tells the author", async () => {
   assert.equal(calls[0].params[1], "含有欺诈内容。");
   assert.equal(calls[1].params[1], "intel_removed");
   assert.equal(calls[1].params[2], "帖子已删除");
+  assert.deepEqual(JSON.parse(calls[1].params[6]), { reason: "含有欺诈内容。" });
   assert.match(calls[2].sql, /admin_actions/);
   assert.equal(calls[2].params[0], "remove");
 });
@@ -120,12 +121,15 @@ test("a web close records which human admin did it", async () => {
       return { rows: [] };
     },
   };
-  await removePost(pool, POST_ID, "平台关闭", ADMIN_ID);
+  await removePost(pool, POST_ID, "平台关闭", { actorId: ADMIN_ID, platformClosed: true });
   const action = calls.find((call) => call.sql.includes("admin_actions"));
   assert.match(action.sql, /actor_account_id/);
   assert.equal(action.params[0], "remove");
   assert.equal(action.params[1], USER_ID);
   assert.equal(action.params[4], ADMIN_ID);
+  // 没有填写原因时，WebUI 显示「平台关闭」这句平台话，而不是把中文原文照搬。
+  const notice = calls.find((call) => call.sql.includes("INSERT INTO notifications"));
+  assert.deepEqual(JSON.parse(notice.params[6]), { platformClosed: true });
 });
 
 test("a second remove of the same post stays quiet", async () => {
@@ -143,6 +147,31 @@ test("a second remove of the same post stays quiet", async () => {
   const result = await removePost(pool, POST_ID, "含有欺诈内容。");
   assert.equal(result.already, true);
   assert.equal(updates, 1);
+});
+
+test("removing one revision takes the whole chain down, old versions included", async () => {
+  const V1 = "33333333-3333-4333-8333-333333333333";
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      // 新版与旧版同属一条链：一条 UPDATE 一起改，返回两行。
+      if (sql.includes("UPDATE intel")) {
+        return { rows: [{ id: V1, account_id: USER_ID }, { id: POST_ID, account_id: USER_ID }] };
+      }
+      if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
+      return { rows: [] };
+    },
+  };
+  const result = await removePost(pool, POST_ID, "含有欺诈内容。");
+  assert.equal(result.already, false);
+  assert.equal(result.userId, USER_ID);
+  const update = calls.find((call) => call.sql.includes("UPDATE intel"));
+  // 条件认的是被点那一版所属的链，不是它自己的 id：否则 v2 撤下后 v1 会回到信息流。
+  assert.match(update.sql, /COALESCE\(origin_id, id\) = \(SELECT COALESCE\(origin_id, id\) FROM intel WHERE id = \$1\)/);
+  assert.deepEqual(update.params, [POST_ID, "含有欺诈内容。"]);
+  // 作者只收一条通知，不按版本重复发。
+  assert.equal(calls.filter((call) => call.sql.includes("INSERT INTO notifications")).length, 1);
 });
 
 test("grant adds the amount once and tells the person", async () => {

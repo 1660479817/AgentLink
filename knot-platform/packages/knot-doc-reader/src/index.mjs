@@ -141,9 +141,18 @@ function sharedStrings(xml) {
   ));
 }
 
+// Excel 自己的列上限是 XFD（16384 列）。列号来自文件里的 r="…"，不设上限时
+// 下面那个补空单元格的 while 会照着文件写的数字去分配数组：r="AAAAAAA" 就是
+// 三十多亿项，进程直接内存耗尽。所以列号和每行格数都收到这个宽度以内。
+const MAX_COLUMNS = 16384;
+
 function columnIndex(ref) {
   let index = 0;
-  for (const char of ref) index = index * 26 + (char.charCodeAt(0) - 64);
+  for (const char of ref) {
+    index = index * 26 + (char.charCodeAt(0) - 64);
+    // 越过 XFD 的引用不是真实表格能有的，返回 -1 让调用方丢掉这一格。
+    if (index - 1 >= MAX_COLUMNS) return -1;
+  }
   return index - 1;
 }
 
@@ -152,8 +161,12 @@ function sheetText(xml, strings) {
   for (const rowXml of xml.split(/<row[\s>]/).slice(1)) {
     const cells = [];
     for (const cell of rowXml.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+      // 没有 r 的单元格按出现顺序排，格数同样由文件决定，所以这里也要有上限。
+      if (cells.length >= MAX_COLUMNS) break;
       const ref = /\sr="([A-Z]+)/.exec(cell[1]);
       const col = ref ? columnIndex(ref[1]) : cells.length;
+      // 列号超出表格宽度：丢掉这一格，不要按它补位。
+      if (col < 0) continue;
       const type = attr(cell[1], "t");
       let value = "";
       if (type === "s") value = strings[Number(/<v>([^<]*)<\/v>/.exec(cell[2])?.[1])] || "";

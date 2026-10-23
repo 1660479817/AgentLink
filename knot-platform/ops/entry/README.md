@@ -77,6 +77,11 @@ KNOT_ENTRY_SERVE=static        # 或 proxy
 入口文件是**叠加层**：只写与 `site.env` 不同的项，其余沿用。文件名必须等于里面的
 `KNOT_DOMAIN`，域名必须是 `xknot.si` 签发的二级子域；`config.mjs check` 会拦住。
 
+`KNOT_ENTRY_WEB_ROOT` 与 `KNOT_ENTRY_CONF` 是例外：必须每个入口写开。同一台入口主机
+上的两个子域共用 `/var/www/knot` 或 `conf.d/knot.conf` 时，后推的 `rsync --delete`
+会清掉前一个的静态根、`cp` 会换掉它的配置。`push-entry.sh` 因此拒绝空值、相对路径，
+以及这两个共用缺省值。
+
 ## 投放方式：`static` 还是 `proxy`
 
 两种都由同一个模板渲染，只差 `KNOT_ENTRY_SERVE`：

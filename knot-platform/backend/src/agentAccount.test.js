@@ -129,6 +129,7 @@ test("reviving keeps the identity and takes a fresh code", async () => {
 
 test("an external account with a live agent only gets a new code", async () => {
   const pool = fakePool((sql) => {
+    if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
     if (/owner_id = \$1 AND role = 'agent'\s+AND retired_at IS NULL/.test(sql)) {
       return { rows: [{ id: AGENT, retired_at: null, has_token: true }] };
     }
@@ -139,6 +140,60 @@ test("an external account with a live agent only gets a new code", async () => {
   assert.equal(issued.id, AGENT);
   assert.equal(issued.created, false);
   assert.equal(pool.calls.some((call) => call.sql.includes("INSERT INTO accounts")), false);
+});
+
+test("两个并发取码在同一把锁里排队，先返回的令牌不会被第二次换码顶掉", async () => {
+  const events = [];
+  // 一把互斥：后到的事务在咨询锁上等前一个 COMMIT，模拟 pg_advisory_xact_lock。
+  let tail = Promise.resolve();
+  const pool = {
+    async connect() {
+      const client = {
+        release() {},
+        done: null,
+        async query(sql) {
+          const text = String(sql).trim();
+          events.push(text);
+          if (text === "BEGIN") return { rows: [] };
+          if (text === "COMMIT" || text === "ROLLBACK") {
+            client.done?.();
+            return { rows: [] };
+          }
+          if (sql.includes("pg_advisory_xact_lock")) {
+            const previous = tail;
+            tail = new Promise((resolve) => {
+              client.done = resolve;
+            });
+            await previous;
+            return { rows: [] };
+          }
+          if (/owner_id = \$1 AND role = 'agent'\s+AND retired_at IS NULL/.test(sql)) return { rows: [{ id: AGENT }] };
+          if (sql.includes("token_hash = $2")) {
+            return { rows: [{ id: AGENT, display_name: "甲 的 Agent", created_at: "t" }] };
+          }
+          throw new Error(sql);
+        },
+      };
+      return client;
+    },
+  };
+  const [first, second] = await Promise.all([
+    ensurePersonalAgent(pool, { id: OWNER, display_name: "甲" }),
+    ensurePersonalAgent(pool, { id: OWNER, display_name: "甲" }),
+  ]);
+  assert.equal(first.id, AGENT);
+  assert.notEqual(first.token, second.token);
+  // 第一步就是 BEGIN：在岗行不能在事务外先查。旧写法第一句是 findAgentsOf 的 SELECT。
+  assert.equal(events[0], "BEGIN");
+  const lock = events.findIndex((sql) => sql.includes("pg_advisory_xact_lock"));
+  const lookup = events.findIndex((sql) => /owner_id = \$1 AND role = 'agent'/.test(sql));
+  assert.ok(lock > 0 && lookup > lock, `在岗查询必须落在锁内: ${events.join(" | ")}`);
+  // 第二次换码发生在前一次 COMMIT 之后：两笔换码不交叠，返回的令牌各有一次明文。
+  const rotates = events.flatMap((sql, index) => (sql.includes("token_hash = $2") ? [index] : []));
+  assert.equal(rotates.length, 2);
+  const commits = events.flatMap((sql, index) => (sql === "COMMIT" ? [index] : []));
+  assert.equal(commits.length, 2);
+  assert.ok(rotates[0] < commits[0] && commits[0] < rotates[1]);
 });
 
 test("an external account without an agent creates exactly one, named after the person", async () => {

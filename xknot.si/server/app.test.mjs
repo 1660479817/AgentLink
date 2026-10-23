@@ -641,6 +641,30 @@ test("api: handoff issues a single-use claim link and the page does not consume 
   assert.ok(log.some((row) => row.event === "partner.handoff" && row.status === "sent"));
 });
 
+test("api: a claim link stops working once the application is withdrawn", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const cookie = await loginAs(call, store);
+
+  const submitted = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
+  const id = submitted.data.application.id;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const handoff = await call(`/api/admin/applications/${id}/handoff`, {
+    method: "POST",
+    cookie,
+    body: { payload: "XKNOT_HUB_RELAY_TOKEN=xkr_wang_secret", ttlHours: 72 },
+  });
+  const token = tokenFromMail(handoff.data.claimUrl, "claim");
+  assert.ok(token);
+
+  // 撤回之后，没核销的链接不该还能换出委托发信凭据。
+  assert.equal(store.withdrawApplication(id).error, undefined);
+  const claimed = await call("/api/claim", { method: "POST", form: { token } });
+  assert.equal(claimed.status, 404);
+  assert.ok(!claimed.data.includes("xkr_wang_secret"));
+});
+
 test("api: submission mails once and the console can resend deliberately", async (t) => {
   const mailer = recordingMailer();
   const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });

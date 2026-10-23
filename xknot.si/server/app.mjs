@@ -1205,6 +1205,10 @@ export function createApp({ store, config }) {
       if (result.error === "not_found") return sendHtml(res, 404, renderClaimResult("missing", null, "zh-CN"));
       if (result.error === "expired") return sendHtml(res, 410, renderClaimResult("expired", null, "zh-CN"));
       if (result.error === "already_used") return sendHtml(res, 409, renderClaimResult("used", null, "zh-CN"));
+      // 申请撤回后令牌一并失效：这份链接对应的单已经不在办了，按「找不到」回。
+      if (result.error === "application_closed") {
+        return sendHtml(res, 404, renderClaimResult("missing", null, "zh-CN"));
+      }
       return sendHtml(res, 200, renderClaimResult("ok", result.payload, "zh-CN"));
     }
 

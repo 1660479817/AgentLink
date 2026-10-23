@@ -187,6 +187,7 @@ export async function judgeIntel(pool, id) {
           title: "信息已撤销",
           body: result.reason,
           href: "/mine/submissions",
+          data: { reason: result.reason || "" },
         });
       }
     } else {
@@ -251,10 +252,15 @@ function reviewFailureCode(error) {
   return code || "review_failed";
 }
 
-export function reviewFailureText(error) {
+export function reviewFailureParts(error) {
   const code = reviewFailureCode(error);
-  const lead = REVIEW_LABELS[code] || "审核没有完成";
   const detail = String(error?.detail || "").replace(/\s+/g, " ").trim().slice(0, 180);
+  return { code, detail };
+}
+
+export function reviewFailureText(error) {
+  const { code, detail } = reviewFailureParts(error);
+  const lead = REVIEW_LABELS[code] || "审核没有完成";
   const tail = "这条记录仍然可见，稍后会再试。";
   return detail ? `${lead}（${code}）。${detail} ${tail}` : `${lead}（${code}）。${tail}`;
 }
@@ -279,6 +285,7 @@ export async function noteReviewFailure(pool, id, error) {
     title: "审核异常",
     body: reviewFailureText(error),
     href: "/mine/submissions",
+    data: reviewFailureParts(error),
   });
   return true;
 }

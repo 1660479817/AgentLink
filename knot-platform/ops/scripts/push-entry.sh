@@ -92,7 +92,17 @@ knot_render_entry() {
 }
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/knot-entry.XXXXXX")"
-trap 'rm -rf "$TMP_DIR"' EXIT
+
+# 远端中转目录要在入口主机上建，路径本地算不出来，所以两条清理放在同一个 trap 里。
+# 中转目录装完即删：它是 0700，留着只会堆 /tmp，也不该让别人在里面翻到还没上线的页面。
+cleanup() {
+  rm -rf "$TMP_DIR"
+  if [[ -n "${REMOTE_STAGE:-}" ]]; then
+    ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "rm -rf '${REMOTE_STAGE}'" >/dev/null 2>&1 || true
+  fi
+  return 0
+}
+trap cleanup EXIT
 
 HOST="$(knot_entry_value "$ENTRY_FILE" KNOT_DOMAIN)"
 SERVE="$(knot_entry_value "$ENTRY_FILE" KNOT_ENTRY_SERVE)"
@@ -103,15 +113,34 @@ SERVE="${SERVE:-static}"
 
 [[ "$HOST" == "$KNOT_DOMAIN" ]] || knot_fail "入口文件名必须是 entry.$KNOT_DOMAIN.env，里面的 KNOT_DOMAIN 现在是 ${HOST}。"
 
+# 静态根与 conf 得是这个子域自己的。留空时 site-config.sh 会回落到 /var/www/knot，
+# 那是同一台入口主机上所有子域共用的一份；两个子域都落在那儿，下面的 rsync --delete
+# 与 cp 就互相覆盖。先拦下，别等文件已经换掉了才发现。
+knot_require_entry_paths "$WEB_ROOT" "$CONF" "$HOST"
+
+# 远端中转目录一次一换。一台入口主机常常同时服务多个子域：固定用 /tmp/knot-web 时，
+# 两次推送共用同一份暂存，后到的 rsync --delete 会把先到的 dist 清走，而安装动作是
+# sudo rsync 落进系统目录——装进去的可能正是别人刚传上来的页面。mktemp 建的目录是
+# 0700，别人也预置不了同名目录。取最后一行：登录 banner 会混进 stdout。
+REMOTE_STAGE="$(ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" 'mktemp -d /tmp/knot-entry.XXXXXX' | tail -n 1)"
+case "$REMOTE_STAGE" in
+  /*) ;;
+  *) knot_fail "入口主机没有返回可用的中转目录：'${REMOTE_STAGE}'" ;;
+esac
+# 下面要把它拼进 root 执行的命令里，只认自己验证过的字符集。
+case "$REMOTE_STAGE" in
+  *[!A-Za-z0-9._/-]*) knot_fail "中转目录路径里有意外字符：'${REMOTE_STAGE}'" ;;
+esac
+
 # 访问日志格式同一台入口主机只声明一次：log_format 重复定义会让整份配置过不了 nginx -t。
 # static 与 proxy 都要装，日志才分得出子域。
 LOG_CONF="$(dirname "${CONF:-/etc/nginx/conf.d/knot.conf}")/knot-log.conf"
-scp "${SSH_OPTS[@]}" "$KNOT_APP_DIR/ops/entry/log.conf.template" "$KNOT_ENTRY_SSH:/tmp/knot-log.conf"
+scp "${SSH_OPTS[@]}" "$KNOT_APP_DIR/ops/entry/log.conf.template" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/knot-log.conf"
 echo "==> install $LOG_CONF"
 ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "
   set -e
   sudo mkdir -p '$(dirname "$LOG_CONF")'
-  sudo cp /tmp/knot-log.conf '$LOG_CONF'
+  sudo cp '$REMOTE_STAGE/knot-log.conf' '$LOG_CONF'
   sudo touch '$KNOT_ENTRY_ACCESS_LOG'
 "
 
@@ -119,18 +148,18 @@ ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "
 if [[ "$SERVE" == "static" ]]; then
   CACHE_CONF="$(dirname "${CONF:-/etc/nginx/conf.d/knot.conf}")/knot-cache.conf"
   node "$SCRIPT_DIR/render-config.mjs" "$KNOT_APP_DIR/ops/entry/cache.conf.template" "$TMP_DIR/knot-cache.conf"
-  scp "${SSH_OPTS[@]}" "$TMP_DIR/knot-cache.conf" "$KNOT_ENTRY_SSH:/tmp/knot-cache.conf"
+  scp "${SSH_OPTS[@]}" "$TMP_DIR/knot-cache.conf" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/knot-cache.conf"
   echo "==> install $CACHE_CONF"
-  ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "sudo mkdir -p '$(dirname "$CACHE_CONF")' && sudo cp /tmp/knot-cache.conf '$CACHE_CONF'"
+  ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "sudo mkdir -p '$(dirname "$CACHE_CONF")' && sudo cp '$REMOTE_STAGE/knot-cache.conf' '$CACHE_CONF'"
 else
   echo "==> proxy 投放，跳过缓存区"
 fi
 
 if [[ "$SERVE" == "static" ]]; then
-  echo "==> sync web/dist to $KNOT_ENTRY_SSH:/tmp/knot-web/"
+  echo "==> sync web/dist to $KNOT_ENTRY_SSH:$REMOTE_STAGE/web/"
   rsync -az --delete \
     -e "ssh ${SSH_OPTS[*]}" \
-    "$KNOT_APP_DIR/web/dist/" "$KNOT_ENTRY_SSH:/tmp/knot-web/"
+    "$KNOT_APP_DIR/web/dist/" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/web/"
 
   # 构建产物只有 SPA 空壳：首页标题、介绍、OG 都靠 JS 之后才有。
   # 推到入口时补一份静态化的首页，搜索与分享预览才读得到；顺带生成 robots 与 sitemap。
@@ -145,7 +174,7 @@ if [[ "$SERVE" == "static" ]]; then
     --name "${HOST%%.*}"
   scp "${SSH_OPTS[@]}" \
     "$TMP_DIR/entry/index.html" "$TMP_DIR/entry/robots.txt" "$TMP_DIR/entry/sitemap.xml" \
-    "$KNOT_ENTRY_SSH:/tmp/knot-web/"
+    "$KNOT_ENTRY_SSH:$REMOTE_STAGE/web/"
 fi
 
 if [[ "$SSL" != "0" ]]; then
@@ -158,7 +187,7 @@ fi
 
 CONF_OUT="$TMP_DIR/$HOST.conf"
 knot_render_entry "$CONF_OUT"
-scp "${SSH_OPTS[@]}" "$CONF_OUT" "$KNOT_ENTRY_SSH:/tmp/knot-site-$HOST.conf"
+scp "${SSH_OPTS[@]}" "$CONF_OUT" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/site.conf"
 
 CHOWN_CMD=""
 if [[ -n "${KNOT_ENTRY_WEB_OWNER:-}" ]]; then
@@ -171,10 +200,10 @@ if [[ "$SERVE" == "static" ]]; then
   ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "
     set -e
     sudo mkdir -p '$WEB_ROOT'
-    sudo rsync -a --delete --exclude .well-known --exclude /discover.json --exclude /media/ /tmp/knot-web/ '$WEB_ROOT/'
+    sudo rsync -a --delete --exclude .well-known --exclude /discover.json --exclude /media/ '$REMOTE_STAGE/web/' '$WEB_ROOT/'
     $CHOWN_CMD true
     sudo mkdir -p '$(dirname "$CONF")'
-    sudo cp /tmp/knot-site-$HOST.conf '$CONF'
+    sudo cp '$REMOTE_STAGE/site.conf' '$CONF'
     sudo nginx -t
     $KNOT_ENTRY_RELOAD_CMD
   "
@@ -183,7 +212,7 @@ else
   ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "
     set -e
     sudo mkdir -p '$(dirname "$CONF")'
-    sudo cp /tmp/knot-site-$HOST.conf '$CONF'
+    sudo cp '$REMOTE_STAGE/site.conf' '$CONF'
     sudo nginx -t
     $KNOT_ENTRY_RELOAD_CMD
   "

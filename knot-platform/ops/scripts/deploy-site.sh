@@ -254,6 +254,13 @@ case "$(knot_origin_host "$KNOT_PUBLIC_ORIGIN")" in
     ;;
 esac
 
+# 反过来的情形：站点在域名上、别的设备也能打开，管理后台却只绑了回环。
+# 那时「我的」页复制出去的链接在别的设备上打不开，而部署本身是成功的。
+ADMIN_LINK_HINT="$(knot_admin_link_hint)"
+if [[ -n "$ADMIN_LINK_HINT" ]]; then
+  knot_warn "$ADMIN_LINK_HINT"
+fi
+
 if knot_enabled KNOT_ENTRY_ENABLED; then
   knot_require KNOT_ENTRY_SSH "KNOT_ENTRY_ENABLED=1 时要配置 KNOT_ENTRY_SSH=user@entry-host。只部署本机请设 KNOT_ENTRY_ENABLED=0。"
   PUSH_KEY="$(knot_expand_path "$KNOT_ENTRY_PUSH_KEY")"

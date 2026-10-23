@@ -1231,6 +1231,12 @@ textarea:focus {
   margin-top: 0;
 }
 
+/* 按钮下方的错误位：表单是 flex + gap，.alert 自带的上边距会把提示和按钮拉开。 */
+.action-form .form-error,
+.stack-form .form-error {
+  margin-top: 0;
+}
+
 .action-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

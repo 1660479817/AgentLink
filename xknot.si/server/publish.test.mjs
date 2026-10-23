@@ -152,3 +152,27 @@ test("active: flips the published entry only, twice is a no-op", async () => {
   assert.equal((await markActive({ manifestFile, id: "cpswang" })).changed, false);
   assert.equal((await markActive({ manifestFile, id: "nope" })).error, "not_listed");
 });
+
+test("active: a suspended or retired entry is not flipped back", async () => {
+  for (const status of ["suspended", "retired"]) {
+    const { manifestFile, rosterFile } = await fixture();
+    await publishInstance({
+      application: APP,
+      tunnelAccount: "knot-tunnel-cpswang",
+      tunnelPort: 18090,
+      manifestFile,
+      rosterFile,
+    });
+    // 运营在清单上按下暂停/下架：worker 每一轮仍会调用 markActive，
+    // 只有 pending 才允许迁入，否则这个决定下一轮就被改回去。
+    const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+    manifest.instances.find((item) => item.id === "cpswang").status = status;
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const result = await markActive({ manifestFile, id: "cpswang" });
+    assert.equal(result.error, "not_pending");
+    assert.equal(result.status, status);
+    const after = JSON.parse(await readFile(manifestFile, "utf8"));
+    assert.equal(after.instances.find((item) => item.id === "cpswang").status, status);
+  }
+});

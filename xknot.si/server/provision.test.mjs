@@ -13,6 +13,7 @@ import {
   keyChanged,
   nextPort,
   pendingStep,
+  reconcileTunnel,
   refreshKeySteps,
   renderHttpVhost,
   renderPlaceholder,
@@ -101,6 +102,38 @@ test("port: first free port after the founder's 18080", () => {
   assert.equal(nextPort([]), 18090);
   assert.equal(nextPort([{ tunnel: { port: 18090 } }]), 18091);
   assert.equal(tunnelFor({ instanceId: "example", members: [] }).port, 18090);
+});
+
+test("port: a port handed out earlier in the same round is skipped", () => {
+  // 同一轮里两条新申请都从同一份名册快照算端口：前一条分到 18090 还没落盘，
+  // 后一条只能靠 reserved 避开它，否则两条 run 拿到同一个端口。
+  const members = [{ tunnel: { port: 18090 } }];
+  assert.equal(tunnelFor({ instanceId: "aaa", members }).port, 18091);
+  assert.equal(tunnelFor({ instanceId: "bbb", members, reserved: [18091] }).port, 18092);
+  assert.equal(nextPort(members, [18091, 18092]), 18093);
+});
+
+test("port: a run takes the roster's word when its own port is already taken", () => {
+  const run = createRun({
+    application: APP,
+    tunnel: { account: "knot-tunnel-cpswang", port: 18090 },
+    entryHost: "54.169.33.64",
+  });
+
+  // 名册里另一个成员先占住了 18090：run 里的旧值已经不能用了，重算到下一个空闲端口。
+  const taken = reconcileTunnel({ run, members: [{ id: "other", tunnel: { account: "knot-tunnel-other", port: 18090 } }] });
+  assert.equal(taken.port, 18091);
+  assert.equal(taken.account, "knot-tunnel-cpswang");
+
+  // 名册里已有本实例时沿用名册的端口，重试不能换掉正在用的隧道。
+  const listed = reconcileTunnel({
+    run,
+    members: [{ id: "cpswang", tunnel: { account: "knot-tunnel-cpswang", port: 18093 } }],
+  });
+  assert.equal(listed.port, 18093);
+
+  // 已经一致时原样返回，不多写一次库。
+  assert.equal(reconcileTunnel({ run, members: [] }), run);
 });
 
 test("tunnel: reuses the roster entry instead of allocating a new port", () => {

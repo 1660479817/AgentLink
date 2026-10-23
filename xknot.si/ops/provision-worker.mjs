@@ -30,6 +30,7 @@ import {
   createRun,
   keyChanged,
   pendingStep,
+  reconcileTunnel,
   refreshKeySteps,
   runStep,
   stepDone,
@@ -187,28 +188,36 @@ export async function advance(run) {
       return next;
     }
 
+    // 端口按当前名册重算，而不是沿用 run 里上次分配的值：名册才是权威。
+    // 同一轮里两条新申请会算进同一个最小空闲端口，先落盘的那个占住它；
+    // 后者若继续信旧值，每轮发布都被判重复，永远停在 roster_invalid。
+    const roster = await readJson(rosterFile, { members: [] });
+    const current = reconcileTunnel({ run, members: roster.members || [] });
+    if (current.account !== run.account || current.port !== run.port) {
+      store.saveProvisionRun(current);
+      log(`${run.instanceId}: 隧道参数按名册重算为 ${current.account} / ${current.port}`);
+    }
+
     // 伙伴换了公钥：旧账号里的那份已经不匹配，从 account 起重跑一遍。
-    if (keyChanged(run, application)) {
-      const refreshed = refreshKeySteps(run, application);
+    if (keyChanged(current, application)) {
+      const refreshed = refreshKeySteps(current, application);
       store.saveProvisionRun(refreshed);
       log(`${run.instanceId}: 公钥已更换，从 account 起重跑`);
       return refreshed;
     }
 
-    const step = pendingStep(run);
+    const step = pendingStep(current);
     if (!step) {
-      const next = { ...run, state: "awaiting_tunnel", lastError: null, updatedAt: new Date().toISOString() };
+      const next = { ...current, state: "awaiting_tunnel", lastError: null, updatedAt: new Date().toISOString() };
       store.saveProvisionRun(next);
       log(`${run.instanceId}: 入口侧已完成，等待隧道与探测`);
       return next;
     }
 
-    const roster = await readJson(rosterFile, { members: [] });
-
     try {
       const result = await runStep({
         step: step.id,
-        run,
+        run: current,
         application,
         host,
         entry: { adminEmail, entryHost },
@@ -216,7 +225,7 @@ export async function advance(run) {
         publish: ({ application: app, tunnelAccount, tunnelPort }) =>
           publishInstance({ application: app, tunnelAccount, tunnelPort, manifestFile, rosterFile }),
       });
-      const done = stepDone({ ...run, attempts: (run.attempts || 0) + 1 }, step.id, result?.note ?? null);
+      const done = stepDone({ ...current, attempts: (current.attempts || 0) + 1 }, step.id, result?.note ?? null);
       store.saveProvisionRun(done);
       log(`${run.instanceId}: ${step.id} 完成${result?.note ? `（${result.note}）` : ""}`);
       return done;
@@ -225,7 +234,7 @@ export async function advance(run) {
       const detail = error instanceof ProvisionError ? error.detail : error.message;
       log(`${run.instanceId}: ${step.id} 失败 ${code}${detail ? ` — ${detail}` : ""}`);
       // 失败留在原地，下一轮重试；面板上同时保留错误码，不用等重试成功才知道卡在哪。
-      const next = stepRetry({ ...run, attempts: (run.attempts || 0) + 1 }, step.id, code);
+      const next = stepRetry({ ...current, attempts: (current.attempts || 0) + 1 }, step.id, code);
       store.saveProvisionRun(next);
       return next;
     }
@@ -253,6 +262,9 @@ export async function advance(run) {
       if (activated.error) {
         const next = { ...stepFailed(run, "activate", activated.error), state: "failed" };
         store.saveProvisionRun(next);
+        // 清单被改成 suspended / retired 时不覆盖它：那是运营的决定，
+        // 记一条事件让控制台看得到，而不是留一份「接通完成但没上架」的静默状态。
+        store.recordEvent("instance.activate_refused", run.instanceId, activated.error);
         return next;
       }
       const next = {
@@ -286,10 +298,14 @@ async function tick() {
   }
 
   const roster = await readJson(rosterFile, { members: [] });
+  // 同一轮里连续建几条 run 时，前一条的端口还没写进名册；本轮已分出去先记下，
+  // 后一条才不会拿到同一个。
+  const reserved = [];
   for (const application of store.applicationsAwaitingProvision()) {
     const instanceId = application.subdomain || "";
     if (!instanceId) continue;
-    const tunnel = tunnelFor({ instanceId, members: roster.members || [] });
+    const tunnel = tunnelFor({ instanceId, members: roster.members || [], reserved });
+    reserved.push(tunnel.port);
     const run = store.createProvisionRun(createRun({ application, tunnel, entryHost }));
     log(`${instanceId}: 新建接通任务 ${application.id}（${tunnel.account} / ${tunnel.port}）`);
     if (run) await advance(run);

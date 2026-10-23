@@ -92,6 +92,9 @@ export async function markActive({ manifestFile, id }) {
   const instance = manifest.instances.find((item) => item.id === id);
   if (!instance) return { error: "not_listed" };
   if (instance.status === "active") return { ok: true, changed: false };
+  // 只从 pending 迁入。suspended / retired 是运营在清单上做的决定，
+  // 而 worker 每一轮都会调用这里：不判前态就等于每轮把暂停与下架改回 active。
+  if (instance.status !== "pending") return { error: "not_pending", status: instance.status };
   instance.status = "active";
   manifest.updatedAt = new Date().toISOString().slice(0, 10);
   await writeJsonAtomic(manifestFile, manifest);

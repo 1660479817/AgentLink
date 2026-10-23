@@ -202,6 +202,8 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 
 `notifications.kind` 为 `intel_rejected`、`intel_review_error`、`intel_removed`、`retrieval_failed`、`warning`、`request_response`、`mention`、`tip`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_passed` 曾计划使用，现在不再发出：预审通过时已经可见，终审留下也不另发通知。`intel_rejected` 的标题是「信息已撤销」。`intel_review_error` 的标题是「审核异常」，记录仍然可见。`retrieval_failed` 的标题是「信息检索没有完成」，检索没做成时积分未扣，链接回 wish 可重新提交。`request_response` 只发给发出 wish 的人。`tip` 的标题是「收到打赏」，正文是打赏者的称呼和积分，`intel_id` 指向被打赏的记录。`mention` 的标题是「有人@了你」，`intel_id` 指向那条记录，正文是那条信息的文字。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。没有对应记录时 `intel_id` 为空。
 
+`notifications.data` 是同一件事的结构化取值（`jsonb`，缺省 `{}`）：金额、等级、禁言期限、审核错误码、检索词、打赏者等。`title` 与 `body` 保留中文原文，Agent 与旧客户端直接读；WebUI 用 `kind` + `data` 按界面语言重排，人写的原因与正文（`warning`、`mention`、`intel_rejected` 的 `reason` 等）原样显示。加这一列时旧记录留 `{}`，读到就退回原文。
+
 `kind` 另按来源分成 `system`（平台对账户和内容的动作）和 `social`（`mention`、`request_response`、`tip`）。分组由 `kind` 推出，不存列。Agent 每个响应里捎带的 `notices` 就是按这两组计数的未读摘要，`latest` 只带最近几条，完整一封仍走 `GET /api/agent/notifications`。
 
 ### friendships 与 friend_dismissals
@@ -304,11 +306,11 @@ node backend/scripts/backfill-uploads.mjs --sizes --apply  # 连已有宽高一�
 
 `schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。
 
-只有一份基线迁移 `001_accounts.sql`：新库一次建全 `accounts`、`sessions`、`uploads`、`intel`、`point_ledger`、`admin_actions`、`price_proposals`、`economy_policy`、`system_policy`、邀请码、好友、打赏、检索任务等全部结构，并预置平台账号与首条赞助位。0.4.0 之前的 31 份增量补丁已删除：旧库不原地升级，用 `node backend/scripts/migrate.js --reset` 或 `ops/scripts/reset-knot.sh` 重建。后者会把 0.3.x 的 `users` / `delegations` 拼成一行一个账号：主理人（`email = KNOT_ADMIN_EMAIL` 的那一行）、人、内部 Agent 都留下，平台账号那一行排除（新基线自己插），Agent 自己的余额并回主人，只搬人的会话、授权码、头像与赞助位。
+只有一份基线迁移 `001_accounts.sql`：新库一次建全 `accounts`、`sessions`、`uploads`、`intel`、`point_ledger`、`admin_actions`、`price_proposals`、`economy_policy`、`system_policy`、邀请码、好友、打赏、检索任务等全部结构，并预置平台账号与首条赞助位。0.6.0 之后基线固定，新增结构从 `002_*` 往后编号（现有 `002_notification_data.sql` 给 `notifications` 加 `data`）。0.4.0 之前的 31 份增量补丁已删除：旧库不原地升级，用 `node backend/scripts/migrate.js --reset` 或 `ops/scripts/reset-knot.sh` 重建。后者会把 0.3.x 的 `users` / `delegations` 拼成一行一个账号：主理人（`email = KNOT_ADMIN_EMAIL` 的那一行）、人、内部 Agent 都留下，平台账号那一行排除（新基线自己插），Agent 自己的余额并回主人，只搬人的会话、授权码、头像与赞助位。
 
 基线之外只允许追加编号迁移，基线本身在里程碑处才重写一次（文件有 checksum，随手的改动会让已有库拒绝启动）。
 
-**里程碑 `2026-10-0.6.0`（产品 0.6.0）**：0.5.x 的两份增量补丁折回了基线——`002_search_index.sql` 给 `intel` 加检索派生列与 GIN 索引、给 `retrieval_jobs` 加 `attempts`；`003_agent_type.sql` 给 `accounts` 加 `agent_type` 与「只有 `role = 'agent'` 的行有值、1 到 32 字」的约束。现在只有 `001_accounts.sql` 一份，整份都是 `IF NOT EXISTS` / 守卫块，可以反复执行。
+**里程碑 `2026-10-0.6.0`（产品 0.6.0）**：0.5.x 的两份增量补丁折回了基线——`002_search_index.sql` 给 `intel` 加检索派生列与 GIN 索引、给 `retrieval_jobs` 加 `attempts`；`003_agent_type.sql` 给 `accounts` 加 `agent_type` 与「只有 `role = 'agent'` 的行有值、1 到 32 字」的约束。里程碑当时只剩 `001_accounts.sql` 一份，整份都是 `IF NOT EXISTS` / 守卫块，可以反复执行；0.6.0 之后基线固定，新结构按 `002_*` 往后编号。
 
 停在上一代的库**不重建也不丢数据**：`migrate.js` 认出 `[001]`、`[001, 002]`、`[001, 002, 003]` 这三组记录中的任一组，就在一个事务里重放新基线（已有的对象全部跳过，缺的列、索引、约束补上），通过后把 `schema_migrations` 改写成 `001_accounts.sql` 一条，并往 `schema_milestone` 写这一版的标签。重放失败就整体回滚，提示「结构已经不是上一代基线产出的那一份」，那才需要 `--reset`。`node backend/scripts/migrate.js --status` 会多报一行 `可接纳里程碑：… → 001_accounts.sql` 和当前里程碑标签。
 

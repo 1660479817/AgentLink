@@ -322,7 +322,10 @@
     "confidence": "高",
     "slice": "S03",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "k6 失败档进「本轮未测」，整轮判定为结论不完整"
+    }
   },
   {
     "id": "S03-02",
@@ -335,7 +338,10 @@
     "confidence": "高",
     "slice": "S03",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "无样本不再判通过，判定写明没有样本"
+    }
   },
   {
     "id": "S03-03",
@@ -348,7 +354,10 @@
     "confidence": "高",
     "slice": "S03",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "发布/删除/残留/清理失败率写进报告"
+    }
   },
   {
     "id": "S03-04",
@@ -1040,7 +1049,10 @@
     "confidence": "高",
     "slice": "S08",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "管理端写操作请求期禁用 + 同表单去重，错误落卡片内"
+    }
   },
   {
     "id": "S08-02",
@@ -1053,7 +1065,10 @@
     "confidence": "高",
     "slice": "S08",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "截断如实标注「只列出最近 N 条」，文案不含写死的 30/200"
+    }
   },
   {
     "id": "S08-03",
@@ -1378,7 +1393,10 @@
     "confidence": "高",
     "slice": "S10",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "六位密钥已接 LOGIN_MAX_FAILURES/LOGIN_LOCK_MS，323c29c"
+    }
   },
   {
     "id": "S10-02",
@@ -1589,7 +1607,10 @@
     "confidence": "高",
     "slice": "S11",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "撤下按 COALESCE(origin_id,id) 整条修订链处置"
+    }
   },
   {
     "id": "S11-02",
@@ -1602,7 +1623,10 @@
     "confidence": "高",
     "slice": "S11",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "查在岗行→换码收进同一事务与咨询锁"
+    }
   },
   {
     "id": "S11-03",
@@ -2336,7 +2360,10 @@
     "confidence": "中",
     "slice": "S16",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "BUILD.json 发布名白名单，323c29c"
+    }
   },
   {
     "id": "S16-02",
@@ -2638,7 +2665,10 @@
     "confidence": "高",
     "slice": "S17",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "重建前先 pg_dump 转存 knot_keep，并加 --recover 回灌"
+    }
   },
   {
     "id": "S17-02",
@@ -2651,7 +2681,10 @@
     "confidence": "中",
     "slice": "S17",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "入口推送改用远端 mktemp 一次性目录"
+    }
   },
   {
     "id": "S17-03",
@@ -2940,7 +2973,10 @@
     "confidence": "高",
     "slice": "S18",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "zip 条目数/单条/总量三道上限，323c29c"
+    }
   },
   {
     "id": "S18-02",
@@ -2953,7 +2989,10 @@
     "confidence": "高",
     "slice": "S18",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "xlsx 列号与每行格数收到 16384，越界整格丢弃"
+    }
   },
   {
     "id": "S18-03",
@@ -2966,7 +3005,10 @@
     "confidence": "高",
     "slice": "S18",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "块引用深度上限 32 + 溢出截断 2000 字"
+    }
   },
   {
     "id": "S18-04",
@@ -3109,7 +3151,10 @@
     "confidence": "高",
     "slice": "S19",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "wontfix",
+      "note": "复核不成立：KNOT_DB_MODE 在 SITE_KEYS，checkSite 读得到，实跑会报错退出"
+    }
   },
   {
     "id": "S19-02",
@@ -3122,7 +3167,10 @@
     "confidence": "^-]+$/.test(text) && !text.includes(\"#\")) return text;` —— 转义 `$` 的那行（`.replace(/\\$/g, \"\\\\$\")`）在引号分支里，永远轮不到。落盘点：`renderPlatformFile:1561`、`updateEnvText:1709`、`renderJoinFile:1537`；`DATABASE_URL` 由 `config.mjs:358-361` 计算后必经此处。读取点：`ops/scripts/lib/site-config.sh:119-136`、`ops/scripts/run-knot-platform.sh:12-14`。`schema.test.js:427` 还把这个行为钉死（`formatValue(\"$HOME/knot\") === \"$HOME/knot\"`）",
     "slice": "S19",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "formatValue 只放行 $HOME，其余 $ 与元字符加引号转义"
+    }
   },
   {
     "id": "S19-03",
@@ -3265,7 +3313,10 @@
     "confidence": "高",
     "slice": "S20",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "site-config 加 knot_require_entry_paths，拒空值/相对路径/共用缺省值"
+    }
   },
   {
     "id": "S20-02",
@@ -4227,7 +4278,10 @@
     "confidence": "高",
     "slice": "S25",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "申请列表失败渲染错误条 + 重试，并按分类隔离旧行"
+    }
   },
   {
     "id": "S25-02",
@@ -4396,7 +4450,10 @@
     "confidence": "高",
     "slice": "S26",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "同 S25-01，同一根因一次改完"
+    }
   },
   {
     "id": "S26-02",
@@ -4721,7 +4778,10 @@
     "confidence": "高",
     "slice": "S28",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "deploy-api 先备份再落盘，nginx -t 失败回滚"
+    }
   },
   {
     "id": "S28-02",
@@ -4734,7 +4794,10 @@
     "confidence": "高",
     "slice": "S28",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "deploy-hub 目标目录护栏 + --delete 前打印删除清单"
+    }
   },
   {
     "id": "S28-03",
@@ -5189,7 +5252,10 @@
     "confidence": "高",
     "slice": "S30",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "跨成员校验错误不再被过滤，只放行「改前就有」的旧错"
+    }
   },
   {
     "id": "S30-02",
@@ -5202,7 +5268,10 @@
     "confidence": "高",
     "slice": "S30",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "markActive 只允许 pending→active，suspended/retired 不动"
+    }
   },
   {
     "id": "S30-03",
@@ -5215,7 +5284,10 @@
     "confidence": "高",
     "slice": "S30",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "端口分配排除本轮已占用，并按名册重算而非永久失败"
+    }
   },
   {
     "id": "S30-04",
@@ -5228,7 +5300,10 @@
     "confidence": "高",
     "slice": "S30",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "rotateRelayToken 同事务签新吊销旧"
+    }
   },
   {
     "id": "S30-05",
@@ -5569,7 +5644,10 @@
     "confidence": "高",
     "slice": "S32",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "一次性令牌校验申请状态 + 原子核销"
+    }
   },
   {
     "id": "S32-03",
@@ -5582,7 +5660,10 @@
     "confidence": "高",
     "slice": "S32",
     "alsoReported": [],
-    "handled": null
+    "handled": {
+      "status": "fixed",
+      "note": "状态迁移带前态守卫，写库与事件同一事务"
+    }
   },
   {
     "id": "S32-04",

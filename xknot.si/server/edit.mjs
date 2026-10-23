@@ -98,12 +98,17 @@ function applyMemberPatch(member, patch) {
 }
 
 // 只回传与这次改动有关的错误：别的条目早就存在的问题不该挡住这一条。
+//
+// 但「错误挂在谁名下」不是这次改动的边界：端口、账号、主机都是全网唯一，
+// 校验器把重复记在名册里靠后的那条身上。按成员 id 过滤时，把 aaa 的端口
+// 改成 bbb 已在用的值，错误挂在 bbb 名下就被丢掉，重复照样写进名册。
+// 所以除本条以外，别的条目只报「改之前没有、改之后才有」的错误。
 function relevantProblems(problems, id, before) {
-  return problems.filter(([label, errors]) => {
-    if (label === id) return true;
-    if (label !== "" && label !== "—") return false;
-    return !before.has(`${label}|${errors.join(";")}`);
-  });
+  return problems
+    .map(([label, errors]) =>
+      label === id ? [label, errors] : [label, errors.filter((error) => !before.has(`${label}|${error}`))]
+    )
+    .filter(([, errors]) => errors.length);
 }
 
 function describe(problems) {

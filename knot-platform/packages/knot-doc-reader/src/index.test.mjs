@@ -163,3 +163,30 @@ test("an entry that declares more than the cap is refused without inflating it",
   assert.equal(result.error, "unreadable");
   assert.equal(await extractDocumentText("bomb.docx", zip([{ name: "word/document.xml", data: bomb }])), "");
 });
+
+// 表格的列号写在文件里（r="AAAAAAA"），旧实现照着它一路补空字符串：7 个字母就是
+// 三十多亿次 push。这两条测的是「列号和每行格数都按 Excel 的 16384 列截住」。
+function wideBook(cells) {
+  return zip([
+    { name: "xl/workbook.xml", data: '<workbook><sheets><sheet name="宽表" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+    { name: "xl/_rels/workbook.xml.rels", data: '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>' },
+    { name: "xl/worksheets/sheet1.xml", data: `<worksheet><sheetData><row r="1">${cells}</row></sheetData></worksheet>` },
+  ]);
+}
+
+test("a cell reference past the last Excel column is dropped, not padded", async () => {
+  const book = wideBook('<c r="A1"><v>保留</v></c><c r="XFE1"><v>越界</v></c><c r="AAAAAAA1"><v>更远</v></c>');
+  const result = await readDocument("wide.xlsx", book);
+  assert.equal(result.ok, true);
+  assert.equal(result.kind, "xlsx");
+  assert.match(result.text, /保留/);
+  assert.doesNotMatch(result.text, /越界|更远/);
+});
+
+test("a row keeps at most the spreadsheet column count", async () => {
+  // 没有 r 的单元格按出现顺序排，格数同样由文件决定：两万格只留前 16384 格。
+  const cells = "<c><v>z</v></c>".repeat(20000);
+  const text = await extractDocumentText("wide.xlsx", wideBook(cells));
+  assert.equal((text.match(/z/g) || []).length, 16384);
+});
+

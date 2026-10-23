@@ -240,6 +240,7 @@ async function notifyRetrievalFailed(pool, job) {
     title: "信息检索没有完成",
     body: `「${clip(job.query, 60)}」这次检索没做成，积分未扣，可重新提交。`,
     href: `/wish?wish=${job.wish_id}`,
+    data: { query: clip(job.query, 60) },
   });
 }
 

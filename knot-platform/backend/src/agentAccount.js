@@ -136,9 +136,9 @@ function personalAgentName(ownerName) {
 // 外部账号只有一个 Agent 名额：已有就换令牌，停用过就复起，都没有才新建。
 // 调用方负责确认这是 user 账号（owner 的 Agent 从管理端签发）。
 export async function ensurePersonalAgent(pool, owner) {
-  const active = await findAgentsOf(pool, owner.id);
-  if (active.length) return rotateAgentToken(pool, active[0].id);
-
+  // 「查在岗行 → 换码」必须整体在咨询锁内。先在事务外查一次再换码时，两个并发
+  // POST 都会看到同一行在岗 Agent，各自进 rotateAgentToken：后提交的那次把先返回
+  // 的令牌作废，而先返回的响应已经说过「明文只此一次」（S11-02）。
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

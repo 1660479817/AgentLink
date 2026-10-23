@@ -415,33 +415,41 @@ export function openStore(file) {
       const domain = null;
       const url = subdomain ? subdomainUrl(subdomain) : String(input.url || "").trim();
       // 提交即通过：不排队、不等人点。reviewed_by 记 auto，谁都没审过也说得清。
-      db.prepare(
-        `insert into applications
+      // 申请与事件同一事务：进程在两条语句之间被杀时，不会留下一条没有事件可追的单。
+      db.exec("begin immediate");
+      try {
+        db.prepare(
+          `insert into applications
           (id, name, mode, domain, subdomain, url, operator, email, region, timezone, intro, tags, locale, status, created_at,
            reviewed_at, reviewed_by, ip_hash, request_services, case_key, state_version)
          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, 0)`
-      ).run(
-        id,
-        input.name,
-        mode,
-        domain,
-        subdomain,
-        url,
-        input.operator,
-        input.email,
-        input.region,
-        input.timezone,
-        input.intro,
-        JSON.stringify(input.tags || []),
-        input.locale || null,
-        createdAt,
-        reviewedAt,
-        reviewedBy,
-        input.ipHash || null,
-        JSON.stringify(input.requestServices || []),
-        caseKey
-      );
-      event("application.submitted", id, input.locale || null);
+        ).run(
+          id,
+          input.name,
+          mode,
+          domain,
+          subdomain,
+          url,
+          input.operator,
+          input.email,
+          input.region,
+          input.timezone,
+          input.intro,
+          JSON.stringify(input.tags || []),
+          input.locale || null,
+          createdAt,
+          reviewedAt,
+          reviewedBy,
+          input.ipHash || null,
+          JSON.stringify(input.requestServices || []),
+          caseKey
+        );
+        event("application.submitted", id, input.locale || null);
+        db.exec("commit");
+      } catch (error) {
+        db.exec("rollback");
+        throw error;
+      }
       return this.getApplication(id);
     },
 
@@ -529,9 +537,25 @@ export function openStore(file) {
         fields.push("closed_at = ?");
         values.push(nowIso());
       }
-      values.push(current.id);
-      db.prepare(`update applications set ${fields.join(", ")} where id = ?`).run(...values);
-      event(eventKind || `application.${to}`, current.id, admin || null);
+      // 前态写进 where：读与写之间，另一个进程（admin-cli、另一个 worker 轮次）
+      // 可能已经先迁走了。只按 id 更新会让两次迁移都成功，版本号与事件各记一遍。
+      values.push(current.id, current.status);
+      db.exec("begin immediate");
+      try {
+        const result = db
+          .prepare(`update applications set ${fields.join(", ")} where id = ? and status = ?`)
+          .run(...values);
+        if (Number(result.changes) !== 1) {
+          db.exec("rollback");
+          return { error: "invalid_transition", from: current.status, to };
+        }
+        // 事件与状态一起提交：进程被杀时不会留下「状态变了、事件没有」的半成品。
+        event(eventKind || `application.${to}`, current.id, admin || null);
+        db.exec("commit");
+      } catch (error) {
+        db.exec("rollback");
+        throw error;
+      }
       return { application: this.getApplication(current.id) };
     },
 
@@ -632,11 +656,23 @@ export function openStore(file) {
 
     consumeClaimToken(token) {
       const hash = sha256(String(token || ""));
-      const row = get("select * from claim_tokens where token_hash = ?", hash);
+      // 连申请单一起读：撤回的申请不该还能换出委托发信凭据与隧道账号端口。
+      const row = get(
+        `select c.id, c.application_id, c.payload, c.expires_at, c.used_at, a.status as application_status
+           from claim_tokens c left join applications a on a.id = c.application_id
+          where c.token_hash = ?`,
+        hash
+      );
       if (!row) return { error: "not_found" };
       if (row.used_at) return { error: "already_used" };
       if (Date.parse(row.expires_at) <= Date.now()) return { error: "expired" };
-      db.prepare("update claim_tokens set used_at = ? where token_hash = ?").run(nowIso(), hash);
+      if (row.application_status !== "approved") return { error: "application_closed" };
+      // 核销写成带条件的单条 UPDATE：两个请求同时打同一枚令牌时，
+      // 「先查后写」会让两边都拿到 payload，只有 used_at is null 这一条能占住。
+      const result = db
+        .prepare("update claim_tokens set used_at = ? where token_hash = ? and used_at is null")
+        .run(nowIso(), hash);
+      if (Number(result.changes) !== 1) return { error: "already_used" };
       event("claim.consumed", row.application_id, row.id);
       return { payload: row.payload, applicationId: row.application_id, id: row.id };
     },
@@ -824,6 +860,33 @@ export function openStore(file) {
         token,
         record: { id: recordId, instanceId: id, label: String(label || ""), dailyLimit: limit },
       };
+    },
+
+    // 重签接入件时用：新件落库与旧件作废在同一个事务里。
+    // 契约要求「重领一份新件时，旧的发信地址与凭据一起作废」——分两次调用的话，
+    // 中间失败会留下「新件已发、旧件还能用」，而重签的理由正是旧件不该再用。
+    rotateRelayToken({ instanceId, label = "", dailyLimit = 50, createdBy = null }) {
+      db.exec("begin immediate");
+      try {
+        const issued = this.createRelayToken({ instanceId, label, dailyLimit, createdBy });
+        if (issued.error) {
+          db.exec("rollback");
+          return issued;
+        }
+        const at = nowIso();
+        const stale = all(
+          "select id from relay_tokens where instance_id = ? and id <> ? and revoked_at is null",
+          issued.record.instanceId,
+          issued.record.id
+        );
+        const revoke = db.prepare("update relay_tokens set revoked_at = ? where id = ?");
+        for (const row of stale) revoke.run(at, row.id);
+        db.exec("commit");
+        return { ...issued, revoked: stale.map((row) => row.id) };
+      } catch (error) {
+        db.exec("rollback");
+        throw error;
+      }
     },
 
     listRelayTokens() {

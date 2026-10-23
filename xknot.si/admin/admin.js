@@ -119,6 +119,12 @@ const state = {
   view: "overview",
   filter: "approved",
   applications: [],
+  // state.applications 里的行属于哪一个分类。切分类后请求失败时，旧分类的行不能
+  // 留在新标签下面冒充新分类的记录；对不上就不渲染这些行。
+  applicationsFilter: "approved",
+  // 列表读取失败的原因。它与 state.error 分开：state.error 只在详情面板里渲染，
+  // 而列表读失败时通常没有选中项，那条提示永远不会出现，运维只看到空态。
+  applicationsError: "",
   counts: { approved: 0, withdrawn: 0 },
   selected: null,
   busy: false,
@@ -992,35 +998,54 @@ function renderApplications() {
     );
   });
 
-  const list = state.applications.length
-    ? el(
-        "div",
-        { class: "list", "aria-busy": loading ? "true" : null },
-        state.applications.map((item) =>
-          el(
-            "button",
-            {
-              type: "button",
-              class: `item${state.selected?.id === item.id ? " selected" : ""}`,
-              disabled: loading,
-              onclick: () => select(item),
-            },
-            [
-              el("span", { class: "item-name" }, item.name),
-              el("span", { class: `badge ${item.status}` }, STATUS_LABEL[item.status] || item.status),
-              el("span", { class: "item-url" }, item.url),
-              el("span", { class: "item-meta" }, [
-                item.id,
-                "·",
-                regionLabel(item.region),
-                "·",
-                formatWhen(item.createdAt),
-              ]),
-            ]
-          )
+  // 只渲染属于当前分类的行。切分类后请求失败时，state.applications 还是上一次
+  // 读到的内容（例如「已通过」），标签却已经是「已撤回」，那些行不能继续显示。
+  const rows = state.applicationsFilter === state.filter ? state.applications : [];
+
+  let list;
+  if (state.applicationsError) {
+    // 读取失败时只留错误条与重试。上一次的行属于别的分类（或已经不是当前数据），
+    // 继续显示会让运维把它当成这次读到的东西，所以这里一行都不渲染。
+    list = el("div", { class: "load-error" }, [
+      el("p", { class: "alert", role: "alert" }, state.applicationsError),
+      el("button", { type: "button", class: "btn", disabled: loading, onclick: () => loadApplications() }, "重试"),
+    ]);
+  } else if (rows.length) {
+    list = el(
+      "div",
+      { class: "list", "aria-busy": loading ? "true" : null },
+      rows.map((item) =>
+        el(
+          "button",
+          {
+            type: "button",
+            class: `item${state.selected?.id === item.id ? " selected" : ""}`,
+            disabled: loading,
+            onclick: () => select(item),
+          },
+          [
+            el("span", { class: "item-name" }, item.name),
+            el("span", { class: `badge ${item.status}` }, STATUS_LABEL[item.status] || item.status),
+            el("span", { class: "item-url" }, item.url),
+            el("span", { class: "item-meta" }, [
+              item.id,
+              "·",
+              regionLabel(item.region),
+              "·",
+              formatWhen(item.createdAt),
+            ]),
+          ]
         )
       )
-    : el("p", { class: "empty" }, state.filter === "approved" ? "还没有通过记录。" : "这个分类下没有记录。");
+    );
+  } else {
+    // 读取中的空列表不是「没有记录」：说清楚还在等接口，别让运维以为查过了。
+    list = el(
+      "p",
+      { class: "empty" },
+      loading ? "正在读取…" : state.filter === "approved" ? "还没有通过记录。" : "这个分类下没有记录。"
+    );
+  }
 
   return el("div", { class: "layout" }, [
     el("section", { class: "panel" }, [el("div", { class: "tabs" }, tabs), list]),
@@ -1170,13 +1195,18 @@ async function loadOverview() {
 async function loadApplications() {
   const seq = ++applicationsSeq;
   const view = state.view;
+  // 这次请求读的是哪个分类。响应回来时 state.filter 可能已经变了（用户又点了一下），
+  // 所以记下请求时的值，不按回来时的 state.filter 判断行属于谁。
+  const filter = state.filter;
   state.applicationsBusy = true;
+  state.applicationsError = "";
   render();
   try {
-    const query = state.filter && state.filter !== "all" ? `?status=${state.filter}` : "";
+    const query = filter && filter !== "all" ? `?status=${filter}` : "";
     const data = await api(`/api/admin/applications${query}`);
     if (seq !== applicationsSeq) return;
     state.applications = data.applications;
+    state.applicationsFilter = filter;
     state.counts = data.counts;
     if (state.selected) {
       const fresh = state.applications.find((item) => item.id === state.selected.id);
@@ -1189,7 +1219,13 @@ async function loadApplications() {
       state.editing = null;
       return;
     }
-    state.error = "列表加载失败。";
+    // 失败要把失败本身渲染出来（renderApplications 读 applicationsError），
+    // 并把旧行清掉：它们属于上一次读的分类，顶着新标签显示就是在冒充当前数据。
+    state.applicationsError = error.status
+      ? `申请列表加载失败（HTTP ${error.status}）。`
+      : "申请列表加载失败，请检查接口是否在运行。";
+    state.applications = [];
+    state.applicationsFilter = filter;
   } finally {
     if (seq === applicationsSeq) {
       state.applicationsBusy = false;

@@ -176,3 +176,55 @@ test("edit: 没给文件路径时明确拒绝", async () => {
   const result = await updateInstanceConfig({ instancesFile: null, id: "wang", instance: {} });
   assert.equal(result.error, "editing_unavailable");
 });
+
+// 名册里两个成员：wang 是创始席位，aaa 是普通伙伴。
+// 端口全局唯一，但校验器把「重复」记在名册里靠后的那条身上（这里是 aaa）。
+const OTHER = {
+  id: "aaa",
+  host: "aaa.xknot.si",
+  role: "partner",
+  standing: "regular",
+  mode: "subdomain",
+  tunnel: { account: "knot-tunnel-aaa", port: 18091 },
+  listed: true,
+  since: "2026-10-20",
+};
+
+function twoMembers() {
+  return [
+    INSTANCE,
+    { id: "aaa", url: "https://aaa.xknot.si", since: "2026-10-20", tier: "free", status: "pending" },
+  ];
+}
+
+test("edit: 把端口改成另一条成员在用的值会被拒绝", async (t) => {
+  const files = setup(t, { instances: twoMembers(), members: [MEMBER, OTHER] });
+  const before = files.read();
+
+  const result = await updateInstanceConfig({
+    instancesFile: files.instancesFile,
+    federationFile: files.federationFile,
+    id: "wang",
+    member: { tunnel: { account: "knot-tunnel", port: 18091 } },
+  });
+
+  // 冲突记在 aaa 名下，但它是这次改动引入的，必须挡住保存。
+  assert.equal(result.error, "invalid", JSON.stringify(result));
+  assert.ok(result.fields.some((message) => message.includes("18091")), result.fields.join(" | "));
+  assert.deepEqual(files.read(), before, "跨成员的端口冲突不能落盘");
+});
+
+test("edit: 别的成员早就存在的问题不挡住这一条", async (t) => {
+  const broken = { ...OTHER, note: "旧".repeat(250) };
+  const files = setup(t, { instances: twoMembers(), members: [MEMBER, broken] });
+
+  const result = await updateInstanceConfig({
+    instancesFile: files.instancesFile,
+    federationFile: files.federationFile,
+    id: "wang",
+    member: { note: "改过备注。" },
+  });
+
+  assert.equal(result.error, undefined, JSON.stringify(result));
+  assert.equal(files.read().roster.members[0].note, "改过备注。");
+});
