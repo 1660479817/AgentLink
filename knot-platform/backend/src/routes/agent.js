@@ -282,7 +282,7 @@ export function agentRouter({ pool, uploadDir }) {
     const key = normalizeLoginKey(req.body?.key);
     if (!email) return res.status(400).json({ error: "bad_email" });
     if (!key) return res.status(400).json({ error: "bad_key" });
-    const redeemed = await redeemLoginKey(pool, email, key);
+    const redeemed = await redeemLoginKey(pool, email, key, { ip: req.ip });
     if (redeemed.error) return res.status(redeemed.status).json({ error: redeemed.error });
     const person = await pool.query(
       `SELECT id, role, display_name, points_balance FROM accounts WHERE id = $1`,

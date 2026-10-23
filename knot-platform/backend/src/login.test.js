@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adminEmail, defaultDisplayName, ensureOwner, feedbackMessage, isOwnerAccount, loginKeyMessage, loginLockRemaining, LOGIN_LOCK_MS, LOGIN_MAX_FAILURES, newLoginKey, normalizeLoginKey, redeemLoginKey, relayUrl, requestLoginKey, resetLoginGuard, sendLoginKey } from "./login.js";
+import { adminEmail, defaultDisplayName, ensureOwner, feedbackMessage, isOwnerAccount, loginKeyMessage, LOGIN_IP_MAX_FAILURES, LOGIN_LOCK_MS, LOGIN_MAX_FAILURES, loginLockRemaining, newLoginKey, normalizeLoginKey, redeemLoginKey, relayUrl, requestLoginKey, sendLoginKey } from "./login.js";
 import { installSystemPolicy, resetSystemPolicy } from "./system.js";
 
 test("login key is six digits", () => {
@@ -159,9 +159,69 @@ test("a complaint letter names the account and keeps the text", () => {
 
 const TX = /^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/;
 
+// `login_failures` 与「作废未用登录码」这两条 SQL 的内存版。
+// Postgres 按 where 条件挑行，这里照着写一遍：锁判定看 email + (ip 或 '')，
+// 计数是 upsert，到阈值归零并写下截止时刻。
+function guardStore() {
+  const rows = new Map();
+  const invalidated = [];
+  return {
+    rows,
+    invalidated,
+    run(sql, params = []) {
+      if (sql.startsWith("SELECT") && sql.includes("FROM login_failures")) {
+        const [email, ip] = params;
+        let until = null;
+        for (const row of rows.values()) {
+          if (row.email !== email) continue;
+          // $2 为空表示调用方没带地址，按这个邮箱所有行里最晚的算（与生产 SQL 一致）。
+          if (ip !== "" && row.ip !== ip && row.ip !== "") continue;
+          if (!row.locked_until) continue;
+          if (new Date(row.locked_until).getTime() <= Date.now()) continue;
+          if (!until || new Date(row.locked_until) > new Date(until)) until = row.locked_until;
+        }
+        return { rows: [{ until }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO login_failures")) {
+        const [email, ip, threshold, seconds] = params;
+        const id = `${email}\u0000${ip}`;
+        const row = rows.get(id) || { email, ip, attempts: 0, locked_until: null };
+        row.attempts += 1;
+        if (row.attempts >= threshold) {
+          row.attempts = 0;
+          row.locked_until = new Date(Date.now() + seconds * 1000).toISOString();
+        }
+        rows.set(id, row);
+        return { rows: [{ locked_until: row.locked_until }], rowCount: 1 };
+      }
+      if (sql.includes("DELETE FROM login_failures")) {
+        for (const [id, row] of rows) if (row.email === params[0]) rows.delete(id);
+        return { rows: [], rowCount: 1 };
+      }
+      // 兑换登录码也是 `SET used_at`，按 key_hash 把它让回给用例自己的 handler。
+      if (sql.includes("key_hash")) return null;
+      if (sql.includes("SET used_at = now()") && sql.includes("AND used_at IS NULL")) {
+        invalidated.push(params[0]);
+        return { rows: [], rowCount: 1 };
+      }
+      return null;
+    },
+  };
+}
+
+const guardDb = guardStore();
+
+// 每个用例开头清一遍，免得上一轮锁住的邮箱漏进下一个用例。
+function resetLoginDb() {
+  guardDb.rows.clear();
+  guardDb.invalidated.length = 0;
+}
+
 function poolWith(handler) {
   const query = async (sql, params) => {
     if (TX.test(sql)) return { rowCount: 0, rows: [] };
+    const guarded = guardDb.run(sql, params);
+    if (guarded) return guarded;
     return handler(sql, params);
   };
   return { query, connect: async () => ({ query, release() {} }) };
@@ -410,6 +470,7 @@ test("另一个进程刚好建好主理人时，以它为准", async () => {
 
 // 登录码是 6 位、10 分钟有效，一共 10^6 个取值。不设次数上限时，
 // 知道邮箱的人可以把空格基本走完——所以这里测的是「试错会被计数并被锁住」。
+// 计数落在 login_failures（见 guardStore），两个维度各验一遍。
 
 function badKeyPool() {
   return {
@@ -420,83 +481,119 @@ function badKeyPool() {
   };
 }
 
-test("wrong keys lock the mailbox before the code space can be walked", async () => {
-  resetLoginGuard();
-  try {
-    const email = "guess@example.com";
-    const { pool } = badKeyPool();
-    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
-      const result = await redeemLoginKey(pool, email, "000000");
-      assert.equal(result.error, "bad_key");
-    }
-    const locked = await redeemLoginKey(pool, email, "000000");
-    assert.equal(locked.error, "too_many");
-    assert.equal(locked.status, 429);
-    assert.ok(locked.retryAfter > 0, "客户端要拿到准确的重试秒数");
-    assert.ok(loginLockRemaining(email) > 0);
-  } finally {
-    resetLoginGuard();
+function guardRow(email, ip) {
+  return guardDb.rows.get(`${email}\u0000${ip}`);
+}
+
+test("wrong keys lock the address before the code space can be walked", async () => {
+  resetLoginDb();
+  const email = "guess@example.com";
+  const { pool } = badKeyPool();
+  // 地址维度比邮箱维度严，同一个地址先到上限。
+  for (let i = 0; i < LOGIN_IP_MAX_FAILURES; i += 1) {
+    const result = await redeemLoginKey(pool, email, "000000", { ip: "203.0.113.7" });
+    assert.equal(result.error, "bad_key");
   }
+  const locked = await redeemLoginKey(pool, email, "000000", { ip: "203.0.113.7" });
+  assert.equal(locked.error, "too_many");
+  assert.equal(locked.status, 429);
+  assert.ok(locked.retryAfter > 0, "客户端要拿到准确的重试秒数");
+  assert.ok((await loginLockRemaining(pool, email)) > 0);
+});
+
+test("一个地址试错到上限先锁，锁定时作废这个邮箱还没用的登录码", async () => {
+  resetLoginDb();
+  const email = "addr@example.com";
+  const { pool } = badKeyPool();
+  for (let i = 0; i < LOGIN_IP_MAX_FAILURES; i += 1) {
+    assert.equal((await redeemLoginKey(pool, email, "000000", { ip: "198.51.100.4" })).error, "bad_key");
+  }
+  // 地址维度比邮箱维度先到：换一个地址过来仍然能试（还没到邮箱总量），但这个地址自己被锁。
+  assert.ok((await loginLockRemaining(pool, email, "198.51.100.4")) > 0);
+  assert.equal(await loginLockRemaining(pool, email, "198.51.100.5"), 0);
+  assert.deepEqual(guardDb.invalidated, [email], "锁触发时要把未使用的码作废，否则旧码还能用");
+  assert.equal(guardRow(email, "198.51.100.4").attempts, 0, "锁住之后计数归零，过期后从头算");
+});
+
+test("换地址不能绕开邮箱维度的总计数", async () => {
+  resetLoginDb();
+  const email = "rotate@example.com";
+  const { pool } = badKeyPool();
+  // 每个地址只错两次，单看地址永远到不了 5：只有按邮箱汇总才拦得住。
+  for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+    const ip = `192.0.2.${i + 1}`;
+    assert.equal((await redeemLoginKey(pool, email, "000000", { ip })).error, "bad_key");
+  }
+  const locked = await redeemLoginKey(pool, email, "000000", { ip: "192.0.2.99" });
+  assert.equal(locked.error, "too_many");
+});
+
+test("计数在库里，另一个 Backend 进程接手也认这把锁", async () => {
+  resetLoginDb();
+  const email = "restart@example.com";
+  const first = badKeyPool().pool;
+  for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+    await redeemLoginKey(first, email, "000000", { ip: "203.0.113.9" });
+  }
+  // 重启后的进程没有任何内存状态，只剩库里的 login_failures。
+  const second = badKeyPool().pool;
+  assert.equal((await redeemLoginKey(second, email, "000000", { ip: "203.0.113.9" })).error, "too_many");
 });
 
 test("a correct key clears the count, so a typo or two never accumulates", async () => {
-  resetLoginGuard();
-  try {
-    const email = "paul@example.com";
-    const { pool: bad } = badKeyPool();
-    for (let i = 0; i < LOGIN_MAX_FAILURES - 1; i += 1) {
-      assert.equal((await redeemLoginKey(bad, email, "000000")).error, "bad_key");
-    }
-    const { pool: good } = redeemPool(() => ({ rows: [{ id: "user-1", points_balance: 100, role: "user" }] }));
-    assert.equal((await redeemLoginKey(good, email, "048291")).userId, "user-1");
-    assert.equal(loginLockRemaining(email), 0);
-    // 清零之后又能错满一整轮，说明计数没有跟着上一次的失败继续算。
-    for (let i = 0; i < LOGIN_MAX_FAILURES - 1; i += 1) {
-      assert.equal((await redeemLoginKey(bad, email, "000000")).error, "bad_key");
-    }
-    assert.equal(loginLockRemaining(email), 0);
-  } finally {
-    resetLoginGuard();
+  resetLoginDb();
+  const email = "paul@example.com";
+  const { pool: bad } = badKeyPool();
+  for (let i = 0; i < LOGIN_IP_MAX_FAILURES - 1; i += 1) {
+    assert.equal((await redeemLoginKey(bad, email, "000000", { ip: "203.0.113.7" })).error, "bad_key");
   }
+  const { pool: good } = redeemPool(() => ({ rows: [{ id: "user-1", points_balance: 100, role: "user" }] }));
+  assert.equal((await redeemLoginKey(good, email, "048291", { ip: "203.0.113.7" })).userId, "user-1");
+  assert.equal(await loginLockRemaining(good, email), 0);
+  assert.equal(guardDb.rows.size, 0, "成功一次就把这个邮箱的失败记录清掉，两个维度都不留");
+  // 清零之后又能错满一整轮，说明计数没有跟着上一次的失败继续算。
+  for (let i = 0; i < LOGIN_IP_MAX_FAILURES - 1; i += 1) {
+    assert.equal((await redeemLoginKey(bad, email, "000000", { ip: "203.0.113.7" })).error, "bad_key");
+  }
+  assert.equal(await loginLockRemaining(bad, email), 0);
 });
 
 test("the lock lifts once its window has passed", async () => {
-  resetLoginGuard();
-  try {
-    const email = "late@example.com";
-    const { pool } = badKeyPool();
-    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) await redeemLoginKey(pool, email, "000000");
-    assert.ok(loginLockRemaining(email) > 0);
-    assert.equal(loginLockRemaining(email, Date.now() + LOGIN_LOCK_MS + 1), 0);
-  } finally {
-    resetLoginGuard();
+  resetLoginDb();
+  const email = "late@example.com";
+  const { pool } = badKeyPool();
+  for (let i = 0; i < LOGIN_IP_MAX_FAILURES; i += 1) {
+    await redeemLoginKey(pool, email, "000000", { ip: "203.0.113.7" });
   }
+  assert.ok((await loginLockRemaining(pool, email)) > 0);
+  assert.ok(LOGIN_LOCK_MS > 0);
+  // 把锁的时间拨到过去，等于等过了锁定窗口。
+  for (const row of guardDb.rows.values()) row.locked_until = new Date(Date.now() - 1000).toISOString();
+  assert.equal(await loginLockRemaining(pool, email), 0);
+  assert.equal((await redeemLoginKey(pool, email, "000000", { ip: "203.0.113.7" })).error, "bad_key");
 });
 
 test("a failure that is not a wrong key does not count against the mailbox", async () => {
-  resetLoginGuard();
+  resetLoginDb();
+  // 冻结注册返回 registration_closed：那不是猜码，记进去会让正常用户
+  // 在自己的注册窗口里被锁死。
+  const email = "closed@example.com";
+  installSystemPolicy({ registrationMode: "closed" });
   try {
-    // 冻结注册返回 registration_closed：那不是猜码，记进去会让正常用户
-    // 在自己的注册窗口里被锁死。
-    const email = "closed@example.com";
-    installSystemPolicy({ registrationMode: "closed" });
-    try {
-      const pool = poolWith((sql) => {
-        if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "key-1", invite_code_id: null }] };
-        if (sql.includes("role = 'owner'")) return { rows: [] };
-        if (sql.includes("INSERT INTO accounts")) {
-          return { rows: [{ id: "user-9", points_balance: 0, role: "user", inserted: true }] };
-        }
-        throw new Error(sql);
-      });
-      for (let i = 0; i < LOGIN_MAX_FAILURES * 2; i += 1) {
-        assert.equal((await redeemLoginKey(pool, email, "048291")).error, "registration_closed");
+    const pool = poolWith((sql) => {
+      if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "key-1", invite_code_id: null }] };
+      if (sql.includes("role = 'owner'")) return { rows: [] };
+      if (sql.includes("INSERT INTO accounts")) {
+        return { rows: [{ id: "user-9", points_balance: 0, role: "user", inserted: true }] };
       }
-      assert.equal(loginLockRemaining(email), 0);
-    } finally {
-      resetSystemPolicy();
+      throw new Error(sql);
+    });
+    for (let i = 0; i < LOGIN_MAX_FAILURES * 2; i += 1) {
+      assert.equal((await redeemLoginKey(pool, email, "048291", { ip: "203.0.113.7" })).error, "registration_closed");
     }
+    assert.equal(await loginLockRemaining(pool, email), 0);
+    assert.equal(guardDb.rows.size, 0);
   } finally {
-    resetLoginGuard();
+    resetSystemPolicy();
   }
 });

@@ -516,7 +516,15 @@ export function adminRouter({
 
   router.post("/points", async (req, res) => {
     try {
-      res.json(await grantPoints(pool, req.body?.user, req.body?.amount, req.body?.body));
+      res.json(
+        await grantPoints(
+          pool,
+          req.body?.user,
+          req.body?.amount,
+          req.body?.body,
+          req.body?.requestId
+        )
+      );
     } catch (error) {
       sendAdminError(res, error);
     }

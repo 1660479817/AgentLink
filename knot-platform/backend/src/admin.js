@@ -658,41 +658,62 @@ export function grantAmount(value) {
   return amount;
 }
 
-export async function grantPoints(pool, user, amount, body) {
+export async function grantPoints(pool, user, amount, body, requestId = "") {
   const points = grantAmount(amount);
   const text = requireText(body, REASON_MAX, "bad_body");
+  // 幂等键由客户端给：一次填表一个，重试复用、重新填表换新的（见 admin/admin.js）。
+  // 只接受无歧义的短串，别让任意文本进唯一索引。先验键，再查人：格式错就是一次无用查询。
+  const request = String(requestId || "").trim();
+  if (request && !/^[A-Za-z0-9_-]{8,64}$/.test(request)) throw fail("bad_request_id");
   const account = await oneUser(pool, user);
   assertPersonAccount(account);
   const note = `到账 ${points}。${text}`;
   const client = await pool.connect();
+  const duplicate = async () => {
+    const current = await client.query(`SELECT points_balance FROM accounts WHERE id = $1`, [account.id]);
+    const pointsBalance = Number(current.rows[0]?.points_balance) || 0;
+    return {
+      ok: true,
+      duplicate: true,
+      amount: points,
+      user: { ...presentAccount(account), pointsBalance },
+      pointsBalance,
+    };
+  };
   try {
     await client.query("BEGIN");
-    // 同一账户的发放串行化，并在短窗口内认作同一次操作的重放：
-    // 双击、超时重试都会带一模一样的收件人、金额与理由，没有这一步就是两笔到账（S13-05）。
-    // 换理由再发不受影响；这是防重放，不是限次。
+    // 同一账户的发放串行化：同一账户上的两笔并发发放要按到达顺序落账。
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`knot:grant:${account.id}`]);
-    const replay = await client.query(
-      `SELECT id FROM admin_actions
-        WHERE action = 'grant' AND account_id = $1 AND body = $2
-          AND created_at > now() - interval '10 minutes'
-        ORDER BY created_at DESC LIMIT 1`,
-      [account.id, note]
-    );
-    if (replay.rows.length) {
-      const current = await client.query(`SELECT points_balance FROM accounts WHERE id = $1`, [account.id]);
-      await client.query("COMMIT");
-      const pointsBalance = Number(current.rows[0]?.points_balance) || 0;
-      return {
-        ok: true,
-        duplicate: true,
-        amount: points,
-        user: { ...presentAccount(account), pointsBalance },
-        pointsBalance,
-      };
+    if (request) {
+      // 带键的：只认这个键。重试（超时后再点一次）拿到的是同一笔，不会被记成两笔。
+      const replay = await client.query(
+        `SELECT id FROM admin_actions WHERE action = 'grant' AND request_id = $1 LIMIT 1`,
+        [request]
+      );
+      if (replay.rows.length) {
+        const result = await duplicate();
+        await client.query("COMMIT");
+        return result;
+      }
+    } else {
+      // 没带键的老调用（curl、旧版后台页）：退回按「收件人 + 金额 + 理由」在短窗口内去重。
+      // 这是猜的——十分钟内真要发两笔一样的，第二笔会被吞；新版后台一律带键。
+      const replay = await client.query(
+        `SELECT id FROM admin_actions
+          WHERE action = 'grant' AND account_id = $1 AND body = $2
+            AND created_at > now() - interval '10 minutes'
+          ORDER BY created_at DESC LIMIT 1`,
+        [account.id, note]
+      );
+      if (replay.rows.length) {
+        const result = await duplicate();
+        await client.query("COMMIT");
+        return result;
+      }
     }
     const action = await client.query(
-      `INSERT INTO admin_actions (action, account_id, body) VALUES ('grant', $1, $2) RETURNING id`,
-      [account.id, note]
+      `INSERT INTO admin_actions (action, account_id, body, request_id) VALUES ('grant', $1, $2, $3) RETURNING id`,
+      [account.id, note, request || null]
     );
     const balance = await applyPoints(client, {
       userId: account.id,
@@ -712,6 +733,10 @@ export async function grantPoints(pool, user, amount, body) {
     return { ok: true, user: { ...presentAccount(account), pointsBalance: balance }, amount: points, pointsBalance: balance };
   } catch (error) {
     await client.query("ROLLBACK");
+    // 两个并发的同一笔：账号不同时互不加锁，靠唯一索引兜住后来那一个。
+    if (error.code === "23505" && error.constraint === "admin_actions_request_id_idx") {
+      return duplicate();
+    }
     throw error;
   } finally {
     client.release();
