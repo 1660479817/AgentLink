@@ -383,11 +383,12 @@ export async function run(options = {}) {
     throw new Error(`cannot read instances: ${instancesPath}`);
   }
 
-  // 没有日志不是错误：入口还没装 knot-log.conf 时，这份聚合就该安静地跳过。
+  // 没有日志不是错误：入口还没装访问日志（knot-log.conf 或自动接通生成的 conf）时，
+// 这份聚合就该安静地跳过。
   try {
     await stat(logPath);
   } catch {
-    log(`没有访问日志：${logPath}（入口还没装 knot-log.conf？）`);
+    log(`没有访问日志：${logPath}（入口还没装访问日志格式？）`);
     return { skipped: "no_log", logPath, dataDir, written: [] };
   }
 
