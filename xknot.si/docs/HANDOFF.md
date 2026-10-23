@@ -35,8 +35,8 @@
 | 阶段 | 谁执行 | 结束标志 | 清单 `status` | 运行状态 |
 |------|--------|----------|----------------|----------|
 | 0 申请 | 伙伴 | 提交（即通过）+ 在案例页贴公钥 | 还没条目 | — |
-| 1 前置 | 中枢 | 第 3 节十项全就绪，交付信已寄 | `pending` | `unknown`（合法） |
-| A 交换 | 双方一次 | 中枢拿到自测回执；伙伴拿到账号、端口、领取链接 | `pending` | `unknown` |
+| 1 前置 | 中枢 | 第 3 节八步全就绪，run 进入 `awaiting_tunnel` | `pending` | `unknown`（合法） |
+| A 交换 | 双方一次 | 中枢拿到自测回执；伙伴从 `progress` 拿到入口主机、账号、端口与 `issued`（手工路径另发 `/claim` 链接与交付信） | `pending` | `unknown` |
 | 2 收尾 | 双方各做 | 隧道通、`/api` 通、探测 `up` | `active` | `up` 或 `degraded` |
 
 规则只有一条：**凡是中枢不用等伙伴就能做的，全部放在 A 之前做完。** A 之前没有来回，A 之后也不用再等答复。
@@ -56,13 +56,13 @@
 
 私钥不出本机。伙伴只贴 `.pub` 文本，工作人员不索要、不接收、不复制私钥。
 
-公钥漏交时：前置做到第 6 项（静态页）就停，剩下四项等公钥到了再补。此时交付信先不发。
+公钥漏交时：前置停在 `account` 这一步——它要拿公钥写 `authorized_keys`，缺了报 `public_key_missing`；后面的 `sshd`、`static`、`dns`、`vhost`、`tls` 等公钥到了再补。run 不进 `awaiting_tunnel`，`progress` 里的 `handoff` 因此一直是 `null`——伙伴这时起隧道也没有参数可用。
 
 ---
 
 ## 3. 阶段 1：中枢前置（不需要伙伴在场）
 
-按序做完，每步有产物可核。全部完成后 `npm run validate` 通过，才发交付信。
+按序做完，每步有产物可核。自动路径是 `server/provision.mjs` 的 `STEP_ORDER`：`allocate → publish → account → sshd → static → dns → vhost → tls`，跑完 run 停在 `awaiting_tunnel`，不再寄交付信——实例自己按案例键读 `GET /api/case/<key>/progress` 取回 `handoff { host, account, port }` 与 `issued`，然后写 `tunnel.env` 起隧道。下表按同一顺序列出产物，`validate` 通过才算做完。
 
 | # | 动作 | 产物 | 停下会怎样 |
 |---|------|------|------------|
@@ -72,17 +72,17 @@
 | 4 | DNS | `<标签>.xknot.si` 的 A/AAAA 指向入口公网 IP | 证书签不下来 |
 | 5 | 证书 | `certbot certonly --webroot`，确认续期任务 | 入口只能 HTTP |
 | 6 | 静态根与占位页 | `/var/www/<id>` + `/` 能打开一张静态页 | 签发当天没有可见物 |
-| 7 | 子域 conf（静态版） | `/etc/nginx/conf.d/<id>.conf`，**先不加 `/api`**；`nginx -t` 后 reload | 域名打不开 |
+| 7 | 子域 conf（占位版） | `/etc/nginx/conf.d/<id>.conf`：`/` 发占位页，`/api/` 已接到回环端口；`nginx -t` 后 reload | 域名打不开 |
 | 8 | 建账号 + 装公钥 + sshd | 系统账号、`authorized_keys`（600）、`Match User` 块、`sshd -t` 后 reload | A 之后伙伴连不上 |
-| 9 | 接入件与领取令牌 | `access` 生成 env + `/claim/<token>` 链接（72 小时） | 伙伴拿不到凭据 |
-| 10 | 寄交付信 | `partner.handoff`，正文只有领取链接 | 伙伴不知道可以连了 |
+| 9 | 接入件与领取令牌（手工路径） | `access` 生成 env + `handoff` 生成 `/claim/<token>` 链接（72 小时）；自动路径不发链接，`issued` 随 `progress` 给出 | 伙伴拿不到凭据 |
+| 10 | 寄交付信（手工路径） | `partner.handoff`，正文只有领取链接；自动路径靠 `progress` 自取，不寄信 | 伙伴不知道可以连了 |
 
 注意事项：
 
 - 第 4、5 步必须在第 7 步之前。先 reload 一份证书还不存在的 conf，整个入口会起不来。
 - 第 8 步的 `Match` 块按账号匹配，**一个子域一套账号一个端口**，不共用（原因见第 9 节第 1 条）。
 - 第 8 步装公钥用的是阶段 0 交上来的那一份；指纹对不上就停下来问，不要自己生成。
-- 第 9 步的领取链接只出现一次，过期只能重签。
+- 第 9 步只在手工路径出现：领取链接只显示一次，过期重跑 `handoff`。自动路径的口令没有这一步，`handoff` 字段在节点资料就绪后由 `progress` 直接给出。
 
 前置做完，中枢这边就没有等待项了。此时公网 `https://<标签>.xknot.si/` 能打开静态页，`/api/health` 返回的是 SPA 兜底（HTML），所以清单仍是 `pending`，不去探测。
 
@@ -96,7 +96,7 @@
 
 | 方向 | 内容 | 为什么只能由它给 |
 |------|------|------------------|
-| 中枢 → 伙伴 | 隧道账号、专属端口、入口主机、领取链接、已装公钥的指纹 | 端口与账号是中枢分配的 |
+| 中枢 → 伙伴 | 隧道账号、专属端口、入口主机、已装公钥的指纹（自动路径从 `progress` 取；手工路径另有 `/claim` 链接） | 端口与账号是中枢分配的 |
 | 伙伴 → 中枢 | 本机 `curl -s localhost:8080/api/health` 的一行输出 | 实例在内网，只有伙伴能测 |
 
 伙伴的回执长这样，一行就够：
@@ -314,8 +314,12 @@ npm run build
 ```bash
 XKNOT_INSTANCE_ID=wang
 XKNOT_HUB_ORIGIN=https://xknot.si
-XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
 XKNOT_HUB_ISSUED_AT=2026-10-20
+XKNOT_ISSUED_URL=https://wang.xknot.si
+XKNOT_ISSUED_AT=2026-10-20
+XKNOT_TIER=paid
+XKNOT_STATUS=active
+XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
 ```
 
 发信地址按中枢地址推导，不写进接入件。它**不含**部署拓扑：域名、端口、入口主机、

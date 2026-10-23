@@ -140,14 +140,14 @@ L1 装在两处，按谁有权改划分：
 - `tags` 是自由文本：不预设词表、不按语义合并、不翻译；只做去空白、忽略大小写去重、保留主理人排的顺序。
 - `logo` 是 https 绝对地址。自述区里的图片只存地址，不进中枢的二进制。
 - `region` 是主理人写的**声明**，不是中枢认定的位置。门户对位置的显示以隧道对端的出口 IP 为准（GeoIP，只有国家码）；声明值在没有观测时兜底，例如实例离线或中枢不在入口主机上。
-- 空的字符串不要写：清掉一项就整键省略。不认识的键整份被拒（见 `ops/profile-schema.mjs` 的 `SITE_FIELDS`）。
+- 空的字符串不要写：清掉一项就整键省略。不认识的键只丢那一个字段，不拒整份（字段表见 `ops/profile-schema.mjs` 的 `SITE_FIELDS`）。
 
 ### 4.3 取回与缓存
 
 构建时 `ops/fetch-profile.mjs` 对每个 `status: active` 的条目取 `url` + `/api/federation/profile`：
 
 - 校验 `formatVersion`、`issued.id` 等于清单 id、`issued.url` 与清单 `url` 同主机；
-- 自述区过 `cleanSite`（`ops/profile-schema.mjs`）：整份不合法则保留上一份，取回结果仍带 `site`；
+- 自述区过 `cleanSite`（`ops/profile-schema.mjs`）：只有缺 `name` 才整份丢弃、保留上一份；其余问题只丢那一个字段，能用的字段照收；
 - 响应上限 64KB，带 ETag，`304` 视为未变化；
 - 写 `var/profiles/{id}.json`，带 `fetchedAt` 与 `source`；取不到时不清旧文件。
 
@@ -155,7 +155,7 @@ L1 装在两处，按谁有权改划分：
 
 **升级顺序：先实例，后门户。** 取回时 `formatVersion` 不是 2 的响应会被整份拒绝、保留上一份副本；旧副本没有 `site`，门户对这条只显示 id。所以 `0.3.0` 之前部署的实例要先把 `knot-platform` 升上去、让 `/api/federation/profile` 吐出 v2，再跑一次 `npm run fetch:profile` 后重建中枢。`deploy-hub.sh` 前的 `ops/verify-hub-data.mjs` 会把「有签发区但没有自述区名称」判成问题并挡住发布，正是为了让这个顺序显式发生。
 
-**新增自述区字段时反过来：先中枢，后实例。** `cleanSite` 拒绝未知键，整份不合法就保留上一份副本。`locale` 就是这样加进来的：中枢的 `SITE_FIELDS` 先收下它，实例再开始写；顺序反了不会崩，但门户上这个站点的改名、换介绍会静默停在旧副本，只在 `var/` 里留几条问题记录。
+**新增自述区字段时反过来：先中枢，后实例。** `cleanSite` 只收 `SITE_FIELDS` 里的键，不认识的键会被丢掉、不拒整份。`locale` 就是这样加进来的：中枢的 `SITE_FIELDS` 先收下它，实例再开始写；顺序反了不会崩，但门户上这个站点的语种会一直用兜底值，只在 `var/` 里留几条问题记录。
 
 ### 4.4 规则
 
@@ -445,7 +445,7 @@ XKNOT_HUB_ORIGIN=https://xknot.si
 XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
 ```
 
-这两项和实例 id 一起构成**接入件**，格式见第 7.4 节。一次生成整份：
+这两项只管委托发信；**接入件**里还有实例 id、中枢地址与签发快照，完整键表见第 7.4 节。一次生成整份：
 
 ```bash
 node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tmp/wang-access.env
@@ -512,7 +512,7 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 
 ### 7.4 接入件
 
-接入件是中枢交给实例的唯一一份凭证文件：**env 格式，键名固定，值只有中枢能签**。
+接入件是中枢交给实例的唯一一份凭证文件：**env 格式，写下表这些键，值只有中枢能签**。
 它是契约，不是某个实现的配置模板——实例存成什么文件名、放哪个目录、用什么工具读，
 都由实例自己决定；中枢只规定键名和语义（`knot-platform` 的约定是 `sites/<站点>/xknot.env`）。
 
@@ -520,9 +520,16 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 |----|------|------|
 | `XKNOT_INSTANCE_ID` | 是 | 清单里的实例 id，小写字母/数字/短横线 |
 | `XKNOT_HUB_ORIGIN` | 是 | 中枢地址，如 `https://xknot.si` |
-| `XKNOT_HUB_RELAY_URL` | 否 | 委托发信地址；留空按中枢地址推导，只有换入口时才写 |
+| `XKNOT_HUB_ISSUED_AT` | 是 | 签发日期 `YYYY-MM-DD`，取签发时清单里的 `since`，只作记录 |
+| `XKNOT_ISSUED_URL` | 是 | 签发时清单里的站点地址，只作记录 |
+| `XKNOT_ISSUED_AT` | 是 | 与 `XKNOT_HUB_ISSUED_AT` 同值；早期实例按这个名字读，保留 |
+| `XKNOT_TIER` | 是 | 签发时的档位（`free` / `paid` / `demo`），只作记录 |
+| `XKNOT_STATUS` | 是 | 签发时的状态（`pending` / `active`），只作记录 |
 | `XKNOT_HUB_RELAY_TOKEN` | 否 | 委托发信凭据；不签发委托发信时没有这一项 |
-| `XKNOT_HUB_ISSUED_AT` | 是 | 签发日期 `YYYY-MM-DD`，只作记录 |
+| `XKNOT_HUB_RELAY_URL` | 否 | 委托发信地址，中枢不签发：缺省由 `XKNOT_HUB_ORIGIN` 推导，只有换入口时实例自己加 |
+
+`XKNOT_ISSUED_URL`、`XKNOT_ISSUED_AT`、`XKNOT_TIER`、`XKNOT_STATUS` 是签发时的快照，便于实例侧核对；
+清单之后怎么变，这份文件都不跟着改，也不拿来判在线。
 
 规则：
 
@@ -532,7 +539,9 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 - 存放：实例自己保存；不接入联邦的实例不需要这份文件，功能照常。
 - 范围：**只含接入**。域名、端口、入口主机、隧道账号、静态文件归属属于部署拓扑，
   由实例的部署方案自己记录，中枢不签发、不校验。
-- 失配：凭据跟着签发走。重领一份新件时，旧的发信地址与凭据一起作废，不要拼成一对。
+- 重领：同一实例再签一次会吊销该实例上旧的委托发信凭据（`relay-revoke` 之外没有单独回收，
+  所以不要留旧件）；中枢地址与站点地址不变，其余键按当时的清单重写。
+- 失配：实例只用自己最新那份文件；拼两份用会拿旧凭据发信，中枢按 `token_revoked` 拒绝。
 
 实例用 `XKNOT_INSTANCE_ID` 在 `/api/health` 里报出 `instance`，中枢核对它是否等于清单里的 id，
 不一致判 `down`（见第 5 节）。

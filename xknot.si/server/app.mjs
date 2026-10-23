@@ -29,7 +29,7 @@ import {
   renderClaimResult,
 } from "./pages.mjs";
 import { RELAY_LIMITS, domainOf, relayMessage, validateRelayRequest } from "./relay.mjs";
-import { ipHash } from "./store.mjs";
+import { ipHash, normalizeUsername } from "./store.mjs";
 import { LIMITS, normalizePublicKey, validateApplication } from "./validate.mjs";
 
 const BODY_LIMIT = 16 * 1024;
@@ -89,11 +89,16 @@ function parseCookies(header) {
 function readBody(req) {
   return new Promise((resolve) => {
     let size = 0;
+    let tooLarge = false;
     const chunks = [];
     req.on("data", (chunk) => {
+      if (tooLarge) return;
       size += chunk.length;
       if (size > BODY_LIMIT) {
-        req.destroy();
+        // 这里不能 destroy：socket 一关，调用方那个 413 就写不出去，
+        // 客户端只会看到连接重置。剩下的体继续读进来再丢掉，让响应能发完。
+        tooLarge = true;
+        chunks.length = 0;
         resolve({ error: "too_large" });
         return;
       }
@@ -125,13 +130,27 @@ function readBody(req) {
 }
 
 // 简单的滑动窗口计数：单进程够用，重启后清零。
+//
+// Map 里的键来自外部地址（ipHash），不清就会一直涨：过期的时间戳不会自己消失，
+// 只有同一个键再次命中时才被 filter 重写。所以计数清空时把键删掉，并在键数
+// 超过上限时清理一遍已经过期的桶——公开端点不能凭换来源地址把内存撑到无界。
+const LIMITER_MAX_KEYS = 20_000;
+
 function createLimiter({ windowMs, max, store = new Map() }) {
+  const sweep = (now) => {
+    for (const [key, stamps] of store) {
+      const alive = stamps.filter((at) => now - at < windowMs);
+      if (!alive.length) store.delete(key);
+      else store.set(key, alive);
+    }
+  };
   return function hit(key, now = Date.now()) {
     const recent = (store.get(key) || []).filter((at) => now - at < windowMs);
     if (recent.length >= max) {
       store.set(key, recent);
       return { allowed: false, retryAfter: Math.ceil((windowMs - (now - recent[0])) / 1000) };
     }
+    if (store.size >= LIMITER_MAX_KEYS) sweep(now);
     recent.push(now);
     store.set(key, recent);
     return { allowed: true };
@@ -245,6 +264,9 @@ export function createApp({ store, config }) {
   const partnerDomainLimit = createLimiter({ windowMs: 86400_000, max: PARTNER_MAIL_LIMITS.domain });
   const partnerGlobalLimit = createLimiter({ windowMs: 86400_000, max: PARTNER_MAIL_LIMITS.global });
   const pageLimit = createLimiter({ windowMs: 900_000, max: 60 });
+  // 案例页与领取页的 GET 每个请求都是一次库查询。不限流就能拿它当探键器，
+  // 按案例键一枚一枚试过去。只读页面放宽到每分钟 60 次，够正常刷新。
+  const pageViewLimit = createLimiter({ windowMs: 60_000, max: 60 });
   // 子域查询是公开接口：给一个按 IP 的宽松上限，够一个人反复敲名字，
   // 又不足以把整个空间枚举一遍。
   const subdomainLimit = createLimiter({ windowMs: 60_000, max: 30 });
@@ -300,6 +322,28 @@ export function createApp({ store, config }) {
     } catch {
       return {};
     }
+  }
+
+  // 门户的探测结果：只给状态这一层，不给 checks / notified 这类运营字段。
+  //
+  // `data/hub.json` 是构建那一刻的采样，重新构建才会更新；这个接口读的是
+  // `var/health.json`，每 15 分钟一轮，门户拿它把状态换成当前值。
+  function readProbes() {
+    const health = readHealth();
+    const states = health.instances && typeof health.instances === "object" ? health.instances : {};
+    const probes = {};
+    for (const [id, state] of Object.entries(states)) {
+      if (!state || typeof state !== "object") continue;
+      probes[id] = {
+        status: typeof state.status === "string" ? state.status : "unknown",
+        latencyMs: Number.isFinite(state.latencyMs) ? state.latencyMs : null,
+        version: typeof state.version === "string" ? state.version : null,
+        lastOkAt: state.lastOkAt || null,
+        downSince: state.downSince || null,
+        hidden: Boolean(state.hiddenAt),
+      };
+    }
+    return { checkedAt: health.checkedAt || null, probes };
   }
 
   // 站点位置由 provision worker 按隧道对端写进 var/geoip/locations.json。
@@ -666,53 +710,44 @@ export function createApp({ store, config }) {
     };
   }
 
-  // 发信是副作用，不能拖住提交和审核。正文组装和发送都放进 Promise，
-  // 任何一步失败只记日志，接口照常返回。
-  function notify(build) {
-    if (!mailer) return;
-    Promise.resolve()
-      .then(() => (typeof build === "function" ? build() : build))
-      .then((message) => {
-        if (!message || !message.to) return;
-        return mailer.send(message);
-      })
-      .catch((error) => {
-        console.error("mail failed:", error.message);
-      });
-  }
-
   // 发一封伙伴信或内部信：去重 → 限流 → 发送 → 记日志。
   // 状态迁移类事件靠 (event, case_id, state_version) 唯一索引去重；
   // 运营类事件（签发、交付、上线）不传版本号，允许补发。
+  //
+  // extra 来自管理员请求（补信的模板变量），必须展开在配置项之前：
+  // 反过来就等于让请求体覆盖 origin / replyTo，一封信里的所有链接
+  // 可以被指到任意域，回信地址也能被换掉。
   function dispatchMail(eventName, application, extra = {}, { dedupeVersion = null } = {}) {
     if (!mailer) return null;
     let message = null;
+    let reserved = null;
     try {
       message = buildMail(eventName, application, {
+        ...extra,
         origin,
         adminEmail,
         supportUrl,
         replyTo,
-        ...extra,
+      });
+      if (!message || !message.to) return null;
+      reserved = store.beginNotify({
+        event: eventName,
+        caseId: application?.id || null,
+        stateVersion: dedupeVersion,
+        locale: message.locale,
+        toDomain: domainOf(message.to),
+        toHash: createHash("sha256").update(message.to.toLowerCase()).digest("hex").slice(0, 16),
+        templateVersion: message.templateVersion || TEMPLATE_VERSION,
       });
     } catch (error) {
-      console.error("mail build failed:", eventName, error.message);
+      // beginNotify 也会抛（锁、磁盘）。它在申请单落库之后才跑，抛出去就是 500，
+      // 而客户端重试只会拿到 409 duplicate，永远拿不到案例链接。
+      console.error("mail dispatch failed:", eventName, error.message);
       return null;
     }
-    if (!message || !message.to) return null;
-
+    if (reserved.duplicate) return { duplicate: true };
     const recipientDomain = domainOf(message.to);
     const recipientHash = createHash("sha256").update(message.to.toLowerCase()).digest("hex").slice(0, 16);
-    const reserved = store.beginNotify({
-      event: eventName,
-      caseId: application?.id || null,
-      stateVersion: dedupeVersion,
-      locale: message.locale,
-      toDomain: recipientDomain,
-      toHash: recipientHash,
-      templateVersion: message.templateVersion || TEMPLATE_VERSION,
-    });
-    if (reserved.duplicate) return { duplicate: true };
 
     const isPartner = message.audience === "partner";
     if (isPartner) {
@@ -736,12 +771,12 @@ export function createApp({ store, config }) {
     return { id: reserved.id, message };
   }
 
-  // 提交与验证各配一封伙伴信 + 一封内部信；状态迁移由 review 触发。
-  // 案例页的「重新发送」传 dedupe:false：那是显式重发，不该被幂等键挡住。
   // 提交即通过：一封信把回执与结果一起说清，另发一封给运营方。
-  function mailApplicationReceived(application, { dedupe = true } = {}) {
+  // 幂等键取申请单的状态版本；想要「显式重发」时走管理员补信接口，
+  // 那条路径不传版本号（state_version 为 NULL，唯一索引视作互不相等）。
+  function mailApplicationReceived(application) {
     if (!application) return;
-    const version = dedupe ? application.stateVersion : null;
+    const version = application.stateVersion;
     dispatchMail("partner.approved", application, {}, { dedupeVersion: version });
     // 全站每小时最多 30 封内部告警，防止有人靠刷申请把管理员信箱打爆。
     if (noticeLimit("admin").allowed) {
@@ -892,9 +927,13 @@ export function createApp({ store, config }) {
 
     const casePage = /^\/case\/([A-Za-z0-9_-]{6,64})$/.exec(route);
     if (casePage && (method === "GET" || method === "HEAD")) {
+      if (!pageViewLimit(ipHash(clientIp(req, trustProxy), secret)).allowed) {
+        return sendHtml(res, 429, renderCasePage(null, { rateLimited: true }));
+      }
       const application = store.findByCaseKey(casePage[1]);
+      const keyState = url.searchParams.get("key");
       const result = {
-        publicKey: url.searchParams.get("key") === "1" ? "saved" : undefined,
+        publicKey: keyState === "1" ? "saved" : keyState || undefined,
         withdrawn: url.searchParams.get("withdrawn") === "1" ? 1 : undefined,
       };
       return sendHtml(res, application ? 200 : 404, renderCasePage(application, result));
@@ -902,6 +941,9 @@ export function createApp({ store, config }) {
 
     const claimPage = /^\/claim\/([A-Za-z0-9_-]{8,128})$/.exec(route);
     if (claimPage && (method === "GET" || method === "HEAD")) {
+      if (!pageViewLimit(ipHash(clientIp(req, trustProxy), secret)).allowed) {
+        return sendHtml(res, 429, renderClaimResult("rate_limited", null, "zh-CN"));
+      }
       return sendHtml(res, 200, renderClaimPage(claimPage[1], null, "zh-CN"));
     }
 
@@ -912,7 +954,9 @@ export function createApp({ store, config }) {
       return serveAdminFile(req, res, route.slice("/admin".length) || "/");
     }
 
-    if (route === "/api/health") {
+    // 只回 GET/HEAD：/api/ 下其余端点在非 GET/POST 时一律 405，
+    // 健康检查不能因为落在方法检查之前就成了「什么方法都 200」。
+    if (route === "/api/health" && (method === "GET" || method === "HEAD")) {
       return send(res, 200, {
         ok: true,
         service: "xknot-hub",
@@ -920,6 +964,10 @@ export function createApp({ store, config }) {
         at: new Date().toISOString(),
       });
     }
+
+    // 路径在、方法不对，就是 405。不接这一段的话 POST /api/health 会一路落到
+    // 下面的「要管理员会话」，回 401——把方法错误说成没登录，调用方会去修凭据。
+    if (route === "/api/health") return send(res, 405, { error: "method_not_allowed" });
 
     if (!route.startsWith("/api/")) return send(res, 404, { error: "not_found" });
 
@@ -935,6 +983,15 @@ export function createApp({ store, config }) {
 
     if (route === "/api/locations" && method === "GET") {
       return send(res, 200, readLocations(), { "cache-control": "no-store" });
+    }
+
+    // ---- 公开：每个实例现在的探测结果 ----
+    //
+    // 快照里的 health 是构建那一刻的采样：一次短暂掉线如果正好碰上部署，
+    // 会一直挂在门户上直到下一次构建。页面另取这一份覆盖状态，位置同理。
+
+    if (route === "/api/probes" && method === "GET") {
+      return send(res, 200, readProbes(), { "cache-control": "no-store" });
     }
 
     // 同源检查放在最前：跨站表单、跨站脚本都进不来。
@@ -1137,13 +1194,16 @@ export function createApp({ store, config }) {
         const body = await readBody(req);
         // 校验只在 validate.mjs 一处：这里、store.setPublicKey、provision 写
         // authorized_keys 之前都过同一个函数，不再各写一条正则。
-        const text = normalizePublicKey(body.publicKey);
+        // 失败不能静默 303 回一个「什么都没发生」的页面：改前改后长得一样，
+        // 用户只会以为存上了。三种失败分别带一个标记回案例页。
+        const text = body.error ? "" : normalizePublicKey(body.publicKey);
         if (!text) {
-          res.writeHead(303, { location: `/case/${key}`, "cache-control": "no-store" });
+          res.writeHead(303, { location: `/case/${key}?key=invalid`, "cache-control": "no-store" });
           return res.end();
         }
-        store.setPublicKey({ id: application.id, publicKey: text });
-        res.writeHead(303, { location: `/case/${key}?key=1`, "cache-control": "no-store" });
+        const saved = store.setPublicKey({ id: application.id, publicKey: text });
+        const state = saved.error ? (saved.error === "not_approved" ? "closed" : "invalid") : "1";
+        res.writeHead(303, { location: `/case/${key}?key=${state}`, "cache-control": "no-store" });
         return res.end();
       }
     }
@@ -1163,7 +1223,9 @@ export function createApp({ store, config }) {
       const run = store.getProvisionRun(application.id);
       const ready = run && (run.state === "awaiting_tunnel" || run.state === "active");
       // 接入件要的三样事实（id、地址、档位）在这里给全，实例就不必自己猜。
-      const listed = findInstance(application.subdomain || "") || null;
+      // 认实例要和别处同一个口径（url 主机优先），不能用子域标签当 id：
+      // 清单的 id 是签发时按主机名推的，edit.mjs 又允许改 url，两者会分叉。
+      const listed = instanceOfApplication(application);
       return send(res, 200, {
         application: {
           id: application.id,
@@ -1197,10 +1259,14 @@ export function createApp({ store, config }) {
     // ---- 伙伴：一次性领取 ----
 
     if (route === "/api/claim" && method === "POST") {
-      const body = await readBody(req);
+      // 限流放在读体之前：先按体大小做一次内存分配再判限流，等于把限流器
+      // 挡不住的那部分成本照单全收。
       const limited = pageLimit(ipHash(clientIp(req, trustProxy), secret));
-      if (!limited.allowed) return sendHtml(res, 429, renderClaimResult("missing", null, "zh-CN"));
-      const result = store.consumeClaimToken(body.token);
+      if (!limited.allowed) return sendHtml(res, 429, renderClaimResult("rate_limited", null, "zh-CN"));
+      const body = await readBody(req);
+      const result = body.error
+        ? { error: "missing" }
+        : store.consumeClaimToken(body.token);
       if (result.error === "missing") return sendHtml(res, 404, renderClaimResult("missing", null, "zh-CN"));
       if (result.error === "not_found") return sendHtml(res, 404, renderClaimResult("missing", null, "zh-CN"));
       if (result.error === "expired") return sendHtml(res, 410, renderClaimResult("expired", null, "zh-CN"));
@@ -1236,6 +1302,8 @@ export function createApp({ store, config }) {
       if (!checked.ok) return send(res, 400, { error: "invalid", fields: checked.errors });
 
       // 同一个子域只留一条有效申请；撤回之后可以重新提交。
+      // 预检只是提前给个准话，真正的裁决是库里的唯一索引——预检与插入之间
+      // 没有锁，另一个进程（backfill、另一个 worker）可以先插进来。
       const duplicate = store.findOpenBySubdomain(checked.value.subdomain);
       if (duplicate) return send(res, 409, { error: "duplicate" });
 
@@ -1248,6 +1316,8 @@ export function createApp({ store, config }) {
         ipHash: ipHash(ip, secret),
         requestServices: services,
       });
+      if (application.error === "duplicate") return send(res, 409, { error: "duplicate" });
+      if (application.error) return send(res, 500, { error: "apply_failed" });
 
       // 提交即通过；没有 SMTP 时只是入队，申请本身已经结案。
       mailApplicationReceived(application);
@@ -1277,7 +1347,9 @@ export function createApp({ store, config }) {
       if (typeof body.username !== "string" || typeof body.password !== "string") {
         return send(res, 400, { error: "invalid" });
       }
-      const usernameKey = createHash("sha256").update(body.username.toLowerCase()).digest("hex");
+      // 限流桶的键必须与查库用的账号同一个归一化：用 body.username 原样小写的话，
+      // 「admin 」和「admin」是两个桶，同一个账号的每账号 12 次就形同虚设。
+      const usernameKey = createHash("sha256").update(normalizeUsername(body.username)).digest("hex");
       if (!loginLimit(`user:${usernameKey}`).allowed) {
         return send(res, 429, { error: "rate_limited", retryAfter: 900 });
       }
@@ -1407,16 +1479,22 @@ export function createApp({ store, config }) {
       if (!payload) return send(res, 400, { error: "invalid", fields: { payload: "required" } });
       if (payload.length > 8000) return send(res, 413, { error: "too_large" });
 
+      const ttlHours = Math.min(Math.max(Number(body.ttlHours) || 72, 1), 168);
       const claim = store.createClaimToken({
         applicationId: application.id,
         payload,
-        ttlHours: Math.min(Math.max(Number(body.ttlHours) || 72, 1), 168),
+        ttlHours,
         createdBy: admin.username,
       });
       if (claim.error) return send(res, 400, { error: claim.error });
 
       const links = { claimUrl: `${origin}/claim/${claim.token}` };
-      const result = dispatchMail("partner.handoff", application, { ...body.context, links }, {});
+      const result = dispatchMail(
+        "partner.handoff",
+        application,
+        { ...body.context, links, claimTtlHours: ttlHours },
+        {}
+      );
       if (!result) return send(res, 503, { error: "mail_unavailable" });
       if (result.throttled) return send(res, 429, { error: "throttled" });
 

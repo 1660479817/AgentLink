@@ -81,6 +81,16 @@ test("换品牌不改排版，只换格子里的字", () => {
   assert.match(page, /<a class="brand" href="\/home"><span class="mark" aria-hidden="true">K<\/span><span>Knot<\/span><\/a>/);
 });
 
+test("内联 HTML 不落进页面：同源执行一条 <script> 就能拿到 /api/admin", () => {
+  const inline = markdownHtml('<script>alert(1)</script>\n\n<img src="x" onerror="alert(2)">\n');
+  assert.doesNotMatch(inline, /<script/i);
+  assert.doesNotMatch(inline, /<img/i);
+  assert.match(inline, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(inline, /&lt;img src=&quot;x&quot; onerror=&quot;alert\(2\)&quot;&gt;/);
+  // 正常的 markdown 不受影响。
+  assert.match(markdownHtml("**粗体** 与 `code`"), /<strong>粗体<\/strong>/);
+});
+
 test("落盘：原文一字不改，HTML 有正文和样式", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "doc-page-"));
   const source = path.join(dir, "src.md");

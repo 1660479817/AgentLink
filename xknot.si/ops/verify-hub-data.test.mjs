@@ -83,6 +83,21 @@ test("a reserved host suffix fails even when it is listed", () => {
   assert.ok(problems.some((line) => line.includes("reserved host suffix .example")));
 });
 
+test("example.com/net/org are reserved too, and only as whole labels", () => {
+  // RFC 2606 保留了这三个域；人写样例最常用的就是它们。
+  for (const url of ["https://demo.example.com", "https://example.net", "https://a.b.example.org"]) {
+    const data = { instances: [{ id: "wang", url }] };
+    const problems = verifyHubData({ data, manifest: manifest(["wang"]) });
+    assert.ok(
+      problems.some((line) => line.includes("reserved host")),
+      `${url} must be caught`
+    );
+  }
+  // 只是结尾像的普通域名不能被误杀。
+  const fine = { instances: [{ id: "wang", url: "https://myexample.com", name: "Wang", profileFetchedAt: "2026-10-20T00:00:00.000Z" }] };
+  assert.deepEqual(verifyHubData({ data: fine, manifest: manifest(["wang"]) }), []);
+});
+
 test("a non-https url fails", () => {
   const data = { instances: [{ id: "wang", url: "http://wang.xknot.si" }] };
   const problems = verifyHubData({ data, manifest: manifest(["wang"]) });

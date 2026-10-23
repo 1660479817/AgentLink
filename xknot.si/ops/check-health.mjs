@@ -13,11 +13,14 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { assertPublicUrl, resolveHosts } from "./fetch-guard.mjs";
+import { assertPublicUrl, FetchGuardError, readLimited, resolveHosts } from "./fetch-guard.mjs";
 import { probeTargetOf } from "./probe-target.mjs";
 
 export const DEFAULT_TIMEOUT_MS = 5000;
 export const DEGRADED_MS = 2000;
+// 健康响应只是一个小 JSON；不设上限时，伙伴返回多大的体就按多大读进内存，
+// 而这一轮每 15 分钟、8 个并发地跑。和 fetch-guard 的其它上限一致。
+export const HEALTH_MAX_BYTES = 32 * 1024;
 
 // 断连的两道线。24 小时提醒，7 天从门户暂时关闭（清单条目不动）。
 export const DOWN_REMIND_MS = 24 * 3600_000;
@@ -106,13 +109,15 @@ export async function probe(url, options = {}) {
     }
 
     let body = null;
+    let bodyError = null;
     try {
-      body = await response.json();
-    } catch {
+      body = JSON.parse(await readLimited(response, HEALTH_MAX_BYTES));
+    } catch (error) {
       body = null;
+      if (error instanceof FetchGuardError) bodyError = error.code;
     }
     if (!body || body.ok !== true) {
-      return { status: "down", httpStatus: 200, latencyMs, version: null, error: "bad_payload" };
+      return { status: "down", httpStatus: 200, latencyMs, version: null, error: bodyError || "bad_payload" };
     }
 
     // 实例自报的 id 与清单不一致，说明这个域名后面是另一个实例（DNS 指错、站点被换过）。

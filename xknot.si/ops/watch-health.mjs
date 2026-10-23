@@ -14,7 +14,7 @@
 //
 // 定时：systemd timer 每 15 分钟一次，见 ops/xknot-health.service 与 ops/xknot-health.timer。
 
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,6 +33,14 @@ async function readJson(file, fallback) {
   } catch {
     return fallback;
   }
+}
+
+// 状态文件在投递之后才写：临时文件 + rename，进程中途被杀也不会留下半份。
+async function writeState(file, value) {
+  await mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(tmp, file);
 }
 
 // 清单一律是本地化的名字；信里取英文，没有就用 id。
@@ -101,11 +109,13 @@ export async function watch(options = {}) {
   }
 
   const profiles = await readProfiles(profilesDir);
-  // --dry-run 不写状态：否则一次预览就会把 notified 标记吃掉，真正的那封信再也发不出去。
+  // 状态先不落盘：通知按「先投递、后标记」走，最后在本函数末尾统一写。
+  // 反过来（check 先写 notified 再发信）时，没有 SMTP 配置、发信抛错、或进程被
+  // systemd 杀掉，这一封就永久消失，下一档要等到 7 天 / 30 天。
   const result = await check({
     instancesPath,
     outPath: healthPath,
-    write: !dryRun,
+    write: false,
     log: (line) => log(`  ${line}`),
     ...(options.checkOptions || {}),
   });
@@ -113,6 +123,8 @@ export async function watch(options = {}) {
   const byId = new Map(manifest.instances.map((item) => [item?.id, item]));
   const config = mailConfigFromEnv(env);
   const sent = [];
+  // 没能投递的这几条不算「已通知」，下一轮还在同一档上，会再试一次。
+  const undelivered = [];
 
   for (const notice of result.notices) {
     const instance = byId.get(notice.id);
@@ -137,6 +149,7 @@ export async function watch(options = {}) {
     const message = buildMail(route.event, application, vars);
     if (!message) {
       log(`! ${notice.id} ${notice.kind}: 没有收件人（模板 ${route.event}）`);
+      undelivered.push({ id: notice.id, kind: notice.kind });
       continue;
     }
 
@@ -147,7 +160,8 @@ export async function watch(options = {}) {
     }
 
     if (!config) {
-      log(`! ${notice.id} ${notice.kind}: 没有 SMTP 配置，信没有发出去（状态已记录，不会重发）`);
+      log(`! ${notice.id} ${notice.kind}: 没有 SMTP 配置，信没有发出去（下一轮会再试）`);
+      undelivered.push({ id: notice.id, kind: notice.kind });
       continue;
     }
 
@@ -161,9 +175,25 @@ export async function watch(options = {}) {
       log(`✓ ${notice.id} ${notice.kind} → ${message.to}（${route.event}）`);
       sent.push({ id: notice.id, kind: notice.kind, to: message.to, event: route.event });
     } catch (error) {
-      // 状态已经写下，这一封不会重发；下一档（7 天 / 30 天）仍会照常提醒。
-      log(`! ${notice.id} ${notice.kind}: 发信失败 - ${error.message}`);
+      // 投递失败不标记：下一轮还在同一档上，会再试；不会等到 7 天 / 30 天才有人知道。
+      log(`! ${notice.id} ${notice.kind}: 发信失败 - ${error.message}（下一轮会再试）`);
+      undelivered.push({ id: notice.id, kind: notice.kind });
     }
+  }
+
+  // 投递没成功的改回「未通知」：状态文件里留着它，下一轮同一档就能补发。
+  // 复制一份再改，不原地改 check 返回的对象：调用方与测试拿到的仍是它自己的状态。
+  const instancesForWrite = { ...(result.instances || {}) };
+  for (const { id, kind } of undelivered) {
+    const state = instancesForWrite[id];
+    if (!state?.notified || !(kind in state.notified)) continue;
+    const notified = { ...state.notified };
+    delete notified[kind];
+    instancesForWrite[id] = { ...state, notified };
+  }
+  // dry-run 不写状态：否则一次预览就会把 notified 标记吃掉，真正的那封信再也发不出去。
+  if (!dryRun) {
+    await writeState(healthPath, { checkedAt: result.checkedAt, instances: instancesForWrite });
   }
 
   if (!result.notices.length) log("没有需要通知的状态变化。");
@@ -179,7 +209,7 @@ export async function watch(options = {}) {
     }
   }
 
-  return { ...result, sent };
+  return { ...result, instances: instancesForWrite, sent };
 }
 
 function parseArgs(argv) {
@@ -195,10 +225,19 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 if (isMain) {
   const args = parseArgs(process.argv.slice(2));
   // 收件人优先取申请单（申请人自己填的邮箱与语种），读不到就只用档案副本里的联系方式。
+  // 这里只读：openStore 会跑 pragma/SCHEMA/migrate，一个 15 分钟一轮的监控任务
+  // 不该成为库结构的第二个写入者，与接口进程抢写锁。
   let applications = null;
   try {
-    const { openStore } = await import("../server/store.mjs");
-    applications = openStore(path.join(ROOT, "var", "xknot.db")).listApplications({ limit: 500 });
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path.join(ROOT, "var", "xknot.db"), { readOnly: true });
+    try {
+      applications = db
+        .prepare("select subdomain, url, email, locale from applications order by created_at desc limit 500")
+        .all();
+    } finally {
+      db.close();
+    }
   } catch (error) {
     console.log(`读不到申请单（${error.code || error.message}），收件人只看站点档案。`);
   }

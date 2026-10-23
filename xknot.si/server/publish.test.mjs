@@ -176,3 +176,42 @@ test("active: a suspended or retired entry is not flipped back", async () => {
     assert.equal(after.instances.find((item) => item.id === "cpswang").status, status);
   }
 });
+
+test("publish: two workers publishing at the same moment keep both entries", async () => {
+  const { manifestFile, rosterFile } = await fixture();
+  const second = {
+    id: "XK-2026-SECOND",
+    name: "second",
+    subdomain: "second",
+    url: "https://second.xknot.si",
+    email: "second@example.test",
+  };
+
+  // 两个写者各自「读-改-写」同一份清单：没有锁时后写的那份会把前一个刚加的
+  // 条目盖回去，两个都以为自己成功。这里同时发起，要求两条都留在文件里。
+  const [first, other] = await Promise.all([
+    publishInstance({
+      application: APP,
+      tunnelAccount: "knot-tunnel-cpswang",
+      tunnelPort: 18090,
+      manifestFile,
+      rosterFile,
+    }),
+    publishInstance({
+      application: second,
+      tunnelAccount: "knot-tunnel-second",
+      tunnelPort: 18091,
+      manifestFile,
+      rosterFile,
+    }),
+  ]);
+  assert.equal(first.error, undefined, JSON.stringify(first));
+  assert.equal(other.error, undefined, JSON.stringify(other));
+
+  const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+  const roster = JSON.parse(await readFile(rosterFile, "utf8"));
+  assert.deepEqual(manifest.instances.map((item) => item.id).sort(), ["cpswang", "second", "wang"]);
+  assert.deepEqual(roster.members.map((item) => item.id).sort(), ["cpswang", "second", "wang"]);
+  assert.deepEqual(validateInstances(manifest), []);
+  assert.deepEqual(validateRoster(roster, manifest), []);
+});

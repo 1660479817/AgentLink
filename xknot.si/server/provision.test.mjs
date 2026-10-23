@@ -269,6 +269,33 @@ test("step dns: no answer fails with a code the panel can show", async () => {
   );
 });
 
+test("step dns: an address that is not the entry host fails with dns_mismatch", async () => {
+  // 有这个域名、A 记录也解析得出来，但指向别人的机器：vhost 装上也没人访问得到，
+  // 证书也签不下来。必须在这里停住，不能把「解析得到」当成「指向我们」。
+  const host = fakeHost({ addresses: ["1.2.3.4"] });
+  const run = createRun({
+    application: APP,
+    tunnel: { account: "knot-tunnel-cpswang", port: 18090 },
+    entryHost: "54.169.33.64",
+  });
+  await assert.rejects(
+    runStep({ step: "dns", run, application: APP, host, entry: {}, roster }),
+    (error) => error instanceof ProvisionError && error.code === "dns_mismatch"
+  );
+});
+
+test("step dns: one matching address among several is enough", async () => {
+  // 双栈或轮询解析时一次会拿到多个地址，只要有一个落到入口主机就算接通。
+  const host = fakeHost({ addresses: ["2606:4700::1", "54.169.33.64"] });
+  const run = createRun({
+    application: APP,
+    tunnel: { account: "knot-tunnel-cpswang", port: 18090 },
+    entryHost: "54.169.33.64",
+  });
+  const result = await runStep({ step: "dns", run, application: APP, host, entry: {}, roster });
+  assert.match(result.note, /54\.169\.33\.64/);
+});
+
 test("step vhost: writes HTTP-only conf, then tests and reloads nginx", async () => {
   const host = fakeHost();
   const run = createRun({

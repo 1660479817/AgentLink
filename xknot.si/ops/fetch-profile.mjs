@@ -15,7 +15,7 @@ import {
   safeGetJson,
   writeJsonAtomic,
 } from "./fetch-guard.mjs";
-import { cleanSite, FORMAT_VERSION, isHttpsUrl } from "./profile-schema.mjs";
+import { cleanSite, FORMAT_VERSION, ID_RE, isHttpsUrl } from "./profile-schema.mjs";
 
 export { FORMAT_VERSION };
 
@@ -54,7 +54,7 @@ export function cleanProfilePayload(payload, { instance } = {}) {
 
   const cleaned = cleanSite(payload.site);
   if (!cleaned.site) {
-    return { ok: false, problems: [...cleaned.problems, "site: no usable profile, keeping the previous copy"] };
+    return { ok: false, problems: [...cleaned.problems, "site: no name to display, keeping the previous copy"] };
   }
   if (!cleaned.ok) {
     // 字段级问题不拦整份：能用的字段照收，问题记下来给运营看。
@@ -107,6 +107,11 @@ export async function run(options = {}) {
   const results = [];
   for (const instance of manifest.instances) {
     if (!instance?.id) continue;
+    // id 会拼进输出文件名：带 / 或 .. 的条目不落盘，跳过并记账。
+    if (!ID_RE.test(instance.id)) {
+      results.push({ id: instance.id, status: "skipped", reason: "bad_id" });
+      continue;
+    }
     if (only && instance.id !== only) continue;
     if (instance.status && instance.status !== "active") {
       results.push({ id: instance.id, status: "skipped", reason: "inactive" });

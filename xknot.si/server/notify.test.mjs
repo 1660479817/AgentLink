@@ -131,6 +131,21 @@ test("copy: handoff never contains the claim payload", () => {
   assert.ok(!/xkr_/.test(mail.text));
 });
 
+test("copy: the handoff mail shows the TTL that was actually used", () => {
+  // --ttl 24 时信里还写 72 小时，就是在告诉伙伴一个比真实期限更长的窗口，
+  // 过了那一刻链接已经失效，他还在等。终端提示读的是同一个值。
+  const zh = buildMail("partner.handoff", application, { ...options, claimTtlHours: 24 });
+  assert.match(zh.text, /24 小时/);
+  assert.doesNotMatch(zh.text, /72 小时/);
+
+  const en = buildMail("partner.handoff", { ...application, locale: "en" }, { ...options, claimTtlHours: 1 });
+  assert.match(en.text, /1 hour\b/);
+
+  // 没给就还是缺省的 72：老调用方不必跟着改。
+  const fallback = buildMail("partner.handoff", application, options);
+  assert.match(fallback.text, /72 小时/);
+});
+
 test("copy: issuance shows tunnel lines, and omits the secret itself", () => {
   const mail = buildMail("partner.issuance", application, options);
   assert.match(mail.text, /nordhavn\.xknot\.si/);

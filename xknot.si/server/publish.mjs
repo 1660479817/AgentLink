@@ -7,7 +7,8 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 
 import { validateRoster } from "../ops/validate-federation.mjs";
-import { checkManifestEntry, toManifestEntry, toRosterMember } from "./manifest.mjs";
+import { withFileLock } from "./file-lock.mjs";
+import { checkManifestEntry, nextVersion, toManifestEntry, toRosterMember } from "./manifest.mjs";
 
 async function readJson(file, label) {
   try {
@@ -40,6 +41,14 @@ export async function publishInstance({
   const problems = checkManifestEntry(entry);
   if (problems.length) return { error: "invalid_entry", details: problems };
 
+  // 读与写之间必须有锁：控制台保存、admin-cli publish 也在改同一份清单，
+  // 交错时会各自把自己读到的旧副本写回去，前一个刚加的条目就丢了。
+  return withFileLock(manifestFile, () =>
+    publishLocked({ entry, tunnelAccount, tunnelPort, manifestFile, rosterFile })
+  );
+}
+
+async function publishLocked({ entry, tunnelAccount, tunnelPort, manifestFile, rosterFile }) {
   const manifest = (await readJson(manifestFile, "instances.json")) || { version: 1, instances: [] };
   if (!Array.isArray(manifest.instances)) return { error: "manifest_unreadable" };
 
@@ -52,11 +61,14 @@ export async function publishInstance({
   if (!Array.isArray(roster.members)) return { error: "roster_unreadable" };
 
   const member = roster.members.find((item) => item.id === entry.id);
+  const today = new Date().toISOString().slice(0, 10);
+  // version 记的是「清单被改过几次」：真加了一条就 +1，重复发布不动它。
   const nextManifest = sameId
-    ? { ...manifest, updatedAt: new Date().toISOString().slice(0, 10) }
+    ? { ...manifest, updatedAt: today }
     : {
         ...manifest,
-        updatedAt: new Date().toISOString().slice(0, 10),
+        version: nextVersion(manifest.version),
+        updatedAt: today,
         instances: [...manifest.instances, entry],
       };
 
@@ -87,6 +99,12 @@ export async function publishInstance({
 
 /** 验收通过：把清单里的这一条从 pending 改成 active。 */
 export async function markActive({ manifestFile, id }) {
+  // 和发布同一个写者队列：worker 每轮都会调这里，没有锁时它会与控制台保存
+  // 交错，把对方刚写进去的条目盖掉。
+  return withFileLock(manifestFile, () => markActiveLocked({ manifestFile, id }));
+}
+
+async function markActiveLocked({ manifestFile, id }) {
   const manifest = await readJson(manifestFile, "instances.json");
   if (!manifest || !Array.isArray(manifest.instances)) return { error: "manifest_unreadable" };
   const instance = manifest.instances.find((item) => item.id === id);
@@ -97,6 +115,7 @@ export async function markActive({ manifestFile, id }) {
   if (instance.status !== "pending") return { error: "not_pending", status: instance.status };
   instance.status = "active";
   manifest.updatedAt = new Date().toISOString().slice(0, 10);
+  manifest.version = nextVersion(manifest.version);
   await writeJsonAtomic(manifestFile, manifest);
   return { ok: true, changed: true };
 }

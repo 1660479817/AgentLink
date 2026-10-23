@@ -8,6 +8,7 @@
 #   ./ops/build-hub.sh              # 正常构建，先探测一次
 #   ./ops/build-hub.sh --offline    # 跳过探测，复用 var/health.json
 #   ./ops/build-hub.sh --preview    # 并入 fixtures/ 样例条目，只用于看版式
+#   ./ops/build-hub.sh --skip-audit # 不联网查依赖漏洞（离线构建时用）
 
 set -euo pipefail
 
@@ -17,10 +18,12 @@ DIST="$WEB/dist"
 
 OFFLINE=0
 PREVIEW=0
+AUDIT=1
 for arg in "$@"; do
   case "$arg" in
     --offline) OFFLINE=1 ;;
     --preview) PREVIEW=1; OFFLINE=1 ;;
+    --skip-audit) AUDIT=0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -54,11 +57,32 @@ if [ ! -d "$WEB/node_modules" ]; then
   npm --prefix "$WEB" ci --no-audit --no-fund
 fi
 
+# 上一次安装中断留下的半棵树、或 package-lock.json 改过而 node_modules 还在，
+# 都会让构建继续用旧依赖：同一个 commit 在不同机器上产出不同的 dist。
+# npm 安装时会写下 node_modules/.package-lock.json，比当前的 lock 旧就重装。
+if [ -d "$WEB/node_modules" ]; then
+  if [ ! -f "$WEB/node_modules/.package-lock.json" ] || [ "$WEB/package-lock.json" -nt "$WEB/node_modules/.package-lock.json" ]; then
+    echo "== reinstall (lock changed) =="
+    npm --prefix "$WEB" ci --no-audit --no-fund
+  fi
+fi
+
 # ops/ 里只有 render-knot-help.mjs 需要依赖（marked，构建时用）。缺了就装，
 # 不让构建因为少包直接失败。
 if [ ! -d "$HUB/node_modules" ]; then
   echo "== install ops =="
   npm --prefix "$HUB" ci --no-audit --no-fund
+elif [ ! -f "$HUB/node_modules/.package-lock.json" ] || [ "$HUB/package-lock.json" -nt "$HUB/node_modules/.package-lock.json" ]; then
+  echo "== reinstall ops (lock changed) =="
+  npm --prefix "$HUB" ci --no-audit --no-fund
+fi
+
+# 依赖漏洞要有人查：这条链路以前两处 npm ci 都带着 --no-audit，仓库里也没有
+# 任何 npm audit 步骤，86 条锁定的依赖没被检查过。只查生产依赖：构建工具链的
+# 漏洞不影响线上产物。高危即中止；确实离线时用 --skip-audit 显式跳过。
+if [ "$AUDIT" = "1" ]; then
+  echo "== audit =="
+  npm --prefix "$WEB" audit --omit=dev --audit-level=high
 fi
 
 echo "== build =="
@@ -67,6 +91,11 @@ npm --prefix "$WEB" run build
 # Agent 指引由构建产出：/knot-help（HTML）与 /knot-help.md（原文）都落进 dist。
 echo "== knot-help =="
 node "$HUB/ops/render-knot-help.mjs" --out "$DIST"
+
+# 字体是 OFL-1.1：许可证要跟二进制一起分发。以前 dist 里只有 .woff2，没有这份文本。
+for font in space-grotesk jetbrains-mono; do
+  cp "$WEB/node_modules/@fontsource-variable/$font/LICENSE" "$DIST/assets/OFL-$font.txt"
+done
 
 echo "== snapshot =="
 XKNOT_PREVIEW="$PREVIEW" node "$HUB/ops/build-hub-data.mjs" --out "$DIST/data/hub.json"

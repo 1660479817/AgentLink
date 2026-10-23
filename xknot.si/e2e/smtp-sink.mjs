@@ -49,6 +49,12 @@ function parseMessage(raw) {
 export function startSmtpSink({ port = 0, host = "127.0.0.1" } = {}) {
   const messages = [];
   const sockets = new Set();
+  // EHLO 里宣告的 SIZE 要真的执行，否则一条没有终止符的 DATA 能把缓冲撑爆（S24-14）。
+  const MAX_MESSAGE_BYTES = 1024 * 1024;
+  // 命令行长度的上限：没有它，一个不发 CRLF 的客户端也能让 buffer 无限长。
+  const MAX_COMMAND_BYTES = 4096;
+  // 收信器活到整个测试文件结束：只留最近这些封，别把内存长成历史总量。
+  const MAX_MESSAGES = 200;
 
   const server = net.createServer((socket) => {
     sockets.add(socket);
@@ -61,8 +67,25 @@ export function startSmtpSink({ port = 0, host = "127.0.0.1" } = {}) {
     let from = "";
     let to = [];
 
+    const tooLarge = () => {
+      socket.write("552 5.3.4 message size exceeds fixed maximum message size\r\n");
+      socket.destroy();
+    };
+
     socket.on("data", (chunk) => {
       buffer += chunk;
+
+      if (inData) {
+        // 终止符之前就已经超了：不必再等它，直接按宣称的 SIZE 拒绝。
+        if (Buffer.byteLength(buffer, "utf8") > MAX_MESSAGE_BYTES) {
+          tooLarge();
+          return;
+        }
+      } else if (buffer.indexOf("\r\n") < 0 && Buffer.byteLength(buffer, "utf8") > MAX_COMMAND_BYTES) {
+        socket.write("500 5.5.2 line too long\r\n");
+        socket.destroy();
+        return;
+      }
 
       for (;;) {
         if (inData) {
@@ -74,6 +97,7 @@ export function startSmtpSink({ port = 0, host = "127.0.0.1" } = {}) {
           // dot-unstuffing，与真实 SMTP 一致。
           const raw = data.replace(/(^|\r\n)\.\./g, "$1.");
           messages.push({ envelopeFrom: from, envelopeTo: to, ...parseMessage(raw) });
+          if (messages.length > MAX_MESSAGES) messages.shift();
           data = "";
           from = "";
           to = [];
@@ -90,6 +114,12 @@ export function startSmtpSink({ port = 0, host = "127.0.0.1" } = {}) {
         if (upper.startsWith("EHLO") || upper.startsWith("HELO")) {
           socket.write("250-e2e-sink\r\n250-8BITMIME\r\n250 SIZE 1048576\r\n");
         } else if (upper.startsWith("MAIL FROM")) {
+          // 声明了就核对：SIZE 超过上限的会话不该再收它的 DATA。
+          const declared = /SIZE=(\d+)/i.exec(line);
+          if (declared && Number(declared[1]) > MAX_MESSAGE_BYTES) {
+            tooLarge();
+            return;
+          }
           const match = /<([^>]*)>/.exec(line);
           from = match ? match[1] : "";
           socket.write("250 2.1.0 ok\r\n");
@@ -120,10 +150,26 @@ export function startSmtpSink({ port = 0, host = "127.0.0.1" } = {}) {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, () => {
+      const boundPort = server.address().port;
       resolve({
         messages,
-        port: server.address().port,
-        url: `smtp://${host}:${server.address().port}`,
+        port: boundPort,
+        url: `smtp://${host}:${boundPort}`,
+        // 暂时停收：要验证「SMTP 不可用」时断掉监听，之后在同一端口恢复。
+        // 直接 close() 共享实例会让同文件后面的用例全红在「没有信」上（S24-13）。
+        pause: () =>
+          new Promise((done) => {
+            for (const socket of sockets) socket.destroy();
+            server.close(() => done());
+          }),
+        resume: () =>
+          new Promise((done, failed) => {
+            server.once("error", failed);
+            server.listen(boundPort, host, () => {
+              server.off("error", failed);
+              done();
+            });
+          }),
         close: () =>
           new Promise((done) => {
             for (const socket of sockets) socket.destroy();

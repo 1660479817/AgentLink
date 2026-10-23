@@ -4,6 +4,7 @@
 // 这里只做纯计算：不回退到默认语种之外的翻译，不排序之外的猜测。
 
 import { groupsOf, REGION_GROUPS } from "./regions.js";
+import { normalizeAsset, stripInvisible } from "./snapshot.js";
 import { timezoneOf } from "./timezones.js";
 
 // 清单里的档位：示例 > 收费 > 免费。partner / community 是旧词，读到也按新档位排。
@@ -52,16 +53,23 @@ export function buildView(data, options = {}) {
       return {
         id: instance.id,
         // 自述区已经是扁平字符串，门户不再按语种取一次：填什么就显示什么。
-        name: instance.name || instance.id,
+        // 不可见字符在这里再去一次：旧快照或测试夹具不一定清洗过。
+        name: stripInvisible(instance.name) || instance.id,
         tagline: instance.tagline || "",
         intro: instance.intro || "",
-        logo: instance.logo,
+        // 徽记进 img src：只认绝对 https，旧快照里的相对路径或数据协议一律不用。
+        logo: normalizeAsset(instance.logo),
         owner: instance.owner || "",
         contact: instance.contact || "",
-        tags: Array.isArray(instance.tags) ? instance.tags.filter((tag) => typeof tag === "string" && tag) : [],
-        url: instance.url,
+        tags: Array.isArray(instance.tags)
+          ? instance.tags.map((tag) => stripInvisible(tag)).filter((tag) => typeof tag === "string" && tag)
+          : [],
+        // 地址进 href，只放行 https；不合格就不给链接，卡片上仍显示名称。
+        url: typeof instance.url === "string" && /^https:\/\//i.test(instance.url) ? instance.url : null,
         tier: instance.tier,
-        status: instance.status,
+        // 清单里的四态：pending 不进快照，剩下的 active / suspended / retired
+        // 要一路带到卡片与地图上，否则暂停的实例会带着最后一次「在线」留在目录里。
+        status: typeof instance.status === "string" ? instance.status : "active",
         timezone,
         // 钟不是自述区写的：卡片上标一下，免得主理人以为谁改了他的档案。
         timezoneInferred: Boolean(inferred),
@@ -77,8 +85,54 @@ export function buildView(data, options = {}) {
           checkedAt: health?.checkedAt || null,
           version: health?.version || null,
         },
+        // 页面显示的状态：清单的 suspended / retired 压过健康结果。
+        // 这两态不再探测，health 停在最后一次 up，照搬就会把暂停的站画成在线。
+        state: (typeof instance.status === "string" && instance.status !== "active"
+          ? instance.status
+          : health?.status) || "unknown",
       };
     });
+}
+
+/**
+ * 用运行时探测结果覆盖快照里的健康字段。
+ *
+ * `hub.json` 是构建那一刻的采样，重新构建才会更新；探测每 15 分钟一轮。
+ * 只换探测这一层，签发区、自述区、橱窗与活动数据仍以快照为准：
+ * 快照里没有的 id 不新增条目（清单只有构建机知道），探测里没有的 id 保留快照值。
+ *
+ * @param {{ instances?: unknown[] }} data hub.json
+ * @param {{ checkedAt?: string, probes?: unknown } | null} probes 见 GET /api/probes
+ */
+export function applyProbes(data, probes) {
+  const table = probes?.probes && typeof probes.probes === "object" ? probes.probes : probes;
+  if (!table || typeof table !== "object" || Array.isArray(table)) return data;
+  if (!Object.keys(table).length) return data;
+  const checkedAt = typeof probes?.checkedAt === "string" ? probes.checkedAt : null;
+  const list = Array.isArray(data?.instances) ? data.instances : [];
+
+  return {
+    ...data,
+    // 最近同步是探测时间，不是构建时间：换了状态就该跟着换。
+    checkedAt: checkedAt || data?.checkedAt || null,
+    instances: list.map((instance) => {
+      const probe = table[instance?.id];
+      if (!probe || typeof probe !== "object") return instance;
+      return {
+        ...instance,
+        health: {
+          status: typeof probe.status === "string" ? probe.status : "unknown",
+          latencyMs: Number.isFinite(probe.latencyMs) ? probe.latencyMs : null,
+          version: typeof probe.version === "string" ? probe.version : null,
+          lastOkAt: probe.lastOkAt || null,
+          // 断连满 7 天 / 收录后 30 天仍未接通，隐藏也是探测写下的，跟着一起更新。
+          hidden: probe.hidden === true,
+          downSince: probe.downSince || null,
+          checkedAt: checkedAt || instance?.health?.checkedAt || null,
+        },
+      };
+    }),
+  };
 }
 
 // 中枢按隧道对端 IP 判定的国家码。locations 既接受 /api/locations 的整包，
@@ -100,14 +154,24 @@ export function availableGroups(view) {
 
 // 顶栏和英雄区用的概览数字。
 // healthy 只算 up；reachable 把 degraded 也算上；未探测两者都不算。
+// 暂停与退役的实例不探测，健康状态停在最后一次记录上，因此必须先看清单状态：
+// 否则一个 suspended 的站会带着 last up 一直计进「在线」。
+export function isActive(item) {
+  return !item?.status || item.status === "active";
+}
+
+export function isReachable(item) {
+  if (!isActive(item)) return false;
+  const status = item?.health?.status;
+  return status === "up" || status === "degraded";
+}
+
 export function summarize(view, generatedAt = null) {
   return {
     nodes: view.length,
     regions: availableGroups(view).length,
-    healthy: view.filter((item) => item.health.status === "up").length,
-    reachable: view.filter(
-      (item) => item.health.status === "up" || item.health.status === "degraded"
-    ).length,
+    healthy: view.filter((item) => isActive(item) && item.health.status === "up").length,
+    reachable: view.filter(isReachable).length,
     generatedAt: generatedAt || null,
   };
 }

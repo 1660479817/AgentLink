@@ -111,6 +111,19 @@ test("relay: reply-to must belong to the instance", () => {
   assert.equal(foreign.errors.replyTo, "foreign_domain");
 });
 
+test("relay: a contact on a shared mail host does not open that whole host", () => {
+  // contact 写在 gmail 上时，按主机放行等于允许把回复指向 gmail 里任何一个人，
+  // 回信就顶着中枢的发信信誉寄给陌生人。只认与 contact 完全一致的那个地址。
+  const gmail = { ...instance, contact: "nordhavn.site@gmail.com" };
+  assert.equal(isAllowedReplyTo("nordhavn.site@gmail.com", gmail), true);
+  assert.equal(isAllowedReplyTo("someone.else@gmail.com", gmail), false);
+  assert.equal(validateRelayRequest({ ...message, replyTo: "someone.else@gmail.com" }, { instance: gmail }).ok, false);
+
+  // 站点自己的域名仍然整域放行：那是这一家能自主管理的地址空间。
+  const own = { ...instance, contact: "ops@mail.nordhavn.example" };
+  assert.equal(isAllowedReplyTo("support@nordhavn.example", own), true);
+});
+
 test("relay: header injection, display names and over-long text are refused", () => {
   const injected = validateRelayRequest({ ...message, subject: "hi\r\nBcc: x@y.z" }, { instance });
   assert.equal(injected.errors.subject, "newline");

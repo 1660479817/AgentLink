@@ -2,7 +2,7 @@
 
 `xknot.si` 是 XKnot 联邦的中枢。**XKnot 联邦 —— 面向 AI 与 Agent 时代的去中心化分布式信息网络。**
 
-中枢是只读入口，持有三类信息：**站点档案、运行状态、热点橱窗**。用户、内容、积分、审核和收费都在各实例自己的部署里。
+中枢持有三类信息：**站点档案、运行状态、热点橱窗**，不写实例的用户、内容、积分、审核与收费——那些都在各实例自己的部署里。
 
 加入联邦走申请制：先在自己的机器上装一个 Knot，在它的管理界面（`/admin` 的 XKnot 栏）填资料、选二级域名并提交，平台当场核对并签发，**提交即通过**；随后中枢自动在入口主机上完成账号、证书与反代，实例自己起隧道，`/api/health` 通过后清单里的 `status` 改成 `active`。申请不会自动改动任何已上线条目。
 
@@ -24,7 +24,7 @@
 |------|------|------|
 | `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
 | `wang.xknot.si` | 创始实例 | XKnot 项目创始人的实例，永久账号，不适用下架；`tier=paid` |
-| `cpswang.xknot.si` | 伙伴实例 | 社区成员，子域与入口隧道已接通，2026-10-21 收录；`tier=free` |
+| `cpswang.xknot.si` | 伙伴实例 | 社区成员，子域与入口隧道已接通（`/api/health` 返回 200），2026-10-21 收录；`tier=free` |
 
 `xknot.si` 是联盟门户本身；其余子域是**实例**，每个跑一套 Knot 实例（当前实现是 `knot-platform`，含 WebUI、Backend 与 OpenClaw 配套）：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与门户单线联系，门户只读。接入只依赖两样东西：`/api/health` 与中枢签发的接入件，与实例用什么软件、怎么部署无关。站点怎么介绍自己由主理人在实例的 `/admin` 里写，中枢按 `GET /api/federation/profile` 取回，不需要提交或审批。
 
@@ -41,8 +41,8 @@
 |----|------|------|
 | L1 | 站点档案 | 签发区（中枢写：`id`、`url`、`since`、`tier`、`status`）+ 自述区（主理人在实例里写：名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签） |
 | L2 | 运行状态 | 构建时探测 `/api/health`，给出健康点、上次正常时间、可用率 |
-| L2 | 活动数据 | 构建时拉取 `statsUrl`，只取窗口计数，页面上标「伙伴公开的数据」 |
-| L3 | 热点橱窗 | 构建时拉取 `cardsUrl`，最多 6 张卡片，点开回原站 |
+| L2 | 活动数据 | 可选。实例在清单里给出 `statsUrl` 时，构建期拉取窗口计数，页面上标「伙伴公开的数据」；没有这一项就没有这层数据，门户不显示 |
+| L3 | 热点橱窗 | 可选。实例在清单里给出 `cardsUrl` 时，构建期拉取，最多 6 张卡片，点开回原站；没有这一项时橱窗区落空态 |
 | — | 门户 | 三语静态页，左栏全球地图与卡片式实例目录（可筛区域、在线、热点），右栏成员入口与四步加入指引 |
 | — | 申请与收录 | 实例代交的申请入库、自动通过并签发子域、邮件通知、控制台总览与清单条目 |
 | — | 委托发信 | 实例凭 Bearer 凭据委托中枢的 SMTP 发纯文本通知，带独立额度与发信记录 |
@@ -121,11 +121,11 @@ xknot.si/
     ├── index.html         / 跳转
     ├── en/ zh-CN/ zh-TW/  三个语种的 HTML 入口
     ├── public/logos/      中枢标识与实例 LOGO
-    ├── src/               Vue 源码：App、components（地图、卡片、申请表）、lib、locales
+    ├── src/               Vue 源码：App、components（地图、卡片、成员登录）、lib、locales
     └── dist/              构建产物（不入版本库）
 ```
 
-`xknot.si` 自己就是一个独立项目：根目录管脚本、清单和接口，`web/` 管页面，依赖只装在 `web/node_modules`。它不并进 `knot-platform/` 的 `workspaces`，不引用 `knot-platform/*` 的代码，也不依赖 bot01 上的任何进程。开发环境就是本机。
+`xknot.si` 自己就是一个独立项目：根目录管脚本、清单和接口，`web/` 管页面，依赖只装在 `web/node_modules`。它不并进 `knot-platform/` 的 `workspaces`，不引用 `knot-platform/*` 的代码，也不依赖 bot01 上的任何进程。开发环境就是本机，需要 Node 22 或更新（接口用 `node:sqlite`，不留外部数据库依赖）。
 
 ```bash
 cd xknot.si
@@ -134,7 +134,7 @@ npm run build    # 校验、探测、构建、写快照
 npm run deploy:local                 # 本机按线上形态跑：接口 + 入口，Ctrl-C 一起停
 npm run test     # 单元测试（清单、名册、页面、接口、邮件）
 npm run test:e2e # 接口端到端：真 HTTP、SQLite、SMTP 会话与 CLI
-npm run test:ui  # 浏览器端到端：门户、申请表、控制台（首次先装 e2e 依赖）
+npm run test:ui  # 浏览器端到端：门户、成员登录与控制台（首次先装 e2e 依赖）
 npm run admin -- create-admin paul   # 建管理员账号
 npm run mail:test -- you@example.com # 用 SMTP_* 发一封测试信
 npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_SSH）
@@ -175,7 +175,7 @@ npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_
 | [web/src/lib/i18n.js](web/src/lib/i18n.js) | 语言解析、按字段回退、相对时间 |
 | [web/src/lib/regions.js](web/src/lib/regions.js) | 国家代码到区域分组 |
 | [web/src/lib/hub.js](web/src/lib/hub.js) | 快照到页面视图 |
-| [web/src/lib/contact.js](web/src/lib/contact.js) | 申请表上展示的审核人姓名与邮箱 |
+| [web/src/lib/contact.js](web/src/lib/contact.js) | 门户右栏展示的运维联系人姓名与邮箱 |
 
 中枢的代码放在本目录，不并进 `knot-platform/`。仓库里另外两个位置与本项目互不引用：
 
@@ -189,7 +189,7 @@ npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_
 
 ## 收录与收费
 
-收录免费，走申请制。门户右侧填表，平台收到即核对并签发子域（申请单状态直接是 `approved`，`reviewed_by` 记 `auto`），同时寄一封批准信。之后由运营方执行 `npm run admin -- publish <id>` 写进 `instances.json`，并在 `federation.json` 补一条同名 `id` 的名册成员（也可以在控制台点开这个账号的「编辑」补齐名册字段），然后构建上线。新申请会邮件提醒管理员；申请不会自动改动任何已上线条目。创始实例（`wang`）是永久账号，不适用下架。
+收录免费，走申请制。门户右栏只做邮箱 → 授权码登录与四步说明，没有申请表：申请由实例在自己的 `/admin` XKnot 栏代交（`POST /api/admin/xknot/apply` → 中枢 `POST /api/applications`），中枢收到即核对并签发子域（申请单状态直接是 `approved`，`reviewed_by` 记 `auto`），同时寄一封批准信。之后由运营方执行 `npm run admin -- publish <id>` 写进 `instances.json`，并在 `federation.json` 补一条同名 `id` 的名册成员（也可以在控制台点开这个账号的「编辑」补齐名册字段），然后构建上线。新申请会邮件提醒管理员；申请不会自动改动任何已上线条目。创始实例（`wang`）是永久账号，不适用下架。
 
 联邦成员分 `free` 与 `paid` 两档，默认 `free`，由运营方按需改为 `paid`；`demo` 只用于版式样例。档位写在清单的 `tier` 字段，只影响门户展示与排序，不改变接入方式。
 

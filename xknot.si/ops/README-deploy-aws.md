@@ -39,7 +39,7 @@ KEY=~/.ssh/suanli-sg-probe.pem
 | `/opt/xknot/ops/{check-health,watch-health,fetch-guard}.mjs` | 定时健康巡检：探测、发信、暂时隐藏 |
 | `/opt/xknot/ops/{peers,geoip}.mjs` | 站点位置：隧道对端 → 出口 IP → 国家码 |
 | `/opt/xknot/var/geoip/` | DB-IP Lite 库 + IP 判定缓存 + `locations.json`（生成物，约 4.5 MB，不入仓） |
-| `/opt/xknot/web/src/lib/{i18n,regions}.js` | 校验依赖 |
+| `/opt/xknot/web/src/lib/` | 纯函数与静态表（`i18n`、`regions`），兜底校验依赖；部署整目录同步 |
 | `/opt/xknot/var` | SQLite / session-secret（`0600`，勿入仓） |
 | `/etc/nginx/conf.d/xknot.si.conf` | 门户 + `/api` `/admin` 反代 |
 | `/etc/systemd/system/xknot-api.service` | 接口常驻 |
@@ -126,7 +126,7 @@ XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-hub.sh
 XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh
 ```
 
-`deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录；它带 `--delete`，所以先拒绝空值、根目录、站点父目录与源目录本身，真同步前再空跑一次把要删的路径打出来。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/`、`instances.json`、巡检与采集脚本（含 `ops/geoip.mjs`、`ops/peers.mjs`、`ops/node-status.mjs`、`ops/traffic.mjs`）与清单校验依赖，安装 nginx 配置与六个 systemd unit（`xknot-api`、`xknot-provision`、`xknot-health.{service,timer}`、`xknot-traffic.{service,timer}`）。nginx 配置先备份（`<conf>.bak-<UTC 时间>`，留最近 10 份）再落盘，`nginx -t` 不通过就恢复旧文件并退出；通过后才 daemon-reload、重启接口、启用两个 timer、reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
+`deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录；它带 `--delete`，所以先拒绝空值、根目录、站点父目录与源目录本身，真同步前再空跑一次把要删的路径打出来。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/`、整个 `ops/`、`web/src/lib/` 与 `instances.json`，安装 nginx 配置与六个 systemd unit（`xknot-api`、`xknot-provision`、`xknot-health.{service,timer}`、`xknot-traffic.{service,timer}`）。账号、端口这些网关脚本都收在 `ops/` 里，所以那一层整目录过去；同步之前先跑 `ops/check-server-imports.mjs`，`server/` 里若有 import 落到 `server/`、`ops/`、`web/src/lib/` 之外，脚本直接退出——那种写法本地与单测全绿，远端必然 `ERR_MODULE_NOT_FOUND`。nginx 配置先备份（`<conf>.bak-<UTC 时间>`，留最近 10 份）再落盘，`nginx -t` 不通过就恢复旧文件并退出；通过后才 daemon-reload、重启接口、启用两个 timer、reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
 
 先看会做什么，不连远端：
 

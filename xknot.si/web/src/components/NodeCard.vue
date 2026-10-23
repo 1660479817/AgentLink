@@ -5,7 +5,7 @@ import ArrowUpRight from "../icons/ArrowUpRight.vue";
 import FlameIcon from "../icons/FlameIcon.vue";
 import { cardState, hotCard } from "../lib/cards.js";
 import { dayShift, localTime, utcOffset } from "../lib/clock.js";
-import { formatWhen } from "../lib/i18n.js";
+import { enumKey, formatCount, formatWhen, STATUS_KEYS, TIER_KEYS } from "../lib/i18n.js";
 import { statsHighlights } from "../lib/stats.js";
 
 const props = defineProps({
@@ -17,7 +17,13 @@ const props = defineProps({
   active: { type: Boolean, default: false },
 });
 
-const status = computed(() => props.item.health.status);
+// 清单状态优先于探测结果：suspended / retired 的站不再探测，
+// health 停在最后一次记录上，直接用它会把「暂停」画成一个绿色的「正常」。
+const status = computed(() => props.item.state || "unknown");
+// 文案只认白名单：探测或清单多出一个没见过的取值时显示「未探测」，
+// 不能把 status.timeout、tier.sponsor 这样的键名摆到卡片上。
+const statusLabel = computed(() => props.t(enumKey("status", status.value, STATUS_KEYS, "unknown")));
+const tierLabel = computed(() => props.t(enumKey("tier", props.item.tier, TIER_KEYS, "unknown")));
 const at = computed(() => new Date(props.now));
 
 const time = computed(() => localTime(props.item.timezone, props.locale, at.value));
@@ -73,6 +79,9 @@ const clockTitle = computed(() => {
 
 const bars = computed(() => ({ up: 4, degraded: 3, down: 1, unknown: 0 })[status.value] ?? 0);
 
+// 自报计数走 Intl；数字是给人看的，不该一半本地化一半裸数字。
+const count = (value) => formatCount(props.locale, value);
+
 // 每个站一个字母/单字徽记。档案里不存主题色，底色由 id 稳定推出：
 // 同一个站在任何时候、任何语种下都是同一个色，换一份快照也不会跳。
 // 有 logo 时用 logo，加载失败退回徽记。
@@ -100,7 +109,7 @@ const hotMore = computed(() => {
 // 伙伴自报的计数，最多两项；没有数据就整行不出现，不写 0。
 const facts = computed(() =>
   statsHighlights(props.item.stats)
-    .map(([key, value]) => props.t(`facts.${key}`, { count: value }))
+    .map(([key, value]) => props.t(`facts.${key}`, { count: count(value) }))
     .join(" · ")
 );
 </script>
@@ -112,6 +121,7 @@ const facts = computed(() =>
     :class="{ 'is-active': active }"
     :data-status="status"
     :style="[{ '--d': `${Math.min(index, 12) * 25}ms` }, nodeStyle]"
+    tabindex="-1"
   >
     <header class="head">
       <span class="badge" aria-hidden="true">
@@ -129,9 +139,11 @@ const facts = computed(() =>
 
       <span class="identity">
         <span class="name-line">
-          <!-- 整张卡片都是入口：名称上的伪元素铺满卡片，橱窗链接浮在它上面。 -->
-          <a class="name" :href="item.url" rel="noopener noreferrer">{{ item.name }}</a>
-          <span class="tier">{{ t(`tier.${item.tier}`) }}</span>
+          <!-- 整张卡片都是入口：名称上的伪元素铺满卡片，橱窗链接浮在它上面。
+               没有合格地址时不挂 href，免得点下去只把页面滚回顶部。 -->
+          <a v-if="item.url" class="name" :href="item.url" rel="noopener noreferrer">{{ item.name }}</a>
+          <span v-else class="name">{{ item.name }}</span>
+          <span class="tier">{{ tierLabel }}</span>
         </span>
         <span class="place" :title="clockTitle">
           <span class="place-time" :class="{ inferred: item.timezoneInferred }">{{ time || "—" }}</span>
@@ -147,7 +159,8 @@ const facts = computed(() =>
     <p class="intro">{{ item.intro }}</p>
 
     <ul v-if="tags.length" class="tags" :aria-label="t('tag.label')">
-      <li v-for="tag in tags" :key="tag" class="tag">{{ tag }}</li>
+      <!-- 用位置做 key：同一站点写了两个一样的标签时，值会撞。 -->
+      <li v-for="(tag, i) in tags" :key="`${i}-${tag}`" class="tag">{{ tag }}</li>
     </ul>
 
     <p v-if="facts" class="facts" :title="t('facts.label')">{{ facts }}</p>
@@ -168,7 +181,7 @@ const facts = computed(() =>
         <span v-if="hotWhen">{{ t("hot.updated", { when: hotWhen }) }}</span>
         <span v-else>{{ t("hot.undated") }}</span>
         <span v-if="hot.lang" class="hot-lang">{{ hot.lang.toUpperCase() }}</span>
-        <span v-if="hotMore > 0">{{ t("hot.more", { count: hotMore }) }}</span>
+        <span v-if="hotMore > 0">{{ t("hot.more", { count: count(hotMore) }) }}</span>
       </span>
     </a>
 
@@ -178,7 +191,7 @@ const facts = computed(() =>
       </span>
 
       <span class="state" :title="checked || undefined">
-        <span class="state-text">{{ t(`status.${status}`) }}</span>
+        <span class="state-text">{{ statusLabel }}</span>
         <span v-if="detail" class="state-detail">{{ detail }}</span>
       </span>
     </footer>
@@ -237,6 +250,13 @@ const facts = computed(() =>
   background: var(--row-active);
 }
 
+/* 从地图点过来时卡片会被程序聚焦：给出与键盘一致的焦点框，
+   否则跳过来只滚了一下、读者看不出停在哪一张。 */
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .card[data-status="up"] {
   --status-color: var(--ok);
 }
@@ -247,6 +267,13 @@ const facts = computed(() =>
   --status-color: var(--bad);
 }
 .card[data-status="unknown"] {
+  --status-color: var(--unknown);
+}
+/* 清单侧的状态压在健康状态上：暂停的站也可能还能连，但不该再显示成绿色。 */
+.card[data-status="suspended"] {
+  --status-color: var(--warn);
+}
+.card[data-status="retired"] {
   --status-color: var(--unknown);
 }
 
@@ -315,8 +342,9 @@ const facts = computed(() =>
   transition: color 150ms ease;
 }
 
-/* 铺满整张卡片的点击层，让卡片任意处都能进站。 */
-.name::after {
+/* 铺满整张卡片的点击层，让卡片任意处都能进站。
+   只给带 href 的名称：没有合格地址时是 span，不能盖一层点了没反应的透明层。 */
+.name[href]::after {
   content: "";
   position: absolute;
   inset: 0;

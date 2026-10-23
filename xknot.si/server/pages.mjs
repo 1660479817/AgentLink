@@ -58,6 +58,8 @@ const TEXT = {
     claimExpired: "这个领取链接已过期。请联系运营方重新签发。",
     claimMissing: "这个链接无效。",
     claimWarning: "关闭本页后不会再显示。",
+    tooMany: "请求过多，请稍后再试。",
+    casePublicKeyInvalid: "公钥没存上：只接受一整行 ssh-ed25519 / ssh-rsa / ecdsa 公钥。",
     status: "状态",
     site: "站点",
     url: "地址",
@@ -83,6 +85,8 @@ const TEXT = {
     claimExpired: "這個領取連結已過期。請聯絡營運方重新簽發。",
     claimMissing: "這個連結無效。",
     claimWarning: "關閉本頁後不會再顯示。",
+    tooMany: "請求過多，請稍後再試。",
+    casePublicKeyInvalid: "公鑰沒存上：只接受一整行 ssh-ed25519 / ssh-rsa / ecdsa 公鑰。",
     status: "狀態",
     site: "站點",
     url: "位址",
@@ -108,6 +112,8 @@ const TEXT = {
     claimExpired: "This claim link has expired. Ask the operator to issue it again.",
     claimMissing: "This link is not valid.",
     claimWarning: "It will not be shown again after you close this page.",
+    tooMany: "Too many requests. Try again in a moment.",
+    casePublicKeyInvalid: "The key was not saved: paste one single ssh-ed25519 / ssh-rsa / ecdsa line.",
     status: "Status",
     site: "Site",
     url: "URL",
@@ -175,6 +181,9 @@ function banner(kind, text) {
  * 案例页：状态与当前状态下允许的动作。已撤回的申请只读。
  */
 export function renderCasePage(application, options = {}) {
+  if (options.rateLimited) {
+    return shell("en", "Application", `<section class="card">${banner("bad", t("en", "tooMany"))}</section>`);
+  }
   if (!application) {
     return shell("en", "Application", `<section class="card">${banner("bad", "This link is not valid.")}</section>`);
   }
@@ -193,6 +202,8 @@ export function renderCasePage(application, options = {}) {
   const notices = [];
   if (options.withdrawn === 1) notices.push(banner("ok", t(locale, "caseWithdrawn")));
   if (options.publicKey === "saved") notices.push(banner("ok", t(locale, "casePublicKeySaved")));
+  else if (options.publicKey === "invalid") notices.push(banner("bad", t(locale, "casePublicKeyInvalid")));
+  else if (options.publicKey === "closed") notices.push(banner("bad", t(locale, "caseClosed")));
 
   const actions = [];
   if (open) {
@@ -246,6 +257,7 @@ export function renderClaimResult(outcome, payload, locale) {
       used: t(useLocale, "claimUsed"),
       expired: t(useLocale, "claimExpired"),
       missing: t(useLocale, "claimMissing"),
+      rate_limited: t(useLocale, "tooMany"),
     }[outcome] || t(useLocale, "claimMissing");
     return shell(
       useLocale,

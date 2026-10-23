@@ -8,7 +8,11 @@
   --line: #e1e8f2;
   --line-strong: #c3d2e6;
   --accent: #e2611a;
+  /* 主色当小字文本色时对白底只有 3.5:1，达不到 AA。文本链接用更深的一档，
+     主色只留给描边、填充与图标。 */
+  --accent-text: #b8450d;
   --accent-soft: #fdf0e8;
+  --radius-sm: 6px;
   --ok: #0b7a54;
   --ok-soft: #e7f6ef;
   --bad: #b42318;
@@ -51,7 +55,7 @@ select {
 }
 
 a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .app {
@@ -61,6 +65,11 @@ a {
 .boot {
   padding: 3rem;
   color: var(--dim);
+}
+
+/* 控制台级提示（例如退出没送达）。只在有内容时渲染，别把页面推低一个空块。 */
+.top-alert {
+  margin: 0.8rem 1.4rem 0;
 }
 
 /* 登录 */
@@ -88,7 +97,7 @@ a {
   font-family: var(--mono);
   font-size: 0.72rem;
   letter-spacing: 0.22em;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .login-card h1 {
@@ -593,7 +602,7 @@ a {
   font-family: var(--mono);
   font-size: 0.7rem;
   letter-spacing: 0.2em;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .ov-title {
@@ -698,7 +707,7 @@ a {
   padding: 0.2rem;
   border: 0;
   background: none;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 0.76rem;
   cursor: pointer;
 }
@@ -813,8 +822,15 @@ a {
 }
 
 .cfg-link {
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+/* 地址不合格时不渲染成链接：读得到，点不了，也没有可点的协议。 */
+.cfg-link-plain {
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .cfg-link:hover {
@@ -1184,5 +1200,24 @@ a {
 
   .top {
     padding: 0.6rem 0.9rem;
+  }
+
+  /* 单手上网时这几处是唯一的入口：命中区抬到 44px，视觉尺寸不必跟着变大。 */
+  .tab,
+  .view-tab,
+  .link-btn {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .link-btn {
+    display: inline-flex;
+    padding-inline: 0.5rem;
+  }
+
+  /* 胶囊里的字是状态本身，10px 在高密度屏上认不出来。 */
+  .badge {
+    font-size: 0.72rem;
+    padding-block: 0.16rem;
   }
 }

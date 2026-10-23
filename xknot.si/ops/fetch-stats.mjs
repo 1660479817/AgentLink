@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { FetchGuardError, STATS_MAX_BYTES, safeGetJson, writeJsonAtomic } from "./fetch-guard.mjs";
+import { ID_RE } from "./profile-schema.mjs";
 
 export const MAX_COUNT = 1_000_000_000;
 
@@ -99,6 +100,11 @@ export async function run(options = {}) {
   const results = [];
   for (const instance of manifest.instances) {
     if (!instance?.id) continue;
+    // id 会拼进输出文件名：带 / 或 .. 的条目不落盘，跳过并记账。
+    if (!ID_RE.test(instance.id)) {
+      results.push({ id: instance.id, status: "skipped", reason: "bad_id" });
+      continue;
+    }
     if (only && instance.id !== only) continue;
     if (!instance.statsUrl) continue;
     if (instance.status && instance.status !== "active") {
