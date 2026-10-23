@@ -6,6 +6,9 @@
 
 const app = document.getElementById("app");
 
+// 单次接口调用的上限。控制台只读小 JSON，十几秒还没回来说明链路已经坏了。
+const API_TIMEOUT_MS = 15000;
+
 const STATUS_LABEL = {
   approved: "已通过",
   withdrawn: "已撤回",
@@ -34,6 +37,13 @@ const TIER_LABEL = {
   paid: "收费",
 };
 
+// 申请里可勾选的三项。relay 等于发信凭据，cards 是橱窗数据，stats 是活动计数。
+const SERVICE_LABEL = {
+  relay: "委托发信",
+  cards: "橱窗",
+  stats: "统计",
+};
+
 const ERROR_LABEL = {
   timeout: "超时",
   unresolvable: "域名解析失败",
@@ -42,6 +52,9 @@ const ERROR_LABEL = {
 };
 
 const EVENT_LABEL = {
+  // 服务端目前只记这两种实例事件，也是最该被看懂的两条：谁改了什么、谁上线了。
+  "instance.updated": "改了实例配置",
+  "instance.active": "实例通过验收",
   "application.submitted": "新申请",
   "application.contact_verified": "联系邮箱已确认",
   "application.public_key": "已保存公钥",
@@ -142,7 +155,13 @@ const state = {
   editing: null,
   manifest: null,
   manifestId: null,
+  // 生成清单条目是独立的一个请求：它不该占用登录按钮的 state.busy，
+  // 否则请求挂住时退出再登录会看到一个禁用的「登录」。置位后立刻重绘，
+  // 按钮在请求期间就是禁用的，双击不会发两次。
+  manifestBusy: false,
   copied: false,
+  // 控制台级提示：退出没送达这类与某条记录无关的错误。
+  topError: "",
 };
 
 // 每次读取带一个序号。晚到的旧响应直接丢掉，避免它把刚点开的分类又重绘回去。
@@ -154,7 +173,8 @@ function el(tag, props = {}, children = []) {
   for (const [key, value] of Object.entries(props)) {
     if (key === "class") node.className = value;
     else if (key === "text") node.textContent = value;
-    else if (key === "html") node.innerHTML = value;
+    // 没有 html 通道：申请内容与站点自述都是外部输入，一旦有条路径能把字符串
+    // 变成 HTML，文件头那句「所有文本用 textContent 写入」就不再成立。
     else if (key.startsWith("on")) node.addEventListener(key.slice(2).toLowerCase(), value);
     else if (value !== null && value !== undefined && value !== false) node.setAttribute(key, value === true ? "" : value);
   }
@@ -166,11 +186,25 @@ function el(tag, props = {}, children = []) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    headers: { accept: "application/json", ...(options.body ? { "content-type": "application/json" } : {}) },
-    ...options,
-  });
+  const { signal = null, ...rest } = options;
+  // 一个卡住的请求会让 busy 永不复位，整页按钮跟着一起禁用。给每次请求一个上限：
+  // 超时当失败处理，至少运维能看到「失败」与「重试」，而不是一直转圈。
+  const timeout = AbortSignal.timeout ? AbortSignal.timeout(API_TIMEOUT_MS) : null;
+  let response;
+  try {
+    response = await fetch(path, {
+      credentials: "same-origin",
+      headers: { accept: "application/json", ...(rest.body ? { "content-type": "application/json" } : {}) },
+      ...rest,
+      signal: signal || timeout,
+    });
+  } catch (error) {
+    // 超时、断网、被拦都一样：调用方只需要知道「没拿到响应」。
+    const failure = new Error(error?.name === "TimeoutError" ? "timeout" : "network");
+    failure.status = 0;
+    failure.timeout = error?.name === "TimeoutError";
+    throw failure;
+  }
   let data = null;
   try {
     data = await response.json();
@@ -183,18 +217,78 @@ async function api(path, options = {}) {
     error.data = data;
     throw error;
   }
+  // 200 但响应体不是 JSON（被反代换成 SPA 兜底、body 被截断）：这是接口坏了，
+  // 不是「成功的空结果」。当成 null 返回会让页面停在「正在读取…」且没有重试。
+  if (data === null) {
+    const error = new Error("invalid_response");
+    error.status = response.status;
+    error.invalidResponse = true;
+    throw error;
+  }
   return data;
 }
 
-function formatWhen(value) {
+// 时间一律带时区渲染：控制台的读者和申请单不在同一个时区时，
+// 一个不带时区的「10月19日 08:00」会被当成自己那边的钟点。
+// timezone 来自记录本身（申请单的 timezone），控制台只负责按它显示。
+function safeTimeZone(value) {
+  const text = String(value || "").trim();
+  if (!text) return "Asia/Shanghai";
+  try {
+    new Intl.DateTimeFormat("zh-CN", { timeZone: text });
+    return text;
+  } catch {
+    // 记录里的时区名不认识（旧数据、手填错了）就按控制台默认时区显示，不抛错。
+    return "Asia/Shanghai";
+  }
+}
+
+function formatWhen(value, timeZone = "Asia/Shanghai") {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const text = String(value).trim();
+  // 只有日期的字段（例如 since）没有钟点。按 UTC 解析再渲染会凭空多出 08:00，
+  // 所以按日期本身格式化，不带时间。
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (day) {
+    const date = new Date(Date.UTC(Number(day[1]), Number(day[2]) - 1, Number(day[3])));
+    if (Number.isNaN(date.getTime())) return text;
+    return new Intl.DateTimeFormat("zh-CN", {
+      dateStyle: "medium",
+      timeZone: "UTC",
+    }).format(date);
+  }
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
   return new Intl.DateTimeFormat("zh-CN", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "Asia/Shanghai",
+    timeZone: safeTimeZone(timeZone),
   }).format(date);
+}
+
+// 地址只放行 https 与 mailto。申请单里的 url 在 2.0 之前由提交者自带，
+// 旧行没有再校验过；把 javascript: 之类的东西写进 href 只靠 CSP 兜着不够。
+function safeHref(value, protocols) {
+  try {
+    const url = new URL(String(value || ""));
+    return protocols.includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function mailtoHref(value) {
+  const text = String(value || "").trim();
+  // 锚定的邮箱判断：不锚定时 "a@b.c?subject=..." 也会通过，等于把信头塞进链接。
+  if (!/^[^\s@?]+@[^\s@?]+\.[^\s@?]+$/.test(text)) return null;
+  return `mailto:${text}`;
+}
+
+// 不合格的地址不渲染成链接，退化成纯文本：读得到，点不了。
+function safeLink(value, label, className = "cfg-link") {
+  const href = safeHref(value, ["https:"]);
+  if (!href) return el("span", { class: "cfg-link-plain" }, label || value || "—");
+  return el("a", { class: className, href, target: "_blank", rel: "noopener noreferrer" }, label || value);
 }
 
 function regionLabel(code) {
@@ -206,6 +300,8 @@ function relativeLabel(value) {
   const at = Date.parse(value || "");
   if (Number.isNaN(at)) return "—";
   const minutes = Math.round((Date.now() - at) / 60000);
+  // 未来时间（时钟偏了、记录里写错了）不能落进「刚刚」：那是一句假的现状。
+  if (minutes < 0) return `${formatWhen(value)}（未来时间）`;
   if (minutes < 1) return "刚刚";
   if (minutes < 60) return `${minutes} 分钟前`;
   const hours = Math.round(minutes / 60);
@@ -281,6 +377,22 @@ function toggleInstance(id) {
   render();
 }
 
+// 退出或会话失效时一次性清掉本地状态，别让上一个账号的数据留在下一个人的屏幕上。
+function clearSessionState() {
+  state.admin = null;
+  state.applications = [];
+  state.applicationsFilter = "approved";
+  state.applicationsError = "";
+  state.overview = null;
+  state.selected = null;
+  state.editing = null;
+  state.instanceOpen = null;
+  state.manifest = null;
+  state.manifestId = null;
+  state.error = "";
+  state.topError = "";
+}
+
 // 点开实例看到的是这个账号的配置：名册里的身份与隧道，加上清单里的对外地址。
 // 地址一律写成可点文本，跳站是明确动作，不靠点整行带走。
 function renderInstanceConfig(row, id) {
@@ -288,12 +400,8 @@ function renderInstanceConfig(row, id) {
 
   if (state.editing && state.editing.id === row.id) return renderInstanceForm(row, config, id);
 
-  const link = (value, label) =>
-    el(
-      "a",
-      { class: "cfg-link", href: value, target: "_blank", rel: "noopener noreferrer" },
-      label || value
-    );
+  // 站点的对外地址、取回地址、探测地址都来自数据，统一过一遍协议白名单。
+  const link = (value, label) => safeLink(value, label);
   const line = (term, value) =>
     el("div", { class: "cfg-row" }, [el("dt", {}, term), el("dd", {}, value)]);
 
@@ -309,7 +417,7 @@ function renderInstanceConfig(row, id) {
       ]),
       el(
         "button",
-        { type: "button", class: "btn", onclick: () => startEditing(row) },
+        { type: "button", class: "btn", "data-action": "edit", onclick: () => startEditing(row) },
         "编辑"
       ),
     ]),
@@ -384,10 +492,26 @@ function renderInstanceConfig(row, id) {
   ]);
 }
 
-// ---- 编辑实例配置 ----
-
+// 旧档位只在 LABELS 里留了说法；表单的可选项以新档位为准。
 const TIER_OPTIONS = ["demo", "free", "paid"];
 const INSTANCE_STATUS_OPTIONS = ["pending", "active", "suspended", "retired"];
+
+// 读到旧值时先归一到新档位再交给下拉：归一放在草稿里，才能保证提交的是合法值，
+// 也不会出现「界面显示示例、提交的是 partner」这种界面与请求不一致的情况。
+const TIER_ALIAS = { partner: "paid", community: "free" };
+// 旧角色的 community 落在伙伴这一档，而不是表单第一项 founder：把人提成创始是
+// 名册里一条改不回来的身份。
+const ROLE_ALIAS = { community: "partner", demo: "partner" };
+
+function tierValue(value) {
+  const text = String(value || "").trim();
+  return TIER_ALIAS[text] || text;
+}
+
+function roleValue(value) {
+  const text = String(value || "").trim();
+  return ROLE_ALIAS[text] || text;
+}
 
 const LABELS = {
   demo: TIER_LABEL.demo,
@@ -405,6 +529,17 @@ const LABELS = {
   regular: STANDING_LABEL.regular,
 };
 
+// 失败提示按类型分开：超时、断网、接口返回坏了、校验不过，运维要做的动作不同。
+function saveFailureText(error) {
+  if (error?.status === 0) {
+    return error.timeout ? "保存没有送达（请求超时），请稍后重试。" : "保存没有送达（网络不通），请检查连接。";
+  }
+  if (error?.status === 401) return "登录已过期，请重新登录之后再保存。";
+  if (error?.invalidResponse) return "接口返回的不是 JSON，这次保存没有确认，请刷新后重试。";
+  if (error?.status) return `保存没有成功（HTTP ${error.status}）。`;
+  return "保存没有成功，请检查接口是否在运行。";
+}
+
 function hostFromUrl(value) {
   try {
     return new URL(String(value || "")).host;
@@ -414,11 +549,13 @@ function hostFromUrl(value) {
 }
 
 // 草稿放在 state 里，而不是从输入框现读：保存失败重绘时，用户改过的值还在。
+// inRoster 记住「保存前名册里有没有这个账号」：没有的话，提交名册字段等于新建一条
+// 成员，这件事必须显式告诉运维，不能夹在改备注里顺手做掉。
 function draftFrom(row, config) {
   return {
     instance: {
       url: row.url || "",
-      tier: row.tier || "free",
+      tier: tierValue(row.tier) || "free",
       status: row.status || "active",
       since: config.since || "",
       cardsUrl: config.cardsUrl || "",
@@ -426,7 +563,7 @@ function draftFrom(row, config) {
     },
     member: {
       host: config.host || hostFromUrl(row.url),
-      role: config.role || "partner",
+      role: roleValue(config.role) || "partner",
       standing: config.standing || "regular",
       listed: config.listed == null ? true : Boolean(config.listed),
       tunnelAccount: config.tunnel?.account || "",
@@ -436,8 +573,22 @@ function draftFrom(row, config) {
   };
 }
 
+function cloneDraft(draft) {
+  return JSON.parse(JSON.stringify(draft));
+}
+
 function startEditing(row) {
-  state.editing = { id: row.id, draft: draftFrom(row, row.config || {}), busy: false, errors: [] };
+  if (!confirmDiscardEditing()) return;
+  const draft = draftFrom(row, row.config || {});
+  state.editing = {
+    id: row.id,
+    draft,
+    // 打开表单那一刻的值。保存只发改过的字段，也靠它判断「有没有未保存的改动」。
+    baseline: cloneDraft(draft),
+    inRoster: (row.config || {}).listed != null,
+    busy: false,
+    errors: [],
+  };
   render();
 }
 
@@ -455,8 +606,16 @@ function configInput(value, props = {}, onInput) {
 
 function configSelect(value, options, props = {}, onChange) {
   const select = el("select", props);
-  for (const option of options) {
-    const node = el("option", { value: option }, LABELS[option] || option);
+  const choices = [...options];
+  // 值不在可选项里时不要默默回落到第一项：浏览器会把它显示成第一项，用户于是
+  // 以为当前值就是那个，存一次就把真实值改掉了。把未知值原样放进列表并标出来。
+  if (value != null && value !== "" && !choices.includes(value)) choices.push(value);
+  for (const option of choices) {
+    const node = el(
+      "option",
+      { value: option },
+      LABELS[option] || (options.includes(option) ? option : `${option}（旧值）`)
+    );
     if (option === value) node.selected = true;
     select.append(node);
   }
@@ -472,8 +631,101 @@ function formField(term, control, hint) {
   ]);
 }
 
-// 表单只收运营自己维护的字段。没进名册的实例按默认身份补一条；
-// 接入形态恒为 subdomain，隧道账号与端口每次一并提交。
+// 草稿与打开表单时的快照逐字段比较，只把真正改过的字段交给接口。
+// 整份提交等于把「页面加载那一刻的快照」写回文件：两个人先后改同一个实例，
+// 后保存者会静默覆盖先保存者的改动。
+const INSTANCE_PATCH_FIELDS = ["url", "tier", "status", "since", "cardsUrl", "statsUrl"];
+const MEMBER_PATCH_FIELDS = ["host", "role", "standing", "note"];
+const FIELD_LABEL = {
+  url: "对外地址",
+  tier: "分级",
+  status: "状态",
+  since: "加入时间",
+  cardsUrl: "橱窗数据",
+  statsUrl: "活动统计",
+  host: "域名",
+  role: "角色",
+  standing: "席位",
+  listed: "写进清单",
+  note: "备注",
+};
+
+function normalizeField(value) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function diffPatch(before, after, fields) {
+  const patch = {};
+  for (const key of fields) {
+    const from = normalizeField(before[key]);
+    const to = normalizeField(after[key]);
+    if (from !== to) patch[key] = to;
+  }
+  return patch;
+}
+
+function draftChanges(editing) {
+  const { draft, baseline } = editing;
+  const instance = diffPatch(baseline.instance, draft.instance, INSTANCE_PATCH_FIELDS);
+  const member = diffPatch(baseline.member, draft.member, MEMBER_PATCH_FIELDS);
+  if (Boolean(draft.member.listed) !== Boolean(baseline.member.listed)) {
+    member.listed = Boolean(draft.member.listed);
+  }
+  const tunnelFrom = `${normalizeField(baseline.member.tunnelAccount)}|${normalizeField(baseline.member.tunnelPort)}`;
+  const tunnelTo = `${normalizeField(draft.member.tunnelAccount)}|${normalizeField(draft.member.tunnelPort)}`;
+  if (tunnelFrom !== tunnelTo) {
+    member.tunnel = {
+      account: normalizeField(draft.member.tunnelAccount),
+      port: normalizeField(draft.member.tunnelPort),
+    };
+  }
+  return { instance, member };
+}
+
+function editingDirty(editing) {
+  const changes = draftChanges(editing);
+  return Object.keys(changes.instance).length > 0 || Object.keys(changes.member).length > 0;
+}
+
+// 切视图、换实例都会丢掉草稿：先问一句，别让人填到一半的东西悄悄消失。
+function confirmDiscardEditing() {
+  if (!state.editing || !editingDirty(state.editing)) return true;
+  return window.confirm("正在编辑的实例配置还没保存，确定离开？");
+}
+
+// 保存前回读当前配置，确认这次要写的字段从打开表单到现在没被别人改过。
+// 服务端是读-改-写且没有版本号，这里是唯一的乐观锁。
+async function changedElsewhere(editing, instancePatch, memberPatch) {
+  let data;
+  try {
+    data = await api("/api/admin/overview");
+  } catch {
+    // 回读失败不拦保存：可能只是临时抖动，真正的保存会自己报错。
+    return [];
+  }
+  const rows = Array.isArray(data?.instances?.rows) ? data.instances.rows : [];
+  const row = rows.find((item) => item.id === editing.id);
+  if (!row) return [];
+  const live = draftFrom(row, row.config || {});
+  const changed = [];
+  for (const key of Object.keys(instancePatch)) {
+    if (normalizeField(live.instance[key]) !== normalizeField(editing.baseline.instance[key])) {
+      changed.push(key);
+    }
+  }
+  for (const key of Object.keys(memberPatch)) {
+    // tunnel 与 since 没有对应的表单控件，不在「别人改过」的判断里。
+    if (key === "tunnel" || key === "since") continue;
+    const liveValue = key === "listed" ? Boolean(live.member.listed) : normalizeField(live.member[key]);
+    const baseValue = key === "listed" ? Boolean(editing.baseline.member.listed) : normalizeField(editing.baseline.member[key]);
+    if (liveValue !== baseValue) changed.push(key);
+  }
+  return [...new Set(changed)];
+}
+
+// 表单只收运营自己维护的字段。没有名册项时，新建成员这件事必须在保存前说清；
+// 接入形态恒为 subdomain，隧道账号与端口跟着成员一起提交。
 function renderInstanceForm(row, config, id) {
   const editing = state.editing;
   const draft = editing.draft;
@@ -513,7 +765,7 @@ function renderInstanceForm(row, config, id) {
       )
     : null;
 
-  const save = el("button", { type: "submit", class: "btn btn-ok" }, editing.busy ? "保存中…" : "保存");
+  const save = el("button", { type: "submit", class: "btn btn-ok", "data-action": "save" }, editing.busy ? "保存中…" : "保存");
   save.disabled = editing.busy;
   const cancel = el(
     "button",
@@ -528,31 +780,75 @@ function renderInstanceForm(row, config, id) {
       onsubmit: async (event) => {
         event.preventDefault();
         if (editing.busy) return;
+        const changes = draftChanges(editing);
+        const instancePatch = changes.instance;
+        const memberPatch = changes.member;
+        let memberChanged = Object.keys(memberPatch).length > 0;
+
+        // 实例还不在名册里：这次提交任何名册字段都会新建一条成员。服务端从空白
+        // 开始补，所以必须整份提交；同时把「将新建成员」写在确认里，不替人默认。
+        if (memberChanged && !editing.inRoster) {
+          Object.assign(memberPatch, {
+            host: normalizeField(member.host),
+            role: member.role,
+            standing: member.standing,
+            listed: Boolean(member.listed),
+            note: normalizeField(member.note),
+            tunnel: {
+              account: normalizeField(member.tunnelAccount),
+              port: normalizeField(member.tunnelPort),
+            },
+          });
+          // 新成员的加入时间取清单那一格：名册没有单独的输入框。
+          memberPatch.since = normalizeField(inst.since);
+          memberChanged = true;
+        }
+
+        if (!Object.keys(instancePatch).length && !memberChanged) {
+          // 没有任何改动就不发请求。
+          state.editing = null;
+          render();
+          return;
+        }
+
+        // 状态与「写进清单」会直接改门户上的可见性，改这两项要一次明确确认。
+        const warnings = [];
+        if ("status" in instancePatch) {
+          const from = LABELS[editing.baseline.instance.status] || editing.baseline.instance.status;
+          const to = LABELS[instancePatch.status] || instancePatch.status;
+          warnings.push(`状态：${from} → ${to}（暂停与退役会让实例从门户消失）`);
+        }
+        if ("listed" in memberPatch) {
+          const from = editing.baseline.member.listed ? "是" : "否";
+          const to = memberPatch.listed ? "是" : "否";
+          warnings.push(`写进清单：${from} → ${to}（不写进清单就不再出现在门户）`);
+        }
+        if (!editing.inRoster && memberChanged) {
+          warnings.push("名册里还没有这个账号：保存会新建一条成员");
+        }
+        if (warnings.length && !window.confirm(`${warnings.join("\n")}\n\n确定保存？`)) return;
+
         editing.busy = true;
         editing.errors = [];
         render();
         try {
+          const changed = await changedElsewhere(editing, instancePatch, memberPatch);
+          if (changed.length) {
+            editing.busy = false;
+            editing.errors = [
+              `这些字段在你打开表单之后已被别处改过：${changed
+                .map((key) => FIELD_LABEL[key] || key)
+                .join("、")}。请取消后重新打开这个实例再改。`,
+            ];
+            render();
+            return;
+          }
+          const payload = {};
+          if (Object.keys(instancePatch).length) payload.instance = instancePatch;
+          if (memberChanged) payload.member = memberPatch;
           await api(`/api/admin/instances/${encodeURIComponent(row.id)}/config`, {
             method: "POST",
-            body: JSON.stringify({
-              instance: {
-                url: inst.url,
-                tier: inst.tier,
-                status: inst.status,
-                since: inst.since,
-                cardsUrl: inst.cardsUrl,
-                statsUrl: inst.statsUrl,
-              },
-              member: {
-                host: member.host,
-                role: member.role,
-                standing: member.standing,
-                listed: member.listed,
-                since: inst.since,
-                note: member.note,
-                tunnel: { account: member.tunnelAccount, port: member.tunnelPort },
-              },
-            }),
+            body: JSON.stringify(payload),
           });
           state.editing = null;
           state.instanceOpen = row.id;
@@ -562,7 +858,7 @@ function renderInstanceForm(row, config, id) {
           state.editing.errors =
             error.status === 400 && fields && fields.length
               ? fields
-              : ["保存没有成功，请检查接口是否在运行。"];
+              : [saveFailureText(error)];
           state.editing.busy = false;
           render();
         }
@@ -676,6 +972,8 @@ function renderLogin() {
 function renderConsole() {
   return el("div", {}, [
     renderTop(),
+    // 控制台级的提示（退出没送达）：它不是某条记录的错，不能塞进详情面板。
+    state.topError ? el("p", { class: "alert top-alert", role: "alert" }, state.topError) : null,
     state.view === "overview" ? renderOverview() : renderApplications(),
   ]);
 }
@@ -688,6 +986,8 @@ function renderTop() {
       {
         type: "button",
         class: `view-tab${state.view === key ? " active" : ""}`,
+        // 用例按 data-view 定位，不按显示文案：改一句中文不该回来改测试（S24-10）。
+        "data-view": key,
         onclick: () => switchView(key),
       },
       [label, badge ? el("strong", {}, String(badge)) : null]
@@ -714,20 +1014,37 @@ function renderTop() {
     ]),
     el("div", { class: "top-user" }, [
       el("span", {}, state.admin.username),
-      el("button", {
+      el("button",       {
         type: "button",
         class: "btn",
+        "data-action": "logout",
+        disabled: state.busy,
         onclick: async () => {
-          await api("/api/admin/logout", { method: "POST" }).catch(() => {});
-          state.admin = null;
-          state.applications = [];
-          state.overview = null;
-          state.selected = null;
-          state.editing = null;
-          state.instanceOpen = null;
+          if (state.busy) return;
+          state.busy = true;
+          state.topError = "";
+          render();
+          try {
+            await api("/api/admin/logout", { method: "POST" });
+          } catch (error) {
+            // 退出没送达时不能装作已退出：服务端会话与 Cookie 都还在，
+            // 刷新一下就回到已登录，共用机器上的人会以为走干净了。
+            state.busy = false;
+            state.topError = error.status === 401
+              ? ""
+              : `退出没有送达（${error.timeout ? "请求超时" : "网络或接口异常"}）。服务端会话可能仍然有效，请再试一次，或关闭浏览器。`;
+            if (error.status === 401) {
+              // 会话在服务端本来就已经无效了，本地状态可以照常清掉。
+              clearSessionState();
+            }
+            render();
+            return;
+          }
+          state.busy = false;
+          clearSessionState();
           render();
         },
-      }, "退出"),
+      }, state.busy ? "正在退出…" : "退出"),
     ]),
   ]);
 }
@@ -739,7 +1056,7 @@ function renderOverview() {
       state.overviewError
         ? el("div", { class: "ov-empty" }, [
             el("p", { class: "alert", role: "alert" }, state.overviewError),
-            el("button", { type: "button", class: "btn", onclick: () => loadOverview() }, "重试"),
+            el("button", { type: "button", class: "btn", "data-action": "retry", onclick: () => loadOverview() }, "重试"),
           ])
         : el("p", { class: "empty" }, "正在读取总览…"),
     ]);
@@ -777,7 +1094,8 @@ function renderOverview() {
                 el("span", { class: "inst-name" }, row.name),
                 el("span", { class: "inst-url" }, `${row.id} · ${row.url || "未填地址"}`),
                 el("span", { class: "inst-tags" }, [
-                  el("span", { class: "pill" }, TIER_LABEL[row.tier] || row.tier),
+                  // 旧档位（partner/community）在 LABELS 里有说法，别把英文原值摆到首页上。
+                  el("span", { class: "pill" }, LABELS[row.tier] || row.tier),
                   ...(row.services.cards ? [el("span", { class: "pill" }, "橱窗")] : []),
                   ...(row.services.stats ? [el("span", { class: "pill" }, "统计")] : []),
                   // 对端采集过、但这条隧道不在：与「接口 502」是两种故障。
@@ -819,7 +1137,7 @@ function renderOverview() {
     "div",
     { class: "queue" },
     queueKeys.map((key) =>
-      el("button", { type: "button", class: "queue-row", onclick: () => openApplications(key) }, [
+      el("button", { type: "button", class: "queue-row", "data-status": key, onclick: () => openApplications(key) }, [
         el("span", {}, STATUS_LABEL[key]),
         el("strong", {}, String(apps.counts[key] || 0)),
       ])
@@ -899,7 +1217,7 @@ function renderOverview() {
     el("div", { class: "ov-grid" }, [
       el("div", { class: "ov-col" }, [
         el("section", { class: "panel" }, [
-          el("div", { class: "panel-head" }, [
+          el("div", { class: "panel-head", "data-panel": "instances" }, [
             el("h2", {}, "实例与探测"),
             el("span", { class: "meta" }, inst.checkedAt ? `上次探测 ${relativeLabel(inst.checkedAt)}` : "未探测"),
           ]),
@@ -909,7 +1227,7 @@ function renderOverview() {
       ]),
       el("div", { class: "ov-col" }, [
         el("section", { class: "panel" }, [
-          el("div", { class: "panel-head" }, [
+          el("div", { class: "panel-head", "data-panel": "applications" }, [
             el("h2", {}, "申请记录"),
             el("button", { type: "button", class: "link-btn", onclick: () => openApplications("all") }, "查看全部"),
           ]),
@@ -925,7 +1243,7 @@ function renderOverview() {
             : null,
         ]),
         el("section", { class: "panel" }, [
-          el("div", { class: "panel-head" }, [el("h2", {}, "发信")]),
+          el("div", { class: "panel-head", "data-panel": "mail" }, [el("h2", {}, "发信")]),
           el("div", { class: "mail-line" }, [
             el("span", {}, "伙伴与内部信"),
             el("span", { class: "mono" }, mail.enabled ? "SMTP 已配置" : "未配置"),
@@ -944,7 +1262,7 @@ function renderOverview() {
           ]),
         ]),
         el("section", { class: "panel" }, [
-          el("div", { class: "panel-head" }, [el("h2", {}, "最近事件")]),
+          el("div", { class: "panel-head", "data-panel": "events" }, [el("h2", {}, "最近事件")]),
           events,
         ]),
       ]),
@@ -954,9 +1272,12 @@ function renderOverview() {
 
 function switchView(view) {
   if (view === state.view) return;
+  // 有未保存的草稿就先问一句：切一次视图就把填了一半的配置丢掉，
+  // 用户只会以为是自己点错了。
+  if (!confirmDiscardEditing()) return;
   state.view = view;
   state.error = "";
-  // 离开总览时丢掉未保存的草稿，避免下次点开看到上一次的改动。
+  state.topError = "";
   state.editing = null;
   state.instanceOpen = null;
   render();
@@ -965,6 +1286,7 @@ function switchView(view) {
 }
 
 function openApplications(status) {
+  if (!confirmDiscardEditing()) return;
   state.filter = status;
   state.selected = null;
   state.manifest = null;
@@ -972,6 +1294,7 @@ function openApplications(status) {
   state.instanceOpen = null;
   state.view = "applications";
   state.error = "";
+  state.topError = "";
   render();
   loadApplications();
 }
@@ -985,6 +1308,7 @@ function renderApplications() {
       {
         type: "button",
         class: `tab${state.filter === key ? " active" : ""}`,
+        "data-status": key,
         disabled: loading,
         onclick: () => {
           state.filter = key;
@@ -1008,7 +1332,7 @@ function renderApplications() {
     // 继续显示会让运维把它当成这次读到的东西，所以这里一行都不渲染。
     list = el("div", { class: "load-error" }, [
       el("p", { class: "alert", role: "alert" }, state.applicationsError),
-      el("button", { type: "button", class: "btn", disabled: loading, onclick: () => loadApplications() }, "重试"),
+      el("button", { type: "button", class: "btn", "data-action": "retry", disabled: loading, onclick: () => loadApplications() }, "重试"),
     ]);
   } else if (rows.length) {
     list = el(
@@ -1025,14 +1349,15 @@ function renderApplications() {
           },
           [
             el("span", { class: "item-name" }, item.name),
-            el("span", { class: `badge ${item.status}` }, STATUS_LABEL[item.status] || item.status),
+            el("span", { class: `badge ${item.status}`, "data-status": item.status }, STATUS_LABEL[item.status] || item.status),
             el("span", { class: "item-url" }, item.url),
             el("span", { class: "item-meta" }, [
               item.id,
               "·",
               regionLabel(item.region),
               "·",
-              formatWhen(item.createdAt),
+              // 申请单自带时区：按提交者那边的钟点显示，不把时间挪到控制台的时区。
+              formatWhen(item.createdAt, item.timezone),
             ]),
           ]
         )
@@ -1047,8 +1372,25 @@ function renderApplications() {
     );
   }
 
+  // 列表接口默认最多回 200 条，顶部计数是库里全量。两者不等时说清「少的那部分」，
+  // 否则运维会以为看全了。
+  const total = state.filter === "all"
+    ? Object.values(state.counts).reduce((sum, value) => sum + (Number(value) || 0), 0)
+    : Number(state.counts[state.filter]) || 0;
+  const clipped = !loading && !state.applicationsError && total > rows.length;
+
   return el("div", { class: "layout" }, [
-    el("section", { class: "panel" }, [el("div", { class: "tabs" }, tabs), list]),
+    el("section", { class: "panel" }, [
+      el("div", { class: "tabs" }, tabs),
+      list,
+      clipped
+        ? el(
+            "p",
+            { class: "panel-note warn" },
+            `这里只列出最近 ${rows.length} 条，这个分类共 ${total} 条。更早的记录没有翻页入口，需要时按编号查库。`
+          )
+        : null,
+    ]),
     el("aside", { class: "panel" }, [
       state.selected
         ? renderDetail(state.selected)
@@ -1065,29 +1407,44 @@ function renderDetail(item) {
     el("div", { class: "detail-head" }, [
       el("div", {}, [
         el("h2", {}, item.name),
-        el("p", { class: "detail-id" }, `${item.id} · 提交于 ${formatWhen(item.createdAt)}`),
+        el("p", { class: "detail-id" }, `${item.id} · 提交于 ${formatWhen(item.createdAt, item.timezone)}`),
       ]),
-      el("span", { class: `badge ${item.status}` }, STATUS_LABEL[item.status] || item.status),
+      el("span", { class: `badge ${item.status}`, "data-status": item.status }, STATUS_LABEL[item.status] || item.status),
     ]),
 
     el("dl", { class: "dl" }, [
       el("dt", {}, "站点"),
-      el("dd", {}, el("a", { href: item.url, target: "_blank", rel: "noopener noreferrer" }, item.url)),
+      // 地址与邮箱都来自申请单：不合格就退化成纯文本，不拼进 href。
+      el("dd", {}, safeLink(item.url, item.url, "detail-link")),
       el("dt", {}, "运营者"),
       el("dd", {}, item.operator),
       el("dt", {}, "邮箱"),
-      el("dd", {}, el("a", { href: `mailto:${item.email}` }, item.email)),
+      el("dd", {}, mailtoHref(item.email)
+        ? el("a", { href: mailtoHref(item.email) }, item.email)
+        : item.email || "—"),
       el("dt", {}, "区域"),
       el("dd", {}, regionLabel(item.region)),
       el("dt", {}, "时区"),
-      el("dd", {}, item.timezone),
+      el("dd", {}, item.timezone ? `${item.timezone}（上面的时间按它显示）` : "申请没写"),
+      // 申请人勾选的服务决定后面签什么：relay 等于发信凭据，cards/stats 决定要不要接数据。
+      el("dt", {}, "申请服务"),
+      el("dd", {}, item.requestServices && item.requestServices.length
+        ? item.requestServices.map((key) => SERVICE_LABEL[key] || key).join(" · ")
+        : "没有勾选"),
+      el("dt", {}, "提交语种"),
+      el("dd", {}, item.locale || "—"),
+      // 案例页上带公钥与交付资料的领取入口，运维判断流程走到哪一步要看它。
+      el("dt", {}, "案例页"),
+      el("dd", {}, item.caseKey
+        ? safeLink(`${window.location.origin}/case/${item.caseKey}`, `/case/${item.caseKey}`, "detail-link")
+        : "没有案例页"),
       el("dt", {}, "简介"),
       el("dd", {}, item.intro),
       el("dt", {}, "标签"),
       el("dd", {}, item.tags.length ? item.tags.map((tag) => `#${tag}`).join(" ") : "—"),
       el("dt", {}, "通过"),
       el("dd", {}, item.reviewedAt
-        ? `${item.reviewedBy === "auto" || !item.reviewedBy ? "提交即通过" : item.reviewedBy} · ${formatWhen(item.reviewedAt)}`
+        ? `${item.reviewedBy === "auto" || !item.reviewedBy ? "提交即通过" : item.reviewedBy} · ${formatWhen(item.reviewedAt, item.timezone)}`
         : "—"),
       state.overview
         ? el("dt", {}, "收录")
@@ -1108,18 +1465,35 @@ function renderDetail(item) {
             el("button", {
               type: "button",
               class: "btn",
-              disabled: state.busy,
+              "data-action": "manifest",
+              disabled: state.manifestBusy,
               onclick: async () => {
-                state.busy = true;
+                if (state.manifestBusy) return;
+                state.manifestBusy = true;
                 state.error = "";
+                state.manifest = null;
+                state.manifestId = null;
+                // 置位后立刻重绘：按钮在请求期间就是禁用的，双击只发一次。
+                render();
                 try {
                   const data = await api(`/api/admin/applications/${item.id}/manifest`);
                   state.manifest = JSON.stringify(data.entry, null, 2);
                   state.manifestId = item.id;
-                } catch {
-                  state.error = "生成清单条目失败。";
+                } catch (error) {
+                  // 422 会说明具体是哪一项不合规：那是唯一能直接照做的信息，
+                  // 不能换成一句「失败」。其余失败也带上状态码与超时原因。
+                  const problems = error.data && Array.isArray(error.data.problems) ? error.data.problems : null;
+                  state.error = problems && problems.length
+                    ? `清单条目不合规：${problems.join("；")}`
+                    : error.status === 422
+                      ? "清单条目不合规，但接口没有说明是哪一项。"
+                      : error.status
+                        ? `生成清单条目失败（HTTP ${error.status}）。`
+                        : error.timeout
+                          ? "生成清单条目超时，请稍后重试。"
+                          : "生成清单条目失败，请检查接口是否在运行。";
                 }
-                state.busy = false;
+                state.manifestBusy = false;
                 render();
               },
             }, manifest ? "重新生成" : "生成"),
@@ -1173,16 +1547,24 @@ async function loadOverview() {
   try {
     const data = await api("/api/admin/overview");
     if (seq !== overviewSeq) return;
+    // 总览是几个必要分组的拼装。少一组就别当成可渲染的数据收下：
+    // overview 为 null 又没有错误时，页面会永远停在「正在读取总览…」。
+    if (!data || !data.instances || !data.applications || !data.runtime) {
+      throw Object.assign(new Error("invalid_overview"), { status: 200, invalidResponse: true });
+    }
     state.overview = data;
   } catch (error) {
     if (seq !== overviewSeq) return;
     if (error.status === 401) {
-      state.admin = null;
-      state.overview = null;
-      state.editing = null;
+      clearSessionState();
       return;
     }
-    state.overviewError = "总览加载失败，请检查接口是否在运行。";
+    state.overview = null;
+    state.overviewError = error.timeout
+      ? "读取总览超时，请重试。"
+      : error.invalidResponse
+        ? "接口返回的不是控制台认识的数据，请检查入口的反代配置。"
+        : "总览加载失败，请检查接口是否在运行。";
   } finally {
     if (seq === overviewSeq) {
       state.overviewBusy = false;
@@ -1205,6 +1587,9 @@ async function loadApplications() {
     const query = filter && filter !== "all" ? `?status=${filter}` : "";
     const data = await api(`/api/admin/applications${query}`);
     if (seq !== applicationsSeq) return;
+    if (!data || !Array.isArray(data.applications) || !data.counts) {
+      throw Object.assign(new Error("invalid_list"), { status: 200, invalidResponse: true });
+    }
     state.applications = data.applications;
     state.applicationsFilter = filter;
     state.counts = data.counts;
@@ -1215,15 +1600,16 @@ async function loadApplications() {
   } catch (error) {
     if (seq !== applicationsSeq) return;
     if (error.status === 401) {
-      state.admin = null;
-      state.editing = null;
+      clearSessionState();
       return;
     }
     // 失败要把失败本身渲染出来（renderApplications 读 applicationsError），
     // 并把旧行清掉：它们属于上一次读的分类，顶着新标签显示就是在冒充当前数据。
     state.applicationsError = error.status
       ? `申请列表加载失败（HTTP ${error.status}）。`
-      : "申请列表加载失败，请检查接口是否在运行。";
+      : error.timeout
+        ? "申请列表加载超时，请重试。"
+        : "申请列表加载失败，请检查接口是否在运行。";
     state.applications = [];
     state.applicationsFilter = filter;
   } finally {

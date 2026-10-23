@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from "vue";
 
 import { OPERATOR_EMAIL, OPERATOR_NAME } from "../lib/contact.js";
+import { enumKey, STATUS_KEYS } from "../lib/i18n.js";
+import { normalizeUrl, stripInvisible } from "../lib/snapshot.js";
 
 const props = defineProps({
   locale: { type: String, required: true },
@@ -26,6 +28,10 @@ const codeError = ref(false);
 
 const member = computed(() => overview.value?.member || null);
 const site = computed(() => overview.value?.site || null);
+// 已登录区也读站点自述：名称去掉不可见字符，地址只认 https，
+// 不合格就不给链接（与目录卡片同一套判断）。
+const siteName = computed(() => stripInvisible(site.value?.name) || "");
+const siteUrl = computed(() => normalizeUrl(site.value?.url));
 const health = computed(() => overview.value?.health || null);
 const stats = computed(() => overview.value?.stats || null);
 
@@ -37,7 +43,7 @@ const statusKey = computed(() => {
   return "status.active";
 });
 
-const healthKey = computed(() => `status.${health.value?.status || "unknown"}`);
+const healthKey = computed(() => enumKey("status", health.value?.status, STATUS_KEYS, "unknown"));
 
 function when(value) {
   if (!value) return "—";
@@ -124,6 +130,9 @@ async function login() {
     }
     if (data?.reason === "expired" || data?.reason === "too_many_attempts") {
       say(props.t("join.codeExpired"), "error");
+    } else if (response.status === 429) {
+      // IP 级限流不带 reason；落到最后那句会误报成「授权码不对」。
+      say(props.t("join.rate"), "error");
     } else if (response.status === 403) {
       say(props.t("join.notMember"), "error");
     } else {
@@ -192,8 +201,10 @@ onMounted(async () => {
     <section v-if="step === 'member' && overview" class="member" aria-live="polite">
       <div class="member-head">
         <div class="member-id">
-          <p class="member-name">{{ site.name }}</p>
-          <a class="member-url" :href="site.url" target="_blank" rel="noopener">{{ site.url }}</a>
+          <p class="member-name">{{ siteName }}</p>
+          <a v-if="siteUrl" class="member-url" :href="siteUrl" target="_blank" rel="noopener noreferrer">{{
+            siteUrl
+          }}</a>
         </div>
         <span class="pill" :data-tone="member.status">{{ t(statusKey) }}</span>
       </div>
@@ -236,7 +247,8 @@ onMounted(async () => {
       <p v-if="member.status === 'pending'" class="member-note warn">{{ t("join.pendingNote") }}</p>
 
       <div class="member-actions">
-        <a class="member-link" :href="site.url" target="_blank" rel="noopener">{{ t("join.openSite") }}</a>
+        <a v-if="siteUrl" class="member-link" :href="siteUrl" target="_blank" rel="noopener noreferrer">{{ t("join.openSite") }}</a>
+        <span v-else />
         <button type="button" class="quiet" :disabled="busy" @click="logout">{{ t("join.logout") }}</button>
       </div>
     </section>
@@ -264,10 +276,12 @@ onMounted(async () => {
       </div>
 
       <div v-if="step === 'code'" class="field">
-        <label for="member-code">
-          {{ t("join.code") }}
+        <!-- 按钮不能放进 label：label 的可访问名会把「换一个邮箱」读成输入框的名字，
+             而且 label 里除被标注控件外不应再放可交互元素。 -->
+        <div class="field-head">
+          <label for="member-code">{{ t("join.code") }}</label>
           <button type="button" class="inline-link" @click="changeEmail">{{ t("join.changeEmail") }}</button>
-        </label>
+        </div>
         <input
           id="member-code"
           v-model="code"
@@ -275,7 +289,7 @@ onMounted(async () => {
           inputmode="numeric"
           autocomplete="one-time-code"
           maxlength="6"
-          placeholder="000000"
+          :placeholder="t('join.codePlaceholder')"
           :aria-invalid="codeError"
           :aria-describedby="codeError ? 'member-code-error' : 'member-code-help'"
         />
@@ -409,13 +423,17 @@ h2 {
 }
 
 .field label {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* 标签与「换一个邮箱」一行两端对齐；按钮在 label 之外，位置不变。 */
+.field-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 0.5rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.95);
 }
 
 .field input {
@@ -810,6 +828,14 @@ h2 {
 
   .submit {
     min-height: 48px;
+  }
+
+  /* 纯文字按钮（换邮箱、重发、退出）在手机上也要够得着 44 高。 */
+  .inline-link,
+  .quiet {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
   }
 }
 

@@ -11,6 +11,7 @@ import {
   finalizeAggregate,
   hostMapOf,
   logFiles,
+  MAX_KEYS,
   mergeTraffic,
   parseLine,
   run,
@@ -165,6 +166,106 @@ test("run: 读日志写 var/traffic/{id}.json；没有日志时安静跳过", as
     instancesPath,
   });
   assert.equal(skipped.skipped, "no_log");
+});
+
+test("accumulate: 路径与 referer 的键数有上限，总量照常计", () => {
+  const agg = emptyAggregate();
+  const hostToId = hostMapOf({ instances: [{ id: "wang", url: "https://wang.xknot.si" }] });
+  for (let i = 0; i < MAX_KEYS + 500; i += 1) {
+    accumulate(agg, parseLine(line({ uri: `/x${i}`, ref: `https://r${i}.test/` })), hostToId);
+  }
+  const bucket = agg.byId.get("wang").values().next().value;
+  // 表有上限，但请求数与 topPaths 仍然是对的：扫描器撑不大这轮聚合的内存。
+  assert.equal(bucket.paths.size, MAX_KEYS);
+  assert.equal(bucket.referers.size, MAX_KEYS);
+  assert.equal(bucket.requests, MAX_KEYS + 500);
+});
+
+test("mergeTraffic: days 不合法时按默认保留期，不把历史一次清空", () => {
+  const previous = { days: [{ date: "2026-10-18", requests: 5 }] };
+  const next = mergeTraffic(previous, [], { id: "wang", host: "wang.xknot.si", days: Number.NaN });
+  assert.deepEqual(next.days.map((day) => day.date), ["2026-10-18"]);
+});
+
+test("run: --days 非法时抛错，已有历史保持原样", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-traffic-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const instancesPath = path.join(dir, "instances.json");
+  await writeFile(instancesPath, JSON.stringify({ instances: [{ id: "wang", url: "https://wang.xknot.si" }] }));
+  const logPath = path.join(dir, "knot-access.log");
+  await writeFile(logPath, `${line()}\n`);
+  const outDir = path.join(dir, "traffic");
+  await mkdir(outDir, { recursive: true });
+  await writeFile(
+    path.join(outDir, "wang.json"),
+    JSON.stringify({ id: "wang", days: [{ date: "2026-10-19", requests: 1 }] })
+  );
+
+  await assert.rejects(() => run({ logPath, outDir, instancesPath, days: Number.NaN }), /--days/);
+  const saved = JSON.parse(await readFile(path.join(outDir, "wang.json"), "utf8"));
+  assert.deepEqual(saved.days.map((day) => day.date), ["2026-10-19"]);
+});
+
+test("run: 清单里的 id 拼不进目录，界外文件不会被写", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-traffic-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const instancesPath = path.join(dir, "instances.json");
+  await writeFile(
+    instancesPath,
+    JSON.stringify({
+      instances: [
+        { id: "wang", url: "https://wang.xknot.si" },
+        { id: "../../evil", url: "https://evil.xknot.si" },
+      ],
+    })
+  );
+  const logPath = path.join(dir, "knot-access.log");
+  await writeFile(logPath, `${line()}\n${line({ host: "evil.xknot.si" })}\n`);
+
+  const outDir = path.join(dir, "traffic");
+  const result = await run({ logPath, outDir, instancesPath });
+  assert.deepEqual(result.written.map((item) => item.id), ["wang"]);
+  await assert.rejects(readFile(path.join(dir, "evil.json"), "utf8"), /ENOENT/);
+  await assert.rejects(readFile(path.join(dir, "traffic", "..", "..", "evil.json"), "utf8"), /ENOENT/);
+});
+
+test("run: 下架实例的聚合被清掉，无流量实例也按保留期裁剪", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-traffic-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const instancesPath = path.join(dir, "instances.json");
+  await writeFile(
+    instancesPath,
+    JSON.stringify({
+      instances: [
+        { id: "wang", url: "https://wang.xknot.si" },
+        { id: "cpswang", url: "https://cpswang.xknot.si" },
+      ],
+    })
+  );
+  const outDir = path.join(dir, "traffic");
+  await mkdir(outDir, { recursive: true });
+  // cpswang 这次没有任何日志：上次留下的天数超过保留期，只有写出一次才会被裁剪。
+  await writeFile(
+    path.join(outDir, "cpswang.json"),
+    JSON.stringify({
+      id: "cpswang",
+      days: [
+        { date: "2026-09-03", requests: 3 },
+        { date: "2026-09-02", requests: 2 },
+        { date: "2026-09-01", requests: 1 },
+      ],
+    })
+  );
+  // gone 已经从清单删掉。
+  await writeFile(path.join(outDir, "gone.json"), JSON.stringify({ id: "gone", days: [] }));
+
+  const logPath = path.join(dir, "knot-access.log");
+  await writeFile(logPath, `${line()}\n`);
+  await run({ logPath, outDir, instancesPath, days: 1, now: () => new Date("2026-10-21T12:00:00Z") });
+
+  const trimmed = JSON.parse(await readFile(path.join(outDir, "cpswang.json"), "utf8"));
+  assert.deepEqual(trimmed.days.map((day) => day.date), ["2026-09-03"]);
+  await assert.rejects(readFile(path.join(outDir, "gone.json"), "utf8"), /ENOENT/);
 });
 
 test("logFiles: 带上最近三天的轮转档，跳过过旧与无关文件", async (t) => {

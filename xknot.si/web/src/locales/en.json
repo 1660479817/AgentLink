@@ -79,7 +79,8 @@
     "paid": "PAID",
     "free": "FREE",
     "partner": "PAID",
-    "community": "FREE"
+    "community": "FREE",
+    "unknown": "UNKNOWN"
   },
   "region": {
     "global": "Global",

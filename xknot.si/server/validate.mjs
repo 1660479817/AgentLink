@@ -23,13 +23,22 @@ export const LIMITS = {
   intro: 60,
   tags: 9,
   tagLength: 16,
-  note: 200,
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 function text(value, max) {
   return typeof value === "string" ? [...value.trim()].slice(0, max + 1).join("") : "";
+}
+
+// 控制字符、零宽与双向覆盖符。这些值会原样进内部信正文和门户的标签、卡片：
+// 换行能伪造排版，U+202E 能把显示顺序颠倒（让人读到一条假的地址）。
+// 邮件头已由 mail.mjs 的 stripNewlines 兜住，所以这里只管显示层。
+const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+function cleanText(value, max) {
+  if (typeof value !== "string") return "";
+  return text(value.replace(CONTROL_RE, " ").replace(/\s+/g, " "), max);
 }
 
 export function subdomainUrl(subdomain) {
@@ -55,6 +64,24 @@ export function normalizeTags(value) {
   return out;
 }
 
+// 补记历史实例（admin-cli backfill）用：那张单的标签可能短于签发下限，
+// 也没有表单里的同意项，所以不能整份过 validateApplication；但落库的文本
+// 要走同一套清洗与上限，否则自述区里的一段换行、一个 300 字的简介就原样进库。
+export function cleanField(value, max) {
+  return cleanText(value, max);
+}
+
+export function validEmail(value) {
+  const address = String(value ?? "").trim().toLowerCase();
+  if (!address || [...address].length > LIMITS.email) return "";
+  return EMAIL_RE.test(address) ? address : "";
+}
+
+export function validRegion(value) {
+  const region = String(value ?? "").trim().toUpperCase();
+  return isCountryCode(region) ? region : "";
+}
+
 export function validTimeZone(value) {
   if (typeof value !== "string" || !value.trim()) return false;
   try {
@@ -72,7 +99,7 @@ export function validateApplication(input) {
   const errors = {};
   const raw = input && typeof input === "object" ? input : {};
 
-  const name = text(raw.name, LIMITS.name);
+  const name = cleanText(raw.name, LIMITS.name);
   if ([...name].length < 2) errors.name = "too_short";
   else if ([...name].length > LIMITS.name) errors.name = "too_long";
 
@@ -89,12 +116,15 @@ export function validateApplication(input) {
 
   const url = subdomain ? subdomainUrl(subdomain) : "";
 
-  const operator = text(raw.operator, LIMITS.operator);
+  const operator = cleanText(raw.operator, LIMITS.operator);
   if (!operator) errors.operator = "required";
   else if ([...operator].length > LIMITS.operator) errors.operator = "too_long";
 
+  // 邮箱也要能报超长：text() 截到 max+1 之后仍然是一个合法地址时，
+  // 存下来的就是另一个人的邮箱——截断点落在域名中段也照样通过正则。
   const email = text(raw.email, LIMITS.email).toLowerCase();
   if (!email) errors.email = "required";
+  else if ([...email].length > LIMITS.email) errors.email = "too_long";
   else if (!EMAIL_RE.test(email)) errors.email = "invalid_email";
 
   const region = typeof raw.region === "string" ? raw.region.trim().toUpperCase() : "";
@@ -105,12 +135,14 @@ export function validateApplication(input) {
   if (!timezone) errors.timezone = "required";
   else if (!validTimeZone(timezone)) errors.timezone = "invalid_timezone";
 
-  const intro = text(raw.intro, LIMITS.intro);
+  const intro = cleanText(raw.intro, LIMITS.intro);
   if (!intro) errors.intro = "required";
   else if ([...intro].length > LIMITS.intro) errors.intro = "too_long";
 
   const tags = normalizeTags(raw.tags);
   if (tags.length > LIMITS.tags) errors.tags = "too_many_tags";
+  // 单个标签也要能报超长：16 字的上限此前只用于截断，17 字的一条会原样落库。
+  else if (tags.some((tag) => [...tag].length > LIMITS.tagLength)) errors.tags = "too_long";
 
   if (raw.agree !== true) errors.agree = "required";
 

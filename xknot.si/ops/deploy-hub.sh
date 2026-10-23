@@ -37,6 +37,12 @@ fi
 TARGET="${XKNOT_TARGET:-/var/www/xknot}"
 KEY="${XKNOT_SSH_KEY:-$HOME/.ssh/id_rsa}"
 
+# rsync 的 -e 是一个字符串，由 rsync 自己再拆一次；路径里有空格时裸拼会把参数拆错。
+# 单引号里放不下单引号，遇到就把那个引号拆成 '\''：先闭合、转义一个引号、再打开。
+shq() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
 # 下面的同步带 --delete，删除范围就是 TARGET 这个目录。TARGET 少写一级（例如写成站点
 # 父目录）就会把同机别的站点的静态根整目录删掉，所以先拒绝明显错的值。
 # 不做交互确认：定时部署没有终端，卡在 read 上就等于永远不部署。
@@ -70,7 +76,7 @@ fi
 DRY=0
 RSYNC_ARGS=(-az --delete --itemize-changes
   --exclude .well-known
-  -e "ssh -i $KEY -o StrictHostKeyChecking=accept-new")
+  -e "ssh -i $(shq "$KEY") -o StrictHostKeyChecking=accept-new")
 
 if [ "${1:-}" = "--dry-run" ]; then
   DRY=1

@@ -6,7 +6,7 @@ Description=Run xknot.si entry traffic aggregate hourly
 OnBootSec=3min
 OnUnitActiveSec=1h
 AccuracySec=1min
-Persistent=true
+# 同 xknot-health.timer：Persistent= 只对 OnCalendar= 生效，这里写了也不起作用。
 
 [Install]
 WantedBy=timers.target

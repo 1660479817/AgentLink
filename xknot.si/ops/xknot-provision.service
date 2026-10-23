@@ -1,6 +1,8 @@
 [Unit]
 Description=xknot.si auto-connect (entry host provisioning for approved instances)
-Documentation=https://xknot.si/docs/HANDOFF.md
+# 门户只同步 web/dist，dist 里没有 docs/：指向 https://xknot.si/docs/... 是 404。
+# deploy-api.sh 会把 docs/ 同步到 /opt/xknot/docs，所以直接给本地路径。
+Documentation=file:///opt/xknot/docs/HANDOFF.md
 Wants=network-online.target
 After=network-online.target
 

@@ -9,6 +9,7 @@ import {
   availableRate,
   DOWN_HIDE_MS,
   DOWN_REMIND_MS,
+  HEALTH_MAX_BYTES,
   isHttpsUrl,
   mergeHealth,
   NEVER_HIDE_MS,
@@ -18,8 +19,12 @@ import {
 } from "./check-health.mjs";
 
 function jsonResponse(body, status = 200) {
+  const text = body === undefined ? "not json" : JSON.stringify(body);
   return {
     status,
+    // readLimited 先看 content-length，再按流读；假响应两者都给一份。
+    headers: { get: () => String(Buffer.byteLength(text)) },
+    text: async () => text,
     json: async () => {
       if (body === undefined) throw new Error("not json");
       return body;
@@ -91,6 +96,16 @@ test("a non-JSON body is a bad payload", async () => {
   });
   assert.equal(result.status, "down");
   assert.equal(result.error, "bad_payload");
+});
+
+test("an oversized health body is bounded instead of read into memory", async () => {
+  const result = await probe(PROBE_URL, {
+    id: PROBE_ID,
+    fetchImpl: async () => jsonResponse({ ok: true, pad: "x".repeat(HEALTH_MAX_BYTES) }),
+    clock: sequencer([0, 10]),
+  });
+  assert.equal(result.status, "down");
+  assert.equal(result.error, "too_large");
 });
 
 test("the instance may identify itself and must match the manifest", async () => {

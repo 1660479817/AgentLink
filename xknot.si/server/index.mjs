@@ -115,6 +115,9 @@ function loadInstances() {
     return instancesCache.list;
   } catch (error) {
     console.error("instances.json unreadable:", error.message);
+    // 不能沿用上一份缓存：解析失败时那份名单可能是暂停/下架之前的，
+    // 委托发信与「实例是否在册」的判断会一起 fail-open。清空即一切按不在册处理。
+    instancesCache = { key: "", list: [] };
     return instancesCache.list;
   }
 }

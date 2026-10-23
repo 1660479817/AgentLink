@@ -79,7 +79,8 @@
     "paid": "收费",
     "free": "免费",
     "partner": "收费",
-    "community": "免费"
+    "community": "免费",
+    "unknown": "未知"
   },
   "region": {
     "global": "全球",

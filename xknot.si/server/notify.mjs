@@ -539,7 +539,7 @@ ${SIGN.en}`,
 恢复探测后自动回到列表，不需要重新申请。
 
 先在本机确认实例在运行，再确认公网地址与隧道是否通。
-需要变更地址或请人协助，回复本信或联系 {outbox}。
+需要变更地址或请人协助，请写信给 {outbox}。
 
 ${CLOSING["zh-CN"]}
 
@@ -557,7 +557,7 @@ ${SIGN["zh-CN"]}`,
 恢復探測後自動回到清單，不需要重新申請。
 
 先在本地確認實例在執行，再確認公網位址與通道是否通。
-需要變更落點或請人協助，回覆本信或聯絡 {outbox}。
+需要變更落點或請人協助，請寫信給 {outbox}。
 
 ${CLOSING["zh-TW"]}
 
@@ -575,7 +575,7 @@ The portal now shows it as down. If it is still down after 7 days, the entry is 
 from the federation list until a probe succeeds again; no new application is needed.
 
 Check that the instance is running locally, then that the public address and tunnel are up.
-To change the landing setup or ask for help, reply to this message or write to {outbox}.
+To change the landing setup or ask for help, write to {outbox}.
 
 ${CLOSING.en}
 
@@ -787,6 +787,17 @@ export function maskEmail(address) {
 /**
  * 补齐所有变量的默认值。调用方只需要给 links 与少量覆盖项。
  */
+// 领取有效期由签发方给（1–168 小时），不是固定 72：`handoff --ttl 24` 的
+// 交付信里写着「72 小时」就是在骗伙伴，链接其实隔天就失效了。
+function claimTtlText(locale, hours) {
+  const value = Math.round(Number(hours));
+  if (!Number.isFinite(value) || value <= 0) {
+    return { "zh-CN": "72 小时", "zh-TW": "72 小時", en: "72 hours" }[locale];
+  }
+  if (locale === "en") return `${value} ${value === 1 ? "hour" : "hours"}`;
+  return locale === "zh-TW" ? `${value} 小時` : `${value} 小时`;
+}
+
 export function buildVars(application, options = {}) {
   const locale = normalizeLocale(application.locale);
   const origin = String(options.origin || "https://xknot.si").replace(/\/+$/, "");
@@ -817,7 +828,7 @@ export function buildVars(application, options = {}) {
       ? `${pick({ "zh-CN": "可选的联系入口：", "zh-TW": "可選的聯絡入口：", en: "Optional contact: " }, locale)}${options.supportUrl}`
       : "",
     confirmTtl: { "zh-CN": "30 天", "zh-TW": "30 天", en: "30 days" }[locale],
-    claimTtl: { "zh-CN": "72 小时", "zh-TW": "72 小時", en: "72 hours" }[locale],
+    claimTtl: claimTtlText(locale, options.claimTtlHours),
     subdomain: options.subdomain || (subdomainLabelOf(application) ? `${subdomainLabelOf(application)}.xknot.si` : ""),
     entryHost: options.entryHost || "—",
     account: options.account || "—",

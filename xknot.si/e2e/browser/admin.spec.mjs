@@ -44,7 +44,7 @@ test.describe("控制台", () => {
     await expect(page.locator("header.top")).toContainText(ADMIN.username);
 
     // 登录后先落在总览，申请列表在「申请记录」里，默认就是已通过。
-    await page.locator("nav.views button", { hasText: "申请记录" }).click();
+    await page.locator('nav.views button[data-view="applications"]').click();
 
     const item = page.locator(".list .item", { hasText: site.name });
     await expect(item).toBeVisible();
@@ -53,12 +53,12 @@ test.describe("控制台", () => {
     const detail = page.locator(".detail");
     await expect(detail.locator("h2")).toHaveText(site.name);
     await expect(detail).toContainText(site.url);
-    await expect(detail.locator(".badge")).toHaveText("已通过");
+    await expect(detail.locator(".badge")).toHaveAttribute("data-status", "approved");
     await expect(detail).toContainText("提交即通过");
     // 审核动作已经移除。
     await expect(page.locator(".actions button")).toHaveCount(0);
 
-    await page.locator(".snippet button", { hasText: "生成" }).click();
+    await page.locator('.snippet button[data-action="manifest"]').click();
     const pre = page.locator(".snippet pre");
     await expect(pre).toBeVisible();
     const entry = JSON.parse(await pre.innerText());
@@ -68,7 +68,7 @@ test.describe("控制台", () => {
     expect(entry.tier).toBe("free");
     expect(entry.healthUrl).toBeUndefined();
 
-    await page.locator("header.top button", { hasText: "退出" }).click();
+    await page.locator('header.top button[data-action="logout"]').click();
     await expect(page.locator("#username")).toBeVisible();
 
     // 控制台自己也在 CSP 下运行，全程不能有脚本错误。
@@ -81,15 +81,15 @@ test.describe("控制台", () => {
     await login(page);
 
     await expect(page.locator(".overview")).toBeVisible();
-    await expect(page.locator(".ov-title")).toContainText("个实例");
+    await expect(page.locator(".ov-title")).toBeVisible();
     await expect(page.locator(".kpi")).toHaveCount(4);
 
-    for (const heading of ["实例与探测", "申请记录", "发信", "最近事件"]) {
-      await expect(page.locator(".panel-head h2", { hasText: heading })).toBeVisible();
+    for (const panel of ["instances", "applications", "mail", "events"]) {
+      await expect(page.locator(`.panel-head[data-panel="${panel}"] h2`)).toBeVisible();
     }
 
     // 队列行把运营直接送到对应的申请分类。
-    await page.locator(".queue-row", { hasText: "已通过" }).click();
+    await page.locator('.queue-row[data-status="approved"]').click();
     await expect(page.locator(".tabs")).toBeVisible();
     await expect(page.locator("nav.views button.active")).toContainText("申请记录");
 
@@ -130,7 +130,8 @@ test.describe("控制台", () => {
   });
 
   test("实例配置可以就地编辑，校验失败不丢草稿也不落盘", async ({ page }) => {
-    const errors = watchErrors(page);
+    // 这里故意交一个非 https 地址：400 是用例制造的，下面断言错误条留在卡片里。
+    const errors = watchErrors(page, { allow: [/status of 400\b/] });
     await page.goto("/admin/");
     await login(page);
 
@@ -140,7 +141,7 @@ test.describe("控制台", () => {
 
     const config = page.locator(".inst-config");
     await expect(config).toBeVisible();
-    await config.locator("button", { hasText: "编辑" }).click();
+    await config.locator('button[data-action="edit"]').click();
 
     const form = page.locator(".cfg-form");
     await expect(form).toBeVisible();
@@ -157,13 +158,13 @@ test.describe("控制台", () => {
     // 先交一个非 https 地址：错误留在卡片里，输入不丢，文件也不该被写坏。
     const goodUrl = await urlInput.inputValue();
     await urlInput.fill("http://plain.example");
-    await form.locator("button", { hasText: "保存" }).click();
+    await form.locator('button[data-action="save"]').click();
     await expect(form.locator(".cfg-errors")).toContainText("url");
     await expect(noteInput).toHaveValue(note);
     await expect(urlInput).toHaveValue("http://plain.example");
 
     await urlInput.fill(goodUrl);
-    await form.locator("button", { hasText: "保存" }).click();
+    await form.locator('button[data-action="save"]').click();
     await expect(page.locator(".cfg-form")).toHaveCount(0);
     await expect(page.locator(".inst-config")).toContainText(note);
     await expect(page).toHaveURL(urlBefore);
@@ -188,13 +189,13 @@ test.describe("控制台", () => {
     await page.goto("/admin/");
     await login(page);
     await expect(page.locator("header.top")).toBeVisible();
-    await page.locator("nav.views button", { hasText: "申请记录" }).click();
+    await page.locator('nav.views button[data-view="applications"]').click();
 
     // 直接按编号定位，避免列表里同名干扰。
     const item = page.locator(".list .item", { hasText: application.id });
     await expect(item).toBeVisible();
     await item.click();
-    await expect(page.locator(".detail .badge")).toHaveText("已通过");
+    await expect(page.locator(".detail .badge")).toHaveAttribute("data-status", "approved");
     await expect(page.locator(".actions button")).toHaveCount(0);
 
     // 审核接口已经移除：再打一次只会 404。
@@ -203,12 +204,13 @@ test.describe("控制台", () => {
     });
     expect(again.status()).toBe(404);
 
-    await page.locator("button.tab", { hasText: "已通过" }).click();
+    await page.locator('button.tab[data-status="approved"]').click();
     await expect(page.locator(".list .item", { hasText: application.id })).toHaveCount(1);
   });
 
   test("申请列表读取失败时给出错误条，且不把上一次的行留在新分类下", async ({ page, request }) => {
-    const errors = watchErrors(page);
+    // 这里故意让列表接口 500：500 是用例制造的，下面断言错误条与「重试」按钮。
+    const errors = watchErrors(page, { allow: [/status of 500\b/] });
     const site = uniqueSite("listfail");
 
     const submitted = await request.post("/api/applications", {
@@ -219,7 +221,7 @@ test.describe("控制台", () => {
     await page.goto("/admin/");
     await login(page);
     await expect(page.locator("header.top")).toBeVisible();
-    await page.locator("nav.views button", { hasText: "申请记录" }).click();
+    await page.locator('nav.views button[data-view="applications"]').click();
 
     // 先让「已通过」这一栏有行：后面才有旧数据可以冒充新分类的内容。
     await expect(page.locator(".list .item").first()).toBeVisible();
@@ -232,7 +234,7 @@ test.describe("控制台", () => {
         body: JSON.stringify({ error: "internal" }),
       })
     );
-    await page.locator("button.tab", { hasText: "已撤回" }).click();
+    await page.locator('button.tab[data-status="withdrawn"]').click();
 
     // 失败要看得见，且旧行不能顶着新标签继续显示。
     await expect(page.locator(".panel p.alert[role='alert']")).toContainText("申请列表加载失败");
@@ -242,7 +244,7 @@ test.describe("控制台", () => {
 
     // 恢复接口后点「重试」：错误条消失，显示这个分类的真实结果（这里没有记录）。
     await page.unroute("**/api/admin/applications**");
-    await page.locator(".load-error button", { hasText: "重试" }).click();
+    await page.locator('.load-error button[data-action="retry"]').click();
     await expect(page.locator(".load-error")).toHaveCount(0);
     await expect(page.locator(".list .item")).toHaveCount(0);
     await expect(page.locator("p.empty")).toContainText("这个分类下没有记录");

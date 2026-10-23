@@ -15,6 +15,10 @@
     <div id="app" class="app">
       <p class="boot">正在连接…</p>
     </div>
+    <!-- 脚本被浏览器关掉时，那句「正在连接…」会被当成「接口慢」一直等下去。 -->
+    <noscript>
+      <p class="boot">控制台需要 JavaScript。请在浏览器里允许本站运行脚本后刷新。</p>
+    </noscript>
     <script type="module" src="/admin/admin.js"></script>
   </body>
 </html>

@@ -40,7 +40,7 @@ function emailOf(value) {
   return parsed && !value.includes("<") ? parsed.address : null;
 }
 
-/** 实例自己的回信域名：清单 url 与 contact 里的邮箱。 */
+/** 实例自己的回信域名：只有清单里的 url，不含联系邮箱所在的那个域。 */
 export function instanceReplyDomains(instance) {
   const hosts = new Set();
   for (const raw of [instance?.url]) {
@@ -51,14 +51,17 @@ export function instanceReplyDomains(instance) {
       // 清单已经校验过 https，这里只是容错。
     }
   }
-  const contact = emailOf(instance?.contact);
-  if (contact) hosts.add(hostOf(contact));
   return hosts;
 }
 
 export function isAllowedReplyTo(address, instance) {
   const host = hostOf(address);
   if (!host) return false;
+  // 联系邮箱只认「那一个地址」，不认它所在的整台域：contact 写成 gmail 时，
+  // 按主机放行就等于允许把回复指向该域下别人的信箱——用中枢的信誉替别人
+  // 伪造一个回信对象。
+  const contact = emailOf(instance?.contact);
+  if (contact && String(address).trim().toLowerCase() === contact.toLowerCase()) return true;
   for (const allowed of instanceReplyDomains(instance)) {
     if (host === allowed || host.endsWith(`.${allowed}`)) return true;
   }

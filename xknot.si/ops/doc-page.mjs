@@ -205,8 +205,17 @@ function withTableWrap(html) {
   return html.replace(/<table>/g, '<div class="table-wrap"><table>').replace(/<\/table>/g, "</table></div>");
 }
 
+// 源 markdown 里的内联 HTML 一律当纯文本显示。
+// 这些页和 /admin、/api/admin 同源，一段 <script> 或 <img onerror> 就能以门户身份
+// 执行；白名单要跟着 marked 的输出不断维护，不如让 HTML 记号根本不进 DOM。
+function renderLiteralHtml(token) {
+  const text = escapeHtml(token?.text ?? token?.raw ?? "");
+  return token?.block ? `${text}\n` : text;
+}
+
 export function markdownHtml(markdown) {
   const marked = new Marked({ gfm: true, breaks: false, mangle: false, headerIds: false });
+  marked.use({ renderer: { html: renderLiteralHtml } });
   return withTableWrap(withSafeLinks(marked.parse(String(markdown || ""))));
 }
 

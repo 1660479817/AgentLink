@@ -121,7 +121,12 @@ test("relay: 字段非法按字段拒绝", async () => {
   assert.equal(foreign.status, 400);
   assert.equal(foreign.data.fields.replyTo, "foreign_domain");
 
-  const ownDomain = await relay({ body: { ...message, replyTo: "desk@e2e-node.example" }, token });
+  // 联系邮箱只认那一个地址，不认整台域：同域另一个信箱等于用中枢信誉替别人收信。
+  const sameDomain = await relay({ body: { ...message, replyTo: "desk@e2e-node.example" }, token });
+  assert.equal(sameDomain.status, 400);
+  assert.equal(sameDomain.data.fields.replyTo, "foreign_domain");
+
+  const ownDomain = await relay({ body: { ...message, replyTo: "desk@e2e-node.xknot.si" }, token });
   assert.equal(ownDomain.status, 200, "实例自己域名下的回信地址应放行");
 });
 
@@ -183,14 +188,18 @@ test("relay: 吊销后 401 token_revoked", async () => {
 
 test("relay: SMTP 不可用时 502，日志记 failed 且不含正文", async () => {
   const token = await stack.issueRelayToken("e2e-node");
-  await sink.close();
-
-  const result = await relay({
-    body: { ...message, text: "这段正文不应出现在 relay-log 里" },
-    token,
-  });
-  assert.equal(result.status, 502);
-  assert.equal(result.data.error, "smtp_failed");
+  // 只让这一条看不到收信端：关掉共享 sink 会让同文件后面的用例全红在「没有信」上（S24-13）。
+  await sink.pause();
+  try {
+    const result = await relay({
+      body: { ...message, text: "这段正文不应出现在 relay-log 里" },
+      token,
+    });
+    assert.equal(result.status, 502);
+    assert.equal(result.data.error, "smtp_failed");
+  } finally {
+    await sink.resume();
+  }
 
   const log = await stack.adminCli(["relay-log", "5"]);
   assert.match(log, /failed/);

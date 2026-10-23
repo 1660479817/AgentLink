@@ -7,9 +7,9 @@
 | 部件 | 形态 | 说明 |
 |------|------|------|
 | 门户 | Vue 静态站 | Vue 3 + Vite，三语入口，运行时读取 `/data/hub.json` |
-| 接口 | Node 常驻进程 | `POST /api/applications` 收加入申请，`/api/subdomains/check` 回答标签能不能签，`/api/locations` 给各实例观测到的区域，`/api/member/*` 供成员入口使用，`/api/admin/*` 供控制台使用，`/api/federation/mail` 代实例发信 |
+| 接口 | Node 常驻进程 | `POST /api/applications` 收加入申请，`/api/subdomains/check` 回答标签能不能签，`/api/locations` 给各实例观测到的区域，`/api/probes` 给各实例当前的探测结果，`/api/member/*` 供成员入口使用，`/api/admin/*` 供控制台使用，`/api/federation/mail` 代实例发信 |
 | 控制台 | 静态页 + 接口 | `/admin/`，管理员登录后先看总览（实例与探测、申请记录、发信、最近事件），再查记录、改实例配置、取清单条目 |
-| 申请存储 | SQLite | `var/xknot.db`，表 `applications`、`admins`、`sessions`、`member_codes`、`member_sessions`、`events`、`relay_tokens`、`relay_log` |
+| 申请存储 | SQLite | `var/xknot.db`，表 `applications`、`admins`、`sessions`、`member_codes`、`member_sessions`、`events`、`claim_tokens`、`notify_log`、`relay_tokens`、`relay_log`、`provision_runs` |
 | 健康探测 | 构建步骤 + 定时巡检 | 构建时探测一次；`ops/watch-health.mjs` 每 15 分钟一次，写 `var/health.json` 并按连续时长发信 |
 | 活动数据拉取 | 构建步骤 | 构建时拉取 `statsUrl`，写 `var/stats/{id}.json` |
 | 入口流量 | 每小时聚合 | 读入口 nginx 的访问日志，按子域写 `var/traffic/{id}.json`；只给控制台看 |
@@ -22,6 +22,8 @@
 门户本身仍然是静态文件，所有实例数据在构建时写入。数据侧唯一的写入口是加入申请：它不写 `instances.json`，提交即通过并落一条 `approved` 记录；随后由人或命令行把条目写进清单，再重新构建。申请接口不能改变任何已上线的条目。
 
 三份数据各管一段：`instances.json` 只放签发区（`id`、`url`、`since`、`tier`、`status`、`statsUrl`、`cardsUrl`），由人提交；`var/profiles/{id}.json` 是各实例自述区的副本，由主理人在自己站点的 `/admin` 里写、中枢按 `url` 取回；`federation.json` 记创始实例、接入形态与隧道账号端口。名册不参与渲染，只在构建前与清单交叉校验。
+
+清单头是 `{ "version": <整数 ≥1>, "updatedAt": "YYYY-MM-DD" }`：`version` 记录这份清单被改过几次，`publish`、`markActive` 与控制台的「编辑」每次真写入都 +1，重复发布不动它；`updatedAt` 是最后改动日。两项都由 `ops/validate-instances.mjs` 校验，写错或缺失时 `npm run validate` 就失败。
 
 接口侧另有一条委托发信（`POST /api/federation/mail`），它不写清单也不写快照，只把一封信交给中枢的 SMTP；见 [FEDERATION.md](FEDERATION.md) 第 7 节。
 
@@ -49,7 +51,7 @@ xknot.si/
 │   ├── relay.mjs          委托发信的字段校验与消息组装（纯函数）
 │   ├── mail.mjs           SMTP 客户端（net/tls，无外部依赖）与邮件组装
 │   ├── member-mail.mjs    成员入口的一次性登录信（不进可补发的事件表）
-│   ├── notify.mjs         伙伴与内部邮件模板注册表（11 + 3，三语）
+│   ├── notify.mjs         伙伴与内部邮件模板注册表（9 + 2，三语）
 │   ├── pages.mjs          /case/、/claim/ 两个无脚本页面
 │   ├── mail-test.mjs      发一封测试信（npm run mail:test）
 │   ├── admin-cli.mjs      建管理员、补发信、交付、签发凭据
@@ -211,7 +213,18 @@ npm run test     # 纯逻辑单元测试
 /data/hub.json
 ```
 
-快照由 `ops/build-hub-data.mjs` 生成；合并逻辑在 `web/src/lib/snapshot.js`，探测任务和开发服务器共用同一份实现。内容是清单字段加上每个实例的探测结果：
+快照由 `ops/build-hub-data.mjs` 生成；合并逻辑在 `web/src/lib/snapshot.js`，探测任务和开发服务器共用同一份实现。内容是清单字段加上每个实例的探测结果。
+
+快照里有两层是**构建那一刻的采样**，重新构建才会更新：每个实例的 `health`，以及由 `region` 推出的区域。所以页面加载快照之后，还会取两份运行时数据覆盖它们（取不到就沿用快照，页面不会因此空着）：
+
+```text
+/api/probes     每个实例当前的探测结果（每 15 分钟一轮）
+/api/locations  每个实例观测到的区域（见第 4 节）
+```
+
+`/api/probes` 只给状态这一层：`{ checkedAt, probes: { <id>: { status, latencyMs, version, lastOkAt, downSince, hidden } } }`。合并规则在 `web/src/lib/hub.js` 的 `applyProbes`：只换 `health`，签发区、自述区、橱窗与活动数据仍以快照为准；快照里没有的 id 不新增条目。
+
+这条覆盖是必须的：构建时探测一次，如果那次恰好碰上实例重启（隧道刚断开、Backend 还没起来），一次 502 就会随着快照一直挂在门户上，直到下次构建。
 
 ### 3.1 版式样例
 
@@ -262,7 +275,7 @@ npm run test     # 纯逻辑单元测试
 - 文案取自 `src/locales/`，缺键回退英文，再缺就不渲染该块。
 - 时间用 `formatWhen`：7 天内为相对时间，超过为绝对日期，按实例的 `timezone` 计算。
 - 区域分组由 `src/lib/regions.js` 的 `groupsOf` 从国家码推出。国家码优先取 `/api/locations` 的观测值，没有再取 `hub.json` 的 `region`。
-- `hub.json` 由 nginx 以 `no-cache` 提供；状态是构建那一刻的采样，重新构建才会更新。位置走 `/api/locations`，不重新构建也能更新。
+- `hub.json` 由 nginx 以 `no-cache` 提供；里面的 `health` 与 `region` 是构建那一刻的采样，重新构建才会变。页面同时取 `/api/probes` 与 `/api/locations`，状态与位置不重新构建也能更新。
 
 ## 4. 页面
 
@@ -285,7 +298,7 @@ npm run test     # 纯逻辑单元测试
 2. `ops/geoip.mjs`：出口 IP → 国家码，写 `var/geoip/locations.json`。数据是 DB-IP 的免费库（`dbip-country-lite-YYYY-MM.csv.gz`，CC BY 4.0），月更、无需账号，解析在本机做，不调第三方接口。地址的判定缓存 30 天，所以常态下不解析、不下载。
 3. `GET /api/locations`：对外只给 `{ 实例 id: { country, at, source } }`。**出口 IP 不出这个进程** —— 门户要的是区域，不是把谁的宽带地址挂到公网上。
 
-页面拿 `hub.json` 的同时取一次 `/api/locations`：观测到的国家码覆盖 `region`，`groups`、筛选、卡片、地图都跟着变；取不到就用自述区的 `region`。卡片上被覆盖的区域带一条点线下划，悬停能看到「区域按出口 IP 判定」。
+页面拿 `hub.json` 的同时取一次 `/api/locations`：观测到的国家码覆盖 `region`，`groups`、筛选、卡片、地图都跟着变；取不到就用自述区的 `region`。卡片上被覆盖的区域带一条点线下划，悬停能看到「区域按出口 IP 判定」。健康状态同理，由 `/api/probes` 覆盖，见第 3 节。
 
 落点是该国家中心点（多个国家时求和取中心），因此「北欧四国」落在斯堪的纳维亚，「阿根廷 + 智利 + 乌拉圭」落在南锥体。`GLOBAL` 或既没有观测值也没有 `region` 的条目不上图，收在地图下方「无固定区域」的一行小标签里，仍可点。
 
@@ -368,6 +381,7 @@ M2 的拉取步骤落地后，`ops/fetch-cards.mjs` 把每个 `cardsUrl` 取回�
 | `/api/applications` | 加入申请，`POST` |
 | `/api/subdomains/check` | 子域标签能不能签，`GET` |
 | `/api/locations` | 各实例观测到的区域，`GET`，`no-store` |
+| `/api/probes` | 各实例当前的探测结果，`GET`，`no-store` |
 | `/api/member/*` | 成员登录、会话与本站概览 |
 | `/api/admin/*` | 登录、会话、申请列表、实例配置、清单条目 |
 
@@ -393,7 +407,7 @@ M2 的拉取步骤落地后，`ops/fetch-cards.mjs` 把每个 `cardsUrl` 取回�
 
 `ops/check-health.mjs`：
 
-- 读 `instances.json` 与 `federation.json`。
+- 只读 `instances.json`：名册里的隧道与身份字段不参与探测。
 - 每个实例的探测地址恒为 `url` + `/api/health`（`ops/probe-target.mjs` 推出）；清单 `status` 为 `active` 才探，`pending` / `suspended` / `retired` 都不探。
 - 并发探测这些地址，超时 5 秒，不跟随重定向。
 - 合并上一次的 `checks`、`ok`、`since`，累加。
@@ -401,7 +415,7 @@ M2 的拉取步骤落地后，`ops/fetch-cards.mjs` 把每个 `cardsUrl` 取回�
 
 `status` 不是 `active` 的条目不探测，保留上一次的结果。
 
-探测在构建时执行一次，也不依赖任何远端机器。`var/health.json` 保留上一次结果用于累加，重新构建即刷新页面上的状态。
+探测在构建时执行一次，也不依赖任何远端机器。`var/health.json` 保留上一次结果用于累加；定时巡检每 15 分钟刷新它在远程的副本，门户通过 `/api/probes` 读到当前值，不必等下一次构建。
 
 ### 5.1 定时巡检与断连规则
 
@@ -594,6 +608,7 @@ M1：
 - [ ] 隧道连着的实例，区域与 `GET /api/locations` 一致；断开隧道后回落到自述区的 `region`
 - [ ] `/api/locations` 的响应里没有 IP，只有国家码
 - [ ] 停掉一个实例，重新构建后它的点变红，同时显示上次正常时间，其他实例不受影响
+- [ ] 停掉一个实例但不重新构建，等下一轮巡检（15 分钟）后刷新页面：状态跟着变，说明 `/api/probes` 在覆盖快照
 - [ ] `instances.json` 加一条、`federation.json` 同步登记、重新构建后页面出现新条目，无需改代码
 - [ ] `npm run validate:federation` 对缺名册、缺清单、重复端口、两个 founder 都返回 1
 - [ ] `status` 不是 `active` 的条目保留上次结果，不被探测覆盖
@@ -606,7 +621,7 @@ M1：
 - [ ] 一屏两栏：宽屏左白右橙、各自滚动；900px 以下上下排，刊头的 `申请加入 →` 能跳到右栏
 - [ ] 英文文案不溢出按钮和状态点
 - [ ] 除加入申请外，门户不发起写请求；视图不设置 cookie
-- [ ] 页面只请求同源的 `/data/hub.json` 与 `/api/applications`，不直接请求伙伴站点
+- [ ] 页面只请求同源的 `/data/hub.json`、`/api/probes`、`/api/locations` 与 `/api/applications`，不直接请求伙伴站点
 - [ ] `validate-instances.mjs` 对正确清单返回 0，对错误清单返回 1
 - [ ] `validate-federation.mjs` 对正确名册返回 0；清单多一条、名册少一条时返回 1
 - [ ] `federation.test.mjs` 覆盖 founder 唯一、永久账号不可下架、账号与端口唯一、名册与清单一一对应
@@ -670,6 +685,7 @@ M3：加入申请
 | `relay_log` | 发信记录：实例、收件域名、地址哈希、主题长度、结果；不含正文 |
 | `member_codes` | 成员登录授权码：邮箱、实例、码的 SHA-256、签发/过期/使用时间、试错次数 |
 | `member_sessions` | 成员会话：令牌的 SHA-256、邮箱、实例、签发与过期时间 |
+| `provision_runs` | 自动接通的运行记录：申请 id、整个 run 的 JSON（状态、逐项步骤与错误码、入口主机、账号、端口）、创建与更新时间；一张单一行，每次推进整行覆盖 |
 
 申请状态与迁移：
 
@@ -692,6 +708,7 @@ M3：加入申请
 | `POST /api/applications` | 公开 | 提交申请，201 返回编号；字段错误 400 带 `fields`；限流 429 |
 | `GET /api/subdomains/check?label=` | 公开 | 一个标签能不能签：`{ label, available, reason, min, suggestions }`；`reason` 取 `too_short` / `too_long` / `format` / `reserved` / `taken` / `ok`；按 IP 每分钟 30 次 |
 | `GET /api/locations` | 公开 | 每个实例观测到的区域：`{ generatedAt, locations: { <id>: { country, at, source } } }`；只给国家码，不含 IP；没有观测值时 `locations` 为空表，页面回落到自述区的 `region` |
+| `GET /api/probes` | 公开 | 每个实例当前的探测结果：`{ checkedAt, probes: { <id>: { status, latencyMs, version, lastOkAt, downSince, hidden } } }`；只给状态，不含 `checks` / `ok` / `notified` 这类运营字段；还没有探测结果时 `probes` 为空表。页面用它覆盖快照里的 `health` |
 | `POST /api/member/code` | 公开 | 成员邮箱收一次性授权码（6 位、10 分钟、一次有效）。不是成员也回同样的 202，只有成员收得到信；单邮箱 10 分钟 3 次、单 IP 每小时 10 次 |
 | `POST /api/member/session` | 公开 | `{ email, code }` 换会话，种 30 天的 `xknot_member` Cookie，返回 `{ session, overview }`；码不对 401 `invalid_code`（`reason` 为 `mismatch` 或 `expired`），同一枚码错满 5 次 429，按 IP 15 分钟 12 次 |
 | `GET /api/member/session` | 成员会话 | 当前成员与本站概览：名称、地址、上架状态、探测结果、活动计数、橱窗条数 |
@@ -707,6 +724,7 @@ M3：加入申请
 | `GET /api/admin/notify-log?limit=&case=` | 会话 | 发信日志 |
 | `GET /api/admin/applications/:id/manifest` | 会话 | 生成清单条目，生成后自检，不合法返回 422 |
 | `GET /case/:caseKey` | 公开 | 案例页：状态、公钥、撤回 |
+| `GET /api/case/:caseKey/progress` | 公开 | 接通进度：`{ application, issued, run, handoff }`；`run` 给状态与逐项步骤，`handoff { host, account, port }` 只在节点资料就绪（`awaiting_tunnel` / `active`）后给出，否则为 `null`；案例键本身就是凭据，按 IP 每分钟 60 次 |
 | `POST /api/case/:caseKey/{withdraw,public-key}` | 公开 | 案例页动作；成功 303 回案例页 |
 | `GET /claim/:token` | 公开 | 领取页；只渲染按钮，不消费令牌 |
 | `POST /api/claim` | 公开 | 消费领取令牌，明文只返回这一次 |
@@ -850,7 +868,7 @@ node server/admin-cli.mjs access XK-2026-XXXXXX --id wang
 | 橱窗违规 | 删除 `var/cards/{id}.json`，从清单移除 `cardsUrl`，重新构建 |
 | 探测异常 | 查 `var/health.json` 的 `error` 字段：`timeout`、`redirect`、`bad_payload`、`http_<code>` |
 | 页面异常 | `npm run build` 重建 `web/dist` |
-| 状态不刷新 | 重新构建；页面上的状态是构建时的采样 |
+| 状态不刷新 | 先看 `GET /api/probes`：它是当前值，页面拿它覆盖快照。两边一致说明实例真的没通，不一致说明接口没起来或页面取不到它；只有快照里的旧值才需要重新构建 |
 | 忘记管理员口令 | 删掉该账号再建：`npm run admin -- delete-admin <name>`，然后 `create-admin` |
 | 接口挂了 | 看进程日志；库文件在 `var/`，重启不丢申请 |
 | 申请被刷 | 调低限流或临时停掉提交接口；已入库的记录在控制台撤回或留档 |

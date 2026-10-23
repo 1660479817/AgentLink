@@ -86,7 +86,10 @@ export function labelFromUrl(value) {
   }
   if (!host.endsWith(HUB_SUFFIX)) return "";
   const label = host.slice(0, -HUB_SUFFIX.length);
-  return label && !label.includes(".") ? label : "";
+  if (!label || label.includes(".")) return "";
+  // 同一个格式正则也要套在这里：只判「一级标签」的话，`a_b.xknot.si`、`a{b`
+  // 这类 checkLabel 会拒掉的名字照样能进清单，再被原样写进 nginx 与 sshd。
+  return LABEL_RE.test(label) ? label : "";
 }
 
 const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;

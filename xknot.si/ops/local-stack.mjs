@@ -232,6 +232,19 @@ export async function startStack(options = {}) {
 
   const logFile = path.join(dataDir, "api.log");
   const log = openSync(logFile, "a");
+  // dataDir 是调用方给的路径，递归删除只在它落在 var/e2e/ 下时才做：
+  // 被当成库调用却传了真实目录时，停一次服务就会把整目录删掉。
+  const e2eRoot = path.join(ROOT, "var", "e2e") + path.sep;
+  const canRemove = path.resolve(dataDir).startsWith(e2eRoot);
+  const cleanDataDir = async () => {
+    if (keep) return;
+    if (!canRemove) {
+      // 不是本次测试占用的目录：只清自己写进去的日志，别动别人的数据。
+      await rm(logFile, { force: true }).catch(() => {});
+      return;
+    }
+    await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+  };
 
   const api = spawn(process.execPath, [SERVER], {
     cwd: ROOT,
@@ -275,7 +288,7 @@ export async function startStack(options = {}) {
     entry = await startEntry({ distDir, apiBase: apiUrl, port: entryPort, dataFile });
   } catch (error) {
     api.kill("SIGKILL");
-    if (!keep) await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    await cleanDataDir();
     throw error;
   }
 
@@ -292,7 +305,7 @@ export async function startStack(options = {}) {
       ]);
       if (!exited) api.kill("SIGKILL");
     }
-    if (!keep) await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    await cleanDataDir();
   }
 
   async function setManifest(next) {
@@ -412,8 +425,11 @@ async function main(argv) {
   const federationFile = federationIndex >= 0 ? path.resolve(argv[federationIndex + 1]) : null;
 
   let admin = null;
-  if (adminArg) {
-    const [username, ...rest] = adminArg.split(":");
+  // 口令可以从环境变量给：写在命令行里会进 `ps aux` 与日志。测试装置用这个入口，
+  // 参数形式留给手动起栈的人。
+  const adminSpec = adminArg || process.env.XKNOT_E2E_ADMIN || null;
+  if (adminSpec) {
+    const [username, ...rest] = adminSpec.split(":");
     const password = rest.join(":");
     if (!username || !password) throw new Error("--admin 格式：<user>:<password>");
     admin = { username, password };

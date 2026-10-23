@@ -11,7 +11,7 @@
 #   XKNOT_HUB_SSH       必填，如 user@192.0.2.10
 #   XKNOT_API_ROOT   接口与控制台的根目录，默认 /opt/xknot
 #   XKNOT_WEB_ROOT   静态站根目录，默认 /var/www/xknot
-#   XKNOT_SSH_KEY    私钥路径，默认 ~/.ssh/id_rsa
+#   XKNOT_SSH_KEY    私钥路径；不给就用 ssh 自己的默认身份（含 ssh-agent 与 ~/.ssh/config）
 #   XKNOT_NGINX_CONF 远端 nginx 配置路径，默认 /etc/nginx/conf.d/xknot.si.conf
 #   XKNOT_SERVICE    远端 systemd unit 名，默认 xknot-api
 #
@@ -32,26 +32,68 @@ done
 : "${XKNOT_HUB_SSH:?set XKNOT_HUB_SSH=user@host}"
 API_ROOT="${XKNOT_API_ROOT:-/opt/xknot}"
 WEB_ROOT="${XKNOT_WEB_ROOT:-/var/www/xknot}"
-SSH_KEY="${XKNOT_SSH_KEY:-$HOME/.ssh/id_rsa}"
+# 默认不指定私钥：这台机的 ~/.ssh/id_rsa 会被拒，硬写一个默认值等于让不带变量的
+# 调用注定失败。交给 ssh 自己挑（agent / ~/.ssh/config / 各默认身份）。
+SSH_KEY="${XKNOT_SSH_KEY:-}"
 NGINX_CONF="${XKNOT_NGINX_CONF:-/etc/nginx/conf.d/xknot.si.conf}"
 SERVICE="${XKNOT_SERVICE:-xknot-api}"
 
-SSH_OPTS=(-i "$SSH_KEY" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
+# 远端 shell 会把这几个路径再解析一遍。直接用单引号包起来，值里只要有一个单引号
+# 就能提前闭合、把后面的内容当命令执行；空格与 ; 同理。所以统一走这层转义。
+# 单引号里放不下单引号，遇到就把那个引号拆成 '\''：先闭合、转义一个引号、再打开。
+shq() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+if [[ -n "$SSH_KEY" ]]; then
+  SSH_OPTS=(-i "$SSH_KEY" -o IdentitiesOnly=yes "${SSH_OPTS[@]}")
+fi
+# rsync 的 -e 只接受一个字符串，路径里有空格时裸拼就会把参数拆开。
+SSH_CMD="ssh"
+if [[ -n "$SSH_KEY" ]]; then
+  SSH_CMD="ssh -i $(shq "$SSH_KEY")"
+fi
+SSH_CMD="$SSH_CMD -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+
+# 这份配置只描述 xknot.si。指到别的子域的 conf 上就会把那个站点整份覆盖掉。
+case "$NGINX_CONF" in
+  /*/xknot.si.conf) ;;
+  *)
+    echo "XKNOT_NGINX_CONF 必须以 /xknot.si.conf 结尾（当前是 '${NGINX_CONF}'）：拒绝覆盖别的站点的配置。" >&2
+    exit 2
+    ;;
+esac
 
 rsync_to() {
-  local src="$1" dest="$2"
+  local src="$1" dest="$2" prune="${3:-0}"
   if [[ "$DRY_RUN" == 1 ]]; then
     echo "(dry-run) $src → $XKNOT_HUB_SSH:$dest"
     return
   fi
-  rsync -az --itemize-changes \
-    --exclude '*.test.mjs' \
-    -e "ssh ${SSH_OPTS[*]}" \
-    "$src" "$XKNOT_HUB_SSH:$dest"
+  # 本机那份 ops/*.local.env 是邮件凭据，被 .gitignore 挡在版本库外；整目录同步会把它
+  # 复制成远端的一份额外副本。远端读的是 var/mail.env，ops/ 下的 env 一律不该存在。
+  local excludes=(
+    --exclude '*.test.mjs'
+    --exclude '*.local.env'
+    --exclude '*.env'
+  )
+  # 带 --delete-excluded 的只有 ops/：远端残留的旧凭据副本要在这里清掉，
+  # 其余目录不加 --delete，免得误删远端的运行时文件。
+  if [[ "$prune" == 1 ]]; then
+    rsync -az --itemize-changes "${excludes[@]}" --delete --delete-excluded \
+      -e "$SSH_CMD" \
+      "$src" "$XKNOT_HUB_SSH:$dest"
+  else
+    rsync -az --itemize-changes "${excludes[@]}" \
+      -e "$SSH_CMD" \
+      "$src" "$XKNOT_HUB_SSH:$dest"
+  fi
 }
 
-if [[ "$DRY_RUN" != 1 && ! -f "$SSH_KEY" ]]; then
-  echo "找不到私钥：$SSH_KEY" >&2
+if [[ "$DRY_RUN" != 1 && -n "$SSH_KEY" && ! -f "$SSH_KEY" ]]; then
+  # 只报变量名，不回显路径：脚本输出会进部署日志。
+  echo "XKNOT_SSH_KEY 指向的私钥不存在。要改用 ssh 默认身份，就别设这个变量。" >&2
   exit 1
 fi
 
@@ -60,14 +102,15 @@ if [[ "$DRY_RUN" == 1 ]]; then
   echo "(dry-run) mkdir -p $API_ROOT/{server,admin,ops,docs,web/src/lib,var}"
 else
     ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" \
-    "mkdir -p '$API_ROOT/server' '$API_ROOT/admin' '$API_ROOT/ops' '$API_ROOT/docs' \
-      '$API_ROOT/web/src/lib' '$API_ROOT/var' && chmod 700 '$API_ROOT/var'"
+    "mkdir -p $(shq "$API_ROOT/server") $(shq "$API_ROOT/admin") $(shq "$API_ROOT/ops") $(shq "$API_ROOT/docs") \
+      $(shq "$API_ROOT/web/src/lib") $(shq "$API_ROOT/var") && chmod 700 $(shq "$API_ROOT/var")"
 fi
 
-# 接口运行时需要的东西：server/ 本身，以及 manifest.mjs 校验清单时用到的
-# validate-instances.mjs、i18n.js、regions.js。缺一个，生成清单条目就会失败。
-# 控制台的「编辑」还要读 validate-federation.mjs：漏了它，server/edit.mjs 一加载就报
-# ERR_MODULE_NOT_FOUND，整个接口起不来。
+# 先检查边界：server/ 的 import 只能落在 server/、ops/ 与 web/src/lib/ 之内。
+# 线上一旦出现越界 import，进程起来就 ERR_MODULE_NOT_FOUND、反复重启、门户 502，
+# 在本地把它挡下来，不要等远端日志。
+node "$HUB/ops/check-server-imports.mjs" --root "$HUB" || exit 1
+
 echo "==> sync api"
 rsync_to "$HUB/server/" "$API_ROOT/server/"
 rsync_to "$HUB/admin/" "$API_ROOT/admin/"
@@ -77,9 +120,11 @@ rsync_to "$HUB/docs/" "$API_ROOT/docs/"
 # 曾经不在名单里，部署后 ERR_MODULE_NOT_FOUND，进程一直重启，门户 502。
 # 定时巡检（每 15 分钟）也直接在远端跑这里的文件，同样是一漏就整轮失败。
 # 单测不进远端：那边没有跑测试的场景，留着只会让 /opt/xknot 越来越像仓库。
-rsync_to "$HUB/ops/" "$API_ROOT/ops/"
-rsync_to "$HUB/web/src/lib/i18n.js" "$API_ROOT/web/src/lib/"
-rsync_to "$HUB/web/src/lib/regions.js" "$API_ROOT/web/src/lib/"
+rsync_to "$HUB/ops/" "$API_ROOT/ops/" 1
+# web/src/lib/ 同样整目录同步。以前是逐个 rsync i18n.js、regions.js，
+# 接口再 import 这目录里的第三份文件就会重演上面那次事故；
+# 目录内的 *.test.mjs 由 rsync_to 的排除规则滤掉，不进远端。
+rsync_to "$HUB/web/src/lib/" "$API_ROOT/web/src/lib/"
 
 # 两份人工维护的配置：清单与名册。仓库是权威副本，同步会用仓库内容覆盖远端，
 # 所以先把远端现存的各存一份到 var/config-backup/，在中枢主机上手改过的内容还能捞回来。
@@ -90,13 +135,13 @@ else
   ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "
     set -e
     stamp=\$(date -u +%Y%m%dT%H%M%SZ)
-    dir='$API_ROOT/var/config-backup/'\$stamp
+    dir=$(shq "$API_ROOT/var/config-backup/")\"\$stamp\"
     mkdir -p \"\$dir\"
     for f in instances.json federation.json; do
-      [ -f '$API_ROOT/'\$f ] && cp -a '$API_ROOT/'\$f \"\$dir/\$f\"
+      [ -f $(shq "$API_ROOT/")\"\$f\" ] && cp -a $(shq "$API_ROOT/")\"\$f\" \"\$dir/\$f\"
     done
     # 只留最近 20 份，别让备份把磁盘堆满。
-    ls -1dt '$API_ROOT/var/config-backup/'*/ 2>/dev/null | tail -n +21 | xargs -r rm -rf
+    ls -1dt $(shq "$API_ROOT/var/config-backup/")*/ 2>/dev/null | tail -n +21 | xargs -r rm -rf
     echo \"backup: \$dir\"
   "
 fi
@@ -129,9 +174,9 @@ if [[ "$DRY_RUN" == 1 ]]; then
 elif [[ -n "${XKNOT_ENTRY_HOST:-}" ]]; then
   ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "
     set -e
-    if [ ! -f '$API_ROOT/var/provision.env' ]; then
-      printf 'XKNOT_ENTRY_HOST=%s\n' '$XKNOT_ENTRY_HOST' | sudo tee '$API_ROOT/var/provision.env' >/dev/null
-      sudo chmod 600 '$API_ROOT/var/provision.env'
+    if [ ! -f $(shq "$API_ROOT/var/provision.env") ]; then
+      printf 'XKNOT_ENTRY_HOST=%s\n' $(shq "$XKNOT_ENTRY_HOST") | sudo tee $(shq "$API_ROOT/var/provision.env") >/dev/null
+      sudo chmod 600 $(shq "$API_ROOT/var/provision.env")
       echo 'wrote: $API_ROOT/var/provision.env'
     fi
   "
@@ -147,7 +192,7 @@ else
     set -e
     # unit 先装，nginx 配置最后装：unit 文件不参与 nginx -t，而 conf 校验失败时
     # 必须停在 daemon-reload 之前，别让主机上的服务被换掉。
-    sudo install -m 644 /tmp/xknot-api.service '/etc/systemd/system/$SERVICE.service'
+    sudo install -m 644 /tmp/xknot-api.service $(shq "/etc/systemd/system/$SERVICE.service")
     sudo install -m 644 /tmp/xknot-provision.service /etc/systemd/system/xknot-provision.service
     sudo install -m 644 /tmp/xknot-health.service /etc/systemd/system/xknot-health.service
     sudo install -m 644 /tmp/xknot-health.timer /etc/systemd/system/xknot-health.timer
@@ -160,32 +205,32 @@ else
     # 受影响的就不止这个站点了。
     # 备份名不以 .conf 结尾，nginx 的 conf.d/*.conf 不会把它当配置读进来。
     stamp=\$(date -u +%Y%m%dT%H%M%SZ)
-    bak=\"$NGINX_CONF.bak-\"\$stamp
+    bak=$(shq "$NGINX_CONF")".bak-"\$stamp
     had_conf=0
-    if [ -f '$NGINX_CONF' ]; then
+    if [ -f $(shq "$NGINX_CONF") ]; then
       # 用 install 而不是 cp -a：cp -a 会把原文件的修改时间一起带过去，
       # 下面按时间裁备份时，几份备份时间相同，留下的就不是最近的那几份。
-      sudo install -m 644 '$NGINX_CONF' \"\$bak\"
+      sudo install -m 644 $(shq "$NGINX_CONF") \"\$bak\"
       had_conf=1
     fi
-    sudo install -m 644 /tmp/xknot.si.conf '$NGINX_CONF'
+    sudo install -m 644 /tmp/xknot.si.conf $(shq "$NGINX_CONF")
     if ! sudo nginx -t; then
       if [ \"\$had_conf\" = 1 ]; then
-        sudo cp -a \"\$bak\" '$NGINX_CONF'
-        echo \"回滚：nginx -t 未通过，'$NGINX_CONF' 已恢复，副本在 \$bak\" >&2
+        sudo cp -a \"\$bak\" $(shq "$NGINX_CONF")
+        echo \"回滚：nginx -t 未通过，配置已恢复，副本在 \$bak\" >&2
       else
         # 原本没有这份配置：留着坏文件同样会让下一次 reload 失败。
-        sudo rm -f '$NGINX_CONF'
-        echo \"回滚：nginx -t 未通过，原本没有 '${NGINX_CONF}'，新装的那份已移除\" >&2
+        sudo rm -f $(shq "$NGINX_CONF")
+        echo \"回滚：nginx -t 未通过，原本没有这份配置，新装的那份已移除\" >&2
       fi
       exit 1
     fi
     # 备份只留最近 10 份，别让每次部署都多一个文件堆在 conf.d 里。
-    ls -1dt '$NGINX_CONF'.bak-* 2>/dev/null | tail -n +11 | sudo xargs -r rm -f || true
+    ls -1dt $(shq "$NGINX_CONF").bak-* 2>/dev/null | tail -n +11 | sudo xargs -r rm -f || true
 
     sudo systemctl daemon-reload
-    sudo systemctl enable '$SERVICE'
-    sudo systemctl restart '$SERVICE'
+    sudo systemctl enable $(shq "$SERVICE")
+    sudo systemctl restart $(shq "$SERVICE")
     # 自动接通：没配 provision.env 时只打日志，不会碰主机。
     sudo systemctl enable xknot-provision
     sudo systemctl restart xknot-provision

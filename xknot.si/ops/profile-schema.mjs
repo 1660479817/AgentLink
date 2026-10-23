@@ -50,7 +50,8 @@ export const SITE_FIELDS = [
   "tags",
 ];
 
-const ID_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/;
+// 落盘文件名与清单 id 共用这一条：id 会拼进 var/*/{id}.json，带 / 或 .. 就写到目录外。
+export const ID_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const REGION_RE = /^[A-Z]{2}$/;
 
@@ -135,7 +136,7 @@ function cleanTags(value, problems) {
 
 /**
  * 清洗一份自述区。返回可以直接落盘的 site，以及发现的问题。
- * 有问题的字段会被丢掉；只要有一条问题就不给出 site，调用方决定保留上一份还是拒绝。
+ * 有问题的字段会被丢掉；没有名字时才不给出 site（门户没有可显示的名称）。
  * @param {unknown} input
  * @returns {{ ok: boolean, problems: string[], site: object | null }}
  */
@@ -192,7 +193,9 @@ export function cleanSite(input) {
   // 门户必须能显示一个名字；其余都可以空着。
   if (!site.name) problems.push("name: required");
 
-  return { ok: problems.length === 0, problems, site: problems.length ? null : site };
+  // 只有「没有名字」才整份丢弃：其余问题的字段已经在上面的清洗里丢掉了，
+  // 能用的字段照收。否则伙伴多写一个未知字段就会让整份档案停在旧版本。
+  return { ok: problems.length === 0, problems, site: site.name ? site : null };
 }
 
 /**
@@ -221,7 +224,14 @@ export function checkIssued(instance, seen = new Set()) {
   // 清单只收中枢签发出来的地址：https://<标签>.xknot.si。
   // 早期签发的短号（< 6 位）照样放行；长度与保留名在签发时才判。
   if (!isHttpsUrl(instance.url)) errors.push("url: must be https");
-  else if (!labelFromUrl(instance.url)) errors.push(`url: must be https://<label>${HUB_SUFFIX}`);
+  else {
+    const label = labelFromUrl(instance.url);
+    if (!label) errors.push(`url: must be https://<label>${HUB_SUFFIX}`);
+    // 标签必须等于 id：两份清单按 id 对齐，地址指向别人的子域会让门户与流量记到对方名下。
+    else if (typeof instance.id === "string" && label !== instance.id) {
+      errors.push(`url: label "${label}" must equal id "${instance.id}"`);
+    }
+  }
 
   if (typeof instance.since !== "string" || !DATE_RE.test(instance.since)) errors.push("since: must be YYYY-MM-DD");
   if (!TIERS.includes(instance.tier)) errors.push(`tier: must be one of ${TIERS.join(", ")}`);

@@ -25,16 +25,28 @@ export function uniqueSite(tag = "site") {
   };
 }
 
-/** 收集页面上的脚本错误与 CSP 违规；CSP 违规会以 console error 出现。 */
-export function watchErrors(page) {
+/**
+ * 收集页面上的脚本错误与 CSP 违规；CSP 违规会以 console error 出现。
+ *
+ * 用例自己主动制造的失败要显式写进 `allow`，不能用一条宽泛的前缀把它连带放过：
+ * 只有「这一步失败正是用例要验证的东西」才配放进白名单，且放行它的同时必须有
+ * 一条断言看见对应的错误条。默认不过滤任何东西。
+ *
+ * @param {import("@playwright/test").Page} page
+ * @param {{ allow?: RegExp[] }} [options]
+ */
+export function watchErrors(page, { allow = [] } = {}) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     const text = message.text();
-    // 浏览器会把 401/404 这类资源响应也记成 console error，那是接口语义，
-    // 不是脚本错误；这里只看真正的异常与 CSP 拒绝。
-    if (text.startsWith("Failed to load resource")) return;
+    // 浏览器把资源响应的失败也记成 console error：401/403/404 是接口语义
+    // （未登录、无权、不存在），每次登录跳转都会出现，不该算脚本错误。
+    // 同一前缀还盖着 5xx、net::ERR_* 和被 CSP 拦掉的脚本：那些必须计入，
+    // 否则一次真实的 500 或断链也能让用例全绿（S24-12）。
+    if (/^Failed to load resource/.test(text) && /status of (401|403|404)\b/.test(text)) return;
+    if (allow.some((pattern) => pattern.test(text))) return;
     errors.push(`console: ${text}`);
   });
   return errors;

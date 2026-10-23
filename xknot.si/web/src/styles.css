@@ -1,5 +1,44 @@
-@import "@fontsource-variable/space-grotesk";
-@import "@fontsource-variable/jetbrains-mono";
+/* 字体只取 latin 与 latin-ext 两个子集。
+ *
+ * 以前是整包 @import：两个可变字体的 9 个子集全部进 dist/assets，其中 cyrillic、
+ * greek、vietnamese 五个子集（约 37KB）在这个站点上永远没有字符命中——站点只有
+ * en / zh-CN / zh-TW。这里按包内已经拆好的文件手写 @font-face，子集外的字符
+ * 落到系统字体，中文本来就走系统字体。
+ *
+ * 换字体或升级 fontsource 时，这些文件名与 unicode-range 要从包的 index.css 抄，
+ * 不要凭记忆写。OFL 许可证文本由 ops/build-hub.sh 复制进 dist/assets。 */
+@font-face {
+  font-family: 'Space Grotesk Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url("@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2") format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Space Grotesk Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url("@fontsource-variable/space-grotesk/files/space-grotesk-latin-ext-wght-normal.woff2") format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2") format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-ext-wght-normal.woff2") format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
 
 /* 浅色是默认：白底、冷灰、单一蓝。深色是同一套语义变量的墨蓝改写。 */
 :root {
@@ -8,7 +47,7 @@
   --surface-soft: #f8fafd;
   --ink: #0a1322;
   --muted: #475569;
-  --dim: #64748b;
+  --dim: #5b6b80;
   --accent: #0b5fff;
   --accent-strong: #0847c4;
   --accent-soft: #e8efff;
@@ -20,7 +59,7 @@
   --unknown: #64748b;
   --line: #e1e8f2;
   --line-strong: #c3d2e6;
-  --faint: #93a3b8;
+  --faint: #64748b;
   --row-hover: #f7faff;
   --row-active: #eef4ff;
   --bars-off: rgba(100, 116, 139, 0.22);
@@ -99,7 +138,7 @@
   --unknown: #8595ad;
   --line: rgba(148, 180, 225, 0.16);
   --line-strong: rgba(148, 180, 225, 0.3);
-  --faint: #71839c;
+  --faint: #7489a6;
   --row-hover: rgba(91, 155, 255, 0.055);
   --row-active: rgba(91, 155, 255, 0.12);
   --bars-off: rgba(148, 180, 225, 0.2);

@@ -31,7 +31,8 @@ test.beforeAll(async () => {
     },
   });
   // 清单里已有 e2e-node，但没有申请单。补一张已通过的，才认得出成员。
-  await stack.adminCli(["backfill", "e2e-node", "--email", MEMBER_EMAIL]);
+  // 自述区没写地区码时 backfill 不猜一个凑数，这里按用例约定显式给 SG。
+  await stack.adminCli(["backfill", "e2e-node", "--email", MEMBER_EMAIL, "--region", "SG"]);
 });
 
 test.afterAll(async () => {
@@ -78,7 +79,8 @@ test("未登录时只有邮箱一格，加入方式是四步说明", async ({ pa
   const steps = page.locator("aside#join ol.steps li");
   await expect(steps).toHaveCount(4);
   await expect(steps.nth(0).locator(".step-title")).toHaveText(zhCN.join.step1);
-  await expect(steps.nth(2).locator(".step-desc")).toContainText("提交后平台当场核对通过");
+  // 断言指向文案键本身：文案改一次，这里跟着变，不再抄一份中文进来。
+  await expect(steps.nth(2).locator(".step-desc")).toContainText(zhCN.join.step3desc);
   await expect(page.locator('a.step-link[href*="github.com/manwjh/AgentLink"]')).toBeVisible();
   await expect(page.locator("code.inline-code")).toContainText("/admin");
 

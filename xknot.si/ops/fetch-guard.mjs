@@ -143,7 +143,7 @@ export async function assertPublicUrl(raw, { resolve = resolveAll } = {}) {
   return url;
 }
 
-async function readLimited(response, maxBytes) {
+export async function readLimited(response, maxBytes) {
   const declared = Number(response.headers?.get?.("content-length"));
   if (Number.isFinite(declared) && declared > maxBytes) throw new FetchGuardError("too_large");
   if (!response.body || typeof response.body.getReader !== "function") {

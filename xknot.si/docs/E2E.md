@@ -121,13 +121,12 @@ E2E_CHANNEL= npm run test:ui
 
 - 缺少字段按字段返回错误码；跨站 POST 403；蜜罐填了回 201 但不落库。
 - 正常提交 201，编号形如 `XK-YYYY-XXXXXX`，状态直接是 `approved`；同一子域再提 409。
-- 提交后收到两封信：申请人拿到批准信（含地址、档位与 `/case/` 链接），运营方拿到新成员提醒；伙伴信 `Reply-To` 为空（不接收回复）。
+- 提交后收到两封信：申请人拿到批准信（含地址、档位与 `/case/` 链接），运营方拿到新成员提醒；伙伴信 `Reply-To` 是 `XKNOT_MAIL_REPLY_TO`（缺省取 `MAIL_FROM`，即 `no-reply@<中枢域名>`），正文写明不接收回复。
 - 没有 `/verify/` 页面与 `/api/verify` 接口；申请不会停在待确认。
 - `/case/<caseKey>` 可看状态、提交公钥与撤回。
 - 未登录 401，伪造 Cookie 401，错密码 401；登录 Cookie 带 `HttpOnly`、`SameSite=Strict`、`Path=/`。
 - 已通过列表能看到申请，`reviewedBy` 为 `auto`；生成的清单条目过 `checkManifestEntry`，默认 `tier: free`。
 - 审核接口已移除，再调返回 404；退出后会话立刻失效。
-- `handoff` 生成一次性领取链接：`GET /claim/<token>` 不消费，`POST /api/claim` 只返回一次明文，再取 409；邮件正文不含凭据。
 - `handoff` 生成一次性领取链接：`GET /claim/<token>` 不消费，`POST /api/claim` 只返回一次明文，再取 409；邮件正文不含凭据。
 
 ### 4.3 委托发信（`e2e/relay.e2e.test.mjs`）

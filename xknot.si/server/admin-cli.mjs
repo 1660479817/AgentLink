@@ -37,13 +37,15 @@
 // 示例：
 //   XKNOT_ADMIN_PASSWORD='...' node server/admin-cli.mjs create-admin paul
 
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { backfillApplication } from "./backfill.mjs";
+import { withFileLock } from "./file-lock.mjs";
 import { createMailer, mailConfigFromEnv } from "./mail.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry, toRosterMember } from "./manifest.mjs";
 import { validateRoster } from "../ops/validate-federation.mjs";
@@ -86,8 +88,10 @@ async function readRoster() {
 }
 
 // 先写临时文件再 rename：写到一半失败时，原来的 JSON 还是完整的。
+// 临时名带 pid 与随机后缀：两个 CLI 同时 publish 时，固定叫 .tmp 的那一份
+// 会互相覆盖，后 rename 的人把自己读到的旧内容写回去，前后两份更新一起丢。
 async function writeJsonAtomic(file, value) {
-  const temp = `${file}.tmp`;
+  const temp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   await rename(temp, file);
 }
@@ -229,15 +233,8 @@ async function main(argv) {
 
     const idFlag = rest.indexOf("--id");
     const wantedId = idFlag >= 0 ? rest[idFlag + 1] : undefined;
-    const manifest = await readManifest();
-    if (manifest.instances.some((item) => item.url === application.url)) {
-      return fail("清单里已有同一个站点地址");
-    }
 
     const entry = toManifestEntry(application, { id: wantedId });
-    if (manifest.instances.some((item) => item.id === entry.id)) {
-      return fail(`id "${entry.id}" 已被占用，用 --id 指定另一个`);
-    }
     const problems = checkManifestEntry(entry);
     if (problems.length) {
       for (const problem of problems) console.error(`- ${problem}`);
@@ -250,44 +247,74 @@ async function main(argv) {
     const tunnelPort = Number(flag(rest, "tunnel-port") || 0);
     // 旗标出现就要按名册走，不要因为端口写成非数字而静默退成只写清单。
     const withRoster = rest.includes("--tunnel-account") || rest.includes("--tunnel-port");
-    let roster = null;
     if (withRoster) {
       if (!tunnelAccount) return fail("要写名册就得同时给 --tunnel-account 与 --tunnel-port。");
       if (!Number.isInteger(tunnelPort) || tunnelPort < 1024 || tunnelPort > 65535) {
         return fail("--tunnel-port 是 1024–65535 的整数。");
       }
-
-      roster = await readRoster();
-      if (roster.members.some((member) => member.id === entry.id)) {
-        return fail(`名册里已有 "${entry.id}"，不要重复写。`);
-      }
-      roster.members.push(
-        toRosterMember(entry, {
-          tunnelAccount,
-          tunnelPort,
-          role: flag(rest, "role", "partner"),
-          standing: flag(rest, "standing") || undefined,
-          note: flag(rest, "note") || undefined,
-        })
-      );
-      roster.updatedAt = new Date().toISOString().slice(0, 10);
-
-      const rosterProblems = validateRoster(roster, { ...manifest, instances: [...manifest.instances, entry] });
-      if (rosterProblems.length) {
-        for (const [label, errors] of rosterProblems) {
-          for (const error of errors) console.error(`- ${label || "名册"}: ${error}`);
-        }
-        return fail("名册校验不过，两份文件都没有改动。");
-      }
     }
 
-    manifest.instances.push(entry);
-    manifest.updatedAt = new Date().toISOString().slice(0, 10);
-    await writeJsonAtomic(manifestFile, manifest);
-    if (roster) await writeJsonAtomic(rosterFile, roster);
+    // 查重、校验、落盘整段在锁内：接口进程与控制台的保存也在改同一份清单，
+    // 「先读后写」中间被别人插进来，两边就会各写一份，前一个的条目消失。
+    const outcome = await withFileLock(manifestFile, async () => {
+      const manifest = await readManifest();
+      if (manifest.instances.some((item) => item.url === entry.url)) {
+        return { error: "清单里已有同一个站点地址" };
+      }
+      if (manifest.instances.some((item) => item.id === entry.id)) {
+        return { error: `id "${entry.id}" 已被占用，用 --id 指定另一个` };
+      }
+      const roster = withRoster ? await readRoster() : null;
+      if (roster && roster.members.some((member) => member.id === entry.id)) {
+        return { error: `名册里已有 "${entry.id}"，不要重复写。` };
+      }
+
+      const nextRoster = roster
+        ? {
+            ...roster,
+            updatedAt: new Date().toISOString().slice(0, 10),
+            members: [
+              ...roster.members,
+              toRosterMember(entry, {
+                tunnelAccount,
+                tunnelPort,
+                role: flag(rest, "role", "partner"),
+                standing: flag(rest, "standing") || undefined,
+                note: flag(rest, "note") || undefined,
+              }),
+            ],
+          }
+        : null;
+
+      if (nextRoster) {
+        const rosterProblems = validateRoster(nextRoster, {
+          ...manifest,
+          instances: [...manifest.instances, entry],
+        });
+        if (rosterProblems.length) return { error: "名册校验不过，两份文件都没有改动。", problems: rosterProblems };
+      }
+
+      const nextManifest = {
+        ...manifest,
+        updatedAt: new Date().toISOString().slice(0, 10),
+        instances: [...manifest.instances, entry],
+      };
+      // 名册先写、清单后写，与 publish.mjs 同一个顺序：中途失败最多多一条
+      // 待接通的名册成员，不会留下「清单里有、名册里没有」这种悬挂状态。
+      if (nextRoster) await writeJsonAtomic(rosterFile, nextRoster);
+      await writeJsonAtomic(manifestFile, nextManifest);
+      return { ok: true, roster: Boolean(nextRoster) };
+    });
+
+    if (outcome.error) {
+      for (const [label, errors] of outcome.problems || []) {
+        for (const error of errors) console.error(`- ${label || "名册"}: ${error}`);
+      }
+      return fail(outcome.error);
+    }
 
     console.log(`已写入 instances.json：${entry.id} → ${entry.url}`);
-    if (roster) console.log(`已写入 federation.json：${entry.id}（${tunnelAccount} / ${tunnelPort}）`);
+    if (outcome.roster) console.log(`已写入 federation.json：${entry.id}（${tunnelAccount} / ${tunnelPort}）`);
     else console.log("名册还没写：补 --tunnel-account 与 --tunnel-port，或在 federation.json 手工加同名成员。");
     console.log("下一步：npm run build，重新构建后再部署。");
     return;
@@ -298,7 +325,7 @@ async function main(argv) {
     // 只抄清单与自述区里的事实，不签发东西、不改清单。
     const id = rest[0];
     if (!id || id === "--help" || id === "-h") {
-      return fail("用法：backfill <实例 id> [--email 邮箱] [--admin 操作者] [--dry-run]");
+      return fail("用法：backfill <实例 id> [--email 邮箱] [--region CN] [--admin 操作者] [--dry-run]");
     }
     const manifest = await readManifest();
     const entry = (manifest.instances || []).find((item) => item.id === id);
@@ -322,10 +349,23 @@ async function main(argv) {
       return;
     }
 
-    const result = backfillApplication({ store, manifest, instanceId: id, profile, email, admin });
+    const result = backfillApplication({
+      store,
+      manifest,
+      instanceId: id,
+      profile,
+      email,
+      // 自述区没写 region 时用它；不猜一个「全球」凑数。
+      region: flag(rest, "region", ""),
+      admin,
+    });
     if (result.error === "no_instance") return fail(`清单里没有实例 "${id}"`);
-    if (result.error === "no_email") return fail("要一个联系邮箱：加 --email，或设 XKNOT_ADMIN_EMAIL。");
+    if (result.error === "bad_email") return fail("要一个合格式的联系邮箱：加 --email，或设 XKNOT_ADMIN_EMAIL。");
+    if (result.error === "no_region") {
+      return fail("自述区里没有可用的地区码：加 --region <两位国家码>（如 CN）。");
+    }
     if (result.error === "not_hub_subdomain") return fail(`实例 "${id}" 的地址不是中枢签发的子域，不能补记：${entry.url}`);
+    if (result.error) return fail(`补记失败：${result.error}`);
     if (result.skipped) {
       console.log(`已有申请单 ${result.application.id}（${result.application.status}），没有改动。`);
       return;
@@ -371,6 +411,8 @@ async function main(argv) {
       `XKNOT_ISSUED_AT=${instance.since || today}`,
       `XKNOT_TIER=${instance.tier || "free"}`,
       `XKNOT_STATUS=${instance.status || "active"}`,
+      // 7.4 键表里的必填键，消费方按这个名字读（knot-platform 的 join-xknot.sh）。
+      `XKNOT_HUB_ISSUED_AT=${instance.since || today}`,
       `XKNOT_HUB_ORIGIN=${origin}`,
     ];
 
@@ -396,8 +438,12 @@ async function main(argv) {
     const out = flag(rest, "out");
     const text = `${lines.join("\n")}\n`;
     if (out) {
-      await writeFile(path.resolve(out), text, { mode: 0o600 });
-      console.log(`写入 ${path.resolve(out)}（权限 600）。用一次性领取交给伙伴，不要贴进聊天或邮件。`);
+      const target = path.resolve(out);
+      await writeFile(target, text, { mode: 0o600 });
+      // mode 只在新建文件时生效：覆盖一份本来就存在的 0644 文件，权限原样留着，
+      // 里面却是刚签的发信凭据。所以写完再收一次。
+      await chmod(target, 0o600);
+      console.log(`写入 ${target}（权限 600）。用一次性领取交给伙伴，不要贴进聊天或邮件。`);
     } else {
       console.log(text.trimEnd());
     }
@@ -489,19 +535,27 @@ async function main(argv) {
     if (!payload) return fail("payload 文件是空的");
     if (payload.length > 8000) return fail("payload 超过 8000 字，请精简后再交付");
 
+    // ttl 可传 1–168：交付信与终端提示都要读这个值，写死 72 小时就是在
+    // 告诉伙伴一个比真实过期时间更长的期限。
+    const ttlHours = Math.min(Math.max(Number(flag(rest, "ttl", 72)) || 72, 1), 168);
     const claim = store.createClaimToken({
       applicationId: application.id,
       payload,
-      ttlHours: Math.min(Math.max(Number(flag(rest, "ttl", 72)) || 72, 1), 168),
+      ttlHours,
       createdBy: process.env.XKNOT_ADMIN_USER || null,
     });
     if (claim.error) return fail(`生成领取令牌失败：${claim.error}`);
 
     const env = mailerFromEnv();
     const claimUrl = `${env.origin}/claim/${claim.token}`;
-    const message = await sendEvent("partner.handoff", application, { links: { claimUrl } }, {});
+    const message = await sendEvent(
+      "partner.handoff",
+      application,
+      { links: { claimUrl }, claimTtlHours: ttlHours },
+      {}
+    );
     if (!message) return;
-    console.log(`领取地址（只显示这一次，链接 72 小时后失效）：\n${claimUrl}`);
+    console.log(`领取地址（只显示这一次，链接 ${ttlHours} 小时后失效）：\n${claimUrl}`);
     console.log(`领取记录 ${claim.id}，过期于 ${claim.expiresAt}`);
     return;
   }

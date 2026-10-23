@@ -11,6 +11,7 @@
 // 收尾的 two 步（探测 / 改 active）在 worker 里，因为它们要等伙伴起隧道。
 
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 
 import { normalizePublicKey } from "./validate.mjs";
 
@@ -356,8 +357,18 @@ ${rootLocation}
 
 /** 每个成员一段 Match：只允许把入口的回环端口转到实例，不给 shell、不许开别的端口。 */
 export function renderSshdMatch({ members = [] }) {
-  const blocks = members
-    .filter((member) => member?.tunnel?.account && Number.isInteger(Number(member.tunnel.port)))
+  const rows = members.filter((member) => member?.tunnel?.account);
+  // 名册是外部输入（清单、控制台、CLI 都写过它）。这里逐条复校账号名与端口：
+  // 一行 `Match User` 里出现空格或换行，整份 sshd_config 就不再是它看起来的样子。
+  for (const member of rows) {
+    const account = String(member.tunnel.account);
+    if (!ACCOUNT_RE.test(account)) throw new ProvisionError("invalid_account", account);
+    const port = Number(member.tunnel.port);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new ProvisionError("invalid_port", `${account}: ${member.tunnel.port}`);
+    }
+  }
+  const blocks = rows
     .map(
       (member) => `Match User ${member.tunnel.account}
     AllowTcpForwarding remote
@@ -375,6 +386,38 @@ export function renderSshdMatch({ members = [] }) {
 # 名册是唯一事实来源：成员增减后重跑签发步骤即可。
 ${blocks.join("\n\n")}
 `;
+}
+
+// 签发出来的地址只有一种形状：<标签>.xknot.si，标签是 LABEL_RE 认的那一套。
+// 这里不复用 checkLabel：已签发的短号（如 wang）照样要能接通，长度不重判。
+const DOMAIN_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.xknot\.si$/;
+// useradd 的账号名：小写字母或下划线开头，其余字母数字与 - _，≤32。
+const ACCOUNT_RE = /^[a-z_][a-z0-9_-]{0,31}$/;
+
+function assertSafeDomain(run) {
+  const domain = String(run?.host || "");
+  if (!DOMAIN_RE.test(domain) || domain.slice(0, -".xknot.si".length).length > 63) {
+    throw new ProvisionError("invalid_domain", domain || "(空)");
+  }
+  const port = Number(run?.port);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new ProvisionError("invalid_port", String(run?.port ?? ""));
+  }
+}
+
+function assertSafeRun(run) {
+  assertSafeDomain(run);
+  const account = String(run?.account || "");
+  if (!ACCOUNT_RE.test(account)) throw new ProvisionError("invalid_account", account || "(空)");
+}
+
+// 入口主机可以配成地址（XKNOT_ENTRY_HOST=54.169.33.64），也可以配成主机名。
+// 两种都要能比：地址直接拿来比，主机名先解析。
+async function entryAddresses(host, entryHost) {
+  const value = String(entryHost || "").trim();
+  if (!value) return [];
+  if (isIP(value)) return [value];
+  return host.resolve4(value);
 }
 
 // ---- 执行一步 ----
@@ -395,6 +438,10 @@ export async function runStep({
   roster,
   publish,
 }) {
+  // run.host 与 run.account 会被原样插进 nginx / sshd 的配置，写之前按签发
+  // 规则复校一遍：清单里的 url 由别处校验，这里不能假定它一定干净。
+  assertSafeRun(run);
+
   const domain = run.host;
   const root = `/var/www/${run.instanceId}`;
 
@@ -471,6 +518,18 @@ export async function runStep({
         `解析不到 ${domain}；入口域名需要一条泛解析 *.xknot.si → ${run.entryHost}`
       );
     }
+    // 解析得到地址不等于解析对了：一条指向别人服务器的 A 记录也能过，
+    // 而 certbot 会替这个域名去签一张证书。必须命中入口主机。
+    const expected = await entryAddresses(host, run.entryHost);
+    if (!expected.length) {
+      throw new ProvisionError("entry_unresolved", `解析不到入口主机 ${run.entryHost || "(未配置)"}`);
+    }
+    if (!addresses.some((address) => expected.includes(address))) {
+      throw new ProvisionError(
+        "dns_mismatch",
+        `${domain} → ${addresses.join(", ")}；入口是 ${run.entryHost}（${expected.join(", ")}）`
+      );
+    }
     return { note: addresses.join(", ") };
   }
 
@@ -523,6 +582,7 @@ export async function runStep({
  * 把已经接通的站打掉。
  */
 export async function switchEntry({ host, run, entry = true }) {
+  assertSafeDomain(run);
   const domain = run.host;
   const root = `/var/www/${run.instanceId}`;
   const file = `/etc/nginx/conf.d/${domain}.conf`;

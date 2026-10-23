@@ -133,7 +133,7 @@
 | `{claimUrl}` | 一次性领取页 | `https://xknot.si/claim/<opaque>` |
 | `{portalUrl}` | 门户条目链接 | `https://xknot.si/en/` |
 | `{supportUrl}` | 对外支持入口 | 可选，留空则整行省略 |
-| `{claimTtl}` | 领取有效期 | `72 小时` |
+| `{claimTtl}` | 领取有效期，随令牌实际 TTL（1–168 小时） | `72 小时` |
 | `{subdomain}` | 子域 | `wang.xknot.si` |
 | `{entryHost}` / `{account}` / `{port}` | 入口与隧道 | `54.169.33.64` / `knot-tunnel-wang` / `18080` |
 | `{healthUrl}` | 探测地址 | `https://wang.xknot.si/api/health` |
@@ -252,7 +252,7 @@ This message was sent automatically; replies are not monitored.
 
 ### 4.2 `partner.issuance`
 
-**只在公钥迟到时发。** 正常流程里申请人在 `/case/<caseKey>` 已经交过 `.pub`，通过后中枢直接把配置做完并寄 `partner.handoff`，跳过这一封。若案例页一直没收到公钥，再用 `npm run admin -- notify <申请编号> partner.issuance` 索取；此时前置也只做到静态页为止。
+**只在公钥迟到时发。** 正常流程里申请人在 `/case/<caseKey>` 已经交过 `.pub`，通过后中枢直接把配置做完并寄 `partner.handoff`，跳过这一封。若案例页一直没收到公钥，再用 `npm run admin -- notify <申请编号> partner.issuance` 索取；此时前置停在 `account` 一步（缺公钥写不了 `authorized_keys`）。
 
 **主题**：`[XKnot] {id} 的接入信息已确定`
 
@@ -697,7 +697,7 @@ This message was sent automatically; replies are not monitored.
 恢复探测后自动回到列表，不需要重新申请。
 
 先在本机确认实例在运行，再确认公网地址与隧道是否通。
-需要变更地址或请人协助，回复本信或联系 {outbox}。
+需要变更地址或请人协助，请写信给 {outbox}。
 
 本邮件由系统发出，不接收回复。
 

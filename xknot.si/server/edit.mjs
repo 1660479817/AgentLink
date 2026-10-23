@@ -12,6 +12,8 @@ import path from "node:path";
 
 import { validateInstances } from "../ops/validate-instances.mjs";
 import { validateRoster } from "../ops/validate-federation.mjs";
+import { withFileLock } from "./file-lock.mjs";
+import { nextVersion } from "./manifest.mjs";
 
 // 清单里可改的文本字段。空字符串等于删掉这个字段（写成 null）。
 // 名称、介绍、联系方式不在这里：它们由主理人在实例的 /admin 里写，
@@ -72,10 +74,6 @@ function applyMemberPatch(member, patch) {
 
   for (const field of MEMBER_FIELDS) {
     if (!(field in patch)) continue;
-    if (field === "listed") {
-      next.listed = Boolean(patch.listed);
-      continue;
-    }
     const text = textOrNull(patch[field]);
     if (text == null) delete next[field];
     else next[field] = text;
@@ -127,9 +125,14 @@ function describe(problems) {
  * }} input
  * @returns {Promise<{ok: true, instance: object, member: object|null} | {error: string, fields?: string[]}>}
  */
-export async function updateInstanceConfig({ instancesFile, federationFile, id, instance: instancePatch, member: memberPatch }) {
-  if (!instancesFile) return { error: "editing_unavailable" };
+export async function updateInstanceConfig(input) {
+  if (!input.instancesFile) return { error: "editing_unavailable" };
+  // 与 publish、markActive 排同一个队列（锁按清单文件命名）：两次保存同时
+  // 发生，或者保存正好撞上 worker 发布，后写的那个会把前一个的改动盖回去。
+  return withFileLock(input.instancesFile, () => updateInstanceConfigLocked(input));
+}
 
+async function updateInstanceConfigLocked({ instancesFile, federationFile, id, instance: instancePatch, member: memberPatch }) {
   let manifest;
   try {
     manifest = await readJson(instancesFile);
@@ -155,8 +158,13 @@ export async function updateInstanceConfig({ instancesFile, federationFile, id, 
   if (memberPatch && !rosterReadable) return { error: "roster_unreadable" };
 
   const nextInstance = applyInstancePatch(manifest.instances[index], instancePatch);
+  const changed = JSON.stringify(nextInstance) !== JSON.stringify(manifest.instances[index]);
+  // 头里的 version 记的是「改过几次」：内容没变就不要跟着膨胀，
+  // 缺字段或写坏了则借这次保存补成 1，免得继续留着一份不过校验的清单。
+  const known = Number.isInteger(manifest.version) && manifest.version > 0 ? manifest.version : null;
   const nextManifest = {
     ...manifest,
+    version: known ? (changed ? nextVersion(known) : known) : 1,
     updatedAt: new Date().toISOString().slice(0, 10),
     instances: manifest.instances.map((item, position) => (position === index ? nextInstance : item)),
   };

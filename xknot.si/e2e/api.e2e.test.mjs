@@ -6,7 +6,8 @@
 // 跑法：npm run test:e2e
 
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { after, before, test } from "node:test";
 
 import { DEFAULT_MANIFEST, DEFAULT_ROSTER, startStack } from "../ops/local-stack.mjs";
@@ -34,7 +35,13 @@ let stack;
 let portal;
 
 before(async () => {
-  stack = await startStack({ manifest: DEFAULT_MANIFEST, roster: DEFAULT_ROSTER });
+  // 生产把 XKNOT_SECURE_COOKIE 置 1，管理员的会话 Cookie 才带 Secure；
+  // 不置时默认不发（server/index.mjs）。测试栈显式打开它，下面的断言才有意义（S24-04）。
+  stack = await startStack({
+    manifest: DEFAULT_MANIFEST,
+    roster: DEFAULT_ROSTER,
+    env: { XKNOT_SECURE_COOKIE: "1" },
+  });
   portal = stack.portalUrl;
   await stack.createAdmin(ADMIN, PASSWORD);
 });
@@ -128,6 +135,51 @@ test("data: hub.json 只含清单里的实例，缺数据不写 0", async () => 
   }
 });
 
+test("api: probes 读巡检写下的状态，门户据此覆盖快照", async () => {
+  // 巡检不在端到端里跑，直接写一份它产出的文件；接口按 mtime 重读，不必重启。
+  const checkedAt = "2026-10-23T11:02:04.844Z";
+  await writeFile(
+    path.join(stack.dataDir, "data", "health.json"),
+    `${JSON.stringify(
+      {
+        checkedAt,
+        instances: {
+          "e2e-node": {
+            status: "degraded",
+            latencyMs: 2410,
+            version: "0.6.0",
+            lastOkAt: checkedAt,
+            downSince: null,
+            checks: 9,
+            ok: 8,
+            error: null,
+            notified: { down_24h: "2026-10-22T00:00:00.000Z" },
+            hiddenAt: null,
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const result = await call("/api/probes");
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get("cache-control"), "no-store");
+  assert.equal(result.data.checkedAt, checkedAt);
+  assert.deepEqual(result.data.probes["e2e-node"], {
+    status: "degraded",
+    latencyMs: 2410,
+    version: "0.6.0",
+    lastOkAt: checkedAt,
+    downSince: null,
+    hidden: false,
+  });
+  // 运营字段不上公网。
+  assert.equal("notified" in result.data.probes["e2e-node"], false);
+});
+
 test("static: 未知路径与路径穿越都是 404", async () => {
   assert.equal((await call("/no-such-page")).status, 404);
   assert.equal((await call("/%2e%2e/server/index.mjs")).status, 404);
@@ -172,7 +224,7 @@ test("admin: 未登录一律 401", async () => {
   assert.equal(forged.status, 401);
 });
 
-test("admin: 错密码 401，登录后 Cookie 带 HttpOnly / SameSite=Strict", async () => {
+test("admin: 错密码 401，登录后 Cookie 带 HttpOnly / SameSite=Strict / Secure", async () => {
   const wrong = await call("/api/admin/login", {
     method: "POST",
     body: { username: ADMIN, password: "wrong-password" },
@@ -185,6 +237,28 @@ test("admin: 错密码 401，登录后 Cookie 带 HttpOnly / SameSite=Strict", a
   assert.match(raw, /HttpOnly/i);
   assert.match(raw, /SameSite=Strict/i);
   assert.match(raw, /Path=\//i);
+  // Secure 是部署开关：忘了置 1 的部署会把管理员会话放到明文 HTTP 上。
+  // 只断 HttpOnly/SameSite 时，这种部署也全绿（S24-04）。
+  assert.match(raw, /;\s*Secure/i, "生产形态的会话 Cookie 必须带 Secure");
+});
+
+test("admin: 不置 XKNOT_SECURE_COOKIE 时 Cookie 不带 Secure（开关确实是它）", async () => {
+  // 反向用例：证明上面的 Secure 来自这个开关，而不是服务器无条件加的。
+  const plain = await startStack({ manifest: DEFAULT_MANIFEST, roster: DEFAULT_ROSTER });
+  try {
+    await plain.createAdmin(ADMIN, PASSWORD);
+    const response = await fetch(`${plain.portalUrl}/api/admin/login`, {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify({ username: ADMIN, password: PASSWORD }),
+    });
+    assert.equal(response.status, 200);
+    const raw = (response.headers.getSetCookie?.() || [])[0] || "";
+    assert.ok(raw, "login must set a cookie");
+    assert.doesNotMatch(raw, /;\s*Secure/i);
+  } finally {
+    await plain.stop();
+  }
 });
 
 // ---- 申请 → 审核 → 清单 ----

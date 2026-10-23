@@ -48,6 +48,8 @@ const W = WORLD.width + PAD_X * 2;
 const H = WORLD.height + PAD_TOP + PAD_BOTTOM;
 
 const STATUS_LABEL = { up: "在线", degraded: "延迟", down: "不可达", unknown: "未知" };
+// 探测状态到点色：图例与点必须走同一张表，否则 C[status] 取不到键、所有点会退成 unknown。
+const STATUS_COLOR = { up: C.ok, degraded: C.warn, down: C.bad, unknown: C.unknown };
 
 function readJson(rel) {
   return JSON.parse(readFileSync(path.join(root, rel), "utf8"));
@@ -83,6 +85,11 @@ const nodes = [
     status: state?.status || "unknown",
   };
 });
+
+// 图注按清单算，别写死某个 id：真实条目早就不止一个，写死会把图说错。
+const realIds = new Set((manifest.instances || []).map((item) => item?.id));
+const realNames = nodes.filter((node) => realIds.has(node.id)).map((node) => node.name || node.id);
+const sampleCount = nodes.filter((node) => !realIds.has(node.id)).length;
 
 // 同一片区域可能有多个节点，挤在一起就上下错开，和组件里的 spread 一致。
 function spread(points) {
@@ -189,7 +196,7 @@ const lines = placed
 
 const pins = placed
   .map((point) => {
-    const color = C[point.status] || C.unknown;
+    const color = STATUS_COLOR[point.status] || C.unknown;
     const x = q1(point.x);
     const y = q1(point.y);
     const flip = point.x > WORLD.width * 0.78;
@@ -256,7 +263,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
       <line x1="256" y1="-4" x2="282" y2="-4" stroke="${C.link}" stroke-width="1" stroke-dasharray="10 5"/><text x="290" y="0" class="legend-text">登记与探测</text>
       <line x1="396" y1="-4" x2="422" y2="-4" stroke="${C.peer}" stroke-width="1"/><text x="430" y="0" class="legend-text">实例直连</text>
     </g>
-    <text x="0" y="22" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。${esc(placed.length)} 个实例中，${esc(nodes.find((n) => n.id === "wang")?.name || "wang")} 为真实实例，其余来自样例清单。</text>
+    <text x="0" y="22" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。${esc(placed.length)} 个实例中，${esc(realNames.length ? realNames.join("、") : "暂无")} 为真实实例${sampleCount ? `，其余 ${sampleCount} 个来自样例清单` : ""}。</text>
   </g>
 
   <style>

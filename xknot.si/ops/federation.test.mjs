@@ -43,6 +43,24 @@ test("exactly one founder is allowed", async () => {
   assert.ok(problems.some(([id, errors]) => id === "—" && errors.some((e) => e.startsWith("founder:"))));
 });
 
+test("tunnel accounts must be knot-tunnel names, never system accounts", async () => {
+  const { roster, manifest } = await load();
+  // 名册是开通流程取账号的唯一来源：一个手写条目就能让它去操作已有系统账号。
+  for (const account of ["root", "ec2-user", "nginx", "adm", "sshd", "postgres"]) {
+    const broken = clone(roster);
+    broken.members.find((member) => member.id === "cpswang").tunnel.account = account;
+    const errors = validateRoster(broken, manifest).find(([id]) => id === "cpswang")?.[1] || [];
+    assert.ok(
+      errors.some((error) => error.startsWith("tunnel.account:")),
+      `${account} must be refused`
+    );
+  }
+  // 本流程自己的命名照常通过。
+  const fine = clone(roster);
+  fine.members.find((member) => member.id === "cpswang").tunnel.account = "knot-tunnel-cpswang-2";
+  assert.deepEqual(validateRoster(fine, manifest), []);
+});
+
 test("tunnel accounts and ports must be unique", async () => {
   const { roster, manifest } = await load();
   const broken = clone(roster);

@@ -202,6 +202,64 @@ test("api: no observation yet is an empty table, not an error", async (t) => {
   assert.deepEqual(result.data, { generatedAt: null, locations: {} });
 });
 
+test("api: probes are the current health, without the operations fields", async (t) => {
+  const { call } = await start(t, {
+    health: {
+      checkedAt: "2026-10-23T11:02:04.844Z",
+      instances: {
+        wang: {
+          status: "up",
+          latencyMs: 292,
+          version: "0.6.0",
+          lastOkAt: "2026-10-23T11:02:04.844Z",
+          downSince: null,
+          checks: 34,
+          ok: 34,
+          error: null,
+          notified: { down_24h: "2026-10-22T00:00:00.000Z" },
+          hiddenAt: null,
+        },
+        cpswang: {
+          status: "down",
+          latencyMs: null,
+          version: null,
+          lastOkAt: "2026-10-22T13:29:24.227Z",
+          downSince: "2026-10-23T05:49:16.176Z",
+          checks: 11,
+          ok: 10,
+          error: "http_502",
+          hiddenAt: "2026-10-30T05:49:16.176Z",
+        },
+      },
+    },
+  });
+  const result = await call("/api/probes");
+  assert.equal(result.status, 200);
+  assert.equal(result.data.checkedAt, "2026-10-23T11:02:04.844Z");
+  assert.deepEqual(result.data.probes.wang, {
+    status: "up",
+    latencyMs: 292,
+    version: "0.6.0",
+    lastOkAt: "2026-10-23T11:02:04.844Z",
+    downSince: null,
+    hidden: false,
+  });
+  assert.equal(result.data.probes.cpswang.status, "down");
+  assert.equal(result.data.probes.cpswang.hidden, true);
+  // checks / ok / notified / error 是运营字段，门户不需要。
+  for (const key of ["checks", "ok", "notified", "error"]) {
+    assert.equal(key in result.data.probes.wang, false);
+  }
+  assert.equal(result.headers.get("cache-control"), "no-store");
+});
+
+test("api: no probe yet is an empty table, not a 404", async (t) => {
+  const { call } = await start(t);
+  const result = await call("/api/probes");
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.data, { checkedAt: null, probes: {} });
+});
+
 test("api: submission is approved immediately", async (t) => {
   const { call, store } = await start(t);
   const result = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
@@ -994,6 +1052,34 @@ test("progress: the instance reads step state by case key and gets the handoff o
 
   // 案例键是能力凭据：错的键什么都读不到。
   assert.equal((await call("/api/case/nope-nope-nope/progress")).status, 404);
+});
+
+test("progress: the listed entry is found by url when its id differs from the label", async (t) => {
+  // 清单里的 id 是签发时按主机名推的，之后编辑又允许改 url，两者会分叉。
+  // 拿子域标签去匹配 id 会找不到这一条，tier 与 since 就会静默回落到缺省值。
+  const { call, store } = await start(t, {
+    instances: [
+      { id: "cps-1", url: "https://nordhavn.xknot.si", since: "2026-10-01", tier: "paid", status: "active" },
+    ],
+  });
+  const submitted = await call("/api/applications", { method: "POST", body: valid });
+  const application = store.getApplication(submitted.data.application.id);
+  store.createProvisionRun({
+    applicationId: application.id,
+    instanceId: "nordhavn",
+    state: "active",
+    steps: [],
+    attempts: 1,
+    createdAt: "2026-10-02T00:00:00.000Z",
+    updatedAt: "2026-10-02T00:00:00.000Z",
+  });
+
+  const progress = await call(`/api/case/${application.caseKey}/progress`);
+  assert.equal(progress.status, 200);
+  assert.equal(progress.data.issued.id, "nordhavn", "签发键仍是子域标签");
+  assert.equal(progress.data.issued.tier, "paid", "档位读的是清单里那一条");
+  assert.equal(progress.data.issued.since, "2026-10-01");
+  assert.equal(progress.data.issued.status, "active");
 });
 
 test("api: overview carries the observed location next to the declared region", async (t) => {

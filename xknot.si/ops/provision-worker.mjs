@@ -10,7 +10,7 @@
 //   XKNOT_ENTRY_HOST   入口主机的公网地址，写在 var/provision.env
 //   XKNOT_ADMIN_EMAIL  证书登记邮箱，读 mail.env
 //   XKNOT_PROVISION_INTERVAL_MS  轮询间隔，默认 20000
-//   XKNOT_AFTER_ACTIVATE  可选：改为 active 之后执行的命令（例如重建门户）
+//   XKNOT_AFTER_ACTIVATE  可选：改为 active 之后执行的脚本绝对路径（例如重建门户）
 //
 // 运行方式见 ops/xknot-provision.service。
 
@@ -40,6 +40,7 @@ import {
   tunnelFor,
 } from "../server/provision.mjs";
 import { probe } from "./check-health.mjs";
+import { isTunnelAccount } from "./validate-federation.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -54,6 +55,8 @@ const entryHost = String(process.env.XKNOT_ENTRY_HOST || "").trim();
 const adminEmail = String(process.env.XKNOT_ADMIN_EMAIL || "").trim();
 const intervalMs = Math.max(Number(process.env.XKNOT_PROVISION_INTERVAL_MS) || 20_000, 5_000);
 const probeTimeoutMs = 8000;
+// 接通后的可选钩子。读一次就定下来，执行处只按参数数组跑（见 advance）。
+const afterActivate = String(process.env.XKNOT_AFTER_ACTIVATE || "").trim();
 // 位置采集比接通慢得多：机器搬家不是秒级事件，而 ss/ps 每次要起两个进程。
 const peerIntervalMs = Math.max(Number(process.env.XKNOT_PEER_INTERVAL_MS) || 60_000, 10_000);
 const peersFile = path.join(dataDir, "peers.json");
@@ -95,7 +98,10 @@ const host = {
     return result.code === 0 ? result.stdout : null;
   },
   async writeRootFile(file, text, mode = "644", { owner = null } = {}) {
-    const written = await sudo(["tee", file], { input: text });
+    // 先 tee 再 chmod 的话，600 的目标会有一小段时间按 tee 的 umask 落在 644，
+    // 凭据文件在那个窗口里是他人可读的。让远端 shell 自己设 umask，文件从创建起就收紧；
+    // 文件名作为位置参数传给 sh，不拼进命令串。
+    const written = await sudo(["sh", "-c", 'umask 077; cat > "$0"', file], { input: text });
     if (written.code !== 0) throw new ProvisionError("write_failed", written.stderr);
     if (owner) await sudo(["chown", owner, file]);
     await sudo(["chmod", mode, file]);
@@ -106,6 +112,16 @@ const host = {
     } catch {
       return [];
     }
+  },
+  // 探测走 fetch-guard 时要一份「全部地址」：只查 A 记录会漏掉只有 AAAA 的实例，
+  // 也会让地址校验拿不到完整的解析结果。
+  async resolveAll(hostname) {
+    const settled = await Promise.allSettled([dns.resolve4(hostname), dns.resolve6(hostname)]);
+    const addresses = [];
+    for (const item of settled) {
+      if (item.status === "fulfilled") addresses.push(...item.value);
+    }
+    return addresses;
   },
 };
 
@@ -242,7 +258,8 @@ export async function advance(run) {
 
   if (run.state === "awaiting_tunnel") {
     const target = `https://${run.host}/api/health`;
-    const result = await probe(target, { timeoutMs: probeTimeoutMs });
+    // 与健康巡检同一条守卫：不传 resolve 就只按主机名请求，私网/回环地址直接放过去。
+    const result = await probe(target, { timeoutMs: probeTimeoutMs, resolve: host.resolveAll });
     if (result.status === "up" || result.status === "degraded") {
       // 先把首页从占位页切成整站反代，再对外报 active：
       // 顺序反过来会出现「清单是 active、打开还是占位页」。
@@ -276,9 +293,15 @@ export async function advance(run) {
       store.saveProvisionRun(next);
       store.recordEvent("instance.active", run.instanceId, null);
       log(`${run.instanceId}: /api/health 通过，清单已改为 active`);
-      if (process.env.XKNOT_AFTER_ACTIVATE) {
-        const hook = spawn("/bin/sh", ["-c", process.env.XKNOT_AFTER_ACTIVATE], { cwd: root, stdio: "inherit" });
-        hook.on("close", (code) => log(`after-activate 退出码 ${code}`));
+      if (afterActivate) {
+        // 值来自 root 的 provision.env；交给 /bin/sh -c 就等于把那个文件的写权限
+        // 变成 root 命令执行。只接受一个绝对路径，按参数数组执行，不经 shell 解析。
+        if (!/^\/[A-Za-z0-9._/-]+$/.test(afterActivate)) {
+          log("after-activate 跳过：只接受绝对路径，不能带空格或 shell 元字符");
+        } else {
+          const hook = spawn("/bin/sh", [afterActivate], { cwd: root, stdio: "inherit" });
+          hook.on("close", (code) => log(`after-activate 退出码 ${code}`));
+        }
       }
       return next;
     }
@@ -305,6 +328,11 @@ async function tick() {
     const instanceId = application.subdomain || "";
     if (!instanceId) continue;
     const tunnel = tunnelFor({ instanceId, members: roster.members || [], reserved });
+    // 名册手写条目的第二道闸：写入时校验过，读出来再用一次，别只信文件内容。
+    if (!isTunnelAccount(tunnel.account)) {
+      log(`${instanceId}: 名册里的隧道账号 ${tunnel.account} 不可用，跳过（只接受 knot-tunnel 命名）`);
+      continue;
+    }
     reserved.push(tunnel.port);
     const run = store.createProvisionRun(createRun({ application, tunnel, entryHost }));
     log(`${instanceId}: 新建接通任务 ${application.id}（${tunnel.account} / ${tunnel.port}）`);

@@ -38,7 +38,7 @@
     <text x="427" y="173" font-size="14" font-weight="600" fill="#111">门户</text>
     <text x="427" y="194" font-size="12" fill="#333">档案 · 状态 · 区域</text>
     <text x="602" y="173" font-size="14" font-weight="600" fill="#111">健康探测</text>
-    <text x="602" y="194" font-size="12" fill="#333">每 2–5 分钟</text>
+    <text x="602" y="194" font-size="12" fill="#333">每 15 分钟</text>
     <text x="777" y="173" font-size="14" font-weight="600" fill="#111">申请与收录</text>
     <text x="777" y="194" font-size="12" fill="#333">人工确认后写清单</text>
     <text x="600" y="242" font-size="13" fill="#333">只读三层信息 · 写入只有加入申请与委托发信</text>

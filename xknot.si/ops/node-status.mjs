@@ -32,7 +32,13 @@ export function hostOfUrl(raw) {
 // 流量按天存，展示只取最近一天。没有采集过就是 null，不写 0。
 export function summarizeTraffic(doc) {
   const days = Array.isArray(doc?.days) ? doc.days : [];
-  const latest = days.find((day) => day && typeof day.date === "string");
+  // 取日期最大的那一天，不是数组第一项：文件被反序写入或追加时第一项可能是旧的，
+  // 控制台会长期展示早已过去的一天。
+  let latest = null;
+  for (const day of days) {
+    if (!day || typeof day.date !== "string") continue;
+    if (!latest || day.date > latest.date) latest = day;
+  }
   if (!latest) return null;
   return {
     date: latest.date,

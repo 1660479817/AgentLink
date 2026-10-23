@@ -78,3 +78,21 @@ test("admin login: 15 分钟内第 13 次尝试开始 429", async () => {
   assert.deepEqual(statuses.slice(0, 12), Array(12).fill(401), "前 12 次是普通的凭证错误");
   assert.equal(statuses[12], 429, "第 13 次必须被限流");
 });
+
+test("member login: 15 分钟内第 13 次尝试开始 429", async () => {
+  // 六位授权码同样是人可猜的凭据：这条挡住「换着码试」的脚本。
+  // 阈值与 server/app.mjs 的 memberLoginLimit（900s / 12 次）一致，改那边要改这里。
+  const statuses = [];
+  let retryAfter = 0;
+  for (let index = 1; index <= 13; index += 1) {
+    const result = await post("/api/member/session", {
+      email: "outsider@e2e-limit.example",
+      code: "000000",
+    });
+    statuses.push(result.status);
+    if (result.status === 429) retryAfter = Number(result.headers.get("retry-after"));
+  }
+  assert.deepEqual(statuses.slice(0, 12), Array(12).fill(401), "前 12 次是普通的授权码错误");
+  assert.equal(statuses[12], 429, "第 13 次必须被限流");
+  assert.ok(retryAfter > 0, "429 必须告诉调用方多久后可重试");
+});
