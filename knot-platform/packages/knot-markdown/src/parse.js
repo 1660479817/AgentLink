@@ -8,6 +8,11 @@
 const ESCAPABLE = new Set("\\`*_{}[]()#+-.!|~>:");
 const WORD_CHAR = /[\p{L}\p{N}_]/u;
 const MAX_INLINE_DEPTH = 20;
+// 块级嵌套（引用套引用、列表套列表）的层数上限。输入决定层数，不设上限就能把栈走穿。
+const MAX_BLOCK_DEPTH = 32;
+// 到层数上限后收起的纯文本长度。只保留开头一段：这一层以下已经是畸形输入，
+// 不值得为了「完整显示」把内存押上去。
+const MAX_BLOCK_FALLBACK = 2000;
 
 const LIST_ITEM = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(.*)$/;
 const SEPARATOR_CELL = /^:?-+:?$/;
@@ -477,7 +482,7 @@ function isBlockStart(lines, index) {
   );
 }
 
-function listAt(lines, index) {
+function listAt(lines, index, depth = 0) {
   const first = LIST_ITEM.exec(lines[index]);
   if (!first) return null;
 
@@ -538,7 +543,7 @@ function listAt(lines, index) {
       i += 1;
     }
 
-    items.push({ blocks: parseBlocks(body), task });
+    items.push({ blocks: parseBlocks(body, depth + 1), task });
 
     const sibling = LIST_ITEM.exec(lines[i] || "");
     if (!sibling || indentOf(lines[i]) !== baseIndent) break;
@@ -548,9 +553,20 @@ function listAt(lines, index) {
   return { node: { type: "list", ordered, start, tight: !loose, items }, end: i };
 }
 
-function parseBlocks(lines) {
+function parseBlocks(lines, depth = 0) {
   const out = [];
   let i = 0;
+
+  // 引用和列表是一层套一层递归拆的，层数由输入决定。两千个 ">" 就能把调用栈走穿，
+  // 而这段代码跑在渲染路径上——一条发出去的内容足以让读它的页面崩掉。
+  // 超过上限就把剩下的内容当纯文本收进来：显示得难看，但不会抛异常。
+  //
+  // 收的时候必须同时截断长度。剩下的行拼起来可能很长（输入越深越长），
+  // 整段放进一个段落会把堆撑爆——栈溢出换成了内存溢出，一样是崩。
+  if (depth >= MAX_BLOCK_DEPTH) {
+    const text = lines.join("\n").trim().slice(0, MAX_BLOCK_FALLBACK);
+    return text ? [{ type: "paragraph", children: [{ type: "text", value: text }] }] : [];
+  }
 
   while (i < lines.length) {
     const line = lines[i];
@@ -606,11 +622,11 @@ function parseBlocks(lines) {
         quote.push(lines[i].replace(/^ {0,3}> ?/, ""));
         i += 1;
       }
-      out.push({ type: "blockquote", blocks: parseBlocks(quote) });
+      out.push({ type: "blockquote", blocks: parseBlocks(quote, depth + 1) });
       continue;
     }
 
-    const list = listAt(lines, i);
+    const list = listAt(lines, i, depth);
     if (list) {
       out.push(list.node);
       i = list.end;

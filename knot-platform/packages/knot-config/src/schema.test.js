@@ -429,6 +429,21 @@ test("formatValue quotes only what the shell needs", () => {
   assert.equal(formatValue(""), "");
 });
 
+test("formatValue never hands the shell a command to run", () => {
+  // 这些值写进 .env 后会被 source。不加引号就会执行或截断：
+  // $(...) 是子命令，$VAR 是展开，| ; & 断句。引导解出来的值一律当字面量。
+  assert.equal(formatValue("$(id)"), '"\\$(id)"');
+  assert.equal(formatValue("a|b"), '"a|b"');
+  assert.equal(formatValue("a;rm -rf /"), '"a;rm -rf /"');
+  assert.equal(formatValue("a&b"), '"a&b"');
+  assert.equal(formatValue("`id`"), '"\\`id\\`"');
+
+  // 只有 $HOME 一种展开是站点配置真的用到的（schema 默认值），其余 $ 都转义。
+  assert.equal(formatValue("$HOME/.ssh/knot-entry"), "$HOME/.ssh/knot-entry");
+  assert.equal(formatValue("pa$word"), '"pa\\$word"');
+  assert.equal(formatValue("$HOMEfoo"), '"\\$HOMEfoo"');
+});
+
 test("a fresh platform runtime file is written with resolved values and blanks commented", () => {
   const text = renderPlatformFile({
     PORT: "8080",

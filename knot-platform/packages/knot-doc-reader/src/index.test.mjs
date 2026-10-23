@@ -144,3 +144,22 @@ test("later parts stay available", async () => {
   const last = await readDocument("note.md", Buffer.from(`${"甲".repeat(8000)}\n${"乙".repeat(20)}`), { part: result.parts });
   assert.match(last.text, /乙/);
 });
+
+// 压缩包会把输入放大的倍数交给攻击者定：几十 MB 的 zip 解出几十 GB 只要几行脚本，
+// 而解压发生在进程内。这两条测的是「在解之前就停住」。
+
+test("a zip with too many entries is refused", async () => {
+  const entries = Array.from({ length: 3000 }, (_, i) => ({ name: `n${i}.txt`, data: "x" }));
+  const result = await readDocument("many.docx", zip(entries));
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "unreadable");
+});
+
+test("an entry that declares more than the cap is refused without inflating it", async () => {
+  // 声明值先挡一道：解压前就能看出这条会放大到 40 MB，不必真的去解。
+  const bomb = Buffer.alloc(40 * 1024 * 1024);
+  const result = await readDocument("bomb.docx", zip([{ name: "word/document.xml", data: bomb }]));
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "unreadable");
+  assert.equal(await extractDocumentText("bomb.docx", zip([{ name: "word/document.xml", data: bomb }])), "");
+});

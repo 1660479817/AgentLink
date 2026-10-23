@@ -247,3 +247,47 @@ test("admin uploads skip the per-user quota", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("an audio file never keeps a declared type the browser would execute", async () => {
+  const dir = await uploadDir();
+  try {
+    // 文件名说 mp3、内容声称是 text/html。扩展名只该决定「记成哪种音频」，
+    // 不该让 text/html 原样进库——那等于把上传变成同源脚本。
+    const file = tmpPath(dir, `${ID}.mp3`);
+    await writeFile(file, Buffer.from("<script>alert(1)</script>"));
+    const pool = fakePool();
+    const stored = await storeUploadedFile({
+      uploadDir: dir,
+      pool,
+      userId: "u",
+      file: { path: file, filename: `${ID}.mp3`, mimetype: "text/html", originalname: "evil.mp3" },
+      kind: "audio",
+    });
+    assert.equal(stored.mime, "audio/mpeg");
+    const insert = pool.calls.find((call) => call.sql.includes("INSERT INTO uploads"));
+    assert.equal(insert.params[2], "audio/mpeg");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an audio upload with neither an audio type nor an audio name is rejected", async () => {
+  const dir = await uploadDir();
+  try {
+    const file = tmpPath(dir, `${ID}.html`);
+    await writeFile(file, Buffer.from("<script>alert(1)</script>"));
+    await assert.rejects(
+      () => storeUploadedFile({
+        uploadDir: dir,
+        pool: fakePool(),
+        userId: "u",
+        file: { path: file, filename: `${ID}.html`, mimetype: "text/html", originalname: "evil.html" },
+        kind: "audio",
+      }),
+      /bad_audio/
+    );
+    assert.equal(fs.existsSync(file), false, "the rejected file is gone");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

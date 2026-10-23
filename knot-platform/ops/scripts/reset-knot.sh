@@ -60,6 +60,21 @@ restart_backend() {
 stop_backend
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v admin_email="${KNOT_ADMIN_EMAIL:-}" <<'SQL'
+-- 上一次重建可能死在半路：那时 public 已经清掉，knot_keep 里是唯一一份账号、会话
+-- 与上传记录。无条件 DROP 会把它一起删掉，数据就再也找不回来了。
+-- 所以先看一眼：已经有内容就停下来，让人确认那是残留还是需要救的东西。
+DO $$
+DECLARE kept bigint;
+BEGIN
+  IF to_regclass('knot_keep.accounts') IS NULL THEN
+    RETURN;
+  END IF;
+  SELECT count(*) INTO kept FROM knot_keep.accounts;
+  IF kept > 0 THEN
+    RAISE EXCEPTION 'knot_keep 里已经有上一次重建留下的 % 个账号，上一次很可能没跑完。', kept
+      USING HINT = '这是 public 被清掉之后唯一的备份。先查：SELECT id, email, role FROM knot_keep.accounts; 确认不再需要它，才执行 DROP SCHEMA knot_keep CASCADE; 然后重跑。';
+  END IF;
+END $$;
 DROP SCHEMA IF EXISTS knot_keep CASCADE;
 CREATE SCHEMA knot_keep;
 

@@ -25,6 +25,62 @@ const EXT_BY_MIME = Object.freeze({
   "image/avif": ".avif",
 });
 
+// 音频和附件的 MIME 由客户端声明，只能当线索用。声明成 text/html 的文件原样存下来、
+// 再原样回给浏览器，就是一个同源脚本（扩展名 .mp3 只影响文件名，不影响浏览器怎么解释）。
+// 所以非图片的类型在这里收一次：认得的归一到规范值，认不得的按扩展名给，
+// 两者都说不出「这是音频」就不收。存进库的类型永远是服务端选的，不是客户端给的。
+const AUDIO_MIME_BY_EXT = Object.freeze({
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".wav": "audio/wav",
+  ".aac": "audio/aac",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".flac": "audio/flac",
+  ".opus": "audio/ogg",
+  ".wma": "audio/x-ms-wma",
+});
+
+// 浏览器会当成页面/脚本去执行的那几种。附件本来就不内联打开（见 readableUpload），
+// 这里把它们记成二进制，免得哪天多一个渲染入口就把这段历史记录带出来。
+const RENDERABLE_DOWNLOAD_MIME = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "text/xml",
+  "application/xml",
+  "text/javascript",
+  "application/javascript",
+  "application/ecmascript",
+]);
+
+function declaredMime(value) {
+  return String(value || "").toLowerCase().split(";")[0].trim();
+}
+
+export function safeAudioMime(declared, originalName) {
+  const fromExt = AUDIO_MIME_BY_EXT[path.extname(String(originalName || "")).toLowerCase()] || "";
+  const raw = declaredMime(declared);
+  if (!raw.startsWith("audio/")) return fromExt;
+  // 声明是 audio/*：扩展名认得出就按扩展名归一，认不出就保留声明值。
+  // 两种结果都是 audio 类型，浏览器不会拿去渲染成页面。
+  return fromExt || raw;
+}
+
+export function safeAttachmentMime(declared) {
+  const raw = declaredMime(declared);
+  if (!raw || RENDERABLE_DOWNLOAD_MIME.has(raw)) return "application/octet-stream";
+  return raw;
+}
+
+// 这张地址能不能让浏览器原地渲染。表外的（含历史遗留的奇怪类型）一律按附件下载，
+// 下载只是把同一个字节交给用户，不经过页面的执行环境。
+export function isInlineRenderableMime(value) {
+  const raw = declaredMime(value);
+  if (!raw || raw === "image/svg+xml") return false;
+  return raw.startsWith("image/") || raw.startsWith("audio/") || raw.startsWith("video/");
+}
+
 export function uploadQuotaBytes() {
   const raw = process.env.KNOT_UPLOAD_QUOTA_BYTES;
   if (raw === undefined || String(raw).trim() === "") return DEFAULT_QUOTA_BYTES;
@@ -147,9 +203,14 @@ export async function storeUploadedFile({ uploadDir, pool, userId, file, kind, n
     mime = meta.mime;
     width = meta.width;
     height = meta.height;
-  } else if (!mime) {
-    removeFile(file.path);
-    throw uploadError("bad_mime");
+  } else if (kind === "audio") {
+    mime = safeAudioMime(mime, file.originalname);
+    if (!mime) {
+      removeFile(file.path);
+      throw uploadError("bad_audio");
+    }
+  } else {
+    mime = safeAttachmentMime(mime);
   }
 
   if (!skipQuota) {
