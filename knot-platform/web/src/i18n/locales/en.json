@@ -89,6 +89,7 @@
   "home": {
     "searchResults": "Search: {q}",
     "searchEmpty": "No matching posts",
+    "searchTooFast": "Too many searches. Try again in about {seconds} seconds.",
     "openAuthor": "Posts by {name}",
     "filter": "Filter",
     "filterAll": "All",

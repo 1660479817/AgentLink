@@ -146,7 +146,6 @@ test("managed block: replaces only its own section and is idempotent", async () 
     account: "knot-tunnel-cpswang",
     host: "54.169.33.64",
     port: 18090,
-    keyPath: "/sites/local/tunnel_ed25519",
     localPort: 8081,
   });
 
@@ -155,6 +154,7 @@ test("managed block: replaces only its own section and is idempotent", async () 
   const once = await readFile(file, "utf8");
   assert.match(once, /^# 手工加的一行留给以后/);
   assert.match(once, /KNOT_TUNNEL_SSH=knot-tunnel-cpswang@54\.169\.33\.64/);
+  assert.match(once, /^KNOT_TUNNEL_KEY=tunnel_ed25519$/m);
   assert.match(once, /KNOT_TUNNEL_REMOTE_PORT=18090/);
   assert.match(once, /KNOT_TUNNEL_LOCAL_PORT=8081/);
   assert.ok(once.includes(MANAGED_START) && once.includes(MANAGED_END));
@@ -169,6 +169,21 @@ test("managed block: replaces only its own section and is idempotent", async () 
   assert.match(twice, /KNOT_TUNNEL_REMOTE_PORT=18091/);
   assert.equal(twice.match(new RegExp(MANAGED_START, "g")).length, 1);
   assert.match(twice, /^# 手工加的一行留给以后/);
+});
+
+test("managed block: the key is a bare name, so the site dir can move", () => {
+  // 绝对路径会把隧道绑在「写这段时 Backend 从哪个目录跑」上：那份目录一被清理
+  // （仓库换位置、部署根重建、两边同名站点各存一份），私钥文件跟着没了，入口就 502。
+  // 托管段只认站点目录里的文件名，由 run-entry-tunnel.sh 按站点目录拼出绝对路径。
+  const block = renderManagedBlock({
+    account: "knot-tunnel-cpswang",
+    host: "54.169.33.64",
+    port: 18090,
+    localPort: 8081,
+  });
+  const value = /^KNOT_TUNNEL_KEY=(.*)$/m.exec(block)?.[1];
+  assert.equal(value, "tunnel_ed25519");
+  assert.equal(path.isAbsolute(value), false, "托管段里不能出现绝对路径");
 });
 
 test("restart: a missing unit is reported with the command to run", async () => {

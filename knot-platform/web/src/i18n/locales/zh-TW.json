@@ -89,6 +89,7 @@
   "home": {
     "searchResults": "搜尋：{q}",
     "searchEmpty": "沒有對得上的資訊",
+    "searchTooFast": "搜得太頻繁了，約 {seconds} 秒後再試",
     "openAuthor": "查看{name}的資訊",
     "filter": "篩選",
     "filterAll": "全部",

@@ -80,6 +80,16 @@ done
 
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
+
+# xknot.si 自动接通把隧道这一组写在 tunnel.env，site.env 里的 KNOT_TUNNEL 仍是 0。
+# 部署脚本也要读它，否则私钥预检和部署后的公网探活都会被跳过——接了子域的站点
+# 恰恰最需要这两项，而「本机好、入口 502」正是从这里漏出去的。
+if [[ -f "${KNOT_SITE_DIR:-}/tunnel.env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$KNOT_SITE_DIR/tunnel.env"
+  set +a
+fi
 CONFIG_ARGS=(--site "$KNOT_SITE")
 
 # ---- 0. 发布包 ----
@@ -227,16 +237,23 @@ esac
 
 if knot_enabled KNOT_ENTRY_ENABLED; then
   knot_require KNOT_ENTRY_SSH "KNOT_ENTRY_ENABLED=1 时要配置 KNOT_ENTRY_SSH=user@entry-host。只部署本机请设 KNOT_ENTRY_ENABLED=0。"
-  if knot_enabled KNOT_TUNNEL; then
-    knot_require KNOT_TUNNEL_SSH "KNOT_TUNNEL=1 时要有隧道账号；留空会自动用 knot-tunnel@<入口主机>。"
-    TUNNEL_KEY="$(knot_expand_path "$KNOT_TUNNEL_KEY")"
-    if [[ ! -f "$TUNNEL_KEY" ]]; then
-      knot_warn "隧道私钥不存在：${TUNNEL_KEY}。先把公钥装到入口主机的 $KNOT_TUNNEL_USER 账号，否则隧道起不来。"
-    fi
-  fi
   PUSH_KEY="$(knot_expand_path "$KNOT_ENTRY_PUSH_KEY")"
   if [[ ! -f "$PUSH_KEY" ]]; then
     knot_warn "快照推送私钥不存在：${PUSH_KEY}。没有它，/discover.json 不会被推到入口主机。"
+  fi
+fi
+
+# 隧道私钥的检查不放在 KNOT_ENTRY_ENABLED 里面：接了子域的站点常常是
+# KNOT_ENTRY_ENABLED=0（入口 conf 由中枢写），隧道由 tunnel.env 打开，
+# 这种情况以前整个跳过检查，密钥丢了也会「部署成功」，然后入口 502 到有人发现。
+if knot_enabled KNOT_TUNNEL; then
+  knot_require KNOT_TUNNEL_SSH "KNOT_TUNNEL=1 时要有隧道账号；留空会自动用 knot-tunnel@<入口主机>。"
+  TUNNEL_KEY="$(knot_tunnel_key_path)"
+  if [[ ! -f "$TUNNEL_KEY" ]]; then
+    knot_fail "隧道私钥不存在：${TUNNEL_KEY}
+  来自 KNOT_TUNNEL_KEY=${KNOT_TUNNEL_KEY:-（空，按站点目录取 tunnel_ed25519）}
+  隧道起不来时入口会一直 502。先把公钥装到入口主机的 $KNOT_TUNNEL_USER 账号；
+  密钥确实丢了，就在 /admin 的 XKnot 栏重新接通（会生成新密钥并让中枢重跑）。"
   fi
 fi
 
@@ -433,6 +450,7 @@ restart_backend
 
 # ---- 8. 探活（失败自动回滚代码，数据库不回滚） ----
 healthy=0
+PUBLIC_UNREACHABLE=0
 BODY=""
 for _ in $(seq 1 30); do
   BODY="$(curl -sf "http://127.0.0.1:$KNOT_PORT/api/health" 2>/dev/null || true)"
@@ -457,6 +475,33 @@ if [[ "$healthy" == 1 ]]; then
   fi
   if [[ -n "$RUNNING_COMMIT" && "$RUNNING_COMMIT" != "$REL_COMMIT" ]]; then
     knot_warn "探活报的提交是 ${RUNNING_COMMIT}，发布包是 ${REL_COMMIT}。"
+  fi
+
+  # 本机健康不等于站点能用：接了子域的站点，公网那一跳还要穿过隧道。
+  # 隧道没起来时本机一切正常、入口一直 502，这种「部署成功」最误导人。
+  if knot_enabled KNOT_TUNNEL; then
+    case "$(knot_origin_host "$KNOT_PUBLIC_ORIGIN")" in
+      127.0.0.1 | localhost | "") ;;
+      *)
+        echo "==> probe ${KNOT_PUBLIC_ORIGIN}/api/health"
+        public_ok=0
+        # 部署本身会重启隧道，给它一点时间重连；不重试会把正常的重连当成故障。
+        for _ in $(seq 1 15); do
+          if curl -sf --noproxy '*' --max-time 5 "${KNOT_PUBLIC_ORIGIN}/api/health" >/dev/null 2>&1; then
+            public_ok=1
+            break
+          fi
+          sleep 2
+        done
+        if [[ "$public_ok" == 1 ]]; then
+          echo "    公网入口可达。"
+        else
+          PUBLIC_UNREACHABLE=1
+          knot_warn "公网入口打不通：${KNOT_PUBLIC_ORIGIN}/api/health。本机 Backend 是好的，问题在隧道或入口 nginx。"
+          knot_warn "查：./ops/scripts/doctor.sh --site $KNOT_SITE"
+        fi
+        ;;
+    esac
   fi
 else
   if [[ -n "$PREV_TARGET" && "$NO_ROLLBACK" != 1 ]]; then
@@ -537,7 +582,11 @@ if [[ -d "$KNOT_DEPLOY_ROOT/.incoming" ]]; then
   find "$KNOT_DEPLOY_ROOT/.incoming" -mindepth 1 -maxdepth 1 -type d -mtime +1 -print -exec rm -rf {} + 2>/dev/null || true
 fi
 
-echo "OK: $KNOT_PUBLIC_ORIGIN"
+if [[ "$PUBLIC_UNREACHABLE" == 1 ]]; then
+  echo "部分完成：本机已装好，公网入口现在打不通（隧道或入口 nginx）"
+else
+  echo "OK: $KNOT_PUBLIC_ORIGIN"
+fi
 echo "    版本 $REL_VERSION ($REL_COMMIT)  $REL_NAME"
 echo "    本机 http://127.0.0.1:$KNOT_PORT"
 [[ -n "$PREV_TARGET" ]] && echo "    回滚 $KNOT_DEPLOY_ROOT/current/ops/scripts/rollback.sh --site $KNOT_SITE"

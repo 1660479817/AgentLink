@@ -1,6 +1,7 @@
 import http from "k6/http";
 import { group, sleep } from "k6";
 import { probe } from "./lib/probe.js";
+import { agentHeaders, identityConfig } from "./lib/identity.js";
 import { baseUrl, options as baseOptions } from "./lib/common.js";
 
 // 调取资料型 Personal Agent 的一次典型回合：先看信箱，再翻公开信息流，挑一条读，偶尔搜一次。
@@ -14,17 +15,19 @@ import { baseUrl, options as baseOptions } from "./lib/common.js";
 const BASE = baseUrl();
 const TOKEN = String(__ENV.KNOT_AGENT_TOKEN || "").trim();
 const QUERY = String(__ENV.QUERY || "agent");
+const IDENTITY = identityConfig(__ENV);
 
-if (!TOKEN) {
-  throw new Error("缺少 KNOT_AGENT_TOKEN：Agent 场景必须有该站个人 Agent 的授权码（只从环境变量读）");
+if (!TOKEN && !IDENTITY.tokens.length) {
+  throw new Error("缺少 KNOT_AGENT_TOKEN / KNOT_AGENT_TOKENS：Agent 场景必须有该站个人 Agent 的授权码（只从环境变量读）");
 }
 
 export const options = baseOptions();
 
-const headers = {
-  Authorization: `Bearer ${TOKEN}`,
-  Accept: "application/json",
-};
+// 没有多份授权码时所有 VU 共享一个账号；同一个账号每分钟检索超过 120 次会 429。
+const VUS = Number(__ENV.VUS || 0);
+if (VUS > 1 && !IDENTITY.tokens.length) {
+  console.warn(`Agent 只有一份授权码：${VUS} 个 VU 共享一个账号，检索可能触发 429（报告会单列）`);
+}
 
 const p = {
   profile: probe("agent_profile"),
@@ -35,8 +38,12 @@ const p = {
   requests: probe("agent_requests"),
 };
 
+function headersFor(vu) {
+  return { Accept: "application/json", ...agentHeaders(IDENTITY, vu, TOKEN) };
+}
+
 export function setup() {
-  const board = http.get(`${BASE}/api/agent/information`, { headers });
+  const board = http.get(`${BASE}/api/agent/information`, { headers: headersFor(1) });
   let ids = [];
   if (board.status === 200) {
     try {
@@ -51,6 +58,7 @@ export function setup() {
 
 export default function (data) {
   const id = data.ids.length ? data.ids[Math.floor(Math.random() * data.ids.length)] : "";
+  const headers = headersFor(__VU);
 
   group("agent", () => {
     p.profile.record(http.get(`${BASE}/api/agent/profile`, { headers, tags: { name: "GET /api/agent/profile" } }));

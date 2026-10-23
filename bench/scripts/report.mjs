@@ -120,6 +120,25 @@ export function render(result) {
   out.push("## 站点");
   out.push("");
   out.push(...targetSection(meta.target));
+
+  if (meta.identity) {
+    const id = meta.identity;
+    const webMode =
+      id.mode === "cookie"
+        ? `每 VU 一份 Cookie（${id.cookies} 份）`
+        : id.mode === "xff"
+          ? "每 VU 一个 X-Forwarded-For（仅直连源站或可信代理有效）"
+          : "所有 VU 共享出口 IP";
+    const agentMode =
+      id.tokens > 1 ? `每 VU 一份授权码（${id.tokens} 份）` : id.tokens === 1 ? "所有 VU 共享一份授权码" : "未提供";
+    out.push("## 身份");
+    out.push("");
+    out.push(`- 访客读：${webMode}`);
+    out.push(`- Agent：${agentMode}`);
+    if (id.warning) out.push(`- 注意：${id.warning}`);
+    out.push("");
+  }
+
   if (meta.skipped?.length) {
     out.push("本轮未测：");
     out.push("");
@@ -140,11 +159,12 @@ export function render(result) {
     String(r.requests ?? "-"),
     r.rps ? r.rps.toFixed(1) : "-",
     pct(r.errorRate),
+    pct(r.throttleRate ?? 0),
     ms(r.overall.p50),
     ms(r.overall.p95),
     ms(r.overall.p99),
   ]);
-  out.push(table(["并发", "场景", "请求数", "RPS", "错误率", "p50", "p95", "p99"], overview));
+  out.push(table(["并发", "场景", "请求数", "RPS", "错误率", "限流率", "p50", "p95", "p99"], overview));
   out.push("");
 
   // ---- 端点 × 并发 p95 ----
@@ -167,6 +187,25 @@ export function render(result) {
     out.push("");
     out.push(table(["端点", ...cols.map((c) => `${c} 并发`)], rows));
     out.push("");
+
+    // 429 单列一张表：只在真的出现限流时才有，免得每份报告都多一张空表。
+    const limited = subset.some((r) => Object.values(r.endpoints).some((ep) => (ep.throttleRate || 0) > 0));
+    if (limited) {
+      const limitedRows = keys.map((key) => {
+        const cells = cols.map((vus) => {
+          const run = subset.find((r) => r.vus === vus);
+          const ep = run && run.endpoints[key];
+          return ep && ep.throttleRate ? pct(ep.throttleRate) : "-";
+        });
+        return [ENDPOINT_LABELS[key] || key, ...cells];
+      });
+      out.push(`## ${scenarioOf(scenario)} · 各端点限流（429）`);
+      out.push("");
+      out.push(table(["端点", ...cols.map((c) => `${c} 并发`)], limitedRows));
+      out.push("");
+      out.push("429 是「同一身份超过站点配额」，不是服务错误；`-` 表示这一档没有限流。");
+      out.push("");
+    }
   }
 
   // ---- 超阈 ----
@@ -190,6 +229,10 @@ export function render(result) {
     for (const b of breaches.slice(0, 40)) out.push(`- ${b}`);
     if (breaches.length > 40) out.push(`- ……另有 ${breaches.length - 40} 项，见 summary.json`);
   }
+  const throttledTotal = runs.reduce((sum, r) => sum + (r.throttled || 0), 0);
+  if (throttledTotal) {
+    out.push(`- 另有 ${throttledTotal} 次 429 限流，已单列；不计入错误率，也不进入 p95。`);
+  }
   out.push("");
 
   out.push("## 怎么读这张表");
@@ -204,6 +247,9 @@ export function render(result) {
     out.push("- 这个站是整站反代：连 `/`、`/discover.json`、`/assets/*` 都穿隧道。它们慢，先看隧道与实例，不是入口磁盘。");
   }
   out.push("- `/api/*` 经隧道回实例；每个新建 TCP 都多一次跨洋往返，所以 keepalive 命中与否差别很大。");
+  out.push(
+    "- 429 是限流，不是服务错误：`ep_<name>_throttled` 单列，`ep_<name>_ms` 只统计未被限流的请求。要测容量上限，先让每个 VU 有自己的身份，或在该测试实例把对应配额调高。"
+  );
   out.push("- 人那一层（`human/`）给的是单用户体感，不和这里的并发数混在一张表里。");
   out.push("");
   return out.join("\n");

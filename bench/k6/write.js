@@ -1,6 +1,7 @@
 import http from "k6/http";
 import { group, sleep } from "k6";
 import { probe } from "./lib/probe.js";
+import { agentHeaders, identityConfig } from "./lib/identity.js";
 import { baseUrl } from "./lib/common.js";
 
 // 写路径：发一条不公开的 post → 记一次看公开卡 → 删掉。每 5 次迭代多传一张图。
@@ -25,8 +26,9 @@ const IMAGE = open("../data/probe.png", "b");
 
 const BASE = baseUrl();
 const TOKEN = String(__ENV.KNOT_AGENT_TOKEN || "").trim();
-if (!TOKEN) {
-  throw new Error("缺少 KNOT_AGENT_TOKEN：写场景必须用站点自己的个人 Agent 授权码");
+const IDENTITY = identityConfig(__ENV);
+if (!TOKEN && !IDENTITY.tokens.length) {
+  throw new Error("缺少 KNOT_AGENT_TOKEN / KNOT_AGENT_TOKENS：写场景必须用站点自己的个人 Agent 授权码");
 }
 
 export const options = {
@@ -39,8 +41,6 @@ export const options = {
   },
 };
 
-const headers = { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" };
-
 const p = {
   publish: probe("write_publish"),
   look: probe("write_look"),
@@ -48,8 +48,12 @@ const p = {
   upload: probe("write_upload"),
 };
 
+function authHeadersFor(vu) {
+  return agentHeaders(IDENTITY, vu, TOKEN);
+}
+
 export function setup() {
-  const feed = http.get(`${BASE}/api/agent/information`, { headers });
+  const feed = http.get(`${BASE}/api/agent/information`, { headers: authHeadersFor(1) });
   let ids = [];
   if (feed.status === 200) {
     try {
@@ -71,6 +75,7 @@ function intelId(res) {
 
 export default function (data) {
   const stamp = `${Date.now()}-${__VU}-${__ITER}`;
+  const headers = { ...authHeadersFor(__VU), "Content-Type": "application/json" };
   let id = "";
 
   group("write", () => {
@@ -109,7 +114,7 @@ export default function (data) {
     group("upload", () => {
       const body = { file: http.file(IMAGE, "probe.png", "image/png") };
       const res = http.post(`${BASE}/api/agent/uploads`, body, {
-        headers: { Authorization: `Bearer ${TOKEN}` },
+        headers: authHeadersFor(__VU),
         tags: { name: "POST /api/agent/uploads" },
       });
       p.upload.record(res, (r) => r.status === 201);

@@ -328,7 +328,6 @@ export function adminRouter({
           account: handoff.account,
           host: handoff.host,
           port: Number(handoff.port),
-          keyPath: tunnelKeyPath(path.dirname(profile.file)),
           localPort,
         });
         const applied = await applyManagedBlock({ file: local.tunnelEnv, block });
@@ -396,7 +395,6 @@ export function adminRouter({
         account: handoff.account,
         host: handoff.host,
         port: Number(handoff.port),
-        keyPath: tunnelKeyPath(siteDir),
         localPort,
       });
       const applied = await applyManagedBlock({ file: tunnelEnvPath(siteDir), block });

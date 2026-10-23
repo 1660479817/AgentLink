@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { probeSite, summaryLines } from "./probe.mjs";
 import { render } from "./report.mjs";
+import { parseSummaryData } from "./summary.mjs";
 
 // 并发层编排：先黑箱探测这个站点，再按能测的场景一档一档跑 k6。
 //
@@ -45,6 +46,20 @@ const LEVELS = String(arg("levels", "5,10,20,30,50,100"))
   .map((n) => Number(n.trim()))
   .filter((n) => Number.isFinite(n) && n > 0);
 
+// 身份：直连源站时默认按 VU 给独立 XFF；公网入口只能靠多份 Cookie / 授权码。
+const RAW_IDENTITY = String(arg("identity", process.env.BENCH_IDENTITY || "")).toLowerCase();
+if (RAW_IDENTITY && !["shared", "xff"].includes(RAW_IDENTITY)) {
+  console.error(`--identity 只能是 shared 或 xff，收到：${RAW_IDENTITY}`);
+  process.exit(2);
+}
+const IDENTITY_MODE = RAW_IDENTITY || (isDirectBase(BASE) ? "xff" : "shared");
+const COOKIES = resolveCookies();
+const TOKENS = resolveTokens();
+const IDENTITY_WARNING =
+  IDENTITY_MODE === "xff" && !isDirectBase(BASE)
+    ? "入口 nginx 会把真实 IP 追加到 X-Forwarded-For 右侧，公网打 XFF 不会换身份；要分身份请用 --cookies-file 或多份 Agent 授权码"
+    : "";
+
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 const RESULTS_ROOT = path.join(ROOT, "results");
 const OUT_DIR = path.resolve(ROOT, arg("out", path.join("results", STAMP)));
@@ -52,22 +67,78 @@ const RAW_DIR = path.join(OUT_DIR, "raw");
 
 // 授权码只从环境变量或显式给的 --token-file 读；不打印、不写进结果文件。
 // 黑箱前提：文件在谁的机器上都行，脚本不认识仓库目录结构。
-function resolveToken() {
-  if (process.env.KNOT_AGENT_TOKEN) return process.env.KNOT_AGENT_TOKEN.trim();
+//
+// 一份授权码就是一个身份。要给每个 VU 分身份，就在文件里放多行
+// KNOT_AGENT_TOKEN=...，或用 KNOT_AGENT_TOKENS（换行/逗号分隔）。
+function normalizeToken(raw) {
+  const text = String(raw || "").trim();
+  const value = text.startsWith("KNOT_AGENT_TOKEN=")
+    ? text.slice(text.indexOf("KNOT_AGENT_TOKEN=") + "KNOT_AGENT_TOKEN=".length)
+    : text;
+  return value.trim().replace(/^["']|["']$/g, "");
+}
+
+function resolveTokens() {
+  const fromEnv = String(process.env.KNOT_AGENT_TOKENS || "")
+    .split(/[\n,]/)
+    .map(normalizeToken)
+    .filter(Boolean);
+  if (fromEnv.length) return fromEnv;
+
+  const single = normalizeToken(process.env.KNOT_AGENT_TOKEN || "");
   const file = arg("token-file", "");
-  if (!file) return "";
+  if (!file) return single ? [single] : [];
+
   const abs = path.resolve(process.cwd(), file);
   if (!existsSync(abs)) {
     console.warn(`授权码文件不存在：${abs}`);
-    return "";
+    return single ? [single] : [];
   }
   const text = readFileSync(abs, "utf8");
-  const line = text.split("\n").find((l) => l.trim().startsWith("KNOT_AGENT_TOKEN="));
-  if (!line) {
-    console.warn(`授权码文件里没有 KNOT_AGENT_TOKEN= 这一行：${abs}`);
-    return "";
+  const tokens = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"))
+    .map(normalizeToken)
+    .filter(Boolean);
+  if (!tokens.length) {
+    console.warn(`授权码文件里没有可用的授权码：${abs}`);
+    return single ? [single] : [];
   }
-  return line.slice(line.indexOf("KNOT_AGENT_TOKEN=") + "KNOT_AGENT_TOKEN=".length).trim().replace(/^["']|["']$/g, "");
+  return tokens;
+}
+
+// Cookie 文件：每行一个完整的 Cookie 头（如 knot_sid=...），一个 Cookie 就是一个身份。
+// 这是公网入口上唯一能真正把 VU 分开的办法——入口 nginx 会把真实 IP 追加到 XFF 右边，
+// 冒充 XFF 不会换身份。
+function resolveCookies() {
+  const fromEnv = String(process.env.BENCH_COOKIES || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((s) => s && !s.startsWith("#"));
+  if (fromEnv.length) return fromEnv;
+
+  const file = arg("cookies-file", "");
+  if (!file) return [];
+  const abs = path.resolve(process.cwd(), file);
+  if (!existsSync(abs)) {
+    console.warn(`Cookie 文件不存在：${abs}`);
+    return [];
+  }
+  return readFileSync(abs, "utf8")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((s) => s && !s.startsWith("#"));
+}
+
+function isDirectBase(base) {
+  const host = new URL(base).hostname.toLowerCase();
+  return (
+    /^(127\.|localhost$|\[?::1\]?$)/.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
+  );
 }
 
 function k6Version() {
@@ -101,6 +172,9 @@ function runK6({ script, vus, duration, out, token, allowWrites = false }) {
       VUS: String(vus),
       DURATION: String(duration),
       KNOT_AGENT_TOKEN: token || "",
+      KNOT_AGENT_TOKENS: TOKENS.join("\n"),
+      BENCH_COOKIES: COOKIES.join("\n"),
+      BENCH_IDENTITY: IDENTITY_MODE,
       ...(allowWrites ? { ALLOW_WRITES: "1" } : { ALLOW_WRITES: "" }),
     },
   });
@@ -117,49 +191,8 @@ function runK6({ script, vus, duration, out, token, allowWrites = false }) {
   return { ok: true, elapsed };
 }
 
-// k6 2.x 的 --summary-export 把 values 拍平到指标对象上；旧版包一层 values。
-function metricValues(metric) {
-  return (metric && (metric.values || metric)) || {};
-}
-
 function parseSummary(file) {
-  const raw = JSON.parse(readFileSync(file, "utf8"));
-  const metrics = raw.metrics || {};
-  const endpoints = {};
-
-  for (const [name, metric] of Object.entries(metrics)) {
-    const match = /^ep_(.+)_ms$/.exec(name);
-    if (!match) continue;
-    const key = match[1];
-    const values = metricValues(metric);
-    const err = metrics[`ep_${key}_err`];
-    endpoints[key] = {
-      count: values.count ?? null,
-      p50: values.med ?? values["p(50)"] ?? null,
-      p95: values["p(95)"] ?? null,
-      p99: values["p(99)"] ?? null,
-      max: values.max ?? null,
-      errRate: metricValues(err).value ?? metricValues(err).rate ?? 0,
-    };
-  }
-
-  const totals = metricValues(metrics.http_reqs);
-  let weightedErrors = 0;
-  let weightedCount = 0;
-  for (const ep of Object.values(endpoints)) {
-    const n = ep.count || 0;
-    weightedErrors += (ep.errRate || 0) * n;
-    weightedCount += n;
-  }
-
-  const dur = metricValues(metrics.http_req_duration);
-  return {
-    requests: totals.count ?? 0,
-    rps: totals.rate ?? null,
-    errorRate: weightedCount ? weightedErrors / weightedCount : 0,
-    overall: { p50: dur.med ?? null, p95: dur["p(95)"] ?? null, p99: dur["p(99)"] ?? null },
-    endpoints,
-  };
+  return parseSummaryData(JSON.parse(readFileSync(file, "utf8")));
 }
 
 function scriptFor(scenario) {
@@ -172,17 +205,17 @@ function scriptFor(scenario) {
 }
 
 // 一个场景能不能跑，只看探测结果和手里有没有授权码，不看它是哪个子域。
-function skippable(scenario, target, token) {
+function skippable(scenario, target) {
   if (scenario === "read" && !target.capabilities.webApi) {
     return "Web API 不可用（/api/web/session 不是 200）";
   }
   if (scenario === "agent") {
-    if (!token) return "没有授权码（KNOT_AGENT_TOKEN 或 --token-file）";
+    if (!TOKENS.length) return "没有授权码（KNOT_AGENT_TOKEN(S) 或 --token-file）";
     if (!target.capabilities.agentApi) return "授权码在目标站点上无效";
   }
   if (scenario === "write") {
     if (!ALLOW_WRITES) return "写场景需要显式同意（--allow-writes 或 ALLOW_WRITES=1）";
-    if (!token) return "写场景需要站点自己的个人 Agent 授权码";
+    if (!TOKENS.length) return "写场景需要站点自己的个人 Agent 授权码";
   }
   if (!scriptFor(scenario)) return `未知场景 ${scenario}`;
   return "";
@@ -196,7 +229,20 @@ async function main() {
   }
   mkdirSync(RAW_DIR, { recursive: true });
 
-  const token = resolveToken();
+  const token = TOKENS[0] || "";
+  const identityMode = COOKIES.length ? "cookie" : IDENTITY_MODE;
+  const maxVus = Math.max(...LEVELS);
+  if (IDENTITY_WARNING) console.warn(`身份：${IDENTITY_WARNING}`);
+  if (SCENARIOS.includes("read") && !COOKIES.length && IDENTITY_MODE !== "xff" && maxVus > 1) {
+    console.warn("身份：访客读的所有 VU 共享出口 IP，检索超过 120 次/分钟会 429（报告单列，不算错误）");
+  }
+  if (COOKIES.length && COOKIES.length < maxVus) {
+    console.warn(`身份：只有 ${COOKIES.length} 份 Cookie，最高 ${maxVus} 并发，部分 VU 会共用身份`);
+  }
+  if (TOKENS.length && TOKENS.length < maxVus && SCENARIOS.some((s) => s === "agent" || s === "write")) {
+    console.warn(`身份：只有 ${TOKENS.length} 份 Agent 授权码，最高 ${maxVus} 并发，部分 VU 会共用身份`);
+  }
+
   console.log(`探测 ${BASE} ...`);
   const target = await probeSite(BASE, { token });
   console.log(summaryLines(target).join("\n"));
@@ -214,17 +260,26 @@ async function main() {
     cooldown: COOLDOWN,
     startedAt: new Date().toISOString(),
     finishedAt: "",
-    token: Boolean(token),
+    token: Boolean(TOKENS.length),
+    identity: {
+      mode: identityMode,
+      cookies: COOKIES.length,
+      tokens: TOKENS.length,
+      warning: IDENTITY_WARNING,
+    },
     levels: LEVELS,
     scenarios: SCENARIOS,
     skipped: [],
   };
 
-  console.log(`\nk6 ${k6} · 每档 ${DURATION} · 冷却 ${COOLDOWN}s\n`);
+  console.log(`\nk6 ${k6} · 每档 ${DURATION} · 冷却 ${COOLDOWN}s`);
+  console.log(
+    `身份 ${identityMode}${COOKIES.length ? ` · Cookie ${COOKIES.length} 份` : ""}${TOKENS.length ? ` · 授权码 ${TOKENS.length} 份` : ""}\n`
+  );
 
   const runs = [];
   for (const scenario of SCENARIOS) {
-    const why = skippable(scenario, target, token);
+    const why = skippable(scenario, target);
     if (why) {
       console.log(`[${scenario}] 跳过：${why}`);
       meta.skipped.push({ scenario, reason: why });

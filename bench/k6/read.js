@@ -1,6 +1,7 @@
 import http from "k6/http";
 import { group, sleep } from "k6";
 import { probe } from "./lib/probe.js";
+import { identityConfig, webHeaders } from "./lib/identity.js";
 import { assetPaths, baseUrl, options as baseOptions } from "./lib/common.js";
 
 // 未登录访客的一次页面浏览。
@@ -15,6 +16,7 @@ import { assetPaths, baseUrl, options as baseOptions } from "./lib/common.js";
 
 const BASE = baseUrl();
 const QUERY = String(__ENV.QUERY || "");
+const IDENTITY = identityConfig(__ENV);
 
 export const options = baseOptions();
 
@@ -55,7 +57,7 @@ export function setup() {
     }
   }
   if (!ids.length) {
-    const feed = http.get(`${BASE}/api/web/information`);
+    const feed = http.get(`${BASE}/api/web/information`, { headers: webHeaders(IDENTITY, 1) });
     if (feed.status === 200) {
       try {
         ids = (feed.json("information") || []).map((item) => item.id).filter(Boolean);
@@ -69,6 +71,8 @@ export function setup() {
 
 export default function (data) {
   const id = data.ids.length ? data.ids[Math.floor(Math.random() * data.ids.length)] : "";
+  // 每个 VU 一份身份：有 Cookie 用 Cookie，否则按 VU 给一个独立的 XFF（直连源站时）。
+  const headers = webHeaders(IDENTITY, __VU);
 
   group("page", () => {
     p.index.record(http.get(`${BASE}/`, { tags: { name: "GET /" } }));
@@ -76,11 +80,11 @@ export default function (data) {
   });
 
   group("api", () => {
-    p.session.record(http.get(`${BASE}/api/web/session`, { tags: { name: "GET /api/web/session" } }));
-    p.home.record(http.get(`${BASE}/api/web/home`, { tags: { name: "GET /api/web/home" } }));
-    p.feed.record(http.get(`${BASE}/api/web/information`, { tags: { name: "GET /api/web/information" } }));
+    p.session.record(http.get(`${BASE}/api/web/session`, { headers, tags: { name: "GET /api/web/session" } }));
+    p.home.record(http.get(`${BASE}/api/web/home`, { headers, tags: { name: "GET /api/web/home" } }));
+    p.feed.record(http.get(`${BASE}/api/web/information`, { headers, tags: { name: "GET /api/web/information" } }));
     if (id) {
-      p.card.record(http.get(`${BASE}/api/web/intel/${id}`, { tags: { name: "GET /api/web/intel/:id" } }));
+      p.card.record(http.get(`${BASE}/api/web/intel/${id}`, { headers, tags: { name: "GET /api/web/intel/:id" } }));
     }
   });
 
@@ -89,6 +93,7 @@ export default function (data) {
     group("search", () => {
       p.search.record(
         http.get(`${BASE}/api/web/search?q=${encodeURIComponent(data.query)}`, {
+          headers,
           tags: { name: "GET /api/web/search" },
         })
       );
@@ -97,7 +102,7 @@ export default function (data) {
 
   if (Math.random() < 0.1) {
     group("sponsors", () => {
-      p.sponsors.record(http.get(`${BASE}/api/web/sponsors`, { tags: { name: "GET /api/web/sponsors" } }));
+      p.sponsors.record(http.get(`${BASE}/api/web/sponsors`, { headers, tags: { name: "GET /api/web/sponsors" } }));
     });
   }
 

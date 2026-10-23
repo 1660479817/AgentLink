@@ -138,13 +138,15 @@ WebUI 顶栏左上角是固定的 `XKnot` 标识（`web/public/logos/xknot-mark.
 | 入口 | `KNOT_ENTRY_SERVE` | `static` | `static` 页面从入口主机上的磁盘出；`proxy` 连首页也回源 |
 | 隧道 | `KNOT_TUNNEL` | `0` | 没有入口时 `0`；接了子域由 `tunnel.env` 写 `1` |
 | 隧道 | `KNOT_TUNNEL_SSH` | `knot-tunnel@<KNOT_ENTRY_SSH 的主机>` | 隧道账号 |
-| 隧道 | `KNOT_TUNNEL_KEY` | `$HOME/.ssh/knot-entry` | 隧道私钥，不进仓库 |
+| 隧道 | `KNOT_TUNNEL_KEY` | `$HOME/.ssh/knot-entry` | 隧道私钥，不进仓库。相对路径按站点目录解析 |
 | 隧道 | `KNOT_TUNNEL_LOCAL_PORT` | `$KNOT_PORT` | 实例主机侧被转发的端口 |
 | 隧道 | `KNOT_TUNNEL_REMOTE_PORT` | `$KNOT_ENTRY_PROXY_PORT` | 入口侧监听端口 |
 
 `KNOT_ENTRY_HOST`、`KNOT_TUNNEL_USER` 由上面几项推出来，不用手写。
 
-接入 XKnot 之后，`/admin` 的 XKnot 栏会接管隧道这一组：实例自己生成 `sites/<站点>/tunnel_ed25519`（私钥 `600`，只在站点目录里），把公钥交到案例页，拿到中枢给的入口主机、账号与端口后写进 `sites/<站点>/tunnel.env`（整份文件由界面维护，`# >>> XKnot 自动接通` 段内是账号、私钥路径与两个端口），再重启 `com.knot.entry-tunnel`。
+接入 XKnot 之后，`/admin` 的 XKnot 栏会接管隧道这一组：实例自己生成 `sites/<站点>/tunnel_ed25519`（私钥 `600`，只在站点目录里），把公钥交到案例页，拿到中枢给的入口主机、账号与端口后写进 `sites/<站点>/tunnel.env`（整份文件由界面维护，`# >>> XKnot 自动接通` 段内是账号、私钥文件名与两个端口），再重启 `com.knot.entry-tunnel`。
+
+托管段里的 `KNOT_TUNNEL_KEY` 只写文件名 `tunnel_ed25519`，不写绝对路径：密钥和这份配置同住一个站点目录，站点目录换位置（仓库 ↔ 部署根、换机器、复制一份调试）时隧道仍读自己旁边那把。`run-entry-tunnel.sh`、`deploy-site.sh` 与 `doctor.sh` 都用 `knot_tunnel_key_path()` 按站点目录拼绝对路径；密钥不在时直接报出是哪个 `KNOT_TUNNEL_KEY` 指的它，不再留给 ssh 一句 `Identity file ... not accessible`；`KNOT_TUNNEL=1` 而私钥解析不到时 `deploy-site.sh` 直接失败，不再「部署成功、入口 502」。写绝对路径的旧文件仍然能跑，但 `doctor.sh` 会提示它会在站点目录搬家时失效。
 
 隧道单独放 `tunnel.env` 而不是并进 `site.env`：`site.env` 归 `deploy-site.sh`（入口开关、公开地址、站点身份），`tunnel.env` 归界面。两份各改各的，重新部署也不会把接通配置冲掉；要改回手工配置，删掉 `tunnel.env` 再在 `site.env` 里写那一组键即可。`run-entry-tunnel.sh` 先读 `site.env`、再用 `tunnel.env` 覆盖，只要求 `KNOT_TUNNEL=1`（入口 conf 由中枢生成时不必开 `KNOT_ENTRY_ENABLED`）。密钥丢了不要重用旧名：换一个 `KNOT_TUNNEL_KEY` 让实例重新生成并提交，中枢会从建账号那一步重跑。
 
@@ -548,6 +550,17 @@ npm test                                # Backend、WebUI、packages 与 ops 工
 npm test -w web                         # 只跑 WebUI
 npm test -w knot-platform               # 只跑 Backend
 ```
+
+在实例主机上做体检，一条命令看完全链：
+
+```bash
+./ops/scripts/doctor.sh --site bot01                              # 在实例主机上，从 current 里跑
+./ops/scripts/doctor.sh --site local --deploy-root ~/knot/cpswang # 在开发机上查本机实例
+```
+
+它查五项：隧道私钥（按站点目录解析后是否存在、读不读得到）、本机 `/api/health`、`/api/web/information`（真读一次库，不只看进程）、常驻单元（`com.knot.platform`，接了隧道再加 `com.knot.entry-tunnel`）、公网 `KNOT_PUBLIC_ORIGIN/api/health`。任何一项不过就以非零退出，可以直接放进发布后的验收或定时任务。公网那一跳默认不走系统代理，免得开发机上的代理把「站点坏了」误报成真的。
+
+入口 502 时先跑它：`curl https://<子域>/api/health` 打不通而本机 `127.0.0.1:<KNOT_PORT>/api/health` 正常，几乎都是隧道没起来——入口 nginx 把请求交给入口主机的回环端口，隧道断了就没人监听。再看实例主机上的 `launchctl list | grep entry-tunnel`（Linux 是 `systemctl status knot-entry-tunnel`）与 `var/log/entry-tunnel.err.log`：私钥那一行会直接写出解析后的路径和它来自哪个 `KNOT_TUNNEL_KEY`，不再留给 ssh 一句 `Identity file ... not accessible`。`deploy-site.sh` 在 `KNOT_TUNNEL=1` 且私钥解析不到时也会直接停下，不会「部署成功、入口 502」。
 
 部署前后量访问速度，用同一套数字对比两种投放（本机、入口静态、入口反代）：
 

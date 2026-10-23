@@ -501,7 +501,7 @@ const SITE_KEYS = [
     type: "path",
     default: "$HOME/.ssh/knot-entry",
     scope: ["platform"],
-    desc: "实例主机上建隧道用的私钥。",
+    desc: "实例主机上建隧道用的私钥。相对路径按站点目录（sites/<站点>/）解析；自动接通写的 tunnel.env 用 tunnel_ed25519。",
   },
   {
     key: "KNOT_TUNNEL_LOCAL_PORT",

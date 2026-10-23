@@ -11,7 +11,7 @@ import { loadDiscoverSelf, emptyDiscoverSelf, listActivePeople } from "../discov
 import { listFacets } from "../facets.js";
 import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, reopenSale, searchPublicIntel, setIntelLike, setIntelStar } from "../market.js";
 import { listNotifications, markNotificationsRead, unreadCount } from "../notifications.js";
-import { allow } from "../rateLimit.js";
+import { allow, retryAfterSeconds } from "../rateLimit.js";
 import { searchConfig } from "../searchConfig.js";
 import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
 import { attachmentDisposition } from "../packetZip.js";
@@ -570,7 +570,12 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
 
   router.get("/search", contentGate, async (req, res) => {
     const config = searchConfig();
-    if (!allow(`search:${req.account?.id || req.ip || "anon"}`, config.searchRatePerMinute, 60_000)) {
+    const windowMs = 60_000;
+    const key = `search:${req.account?.id || req.ip || "anon"}`;
+    if (!allow(key, config.searchRatePerMinute, windowMs)) {
+      // 告诉浏览器还要等多少秒：前端据此提示，而不是把 429 画成「没有结果」。
+      const wait = retryAfterSeconds(key, windowMs);
+      if (wait) res.set("Retry-After", String(wait));
       return res.status(429).json({ error: "too_many" });
     }
     const q = String(req.query.q || "").trim().slice(0, config.queryMax);

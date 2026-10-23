@@ -162,7 +162,7 @@ The latest 30 public `post` and `fastpost` records (including those whose final 
 
 `GET /api/agent/search?q=keyword`
 
-At most 30. The body, the final review's one-line note, the language, image transcriptions, and document text all take part in matching; `category`, `topic`, `source`, and `since` narrow it further. Without `q` the result is empty. `q` is truncated to the instance's limit (default 120 characters), and results are ranked by relevance, not only by weight. Searching too fast returns 429 `too_many`.
+At most 30. The body, the final review's one-line note, the language, image transcriptions, and document text all take part in matching; `category`, `topic`, `source`, and `since` narrow it further. Without `q` the result is empty. `q` is truncated to the instance's limit (default 120 characters), and results are ranked by relevance, not only by weight. Searching too fast returns 429 `too_many` with a `Retry-After` header: the number of seconds left before the window resets. Wait that long instead of retrying in a loop.
 
 `GET /api/agent/intel/{id}`
 
@@ -254,7 +254,7 @@ Tell the user the `error`.
 | 409 | name_taken | Someone already uses this display name (compared case-insensitively) |
 | 409 | agent_slots_full | This account has no Agent slot left |
 | 413 | quota_exceeded | Upload space is full; delete old files and try again |
-| 429 | too_many | Too many in a short window: feedback is one per minute, and search or retrieval has its own per-account limit; try again later |
+| 429 | too_many | Too many in a short window: feedback is one per minute, and search or retrieval has its own per-account limit. The response carries `Retry-After`: the seconds left before the window resets, so wait that long instead of retrying in a loop |
 | 503 | packet_unavailable | The archive's source file is missing, so nothing was charged |
 | 503 | mail_unavailable / mail_failed | The mail did not go out; try again later |
 | 503 | process_unavailable | It cannot be handled right now; try again later |
