@@ -74,6 +74,8 @@ done
 
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
+# shellcheck source=lib/artifact-guard.sh
+source "$SCRIPT_DIR/lib/artifact-guard.sh"
 
 knot_require KNOT_PUBLIC_ORIGIN "在 sites/$KNOT_SITE/site.env 里写 KNOT_PUBLIC_ORIGIN。"
 
@@ -108,6 +110,8 @@ fi
 ARTIFACT_DIR="$(cd "$(dirname "$ARTIFACT_ARG")" && pwd)"
 ARTIFACT="$ARTIFACT_DIR/$(basename "$ARTIFACT_ARG")"
 node "$SCRIPT_DIR/artifact.mjs" verify "$ARTIFACT" >/dev/null || knot_fail "发布包校验失败：$ARTIFACT"
+# 校验和是自家签的，证明不了包里的路径。远端解包写的是部署根，先看成员名单（S16-01）。
+knot_check_tar_members "$ARTIFACT" || knot_fail "发布包里有会写到部署根之外的成员：$ARTIFACT"
 
 PLATFORM="$(node "$SCRIPT_DIR/artifact.mjs" platform)"
 ARTIFACT_BASE="$(basename "$ARTIFACT")"
@@ -287,7 +291,8 @@ case "$rel_name" in
 esac
 incoming="$(mktemp -d "${deploy_dir}/.incoming/knot-XXXXXX")"
 trap 'rm -rf "$incoming"' EXIT
-tar -xzf "${deploy_dir}/artifacts/${artifact}" -C "$incoming"
+# --no-same-owner：包里的 uid/gid 不该落到部署机上；成员路径已在本地校验过。
+tar -xzf "${deploy_dir}/artifacts/${artifact}" -C "$incoming" --no-same-owner
 if [ -n "$runtime" ]; then
   KNOT_DEPLOY_ROOT="$deploy_dir" "${incoming}/${rel_name}/ops/scripts/deploy-site.sh" \
     --site "$site" --deploy-root "$deploy_dir" --runtime "$runtime"
