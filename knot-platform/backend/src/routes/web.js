@@ -123,7 +123,7 @@ async function withUploads(pool, rows) {
   return rows.map((row) => ({ ...row, attachments: byId.get(row.id) || [] }));
 }
 
-export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, agentDoc }) {
+export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, agentDoc, handoff = null, adminHosts = [] }) {
   // 站点身份只用于展示：顶栏名称和分享文案。系统开关仍在 session.site。
   // v2 起是十项扁平字段，填什么就显示什么，不再按语种取；`locale` 是站点默认界面语言。
   ensureUploadDir(uploadDir);
@@ -211,6 +211,21 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     // Agent 是否已开通和会话一起回：顶栏不必再为这一项单独穿一次隧道。
     const [user, agents] = await Promise.all([loadUser(pool, req.account.id), findAgentsOf(pool, req.account.id)]);
     res.json({ user, policy, defaultLocale, site, brand: identity, agentDoc: doc, agentDelegated: agents.length > 0 });
+  });
+
+  // 管理后台的一次性入口。登录在站点域名上，/admin 在实例的内网地址上，
+  // 两个 origin 不共享 cookie，所以这里给已登录的主理人发一枚 5 分钟的票据，
+  // 由内网那一侧的 POST /api/admin/handoff/claim 换来 30 天的管理凭据。
+  // 票据里没有身份信息，只是一段签名过的随机串；主令牌不经过这里。
+  router.post("/admin-handoff", async (req, res) => {
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    if (!(await isOwnerAccount(pool, req.account.id))) return res.status(403).json({ error: "not_admin" });
+    const issued = handoff?.issue?.();
+    if (!issued) return res.status(503).json({ error: "admin_unconfigured" });
+    res.set("Cache-Control", "no-store");
+    // 地址可能是函数：笔记本换了网络，下一枚票据就该指向新地址。
+    const hosts = typeof adminHosts === "function" ? adminHosts() : adminHosts;
+    res.json({ ...issued, hosts: Array.isArray(hosts) ? hosts : [] });
   });
 
   // 首页的会话层：一次往返拿齐会话、Agent、未读数，以及「当前公开快照上属于我的状态」。

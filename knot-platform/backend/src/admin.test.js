@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,7 +17,9 @@ import {
   listPosts,
   muteUser,
   removePost,
+  readManagedAgentToken,
   retireManagedAgent,
+  rotateManagedAgentToken,
   setEntitlements,
   setLevel,
   tokensMatch,
@@ -916,6 +918,211 @@ test("issuing needs an owner, an unused name, and a directory for the code", asy
     issueInternalAgent(taken.pool, "豆包", { envDir: "/tmp" }),
     (error) => error.code === "name_taken"
   );
+});
+
+// 授权码的读写只走主理人名下的内部 Agent：行里有 owner_role，便于区分外部 Agent。
+const OLD_TOKEN_HASH = createHash("sha256").update("tok-old").digest("hex");
+
+function tokenPool({ ownerRole = "owner", rows = null, updateFails = false, updateMissing = false, tokenHash } = {}) {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes("o.role AS owner_role")) {
+        const found = rows || [
+          {
+            id: USER_ID,
+            display_name: "豆包",
+            owner_id: OWNER_ID,
+            owner_role: ownerRole,
+            token_hash: tokenHash === undefined ? OLD_TOKEN_HASH : tokenHash,
+          },
+        ];
+        return { rows: found, rowCount: found.length };
+      }
+      if (sql.includes("UPDATE accounts SET token_hash")) {
+        if (updateFails) throw new Error("db down");
+        if (updateMissing) return { rows: [], rowCount: 0 };
+        return { rows: [{ id: USER_ID }], rowCount: 1 };
+      }
+      if (sql.includes("admin_actions")) return { rows: [], rowCount: 1 };
+      throw new Error(`unexpected ${sql}`);
+    },
+  };
+  return { pool, calls };
+}
+
+async function authFileDir(token, name = "豆包") {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-token-"));
+  const file = path.join(dir, `${name}.local.env`);
+  await writeFile(
+    file,
+    [
+      `KNOT_AGENT_NAME=${name}`,
+      `KNOT_AGENT_ID=${USER_ID}`,
+      `KNOT_AGENT_OWNER_ID=${OWNER_ID}`,
+      `KNOT_AGENT_TOKEN=${token}`,
+      "",
+    ].join("\n")
+  );
+  return { dir, file };
+}
+
+test("the admin reads an internal agent's code back from its auth file", async () => {
+  const { dir, file } = await authFileDir("tok-old");
+  const readable = tokenPool();
+  const found = await readManagedAgentToken(readable.pool, USER_ID, { envDir: dir });
+  assert.equal(found.token, "tok-old");
+  assert.equal(found.file, file);
+  assert.equal(found.id, USER_ID);
+
+  // 外部 Agent 的码归账号自己在「我的」里拿，管理端不读。
+  const external = tokenPool({ ownerRole: "user" });
+  await assert.rejects(
+    readManagedAgentToken(external.pool, USER_ID, { envDir: dir }),
+    (error) => error.code === "not_internal"
+  );
+
+  // 库里只有哈希：授权文件里没有这一行，就读不回来，只能重新签发。
+  const empty = await mkdtemp(path.join(os.tmpdir(), "knot-token-empty-"));
+  await assert.rejects(
+    readManagedAgentToken(readable.pool, USER_ID, { envDir: empty }),
+    (error) => error.code === "token_unavailable"
+  );
+
+  // 文件里的码和库里的哈希对不上：这份文件过期了，给出去也接不上。
+  const stale = await authFileDir("tok-stale");
+  await assert.rejects(
+    readManagedAgentToken(readable.pool, USER_ID, { envDir: stale.dir }),
+    (error) => error.code === "token_unavailable"
+  );
+
+  await assert.rejects(
+    readManagedAgentToken(readable.pool, USER_ID, {}),
+    (error) => error.code === "env_unconfigured"
+  );
+
+  // 停用的 Agent 没有令牌可给。
+  await assert.rejects(
+    readManagedAgentToken(tokenPool({ rows: [] }).pool, USER_ID, { envDir: dir }),
+    (error) => error.code === "not_found"
+  );
+});
+
+test("reissuing writes the new code back to the same auth file", async () => {
+  const { dir, file } = await authFileDir("tok-old");
+  const { pool, calls } = tokenPool();
+  const result = await rotateManagedAgentToken(pool, USER_ID, { envDir: dir });
+
+  assert.match(result.token, /^[A-Za-z0-9_-]+$/);
+  assert.notEqual(result.token, "tok-old");
+  assert.equal(result.file, file);
+  const text = await readFile(file, "utf8");
+  assert.equal(text.includes(`KNOT_AGENT_TOKEN=${result.token}`), true);
+  assert.equal(text.includes("tok-old"), false);
+
+  const update = calls.find((call) => call.sql.includes("UPDATE accounts SET token_hash"));
+  assert.deepEqual(update.params, [USER_ID, createHash("sha256").update(result.token).digest("hex")]);
+  const action = calls.find((call) => call.sql.includes("admin_actions"));
+  assert.equal(action.params[0], USER_ID);
+  assert.equal(action.params[1], "重新签发 豆包 的授权码");
+});
+
+// 早先的授权码文件里还有 KNOT_AGENT_EMAIL、KNOT_AGENT_USER_ID 这些行：
+// 重签只该换令牌那一行，整份重写会把别人接的字段抹掉。
+test("reissuing keeps the other lines of an older auth file", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-token-legacy-"));
+  const file = path.join(dir, "PaulWang-AI.local.env");
+  await writeFile(
+    file,
+    [
+      "KNOT_AGENT_NAME=PaulWang-AI",
+      "KNOT_AGENT_EMAIL=writer@example.com",
+      `KNOT_AGENT_USER_ID=${USER_ID}`,
+      "KNOT_AGENT_TOKEN=tok-old",
+      "",
+    ].join("\n")
+  );
+  const result = await rotateManagedAgentToken(tokenPool().pool, USER_ID, { envDir: dir });
+  const text = await readFile(file, "utf8");
+  assert.equal(text.includes("KNOT_AGENT_EMAIL=writer@example.com"), true);
+  assert.equal(text.includes(`KNOT_AGENT_USER_ID=${USER_ID}`), true);
+  assert.equal(text.includes(`KNOT_AGENT_TOKEN=${result.token}`), true);
+  assert.equal(text.includes("tok-old"), false);
+  assert.equal((await stat(file)).mode & 0o777, 0o600);
+});
+
+test("a failed database write puts the old code back", async () => {
+  const { dir, file } = await authFileDir("tok-old");
+  await assert.rejects(
+    rotateManagedAgentToken(tokenPool({ updateFails: true }).pool, USER_ID, { envDir: dir }),
+    (error) => error.code === "env_failed"
+  );
+  const text = await readFile(file, "utf8");
+  assert.equal(text.includes("KNOT_AGENT_TOKEN=tok-old"), true);
+});
+
+test("a failed database write removes a code it just created", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-token-"));
+  await assert.rejects(
+    rotateManagedAgentToken(tokenPool({ updateFails: true }).pool, USER_ID, { envDir: dir }),
+    (error) => error.code === "env_failed"
+  );
+  assert.deepEqual(await readdir(dir), []);
+});
+
+test("a token written just as the agent is retired is removed again", async () => {
+  const { dir } = await authFileDir("tok-old");
+  await assert.rejects(
+    rotateManagedAgentToken(tokenPool({ updateMissing: true }).pool, USER_ID, { envDir: dir }),
+    (error) => error.code === "not_found"
+  );
+  assert.deepEqual(await readdir(dir), []);
+});
+
+test("the admin token doors read and reissue through the auth file", async () => {
+  const { dir } = await authFileDir("tok-old");
+  const app = express();
+  app.use(express.json());
+  app.use("/api/admin", adminRouter({ pool: tokenPool().pool, token: "secret", agentEnvDir: dir }));
+  const server = await listen(app);
+  try {
+    const base = `http://127.0.0.1:${server.address().port}/api/admin`;
+    const read = await fetch(`${base}/agents/${USER_ID}/token`, {
+      headers: { Authorization: "Bearer secret" },
+    });
+    assert.equal(read.status, 200);
+    assert.equal(read.headers.get("cache-control"), "no-store");
+    assert.equal((await read.json()).token, "tok-old");
+
+    const rotated = await fetch(`${base}/agents/${USER_ID}/token/rotate`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret" },
+    });
+    assert.equal(rotated.status, 200);
+    const body = await rotated.json();
+    assert.match(body.token, /^[A-Za-z0-9_-]+$/);
+    assert.notEqual(body.token, "tok-old");
+  } finally {
+    server.close();
+  }
+
+  // 文件里读不到时给 409：页面据此提示「重新签发」。
+  const empty = await mkdtemp(path.join(os.tmpdir(), "knot-token-empty-"));
+  const missing = express();
+  missing.use(express.json());
+  missing.use("/api/admin", adminRouter({ pool: tokenPool().pool, token: "secret", agentEnvDir: empty }));
+  const server2 = await listen(missing);
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server2.address().port}/api/admin/agents/${USER_ID}/token`,
+      { headers: { Authorization: "Bearer secret" } }
+    );
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { error: "token_unavailable" });
+  } finally {
+    server2.close();
+  }
 });
 
 test("the issue door refuses a blank name and a missing directory", async () => {

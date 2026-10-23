@@ -2520,6 +2520,32 @@ a.intel-person:hover {
   margin: 0.75rem 0 0;
 }
 
+/* 「我的」里的管理后台入口。地址可能很长（内网 IP + 端口 + 票据），要能折行。 */
+.admin-entry-hint {
+  margin: 0.25rem 0 0;
+}
+
+.admin-entry-note {
+  margin: 0.5rem 0 0;
+}
+
+.admin-entry-link {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-entry-link code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.admin-entry .form-actions {
+  margin-top: 0.85rem;
+}
+
 .agent-line {
   display: flex;
   align-items: center;

@@ -834,6 +834,14 @@ const PLATFORM_KEYS = [
     secret: true,
     desc: "内网管理接口 /api/admin 和管理后台 /admin 的令牌。由 ensure-openclaw.sh 写入，运维不要手改。",
   },
+  {
+    key: "KNOT_ADMIN_ORIGIN",
+    group: "admin",
+    type: "url",
+    default: "",
+    desc: "管理后台链接里写死的内网地址，例如 http://192.168.3.91:8080。留空时按 KNOT_BIND_HOST 与网卡推断。",
+    example: "http://192.168.3.91:8080",
+  },
 ];
 
 // XKnot 接入：写在 sites/<站点>/xknot.env。
