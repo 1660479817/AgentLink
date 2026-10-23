@@ -10,7 +10,7 @@ import {
   AGENT_LIMIT,
   USER_LIMIT,
 } from "./account.js";
-import { createAgent, findAgentsOf, mapAgentError, removeAgentEnvFile, retireAgent, reviveAgent, updateAgentEnvName, writeAgentEnvFile } from "./agentAccount.js";
+import { createAgent, findAgentsOf, hashAgentToken, mapAgentError, newAgentToken, readAgentToken, removeAgentEnvFile, retireAgent, reviveAgent, updateAgentEnvName, writeAgentEnvFile, writeAgentEnvToken } from "./agentAccount.js";
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { discardExtract } from "./extracts.js";
 import { recordNotification } from "./notifications.js";
@@ -447,6 +447,88 @@ export async function retireManagedAgent(pool, id, reason, options = {}) {
   const where = agent.owner_role === "owner" ? "内部" : "外部";
   await writeAction(pool, { action: "retire", accountId: id, body: `停用 ${where} Agent ${agent.display_name}。${text}` });
   return { ok: true, id, ownerRole: agent.owner_role };
+}
+
+// 管理端能看、能换的令牌只限主理人名下的内部 Agent：
+// 明文写在 KNOT_AGENT_ENV_DIR 的授权码文件里，库里只有哈希。
+// 外部 Agent 的码由账号自己在「我的」里拿，管理端转动它等于把人家踢下线，不做。
+async function internalAgentRow(pool, id) {
+  if (!UUID.test(String(id || ""))) throw fail("not_found");
+  const { rows } = await pool.query(
+    `SELECT a.id, a.display_name, a.owner_id, a.token_hash, o.role AS owner_role
+       FROM accounts a JOIN accounts o ON o.id = a.owner_id
+      WHERE a.id = $1 AND a.role = 'agent' AND a.retired_at IS NULL`,
+    [id]
+  );
+  const agent = rows[0];
+  if (!agent) throw fail("not_found");
+  if (agent.owner_role !== "owner") throw fail("not_internal");
+  return agent;
+}
+
+export async function readManagedAgentToken(pool, id, options = {}) {
+  const agent = await internalAgentRow(pool, id);
+  const envDir = String(options.envDir || "").trim();
+  if (!envDir) throw fail("env_unconfigured");
+  const found = await readAgentToken(envDir, { id: agent.id, displayName: agent.display_name });
+  // 文件里的码要和库里的哈希对上：对不上说明这份文件过期了，给出去也接不上。
+  if (!found || !agent.token_hash || hashAgentToken(found.token) !== agent.token_hash) {
+    throw fail("token_unavailable");
+  }
+  return { ok: true, id: agent.id, token: found.token, file: found.file };
+}
+
+// 重新签发：旧码立刻失效，新码写回同一份授权码文件，免得文件和库各说各话。
+// 先写文件再换库里的哈希：中途失败时旧码还能用，不会把 Agent 锁在门外。
+export async function rotateManagedAgentToken(pool, id, options = {}) {
+  const agent = await internalAgentRow(pool, id);
+  const envDir = String(options.envDir || "").trim();
+  if (!envDir) throw fail("env_unconfigured");
+  const agentFile = { id: agent.id, displayName: agent.display_name, ownerId: agent.owner_id };
+  const before = await readAgentToken(envDir, agentFile);
+  const token = newAgentToken();
+
+  let file;
+  try {
+    file = await writeAgentEnvToken(envDir, { ...agentFile, token });
+  } catch {
+    throw fail("env_failed");
+  }
+
+  const putBack = async () => {
+    // 库里还是旧哈希：文件退回旧码；旧码本来就没有，就把刚写的那份删掉。
+    if (before) {
+      await writeAgentEnvToken(envDir, { ...agentFile, token: before.token }).catch((failure) =>
+        console.error(failure)
+      );
+    } else {
+      await removeAgentEnvFile(envDir, agentFile).catch((failure) => console.error(failure));
+    }
+  };
+
+  let updated;
+  try {
+    updated = await pool.query(
+      `UPDATE accounts SET token_hash = $2, updated_at = now()
+        WHERE id = $1 AND role = 'agent' AND retired_at IS NULL
+        RETURNING id`,
+      [agent.id, hashAgentToken(token)]
+    );
+  } catch (error) {
+    await putBack();
+    throw fail("env_failed");
+  }
+  if (!updated.rows.length) {
+    // 写文件这几毫秒里 Agent 被停用了：库里的令牌已经清空，文件也不该留着。
+    await removeAgentEnvFile(envDir, agentFile).catch((failure) => console.error(failure));
+    throw fail("not_found");
+  }
+
+  await pool.query(`INSERT INTO admin_actions (action, account_id, body) VALUES ('issue', $1, $2)`, [
+    agent.id,
+    `重新签发 ${agent.display_name} 的授权码`,
+  ]);
+  return { ok: true, id: agent.id, token, file };
 }
 
 export async function searchUsers(pool, query) {

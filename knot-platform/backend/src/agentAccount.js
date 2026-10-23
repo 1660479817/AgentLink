@@ -192,6 +192,57 @@ export function agentEnvText(agent) {
   ].join("\n");
 }
 
+// 授权码文件里有明文令牌，写的时候只留当前用户可读：先写临时文件、改权限、再原子替换。
+// 临时名带随机段：同一个 Agent 被两次重签撞在一起时，也不会互相覆盖同一个临时文件。
+async function writePrivate(file, text) {
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  await writeFile(tmp, text, { mode: 0o600 });
+  await chmod(tmp, 0o600);
+  await rename(tmp, file);
+  await chmod(file, 0o600);
+  return file;
+}
+
+// 读回明文令牌：库里只有哈希，能看见的地方只有磁盘上这一份。
+// 文件不在或没写令牌时返回 null，由调用方决定该说什么。
+export async function readAgentToken(dir, agent) {
+  if (!dir || !agent?.id) return null;
+  const file = await findAgentEnvFile(dir, agent);
+  if (!file) return null;
+  let text;
+  try {
+    text = await readFile(file, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  const found = /^KNOT_AGENT_TOKEN=(.*)$/m.exec(text);
+  const token = found ? found[1].trim() : "";
+  return token ? { token, file } : null;
+}
+
+// 换码写回原来那一份文件：文件名按签发时的称呼，改过称呼也不会搬到新名字。
+// 只替换 KNOT_AGENT_TOKEN 那一行，其余内容原样留着——早先的文件里还有
+// KNOT_AGENT_EMAIL、KNOT_AGENT_USER_ID 这类行，重写整份会把它们抹掉。
+// 还没有文件时按称呼新建一份。
+export async function writeAgentEnvToken(dir, agent) {
+  if (!agent?.displayName || !agent?.token) throw fail("bad_name");
+  const file = await findAgentEnvFile(dir, agent);
+  if (!file) return writeAgentEnvFile(dir, agent);
+  let text;
+  try {
+    text = await readFile(file, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return writeAgentEnvFile(dir, agent);
+    throw error;
+  }
+  const line = `KNOT_AGENT_TOKEN=${agent.token}`;
+  const next = /^KNOT_AGENT_TOKEN=.*$/m.test(text)
+    ? text.replace(/^KNOT_AGENT_TOKEN=.*$/m, line)
+    : `${text}${text.endsWith("\n") || !text ? "" : "\n"}${line}\n`;
+  return writePrivate(file, next);
+}
+
 // 称呼里可能有空格和标点，文件名只留安全的字符。
 function agentStem(displayName) {
   return String(displayName).replace(/[^\p{L}\p{N}-]+/gu, "_").replace(/^_+|_+$/g, "") || "agent";
@@ -261,24 +312,14 @@ export async function updateAgentEnvName(dir, agent) {
     ? text.replace(/^KNOT_AGENT_NAME=.*$/m, line)
     : `${line}\n${text}`;
   if (next === text) return file;
-  const tmp = `${file}.${process.pid}.tmp`;
-  await writeFile(tmp, next, { mode: 0o600 });
-  await chmod(tmp, 0o600);
-  await rename(tmp, file);
-  await chmod(file, 0o600);
-  return file;
+  return writePrivate(file, next);
 }
 
 export async function writeAgentEnvFile(dir, agent) {
   if (!agent?.displayName || !agent?.token) throw fail("bad_name");
   await mkdir(dir, { recursive: true });
   const file = await agentEnvFileFor(dir, agent);
-  const tmp = `${file}.${process.pid}.tmp`;
-  await writeFile(tmp, agentEnvText(agent), { mode: 0o600 });
-  await chmod(tmp, 0o600);
-  await rename(tmp, file);
-  await chmod(file, 0o600);
-  return file;
+  return writePrivate(file, agentEnvText(agent));
 }
 
 // 停用时把授权码文件带走：库里已经清空令牌，留着这份只会让人拿着死码去接。

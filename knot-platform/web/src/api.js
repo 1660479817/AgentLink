@@ -43,6 +43,12 @@ export function updateProfile(profile) {
   return request("/api/web/profile", { method: "PATCH", body: JSON.stringify(profile) });
 }
 
+// 管理后台的一次性入口：主理人在站点域名上换一枚 5 分钟的票据，
+// 由内网那一侧的 /admin 兑换成 30 天凭据。票据不含身份信息，主令牌不经过浏览器。
+export function requestAdminHandoff() {
+  return request("/api/web/admin-handoff", { method: "POST" });
+}
+
 function uploadForm(path, file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

@@ -1196,6 +1196,37 @@ textarea:focus {
   margin-top: 12px;
 }
 
+/* 授权码：一行等宽文本 + 复制键。令牌很长，输入框横向滚动，不换行撑破详情栏。 */
+.token-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+}
+
+.token-row .token-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  background: #f7f8fa;
+}
+
+.token-row .button {
+  flex: 0 0 auto;
+}
+
+.token-actions {
+  margin-top: 8px;
+}
+
+.inline-note.is-warn {
+  border-color: #f2c9c9;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .detail-card .stack-form .alert {
   margin-top: 0;
 }
@@ -1535,6 +1566,16 @@ textarea:focus {
   /* 窄屏名册先保证名字完整：右侧那串等级与积分收进详情里。 */
   .user-side {
     display: none;
+  }
+
+  /* 授权码一行放不下时，复制键落到输入框下面，令牌整行可读。 */
+  .token-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .token-row .button {
+    align-self: flex-start;
   }
 }
 

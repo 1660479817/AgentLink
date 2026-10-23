@@ -14,7 +14,9 @@ import {
   issueInternalAgent,
   listAccountRoster,
   listAgents,
+  readManagedAgentToken,
   retireManagedAgent,
+  rotateManagedAgentToken,
   setEntitlements,
   setLevel,
   tokensMatch,
@@ -101,6 +103,8 @@ function sendAdminError(res, error) {
   if (code === "not_found") return res.status(404).json({ error: code });
   if (code === "not_pending") return res.status(409).json({ error: code });
   if (code === "name_taken") return res.status(409).json({ error: code });
+  // 令牌只在授权码文件里；文件不在了就只有重新签发一条路可走。
+  if (code === "token_unavailable") return res.status(409).json({ error: code });
   if (code === "agent_slots_full" || code === "users_full") {
     return res.status(409).json({ error: code });
   }
@@ -144,7 +148,16 @@ async function deliverPublicKey({ profile, application }) {
   return { ...submitted, created: key.created };
 }
 
-export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, publicWebOrigin = "", profile = null, port = 0 }) {
+export function adminRouter({
+  pool,
+  token,
+  handoff = null,
+  uploadDir,
+  agentEnvDir = null,
+  publicWebOrigin = "",
+  profile = null,
+  port = 0,
+}) {
   const router = Router();
   const localPort = tunnelLocalPort(port);
   if (uploadDir) ensureUploadDir(uploadDir);
@@ -160,6 +173,21 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
     },
   });
 
+  // 票据兑换：主理人在站点域名上已经登录，从「我的」页拿到一枚一次性票据，
+  // 到这里换成这枚 30 天的管理凭据。它必须注册在下面的令牌中间件之前——
+  // 它就是「还没有凭据」的那一步。内网检查与其余端点一致；公网入口那一段
+  // nginx 本来就不会把 /api/admin 送到实例，所以这里只是第二道相同的门。
+  router.post("/handoff/claim", (req, res) => {
+    if (!isIntranetAddress(req.socket?.remoteAddress)) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    if (!handoff?.configured) return res.status(503).json({ error: "admin_unconfigured" });
+    const claimed = handoff.claim(req.body?.ticket);
+    if (!claimed) return res.status(401).json({ error: "bad_ticket" });
+    res.set("Cache-Control", "no-store");
+    res.json(claimed);
+  });
+
   router.use((req, res, next) => {
     if (!isIntranetAddress(req.socket?.remoteAddress)) {
       return res.status(404).json({ error: "not_found" });
@@ -167,7 +195,11 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
     if (!String(token || "").trim()) {
       return res.status(503).json({ error: "admin_unconfigured" });
     }
-    if (!tokensMatch(String(token).trim(), bearerToken(req.headers.authorization))) {
+    // 两种凭据：从 WebUI 换来的 30 天管理凭据（只有这里认），或原来的主令牌
+    // （OpenClaw 的 knot-admin 技能与应急 SSH 都还在用）。主令牌始终不出服务器。
+    const presented = bearerToken(req.headers.authorization);
+    if (handoff && handoff.verifyAdminSession(presented)) return next();
+    if (!tokensMatch(String(token).trim(), presented)) {
       return res.status(401).json({ error: "bad_token" });
     }
     next();
@@ -518,6 +550,27 @@ export function adminRouter({ pool, token, uploadDir, agentEnvDir = null, public
   router.get("/agents", async (_req, res) => {
     try {
       res.json(await listAgents(pool));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  // 明文令牌只在授权码文件里：选中内部 Agent 时读这一份，给管理员复制。
+  // 回的是明文，不让浏览器或中间代理留下这份响应。
+  router.get("/agents/:id/token", async (req, res) => {
+    try {
+      res.set("Cache-Control", "no-store");
+      res.json(await readManagedAgentToken(pool, req.params.id, { envDir: agentEnvDir }));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  // 重新签发：旧码作废，新码写回授权文件。
+  router.post("/agents/:id/token/rotate", async (req, res) => {
+    try {
+      res.set("Cache-Control", "no-store");
+      res.json(await rotateManagedAgentToken(pool, req.params.id, { envDir: agentEnvDir }));
     } catch (error) {
       sendAdminError(res, error);
     }

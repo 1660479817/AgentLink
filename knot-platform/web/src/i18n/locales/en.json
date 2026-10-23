@@ -278,6 +278,17 @@
     "bio": "Bio",
     "bioPlaceholder": "Write a short bio",
     "editBio": "Edit bio",
+    "admin": {
+      "title": "Admin console",
+      "hint": "Opens on the instance's own network address, where points, content, people and site settings live. The link works once, for five minutes.",
+      "open": "Open admin console",
+      "copy": "Copy link",
+      "copied": "Copied",
+      "other": "Other network addresses: {hosts}",
+      "note": "Once inside, this browser stays signed in for 30 days. On another device, come back here for a new link.",
+      "failed": "Could not create the entry link. Try again.",
+      "unavailable": "The instance has no network address to offer. Check its listen address, or set KNOT_ADMIN_ORIGIN."
+    },
     "save": "Save",
     "cancel": "Cancel",
     "avatar": "Change photo",

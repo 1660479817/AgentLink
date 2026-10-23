@@ -2,13 +2,18 @@
 // 所有写操作都走同一条内网 /api/admin，由 Backend 校验令牌、做校验、写库和记账。
 //
 // 安全约定：
-// - 令牌只放在 sessionStorage，关闭标签页就没了；页面只在实例主机自己或同一内网提供；
+// - 从站点「我的」进入时，换到的是一枚 30 天的管理凭据，存在 localStorage；
+//   手动粘的主令牌只留在 sessionStorage，关标签页就没了；
+// - 页面只在实例主机自己或同一内网提供；
 // - 所有来自接口的文字一律用 textContent 写进 DOM，不拼 innerHTML；
 // - 页面不写内联脚本和内联样式，CSP 锁在 'self'。
 
 import { LOCALES, applyI18n, fmtDate, fmtInt, locale, setLocale, t } from "./i18n.js";
 
 const TOKEN_KEY = "knot.admin.token";
+// 从 WebUI 换来的 30 天管理凭据。它不是主令牌，只被 /api/admin 认。
+const CREDENTIAL_KEY = "knot.admin.credential";
+
 const VIEW_LOADERS = {
   overview: loadOverview,
   content: loadContent,
@@ -34,6 +39,8 @@ const state = {
   quota: null,
   selectedUser: null,
   selectedAgent: null,
+  agentToken: null,
+  tokenBusy: false,
   posts: null,
   patrol: [],
   invites: [],
@@ -113,6 +120,10 @@ const GLYPHS = {
     ["circle", { cx: 8.5, cy: 12, r: 3.5 }],
     ["path", { d: "M12 12h8" }],
     ["path", { d: "M17 12v3M20 12v2" }],
+  ],
+  copy: [
+    ["rect", { x: 9, y: 9, width: 11, height: 11, rx: 2 }],
+    ["path", { d: "M15 5.5A1.5 1.5 0 0 0 13.5 4h-8A1.5 1.5 0 0 0 4 5.5v8A1.5 1.5 0 0 0 5.5 15" }],
   ],
   overview: [
     ["path", { d: "M4 19.5V4.5" }],
@@ -376,7 +387,7 @@ async function api(pathname, options = {}) {
     if (Array.isArray(data.problems)) error.problems = data.problems;
     if (response.status === 401) {
       state.token = "";
-      sessionStorage.removeItem(TOKEN_KEY);
+      forget();
     }
     throw error;
   }
@@ -401,14 +412,36 @@ function showApp() {
   setView("overview");
 }
 
-async function enter(token) {
+// 存储位置决定「保持多久」：
+// - persist（从站点「我的」换来的凭据）写 localStorage，下次打开 /admin 直接用；
+// - 手动粘的主令牌只写 sessionStorage，关掉标签页就没了，和以前一样。
+function remember(value, persist) {
+  if (persist) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    localStorage.setItem(CREDENTIAL_KEY, value);
+    return;
+  }
+  localStorage.removeItem(CREDENTIAL_KEY);
+  sessionStorage.setItem(TOKEN_KEY, value);
+}
+
+function forget() {
+  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(CREDENTIAL_KEY);
+}
+
+function savedCredential() {
+  return localStorage.getItem(CREDENTIAL_KEY) || sessionStorage.getItem(TOKEN_KEY) || "";
+}
+
+async function enter(token, { persist = false } = {}) {
   const value = String(token || "").trim();
   if (!value) {
     setAlert(byId("login-error"), t("login.empty"), "error");
     return;
   }
   state.token = value;
-  sessionStorage.setItem(TOKEN_KEY, value);
+  remember(value, persist);
   const button = byId("login-submit");
   button.disabled = true;
   setAlert(byId("login-error"), "", "error");
@@ -418,7 +451,7 @@ async function enter(token) {
     showApp();
   } catch (error) {
     state.token = "";
-    sessionStorage.removeItem(TOKEN_KEY);
+    forget();
     showLogin(verifyMessage(error));
   } finally {
     button.disabled = false;
@@ -427,8 +460,37 @@ async function enter(token) {
 
 function logout(message = "") {
   state.token = "";
-  sessionStorage.removeItem(TOKEN_KEY);
+  forget();
   showLogin(message);
+}
+
+// 从站点「我的」的「进入管理后台」过来时，地址里带一枚 5 分钟的票据（#t=…）。
+// 兑换到的是一枚 30 天的管理凭据：写在这个浏览器上，之后打开 /admin 不用再换。
+let ticketFailed = false;
+
+async function claimTicket() {
+  const match = /^#t=([A-Za-z0-9._~-]+)$/.exec(window.location.hash || "");
+  if (!match) return false;
+  // 先把票据从地址栏抹掉，再拿去兑换：它只该活到这一行，不该留在历史记录里。
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+  try {
+    const response = await fetch("/api/admin/handoff/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket: match[1] }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.credential) {
+      ticketFailed = true;
+      return false;
+    }
+    await enter(data.credential, { persist: true });
+    if (state.token) toast(t("login.saved"));
+    return Boolean(state.token);
+  } catch {
+    ticketFailed = true;
+    return false;
+  }
 }
 
 function setView(name) {
@@ -932,6 +994,8 @@ async function loadAccounts() {
   }
   state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
   state.quota = data.quota || null;
+  // 名册刷新了就把选中的授权码也重读一遍：文件可能在别处换过。
+  state.agentToken = null;
   restoreSelection();
   renderRoster();
   renderUserPanel();
@@ -1262,6 +1326,13 @@ function renderUserPanel() {
   const facts = byId("identity-facts");
   if (facts) facts.replaceChildren(...factsRows(identityFacts(record, picked)));
 
+  // 授权码只给内部 Agent 看；选中时从授权码文件读一次，换一行就重新读。
+  // 选中对象不需要授权码时，顺手把上一位 Agent 的明文从内存里放掉。
+  const showToken = picked.kind === "agent" && !record.retiredAt && record.side === "internal";
+  if (!showToken && state.agentToken) state.agentToken = null;
+  renderTokenBlock(picked.kind === "agent" ? record : null);
+  if (showToken && state.agentToken?.id !== record.id) void loadAgentToken(record);
+
   // 运营操作只挂在人这一行：Agent 的积分、禁言与权益都算所属账号的。
   const actions = byId("user-actions");
   const manageable = picked.kind === "account" && canManage(record);
@@ -1521,6 +1592,137 @@ async function retireAgent(agent) {
   if (!data) return;
   toast(t("users.retired"), "ok");
   await loadAccounts();
+}
+
+/* 授权码 */
+
+// 库里只有令牌的哈希，明文只在授权码文件里，所以选中内部 Agent 时现读一次，不缓存到页面上。
+function tokenView(agent) {
+  if (state.agentToken && state.agentToken.id === agent.id) return state.agentToken;
+  return { id: agent.id, loading: true, token: "", file: "", error: "" };
+}
+
+function clearTokenValue() {
+  const value = byId("token-value");
+  if (value) value.value = "";
+  const copy = byId("token-copy");
+  if (copy) copy.disabled = true;
+  const rotate = byId("token-rotate");
+  if (rotate) rotate.disabled = true;
+}
+
+function renderTokenBlock(agent) {
+  const section = byId("agent-token");
+  if (!section) return;
+  if (!agent || agent.retiredAt) {
+    section.hidden = true;
+    clearTokenValue();
+    return;
+  }
+  section.hidden = false;
+
+  const internal = agent.side === "internal";
+  const row = byId("token-row");
+  if (row) row.hidden = !internal;
+  const actions = byId("token-actions");
+  if (actions) actions.hidden = !internal;
+  const hint = byId("token-hint");
+  if (hint) hint.hidden = !internal;
+  const note = byId("token-note");
+
+  // 外部 Agent 的码只在它主人的「我的」里出现过，管理端没有明文可给。
+  // 切过来时先把上一位内部 Agent 留在输入框里的码清掉。
+  if (!internal) {
+    clearTokenValue();
+    if (note) {
+      note.textContent = t("users.tokenExternal");
+      note.hidden = false;
+      note.classList.remove("is-warn");
+    }
+    return;
+  }
+
+  const data = tokenView(agent);
+  const value = byId("token-value");
+  if (value) value.value = data.token || "";
+  const copy = byId("token-copy");
+  if (copy) copy.disabled = !data.token || state.tokenBusy;
+  const rotate = byId("token-rotate");
+  if (rotate) rotate.disabled = state.tokenBusy || data.loading;
+
+  if (note) {
+    let message = "";
+    if (data.loading) message = t("users.tokenReading");
+    else if (data.error === "token_unavailable") message = t("users.tokenUnavailable");
+    else if (data.error) message = errorHint(data.error) || humanError({ code: data.error });
+    else message = t("users.tokenFile", { file: data.file });
+    note.textContent = message;
+    note.hidden = !message;
+    note.classList.toggle("is-warn", Boolean(data.error));
+  }
+  if (hint) hint.hidden = Boolean(data.error && data.error !== "token_unavailable");
+}
+
+async function loadAgentToken(agent) {
+  if (!agent || agent.retiredAt || agent.side !== "internal") return;
+  const id = agent.id;
+  state.agentToken = { id, loading: true, token: "", file: "", error: "" };
+  renderTokenBlock(agent);
+  try {
+    const data = await api(`/agents/${encodeURIComponent(id)}/token`);
+    if (state.agentToken?.id !== id) return;
+    state.agentToken = { id, loading: false, token: data.token || "", file: data.file || "", error: "" };
+  } catch (error) {
+    if (handleAuth(error)) return;
+    if (state.agentToken?.id !== id) return;
+    state.agentToken = { id, loading: false, token: "", file: "", error: error.code || "request_failed" };
+  }
+  const picked = selection();
+  if (picked?.kind === "agent" && picked.agent.id === id) renderTokenBlock(picked.agent);
+}
+
+async function copyAgentToken() {
+  const picked = selection();
+  if (!picked || picked.kind !== "agent") return;
+  const token = tokenView(picked.agent).token;
+  if (!token) return;
+  try {
+    await navigator.clipboard.writeText(token);
+    toast(t("users.tokenCopied"), "ok");
+  } catch {
+    // 局域网里可能是 http，浏览器不给剪贴板接口：退回选中输入框再复制。
+    const input = byId("token-value");
+    input?.select();
+    try {
+      if (!document.execCommand("copy")) throw new Error("copy");
+      toast(t("users.tokenCopied"), "ok");
+    } catch {
+      toast(t("users.tokenCopyFailed"), "error");
+    }
+  }
+}
+
+async function rotateAgentToken() {
+  const picked = selection();
+  if (!picked || picked.kind !== "agent") return;
+  const agent = picked.agent;
+  if (agent.retiredAt || agent.side !== "internal") return;
+  if (!window.confirm(t("users.tokenRotateConfirm", { name: agent.displayName }))) return;
+  state.tokenBusy = true;
+  renderTokenBlock(agent);
+  try {
+    const data = await api(`/agents/${encodeURIComponent(agent.id)}/token/rotate`, { method: "POST" });
+    state.agentToken = { id: agent.id, loading: false, token: data.token || "", file: data.file || "", error: "" };
+    toast(t("users.tokenRotated"), "ok");
+    await loadAccounts();
+  } catch (error) {
+    if (handleAuth(error)) return;
+    toast(humanError(error), "error");
+  } finally {
+    state.tokenBusy = false;
+    const current = selection();
+    if (current?.kind === "agent") renderTokenBlock(current.agent);
+  }
 }
 
 /* 站点 */
@@ -2570,9 +2772,13 @@ function bindEvents() {
   byId("user-clear").addEventListener("click", () => {
     state.selectedUser = null;
     state.selectedAgent = null;
+    state.agentToken = null;
     renderRoster();
     renderUserPanel();
   });
+  byId("token-copy").addEventListener("click", () => void copyAgentToken());
+  byId("token-rotate").addEventListener("click", () => void rotateAgentToken());
+  byId("token-value").addEventListener("focus", (event) => event.currentTarget.select());
   byId("identity-form").addEventListener("submit", submitIdentity);
   byId("identity-reset").addEventListener("click", resetIdentity);
   byId("identity-bio").addEventListener("input", () => {
@@ -2618,17 +2824,24 @@ function bindEvents() {
   byId("price-apply").addEventListener("click", applyPrices);
 }
 
-function boot() {
+async function boot() {
   bindEvents();
   applyI18n();
   paintIcons();
   paintLocalePicker();
   renderProfileForm();
-  // 令牌只从这个标签页的 sessionStorage 读；不接 URL 里的令牌，
-  // 免得它留在浏览历史、代理日志或截图里。
-  const saved = sessionStorage.getItem(TOKEN_KEY) || "";
-  if (saved) enter(saved);
-  else showLogin();
+  // 两种进来的方式：地址里带一枚一次性票据（从站点「我的」过来），
+  // 或者这个浏览器上已经有上次换好的凭据。都没有才显示令牌登录框。
+  // 下面那段轮询不在这条分支里：从票据进来的人也要它。
+  const claimed = await claimTicket();
+  if (!claimed) {
+    const saved = savedCredential();
+    if (saved) {
+      enter(saved, { persist: Boolean(localStorage.getItem(CREDENTIAL_KEY)) });
+    } else {
+      showLogin(ticketFailed ? t("login.ticketExpired") : "");
+    }
+  }
 
   // 接通是两边各推进一段：中枢配置完还要等这一侧起隧道。
   // 只在 XKnot 栏打开、且这张单还没上线时轻量轮询，别让它变成一个常驻请求。

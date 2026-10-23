@@ -13,11 +13,14 @@ import { getPool } from "./db.js";
 import { createSessionMiddleware } from "./middleware/session.js";
 import { adminRouter } from "./routes/admin.js";
 import { adminPageRouter } from "./routes/adminPage.js";
+import { createHandoff } from "./handoff.js";
+import { listAdminHosts } from "./adminHosts.js";
 import { webRouter } from "./routes/web.js";
 import { loadEconomyPolicy } from "./actuary.js";
 import { ensureOwner } from "./login.js";
 import { resumePendingReviews } from "./market.js";
 import { resumePendingRetrievals } from "./retrieval.js";
+import { startSearchEventRetention } from "./attention.js";
 import { agentRouter } from "./routes/agent.js";
 import { loadSystemPolicy, publicBoardEnabled } from "./system.js";
 
@@ -100,6 +103,18 @@ const AGENT_DOC_ORIGIN = String(process.env.KNOT_HUB_ORIGIN || "https://xknot.si
 // 快照要在 WebUI 路由之前绑定：首页的会话层会按同一份快照算「哪些卡属于我」。
 const discoverBoard = bindDiscoverBoard({ pool, uploadDir: bootstrap.uploadDir, profile });
 
+// 管理后台的入口：WebUI 在域名上，/admin 在内网地址上，两个 origin 不共享登录态。
+// 同一份 handoff 实例交给两边：域名那一侧发票据，内网那一侧兑换成 30 天凭据。
+const adminToken = String(process.env.KNOT_ADMIN_TOKEN || "").trim();
+const handoff = createHandoff({ token: adminToken });
+// 地址每次现算：笔记本换了网络，网卡和地址就变了，不该等到重启才更新。
+const adminHosts = () =>
+  listAdminHosts({
+    bindHost: bootstrap.bindHost,
+    port: bootstrap.port,
+    publicOrigin: bootstrap.publicWebOrigin,
+  });
+
 app.use(
   "/api/web",
   webRouter({
@@ -109,6 +124,8 @@ app.use(
     profile,
     board: discoverBoard.read,
     agentDoc: { page: `${AGENT_DOC_ORIGIN}/knot-help`, raw: `${AGENT_DOC_ORIGIN}/knot-help.md` },
+    handoff,
+    adminHosts,
   })
 );
 app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir }));
@@ -124,7 +141,8 @@ app.use(
   "/api/admin",
   adminRouter({
     pool,
-    token: process.env.KNOT_ADMIN_TOKEN || "",
+    token: adminToken,
+    handoff,
     uploadDir: bootstrap.uploadDir,
     agentEnvDir: bootstrap.agentEnvDir,
     publicWebOrigin: bootstrap.publicWebOrigin,
@@ -180,4 +198,6 @@ app.listen(bootstrap.port, bootstrap.bindHost, () => {
   console.log(`knot-backend listening on ${bootstrap.bindHost}:${bootstrap.port}`);
   resumePendingReviews(pool).catch((error) => console.error(error));
   resumePendingRetrievals(pool).catch((error) => console.error(error));
+  // 检索打点只追加，按保留天数每天清一次，别让 count(*) 随运行时间变慢。
+  startSearchEventRetention(pool);
 });

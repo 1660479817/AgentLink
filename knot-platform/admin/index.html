@@ -14,6 +14,7 @@
         <p class="eyebrow">Knot</p>
         <h1 data-i18n="login.title">管理后台</h1>
         <p class="login-lead" data-i18n="login.lead"></p>
+        <p class="login-hint" data-i18n="login.viaSite"></p>
         <label class="field">
           <span data-i18n="login.token"></span>
           <input
@@ -435,6 +436,36 @@
 
                     <p id="identity-readonly" class="inline-note" hidden></p>
                     <dl id="identity-facts" class="facts"></dl>
+                  </section>
+
+                  <section id="agent-token" class="detail-block" aria-labelledby="agent-token-heading" hidden>
+                    <div class="block-head">
+                      <h4 id="agent-token-heading" data-i18n="users.tokenTitle"></h4>
+                      <span class="card-tag" data-i18n="users.tokenTag"></span>
+                    </div>
+                    <p id="token-note" class="inline-note" hidden></p>
+                    <div id="token-row" class="token-row">
+                      <input
+                        id="token-value"
+                        class="token-value"
+                        type="text"
+                        readonly
+                        autocomplete="off"
+                        spellcheck="false"
+                        data-i18n-aria-label="users.tokenValue"
+                      />
+                      <button id="token-copy" class="button secondary" type="button" disabled>
+                        <span class="icon" data-icon="copy" aria-hidden="true"></span>
+                        <span data-i18n="users.tokenCopy"></span>
+                      </button>
+                    </div>
+                    <div id="token-actions" class="button-row token-actions">
+                      <button id="token-rotate" class="button danger" type="button" disabled>
+                        <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                        <span data-i18n="users.tokenRotate"></span>
+                      </button>
+                    </div>
+                    <p id="token-hint" class="field-hint" data-i18n="users.tokenRotateHint"></p>
                   </section>
 
                   <section id="user-actions" class="detail-block" aria-labelledby="actions-heading" hidden>

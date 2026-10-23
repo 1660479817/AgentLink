@@ -1,10 +1,11 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import { PencilIcon, RefreshIcon, UserIcon } from "../icons";
 import { t } from "../i18n";
-import { getAgent, issueAgent, retireAgent, updateProfile, uploadImage } from "../api";
+import { adminEntryState, adminUrl, isIntranetHost } from "../adminEntry";
+import { getAgent, issueAgent, requestAdminHandoff, retireAgent, updateProfile, uploadImage } from "../api";
 import { useSessionStore } from "../stores/session";
 
 const router = useRouter();
@@ -27,6 +28,13 @@ const fileInput = ref(null);
 const bio = ref("");
 const editingBio = ref(false);
 const bioInput = ref(null);
+// 管理后台的入口。只有主理人看得到；地址由后端给（实例自己的内网地址）。
+const adminEntry = ref(null);
+const adminBusy = ref(false);
+const adminError = ref("");
+const adminLink = ref("");
+const adminCopied = ref(false);
+let copiedTimer = 0;
 
 onMounted(() => {
   if (session.user) session.load();
@@ -94,6 +102,94 @@ function showError(err) {
   const message = t(key);
   error.value = message === key ? t("error.request_failed") : message;
 }
+
+// 管理后台在实例自己的内网地址上，不在这个域名上。这里换一枚 5 分钟的票据拼成链接：
+// 同一内网点开就走，另一台内网设备复制过去即可。进去之后 30 天内不用再来一次。
+// 还没问过后端时先按本页的地址猜：这一页本来就在内网上，多半就是同一台实例。
+const pageOnIntranet = isIntranetHost(window.location.hostname);
+const adminOnIntranet = computed(() => adminEntry.value?.onIntranet ?? pageOnIntranet);
+
+async function fetchAdminLink() {
+  adminError.value = "";
+  adminBusy.value = true;
+  try {
+    const data = await requestAdminHandoff();
+    adminEntry.value = adminEntryState({ hosts: data.hosts, pageOrigin: window.location.origin });
+    const link = adminUrl(adminEntry.value.primary, data.ticket);
+    if (!link) {
+      adminError.value = t("mine.admin.unavailable");
+      return "";
+    }
+    adminLink.value = link;
+    return link;
+  } catch (err) {
+    const key = `error.${err.code}`;
+    const message = t(key);
+    adminError.value = message === key ? t("mine.admin.failed") : message;
+    return "";
+  } finally {
+    adminBusy.value = false;
+  }
+}
+
+async function openAdmin() {
+  // 先同步开一个空标签，票据回来后再指过去：await 之后再 window.open 会被当成弹窗。
+  // 开不出来（弹窗被拦）就退回同一标签，链接不丢。
+  const tab = window.open("about:blank", "_blank");
+  const link = await fetchAdminLink();
+  if (!link) {
+    tab?.close();
+    return;
+  }
+  if (!tab) {
+    window.location.assign(link);
+    return;
+  }
+  tab.opener = null;
+  tab.location.replace(link);
+}
+
+async function copyAdminLink() {
+  const link = await fetchAdminLink();
+  if (!link) return;
+  adminCopied.value = await copyText(link);
+  window.clearTimeout(copiedTimer);
+  if (!adminCopied.value) return;
+  copiedTimer = window.setTimeout(() => {
+    adminCopied.value = false;
+  }, 2000);
+}
+
+// 内网地址常是 http://192.168.x.x，浏览器不当它是安全上下文，navigator.clipboard 可能是空的。
+// 那就退回选中一段临时文本再 copy：链接本身已经显示在卡片里，两条路都不通时人还能手选。
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 落到下面的老办法。
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+onUnmounted(() => {
+  window.clearTimeout(copiedTimer);
+});
 
 function startEditName() {
   name.value = session.user?.displayName || "";
@@ -285,6 +381,29 @@ async function leave() {
   <h1 class="page-title">{{ t("mine.title") }}</h1>
 
   <template v-if="session.user">
+    <section v-if="session.user.admin" class="card admin-entry">
+      <h2 class="page-title">{{ t("mine.admin.title") }}</h2>
+      <p class="muted admin-entry-hint">{{ t("mine.admin.hint") }}</p>
+      <p v-if="adminEntry && adminEntry.alternates.length" class="muted admin-entry-note">
+        {{ t("mine.admin.other", { hosts: adminEntry.alternates.join("、") }) }}
+      </p>
+      <p v-if="adminLink" class="admin-entry-link"><code>{{ adminLink }}</code></p>
+      <p v-if="adminError" class="error" role="alert">{{ adminError }}</p>
+      <div class="form-actions">
+        <AppButton
+          :variant="adminOnIntranet ? 'primary' : 'secondary'"
+          :disabled="adminBusy"
+          @click="openAdmin"
+        >{{ t("mine.admin.open") }}</AppButton>
+        <AppButton
+          :variant="adminOnIntranet ? 'secondary' : 'primary'"
+          :disabled="adminBusy"
+          @click="copyAdminLink"
+        >{{ adminCopied ? t("mine.admin.copied") : t("mine.admin.copy") }}</AppButton>
+      </div>
+      <p class="muted profile-note">{{ t("mine.admin.note") }}</p>
+    </section>
+
     <section class="card">
       <div class="profile-head">
         <AppButton

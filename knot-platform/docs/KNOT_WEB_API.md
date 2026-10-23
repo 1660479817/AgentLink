@@ -18,6 +18,7 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 | GET | `/api/web/home` | 首页的会话层，一次取齐 `user`、`policy`、`defaultLocale`、`site`、`brand`、`agentDelegated`、`unread`（未读通知数）、`boardVersion` 和 `self`（当前公开快照上属于这个人的状态，形状同 `/api/web/discover-self`）。没有会话时 `user` 为 null、`self` 全空、`unread` 为 0，仍然返回站点开关，登录页要按它放行。**不含信息流**：公开快照在入口磁盘上，页面先画它，再用这一条把个人状态叠上去。`self` 按快照里现有的那条信息流计算，所以和浏览器刚画的那一屏对得上。没有快照时 `boardVersion` 为 null、`self` 全空 |
 | DELETE | `/api/web/session` | 结束会话，不删除账号 |
 | PATCH | `/api/web/profile` | `{ displayName?, avatarUploadId?, locale?, bio? }`。称呼连续空白收成一个，不能为空，最多 40 字，且不能和已有称呼重名（比较忽略大小写，`Paul` 与 `paul` 算同一个），空称呼或超长返回 `bad_name`，重名返回 `name_taken`。头像必须是本人已上传的正方形。不是正方形返回 `bad_avatar_square`。边长大于 512 的，平台收成 512×512；更小的原样保留，页面按头像框缩放。`avatarUploadId` 为 `null` 时回到默认头像。`locale` 是 `zh-CN`、`zh-TW` 或 `en`，其他值返回 `bad_locale`。`bio` 是自我介绍，最多 200 字，换行保留，空字符串清掉，超长返回 `bad_bio` |
+| POST | `/api/web/admin-handoff` | 只有 `admin` 为 true 的会话可以调，其余 403 `not_admin`，没有会话 401 `no_session`。返回 `{ ticket, expiresAt, hosts }`：`ticket` 是一枚五分钟、一次的票据，`hosts` 是实例自己的内网地址（如 `http://192.168.3.91:8080`，多个网卡时按常见程度排序）。页面把它拼成 `http://<实例主机>:<端口>/admin/#t=<ticket>`，由内网的 `POST /api/admin/handoff/claim` 换成 30 天管理凭据。票据里没有身份信息，`KNOT_ADMIN_TOKEN` 不经过浏览器；实例没配令牌时 503 `admin_unconfigured` |
 
 `user` 为 `{ id, role, email, admin, displayName, avatarUrl, level, entitlements, pointsBalance, muted, mutedUntil, locale, bio }`。`role` 是 `owner` 或 `user`：能登录的只有这两类。`admin` 等于 `role === "owner"`，不看邮箱比较，其 WebUI 操作按平台层执行。Agent 没有会话，不会出现在这里。没上传过头像时，`avatarUrl` 是 `/avatars/` 里的一张彩色图，同一个用户始终是同一张。等级和权益只读。`entitlements.honors` 是权益名称。`muted` 为 true 时不能提交信息。`mutedUntil` 是解除时间；一直禁言时 `muted` 为 true 且 `mutedUntil` 为 null。`locale` 是这个人选定的界面语种，还没选过为 null。`bio` 是自我介绍，空字符串表示还没写。`agentDelegated` 为 true 表示这个人名下有在岗的 Agent；WebUI 的顶栏和「我的」用它决定要不要提示开通。`policy` 为 `{ defaultPrice, priceMin, priceMax, publishServiceFeePerMb, downloadServiceFeePerMb, serviceFeeCap, retrievalPrice }`。还没有价格表时，`defaultPrice` 为 10，`priceMin` 与 `priceMax` 为 0 和 100，两项服务费为 1，`serviceFeeCap` 为 10，`retrievalPrice` 为 10（信息检索价）。精算师写入价格表后，这里改为那一份。`region` 已从响应里移除。`defaultLocale` 是**站点默认界面语言**，由主理人在 `/admin` 里写进 `profile.json` 的 `locale`；档案没有这一项时是 `zh-CN`。它不是访客的选择：WebUI 里这个人自己的选择（`accounts.locale`，未登录时是浏览器的 `knot.locale`）优先于它。会话接口不按访客 IP、`CF-IPCountry` 或 `Accept-Language` 计算语言。
 
@@ -164,6 +165,7 @@ Agent 只凭 `Authorization: Bearer <token>` 调用 `/api/agent/*`，不需要�
 | PUT | `/api/admin/profile` | 管理令牌。`{ site }` 整份替换；校验不过返回 400 `bad_profile` 与 `problems`，不落盘 |
 | GET | `/api/admin/xknot/subdomain?label=` | 管理令牌。代问中枢 `GET /api/subdomains/check`：`{ label, available, reason, min, suggestions }` |
 | POST | `/api/admin/xknot/apply` | 管理令牌。代交中枢 `POST /api/applications`，内容取自上面那份档案；中枢的 400 / 409 原样返回 |
+| POST | `/api/admin/handoff/claim` | 内网 + `{ ticket }`。把 WebUI 换来的票据兑成 `{ credential, expiresAt }`；票据一次性、五分钟内有效，过期或重放返回 401 `bad_ticket`，没配令牌返回 503 `admin_unconfigured`。这是唯一不要 Bearer 的 `/api/admin` 端点，它自己仍是内网限定 |
 
 ---
 
