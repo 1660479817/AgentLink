@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { probeSite } from "./probe.mjs";
 import { ENDPOINT_LABELS } from "./report.mjs";
+import { arg } from "../lib/cli.mjs";
 
 // 横向比较几个子域。只发 GET，不动数据，几秒钟出结果。
 //
@@ -11,10 +12,6 @@ import { ENDPOINT_LABELS } from "./report.mjs";
 // 也可以比两份已经跑完的并发结果（逗号分隔，顺序就是表的列顺序）：
 //   node scripts/compare.mjs --runs results/A,results/B
 
-function arg(name, fallback) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
-}
 
 function table(head, rows) {
   return [head, head.map(() => "---"), ...rows].map((r) => `| ${r.join(" | ")} |`).join("\n");

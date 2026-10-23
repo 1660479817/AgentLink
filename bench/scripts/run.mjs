@@ -27,11 +27,6 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 const K6 = process.env.K6_BIN || "k6";
 
-function arg(name, fallback) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
-}
-const flag = (name) => process.argv.includes(`--${name}`);
 
 const BASE = String(arg("base", process.env.BENCH_BASE || "")).replace(/\/+$/, "");
 if (!BASE) {
@@ -137,13 +132,7 @@ function resolveCookies() {
 }
 
 function isDirectBase(base) {
-  const host = new URL(base).hostname.toLowerCase();
-  return (
-    /^(127\.|localhost$|\[?::1\]?$)/.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
-  );
+  return isDirectHost(new URL(base).hostname);
 }
 
 function k6Version() {

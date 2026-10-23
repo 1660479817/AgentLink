@@ -35,7 +35,8 @@ bench/
 ├── k6/read.js               未登录访客：外壳 + 快照 + Web API
 ├── k6/agent-read.js         带 Bearer 的 Agent 读回合
 ├── k6/write.js              发帖 / 上传 / 删除（默认关闭）
-├── k6/lib/probe.js          每端点一对指标 ep_<name>_ms / ep_<name>_err
+├── k6/lib/probe.js          每端点一组指标 ep_<name>_ms / _err / _throttled / _bad_body
+├── lib/                     k6 与 scripts 共用：静态资源正则、直连判定、命令行取值
 ├── scripts/run.mjs          探测 → 按能力挑场景 → 梯度调度 k6
 ├── scripts/report.mjs       把 summary 渲成 markdown
 ├── scripts/make-image.mjs   生成上传用的 PNG
@@ -43,6 +44,8 @@ bench/
 ```
 
 `results/latest` 指向最近一次 `run.mjs`，`results/latest-human` 指向最近一次 `human/visitor.mjs`。
+
+`lib/` 是 k6 与 node 脚本共用的那份：`assets.js` 从 index.html 抠构建产物地址，`net.mjs` 判「是不是直连源站」，`cli.mjs` 取命令行参数。`--名字` 后面漏写值时这些脚本直接退出码 2，不拿默认值顶替——否则那一轮的数字不是它标称的参数。
 
 ## 准备
 
@@ -175,7 +178,9 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 
 ## 指标与判定
 
-每个端点独立三个指标：`ep_<name>_ms`（Trend，只含未被限流的请求）、`ep_<name>_err`（Rate，不含 429）、`ep_<name>_throttled`（Rate，429 占比）；另有 `served_ms` 汇总所有真正被服务的请求。报告按「端点 × 并发」出 p95 矩阵。
+每个端点独立四个指标：`ep_<name>_ms`（Trend，只含未被限流的请求）、`ep_<name>_err`（Rate，不含 429）、`ep_<name>_throttled`（Rate，429 占比）、`ep_<name>_bad_body`（Rate，2xx 但响应体不符预期，是 `_err` 的子集）；另有 `served_ms` 汇总所有真正被服务的请求。报告按「端点 × 并发」出 p95 矩阵。
+
+成功不只判状态码：声明了 `expect: "json"` 的端点要求 `Content-Type` 含 json、能解析成对象且没有 `error` 字段。入口维护页、SPA 兜底页、`200 {"error": …}` 都会被记成失败，并在报告里单列「响应体不符预期」。静态端点（`/`、`/assets/*`）仍然只看状态码。
 
 验收线写在 `scripts/report.mjs` 的 `LIMITS`：
 

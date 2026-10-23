@@ -1,3 +1,4 @@
+import { arg } from "../lib/cli.mjs";
 import { deflateSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -65,10 +66,6 @@ function png(width, height) {
   ]);
 }
 
-function arg(name, fallback) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
-}
 
 const width = Number(arg("width", 640));
 const height = Number(arg("height", 480));

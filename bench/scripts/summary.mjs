@@ -27,7 +27,7 @@ export function parseSummaryData(raw) {
 
   // 端点键从三组指标里取：某个端点如果全被 429，_ms 可能一条样本都没有。
   for (const name of Object.keys(metrics)) {
-    const match = /^ep_(.+)_(?:ms|err|throttled)$/.exec(name);
+    const match = /^ep_(.+)_(?:ms|err|throttled|bad_body)$/.exec(name);
     if (!match) continue;
     const key = match[1];
     if (endpoints[key]) continue;
@@ -35,6 +35,9 @@ export function parseSummaryData(raw) {
     const ms = metricValues(metrics[`ep_${key}_ms`]);
     const err = metricValues(metrics[`ep_${key}_err`]);
     const thr = metricValues(metrics[`ep_${key}_throttled`]);
+    // bad_body 是 err 的子集：状态 2xx 但响应体不是预期形状（维护页、SPA 兜底、
+    // {"error":…}）。单列出来，报告才能说清「错误率 3%」里有多少是回了个假页面。
+    const bad = metricValues(metrics[`ep_${key}_bad_body`]);
     const errTotal = countOf(err);
     const throttled = trueCount(thr);
     const served = ms.count ?? (errTotal == null ? 0 : Math.max(0, errTotal - throttled));
@@ -49,6 +52,8 @@ export function parseSummaryData(raw) {
       max: ms.max ?? null,
       errRate: err.value ?? err.rate ?? 0,
       errCount: trueCount(err),
+      badBody: trueCount(bad),
+      badBodyRate: bad.value ?? bad.rate ?? 0,
       throttled,
       throttleRate: thr.value ?? thr.rate ?? 0,
     };
@@ -57,10 +62,12 @@ export function parseSummaryData(raw) {
   let errCount = 0;
   let servedCount = 0;
   let throttledCount = 0;
+  let badBodyCount = 0;
   for (const ep of Object.values(endpoints)) {
     errCount += ep.errCount || 0;
     servedCount += ep.count || 0;
     throttledCount += ep.throttled || 0;
+    badBodyCount += ep.badBody || 0;
   }
 
   const totals = metricValues(metrics.http_reqs);
@@ -95,6 +102,7 @@ export function parseSummaryData(raw) {
     requests,
     served: servedCount,
     throttled: throttledCount,
+    badBody: badBodyCount,
     rps: totals.rate ?? null,
     // 错误率按「没有被限流的请求」算；429 不是错误，见上方说明。
     // 一个请求都没被服务时记 null，不能记 0：0 会被读成「零错误」。

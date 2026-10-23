@@ -268,6 +268,7 @@ export function render(result) {
   // ---- 超阈 ----
   const breaches = [];
   const noData = [];
+  const badBodies = [];
   for (const run of runs) {
     const eps = Object.entries(run.endpoints || {});
     // 整档没有端点指标，和「每个端点都没样本」一样，不能算通过。
@@ -277,6 +278,11 @@ export function render(result) {
     }
     for (const [key, ep] of eps) {
       const write = key.startsWith("write_");
+      if (ep.badBody > 0) {
+        badBodies.push(
+          `${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · ${ep.badBody} 次状态 2xx 但响应体不符预期`
+        );
+      }
       const limit = write ? LIMITS.writeP95 : LIMITS.readP95;
       const errLimit = write ? LIMITS.writeErrorRate : LIMITS.errorRate;
       // 无样本（例如整档 100% 429）时 p95 是 null，而 `null > limit` 为 false，
@@ -305,6 +311,15 @@ export function render(result) {
   }
   if (failed.length) {
     out.push(`结论不完整：${failed.length} 档 k6 未跑成（见「本轮未测」），这些并发数没有数据。`);
+    out.push("");
+  }
+  if (badBodies.length) {
+    out.push(
+      `响应体不符预期：${badBodies.length} 项。这些请求状态是 2xx，但响应不是该端点的形状（入口维护页、SPA 兜底、或 \`{"error": …}\`），已计入错误率，单列在 \`ep_<name>_bad_body\`。`
+    );
+    out.push("");
+    for (const b of badBodies.slice(0, 20)) out.push(`- ${b}`);
+    if (badBodies.length > 20) out.push(`- ……另有 ${badBodies.length - 20} 项，见 summary.json`);
     out.push("");
   }
   const hasSamples = runs.some((r) => Object.values(r.endpoints || {}).some((ep) => ep.count > 0));
@@ -358,6 +373,9 @@ export function render(result) {
   out.push("- `/api/*` 经隧道回实例；每个新建 TCP 都多一次跨洋往返，所以 keepalive 命中与否差别很大。");
   out.push(
     "- 429 是限流，不是服务错误：`ep_<name>_throttled` 单列，`ep_<name>_ms` 只统计未被限流的请求。要测容量上限，先让每个 VU 有自己的身份，或在该测试实例把对应配额调高。"
+  );
+  out.push(
+    "- `/api/*` 只认 2xx **且**是 JSON、没有 `error` 字段；2xx 但回的是 HTML 或错误体记进 `ep_<name>_bad_body`，也算错误。静态端点只看状态码。"
   );
   out.push("- 人那一层（`human/`）给的是单用户体感，不和这里的并发数混在一张表里。");
   out.push("");

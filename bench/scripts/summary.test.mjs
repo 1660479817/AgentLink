@@ -225,3 +225,28 @@ test("k6 在运行中给的提示写进报告", () => {
   assert.match(md, /本轮 k6 提示：/);
   assert.match(md, /公开信息流为空/);
 });
+
+test("2xx 但响应体不符预期：计入错误率，并单列 bad_body", () => {
+  const parsed = parseSummaryData({
+    metrics: {
+      http_reqs: { count: 100, rate: 10 },
+      served_ms: { count: 100, med: 20, "p(95)": 90, "p(99)": 100 },
+      ep_session_ms: { count: 100, med: 20, "p(95)": 90, "p(99)": 100 },
+      // 100 次里 100 次状态 2xx，其中 40 次回的是 HTML 维护页（不是 JSON）。
+      ep_session_err: { passes: 40, fails: 60, value: 0.4 },
+      ep_session_throttled: { passes: 0, fails: 100, value: 0 },
+      ep_session_bad_body: { passes: 40, fails: 60, value: 0.4 },
+    },
+  });
+
+  assert.equal(parsed.endpoints.session.badBody, 40);
+  assert.ok(Math.abs(parsed.endpoints.session.badBodyRate - 0.4) < 1e-9);
+  assert.equal(parsed.badBody, 40);
+  // 只回 2xx 不算成功：错误率必须跟着抬头。
+  assert.ok(Math.abs(parsed.errorRate - 0.4) < 1e-9);
+
+  const md = render({ meta: meta(), runs: [{ scenario: "read", vus: 20, duration: "10s", ...parsed }] });
+  assert.match(md, /响应体不符预期：1 项/);
+  assert.match(md, /40 次状态 2xx 但响应体不符预期/);
+  assert.match(md, /ep_<name>_bad_body/);
+});

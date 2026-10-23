@@ -35,10 +35,5 @@ export function options() {
 }
 
 // k6 的 JS 引擎没有 DOM，静态资源地址只能从 index.html 里抠。
-export function assetPaths(html) {
-  const seen = new Set();
-  const re = /["'](\/assets\/[A-Za-z0-9._-]+\.(?:js|css))["']/g;
-  let m;
-  while ((m = re.exec(html || "")) !== null) seen.add(m[1]);
-  return Array.from(seen);
-}
+// 正则本体与 scripts/probe.mjs 共用 lib/assets.js，两边不会各走一套。
+export { assetPaths } from "../../lib/assets.js";
