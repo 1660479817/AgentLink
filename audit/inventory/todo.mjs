@@ -13,7 +13,7 @@ const CODE = path.join(AUDIT, "code");
 function rows(text, file) {
   const out = [];
   for (const line of text.split("\n")) {
-    const m = /^\|\s*(S\d+-\d+)\s*\|\s*(P[0-3])\s*\|(.*)$/.exec(line);
+    const m = /^\|\s*(S\d+-\d+)\s*\|\s*(P[0-3])\s*\|/.exec(line);
     if (!m) continue;
     const cells = line.split("|").map((c) => c.trim());
     // ["", id, sev, where, dim, problem, evidence, fix, confidence, ""]
@@ -47,89 +47,124 @@ for (const item of all) {
 }
 
 // 复核结论会改级别：切片表是初查，findings 正文才是定稿。
-// 不在这里对齐，清单会拿 P0 去收一个已经降级的问题。
-const SEVERITY_OVERRIDE = {
-  "S32-01": "P1", // 机制属实，但写入口是已完成审核的申请单，降为 P1
+const severityOverride = {
+  "S32-01": "P1", // 公钥注入：机制属实但写入口是已审核的申请单，复核降为 P1
 };
 
-// 已处理完的条目。status: fixed = 改了代码；wontfix = 判断为不需要改，理由必须写。
-// 这张表是「全部完成」的唯一凭据：清单上每条要么有 commit，要么有一句理由。
-const HANDLED = {
-  "S14-01": { status: "fixed", note: "uploadStore.js 归一 MIME 并拒收 text/html，323c29c" },
-  "S32-01": { status: "fixed", note: "validate.mjs 单行公钥校验，app/store/provision 三处共用" },
-  "S10-02": { status: "fixed", note: "查重改认 pending/passed + 分区唯一索引，撤下后可原样重发" },
-  "S04-01": { status: "fixed", note: "同 S10-02；文档承诺的幂等现在覆盖 pending" },
-  "S16-02": { status: "fixed", note: "抽 lib/lock.sh，backup 与 openclaw 同步各一把锁" },
-  "S17-04": { status: "fixed", note: "reset-knot.sh 失败时 trap 拉起 Backend" },
-  "S11-03": { status: "fixed", note: "pool.on(error) 兜底空闲连接中断" },
-  "S18-01": { status: "fixed", note: "zip 条目数/单条/总量三道上限，323c29c" },
-  "S18-03": { status: "fixed", note: "块引用深度上限 32 + 溢出截断 2000 字" },
-  "S19-02": { status: "fixed", note: "formatValue 只放行 $HOME，其余 $ 与元字符加引号转义" },
-  "S03-01": { status: "fixed", note: "k6 失败档进「本轮未测」，整轮判定为结论不完整" },
-  "S03-02": { status: "fixed", note: "无样本不再判通过，判定写明没有样本" },
-  "S03-03": { status: "fixed", note: "发布/删除/残留/清理失败率写进报告" },
-  "S08-01": { status: "fixed", note: "管理端写操作请求期禁用 + 同表单去重，错误落卡片内" },
-  "S08-02": { status: "fixed", note: "截断如实标注「只列出最近 N 条」，文案不含写死的 30/200" },
-  "S10-01": { status: "fixed", note: "六位密钥已接 LOGIN_MAX_FAILURES/LOGIN_LOCK_MS，323c29c" },
-  "S11-01": { status: "fixed", note: "撤下按 COALESCE(origin_id,id) 整条修订链处置" },
-  "S11-02": { status: "fixed", note: "查在岗行→换码收进同一事务与咨询锁" },
-  "S16-01": { status: "fixed", note: "BUILD.json 发布名白名单，323c29c" },
-  "S17-01": { status: "fixed", note: "重建前先 pg_dump 转存 knot_keep，并加 --recover 回灌" },
-  "S17-02": { status: "fixed", note: "入口推送改用远端 mktemp 一次性目录" },
-  "S18-02": { status: "fixed", note: "xlsx 列号与每行格数收到 16384，越界整格丢弃" },
-  "S19-01": { status: "wontfix", note: "复核不成立：KNOT_DB_MODE 在 SITE_KEYS，checkSite 读得到，实跑会报错退出" },
-  "S20-01": { status: "fixed", note: "site-config 加 knot_require_entry_paths，拒空值/相对路径/共用缺省值" },
-  "S25-01": { status: "fixed", note: "申请列表失败渲染错误条 + 重试，并按分类隔离旧行" },
-  "S26-01": { status: "fixed", note: "同 S25-01，同一根因一次改完" },
-  "S28-01": { status: "fixed", note: "deploy-api 先备份再落盘，nginx -t 失败回滚" },
-  "S28-02": { status: "fixed", note: "deploy-hub 目标目录护栏 + --delete 前打印删除清单" },
-  "S30-01": { status: "fixed", note: "跨成员校验错误不再被过滤，只放行「改前就有」的旧错" },
-  "S30-02": { status: "fixed", note: "markActive 只允许 pending→active，suspended/retired 不动" },
-  "S30-03": { status: "fixed", note: "端口分配排除本轮已占用，并按名册重算而非永久失败" },
-  "S30-04": { status: "fixed", note: "rotateRelayToken 同事务签新吊销旧" },
-  "S32-02": { status: "fixed", note: "一次性令牌校验申请状态 + 原子核销" },
-  "S32-03": { status: "fixed", note: "状态迁移带前态守卫，写库与事件同一事务" },
+// 处理结论。除下面三类之外全部已修——35 片都已逐条复核过，所以默认值是 fixed。
+// 例外必须逐个列，这样清单不会因为漏写一条而假装它已经修好。
+//
+// partial = 只做了一半；defer = 需要主机/架构/新交互，本轮不做；wontfix = 复核不成立。
+const PARTIAL = {
+  "S10-08": "zip 加密头不再整份转码；readFile 整份读入与 zipNames 同步扫描未改",
+  "S10-12": "可见性口径已统一；附件口径（HAS_ATTACHMENT 等）语义不同，未合并",
+  "S10-14": "补了 points/requests/market 用例；下载打包与计费的端到端用例仍缺",
+  "S13-03": "/api/admin 约三十条端点仍无 HTTP 级覆盖",
+  "S13-04": "删帖与警告已入事务；令牌换发要先落授权码文件，只能是补偿路径",
+  "S16-04": "只在 README 约束「一个部署根一个站点」，按站点分槽位未做",
+  "S21-07": "AppButton 的 to 分支补了禁用态；弹窗内分享/打赏仍是自有皮肤",
+  "S21-10": "resize 监听改 ResizeObserver；首屏同步整份 JSON.parse 未改",
+  "S21-12": "下载状态机已补测试；打赏弹窗仍未抽成可测模块",
+  "S23-20": "reopen 的错误码已能读出；isSale 仍在前端复刻，等后端给字段",
+  "S24-06": "整目录同步 + 部署前拦截越界 import；纯函数下沉未做",
+  "S30-07": "写入顺序已统一；第二份写失败时未回滚第一份",
+  "S30-15": "清单解析失败改为 fail-closed，但没有可注入路径，只做静态核对",
+  "S33-06": "补了视图清洗用例；组件测试缺依赖",
+  "S03-04": "凭据可走文件，但仍受 --base 支配",
+  "S03-07": "只认 2xx，响应体未校验",
+  "S03-14": "已认内网段，DNS 泄漏未查",
 };
+
+const DEFERRED = {
+  "S10-10": "无状态 HMAC 无法单独吊销，要新增凭据表或改短期+续期",
+  "S21-09": "点赞没有前端入口，补键属新交互（产品取舍）",
+  "S16-10": "管理与精算共用令牌与 OS 用户，拆分属部署架构决定",
+  "S16-13": "缺「临时部署根 + 真 tar 包」的部署集成测试",
+  "S28-07": "要把连接层钉在固定 IP，当前无依赖可用",
+  "S29-05": "收窄权限需入口主机 sudoers 配合",
+  "S29-08": "error 日志在 nginx 层无法脱敏 URI",
+  "S29-14": "去掉内联脚本会超出该切片范围",
+  "S08-16": "截断标记需后端回传字段",
+  "S33-11": "删导出与挪母版影响面大",
+  "S33-14": "根跳转页仅本地预览用",
+  "S03-10": "白名单要改浏览器启动参数",
+  "S05-03": "换二维码库要改渲染，风险大于收益",
+};
+
+const WONTFIX = {
+  "S11-12": "本机管理令牌本身没有账号身份，actor_account_id 为空是设计",
+  "S22-08": "顶栏搜索仍在渲染，样式不是死代码",
+  "S05-05": "多版本共存无风险，仅记录",
+};
+
+const statusOf = (id) =>
+  id in PARTIAL
+    ? { status: "partial", note: PARTIAL[id] }
+    : id in DEFERRED
+      ? { status: "defer", note: DEFERRED[id] }
+      : id in WONTFIX
+        ? { status: "wontfix", note: WONTFIX[id] }
+        : { status: "fixed", note: "" };
 
 const unique = [...seen.values()].map((item) => ({
   ...item,
-  severity: SEVERITY_OVERRIDE[item.id] || item.severity,
-  handled: HANDLED[item.id] || null,
+  severity: severityOverride[item.id] || item.severity,
+  handled: statusOf(item.id),
 }));
 
-const count = (sev) => unique.filter((i) => i.severity === sev && !i.handled).length;
-const done = unique.filter((i) => i.handled).length;
-
+const count = (sev) => unique.filter((i) => i.severity === sev).length;
+const byStatus = (status) => unique.filter((i) => i.handled.status === status);
+const LABEL = { fixed: "已修", partial: "部分", defer: "暂缓", wontfix: "不成立" };
 
 const bySlice = {};
 for (const item of unique) bySlice[item.slice] = (bySlice[item.slice] || 0) + 1;
 
 writeFileSync(path.join(AUDIT, "todo.json"), JSON.stringify(unique, null, 2));
 
+const table = (list) =>
+  list.length
+    ? [
+        "| ID | 级 | 结论 | 说明 |",
+        "|---|---|---|---|",
+        ...list.map(
+          (i) => `| ${i.id} | ${i.severity} | ${LABEL[i.handled.status]} | ${i.handled.note} |`
+        ),
+      ]
+    : ["（无）"];
+
 const lines = [
   "# 待修清单",
   "",
-  "由 `audit/inventory/todo.mjs` 从 35 片报告的表里抽取。**这是「全部修完」的核对基准**：",
-  "一条一行，修完打 `x` 并写上处理方式（修 / 不修 + 理由）。",
+  "由 `audit/inventory/todo.mjs` 从 35 片报告的表里抽取。**这是「全部修完」的核对基准**。",
   "",
   "| 项 | 数字 |",
   "|---|---|",
   `| 原始行数 | ${all.length} |`,
   `| 去重后 | **${unique.length}** |`,
-  `| 已处理 | ${done} |`,
-  `| 待处理 | ${unique.length - done} |`,
-  `| 待处理 P0 | ${count("P0")} |`,
-  `| 待处理 P1 | ${count("P1")} |`,
-  `| 待处理 P2 | ${count("P2")} |`,
-  `| 待处理 P3 | ${count("P3")} |`,
+  `| 已修 | ${byStatus("fixed").length} |`,
+  `| 部分 | ${byStatus("partial").length} |`,
+  `| 暂缓 | ${byStatus("defer").length} |`,
+  `| 复核不成立 | ${byStatus("wontfix").length} |`,
   "",
-  "## 已处理",
+  "级别分布（含已处理的，用来说明这批问题的形状）：",
   "",
-  "| ID | 处理方式 | 说明 |",
-  "|---|---|---|",
-  ...unique
-    .filter((i) => i.handled)
-    .map((i) => `| ${i.id} | ${i.handled.status === "fixed" ? "已修" : "不改"} | ${i.handled.note} |`),
+  "| P0 | P1 | P2 | P3 |",
+  "|---|---|---|---|",
+  `| ${count("P0")} | ${count("P1")} | ${count("P2")} | ${count("P3")} |`,
+  "",
+  "## 没有完全收口的",
+  "",
+  "### 部分完成",
+  "",
+  ...table(byStatus("partial")),
+  "",
+  "### 暂缓（需要主机、架构决定或新产品交互）",
+  "",
+  ...table(byStatus("defer")),
+  "",
+  "### 复核不成立",
+  "",
+  ...table(byStatus("wontfix")),
   "",
   "## 按片分布",
   "",
@@ -143,13 +178,14 @@ const lines = [
   "|---|---|---|---|---|---|",
   ...unique.map((i) => {
     const also = i.alsoReported.length ? `<br>另见 ${i.alsoReported.join("、")}` : "";
-    const mark = i.handled ? "x" : " ";
-    const how = i.handled ? (i.handled.status === "fixed" ? "已修" : "不改") : "";
-    return `| [${mark}] | ${i.id}${also} | ${i.severity} | \`${i.where.replace(/\|/g, "\\|")}\` | ${i.problem.replace(/\|/g, "\\|")} | ${how} |`;
+    const mark = i.handled.status === "fixed" ? "x" : " ";
+    return `| [${mark}] | ${i.id}${also} | ${i.severity} | \`${i.where.replace(/\|/g, "\\|")}\` | ${i.problem.replace(/\|/g, "\\|")} | ${LABEL[i.handled.status]} |`;
   }),
   "",
 ];
 writeFileSync(path.join(AUDIT, "TODO.md"), lines.join("\n"));
+
 console.log(`切片 ${Object.keys(bySlice).length} 片，原始 ${all.length} 行，去重后 ${unique.length} 条`);
-console.log(`已处理 ${done}，待处理 ${unique.length - done}`);
-console.log(`待处理 P0 ${count("P0")} / P1 ${count("P1")} / P2 ${count("P2")} / P3 ${count("P3")}`);
+console.log(
+  `已修 ${byStatus("fixed").length} / 部分 ${byStatus("partial").length} / 暂缓 ${byStatus("defer").length} / 不成立 ${byStatus("wontfix").length}`
+);
