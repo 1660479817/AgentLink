@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { subdomainUrl } from "./validate.mjs";
+import { normalizePublicKey, subdomainUrl } from "./validate.mjs";
 
 const SCHEMA = `
 create table if not exists applications (
@@ -547,8 +547,13 @@ export function openStore(file) {
     setPublicKey({ id, publicKey }) {
       const current = this.getApplication(id);
       if (!current) return { error: "not_found" };
+      // 写入方必须自己也校验：这一列最后会被逐字写进入口主机的 authorized_keys，
+      // 含换行就等于往 root 属主的文件里追加第二行。app.mjs 校验过不代表这里安全——
+      // 其余调用方（接口、脚本、将来的迁移）都从这一层过。
+      const key = normalizePublicKey(publicKey);
+      if (!key) return { error: "bad_public_key" };
       db.prepare("update applications set public_key = ?, state_version = state_version + 1 where id = ?")
-        .run(String(publicKey).slice(0, 1000), current.id);
+        .run(key, current.id);
       event("application.public_key", current.id, null);
       return { application: this.getApplication(current.id) };
     },

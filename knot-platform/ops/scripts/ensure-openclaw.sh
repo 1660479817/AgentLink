@@ -19,6 +19,15 @@ STATE_DIR="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
 PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 export OPENCLAW_STATE_DIR="$STATE_DIR"
 
+# ---- 并发保护 ----
+# 两份同步同时跑会互相覆盖 agents/ 与提示词，还会同时签发账户、同时改 openclaw.json，
+# 最后谁的版本生效取决于谁后写——运维看到的是「同步成功但配置不对」。
+# 锁放在站点目录：同一台机器上，一个站点同一时刻只该有一次同步。
+# shellcheck source=lib/lock.sh
+source "$SCRIPT_DIR/lib/lock.sh"
+knot_lock "$KNOT_SITE_DIR/.ensure-openclaw.lock" "OpenClaw 同步" || exit 1
+trap knot_unlock EXIT
+
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
   echo "需要 Node.js 和 npm（建议 Node 22+，OpenClaw 源码要求 24+）" >&2
   exit 1

@@ -228,7 +228,25 @@ CREATE INDEX IF NOT EXISTS intel_wishes_idx ON intel (created_at DESC) WHERE kin
 CREATE INDEX IF NOT EXISTS intel_wish_expires_idx ON intel (expires_at DESC) WHERE kind = 'wish';
 CREATE INDEX IF NOT EXISTS intel_responses_idx ON intel (responds_to, created_at) WHERE kind = 'wishRespond';
 CREATE INDEX IF NOT EXISTS intel_origin_idx ON intel (COALESCE(origin_id, id), version DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS intel_account_content_idx ON intel (account_id, content_hash);
+-- 同一账号、同一份内容的「重试安全」只在存活记录之间成立：主键 (account_id,
+-- content_hash) 若对全部记录唯一，被撤下或被否决的那一条会永久占住这个哈希，
+-- 作者再发一模一样的内容就会撞唯一约束——重发不是变成两条，而是彻底发不出去。
+-- 所以索引只覆盖 pending / passed。
+DO $$
+DECLARE def text;
+BEGIN
+  SELECT indexdef INTO def FROM pg_indexes
+   WHERE schemaname = 'public' AND indexname = 'intel_account_content_idx';
+  IF def IS NULL THEN
+    CREATE UNIQUE INDEX intel_account_content_idx
+      ON intel (account_id, content_hash) WHERE verdict IN ('pending', 'passed');
+  ELSIF def NOT LIKE '%WHERE%verdict%' THEN
+    -- 上一代是全表唯一：撤下过的内容从此发不出来。换成分区索引。
+    DROP INDEX intel_account_content_idx;
+    CREATE UNIQUE INDEX intel_account_content_idx
+      ON intel (account_id, content_hash) WHERE verdict IN ('pending', 'passed');
+  END IF;
+END $$;
 -- 视频封面存在 intel.videos 里：preview.js 用 @> 找封面，每次冷图片请求都会走。
 CREATE INDEX IF NOT EXISTS intel_videos_poster_idx ON intel USING GIN (videos jsonb_path_ops);
 

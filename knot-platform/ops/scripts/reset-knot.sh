@@ -59,6 +59,21 @@ restart_backend() {
 
 stop_backend
 
+# 从这里开始站点是停着的。中途任何一步失败（set -e 会直接退出），
+# 不能让站点就那样空着：装了 runtime 的机器上，没人会想到还要手动拉一次。
+# 所以退出时兜一次底——没走到正常收尾，就把 Backend 再拉起来。
+BACKEND_STOPPED=1
+RESET_DONE=0
+restore_backend_on_exit() {
+  local code=$?
+  if (( BACKEND_STOPPED == 1 && RESET_DONE == 0 )); then
+    echo "重建没有跑完（退出码 ${code}），把 Backend 拉起来，别让站点停在停机状态。" >&2
+    restart_backend || echo "自动重启失败，请手动拉起：${KNOT_APP_DIR}/ops/scripts/run-knot-platform.sh" >&2
+  fi
+  return "$code"
+}
+trap restore_backend_on_exit EXIT
+
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v admin_email="${KNOT_ADMIN_EMAIL:-}" <<'SQL'
 -- 上一次重建可能死在半路：那时 public 已经清掉，knot_keep 里是唯一一份账号、会话
 -- 与上传记录。无条件 DROP 会把它一起删掉，数据就再也找不回来了。
@@ -379,5 +394,6 @@ fi
 
 # 上面已经把服务停了。按装过的运行时把它拉起来，别让重建后的站点空着。
 restart_backend
+RESET_DONE=1
 
 echo "reset ok, removed files ${removed}"

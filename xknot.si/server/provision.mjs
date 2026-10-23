@@ -12,6 +12,8 @@
 
 import { createHash } from "node:crypto";
 
+import { normalizePublicKey } from "./validate.mjs";
+
 export const STEP_ORDER = ["allocate", "publish", "account", "sshd", "static", "dns", "vhost", "tls"];
 
 const FIRST_PORT = 18090;
@@ -409,8 +411,15 @@ export async function runStep({
       ]);
       if (created.code !== 0) throw new ProvisionError("account_failed", created.stderr);
     }
-    const key = String(application.publicKey || "").trim();
-    if (!key) throw new ProvisionError("public_key_missing");
+    // 最后一道：这里是要写进 root 属主文件的文本。库里存的历史值可能是
+    // 收紧校验之前写进去的，所以到了这一层仍要再验一次——一行公钥变两行，
+    // 等于给入口主机加了第二把钥匙。
+    //
+    // 两种失败分开报：没填是用户还没做这一步（可重试），填错说明库里是脏值
+    // （要人工看），让面板能说清是哪一种。
+    if (!String(application.publicKey || "").trim()) throw new ProvisionError("public_key_missing");
+    const key = normalizePublicKey(application.publicKey);
+    if (!key) throw new ProvisionError("public_key_invalid");
     await host.sudo(["install", "-d", "-m", "700", "-o", run.account, "-g", run.account, `${home}/.ssh`]);
     await host.writeRootFile(`${home}/.ssh/authorized_keys`, `${key}\n`, "600", {
       owner: `${run.account}:${run.account}`,
