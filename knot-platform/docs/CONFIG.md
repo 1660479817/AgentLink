@@ -97,8 +97,8 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_ENTRY_SSH` | （空） |  | 入口主机的 ssh 目标。 |
 | `KNOT_ENTRY_SSH_KEY` | （空） |  | 在开发机上推页面用的私钥。留空用 ssh 默认身份或 ssh-agent；入口主机通常不认 id_rsa，要用专用的部署钥，例如 $HOME/.ssh/<专用部署钥>。 |
 | `KNOT_ENTRY_PUSH_KEY` | `$HOME/.ssh/knot-entry-publish` |  | 在实例主机上推公开快照用的私钥，可以和 KNOT_ENTRY_SSH_KEY 不是同一把。 |
-| `KNOT_ENTRY_WEB_ROOT` | `/var/www/knot` |  | 入口主机上放 WebUI 的目录。 |
-| `KNOT_ENTRY_CONF` | `/etc/nginx/conf.d/knot.conf` |  | 入口主机上的 nginx 站点配置路径。 |
+| `KNOT_ENTRY_WEB_ROOT` | `/var/www/knot` |  | 入口主机上放 WebUI 的目录。必须按子域写清：留空会落回共用的 /var/www/knot，与同机其它子域互相覆盖。 |
+| `KNOT_ENTRY_CONF` | `/etc/nginx/conf.d/knot.conf` |  | 入口主机上的 nginx 站点配置路径。必须按子域写清：留空会落回共用的 /etc/nginx/conf.d/knot.conf。 |
 | `KNOT_ENTRY_WEB_OWNER` | `nginx:nginx` |  | WebUI 目录的属主。 |
 | `KNOT_ENTRY_CACHE_DIR` | `/var/cache/nginx/knot_uploads` |  | 上传文件的反向代理缓存目录。 |
 | `KNOT_ENTRY_CACHE_ZONE` | `knot_uploads` |  | nginx proxy_cache 区名。 |

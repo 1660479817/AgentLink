@@ -594,6 +594,7 @@ test("an entry entry needs a domain that matches its file name", () => {
   const base = {
     KNOT_DOMAIN: "wang.xknot.si",
     KNOT_ENTRY_WEB_ROOT: "/var/www/wang",
+    KNOT_ENTRY_CONF: "/etc/nginx/conf.d/wang.xknot.si.conf",
     KNOT_ENTRY_SERVE: "static",
   };
   const ok = checkEntryFile(base, { file: "/sites/x/entry.wang.xknot.si.env" });
@@ -618,6 +619,39 @@ test("an entry entry rejects a server kind that is neither static nor proxy", ()
   assert.ok(result.errors.some((m) => m.includes("KNOT_ENTRY_SERVE")));
 });
 
+// 静态根与 nginx 配置留空时 site-config.sh 会回落到共用默认值：同一台入口主机上的
+// 两个子域就落进同一个目录，后推的 rsync --delete 把前一个的页面清掉（S20-01）。
+test("an entry must name its own web root and nginx conf", () => {
+  const empty = checkEntryFile({ KNOT_DOMAIN: "zjj.xknot.si" });
+  assert.ok(empty.errors.some((m) => /必须写 KNOT_ENTRY_WEB_ROOT/.test(m)));
+  assert.ok(empty.errors.some((m) => /必须写 KNOT_ENTRY_CONF/.test(m)));
+
+  // 显式写成共用默认值与「不写」等价，一样要拦。
+  const shared = checkEntryFile({
+    KNOT_DOMAIN: "zjj.xknot.si",
+    KNOT_ENTRY_WEB_ROOT: "/var/www/knot",
+    KNOT_ENTRY_CONF: "/etc/nginx/conf.d/knot.conf",
+  });
+  assert.ok(shared.errors.some((m) => /还是共用的默认值/.test(m)));
+
+  const ok = checkEntryFile({
+    KNOT_DOMAIN: "zjj.xknot.si",
+    KNOT_ENTRY_WEB_ROOT: "/var/www/zjj",
+    KNOT_ENTRY_CONF: "/etc/nginx/conf.d/zjj.xknot.si.conf",
+  });
+  assert.deepEqual(ok.errors, []);
+});
+
+// 从模板复制过来忘了替换 <标签>：路径是绝对的，看着像填了，其实落不到任何地方。
+test("an entry left with the template placeholder is refused", () => {
+  const result = checkEntryFile({
+    KNOT_DOMAIN: "zjj.xknot.si",
+    KNOT_ENTRY_WEB_ROOT: "/var/www/<标签>",
+    KNOT_ENTRY_CONF: "/etc/nginx/conf.d/<标签>.xknot.si.conf",
+  });
+  assert.equal(result.errors.filter((m) => /模板占位符/.test(m)).length, 2);
+});
+
 test("an entry entry keeps the join and platform keys out", () => {
   const result = checkEntryFile(
     {
@@ -635,7 +669,12 @@ test("an entry entry keeps the join and platform keys out", () => {
 // 证书与私钥可以留空由域名推导；推导得出来就不算缺。
 test("an entry entry accepts a certificate derived from its domain", () => {
   const result = checkEntryFile(
-    { KNOT_DOMAIN: "wang.xknot.si", KNOT_ENTRY_WEB_ROOT: "/var/www/wang", KNOT_ENTRY_SSL: "1" },
+    {
+      KNOT_DOMAIN: "wang.xknot.si",
+      KNOT_ENTRY_WEB_ROOT: "/var/www/wang",
+      KNOT_ENTRY_CONF: "/etc/nginx/conf.d/wang.xknot.si.conf",
+      KNOT_ENTRY_SSL: "1",
+    },
     {},
   );
   assert.deepEqual(result.errors, []);
