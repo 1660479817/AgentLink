@@ -28,7 +28,25 @@ if (!BASE) {
   process.exit(2);
 }
 const RUNS = Math.max(1, Number(arg("runs", 3)));
-const COOKIE = String(arg("cookie", process.env.KNOT_SID || ""));
+
+// 会话 cookie 等同于密码：优先从 --cookie-file（一行，形如 knot_sid=...）读，
+// 避免它进 ps 和 shell 历史。--cookie 还留着，README 已不再推荐。
+function cookieFromFile(file) {
+  try {
+    const line = readFileSync(path.resolve(process.cwd(), file), "utf8")
+      .split("\n")
+      .map((s) => s.trim())
+      .find((s) => s && !s.startsWith("#")) || "";
+    return line.replace(/^Cookie:\s*/i, "").replace(/^knot_sid=/, "");
+  } catch {
+    console.error(`读不到 Cookie 文件：${file}`);
+    return "";
+  }
+}
+
+const COOKIE = arg("cookie-file", "")
+  ? cookieFromFile(String(arg("cookie-file", "")))
+  : String(arg("cookie", process.env.KNOT_SID || ""));
 const TOKEN = String(arg("token", process.env.KNOT_AGENT_TOKEN || ""));
 // 上传只对登录后的会话有意义；没有 cookie 就跳过，不猜。
 const ALLOW_WRITES = process.argv.includes("--allow-writes") && Boolean(COOKIE);
@@ -149,8 +167,18 @@ function median(values) {
   return clean[Math.floor((clean.length - 1) / 2)];
 }
 
+// 失败的请求与控制台报错记在每一轮（run）上，不属于某一页。以前它们只写进
+// human.json：表格里的「失败」只数每页自己的 HTTP 状态和导航异常，于是文件头
+// 声称的「含失败请求、控制台错误」在表上看不到，error 也永远是 0。
 function summarize(runs) {
   const byKey = new Map();
+  const runErrors = new Map();
+  for (const run of runs) {
+    const bucket = runErrors.get(run.viewport) || { failed: 0, console: 0 };
+    bucket.failed += (run.failed || []).length;
+    bucket.console += (run.consoleErrors || []).length;
+    runErrors.set(run.viewport, bucket);
+  }
   for (const run of runs) {
     for (const item of run.pages) {
       const key = `${run.viewport}:${item.label}`;
@@ -174,16 +202,30 @@ function summarize(runs) {
       cards: median(items.map((i) => i.cards)),
       redirected: items.every((i) => i.redirected),
       errors: items.filter((i) => i.error || i.status >= 400).length,
+      // 这一视口在所有轮次里累计的失败请求与控制台报错，和上面按页统计的
+      // errors 分开写，免得把「三条资源 404」说成「这一页失败了三次」。
+      netErrors: (runErrors.get(viewport) || {}).failed || 0,
+      consoleErrors: (runErrors.get(viewport) || {}).console || 0,
     });
   }
   return rows;
+}
+
+// 备注列：三种失败分开写，读的人才知道是页面打不开、资源没下来，还是脚本报错。
+function noteOf(row) {
+  if (row.redirected) return "→ 登录页";
+  const parts = [];
+  if (row.errors) parts.push(`${row.errors} 次页面失败`);
+  if (row.netErrors) parts.push(`${row.netErrors} 个请求失败`);
+  if (row.consoleErrors) parts.push(`${row.consoleErrors} 条控制台报错`);
+  return parts.join(" · ");
 }
 
 function print(rows) {
   const head = ["视口", "页面", "状态", "TTFB", "DCL", "LCP", "load", "KB", "备注"];
   console.log(head.map((h, i) => (i === 0 || i === 1 ? h.padEnd(20) : h.padStart(7))).join(""));
   for (const r of rows) {
-    const note = r.redirected ? "→ 登录页" : r.errors ? `${r.errors} 次失败` : "";
+    const note = noteOf(r);
     console.log(
       [
         String(r.viewport).padEnd(20),
@@ -216,7 +258,7 @@ function markdown(result) {
   out.push("| 视口 | 页面 | 状态 | TTFB | DCL | LCP | load | 传输 | 备注 |");
   out.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
   for (const r of rows) {
-    const note = r.redirected ? "→ 登录页" : r.errors ? `${r.errors} 次失败` : "";
+    const note = noteOf(r);
     out.push(
       `| ${r.viewport} | \`${r.label}\` | ${r.status ?? "-"} | ${r.ttfb ?? "-"} | ${r.dcl ?? "-"} | ${r.lcp ?? "-"} | ${r.load ?? "-"} | ${r.transferKB ?? "-"}KB | ${note} |`
     );

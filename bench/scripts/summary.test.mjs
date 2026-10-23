@@ -200,3 +200,28 @@ test("没有清理指标的旧结果照常渲染，不出清理表", () => {
   const md = render({ meta: meta(), runs: [{ scenario: "read", vus: 20, duration: "10s", ...parsed }] });
   assert.doesNotMatch(md, /写场景清理/);
 });
+
+test("p95 的判定与展示用同一个数，不出「1000ms > 1000ms」", () => {
+  const parsed = parseSummaryData({
+    metrics: {
+      http_reqs: { count: 10, rate: 1 },
+      ep_home_ms: { count: 10, med: 100, "p(95)": 1000.4, "p(99)": 1200 },
+      ep_home_err: { passes: 0, fails: 10, value: 0 },
+      ep_home_throttled: { passes: 0, fails: 10, value: 0 },
+    },
+  });
+  const md = render({ meta: meta(), runs: [{ scenario: "read", vus: 20, duration: "10s", ...parsed }] });
+  // 未取整的 1000.4 超过线，取整后显示 1000：判定段以前会写出自相矛盾的一行。
+  assert.doesNotMatch(md, /p95 1000ms > 1000ms/);
+  assert.match(md, /未超过验收线/);
+});
+
+test("k6 在运行中给的提示写进报告", () => {
+  const parsed = parseSummaryData(LIMITED);
+  const md = render({
+    meta: meta({ warnings: ["agent 20 并发：setup: 公开信息流为空，卡片详情将跳过"] }),
+    runs: [{ scenario: "read", vus: 20, duration: "10s", ...parsed }],
+  });
+  assert.match(md, /本轮 k6 提示：/);
+  assert.match(md, /公开信息流为空/);
+});

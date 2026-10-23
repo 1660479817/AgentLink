@@ -86,6 +86,19 @@ function readSummary(dir) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
+// 身份模式直接决定 429 与 p95 的形状：共享出口 IP 的一份和每 VU 一份 Cookie 的
+// 一份，并排看没有意义。把 meta.identity 压成一句短说明。
+function identityText(identity) {
+  if (!identity) return "-";
+  const parts = [];
+  if (identity.mode === "cookie") parts.push(`Cookie ${identity.cookies} 份`);
+  else if (identity.mode === "xff") parts.push("XFF 分身份");
+  else parts.push("共享出口 IP");
+  if (identity.tokens === 1) parts.push("授权码 1 份");
+  else if (identity.tokens > 1) parts.push(`授权码 ${identity.tokens} 份`);
+  return parts.join(" · ");
+}
+
 function compareRuns(dirs) {
   const runs = dirs.map(readSummary);
   const bases = runs.map((r) => r.meta.target?.host || new URL(r.meta.base).host);
@@ -100,6 +113,14 @@ function compareRuns(dirs) {
     ["主包", ...runs.map((r) => kb(r.meta.target?.transport?.mainBundle?.bytes))],
     ["压缩", ...runs.map((r) => r.meta.target?.transport?.gzip ?? "-")],
     ["测点时间", ...runs.map((r) => new Date(r.meta.startedAt).toLocaleString("sv-SE").slice(0, 16))],
+    // 并排两组数字之前先说明它们是不是在同一条件下取的：压测机、每档时长、
+    // 身份模式、脚本版本任何一项不同，p95 的差别都可能来自这里而不是站点。
+    // 以前这四项不在表里，一份 5s 和一份 30s 也能并排成一张表。
+    ["压测机", ...runs.map((r) => r.meta.machine ?? "-")],
+    ["每档时长", ...runs.map((r) => r.meta.duration ?? "-")],
+    ["身份", ...runs.map((r) => identityText(r.meta.identity))],
+    ["脚本版本", ...runs.map((r) => r.meta.git || "unknown")],
+    ["档位", ...runs.map((r) => (r.meta.levels || []).join("/") || "-")],
   ]));
   out.push("");
 

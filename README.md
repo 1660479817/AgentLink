@@ -73,9 +73,10 @@ XKnot 联邦门户：它记录你的站点资料、检测运行状态和拉取�
 | [`xknot.si/`](./xknot.si) | **独立项目**：XKnot 联邦站点。门户、加入申请与审核接口、实例清单，同样独立开发与部署 |
 | [`docs/`](./docs) | **公共资产**：概念说明（[`concepts.md`](./docs/concepts.md)）、Agent 接口指引（[`KNOT_HELP.md`](./docs/KNOT_HELP.md)）、版权与商标说明、LOGO 母版、联邦层文档、API 入口索引 |
 | [`bench/`](./bench) | **跨项目的测量工具**：只给一个 `https://<标签>.xknot.si` 地址，黑箱量访问速度与并发。不 import 上面两个项目、不读站点配置，换谁实现的实例都能用 |
+| `.cursor/rules/` | **团队工作契约**：6 份 alwaysApply 规则，写清前端口径与按键、作图用 SVG、Agent 文档契约、仓库结构、部署目标、博客写法。改代码前先读对应的那一份 |
 | [`LICENSE`](./LICENSE) / [`NOTICE`](./NOTICE) | Apache-2.0 与署名；商标约定见文末「许可」 |
 
-两个项目通过 HTTP 契约相连，各自的依赖、构建和部署都在自己的目录里完成。**先看概念**：[`docs/concepts.md`](./docs/concepts.md) 讲清中枢、实例、入口三者的分工与归属，以及「一台机器可以兼任多个角色」。各自的安装、构建、部署步骤看项目自己的 README：
+两个项目通过 HTTP 契约相连，各自的依赖、构建和部署都在自己的目录里完成。另有 `blog/`（开发日志）只在本机，不进版本库；`audit/` 是这次全面审计的切片报告与修复台账，随代码一起提交，供逐条核对。**先看概念**：[`docs/concepts.md`](./docs/concepts.md) 讲清中枢、实例、入口三者的分工与归属，以及「一台机器可以兼任多个角色」。各自的安装、构建、部署步骤看项目自己的 README：
 
 - 实例侧：[`knot-platform/README.md`](./knot-platform/README.md)、[`knot-platform/ops/README.md`](./knot-platform/ops/README.md)
 - 联邦侧：[`xknot.si/README.md`](./xknot.si/README.md)、[`xknot.si/docs/HUB.md`](./xknot.si/docs/HUB.md)

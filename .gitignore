@@ -3,7 +3,12 @@
 .env.*
 !.env.example
 node_modules/
-dist/
+# 构建产物与运行时数据按项目写死：裸 dist/、var/ 会把同名的源码目录和测试夹具一起吞掉，
+# 被忽略时 git 不报错，等发现时文件已经从版本库里消失了（S02-08）。
+knot-platform/web/dist/
+xknot.si/web/dist/
+knot-platform/var/
+xknot.si/var/
 build/
 __pycache__/
 *.pyc
@@ -11,9 +16,21 @@ __pycache__/
 venv/
 .idea/
 .vscode/
-*.log
-var/
+# 日志只出现在各项目的 var/log 与仓库根；不按扩展名全仓忽略，免得测试夹具 .log 静默消失。
+/*.log
 data/uploads/
+# 数据库文件与备份：不限目录。转储存量随部署变化，放到仓库任何位置都不进版本库。
+# 不忽略普通 *.sql——迁移（backend/migrations/）与审计用的建表快照要进仓库。
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.dump
+*dump*.sql
+*.sql.gz
+*.tar.gz
+pg_backup*/
 # 开发日志只在本机写、只发到 wang.xknot.si，不进 GitHub
 blog/
 
@@ -28,11 +45,6 @@ blog/
 # xknot.env 是中枢签发的接入凭据，同样只留本机。
 knot-platform/sites/*
 !knot-platform/sites/_template/
-knot-platform/sites/_template/*
-!knot-platform/sites/_template/site.env
-!knot-platform/sites/_template/platform.env
-!knot-platform/sites/_template/xknot.env
-!knot-platform/sites/_template/entry.example.env
 *.local.env
 
 # 发布包只留本机

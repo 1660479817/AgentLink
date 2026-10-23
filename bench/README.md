@@ -95,9 +95,10 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 | `--identity` | `shared` | `xff`：每个 VU 一个 `X-Forwarded-For`，只对直连源站或信任并透传 XFF 的代理有效 |
 | `--label` | 无 | 给这一轮起个名字（写进报告） |
 | `--viewport` | `both` | 人那一层：`mobile` / `desktop` / `both` |
-| `--cookie` | 无 | 人那一层带会话，跑登录后的页面 |
+| `--cookie-file` | 无 | 人那一层带会话（一行 `knot_sid=...`），跑登录后的页面 |
+| `--cookie` | 无 | 同上，但会话会进 `ps` 与 shell 历史；只有临时调试时才用 |
 
-每个场景先跑一次 1 VU × 5s 预热（DNS、TLS、隧道、连接池），各档共用，预热结果不写进报告。
+每个场景先跑一次 1 VU × 5s 预热，预热结果不写进报告。它热的是服务端（缓存、连接池、隧道）和入口主机的会话缓存，**不是客户端连接**：每一档都是新起的 k6 进程，keep-alive 连接全部重建，所以每档开头仍有一批冷连接样本混进 p95。要消掉这部分，只能把各档放进同一个 k6 进程（同一 scenario 的 stages），那样就没有档间冷却和按档隔离失败了。
 
 ## 探测：能测什么，由站点自己说
 
@@ -108,7 +109,7 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 | 链路 | TLS 握手 | 协议版本、ALPN、证书剩余天数 |
 | 主包 | 首页 HTML 里的 `/assets/*.js` | 字节数、是否 gzip、是否 immutable |
 | 实例 | `GET /api/health` | 站点名、版本、release、commit、构建时间 |
-| 首页 | `GET /` | 字节数、标题、是否含 noscript 兜底 |
+| 首页 | `GET /` | 首字节耗时、下载总字节数、标题、是否含 noscript 兜底 |
 | 快照 | `GET /discover.json` | 条数、带图数、带附件数、作者数、站点开关 |
 | 会话 | `GET /api/web/session` | 品牌、默认语种、访客浏览、注册模式 |
 | Agent | `GET /api/agent/profile`（有码时） | 身份、积分 |
@@ -156,6 +157,8 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 
 思考时间 1–3 秒。**并发数是「同时在看的人」，不是「每秒请求数」**。
 
+这组请求在服务端并不是只读：卡片详情会写 `intel_reads`（按人按卡去重），检索会写 `search_events`（缓存命中照记，不去重）。量到的 p95 里含这些 INSERT 的成本；要单独看查询本身，得对没有读记录的账号或空库测。
+
 **Agent 一回合**：`profile`、`notifications`、`information`、`intel/:id` 各一次；`search` 1/3；`requests` 15%。回合间隔 0.3–1s。全部带 `Authorization: Bearer`。
 
 **写场景**（默认关闭）：发一条 `public: false` 的 post → 记一次看公开卡 → 立刻删掉；每 5 次多传一张 640×480 PNG。用 post 而不是 wish，是因为 `DELETE /intel/:id` 只接受 post / fastpost；`public: false` 让它不进信息流和快照。
@@ -194,7 +197,7 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 | 缓存 | 能看到主包的 `immutable` 与压缩；卡片图片走入口缓存，脚本刻意不请求 | 不能主动清入口缓存，下架后 1 天内仍可能命中旧图；`X-Knot-Cache` 不单独统计 |
 | 写入 | 能写、能自己删、能看删除有没有失败 | 不能查库确认没留痕；删除失败会留一条不公开记录，`ep_write_delete_err` 单独报 |
 
-授权码与会话 cookie 只从环境变量或显式 `--token-file` / `--cookies-file` 读，不打印、不落盘。`probe.json` 与 `summary.json` 只有 `token: true/false` 和身份份数。上传用的 PNG 由 `scripts/make-image.mjs` 现生成，不进版本库。
+授权码与会话 cookie 只从环境变量或显式 `--token-file` / `--cookies-file` / `--cookie-file` 读，不打印、不落盘。`scripts/probe.mjs --token` 与 `human/visitor.mjs --cookie` 仍可用，但会话会进 `ps` 与 shell 历史，不要当成常规写法。`probe.json` 与 `summary.json` 只有 `token: true/false` 和身份份数。上传用的 PNG 由 `scripts/make-image.mjs` 现生成，不进版本库。
 
 ## 怎么读
 
