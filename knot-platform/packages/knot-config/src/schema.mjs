@@ -400,7 +400,7 @@ const SITE_KEYS = [
     type: "path",
     default: "/var/www/knot",
     scope: ["entry"],
-    desc: "入口主机上放 WebUI 的目录。",
+    desc: "入口主机上放 WebUI 的目录。必须按子域写清：留空会落回共用的 /var/www/knot，与同机其它子域互相覆盖。",
   },
   {
     key: "KNOT_ENTRY_CONF",
@@ -408,7 +408,7 @@ const SITE_KEYS = [
     type: "path",
     default: "/etc/nginx/conf.d/knot.conf",
     scope: ["entry"],
-    desc: "入口主机上的 nginx 站点配置路径。",
+    desc: "入口主机上的 nginx 站点配置路径。必须按子域写清：留空会落回共用的 /etc/nginx/conf.d/knot.conf。",
   },
   {
     key: "KNOT_ENTRY_WEB_OWNER",
@@ -1327,10 +1327,39 @@ export function checkEntryFile(env, { file = "" } = {}) {
     }
   }
 
-  // 不在这里判断证书与静态根「取不取得到」：SSL 只能是 1/0，证书与私钥都能由 KNOT_DOMAIN
-  // 推导，静态根也有非空默认值，任何「解析后为空」的分支都不可达——写成校验只会让人
-  // 以为查过了。真正的检查在入口主机上：push-entry.sh 先落站再跑 nginx -t，
-  // ssl_certificate 指向不存在的文件会当场失败并整组还原。
+  // 静态根与 nginx 配置必须由这个子域自己写清。留空时 site-config.sh 会回落到
+  // /var/www/knot 这类共用默认值，同一台入口主机上的两个子域就会互相覆盖：
+  // 后推的那份 rsync --delete 会把前一个的页面清掉（S20-01）。
+  // 这一步能查是因为「合法入口文件」本来就该写这两项——不是猜它取不取得到。
+  const SHARED_DEFAULTS = {
+    KNOT_ENTRY_WEB_ROOT: "/var/www/knot",
+    KNOT_ENTRY_CONF: "/etc/nginx/conf.d/knot.conf",
+  };
+  for (const [key, shared] of Object.entries(SHARED_DEFAULTS)) {
+    const value = String(env[key] ?? "").trim();
+    const example =
+      key === "KNOT_ENTRY_WEB_ROOT"
+        ? `/var/www/${host.replace(/\.xknot\.si$/, "")}`
+        : `/etc/nginx/conf.d/${host}.conf`;
+    if (!value) {
+      errors.push(
+        `公网入口必须写 ${key}=<这个子域自己的路径>，例如 ${example}。留空会落回共用的 ${shared}，与同机其它子域互相覆盖。`
+      );
+      continue;
+    }
+    if (value === shared) {
+      errors.push(`${key} 还是共用的默认值 ${shared}。同一个入口主机上的每个子域都要有自己的路径，例如 ${example}。`);
+      continue;
+    }
+    // 从 _template 复制过来后忘了替换 <标签>：拼出来的路径看着是绝对的，其实落不到任何地方。
+    if (/[<>]/.test(value)) {
+      errors.push(`${key} 里还有模板占位符：${value}。把 <标签> 换成这个子域的标签，例如 ${example}。`);
+    }
+  }
+
+  // 证书与私钥不在这里判断「取不取得到」：SSL 只能是 1/0，证书与私钥都能由 KNOT_DOMAIN
+  // 推导。静态根指向的目录通常还没建，真正的检查在入口主机上：push-entry.sh 先落站
+  // 再跑 nginx -t，ssl_certificate 指向不存在的文件会当场失败并整组还原。
 
   const known = new Set([...ENTRY_KEYS.map((entry) => entry.key)]);
   // 入口文件是叠加层，可以覆盖 site.env 的键，所以登记的站点键都算已知。
@@ -1635,11 +1664,16 @@ export function renderEntryExample() {
     if (!entry) continue;
     parts.push("");
     parts.push(...commentLines(entry));
-    // 这几个按子域决定，模板里留空逼着填：证书由 KNOT_DOMAIN 推导，
-    // 静态根与 nginx 配置留空就会和别的子域共用，S20-01 就是这么出的事。
+    // 这几个按子域决定。证书由 KNOT_DOMAIN 推导，留空是对的；
+    // 静态根与 nginx 配置不能留空——留空就落回 /var/www/knot 那个共用默认值，
+    // 同一台入口主机上的两个子域会互相覆盖（S20-01）。写占位符而不是空值：
+    // 空值看起来像「用默认」，占位符在 config.mjs check 里会当场报出来。
+    const placeholder = {
+      KNOT_ENTRY_WEB_ROOT: "/var/www/<标签>",
+      KNOT_ENTRY_CONF: "/etc/nginx/conf.d/<标签>.xknot.si.conf",
+    };
     const perSite = ["KNOT_ENTRY_CERT", "KNOT_ENTRY_KEY", "KNOT_ENTRY_WEB_ROOT", "KNOT_ENTRY_CONF"];
-    const value = perSite.includes(key) ? "" : entry.default;
-    parts.push(`${key}=${formatValue(value)}`);
+    const value = key in placeholder ? placeholder[key] : perSite.includes(key) ? "" : entry.default;    parts.push(`${key}=${formatValue(value)}`);
   }
   parts.push("");
   return `${parts.join("\n")}\n`;
