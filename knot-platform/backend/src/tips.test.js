@@ -56,6 +56,8 @@ test("a tip moves points from the reader to the author and writes one ledger row
   assert.match(notice.params[3], /乙/);
   assert.match(notice.params[3], /5/);
   assert.equal(notice.params[5], INTEL);
+  // data 是同一件事的机器可读取值，WebUI 按界面语言重排时要它。
+  assert.deepEqual(JSON.parse(notice.params[6]), { giver: "乙", amount: 5 });
 });
 
 test("a tip repaints the public board so the card shows the new total", async () => {

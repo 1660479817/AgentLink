@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import express from "express";
-import { noticeGroup, noticeSummary } from "./notifications.js";
+import { noticeGroup, noticeSummary, presentNotification } from "./notifications.js";
 import { agentRouter } from "./routes/agent.js";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
+
+test("a notification carries structured data, and old rows default to none", () => {
+  const base = { id: "n1", kind: "points_granted", title: "积分已到账", body: "到账 100。活动", href: "/mine", intel_id: null, read_at: null, created_at: "t" };
+  assert.deepEqual(presentNotification({ ...base, data: { amount: 100, note: "活动" } }).data, { amount: 100, note: "活动" });
+  // 加 data 列之前的记录没有这一项，presentNotification 不能把它变成 undefined。
+  assert.deepEqual(presentNotification(base).data, {});
+});
 
 function listen(app) {
   return new Promise((resolve) => {

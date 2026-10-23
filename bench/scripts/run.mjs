@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { probeSite, summaryLines } from "./probe.mjs";
 import { render } from "./report.mjs";
 import { parseSummaryData } from "./summary.mjs";
+import { exitCodeFor, failureRecord } from "./failures.mjs";
 
 // 并发层编排：先黑箱探测这个站点，再按能测的场景一档一档跑 k6。
 //
@@ -185,8 +186,27 @@ function runK6({ script, vus, duration, out, token, allowWrites = false }) {
     return { ok: true, elapsed, thresholdFailed: true };
   }
   if (res.status !== 0) {
-    const detail = String(res.stderr || res.stdout || "").split("\n").slice(-8).join("\n");
-    return { ok: false, elapsed, detail };
+    // 超时被 kill 时 status 是 null、signal 有值；区分「自己崩了」和「被杀了」，
+    // 否则失败记录只剩一句「失败」，看不出是 k6 的问题还是 timeout 估短了。
+    return {
+      ok: false,
+      elapsed,
+      status: res.status,
+      signal: res.signal,
+      error: res.error,
+      tail: String(res.stderr || res.stdout || "").split("\n").slice(-8).join("\n"),
+    };
+  }
+  // k6 说成功却没写导出文件：这一档没有数据，同样不能当成跑过。
+  if (!existsSync(out)) {
+    return {
+      ok: false,
+      elapsed,
+      status: res.status,
+      signal: res.signal,
+      error: null,
+      reason: "k6 退出码 0 但没有写出 --summary-export 文件",
+    };
   }
   return { ok: true, elapsed };
 }
@@ -270,6 +290,8 @@ async function main() {
     levels: LEVELS,
     scenarios: SCENARIOS,
     skipped: [],
+    // 跑失败或没写出数据的档。报告与退出码都从这里取，不再只是控制台的一行字。
+    failed: [],
   };
 
   console.log(`\nk6 ${k6} · 每档 ${DURATION} · 冷却 ${COOLDOWN}s`);
@@ -302,21 +324,38 @@ async function main() {
       token,
       allowWrites: scenario === "write",
     });
-    if (!warm.ok) console.warn(`预热失败：${warm.detail}`);
+    if (!warm.ok) {
+      // 预热失败不单列成一档（它没有指标），但要说清是退出码还是被杀的。
+      const failed = failureRecord({ scenario, vus: 1, elapsedMs: warm.elapsed, ...warm });
+      console.warn(`预热失败（不计入判定）：${failed.detail}`);
+    }
 
     for (const vus of levels) {
       const out = path.join(RAW_DIR, `${scenario}-${vus}.json`);
       process.stdout.write(`[${scenario}] ${vus} 并发 ... `);
       const res = runK6({ script, vus, duration: DURATION, out, token, allowWrites: scenario === "write" });
       if (!res.ok) {
+        const failed = failureRecord({ scenario, vus, elapsedMs: res.elapsed, ...res });
         console.log(`失败（${Math.round(res.elapsed / 1000)}s）`);
-        console.log(res.detail);
+        console.log(failed.detail);
+        // 只 continue 的后果：这一档不进 runs，报告的列由 runs 反推，
+        // 于是它连表头都不出现，判定段还按剩下的档写「未超过验收线」。
+        meta.failed.push(failed);
         continue;
       }
-      const parsed = parseSummary(out);
+      let parsed;
+      try {
+        parsed = parseSummary(out);
+      } catch (error) {
+        const failed = failureRecord({ scenario, vus, elapsedMs: res.elapsed, reason: "导出文件无法解析", tail: error.message });
+        console.log(`失败（导出文件无法解析）`);
+        console.log(failed.detail);
+        meta.failed.push(failed);
+        continue;
+      }
       runs.push({ scenario, vus, duration: DURATION, elapsedMs: res.elapsed, ...parsed });
       console.log(
-        `RPS ${parsed.rps ? parsed.rps.toFixed(1) : "-"} · p95 ${parsed.overall.p95 ? Math.round(parsed.overall.p95) + "ms" : "-"} · 错误 ${(parsed.errorRate * 100).toFixed(2)}%${res.thresholdFailed ? " · k6 阈值未过" : ""}`
+        `RPS ${parsed.rps ? parsed.rps.toFixed(1) : "-"} · p95 ${parsed.overall.p95 ? Math.round(parsed.overall.p95) + "ms" : "-"} · 错误 ${parsed.errorRate == null ? "-" : `${(parsed.errorRate * 100).toFixed(2)}%`}${res.thresholdFailed ? " · k6 阈值未过" : ""}`
       );
       if (vus !== levels[levels.length - 1]) await sleep(COOLDOWN * 1000);
     }
@@ -341,6 +380,11 @@ async function main() {
 
   console.log(`\n${markdown}\n`);
   console.log(`结果目录：${OUT_DIR}`);
+  if (meta.failed.length) {
+    console.error(`有 ${meta.failed.length} 档没有跑成，结论不完整（见 summary.md 的「本轮未测」）。`);
+  }
+  // 有档位失败仍退出 0 的话，调用方只会看到「跑完了一轮」。
+  process.exitCode = exitCodeFor(meta);
 }
 
 await main();

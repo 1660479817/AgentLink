@@ -1,8 +1,10 @@
 import http from "k6/http";
 import { group, sleep } from "k6";
+import { Counter, Rate } from "k6/metrics";
 import { probe } from "./lib/probe.js";
 import { agentHeaders, identityConfig } from "./lib/identity.js";
 import { baseUrl } from "./lib/common.js";
+import { deletePassed, intelIdFrom } from "./lib/cleanup.js";
 
 // 写路径：发一条不公开的 post → 记一次看公开卡 → 删掉。每 5 次迭代多传一张图。
 //
@@ -16,7 +18,9 @@ import { baseUrl } from "./lib/common.js";
 // 为什么读回不走 GET /intel/:id：那条只解公开的 post / fastpost，不公开的按 id 读是 404。
 //
 // 若删除失败，留下的是「不公开」记录：不在信息流、不进快照，只在作者的记录里。
-// 这一项有独立指标 ep_write_delete_err，报告里会单独列出来。
+// 清理链路的三种失败都记进 write_cleanup_err / write_leftover，报告据此列出
+// 「发布 N / 删除 M / 残留 N-M」：只看 ep_write_delete_err 会漏掉
+// 「发帖成功但解析不出 id」这种根本没发出 DELETE 的情况。
 
 if (String(__ENV.ALLOW_WRITES || "") !== "1") {
   throw new Error("写场景默认关闭：设 ALLOW_WRITES=1，并确认你是有权限在这个站点写数据的人");
@@ -48,6 +52,29 @@ const p = {
   upload: probe("write_upload"),
 };
 
+// 清理链路的失败单独计数，不混进 p95，也不被 429 的「限流不是错误」规则吞掉。
+// write_cleanup_err 的分母是发帖成功数：每次 201 都记一次 true/false，否则 Rate
+// 只会看到失败的那几次，算出来永远是 100%。
+// write_leftover 是「发帖成功但没删掉」的条数，等于报告里要写的残留。
+const cleanupErr = new Rate("write_cleanup_err");
+const published = new Counter("write_created");
+const removed = new Counter("write_deleted");
+const leftover = new Counter("write_leftover");
+
+function preview(res) {
+  return String((res && res.body) || "")
+    .replace(/\s+/g, " ")
+    .slice(0, 200);
+}
+
+// 三种清理失败共用一条路：计数 + 打进 stderr。
+// 只 console.warn 不够——run.mjs 成功时丢弃 stdout/stderr，指标才会随 summary.json 留下来。
+function recordCleanupFailure(why) {
+  cleanupErr.add(true);
+  leftover.add(1);
+  console.warn(`[write] ${why}`);
+}
+
 function authHeadersFor(vu) {
   return agentHeaders(IDENTITY, vu, TOKEN);
 }
@@ -64,19 +91,9 @@ export function setup() {
   return { ids };
 }
 
-function intelId(res) {
-  try {
-    const body = res.json();
-    return (body.intel && (body.intel.id || (body.intel.kMeta && body.intel.kMeta.id))) || "";
-  } catch (e) {
-    return "";
-  }
-}
-
 export default function (data) {
   const stamp = `${Date.now()}-${__VU}-${__ITER}`;
   const headers = { ...authHeadersFor(__VU), "Content-Type": "application/json" };
-  let id = "";
 
   group("write", () => {
     const created = http.post(
@@ -89,14 +106,41 @@ export default function (data) {
       { headers, tags: { name: "POST /api/agent/intel" } }
     );
     p.publish.record(created, (r) => r.status === 201);
-    id = intelId(created);
 
-    if (id) {
-      const removed = http.del(`${BASE}/api/agent/intel/${id}`, null, {
-        headers,
-        tags: { name: "DELETE /api/agent/intel/:id" },
-      });
-      p.del.record(removed, (r) => r.status === 200 || r.status === 404);
+    if (created.status === 201) {
+      // 只有真的建出来了才需要清理；这一步之后的任何失败都会留下痕迹。
+      published.add(1);
+      let id = "";
+      try {
+        id = intelIdFrom(created);
+      } catch (e) {
+        id = "";
+      }
+      if (!id) {
+        // 发帖成功而拿不到 id：这条记录已经在库里，且没有任何办法删。
+        // 以前这里整段跳过，一轮下来留下脏数据却一条错误都不记。
+        recordCleanupFailure(`发帖 201 但解析不出 intelId：${preview(created)}`);
+      } else {
+        try {
+          const res = http.del(`${BASE}/api/agent/intel/${id}`, null, {
+            headers,
+            tags: { name: "DELETE /api/agent/intel/:id" },
+          });
+          const passed = deletePassed(res);
+          // 严格判定：2xx 且 body.ok，或 404（本来就不在）。
+          // 429 在这里也算没删掉，不能因为「限流不是错误」就当成清理成功。
+          p.del.record(res, () => passed);
+          if (passed) {
+            removed.add(1);
+            cleanupErr.add(false);
+          } else {
+            recordCleanupFailure(`DELETE ${id} 没删掉：status=${res.status} ${preview(res)}`);
+          }
+        } catch (error) {
+          // 删除请求本身抛异常（网络层/解析层）也要算残留，不能吞掉。
+          recordCleanupFailure(`DELETE ${id} 抛异常：${error && error.message}`);
+        }
+      }
     }
 
     if (data.ids.length && Math.random() < 0.5) {

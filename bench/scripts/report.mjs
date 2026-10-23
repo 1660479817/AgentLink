@@ -43,6 +43,16 @@ function pct(value) {
   return typeof value === "number" ? `${(value * 100).toFixed(2)}%` : "-";
 }
 
+// 失败详情第一行是「退出码 N / 被信号 X 终止」，已经单独写过；
+// markdown 列表里只补后面那句 stderr 摘要，全文在 summary.json 里。
+function firstOtherLine(text, skip) {
+  const lines = String(text || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return lines.find((line) => line !== skip) || "";
+}
+
 function table(headers, rows) {
   const line = `| ${headers.join(" | ")} |`;
   const sep = `| ${headers.map(() => "---").join(" | ")} |`;
@@ -139,10 +149,20 @@ export function render(result) {
     out.push("");
   }
 
-  if (meta.skipped?.length) {
+  const failed = meta.failed || [];
+  if (meta.skipped?.length || failed.length) {
     out.push("本轮未测：");
     out.push("");
-    for (const s of meta.skipped) out.push(`- ${scenarioOf(s.scenario)}：${s.reason}`);
+    for (const s of meta.skipped || []) out.push(`- ${scenarioOf(s.scenario)}：${s.reason}`);
+    // 跑失败的档也要列出来：少一列却不说明，看到的就是「5–50 全过」。
+    for (const f of failed) {
+      const how =
+        f.reason || (f.status == null ? `被信号 ${f.signal || "未知"} 终止` : `退出码 ${f.status}`);
+      const detail = firstOtherLine(f.detail, how);
+      out.push(
+        `- ${scenarioOf(f.scenario)} ${f.vus} 并发：k6 未跑成（${how}，${Math.round((f.elapsedMs || 0) / 1000)}s）${detail ? ` · ${detail}` : ""}`
+      );
+    }
     out.push("");
   }
 
@@ -208,30 +228,101 @@ export function render(result) {
     }
   }
 
+  // ---- 写场景清理 ----
+  // 这三条以前都只在 k6 里静默掉：解析不出 id、DELETE 失败、清理抛异常。
+  // 报告里不给出一张表，读的人就只知道「跑完了」。
+  const cleanupRuns = runs.filter((r) => r.cleanup);
+  if (cleanupRuns.length) {
+    const cleanupRows = cleanupRuns.map((r) => [
+      String(r.vus),
+      String(r.cleanup.created ?? "-"),
+      String(r.cleanup.deleted ?? "-"),
+      String(r.cleanup.leftover ?? "-"),
+      pct(r.cleanup.errRate),
+    ]);
+    out.push("## 写场景清理");
+    out.push("");
+    out.push(table(["并发", "发布", "删除", "残留", "清理失败率"], cleanupRows));
+    out.push("");
+    out.push(
+      "残留 = 发帖成功但没删掉的记录：intelId 解析不出、DELETE 未返回 `ok: true`（含 429）或清理抛异常。它们是不公开记录，不在信息流也不进快照，但仍在作者记录里。"
+    );
+    out.push("");
+  }
+
   // ---- 超阈 ----
   const breaches = [];
+  const noData = [];
   for (const run of runs) {
-    for (const [key, ep] of Object.entries(run.endpoints)) {
+    const eps = Object.entries(run.endpoints || {});
+    // 整档没有端点指标，和「每个端点都没样本」一样，不能算通过。
+    if (!eps.length) {
+      noData.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · 整档没有端点指标`);
+      continue;
+    }
+    for (const [key, ep] of eps) {
       const write = key.startsWith("write_");
       const limit = write ? LIMITS.writeP95 : LIMITS.readP95;
       const errLimit = write ? LIMITS.writeErrorRate : LIMITS.errorRate;
+      // 无样本（例如整档 100% 429）时 p95 是 null，而 `null > limit` 为 false，
+      // 以前这一档就被判成「未超过验收线」。没有样本只能记「未取得数据」。
+      if (!(ep.count > 0) || typeof ep.p95 !== "number") {
+        noData.push(
+          `${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · 没有样本（请求 ${ep.requests ?? 0} 次，其中 429 ${ep.throttled || 0} 次）`
+        );
+        continue;
+      }
       if (ep.p95 > limit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · p95 ${ms(ep.p95)}ms > ${limit}ms`);
       if (ep.errRate > errLimit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · 错误率 ${pct(ep.errRate)} > ${pct(errLimit)}`);
     }
   }
   out.push("## 判定");
   out.push("");
+  if (noData.length) {
+    out.push(`无结论：${noData.length} 项没有样本，不能当作通过。`);
+    out.push("");
+    for (const n of noData.slice(0, 40)) out.push(`- ${n}`);
+    if (noData.length > 40) out.push(`- ……另有 ${noData.length - 40} 项，见 summary.json`);
+    out.push("");
+  }
+  if (failed.length) {
+    out.push(`结论不完整：${failed.length} 档 k6 未跑成（见「本轮未测」），这些并发数没有数据。`);
+    out.push("");
+  }
+  const hasSamples = runs.some((r) => Object.values(r.endpoints || {}).some((ep) => ep.count > 0));
   if (!breaches.length) {
-    out.push(`未超过验收线：读 p95 ≤ ${LIMITS.readP95}ms、写 p95 ≤ ${LIMITS.writeP95}ms、错误率 ≤ ${pct(LIMITS.errorRate)}。`);
+    if (noData.length || failed.length) {
+      // 有缺口时不能单写「未超过验收线」：那会把「没测到」读成「通过了」。
+      // 一个样本都没有时连「其余」也没有，这句话就不该出现。
+      if (hasSamples) {
+        out.push(`其余有样本的端点未超过验收线：读 p95 ≤ ${LIMITS.readP95}ms、写 p95 ≤ ${LIMITS.writeP95}ms、错误率 ≤ ${pct(LIMITS.errorRate)}；但上面列出的缺口没有数据。`);
+      }
+    } else {
+      out.push(`未超过验收线：读 p95 ≤ ${LIMITS.readP95}ms、写 p95 ≤ ${LIMITS.writeP95}ms、错误率 ≤ ${pct(LIMITS.errorRate)}。`);
+    }
+    out.push("");
   } else {
     out.push(`超过验收线 ${breaches.length} 项：`);
     out.push("");
     for (const b of breaches.slice(0, 40)) out.push(`- ${b}`);
     if (breaches.length > 40) out.push(`- ……另有 ${breaches.length - 40} 项，见 summary.json`);
   }
+  const leftoverTotal = runs.reduce((sum, r) => sum + (r.cleanup?.leftover || 0), 0);
+  if (leftoverTotal) {
+    out.push(`- 写场景有 ${leftoverTotal} 条记录没有删掉，见「写场景清理」；这一轮不是「零痕迹」。`);
+  }
   const throttledTotal = runs.reduce((sum, r) => sum + (r.throttled || 0), 0);
   if (throttledTotal) {
     out.push(`- 另有 ${throttledTotal} 次 429 限流，已单列；不计入错误率，也不进入 p95。`);
+  }
+  // 缺数据时不能只看「未超过验收线」，把结论一句话再说一遍，方便只看结尾的人。
+  if (noData.length || failed.length || leftoverTotal) {
+    const gaps = [];
+    if (noData.length) gaps.push(`${noData.length} 项无样本`);
+    if (failed.length) gaps.push(`${failed.length} 档未跑成`);
+    if (leftoverTotal) gaps.push(`${leftoverTotal} 条写记录未清理`);
+    out.push("");
+    out.push(`> 结论：本轮有 ${gaps.join("、")}，不能算完整通过。`);
   }
   out.push("");
 

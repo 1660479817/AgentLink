@@ -376,13 +376,16 @@ async function main(argv) {
 
     if (rest.includes("--with-relay")) {
       const daily = Number(flag(rest, "daily", 50)) || 50;
-      const issued = store.createRelayToken({
+      // 重签即作废：每跑一次 access 都会发出去一份新件，旧件留着就是一把没人回收的钥匙。
+      // 作废与新签在同一个事务里，见 store.rotateRelayToken。
+      const issued = store.rotateRelayToken({
         instanceId,
         label: flag(rest, "label", `partner ${application.id}`),
         dailyLimit: daily,
         createdBy: process.env.XKNOT_ADMIN_USER || null,
       });
       if (issued.error) return fail(`签发委托发信凭据失败：${issued.error}`);
+      if (issued.revoked.length) console.error(`已作废旧委托发信凭据 ${issued.revoked.join("、")}。`);
       // 发信地址按契约从中枢地址推导，不写进来：少一项就少一处对不上。
       lines.push(`XKNOT_HUB_RELAY_TOKEN=${issued.token}`);
       console.error(`已签委托发信凭据 ${issued.record.id}，每日上限 ${issued.record.dailyLimit}。`);

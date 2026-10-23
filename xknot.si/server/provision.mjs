@@ -121,10 +121,13 @@ export function stepRetry(run, id, code, now = new Date()) {
   };
 }
 
-export function nextPort(members = []) {
+export function nextPort(members = [], reserved = []) {
   const used = new Set(
     members.map((member) => Number(member?.tunnel?.port)).filter((port) => Number.isInteger(port))
   );
+  // 名册是一份磁盘快照：同一轮里刚分给前一个申请的端口还没落盘。
+  // 调用方把本轮已经分出去的端口放进 reserved，两条新申请才不会拿到同一个。
+  for (const port of reserved) used.add(Number(port));
   for (let port = FIRST_PORT; port <= LAST_PORT; port += 1) {
     if (!used.has(port)) return port;
   }
@@ -136,12 +139,25 @@ export function accountOf(instanceId) {
 }
 
 /** 名册里已有这个实例就沿用它的账号与端口，避免重试时换掉正在用的隧道。 */
-export function tunnelFor({ instanceId, members = [] }) {
+export function tunnelFor({ instanceId, members = [], reserved = [] }) {
   const member = members.find((item) => item.id === instanceId);
   const port = Number(member?.tunnel?.port);
   const account = String(member?.tunnel?.account || "").trim();
   if (account && Number.isInteger(port) && port >= 1024 && port <= 65535) return { account, port };
-  return { account: accountOf(instanceId), port: nextPort(members) };
+  return { account: accountOf(instanceId), port: nextPort(members, reserved) };
+}
+
+/**
+ * 每轮按当前名册重算隧道参数。
+ *
+ * run 里的账号与端口只是上一次分配的结果，名册才是权威。同一轮里两个新申请
+ * 都从同一份快照算端口，先落盘的那个占住它；后者若继续信 run 里的旧值，
+ * 每次发布都会被判重复，永远停在 roster_invalid。按名册重算一次就换到空闲端口。
+ */
+export function reconcileTunnel({ run, members = [], now = new Date() }) {
+  const tunnel = tunnelFor({ instanceId: run.instanceId, members });
+  if (tunnel.account === run.account && tunnel.port === run.port) return run;
+  return { ...run, account: tunnel.account, port: tunnel.port, updatedAt: now.toISOString() };
 }
 
 // ---- 渲染：入口主机上要落的那几份文件 ----

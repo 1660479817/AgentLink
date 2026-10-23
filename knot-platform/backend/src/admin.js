@@ -598,13 +598,18 @@ async function writeAction(pool, { action, accountId = null, intelId = null, bod
   );
 }
 
-export async function removePost(pool, id, reason, actorId = null) {
+export async function removePost(pool, id, reason, { actorId = null, platformClosed = false } = {}) {
   if (!UUID.test(String(id || ""))) throw fail("not_found");
   const text = requireText(reason, REASON_MAX, "bad_body");
+  // 撤下按整条修订链处理，不只处理被点的那一版。信息流、discover.json 与搜索
+  // 用「同 origin 还有更新的可见版本」隐藏旧版；只把新版置为 removed 时，旧版
+  // 会立刻重新可见（S11-01）。作者删除 deleteOwnPost 已是这个口径，这里对齐。
+  // 被点的可能是链上任意一版，用子查询取它所属的 COALESCE(origin_id, id)。
   const { rows } = await pool.query(
     `UPDATE intel
      SET verdict = 'removed', reject_reason = $2, is_public = false
-     WHERE id = $1 AND verdict <> 'removed'
+     WHERE verdict <> 'removed'
+       AND COALESCE(origin_id, id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $1)
      RETURNING id, account_id`,
     [id, text]
   );
@@ -613,13 +618,15 @@ export async function removePost(pool, id, reason, actorId = null) {
     if (!existing.rows.length) throw fail("not_found");
     return { ok: true, already: true, id };
   }
-  await discardExtract(id);
+  // 链上每一版都有自己的摘要文件，一起清掉，免得撤下后还占着磁盘。
+  for (const row of rows) await discardExtract(row.id);
   await recordNotification(pool, {
     userId: rows[0].account_id,
     kind: "intel_removed",
     title: "帖子已删除",
     body: text,
     href: "/mine/submissions",
+    data: platformClosed ? { platformClosed: true } : { reason: text },
   });
   await writeAction(pool, { action: "remove", accountId: rows[0].account_id, intelId: id, body: text, actorId });
   touchDiscoverBoard();
@@ -659,6 +666,7 @@ export async function grantPoints(pool, user, amount, body) {
       title: "积分已到账",
       body: note,
       href: "/mine",
+      data: { amount: points, note: text },
     });
     await client.query("COMMIT");
     return { ok: true, user: { ...presentAccount(account), pointsBalance: balance }, amount: points, pointsBalance: balance };
@@ -755,6 +763,7 @@ export async function muteUser(pool, user, until, body) {
       title: "已被禁言",
       body: note,
       href: "/mine",
+      data: { until: muteState(deadline).mutedUntil, note: text },
     });
     return { ok: true, already: false, user: presentAccount(rows[0]) };
   });
@@ -783,6 +792,7 @@ export async function unmuteUser(pool, user, body) {
       title: "禁言已解除",
       body: text,
       href: "/mine",
+      data: { note: text },
     });
     return { ok: true, already: false, user: presentAccount(rows[0]) };
   });
@@ -844,6 +854,7 @@ export async function setEntitlements(pool, user, grant, revoke, body) {
       title: "权益已更新",
       body: note,
       href: "/mine",
+      data: { granted, revoked, note: text },
     });
     return { ok: true, already: false, granted, revoked, user: presentAccount(rows[0]) };
   });
@@ -882,6 +893,7 @@ export async function setLevel(pool, user, level, body) {
       title: "等级已更新",
       body: note,
       href: "/mine",
+      data: { level: next, note: text },
     });
     return { ok: true, already: false, user: presentAccount(rows[0]) };
   });
@@ -895,6 +907,7 @@ export async function warnUser(pool, user, body) {
     kind: "warning",
     title: "平台警告",
     body: text,
+    data: { note: text },
   });
   await writeAction(pool, { action: "warn", accountId: account.id, body: text });
   return { ok: true, user: presentAccount(account) };

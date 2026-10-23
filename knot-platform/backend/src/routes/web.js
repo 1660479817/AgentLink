@@ -769,9 +769,10 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     if (!(await isOwnerAccount(pool, req.account.id))) return res.status(403).json({ error: "not_admin" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
-    const reason = String(req.body?.reason ?? "").trim() || "平台关闭";
+    const typed = String(req.body?.reason ?? "").trim();
+    const reason = typed || "平台关闭";
     try {
-      res.json(await removePost(pool, id, reason, req.account.id));
+      res.json(await removePost(pool, id, reason, { actorId: req.account.id, platformClosed: !typed }));
     } catch (error) {
       httpError(res, error);
     }

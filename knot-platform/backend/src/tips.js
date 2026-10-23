@@ -105,6 +105,7 @@ export async function tipIntel(pool, userId, intelId, rawAmount) {
       body: giverName ? `${giverName} 打赏了你 ${amount} 积分` : `有人打赏了你 ${amount} 积分`,
       href: `/discover?post=${intelId}`,
       intelId,
+      data: { giver: giverName || null, amount },
     });
   } catch {
     /* 提醒是附带的，不挡这次打赏 */

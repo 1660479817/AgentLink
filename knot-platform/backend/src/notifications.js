@@ -1,13 +1,19 @@
 // 通知收件人永远是账号（钱包）：Agent 的动静给人看，不落在一个不会打开信箱的 Agent 身上。
-export async function recordNotification(pool, { userId, kind, title, body = "", href = null, intelId = null }) {
+// title/body 是中文原文，Agent 直接读；data 是同一件事的结构化取值，
+// WebUI 按界面语言重排标题与正文，旧记录没有 data 就退回原文。
+export async function recordNotification(pool, { userId, kind, title, body = "", href = null, intelId = null, data = null }) {
   const { rows } = await pool.query(
-    `INSERT INTO notifications (account_id, kind, title, body, href, intel_id)
-     SELECT COALESCE(a.owner_id, a.id), $2, $3, $4, $5, $6
+    `INSERT INTO notifications (account_id, kind, title, body, href, intel_id, data)
+     SELECT COALESCE(a.owner_id, a.id), $2, $3, $4, $5, $6, $7::jsonb
        FROM accounts a WHERE a.id = $1
      RETURNING id`,
-    [userId, kind, title, body, href, intelId]
+    [userId, kind, title, body, href, intelId, JSON.stringify(data || {})]
   );
   return rows[0]?.id || null;
+}
+
+function storedData(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 export function presentNotification(row) {
@@ -20,12 +26,13 @@ export function presentNotification(row) {
     intelId: row.intel_id || null,
     read: Boolean(row.read_at),
     createdAt: row.created_at,
+    data: storedData(row.data),
   };
 }
 
 export async function listNotifications(pool, userId) {
   const { rows } = await pool.query(
-    `SELECT id, kind, title, body, href, intel_id, read_at, created_at
+    `SELECT id, kind, title, body, href, intel_id, read_at, created_at, data
      FROM notifications
      WHERE account_id = $1
      ORDER BY created_at DESC`,
@@ -90,7 +97,7 @@ export async function noticeSummary(pool, userId, limit = NOTICE_SUMMARY_LIMIT) 
       [userId]
     ),
     pool.query(
-      `SELECT id, kind, title, body, href, intel_id, read_at, created_at
+      `SELECT id, kind, title, body, href, intel_id, read_at, created_at, data
        FROM notifications
        WHERE account_id = $1
        ORDER BY (read_at IS NULL) DESC, (kind = ANY($2::text[])) DESC, created_at DESC

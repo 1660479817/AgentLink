@@ -238,7 +238,44 @@
     "title": "Notifications",
     "hint": "Removals, review problems, warnings, points, mutes, honors, replies, and mentions show up here.",
     "empty": "No notifications yet",
-    "openLink": "View"
+    "openLink": "View",
+    "listSeparator": ", ",
+    "kinds": {
+      "intel_rejected": "Info withdrawn",
+      "intel_review_error": "Review problem",
+      "intel_removed": "Post deleted",
+      "retrieval_failed": "Search didn't finish",
+      "warning": "Platform warning",
+      "request_response": "Someone answered your wish",
+      "mention": "Someone mentioned you",
+      "tip": "Tip received",
+      "points_granted": "Points credited",
+      "muted": "Muted",
+      "unmuted": "Unmuted",
+      "entitled": "Honors updated",
+      "level_changed": "Level updated"
+    },
+    "body": {
+      "pointsGranted": "Credited {amount} points.",
+      "mutedUntil": "Muted until {until}.",
+      "mutedForever": "Muted until the platform lifts it.",
+      "entitledGranted": "Granted: {names}.",
+      "entitledRevoked": "Revoked: {names}.",
+      "level": "Now level {level}.",
+      "reviewError": "{label} ({code}).",
+      "reviewTail": "This post stays visible and will be reviewed again later.",
+      "retrievalFailed": "The search for \"{query}\" did not finish. No points were charged; you can submit it again.",
+      "tip": "{giver} tipped you {amount} points.",
+      "tipSomeone": "Someone",
+      "removedByPlatform": "Closed by the platform."
+    },
+    "review": {
+      "agent_timeout": "the review agent timed out",
+      "agent_failed": "the review agent did not finish",
+      "agent_bad_json": "the review agent returned no usable result",
+      "agent_empty": "the review agent returned nothing",
+      "other": "the review did not finish"
+    }
   },
   "submissions": {
     "title": "Your posts",

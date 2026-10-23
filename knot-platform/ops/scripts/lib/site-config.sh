@@ -154,6 +154,36 @@ knot_origin_host() {
 
 KNOT_DOMAIN="${KNOT_DOMAIN:-}"
 
+# 管理后台链接的地址由 Backend 按「它自己监听在哪」现算（backend/src/adminHosts.js）：
+# 绑回环就得到 http://127.0.0.1:<端口>，绑通配就枚举本机私有 IPv4。
+#
+# 站点对外是域名、页面在别人的设备上打得开，后端却只绑回环时，/mine 上那枚
+# 复制出去的管理后台链接仍然以 127.0.0.1 开头——在别的设备上点开，连的是它自己，
+# 那台机器上也没人在听这个端口。绑定是运维的决定（开发者本机实例就该绑回环），
+# 所以这里只把后果写出来，不改绑定。
+knot_admin_link_hint() {
+  # 运维写死了链接地址时，Backend 照它生成，绑定方式不再决定链接。
+  if [[ -n "${KNOT_ADMIN_ORIGIN:-}" ]]; then return 0; fi
+  # 不能直接用 knot_origin_host：它按第一个冒号截端口，IPv6 的 [::1] 会截成 "["。
+  local origin="${KNOT_PUBLIC_ORIGIN:-}"
+  local host="${origin#*://}"
+  host="${host%%/*}"
+  if [[ "$host" == \[* ]]; then
+    host="${host%%]*}"
+    host="${host#[}"
+  else
+    host="${host%%:*}"
+  fi
+  case "$host" in
+    127.* | localhost | ::1 | "") return 0 ;;
+  esac
+  case "${KNOT_BIND_HOST:-127.0.0.1}" in
+    127.* | localhost | ::1 | "") ;;
+    *) return 0 ;;
+  esac
+  printf '%s\n' "站点对外是 ${KNOT_PUBLIC_ORIGIN}，但 Backend 只绑了 ${KNOT_BIND_HOST:-127.0.0.1}：/mine 上生成的管理后台链接会指向 http://127.0.0.1:${KNOT_PORT}/admin/，只在实例这台机器上打得开。要在同一内网的其它设备上进管理后台，把 KNOT_BIND_HOST 设成 0.0.0.0 再部署一次（入口回源仍走 127.0.0.1，隧道不受影响）。"
+}
+
 # ---- 实例主机 ----
 KNOT_DB_MODE="${KNOT_DB_MODE:-local}"
 KNOT_DATABASE_URL="${KNOT_DATABASE_URL:-${DATABASE_URL:-}}"
@@ -384,6 +414,42 @@ knot_entry_value() {
     set +a
     printf '%s' "${!key:-}"
   )
+}
+
+# 入口的静态根与 nginx conf 必须一个子域一份。
+#
+# 缺省值 /var/www/knot 与 /etc/nginx/conf.d/knot.conf 不带域名，是同一台入口主机上
+# 所有子域共用的：第二个子域照模板留空推上去，rsync --delete 会把第一个子域的静态根
+# 清成自己的 dist，cp 再把它的 nginx conf 换掉——前一个站点直接换品牌或停站。
+# 所以这两项留空不是「用默认」，是配错：推到入口之前就拒绝，别让 rsync 动手。
+knot_require_entry_paths() {
+  local web_root="${1:-}" conf="${2:-}" domain="${3:-}"
+  local key value example
+  for key in KNOT_ENTRY_WEB_ROOT KNOT_ENTRY_CONF; do
+    case "$key" in
+      KNOT_ENTRY_WEB_ROOT)
+        value="$web_root"
+        example="/var/www/<标签>"
+        ;;
+      *)
+        value="$conf"
+        example="/etc/nginx/conf.d/<标签>.xknot.si.conf"
+        ;;
+    esac
+    case "$value" in
+      "")
+        knot_fail "入口 ${domain} 的 ${key} 是空的。在 sites/${KNOT_SITE}/entry.${domain}.env 里写成这个子域自己的路径，例如 ${example}。"
+        ;;
+      /var/www/knot | /etc/nginx/conf.d/knot.conf)
+        knot_fail "入口 ${domain} 的 ${key} 还是共用的缺省值 ${value}。
+同一台入口主机上的每个子域都要有自己的路径，否则后推的会覆盖前一个。写成 ${example}。"
+        ;;
+      /*) ;;
+      *)
+        knot_fail "入口 ${domain} 的 ${key} 必须是绝对路径：${value}"
+        ;;
+    esac
+  done
 }
 
 # 规范入口的域名来自 KNOT_DOMAIN（local 为空，xknot.si 为签发的二级子域）。

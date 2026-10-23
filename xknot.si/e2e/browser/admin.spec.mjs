@@ -206,4 +206,47 @@ test.describe("控制台", () => {
     await page.locator("button.tab", { hasText: "已通过" }).click();
     await expect(page.locator(".list .item", { hasText: application.id })).toHaveCount(1);
   });
+
+  test("申请列表读取失败时给出错误条，且不把上一次的行留在新分类下", async ({ page, request }) => {
+    const errors = watchErrors(page);
+    const site = uniqueSite("listfail");
+
+    const submitted = await request.post("/api/applications", {
+      data: { ...site, agree: true, locale: "zh-CN" },
+    });
+    expect(submitted.status()).toBe(201);
+
+    await page.goto("/admin/");
+    await login(page);
+    await expect(page.locator("header.top")).toBeVisible();
+    await page.locator("nav.views button", { hasText: "申请记录" }).click();
+
+    // 先让「已通过」这一栏有行：后面才有旧数据可以冒充新分类的内容。
+    await expect(page.locator(".list .item").first()).toBeVisible();
+
+    // 列表接口失败，再切到「已撤回」。
+    await page.route("**/api/admin/applications**", (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "internal" }),
+      })
+    );
+    await page.locator("button.tab", { hasText: "已撤回" }).click();
+
+    // 失败要看得见，且旧行不能顶着新标签继续显示。
+    await expect(page.locator(".panel p.alert[role='alert']")).toContainText("申请列表加载失败");
+    await expect(page.locator(".list .item")).toHaveCount(0);
+    await expect(page.locator(".detail")).toHaveCount(0);
+    await expect(page.locator(".detail-empty")).toBeVisible();
+
+    // 恢复接口后点「重试」：错误条消失，显示这个分类的真实结果（这里没有记录）。
+    await page.unroute("**/api/admin/applications**");
+    await page.locator(".load-error button", { hasText: "重试" }).click();
+    await expect(page.locator(".load-error")).toHaveCount(0);
+    await expect(page.locator(".list .item")).toHaveCount(0);
+    await expect(page.locator("p.empty")).toContainText("这个分类下没有记录");
+
+    expect(errors, errors.join("\n")).toEqual([]);
+  });
 });
