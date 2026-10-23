@@ -23,6 +23,11 @@ export function platformTag(platform = process.platform, arch = process.arch) {
 
 // 发布目录名和回滚目标名。同一份代码两次构建得到同一个名字，覆盖安装即可。
 export function releaseName(info) {
+  // BUILD.json 里有 release 就以它为准：发布目录名、deployed.json 的记录、
+  // /api/health 报出来的 release 必须是同一个字符串，否则探活会拿两个名字比对，
+  // 或者出现「目录叫 A、健康检查说 B」的部署记录。
+  const explicit = String(info.release || "").trim();
+  if (explicit) return explicit;
   const suffix = info.dirty ? "-dirty" : "";
   return `knot-${info.version}-${info.commit}${suffix}`;
 }

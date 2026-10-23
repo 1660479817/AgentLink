@@ -288,7 +288,21 @@ knot_install_launchd() {
     -e "s|__KNOT_CURRENT__|$KNOT_DEPLOY_ROOT/current|g" \
     -e "s|__KNOT_DEPLOY_ROOT__|$KNOT_DEPLOY_ROOT|g" \
     -e "s|__KNOT_SITE__|$KNOT_SITE|g" "$src" >"$dest"
+  # 先记下旧进程：bootout 是异步的，函数返回时它可能还活着、还占着端口。
+  # launchctl print 在标签没加载时返回非零，这里必须吞掉：脚本是 set -e + pipefail，
+  # 一次探测失败就会让整个安装过程在这里静默中断（部署停在 "start backend"）。
+  local old_pid=""
+  old_pid="$(launchctl print "$domain/$label" 2>/dev/null | awk '/pid = /{print $3; exit}' || true)"
   launchctl bootout "$domain/$label" 2>/dev/null || true
+  # 等旧进程真的退出再 bootstrap。否则新进程起来时端口还占着，listen 直接 EADDRINUSE
+  # 崩掉，探活循环等 30 秒也等不到它，发布就被误判为失败、白白回滚一次。
+  if [[ -n "$old_pid" ]]; then
+    local waited=0
+    while kill -0 "$old_pid" 2>/dev/null && (( waited < 100 )); do
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+  fi
   # bootout 是异步的，紧接着 bootstrap 偶发 "Input/output error"。
   # 已经加载上了也算成功，最多等 10 秒再放弃。
   while ! launchctl bootstrap "$domain" "$dest" 2>/dev/null; do

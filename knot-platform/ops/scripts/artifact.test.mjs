@@ -22,6 +22,15 @@ test("release name follows version, commit and dirty flag", () => {
   assert.equal(releaseName({ ...INFO, dirty: true }), "knot-0.2.0-abc1234-dirty");
 });
 
+test("an explicit release in BUILD.json wins over the computed name", () => {
+  // 脏构建带时间戳：目录名、deployed.json 与 /api/health 必须用同一个字符串，
+  // 所以有 release 字段就照抄，不能再按 version+commit 算一遍。
+  assert.equal(
+    releaseName({ ...INFO, dirty: true, release: "knot-0.2.0-abc1234-dirty-20261023-040435" }),
+    "knot-0.2.0-abc1234-dirty-20261023-040435",
+  );
+});
+
 test("platform tag is read from the running node", () => {
   assert.equal(platformTag("linux", "x64"), "linux-x64");
   assert.match(platformTag(), /^(darwin|linux|win32)-/);
