@@ -10,22 +10,48 @@ const AUDIT = path.dirname(DIR);
 const CODE = path.join(AUDIT, "code");
 
 // 一行一条发现：| ID | P级 | 位置 | 维度 | 问题 | 证据 | 修复 | 置信度 |
+//
+// 单元格里可能出现 `\|`（代码、正则里的竖线）和 `\\`。直接 split("|") 会把
+// 那一行从竖线处切开，后面的列整体左移：问题串被截断、修复建议变成 `\`、
+// 置信度变成一段代码。这里按「未被反斜杠转义的竖线」切，再把 `\|` 还原成 `|`。
+function cellsOf(line) {
+  const raw = [];
+  let cell = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "\\" && line[i + 1] === "|") {
+      cell += "|";
+      i++;
+      continue;
+    }
+    if (ch === "|") {
+      raw.push(cell);
+      cell = "";
+      continue;
+    }
+    cell += ch;
+  }
+  raw.push(cell);
+  // 行首与行尾的竖线会切出两个空串，去掉。
+  return raw.slice(1, raw.length - 1).map((c) => c.trim());
+}
+
 function rows(text, file) {
   const out = [];
   for (const line of text.split("\n")) {
     const m = /^\|\s*(S\d+-\d+)\s*\|\s*(P[0-3])\s*\|/.exec(line);
     if (!m) continue;
-    const cells = line.split("|").map((c) => c.trim());
-    // ["", id, sev, where, dim, problem, evidence, fix, confidence, ""]
+    const cells = cellsOf(line);
+    // ["S01-01", "P1", 位置, 维度, 问题, 证据, 修复, 置信度]
     out.push({
-      id: cells[1],
-      severity: cells[2],
-      where: cells[3] || "",
-      dimension: cells[4] || "",
-      problem: cells[5] || "",
-      evidence: cells[6] || "",
-      fix: cells[7] || "",
-      confidence: cells[8] || "",
+      id: cells[0],
+      severity: cells[1],
+      where: cells[2] || "",
+      dimension: cells[3] || "",
+      problem: cells[4] || "",
+      evidence: cells[5] || "",
+      fix: cells[6] || "",
+      confidence: cells[7] || "",
       slice: file.replace(/\.md$/, ""),
     });
   }
@@ -56,6 +82,22 @@ const severityOverride = {
 //
 // partial = 只做了一半；defer = 需要主机/架构/新交互，本轮不做；wontfix = 复核不成立。
 const PARTIAL = {
+  // 下面这批是 2026-10-23 二次复核时从「默认已修」里挑出来的：抽样 124 条，
+  // 有 14 条只做到了 fix 描述的一半。证据在各自 note 里，都是可复核的位置。
+  "S03-12": "脚注已说明 RPS 是到达速率；报告仍无按档的吞吐增长比与饱和判定",
+  "S08-01": "公告/积分/禁言等表单已统一 writeForm；上报问题、系统设置、赞助三处仍只 guard，金额类无幂等键",
+  "S10-01": "枚举路径已封（进程内按邮箱 10 次锁 15 分钟）；无 IP 维度、不落库、未作废已发密钥，重启清零",
+  "S10-05": "查询已加 LIMIT 50；无键集分页与保留期，第 51 条以前的未读在界面上不可达且不提示",
+  "S13-02": "路由有内外网门；测试只覆盖纯函数与 127.0.0.1，删掉那两行门判断不会红",
+  "S14-01": "存储层按 kind 定类型、服务层非媒体强制 attachment；音频仍不校验魔数",
+  "S14-06": "上传响应的附件 url 已置 null；帖子附件视图仍拼 /api/web/uploads/:id，取回 404",
+  "S16-01": "release 名白名单已挡住 `..`；`tar -xzf` 仍不校验成员路径、无 `--no-same-owner`",
+  "S17-02": "push-entry 已改远端 mktemp；push-discover 仍走固定 /tmp 中转且没有推送锁",
+  "S19-06": "超安全整数已挡；TTL、宽限天数类键仍无 max，能推出 Invalid Date",
+  "S20-01": "推送时已拒空值与共用路径；模板仍发空值，config.mjs check 仍报通过",
+  "S22-07": "死规则删掉大部分；`.information-preview`、`.demand-reply` 仍有 9 个选择器",
+  "S32-07": "标签长度已上限；字符串入参按空格拆分、数组入参不拆，两种入口不一致",
+  "S33-10": "占位符已接 t()；`portal.title` 仍是只被测试引用的死键",
   "S10-08": "zip 加密头不再整份转码；readFile 整份读入与 zipNames 同步扫描未改",
   "S10-12": "可见性口径已统一；附件口径（HAS_ATTACHMENT 等）语义不同，未合并",
   "S10-14": "补了 points/requests/market 用例；下载打包与计费的端到端用例仍缺",
@@ -134,6 +176,11 @@ const lines = [
   "# 待修清单",
   "",
   "由 `audit/inventory/todo.mjs` 从 35 片报告的表里抽取。**这是「全部修完」的核对基准**。",
+  "",
+  "注意「已修」的口径：清单里没有逐条修复记录，`已修` 的默认含义是「没被列进下面三类例外」，",
+  "不是「已经验证过代码里有这个改动」。2026-10-23 做过一次抽样复核：7 组共核 124 条",
+  "（全部 P0/P1 + 各片等距抽样的 P2/P3），其中 14 条只做到修复建议的一半，已降为「部分」。",
+  "剩下的 400 余条仍是「未逐条验证」，只是没有发现反例。",
   "",
   "| 项 | 数字 |",
   "|---|---|",
