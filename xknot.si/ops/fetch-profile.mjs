@@ -146,7 +146,14 @@ export async function run(options = {}) {
       });
       results.push({ id: instance.id, status: "ok", problems: checked.problems });
     } catch (error) {
-      const code = error instanceof FetchGuardError ? error.code : "unreachable";
+      // 写不进去和取不回来是两件事。以前都报 unreachable，中枢上 var/profiles
+      // 属主是 root 时，每一份档案都显示「不可达」，查一圈网络才发现是权限。
+      const code =
+        error instanceof FetchGuardError
+          ? error.code
+          : error?.code === "EACCES" || error?.code === "EPERM" || error?.code === "EROFS"
+            ? "profile_dir_not_writable"
+            : "unreachable";
       results.push({ id: instance.id, status: "failed", error: code });
     }
   }
