@@ -9,6 +9,18 @@ export function photoUrls(images = []) {
   return (images || []).map((file) => file?.url).filter((url) => typeof url === "string" && url).slice(0, PACKET_LIMITS.images);
 }
 
+// 卡片排版要的不只是地址，还有宽高：多图按真实比例切等高行，比例来自数据而不是等图下载完再量。
+export function photoItems(images = []) {
+  return (images || [])
+    .filter((file) => typeof file?.url === "string" && file.url)
+    .slice(0, PACKET_LIMITS.images)
+    .map((file) => ({
+      url: file.url,
+      width: Number(file.width) || 0,
+      height: Number(file.height) || 0,
+    }));
+}
+
 export function lockedImages(images = []) {
   if (photoUrls(images).length) return [];
   return (images || []).filter((file) => file && !file.url).slice(0, PACKET_LIMITS.images);

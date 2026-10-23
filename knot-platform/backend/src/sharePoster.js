@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import sharp from "sharp";
 import { keyEntry, resolve } from "@knot/config";
 import { isMarkdown, toRuns } from "@knot/markdown";
+import { LAYOUT_RULES, planPhotoBoxes } from "@knot/photo-layout";
 import { isAudioUpload, uploadName, visibleVerdict } from "./information.js";
 import { loadBootstrapConfig } from "./config.js";
 import { profileFilePath, readProfileSync } from "./profile.js";
@@ -48,7 +49,13 @@ const INNER = WIDTH - PAD * 2;
 // 1080×6144 = 660 万像素，约 0.7MB、一秒画完；再长的帖子截到省略号，二维码指向原文。
 export const MAX_HEIGHT = 6144;
 // 预览图最高占 3 倍内容宽，超出的竖图按顶部裁切，不让一张图吃掉整张海报。
+// 只给「拿不到图片尺寸」的老记录兜底：有尺寸时走下面的拼图，裁多少由算法决定。
 export const MAX_PREVIEW_HEIGHT = INNER * 3;
+// 拼图的预算比卡片宽：卡片上 4:5 封顶（太高会把一屏挤满），
+// 这张图本身就是要竖着看的，所以放到 3 倍内容宽，和旧版单图的上限一致。
+// 切行还是同一份算法，多图拼法就是卡片上看到的那一种。
+export const POSTER_PHOTO_RULES = { ...LAYOUT_RULES, maxRow: 3, maxCard: 3 };
+const PHOTO_GAP = 2;
 // 分享图是给人看一眼就存的，不是印刷品。90 档压出来两兆多，出海链路要传几十秒；
 // 75 档加渐进式约省三分之一字节，手机上放大也看不出差别，所以画质让一步。
 export const POSTER_JPEG_QUALITY = 75;
@@ -409,8 +416,8 @@ export function shareHead(row) {
 export function shareMetaKey(card) {
   const head = card?.head || {};
   const site = shareSite();
-  // 版本号是编码参数的版本：换画质、换宽度都要抬一档，旧图才会按新参数重画一次。
-  const payload = ["5", site.page, site.name, site.line, head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0), head.avatarKey || ""].join("\u0001");
+  // 版本号是编码参数的版本：换画质、换宽度、换拼图规则都要抬一档，旧图才会按新参数重画一次。
+  const payload = ["6", site.page, site.name, site.line, head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0), head.avatarKey || ""].join("\u0001");
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
 
@@ -522,6 +529,15 @@ async function fittedPreview(preview) {
   }
 }
 
+// 一组图按卡片的拼法排进海报：切几行、每格多宽多高全由 @knot/photo-layout 给出，
+// 这里只把「内容宽的倍数」乘成像素并加上左边距。返回的是坐标表，贴图在 renderSharePoster 里做。
+export function posterPhotos(photos, top = 0, rules = POSTER_PHOTO_RULES) {
+  const usable = (photos || []).filter((photo) => photo && photo.file && photo.width > 0 && photo.height > 0);
+  if (!usable.length) return null;
+  const plan = planPhotoBoxes(usable, { width: INNER, gap: PHOTO_GAP, x: PAD, y: top, rules });
+  return { ...plan, top };
+}
+
 // 高度到顶时，把最后一段有字的正文收尾成省略号。
 function ellipsizeLine(line) {
   if (line.rule) return false;
@@ -609,12 +625,21 @@ export async function buildSharePoster(content, site = shareSite()) {
 
   const pr = await posterPr(content, site);
   const head = await layoutHead(content.head);
-  const previewBox = await fittedPreview(content.preview);
-  const imageHold = Boolean(content.image) && !previewBox;
+  const gallery = posterPhotos(content.photos, head.contentTop);
+  // 有拼图就不再退回单图；没有尺寸的老记录才用预览图或「图片」占位。
+  const previewBox = gallery ? null : await fittedPreview(content.preview);
+  const imageHold = Boolean(content.image) && !gallery && !previewBox;
 
   let y = head.contentTop;
   const parts = [head.svg];
   let placedPreview = previewBox;
+  if (gallery) {
+    // 先铺一层底色：某张图贴失败时是一块灰，不是白洞。
+    for (const box of gallery.boxes) {
+      parts.push(`<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" fill="#F0F2F5"/>`);
+    }
+    y += gallery.height + GAP;
+  }
   if (placedPreview) {
     placedPreview = { ...placedPreview, y };
     y += placedPreview.height + GAP;
@@ -669,6 +694,9 @@ export async function buildSharePoster(content, site = shareSite()) {
     height,
     svg,
     previewBox: placedPreview,
+    photoBoxes: gallery ? gallery.boxes : [],
+    photoTop: gallery ? gallery.top : 0,
+    photoHeight: gallery ? gallery.height : 0,
     avatarBox: head.avatarBox,
     qr: { x: foot.qrX, y: foot.qrY, size: pr.qr.size, dark: pr.qr.dark, pixel: pr.qr.pixel },
     footerTop,
@@ -691,9 +719,27 @@ async function roundAvatar(input, size) {
     .toBuffer();
 }
 
+// 一格图：按算法给的框 cover 进去。竖着裁的保留顶部（长截图的开头有标题），横着裁的居中。
+async function photoLayer(box) {
+  try {
+    return await sharp(box.photo.file)
+      .rotate()
+      .resize(box.width, box.height, { fit: "cover", position: box.vertical ? "top" : "centre" })
+      .jpeg({ quality: 82 })
+      .toBuffer();
+  } catch {
+    // 一张读不出来的图不该让整张分享图生不出来：那块留底色，其余照画。
+    return null;
+  }
+}
+
 export async function renderSharePoster(content) {
   const layout = await buildSharePoster(content);
   const composites = [];
+  for (const box of layout.photoBoxes || []) {
+    const layer = await photoLayer(box);
+    if (layer) composites.push({ input: layer, left: box.x, top: box.y });
+  }
   if (layout.previewBox && content.preview) {
     const box = layout.previewBox;
     // 只有超长竖图被 MAX_PREVIEW_HEIGHT 截过，此时保留图片顶部。
@@ -810,16 +856,25 @@ export async function loadShareCard(pool, intelId, uploadDir) {
   const row = rows[0];
   if (!shareable(row)) return null;
   const { rows: files } = await pool.query(
-    `SELECT u.mime, u.original_name, u.storage_name
+    `SELECT u.mime, u.original_name, u.storage_name, u.width, u.height
      FROM intel_files f
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = $1
      ORDER BY f.sort_order ASC, f.upload_id ASC`,
     [row.id]
   );
-  const image = files.find((file) => String(file.mime || "").startsWith("image/"));
-  let preview = image ? readableBlobPath(uploadDir, image.storage_name) : "";
-  if (preview && !(await fileExists(preview))) preview = "";
+  // 分享图拼所有图片，不只是第一张：拼法就是卡片上的拼法（同一份 @knot/photo-layout）。
+  // 少一张尺寸就退回单图：按 4:3 硬猜会把拼图裁歪，不如给一张完整的原图。
+  const images = [];
+  for (const file of files) {
+    if (!String(file.mime || "").startsWith("image/")) continue;
+    const path = readableBlobPath(uploadDir, file.storage_name);
+    if (!(await fileExists(path))) continue;
+    images.push({ file: path, width: Number(file.width) || 0, height: Number(file.height) || 0 });
+  }
+  const sized = images.length > 0 && images.every((photo) => photo.width > 0 && photo.height > 0);
+  const photos = sized ? images : [];
+  const preview = sized ? "" : images[0]?.file || "";
   const head = shareHead(row);
   let avatarPath = "";
   let avatarKey = "";
@@ -842,6 +897,7 @@ export async function loadShareCard(pool, intelId, uploadDir) {
   return {
     id: String(row.id).toLowerCase(),
     contentHash: String(row.content_hash).toLowerCase(),
+    photos,
     preview,
     avatarPath,
     head,

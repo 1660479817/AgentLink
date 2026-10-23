@@ -3,7 +3,7 @@ import { computed } from "vue";
 import { t } from "../i18n/index.js";
 import { AudioIcon } from "../icons/index.js";
 import PhotoGallery from "./PhotoGallery.vue";
-import { packetAudio, photoUrls } from "../packet.js";
+import { packetAudio, photoItems } from "../packet.js";
 
 const props = defineProps({
   images: { type: Array, default: () => [] },
@@ -12,7 +12,7 @@ const props = defineProps({
   label: { type: String, default: "" },
 });
 
-const photos = computed(() => photoUrls(props.images));
+const photos = computed(() => photoItems(props.images));
 const clips = computed(() => packetAudio(props.audio));
 </script>
 

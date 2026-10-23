@@ -128,10 +128,18 @@ export function isAttachmentUpload(file) {
   return ATTACHMENT_EXT.test(name);
 }
 
+// 尺寸只在图片上给：卡片要按宽高算多图排版，没有这两个数就只能猜比例。
+// 记进库的是显示图（转过 EXIF、缩到 1280 以内）的宽高，比例与卡片一致。
+export function imageSizeOf(row) {
+  const width = Number(row?.width) || 0;
+  const height = Number(row?.height) || 0;
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
 export function fileView(row) {
   const mime = row.mime || "";
   const image = mime.startsWith("image/");
-  return {
+  const view = {
     id: row.id,
     name: uploadName(row.original_name),
     mime,
@@ -140,6 +148,9 @@ export function fileView(row) {
     image,
     audio: mime.startsWith("audio/") || isAudioUpload({ mime, originalname: row.original_name }),
   };
+  const size = image ? imageSizeOf(row) : null;
+  if (size) Object.assign(view, size);
+  return view;
 }
 
 // 一次查询把一批记录的附件取齐，按 intel_id 分组。列表、快照、Agent 读路径共用这一份，
@@ -149,7 +160,7 @@ export async function filesByIntel(pool, ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
   if (!unique.length) return byId;
   const { rows } = await pool.query(
-    `SELECT f.intel_id, u.id, u.mime, u.original_name, u.size
+    `SELECT f.intel_id, u.id, u.mime, u.original_name, u.size, u.width, u.height
      FROM intel_files f
      JOIN uploads u ON u.id = f.upload_id
      WHERE f.intel_id = ANY($1::uuid[])

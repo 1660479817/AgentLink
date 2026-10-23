@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fileView, filesByIntel, hasInformation, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, previewVideo, publicOf, uploadName, videoItemsOf } from "./information.js";
+import { fileView, filesByIntel, hasInformation, imageSizeOf, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, previewVideo, publicOf, uploadName, videoItemsOf } from "./information.js";
 
 test("a latin1 upload name is shown as chinese", () => {
   const garbled = Buffer.from("今日简史.pdf", "utf8").toString("latin1");
@@ -10,6 +10,14 @@ test("a latin1 upload name is shown as chinese", () => {
   assert.equal(fileView({ id: "1", mime: "application/pdf", original_name: garbled }).name, "今日简史.pdf");
   assert.equal(fileView({ id: "1", mime: "image/jpeg", original_name: "a.jpg" }).url, "/api/web/uploads/1/display");
   assert.equal(fileView({ id: "1", mime: "audio/mpeg", original_name: "a.mp3" }).url, "/api/web/uploads/1");
+  // 卡片按这两个数算多图排版；没有尺寸的上传不带这两个字段，前端退回 4:3。
+  assert.deepEqual(imageSizeOf({ width: 1280, height: 720 }), { width: 1280, height: 720 });
+  assert.equal(imageSizeOf({ width: null, height: null }), null);
+  assert.deepEqual(
+    fileView({ id: "1", mime: "image/jpeg", original_name: "a.jpg", width: 800, height: 600 }),
+    { ...fileView({ id: "1", mime: "image/jpeg", original_name: "a.jpg" }), width: 800, height: 600 }
+  );
+  assert.equal(fileView({ id: "2", mime: "audio/mpeg", original_name: "a.mp3", width: 800, height: 600 }).width, undefined);
 });
 
 test("hasInformation counts any present part", () => {

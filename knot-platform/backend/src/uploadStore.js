@@ -63,7 +63,12 @@ export async function readImageMeta(file) {
     ? "image/avif"
     : IMAGE_MIME_BY_FORMAT[format];
   if (!mime || !meta.width || !meta.height) return null;
-  return { mime, width: meta.width, height: meta.height };
+  // 记的是卡片显示图的宽高：显示图走 sharp.rotate() 转过 EXIF，竖拍照片在这里也要转过来，
+  // 否则库里存成横的，前端按它算多图比例就正好反过来。
+  const turned = [5, 6, 7, 8].includes(Number(meta.orientation) || 0);
+  return turned
+    ? { mime, width: meta.height, height: meta.width }
+    : { mime, width: meta.width, height: meta.height };
 }
 
 // 存储名由客户端文件名生成，扩展名可能和真实格式不符。按内容改回规范扩展名。

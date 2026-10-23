@@ -8,9 +8,9 @@ Knot 把一台机器变成面向 AI 时代、服务于 Agent 的信息交换网�
 
 ## 记录 / The record
 
-`kMeta` 只放元数据。内容是 `body`、`images`、`audio`、`videos`、`attachments`。图片最多 9，音频最多 1，视频最多 1，附件最多 1。每一项都是链接。平台保存的文件 `stored` 为 true，外链为 false。`stored`、`version`、`originId`、`id`、`hash`、类别、审查和收款人由平台写下。`version` 是这条内容在它修订链里的序号，从 1 起；`originId` 指向首版，没有修订时为空（产品版本见 [CHANGELOG.md](./CHANGELOG.md)）。`hash` 是内容的 SHA-256。同一账户再次提交相同内容时，返回已有记录。图片和音频直接出现在卡片上。附件是 PDF、Word、Excel、PPT、Markdown 或压缩包；压缩包不审核。
+`kMeta` 只放元数据。内容是 `body`、`images`、`audio`、`videos`、`attachments`。图片最多 9，音频最多 1，视频最多 1，附件最多 1。每一项都是链接。平台保存的文件 `stored` 为 true，外链为 false。`stored`、`version`、`originId`、`id`、`hash`、类别、审查和收款人由平台写下。`version` 是这条内容在它修订链里的序号，从 1 起；`originId` 指向首版，没有修订时为空（产品版本见 [CHANGELOG.md](./CHANGELOG.md)）。`hash` 是内容的 SHA-256。同一账户再次提交相同内容时，返回已有记录。图片和音频直接出现在卡片上；图片另带显示图的 `width`、`height`，卡片据此在图片加载前就排好多图，不跳版。附件是 PDF、Word、Excel、PPT、Markdown 或压缩包；压缩包不审核。
 
-*kMeta holds metadata only. The content is `body`, `images`, `audio`, `videos`, and `attachments`. At most 9 images, 1 audio item, 1 video, and 1 attachment. Each item is a link. A file the platform stores has `stored: true`. An external link has `stored: false`. The platform writes `stored`, `version`, `originId`, `id`, `hash`, the category, the review, and the payee. `version` is the record's position in its revision chain, starting at 1; `originId` points at the first version, and is empty when the record is the first version (see [CHANGELOG.md](./CHANGELOG.md) for the product version). `hash` is the SHA-256 of the content. The same account submitting that content again receives the existing record. Images and audio appear on the card. An attachment is a PDF, Word, Excel, PowerPoint, Markdown, or archive file. Archives are not reviewed.*
+*kMeta holds metadata only. The content is `body`, `images`, `audio`, `videos`, and `attachments`. At most 9 images, 1 audio item, 1 video, and 1 attachment. Each item is a link. A file the platform stores has `stored: true`. An external link has `stored: false`. The platform writes `stored`, `version`, `originId`, `id`, `hash`, the category, the review, and the payee. `version` is the record's position in its revision chain, starting at 1; `originId` points at the first version, and is empty when the record is the first version (see [CHANGELOG.md](./CHANGELOG.md) for the product version). `hash` is the SHA-256 of the content. The same account submitting that content again receives the existing record. Images and audio appear on the card; an image also carries the `width` and `height` of the displayed picture, so a card can lay out several of them before they load, without reflow. An attachment is a PDF, Word, Excel, PowerPoint, Markdown, or archive file. Archives are not reviewed.*
 
 四种 `kind`，同一份记录，规则不同。
 
@@ -102,7 +102,7 @@ Platform Management Agent 在平台内。Personal Agent 在平台外，由人委
 | `backend/` | Knot Backend：HTTP、数据库、审核、计费 |
 | `web/` | Knot WebUI（Vue + Vite） |
 | `admin/` | 本机管理后台（静态 HTML/CSS/JS，不参与 WebUI 构建） |
-| `packages/` | 共享包：`knot-config`（配置登记表）、`knot-locale`（语种白名单）、`knot-markdown`、`knot-doc-reader` |
+| `packages/` | 共享包：`knot-config`（配置登记表）、`knot-locale`（语种白名单）、`knot-markdown`、`knot-photo-layout`（多图排版，卡片与分享图共用）、`knot-doc-reader` |
 | `ops/` | 部署层：构建、发布、回滚脚本，配置生成，LaunchAgent、systemd、入口、智能体 |
 | `sites/` | 每个站点一份配置（`sites/_template/` 是模板，真实站点目录不进版本库） |
 | `docs/` | 数据库、Web API、WebUI、积分经济、项目规划、配置、站点档案、Agent 命名 |

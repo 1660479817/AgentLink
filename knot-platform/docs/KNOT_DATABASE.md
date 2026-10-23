@@ -4,7 +4,7 @@ PostgreSQL。只由 Knot Backend 读写。
 
 账号只有一张表 `accounts`，用 `role` 区分平台账号、主理人、外部账号和 Agent。记下来的是一条记录，一次下载，以及积分流水。表结构以 `backend/migrations/001_accounts.sql` 为准，这是唯一的基线迁移：新库一次建全，没有历史补丁。迁移脚本若发现库里是旧结构（`users`、`expressions`），会要求 `--reset` 清空 `public` 再建。`ops/scripts/reset-knot.sh` 重建时留下账号、会话、授权和头像，帖子不留。
 
-文件字节在 `UPLOAD_DIR`（默认 `data/uploads`；部署机是 `var/uploads`）。库只存文件名和类型。原件在 `blobs/{前两位}/{storage_name}`；卡片图在 `derived/display/{storage}.jpg`，最长边 1280，不再把多张图片拼成 `previews/{id}.jpg`。分享图在 `derived/shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是横排页脚：左边站名、标语与站点地址，右边二维码。有图片时分享图用第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
+文件字节在 `UPLOAD_DIR`（默认 `data/uploads`；部署机是 `var/uploads`）。库只存文件名和类型。原件在 `blobs/{前两位}/{storage_name}`；卡片图在 `derived/display/{storage}.jpg`，最长边 1280，不再把多张图片拼成 `previews/{id}.jpg`。分享图在 `derived/shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是横排页脚：左边站名、标语与站点地址，右边二维码。有图片时把这条的所有图片按卡片上的拼法拼进去（同一份 `packages/knot-photo-layout`，只是行高预算放到 3 倍内容宽）；任何一张缺尺寸就退回第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
 
 登录与否都能看的公开信息另有快照，写在 `DISCOVER_BOARD_DIR`，缺省是上传目录下的 `board`：`discover.json`。图片地址指向原文件。它由 Backend 在公开内容变化后重写，再推到入口主机，不进库。
 
@@ -229,7 +229,7 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 
 文件字节只在文件系统里，`uploads` 行只描述它们。目录由 `UPLOAD_DIR` 决定，缺省是仓库下的 `var/uploads`，部署脚本写绝对路径。文档里的相对路径都以它为根。
 
-上传时先由 multer 落到 `tmp/`，再按内容判定类型：图片只收 JPEG、PNG、WebP、GIF、AVIF，SVG 一律拒绝（它带脚本，直接打开 URL 就是同源执行），扩展名按真实格式改回 `.jpg`、`.png` 等。随后写入 `size`（磁盘实测字节）、`sha256` 和图片的 `width`、`height`，把文件挪进 `blobs/`，再写库。任何一步失败都删掉刚写的文件，不留孤儿。`mime` 以解码结果为准，不信任客户端声明。
+上传时先由 multer 落到 `tmp/`，再按内容判定类型：图片只收 JPEG、PNG、WebP、GIF、AVIF，SVG 一律拒绝（它带脚本，直接打开 URL 就是同源执行），扩展名按真实格式改回 `.jpg`、`.png` 等。随后写入 `size`（磁盘实测字节）、`sha256` 和图片的 `width`、`height`，把文件挪进 `blobs/`，再写库。任何一步失败都删掉刚写的文件，不留孤儿。`mime` 以解码结果为准，不信任客户端声明。`width`、`height` 是**卡片显示图的尺寸**：按 EXIF `orientation` 转正后再记，与 `/display` 生成的 JPEG 同比例，卡片与分享图都按它排多图（见 `packages/knot-photo-layout`）。
 
 每人上传字节上限由 `KNOT_UPLOAD_QUOTA_BYTES` 决定，`0` 表示不限，未配置时 1 GiB。管理员上传赞助图不计入。
 
@@ -286,6 +286,7 @@ node backend/scripts/migrate-storage-layout.mjs --apply  # 移动
 set -a; source sites/bot01/platform.env; set +a
 node backend/scripts/backfill-uploads.mjs          # 只报告
 node backend/scripts/backfill-uploads.mjs --apply  # 写入
+node backend/scripts/backfill-uploads.mjs --sizes --apply  # 连已有宽高一起重算（卡片按真实宽高排多图，旧值未转 EXIF）
 ```
 
 备份由 `ops/scripts/backup-knot.sh` 执行：`pg_dump -Fc` 加上传目录的 `rsync` 快照，同一份快照内用硬链接复用没变的文件。只备份 `blobs/`、`derived/extracts/` 和 `board/`；`derived/display`、`derived/packets`、`derived/shares`、`tmp/`、`previews/` 都能重新生成，不进快照。目标目录是 `KNOT_BACKUP_DIR`，留空表示不备份；`KNOT_BACKUP_KEEP` 是保留份数，缺省 7。放在同一块盘只能防误删和改坏，不能防盘坏；要容灾就换到另一块盘或另一台机器。`deploy-site.sh` 只在配置了 `KNOT_BACKUP_DIR` 时安装 LaunchAgent `com.knot.backup`（每天 04:15）。恢复时先停 Backend，用 `pg_restore` 还原 `knot.dump`，再把 `uploads/` 拷回 `UPLOAD_DIR`。
