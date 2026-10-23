@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { probeSite, summaryLines } from "./probe.mjs";
 import { render } from "./report.mjs";
 import { parseSummaryData } from "./summary.mjs";
-import { exitCodeFor, failureRecord } from "./failures.mjs";
+import { exitCodeFor, failureRecord, leftoverTotal } from "./failures.mjs";
 
 // 并发层编排：先黑箱探测这个站点，再按能测的场景一档一档跑 k6。
 //
@@ -415,8 +415,12 @@ async function main() {
   if (meta.failed.length) {
     console.error(`有 ${meta.failed.length} 档没有跑成，结论不完整（见 summary.md 的「本轮未测」）。`);
   }
-  // 有档位失败仍退出 0 的话，调用方只会看到「跑完了一轮」。
-  process.exitCode = exitCodeFor(meta);
+  const leftover = leftoverTotal(runs);
+  if (leftover) {
+    console.error(`写场景留下 ${leftover} 条记录没有删掉（见 summary.md 的「写场景清理」）。`);
+  }
+  // 有档位失败、或写完没删干净仍退出 0 的话，调用方只会看到「跑完了一轮」。
+  process.exitCode = exitCodeFor(meta, runs);
 }
 
 await main();
