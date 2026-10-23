@@ -1547,6 +1547,22 @@ function whoLabel(record) {
   return record?.displayName || record?.email || record?.id || "";
 }
 
+// 一次填表一个幂等键：超时后再点一次用的是同一个键，Backend 认作同一笔；
+// 改了金额或理由就换新的（那已经是另一笔）。成功后清掉，下一次发放重新生成。
+let grantKey = { signature: "", id: "" };
+
+function grantRequestId(userId, amount, body) {
+  const signature = `${userId}|${amount}|${body}`;
+  if (grantKey.signature !== signature || !grantKey.id) {
+    const id =
+      typeof window.crypto?.randomUUID === "function"
+        ? window.crypto.randomUUID()
+        : `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    grantKey = { signature, id };
+  }
+  return grantKey.id;
+}
+
 async function submitGrant(event) {
   event.preventDefault();
   const user = state.selectedUser;
@@ -1563,10 +1579,12 @@ async function submitGrant(event) {
   }
   // 发积分直接落一笔账，收回只能再发一笔反向的；先让人看清给谁、给多少。
   if (!window.confirm(t("users.grantConfirm", { name: whoLabel(user), amount: fmtInt(amount) }))) return;
+  const requestId = grantRequestId(user.id, amount, body);
   const data = await writeForm("grant-form", () =>
-    api("/points", { method: "POST", body: { user: user.id, amount, body } })
+    api("/points", { method: "POST", body: { user: user.id, amount, body, requestId } })
   );
   if (!data) return;
+  grantKey = { signature: "", id: "" };
   byId("grant-amount").value = "";
   byId("grant-body").value = "";
   updateUser(data.user);
@@ -1693,11 +1711,16 @@ async function submitIssue(event) {
   const name = byId("issue-name").value.trim();
   const specialties = splitList(byId("issue-specialties").value);
   if (!name) {
-    toast(t("users.issueEmpty"), "error");
+    formError("issue-form", t("users.issueEmpty"), "issue-result");
     return;
   }
   const body = specialties.length ? { name, specialties } : { name };
-  const data = await guard(() => api("/internal-agents", { method: "POST", body }));
+  // 签发内部 Agent 会写一份含令牌的 .local.env：双击就是第二次签发，第一次的令牌当场作废。
+  const data = await writeForm(
+    "issue-form",
+    () => api("/internal-agents", { method: "POST", body }),
+    "issue-result"
+  );
   if (!data) return;
   const result = byId("issue-result");
   let message;
@@ -1920,7 +1943,11 @@ async function saveSystem(event) {
     publicBoard: byId("system-board").checked,
     registrationMode: byId("system-registration").value,
   };
-  const data = await guard(() => api("/system", { method: "PATCH", body: patch }));
+  const data = await writeForm(
+    "system-form",
+    () => api("/system", { method: "PATCH", body: patch }),
+    "system-error"
+  );
   if (!data) return;
   state.system = data.system;
   fillSystem(state.system);
@@ -2143,7 +2170,7 @@ async function saveSponsor(event) {
   const title = byId("sponsor-title").value.trim();
   const href = byId("sponsor-href").value.trim();
   if (!title || !href) {
-    toast(t("site.sponsorNeed"), "error");
+    formError("sponsor-form", t("site.sponsorNeed"), "sponsor-error");
     return;
   }
   const body = {
@@ -2153,10 +2180,13 @@ async function saveSponsor(event) {
     caption: byId("sponsor-caption").value.trim(),
     source: byId("sponsor-source").value.trim(),
   };
-  const data = await guard(() =>
-    id
-      ? api(`/sponsors/${encodeURIComponent(id)}`, { method: "POST", body })
-      : api("/sponsors", { method: "POST", body })
+  const data = await writeForm(
+    "sponsor-form",
+    () =>
+      id
+        ? api(`/sponsors/${encodeURIComponent(id)}`, { method: "POST", body })
+        : api("/sponsors", { method: "POST", body }),
+    "sponsor-error"
   );
   if (!data) return;
   resetSponsorForm();
