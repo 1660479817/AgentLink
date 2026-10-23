@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updatedAt": "2026-10-22",
+  "updatedAt": "2026-10-23",
   "hub": "xknot.si",
   "members": [
     {
@@ -28,7 +28,21 @@
       },
       "listed": true,
       "since": "2026-10-21",
-      "note": "子域与隧道已登记，子域与隧道已接通（`/api/health` 返回 200），2026-10-21 收录。",
+      "note": "子域与隧道已接通（`/api/health` 返回 200），2026-10-21 收录。",
+      "mode": "subdomain"
+    },
+    {
+      "id": "zhoujj",
+      "host": "zhoujj.xknot.si",
+      "role": "partner",
+      "standing": "regular",
+      "tunnel": {
+        "account": "knot-tunnel-zhoujj",
+        "port": 18091
+      },
+      "listed": true,
+      "since": "2026-10-23",
+      "note": "子域与隧道已接通（`/api/health` 返回 200），2026-10-23 收录。",
       "mode": "subdomain"
     }
   ]
