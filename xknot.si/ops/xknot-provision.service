@@ -17,6 +17,8 @@ EnvironmentFile=-/opt/xknot/var/provision.env
 Environment=XKNOT_DATA_DIR=/opt/xknot/var
 Environment=XKNOT_INSTANCES_FILE=/opt/xknot/instances.json
 Environment=XKNOT_FEDERATION_FILE=/opt/xknot/federation.json
+# 接通之后要立刻重算门户快照（ops/republish.mjs），落在门户静态根这一份上。
+Environment=XKNOT_WEB_ROOT=/var/www/xknot
 ExecStart=/usr/bin/node /opt/xknot/ops/provision-worker.mjs
 Restart=always
 RestartSec=10

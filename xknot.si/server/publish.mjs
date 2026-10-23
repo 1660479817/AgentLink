@@ -104,6 +104,30 @@ export async function markActive({ manifestFile, id }) {
   return withFileLock(manifestFile, () => markActiveLocked({ manifestFile, id }));
 }
 
+// 发布时写进名册的那句话。验收之后它就成了假话——节点早接通了，名册还写着
+// 「等待接通验收」，运营在总览里看到的就是一条尾巴。
+export const ROSTER_PENDING_NOTE = "子域与隧道已登记，等待接通验收。";
+
+/**
+ * 验收通过：把名册里那条的「等待接通验收」换成「已接通」。
+ *
+ * 只改这一句默认话。运营手写过的备注一律不动——那是有判断的内容，
+ * 不该被一次状态迁移盖掉。
+ */
+export async function markRosterLive({ rosterFile, id, now = new Date() }) {
+  return withFileLock(rosterFile, async () => {
+    const roster = await readJson(rosterFile, "federation.json");
+    if (!roster || !Array.isArray(roster.members)) return { error: "roster_unreadable" };
+    const member = roster.members.find((item) => item.id === id);
+    if (!member) return { error: "not_listed" };
+    if (member.note !== ROSTER_PENDING_NOTE) return { ok: true, changed: false };
+    member.note = `已接通，门户已收录（${now.toISOString().slice(0, 10)}）。`;
+    roster.updatedAt = now.toISOString().slice(0, 10);
+    await writeJsonAtomic(rosterFile, roster);
+    return { ok: true, changed: true };
+  });
+}
+
 async function markActiveLocked({ manifestFile, id }) {
   const manifest = await readJson(manifestFile, "instances.json");
   if (!manifest || !Array.isArray(manifest.instances)) return { error: "manifest_unreadable" };

@@ -1,0 +1,20 @@
+[Unit]
+Description=xknot.si portal snapshot refresh (manifest + profiles + health → hub.json)
+After=network.target
+Documentation=file:///opt/xknot/docs/HUB.md
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/xknot
+Environment=XKNOT_DATA_DIR=/opt/xknot/var
+# 门户静态根。republish 会把 data/hub.json 直接换掉这一份，
+# 而不是写 /opt/xknot/web/dist（中枢主机上没有前端工具链，也没有 dist）。
+Environment=XKNOT_WEB_ROOT=/var/www/xknot
+ExecStart=/usr/bin/node /opt/xknot/ops/republish.mjs --quiet
+# 一轮要把所有伙伴的档案各拉一次（单次 5s 超时）。拉不完不影响上一份快照，
+# 下一轮再来；这里只是别让 oneshot 的默认 90s 把正在写文件的进程打断。
+TimeoutStartSec=3min
+NoNewPrivileges=true
+PrivateTmp=true

@@ -7,9 +7,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ENTRY_ACCESS_LOG,
   ENTRY_PROXIED_MARK,
   ProvisionError,
   createRun,
+  logFormatName,
   keyChanged,
   nextPort,
   pendingStep,
@@ -191,6 +193,32 @@ test("render: the admin surface never rides the public subdomain", () => {
     const blocked = conf.slice(conf.indexOf("location ^~ /api/admin"), conf.indexOf("location /api/ {"));
     assert.doesNotMatch(blocked, /proxy_pass/);
   }
+});
+
+test("render: every entry vhost writes the access log the traffic aggregator reads", () => {
+  // 没有这一行，控制台里这个节点的「入口流量」永远是「未采集」：
+  // 聚合端只读 /var/log/nginx/knot-access.log 里按 host 分开的记录。
+  for (const entry of [false, true]) {
+    const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry });
+    assert.match(conf, new RegExp(`^ {4}access_log ${ENTRY_ACCESS_LOG} knot_json_cpswang_xknot_si;$`, "m"));
+  }
+});
+
+test("render: the log format is declared in the same file, under a per-domain name", () => {
+  // conf.d/*.conf 按文件名 include。共享的 knot-log.conf 排在 cpswang 之后，
+  // 那里声明的 knot_json 在这个文件里还不存在，nginx -t 会报 unknown log format。
+  const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090 });
+  assert.match(conf, /^log_format knot_json_cpswang_xknot_si escape=json$/m);
+  // 聚合端按这些键读；少一个就是少一列数据。
+  for (const key of ["at", "host", "status", "method", "uri", "bytes", "requestTime", "upstreamTime", "cache", "ip", "ua", "ref"]) {
+    assert.match(conf, new RegExp(`"${key}":`));
+  }
+  // 自己声明，绝不与别的子域重名——重名在同一个 nginx 里是致命错误。
+  assert.notEqual(
+    logFormatName("cpswang.xknot.si"),
+    logFormatName("zhoujj.xknot.si")
+  );
+  assert.match(logFormatName("a-b.xknot.si"), /^[a-z0-9_]+$/);
 });
 
 test("render: sshd gives every member exactly one listen port and no shell", () => {

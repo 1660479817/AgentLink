@@ -70,7 +70,7 @@ KEY=~/.ssh/suanli-sg-probe.pem
 | `XKNOT_ENTRY_HOST` | 入口主机公网地址（与中枢同机时为 `54.169.33.64`）；写 `/opt/xknot/var/provision.env`，不写进 unit |
 | `XKNOT_ADMIN_EMAIL` | 证书登记邮箱，复用 `mail.env` 里的 `XKNOT_ADMIN_EMAIL` |
 | `XKNOT_PROVISION_INTERVAL_MS` | 可选，默认 `20000` |
-| `XKNOT_AFTER_ACTIVATE` | 可选；改成 `active` 后执行的命令，例如重建门户 |
+| `XKNOT_AFTER_ACTIVATE` | 可选；改成 `active` 后额外执行的命令（门户快照已由 worker 自己重算，这里只给补充动作） |
 
 worker 每轮只推进一步，失败只记错误码（`dns_missing`、`tls_failed`…）并原地重试，这些码会原样出现在实例管理界面的 XKnot 栏。它需要 `sudo`：建账号、写 sshd 与 nginx 配置、跑 certbot。**DNS 不在它手里**——入口域名需要一条泛解析 `*.xknot.si → XKNOT_ENTRY_HOST`；没有它，`dns` 这一步永远过不去。
 
@@ -126,7 +126,17 @@ XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-hub.sh
 XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh
 ```
 
-`deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录；它带 `--delete`，所以先拒绝空值、根目录、站点父目录与源目录本身，真同步前再空跑一次把要删的路径打出来。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/`、整个 `ops/`、`web/src/lib/` 与 `instances.json`，安装 nginx 配置与六个 systemd unit（`xknot-api`、`xknot-provision`、`xknot-health.{service,timer}`、`xknot-traffic.{service,timer}`）。账号、端口这些网关脚本都收在 `ops/` 里，所以那一层整目录过去；同步之前先跑 `ops/check-server-imports.mjs`，`server/` 里若有 import 落到 `server/`、`ops/`、`web/src/lib/` 之外，脚本直接退出——那种写法本地与单测全绿，远端必然 `ERR_MODULE_NOT_FOUND`。nginx 配置先备份（`<conf>.bak-<UTC 时间>`，留最近 10 份）再落盘，`nginx -t` 不通过就恢复旧文件并退出；通过后才 daemon-reload、重启接口、启用两个 timer、reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
+`deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录；它带 `--delete`，所以先拒绝空值、根目录、站点父目录与源目录本身，真同步前再空跑一次把要删的路径打出来。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/`、整个 `ops/`、`web/src/lib/` 与 `instances.json`，安装 nginx 配置与八个 systemd unit（`xknot-api`、`xknot-provision`、`xknot-health.{service,timer}`、`xknot-traffic.{service,timer}`、`xknot-republish.{service,timer}`）。账号、端口这些网关脚本都收在 `ops/` 里，所以那一层整目录过去；同步之前先跑 `ops/check-server-imports.mjs`，`server/` 里若有 import 落到 `server/`、`ops/`、`web/src/lib/` 之外，脚本直接退出——那种写法本地与单测全绿，远端必然 `ERR_MODULE_NOT_FOUND`。nginx 配置先备份（`<conf>.bak-<UTC 时间>`，留最近 10 份）再落盘，`nginx -t` 不通过就恢复旧文件并退出；通过后才 daemon-reload、重启接口、启用三个 timer、reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
+
+自动接通会在中枢上直接往 `instances.json` 与 `federation.json` 里加节点，仓库里那两份不会跟着变。所以 `deploy-api.sh` 同步前先比一次 id 集合：中枢有、仓库没有就拒绝覆盖，提示先取回：
+
+```bash
+XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh --pull-manifest
+```
+
+取回会覆盖仓库里这两份（各自留一份 `.pull-backup`），跑过 `validate` 后提示提交。**顺序是「先取回、提交，再部署」**；反过来做会把刚接通的节点从清单里删掉——门户少一张卡片，worker 下一轮会发现条目整个消失（它会按 `provision_runs` 补回并记一条 `instance.manifest_restored`，但不该指望这条兜底）。
+
+门户数据那一段（`/var/www/xknot/data/hub.json`）由 `xknot-republish.timer` 每 10 分钟重算，不需要重新部署前端；节点接通时 worker 还会立刻重算一次。
 
 先看会做什么，不连远端：
 
@@ -185,11 +195,11 @@ curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 
 ## instances.json 备注
 
-清单里当前有两个实例：自营旗舰 `wang`（`https://wang.xknot.si`）和社区成员 `cpswang`（`https://cpswang.xknot.si`），两者都是 `subdomain` 模式、`status: active`。清单里没有探测地址字段，地址恒为 `url` + `/api/health`。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
+清单里当前有三个实例：自营旗舰 `wang`（`https://wang.xknot.si`）、社区成员 `cpswang`（`https://cpswang.xknot.si`）与 `zhoujj`（`https://zhoujj.xknot.si`），都是 `subdomain` 模式、`status: active`。清单里没有探测地址字段，地址恒为 `url` + `/api/health`。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
 
 ## 新增与下架实例
 
-新增一条：先改 `federation.json`（身份、隧道账号与端口），再改 `instances.json`（签发区），然后 `npm run validate`。下架一条：两个文件同时删掉这条，再删入口主机上的 conf 与静态根；`var/health.json` 与 `var/status.json` 下次巡检会自然丢掉它，`var/profiles/` 里的副本要手工删。子域跟着 `*.xknot.si` 的泛解析走，没有单独的 DNS 记录要清。
+新增一条：自动接通会自己写清单与名册（`status` 先 `pending`，验收后改 `active`），不需要手工登记；**要人工做的是把它同步回仓库**——`./ops/deploy-api.sh --pull-manifest`，然后 `npm run validate` 并提交。手工加一条时：先改 `federation.json`（身份、隧道账号与端口），再改 `instances.json`（签发区），然后 `npm run validate`。下架一条：两个文件同时删掉这条，再删入口主机上的 conf 与静态根；`var/health.json` 与 `var/status.json` 下次巡检会自然丢掉它，`var/profiles/` 里的副本要手工删。子域跟着 `*.xknot.si` 的泛解析走，没有单独的 DNS 记录要清。
 
 历史：`zjj`（2026-10-19 签发、未接通）是早期试验，2026-10-22 已下架并删除登记与入口文件。
 

@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { markActive, publishInstance } from "./publish.mjs";
+import { markActive, markRosterLive, publishInstance } from "./publish.mjs";
 import { validateInstances } from "../ops/validate-instances.mjs";
 import { validateRoster } from "../ops/validate-federation.mjs";
 
@@ -214,4 +214,40 @@ test("publish: two workers publishing at the same moment keep both entries", asy
   assert.deepEqual(roster.members.map((item) => item.id).sort(), ["cpswang", "second", "wang"]);
   assert.deepEqual(validateInstances(manifest), []);
   assert.deepEqual(validateRoster(roster, manifest), []);
+});
+
+test("roster: acceptance replaces the placeholder note, not a written one", async () => {
+  // 发布时写的是「等待接通验收」。节点通了还留着这句，运营在总览里看到的
+  // 就是一条尾巴。只换这一句默认话，手写备注一律不动。
+  const { manifestFile, rosterFile } = await fixture();
+  await publishInstance({
+    application: APP,
+    tunnelAccount: "knot-tunnel-cpswang",
+    tunnelPort: 18090,
+    manifestFile,
+    rosterFile,
+  });
+  await markActive({ manifestFile, id: "cpswang" });
+
+  const first = await markRosterLive({ rosterFile, id: "cpswang", now: new Date("2026-10-23T10:00:00Z") });
+  assert.deepEqual(first, { ok: true, changed: true });
+  let roster = JSON.parse(await readFile(rosterFile, "utf8"));
+  const member = roster.members.find((item) => item.id === "cpswang");
+  assert.equal(member.note, "已接通，门户已收录（2026-10-23）。");
+  assert.equal(roster.updatedAt, "2026-10-23");
+
+  // 再跑一次：已经不是那句占位话，什么都不做。
+  assert.deepEqual(await markRosterLive({ rosterFile, id: "cpswang" }), { ok: true, changed: false });
+
+  // 运营手写的备注不被覆盖。
+  member.note = "自营机房，夜间维护";
+  await writeFile(rosterFile, `${JSON.stringify(roster, null, 2)}\n`);
+  assert.deepEqual(await markRosterLive({ rosterFile, id: "cpswang" }), { ok: true, changed: false });
+  roster = JSON.parse(await readFile(rosterFile, "utf8"));
+  assert.equal(roster.members.find((item) => item.id === "cpswang").note, "自营机房，夜间维护");
+});
+
+test("roster: an id that is not in the roster reports it instead of writing", async () => {
+  const { rosterFile } = await fixture();
+  assert.deepEqual(await markRosterLive({ rosterFile, id: "ghost" }), { error: "not_listed" });
 });
