@@ -148,10 +148,10 @@
     "severity": "P3",
     "where": "`.cursor/rules/xknot-blog.mdc:13,51`",
     "dimension": "缺失约束",
-    "problem": "命名只定义两种：`NN-YYYY-MM-DD.md` 与 `YYYY-MM-DD-HHMM.md`；实际有两篇 `YYYY-MM-DD-<英文短名>.md` 的发布稿，规则无处归类。配图只允许 `aN-主题.png\\",
-    "evidence": "jpg`，`assets/` 里还有 8 个同前缀 `.svg` 源文件",
-    "fix": "`blog/2026-10-22-cpswang-launch.md`、`blog/2026-10-22-wang-launch-zh.md`；`blog/assets/a1[0-9]-*.svg` 共 8 个（a10 两版、a15–a19）；`_index.md` 末尾反而把这些 `.svg` 当「源文件」写明",
-    "confidence": "补第三种命名（发布稿用 `YYYY-MM-DD-<slug>.md`）并允许 `assets/` 存 `aN-*.svg` 源图",
+    "problem": "命名只定义两种：`NN-YYYY-MM-DD.md` 与 `YYYY-MM-DD-HHMM.md`；实际有两篇 `YYYY-MM-DD-<英文短名>.md` 的发布稿，规则无处归类。配图只允许 `aN-主题.png|jpg`，`assets/` 里还有 8 个同前缀 `.svg` 源文件",
+    "evidence": "`blog/2026-10-22-cpswang-launch.md`、`blog/2026-10-22-wang-launch-zh.md`；`blog/assets/a1[0-9]-*.svg` 共 8 个（a10 两版、a15–a19）；`_index.md` 末尾反而把这些 `.svg` 当「源文件」写明",
+    "fix": "补第三种命名（发布稿用 `YYYY-MM-DD-<slug>.md`）并允许 `assets/` 存 `aN-*.svg` 源图",
+    "confidence": "高",
     "slice": "S01",
     "alsoReported": [],
     "handled": {
@@ -325,9 +325,9 @@
     "where": "`knot-platform/backend/src/tunnel.test.js:130,147,180`、`knot-platform/backend/src/adminHosts.test.js:9`、`knot-platform/backend/src/admin.test.js:45,66-67,71`、`knot-platform/web/src/adminEntry.test.js:6,16-17`、`knot-platform/backend/src/routes/adminPage.test.js:43`、`knot-platform/docs/CONFIG.md:225`、`knot-platform/docs/KNOT_WEB_API.md:21`、`knot-platform/packages/knot-config/src/schema.mjs:842-843`、`knot-platform/sites/_template/platform.env:116-117`、`knot-platform/backend/src/handoff.js:6`",
     "dimension": "隐私（信息暴露）",
     "problem": "同一个真实内网地址（bot01 的 RFC1918 地址）被当作示例值写进测试断言、配置文档、schema 默认示例与模板 env；另有入口主机的真实公网 IPv4 出现在 `tunnel.test.js` 的三处断言里。两者都不是凭据，但把真实拓扑固化进了公开仓库",
-    "evidence": "`git grep -E '192\\.168\\.",
-    "fix": "54\\.'` 命中上述位置；内网地址与公网地址指向同一台部署机（值不转录）。测试里只需「非环回地址」这一性质，不依赖具体取值",
-    "confidence": "测试与文档改用文档保留地址段（`192.0.2.0/24`、`198.51.100.0/24`）；`platform.env` 的示例注释同样换掉",
+    "evidence": "`git grep -E '192\\.168\\.|54\\.'` 命中上述位置；内网地址与公网地址指向同一台部署机（值不转录）。测试里只需「非环回地址」这一性质，不依赖具体取值",
+    "fix": "测试与文档改用文档保留地址段（`192.0.2.0/24`、`198.51.100.0/24`）；`platform.env` 的示例注释同样换掉",
+    "confidence": "高",
     "slice": "S02",
     "alsoReported": [],
     "handled": {
@@ -437,9 +437,9 @@
     "where": "`bench/scripts/run.mjs:169-180,231`；`bench/scripts/probe.mjs:306-310`；`bench/human/visitor.mjs:31`",
     "dimension": "凭据",
     "problem": "授权码与会话 cookie 不和 `--base` 绑定：`runK6` 把 `KNOT_AGENT_TOKEN` 放进子进程环境，`probeSite(BASE, { token })` 先发 `Authorization: Bearer` 再按 401 判断有效性——目标是哪台就把码发给哪台（`--base` 打错一位就等于把码交给陌生主机记日志）。另外 `probe.mjs --token <码>`、`visitor.mjs --cookie <sid>` 走 argv，会进 `ps` 和 shell 历史，与 README「只从环境变量或显式 `--token-file` / `--cookies-file` 读，不打印、不落盘」相矛盾。",
-    "evidence": "`KNOT_AGENT_TOKEN: token \\",
-    "fix": "\\",
-    "confidence": "\"\"`；`const tokenIndex = process.argv.indexOf(\"--token\")`；`await probeSite(url, { token })`。",
+    "evidence": "`KNOT_AGENT_TOKEN: token || \"\"`；`const tokenIndex = process.argv.indexOf(\"--token\")`；`await probeSite(url, { token })`。",
+    "fix": "首次使用某 host 时把授权码与 host 的对应关系记在 `~/.knot/`（或要求 `--token-host` 显式声明），不匹配就拒发；CLI 去掉 `--token` / `--cookie`，只留文件与环境变量。",
+    "confidence": "高",
     "slice": "S03",
     "alsoReported": [],
     "handled": {
@@ -548,10 +548,10 @@
     "severity": "P2",
     "where": "`bench/human/visitor.mjs:276-277,290-291`（对照 `:11`）",
     "dimension": "死代码 / 错误被吞",
-    "problem": "文件头声明这一层回答「含重定向、失败请求、控制台错误」，实际 `requestfailed` 与 `console` error 只推进 `failed` / `consoleErrors` 数组写进 `human.json`，`summarize()` 的 `errors` 只数 `i.error \\",
-    "evidence": "\\",
-    "fix": "status >= 400`，`markdown()` 也不引用这两个数组。页面 500 个资源 404、控制台报错，md 里仍显示「备注」为空。",
-    "confidence": "`page.on(\"requestfailed\", ...)` / `page.on(\"console\", ...)` 之后仅 `runs.push({ ..., failed, consoleErrors })`；`errors: items.filter((i) => i.error \\",
+    "problem": "文件头声明这一层回答「含重定向、失败请求、控制台错误」，实际 `requestfailed` 与 `console` error 只推进 `failed` / `consoleErrors` 数组写进 `human.json`，`summarize()` 的 `errors` 只数 `i.error || status >= 400`，`markdown()` 也不引用这两个数组。页面 500 个资源 404、控制台报错，md 里仍显示「备注」为空。",
+    "evidence": "`page.on(\"requestfailed\", ...)` / `page.on(\"console\", ...)` 之后仅 `runs.push({ ..., failed, consoleErrors })`；`errors: items.filter((i) => i.error || i.status >= 400).length`。",
+    "fix": "`errors` 并入 `failed.length + consoleErrors.length`，md 里出「失败请求 / 控制台错误」两列或附注。",
+    "confidence": "高",
     "slice": "S03",
     "alsoReported": [],
     "handled": {
@@ -571,8 +571,8 @@
     "slice": "S03",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "脚注已说明 RPS 是到达速率；报告仍无按档的吞吐增长比与饱和判定"
     }
   },
   {
@@ -597,9 +597,9 @@
     "where": "`bench/k6/lib/common.js:39-46` / `bench/scripts/probe.mjs:104-108`；`bench/scripts/run.mjs:134-143` / `bench/scripts/probe.mjs:118`",
     "dimension": "重复与死代码",
     "problem": "`assetPaths` 在 k6 与 scripts 各写一份；`arg()` 在 `run.mjs:26`、`compare.mjs:14`、`visitor.mjs:20`、`make-image.mjs:68` 各写一份，语义还不一致（前者把空值也当缺省取 fallback，后者不校验）。「是不是直连源站」也有两套：`isDirectBase` 认 10./192.168./172.16-31，`probe.mjs` 的 `isLoopback` 只认 127./localhost/::1，所以直接对 `192.168.3.91` 探测会误报「管理入口可达」。",
-    "evidence": "两份 `assetPaths` 正则相同；`/^(127\\.\\",
-    "fix": "localhost$\\",
-    "confidence": "\\[?::1\\]?$)/` 与 `/^192\\.168\\./` 并存。",
+    "evidence": "两份 `assetPaths` 正则相同；`/^(127\\.|localhost$|\\[?::1\\]?$)/` 与 `/^192\\.168\\./` 并存。",
+    "fix": "合并到 `bench/scripts/lib/`，`arg` 统一成「缺值即报错」；直连判定只留一处并同时用于泄漏判定。",
+    "confidence": "高",
     "slice": "S03",
     "alsoReported": [],
     "handled": {
@@ -1013,9 +1013,9 @@
     "where": "`knot-platform/package-lock.json:4`<br>根 / `backend` / `web` / 5 个 `packages/*` 的 `package.json`",
     "dimension": "契约漂移 / 运维",
     "problem": "8 份 manifest 全都没有 `engines`，根也没有 `packageManager`，仓库无 `.npmrc`、无 `.nvmrc`；而 lock 里多个包有硬性 Node 下限，版本不对时 `npm ci` 只警告，装完在 require 时才崩",
-    "evidence": "lock 中 `sharp@0.35.5` 与 16 个 `@img/sharp-*` 要 `\"node\": \">=20.9.0\"`（`package-lock.json:3160` 起）；`vite@6.4.4` 要 `^18.0.0",
-    "fix": "",
-    "confidence": "^20.0.0",
+    "evidence": "lock 中 `sharp@0.35.5` 与 16 个 `@img/sharp-*` 要 `\"node\": \">=20.9.0\"`（`package-lock.json:3160` 起）；`vite@6.4.4` 要 `^18.0.0 || ^20.0.0 || >=22.0.0`；`rollup` 的可选原生包 `@napi-rs/lzma-linux-x64-gnu@1.5.1` 要 `^22.20 \\|\\| ^24.12 \\|\\| >=25`。唯一的硬校验在部署侧：`ops/scripts/deploy-site.sh:131` 的 `NODE_MAJOR -ge 22`，开发机/CI 侧无任何拦截",
+    "fix": "8 份 manifest 补同一个 `engines.node`（`>=22`），根加 `packageManager` 固定 npm 大版本",
+    "confidence": "高",
     "slice": "S05",
     "alsoReported": [],
     "handled": {
@@ -1045,9 +1045,9 @@
     "where": "`package.json:1-25`、`README.md:110-113`",
     "dimension": "契约漂移（运行时要求）",
     "problem": "根 manifest 没有 `engines`，README 快速开始也没写 Node 版本，而部署脚本把 22 当硬门槛。开发者照 README 在 Node 18/20 上跑 `npm install` + `npm test`，npm 不告警、构建不报错，直到部署或在运行时踩到新 API 才炸；仓库也没有 `.nvmrc`/`.node-version` 兜底",
-    "evidence": "`ops/scripts/deploy-site.sh:130-131`：`NODE_MAJOR=...; [[ \"$NODE_MAJOR\" -ge 22 ]]",
-    "fix": "",
-    "confidence": "knot_fail \"…需要 22+\"`；`ops/README.md:267` 表格「Node.js 22+」；根 `package.json` 全文 25 行无 `engines`，五个 workspace manifest 也无；代码已依赖较新 API（`backend/src/sharePoster.js:98`、`avatars.test.js:14` 用 `import.meta.dirname`，Node ≥ 20.11）",
+    "evidence": "`ops/scripts/deploy-site.sh:130-131`：`NODE_MAJOR=...; [[ \"$NODE_MAJOR\" -ge 22 ]] || knot_fail \"…需要 22+\"`；`ops/README.md:267` 表格「Node.js 22+」；根 `package.json` 全文 25 行无 `engines`，五个 workspace manifest 也无；代码已依赖较新 API（`backend/src/sharePoster.js:98`、`avatars.test.js:14` 用 `import.meta.dirname`，Node ≥ 20.11）",
+    "fix": "根 manifest 加 `\"engines\": { \"node\": \">=22\" }`，README 的 `npm install` 上方写明版本，可选补 `.nvmrc`",
+    "confidence": "高",
     "slice": "S06",
     "alsoReported": [],
     "handled": {
@@ -1061,9 +1061,9 @@
     "where": "`package.json:16-22`",
     "dimension": "运维（脚本别名）",
     "problem": "`deploy`、`push`、`rollback` 三条别名都不带 `--site`。本仓库 `sites/` 下有 `bot01`、`local` 两个站点，别名一执行就停在站点选择；即使在只有单站点的机器上，`deploy` 也仍会撞「这是源码目录，不是发布包」——别名给出的两条路都不通向部署",
-    "evidence": "站点解析在 `ops/scripts/lib/site-config.sh:102-104`：多个站点时 `knot_fail \"sites/ 下有多个站点，请用 --site 指定…\"`；该库在 `deploy-site.sh:49` 被 source，先于 `:124` 的 `[[ -f \"$KNOT_APP_DIR/BUILD.json\" ]]",
-    "fix": "",
-    "confidence": "knot_fail \"这是源码目录，不是发布包\"`；`ls knot-platform` 无 `BUILD.json`（只有 `artifacts/`）。四条里只有 `deploy:local` 显式带 `--site local`",
+    "evidence": "站点解析在 `ops/scripts/lib/site-config.sh:102-104`：多个站点时 `knot_fail \"sites/ 下有多个站点，请用 --site 指定…\"`；该库在 `deploy-site.sh:49` 被 source，先于 `:124` 的 `[[ -f \"$KNOT_APP_DIR/BUILD.json\" ]] || knot_fail \"这是源码目录，不是发布包\"`；`ls knot-platform` 无 `BUILD.json`（只有 `artifacts/`）。四条里只有 `deploy:local` 显式带 `--site local`",
+    "fix": "三条别名改为透传站点（`deploy-site.sh` 已支持 `npm run deploy -- --site <站点>`，README 写明即可），或直接删掉 `deploy`/`rollback` 两条源码树里无意义的别名",
+    "confidence": "高",
     "slice": "S06",
     "alsoReported": [],
     "handled": {
@@ -1275,8 +1275,8 @@
     "slice": "S08",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "公告/积分/禁言等表单已统一 writeForm；上报问题、系统设置、赞助三处仍只 guard，金额类无幂等键"
     }
   },
   {
@@ -1493,9 +1493,9 @@
     "where": "`admin.js:2524`",
     "dimension": "时间",
     "problem": "申请提交时间直接截 ISO 串前 10 位当日期显示，取的是 UTC 日期。东八区 00:00–08:00 提交的申请会显示成前一天",
-    "evidence": "`const submitted = String(application.submittedAt \\",
-    "fix": "\\",
-    "confidence": "\"\").slice(0, 10);`",
+    "evidence": "`const submitted = String(application.submittedAt || \"\").slice(0, 10);`",
+    "fix": "用 `fmtDate` 按本地时区格式化（同文件其它位置都这么做）",
+    "confidence": "高",
     "slice": "S08",
     "alsoReported": [],
     "handled": {
@@ -1691,8 +1691,8 @@
     "slice": "S10",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "枚举路径已封（进程内按邮箱 10 次锁 15 分钟）；无 IP 维度、不落库、未作废已发密钥，重启清零"
     }
   },
   {
@@ -1755,8 +1755,8 @@
     "slice": "S10",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "查询已加 LIMIT 50；无键集分页与保留期，第 51 条以前的未读在界面上不可达且不提示"
     }
   },
   {
@@ -1877,9 +1877,9 @@
     "where": "`src/market.js:165-166`",
     "dimension": "正确性",
     "problem": "`judgeIntel` 遇到非 `pending` 记录直接 `return presentIntel(intel)`，这条路径不带 `files`，返回的卡片没有图片/附件（只有 `loadPresentedIntel` 有）。管理端「重新终审」或并发重入时会拿到一份残缺卡片",
-    "evidence": "`if (!intel \\",
-    "fix": "\\",
-    "confidence": "intel.verdict !== \"pending\") return presentIntel(intel);`",
+    "evidence": "`if (!intel || intel.verdict !== \"pending\") return presentIntel(intel);`",
+    "fix": "改为 `return loadPresentedIntel(pool, id)`",
+    "confidence": "高",
     "slice": "S10",
     "alsoReported": [],
     "handled": {
@@ -2427,8 +2427,8 @@
     "slice": "S13",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "路由有内外网门；测试只覆盖纯函数与 127.0.0.1，删掉那两行门判断不会红"
     }
   },
   {
@@ -2587,8 +2587,8 @@
     "slice": "S14",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "存储层按 kind 定类型、服务层非媒体强制 attachment；音频仍不校验魔数"
     }
   },
   {
@@ -2597,9 +2597,9 @@
     "where": "`videoPoster.js:9-42`",
     "dimension": "安全（SSRF）",
     "problem": "`publicUrl` 的私有地址判断只覆盖 `::1`、`fe80:`、`fc`、`fd`，漏掉 `::`、IPv4-mapped `::ffff:a.b.c.d`、NAT64 `64:ff9b::/96`、6to4 `2002::/16`；且先 `lookup()` 校验、再由 `fetch()` 二次解析，存在 DNS rebinding 窗口。结合 `resolveVideo` 的落地页解析，后端会被引去抓内网地址。同一函数还有死分支：`URL.hostname` 对 IPv6 字面量保留方括号，`net.isIP(\"[::1]\")` 返回 0，所有 IPv6 直链都走 DNS 查询失败被拒（注释声称处理了 IPv6）",
-    "evidence": "`return ip === \"::1\" \\",
-    "fix": "\\",
-    "confidence": "ip.startsWith(\"fe80:\") \\",
+    "evidence": "`return ip === \"::1\" || ip.startsWith(\"fe80:\") || ip.startsWith(\"fc\") || ip.startsWith(\"fd\");`；校验后 `const response = await fetch(url, ...)` 重新解析",
+    "fix": "用 `net.BlockList` 统一判 IPv4/IPv6 并先剥方括号；连接阶段复用已解析 IP（自定义 lookup/dispatcher），补 `::`、NAT64、6to4",
+    "confidence": "中",
     "slice": "S14",
     "alsoReported": [],
     "handled": {
@@ -2661,14 +2661,14 @@
     "where": "`uploadStore.js:210`；`routes/web.js:450-467`",
     "dimension": "契约/功能",
     "problem": "所有 `kind` 都返回 `/api/web/uploads/{id}`。附件的 `original_name` 命中 `isAttachmentUpload` 时 `readableUpload` 直接返回 null，所以 `/api/web/files` 与 `/api/agent/uploads` 给附件返回的 `url` 恒为 404，而文档把它写成正常返回字段",
-    "evidence": "`return { id, url: publicUploadUrl(id), name: ... }`；`if (isAttachmentUpload({ originalname: row.original_name \\",
-    "fix": "\\",
-    "confidence": "row.storage_name })) return null;`",
+    "evidence": "`return { id, url: publicUploadUrl(id), name: ... }`；`if (isAttachmentUpload({ originalname: row.original_name || row.storage_name })) return null;`",
+    "fix": "附件不返回 `url`（返回 null 或下载端点说明），文档同步",
+    "confidence": "高",
     "slice": "S14",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "上传响应的附件 url 已置 null；帖子附件视图仍拼 /api/web/uploads/:id，取回 404"
     }
   },
   {
@@ -2693,9 +2693,9 @@
     "where": "`xknotJoin.js:60-90`",
     "dimension": "正确性",
     "problem": "`applicationPayload` 先把 `email` 截到 120 码点，`missingFields` 再对截断后的值跑正则。超长邮箱会被截成一个「看起来合法」的地址交给中枢，申请里的联系方式是错的，本地也不报错",
-    "evidence": "`email: cut(email \\",
-    "fix": "\\",
-    "confidence": "site.contact, 120)`；`if (!EMAIL_RE.test(payload.email)) missing.push(\"email\")`",
+    "evidence": "`email: cut(email || site.contact, 120)`；`if (!EMAIL_RE.test(payload.email)) missing.push(\"email\")`",
+    "fix": "先按原始值校验（含长度上限），超长直接 `incomplete`，不要静默截断",
+    "confidence": "高",
     "slice": "S14",
     "alsoReported": [],
     "handled": {
@@ -2725,9 +2725,9 @@
     "where": "`uploads.js:74-133`",
     "dimension": "正确性",
     "problem": "`imageSize` 只读文件头（PNG 只要求 24 字节），`avatarBufferError` 因此可被「24 字节伪造 PNG + 声称 64×64」通过，与上传入口用 sharp 真解码的口径不一致；也不校验像素上限。后果限于坏头像，不越权",
-    "evidence": "`if (buffer[0] === 0x89 && ... && buffer.length >= 24) return { width: buffer.readUInt32BE(16), ... }`；`if (!size \\",
-    "fix": "\\",
-    "confidence": "size.width !== size.height \\",
+    "evidence": "`if (buffer[0] === 0x89 && ... && buffer.length >= 24) return { width: buffer.readUInt32BE(16), ... }`；`if (!size || size.width !== size.height || size.width < 1)`",
+    "fix": "头像同样用 sharp `metadata()`（或对小图实际解码一次）判定，并设 `limitInputPixels`",
+    "confidence": "中",
     "slice": "S14",
     "alsoReported": [],
     "handled": {
@@ -2741,9 +2741,9 @@
     "where": "`knot-platform/docs/KNOT_DATABASE.md:7`",
     "dimension": "契约漂移",
     "problem": "开头称 `UPLOAD_DIR` 默认 `data/uploads`，与同一文件 237 行、配置生成器、`CONFIG.md` 三处冲突。照第 7 行排查会在仓库里找一个不存在的目录",
-    "evidence": "7 行「`UPLOAD_DIR`（默认 `data/uploads`；部署机是 `var/uploads`）」；237 行「缺省是仓库下的 `var/uploads`」；`schema.mjs` 里 `derive: (env, ctx) => \\`${ctx.deployRoot \\",
-    "fix": "\\",
-    "confidence": "ctx.root}/var/uploads\\``",
+    "evidence": "7 行「`UPLOAD_DIR`（默认 `data/uploads`；部署机是 `var/uploads`）」；237 行「缺省是仓库下的 `var/uploads`」；`schema.mjs` 里 `derive: (env, ctx) => \\`${ctx.deployRoot || ctx.root}/var/uploads\\``",
+    "fix": "改成「缺省 `<部署根>/var/uploads`（开发机即 `knot-platform/var/uploads`）」",
+    "confidence": "高",
     "slice": "S15",
     "alsoReported": [],
     "handled": {
@@ -2837,9 +2837,9 @@
     "where": "`knot-platform/docs/profile-sections.svg:6-8`",
     "dimension": "资产/可访问性",
     "problem": "该 SVG 的 `<title>`、`<desc>` 里混入 59 个非法 UTF-8 字节（`d9 b9 63 48 84 24 57 1a …`）。图内 16 个 `<text>` 正常，但 `aria-labelledby=\"title desc\"` 指向的内容是乱码，读屏与检索拿到的是替换字符；工具链（`file`/diff/部分渲染器）把整份当二进制，`S15.tsv` 也标成 `binary 0 行`",
-    "evidence": "`python3` 按 utf-8/gb18030/utf-16 解码全失败；`head -c 300 \\",
-    "fix": "xxd` 显示 `<title id=\"title\">` 后紧跟 `d9b9 6348 8424 571a 7ed1 3a0e eaf0 3a`",
-    "confidence": "用 UTF-8 重写这两处文本（如「站点档案：签发区与自述区」），保持图内版式不动",
+    "evidence": "`python3` 按 utf-8/gb18030/utf-16 解码全失败；`head -c 300 | xxd` 显示 `<title id=\"title\">` 后紧跟 `d9b9 6348 8424 571a 7ed1 3a0e eaf0 3a`",
+    "fix": "用 UTF-8 重写这两处文本（如「站点档案：签发区与自述区」），保持图内版式不动",
+    "confidence": "高",
     "slice": "S15",
     "alsoReported": [],
     "handled": {
@@ -2859,8 +2859,8 @@
     "slice": "S16",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "release 名白名单已挡住 `..`；`tar -xzf` 仍不校验成员路径、无 `--no-same-owner`"
     }
   },
   {
@@ -3013,9 +3013,9 @@
     "where": "`knot-platform/ops/scripts/backup-knot.sh:47`、`:232`–`:238`",
     "dimension": "数据一致性",
     "problem": "保留策略按目录数、不分快照类型。`--config-only` 与全量快照同名同目录，升级前习惯性跑几次只含配置的快照，就能把唯一一份含 `knot.dump` 的全量快照挤出 `KEEP` 之外删掉",
-    "evidence": "`find \"$BACKUP_DIR\" … -type d -name 'knot-*' \\",
-    "fix": "sort -r \\",
-    "confidence": "tail -n +$((KEEP + 1))`，`DEST` 不区分 `config_only`；`:116` 仍写同一个 `$STAMP` 前缀",
+    "evidence": "`find \"$BACKUP_DIR\" … -type d -name 'knot-*' | sort -r | tail -n +$((KEEP + 1))`，`DEST` 不区分 `config_only`；`:116` 仍写同一个 `$STAMP` 前缀",
+    "fix": "清理时保留「最近 N 份」+「最近 1 份含 `knot.dump` 的全量」，或把两类快照分目录",
+    "confidence": "高",
     "slice": "S16",
     "alsoReported": [],
     "handled": {
@@ -3029,9 +3029,9 @@
     "where": "`knot-platform/ops/scripts/ensure-knot-postgres.sh:20`–`:21`、`:25`",
     "dimension": "安全",
     "problem": "本机库用 `initdb --auth-local=trust --auth-host=trust` 建，超级用户 `knot` 无口令；实例主机上任何本地用户都能直接连库读到全部内容（会话、令牌哈希、私信、附件元数据），而实例主机是多人共用的开发机时更明显",
-    "evidence": "`\"$BIN/initdb\" -D \"$PGD\" -U knot --auth-local=trust --auth-host=trust`；末尾 `createdb … 2>/dev/null \\",
-    "fix": "\\",
-    "confidence": "true` 还把失败吞掉",
+    "evidence": "`\"$BIN/initdb\" -D \"$PGD\" -U knot --auth-local=trust --auth-host=trust`；末尾 `createdb … 2>/dev/null || true` 还把失败吞掉",
+    "fix": "`--auth-host=scram-sha-256` 并为 `knot` 设口令写进 `DATABASE_URL`；`createdb` 失败只在「库已存在」时忽略",
+    "confidence": "中",
     "slice": "S16",
     "alsoReported": [],
     "handled": {
@@ -3061,9 +3061,9 @@
     "where": "`knot-platform/ops/openclaw/apply-config.mjs:172`–`:181`",
     "dimension": "正确性",
     "problem": "授权码目录的兜底路径少一层：`root` 是 `ops/openclaw`，`path.join(root, \"../sites\")` 得到 `ops/sites`，而真实目录是 `<deploy>/sites/<站点>/agents`。`KNOT_AGENT_ENV_DIR` 未设时会读不到，ENOENT 又被静默吞掉，内部 Agent 于是没有 `.knot-agent.env`，同步照样报成功",
-    "evidence": "`const envDir = process.env.KNOT_AGENT_ENV_DIR \\",
-    "fix": "\\",
-    "confidence": "path.join(root, \"../sites\", …);`；`try { await copyFile(envFile, tokenFile) } catch (error) { if (error.code !== \"ENOENT\") throw error; }`",
+    "evidence": "`const envDir = process.env.KNOT_AGENT_ENV_DIR || path.join(root, \"../sites\", …);`；`try { await copyFile(envFile, tokenFile) } catch (error) { if (error.code !== \"ENOENT\") throw error; }`",
+    "fix": "兜底改成 `path.join(root, \"..\", \"..\", \"sites\", site, \"agents\")`；文件缺失时至少打一行警告",
+    "confidence": "高",
     "slice": "S16",
     "alsoReported": [],
     "handled": {
@@ -3109,9 +3109,9 @@
     "where": "`knot-platform/ops/openclaw/skills/knot-admin/admin.mjs:226`、`:311`–`:327`",
     "dimension": "契约漂移",
     "problem": "`upload` 只按扩展名猜 MIME，不在 `IMAGE_TYPES` 里的一律交 `application/octet-stream`，与 SKILL.md「只收 JPEG、PNG、GIF、WebP」不一致；被后端 `bad_mime` 拒后 `HINTS` 里也没有对应解释，智能体只能原样报错",
-    "evidence": "`const type = IMAGE_TYPES[path.extname(name).toLowerCase()] \\",
-    "fix": "\\",
-    "confidence": "\"application/octet-stream\";`",
+    "evidence": "`const type = IMAGE_TYPES[path.extname(name).toLowerCase()] || \"application/octet-stream\";`",
+    "fix": "本地先按四类扩展名拦下并返回 `bad_mime` + 提示；`HINTS` 补 `bad_mime`",
+    "confidence": "高",
     "slice": "S16",
     "alsoReported": [],
     "handled": {
@@ -3125,9 +3125,9 @@
     "where": "`knot-platform/ops/scripts/ensure-openclaw.sh:99`–`:103`",
     "dimension": "正确性",
     "problem": "`platform.env` 里若已有空的 `KNOT_ADMIN_TOKEN=`（手改或中断写入），判断不通过就追加第二行；随后 `head -1` 取到的是**空值**，两个工作区的 `.admin-token` 被写成空文件，管理与精算智能体全部不可用，且不改回",
-    "evidence": "`if ! grep -E -q '^KNOT_ADMIN_TOKEN=.+' …; then printf 'KNOT_ADMIN_TOKEN=%s\\n' … >>\"$ENV_FILE\"; fi`；`token=\"$(grep '^KNOT_ADMIN_TOKEN=' \"$ENV_FILE\" \\",
-    "fix": "head -1 \\",
-    "confidence": "cut -d= -f2-)\"`",
+    "evidence": "`if ! grep -E -q '^KNOT_ADMIN_TOKEN=.+' …; then printf 'KNOT_ADMIN_TOKEN=%s\\n' … >>\"$ENV_FILE\"; fi`；`token=\"$(grep '^KNOT_ADMIN_TOKEN=' \"$ENV_FILE\" | head -1 | cut -d= -f2-)\"`",
+    "fix": "先删除已有同名键再写一行；取到空值时直接报错退出，不写空令牌",
+    "confidence": "高",
     "slice": "S16",
     "alsoReported": [],
     "handled": {
@@ -3243,8 +3243,8 @@
     "slice": "S17",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "push-entry 已改远端 mktemp；push-discover 仍走固定 /tmp 中转且没有推送锁"
     }
   },
   {
@@ -3301,9 +3301,9 @@
     "where": "`push-entry.sh:174`；`push-discover.sh:54-55`",
     "dimension": "破坏性操作",
     "problem": "`KNOT_ENTRY_WEB_ROOT` 的缺省 `/var/www/knot` 在同一台入口主机上被所有站点共享。新站点漏写这一项时，`knot_entry_value` 会回落到该默认值，`sudo rsync -a --delete` 把这个目录清成自己的 dist。`push-discover` 的兜底判断是死代码——第一个取值已经带回默认值，永远不会为空。",
-    "evidence": "`[[ -n \"$WEB_ROOT\" ]] \\",
-    "fix": "\\",
-    "confidence": "WEB_ROOT=\"$KNOT_ENTRY_WEB_ROOT\"` 紧接 `sudo rsync -a --delete`。",
+    "evidence": "`[[ -n \"$WEB_ROOT\" ]] || WEB_ROOT=\"$KNOT_ENTRY_WEB_ROOT\"` 紧接 `sudo rsync -a --delete`。",
+    "fix": "入口文件缺 `KNOT_ENTRY_WEB_ROOT` 直接报错；或按域名推导默认目录。",
+    "confidence": "中",
     "slice": "S17",
     "alsoReported": [],
     "handled": {
@@ -3428,10 +3428,10 @@
     "severity": "P2",
     "where": "`retag-topics.mjs:74`（`:64`）",
     "dimension": "资源",
-    "problem": "一次把所有带 topics 的 `intel` 行整表读进内存（SQL 无 `LIMIT`，`--limit` 只是 JS 侧切片）；`--limit abc` 被 `Number(...) \\",
-    "evidence": "\\",
-    "fix": "0` 吃成 0，语义从\"只处理几条\"变成\"全库重跑一遍评审员\"。",
-    "confidence": "`SELECT id, detail FROM intel WHERE detail ? 'topics' … ORDER BY created_at ASC` 无上限。",
+    "problem": "一次把所有带 topics 的 `intel` 行整表读进内存（SQL 无 `LIMIT`，`--limit` 只是 JS 侧切片）；`--limit abc` 被 `Number(...) || 0` 吃成 0，语义从\"只处理几条\"变成\"全库重跑一遍评审员\"。",
+    "evidence": "`SELECT id, detail FROM intel WHERE detail ? 'topics' … ORDER BY created_at ASC` 无上限。",
+    "fix": "SQL 用 `LIMIT`/游标分批；非数字参数直接报错。",
+    "confidence": "高",
     "slice": "S17",
     "alsoReported": [],
     "handled": {
@@ -3525,9 +3525,9 @@
     "where": "`lib/site-config.sh:68`；`migrate-profile.mjs:148`",
     "dimension": "路径穿越",
     "problem": "站点名校验只排除\"含非法字符\"，`.` 与 `..` 都能通过，而站点名随后被直接拼进 `$KNOT_SITES_DIR/$KNOT_SITE`、远端 `sites/$KNOT_SITE`。`--site ..` 把站点目录指到部署根，`--site ../../x` 把文件写到 `sites/` 之外。",
-    "evidence": "`case \"${1:-}\" in \"\" \\",
-    "fix": "*[!A-Za-z0-9._-]*) return 1`",
-    "confidence": "拒绝 `.`/`..` 与首字符为 `.`；`knot_list_sites` 跳过 `_*` 的逻辑同样用在入参上。",
+    "evidence": "`case \"${1:-}\" in \"\" | *[!A-Za-z0-9._-]*) return 1`",
+    "fix": "拒绝 `.`/`..` 与首字符为 `.`；`knot_list_sites` 跳过 `_*` 的逻辑同样用在入参上。",
+    "confidence": "高",
     "slice": "S17",
     "alsoReported": [],
     "handled": {
@@ -3540,10 +3540,10 @@
     "severity": "P3",
     "where": "`lib/site-config.sh:303`",
     "dimension": "运维",
-    "problem": "`sed` 替换串里的 `&` 与分隔符 `\\",
-    "evidence": "` 未转义。部署根或站点名含这两个字符时，plist / systemd unit 会被写坏（`&` 变成匹配到的整段），装出来的服务起不来。",
-    "fix": "`sed -e \"s\\",
-    "confidence": "__KNOT_HOME__\\",
+    "problem": "`sed` 替换串里的 `&` 与分隔符 `|` 未转义。部署根或站点名含这两个字符时，plist / systemd unit 会被写坏（`&` 变成匹配到的整段），装出来的服务起不来。",
+    "evidence": "`sed -e \"s|__KNOT_HOME__|$KNOT_DEPLOY_ROOT|g\"`",
+    "fix": "替换前转义 `&`，换一个不会出现的分隔符。",
+    "confidence": "中",
     "slice": "S17",
     "alsoReported": [],
     "handled": {
@@ -3749,9 +3749,9 @@
     "where": "`knot-platform/packages/knot-doc-reader/src/index.mjs:297`",
     "dimension": "资源",
     "problem": "PDF 逐页抽取按 `pageCount` 循环，页数来自文件本身，没有上限；`getPageText` 是同步调用，声明页数虚高的 PDF 会长时间占住进程",
-    "evidence": "`for (let page = 1; page <= count; page += 1) { ... pdf.getPageText(page) ... }`，`count = pdf.pageCount \\",
-    "fix": "\\",
-    "confidence": "0`，无 `MAX_PAGES`",
+    "evidence": "`for (let page = 1; page <= count; page += 1) { ... pdf.getPageText(page) ... }`，`count = pdf.pageCount || 0`，无 `MAX_PAGES`",
+    "fix": "加页数上限（如 500），超出按 `truncated` 返回",
+    "confidence": "中",
     "slice": "S18",
     "alsoReported": [],
     "handled": {
@@ -3812,10 +3812,10 @@
     "severity": "P1",
     "where": "`schema.mjs:1414-1418`",
     "dimension": "安全/正确性",
-    "problem": "`formatValue` 判定「不必加引号」的字符集里包含 `$`、`(`、`)`、`\\",
-    "evidence": "`、`^`。含 `$(...)` 或 `$VAR` 的值原样写进 `site.env`/`platform.env`/`xknot.env`，而这些文件都被 `set -a; source` 读入：口令被 shell 展开后连接串失效，`$(cmd)` 直接以部署用户身份执行",
-    "fix": "`if (/^[A-Za-z0-9_@%+.,:/=~$()\\",
-    "confidence": "^-]+$/.test(text) && !text.includes(\"#\")) return text;` —— 转义 `$` 的那行（`.replace(/\\$/g, \"\\\\$\")`）在引号分支里，永远轮不到。落盘点：`renderPlatformFile:1561`、`updateEnvText:1709`、`renderJoinFile:1537`；`DATABASE_URL` 由 `config.mjs:358-361` 计算后必经此处。读取点：`ops/scripts/lib/site-config.sh:119-136`、`ops/scripts/run-knot-platform.sh:12-14`。`schema.test.js:427` 还把这个行为钉死（`formatValue(\"$HOME/knot\") === \"$HOME/knot\"`）",
+    "problem": "`formatValue` 判定「不必加引号」的字符集里包含 `$`、`(`、`)`、`|`、`^`。含 `$(...)` 或 `$VAR` 的值原样写进 `site.env`/`platform.env`/`xknot.env`，而这些文件都被 `set -a; source` 读入：口令被 shell 展开后连接串失效，`$(cmd)` 直接以部署用户身份执行",
+    "evidence": "`if (/^[A-Za-z0-9_@%+.,:/=~$()|^-]+$/.test(text) && !text.includes(\"#\")) return text;` —— 转义 `$` 的那行（`.replace(/\\$/g, \"\\\\$\")`）在引号分支里，永远轮不到。落盘点：`renderPlatformFile:1561`、`updateEnvText:1709`、`renderJoinFile:1537`；`DATABASE_URL` 由 `config.mjs:358-361` 计算后必经此处。读取点：`ops/scripts/lib/site-config.sh:119-136`、`ops/scripts/run-knot-platform.sh:12-14`。`schema.test.js:427` 还把这个行为钉死（`formatValue(\"$HOME/knot\") === \"$HOME/knot\"`）",
+    "fix": "安全字符集去掉 `$`、`(`、`)`、`|`、`^`；或统一加双引号并转义 `$`、反引号、`\\`、`\"`（`$HOME` 的展开在写盘前已由 `expandPath` 做完，不需要留给 shell）",
+    "confidence": "高",
     "slice": "S19",
     "alsoReported": [],
     "handled": {
@@ -3829,9 +3829,9 @@
     "where": "`schema.mjs:1109`、`:1094`",
     "dimension": "校验缺口",
     "problem": "跨键告警的条件在错误的文件视图里求值，恒为假（已知线索复核成立，与 S18-06 同根因）。同类还有 `tunnel-same-port`：它要求 `KNOT_TUNNEL` 与 `KNOT_ENTRY_ENABLED` 同处 site.env，而文档规定的正规形态是把隧道写进 `tunnel.env`，那里不会被任何 WARNINGS 读到",
-    "evidence": "`body-limit` 读 `KNOT_ENTRY_MAX_BODY`（entry 文件）与 `KNOT_UPLOAD_ATTACHMENT_MAX_BYTES`（platform.env），`checkSite` 里两者都不存在 → 永远取 `52m`/`50MiB` → 条件恒假（50 MiB < 52m）。`tunnel-same-port` 用 `String(env.KNOT_ENTRY_PROXY_PORT \\",
-    "fix": "\\",
-    "confidence": "18080) === String(env.KNOT_PORT \\",
+    "evidence": "`body-limit` 读 `KNOT_ENTRY_MAX_BODY`（entry 文件）与 `KNOT_UPLOAD_ATTACHMENT_MAX_BYTES`（platform.env），`checkSite` 里两者都不存在 → 永远取 `52m`/`50MiB` → 条件恒假（50 MiB < 52m）。`tunnel-same-port` 用 `String(env.KNOT_ENTRY_PROXY_PORT || 18080) === String(env.KNOT_PORT || 8080)` 做字符串比较，`KNOT_ENTRY_PROXY_PORT=018080` 能通过 port 校验却比不出相等。`deploy-site.sh:87-90` 把 tunnel.env 单独 source，`doctor.sh:71-76` 同样",
+    "fix": "把跨文件约束挪到能同时拿到三份配置的地方（`checkEntries` 或 `config.mjs env` 之后），或在 `check` 里合成视图再跑一遍 WARNINGS；端口比较改用数值",
+    "confidence": "高",
     "slice": "S19",
     "alsoReported": [],
     "handled": {
@@ -3861,9 +3861,9 @@
     "where": "`schema.mjs:601-605`、`:667-673`",
     "dimension": "正确性/一致性",
     "problem": "价格三元组没有顺序校验，代码侧再做一次静默夹取，两边结果可以不同。`KNOT_COUPON_FACE` 的推导用未夹取的 `KNOT_DEFAULT_PRICE`，`points.js` 用的是夹进 `[min,max]` 之后的值",
-    "evidence": "三个键各自只有 `min: 0`，没有规则约束 `PRICE_MIN ≤ DEFAULT_PRICE ≤ PRICE_MAX`。`points.js:34-39`：`if (priceMax < priceMin) priceMax = priceMin; if (defaultPrice < priceMin) … if (defaultPrice > priceMax) …`，随后 `couponFace: nonNegativeInt(env.KNOT_COUPON_FACE, defaultPrice)`。schema 的 derive 是 `Number(env.KNOT_DEFAULT_PRICE) \\",
-    "fix": "\\",
-    "confidence": "0`——非法值直接变 0，不夹取。写 `KNOT_PRICE_MIN=200`/`KNOT_DEFAULT_PRICE=10` 时，schema 侧算 10、代码侧算 200",
+    "evidence": "三个键各自只有 `min: 0`，没有规则约束 `PRICE_MIN ≤ DEFAULT_PRICE ≤ PRICE_MAX`。`points.js:34-39`：`if (priceMax < priceMin) priceMax = priceMin; if (defaultPrice < priceMin) … if (defaultPrice > priceMax) …`，随后 `couponFace: nonNegativeInt(env.KNOT_COUPON_FACE, defaultPrice)`。schema 的 derive 是 `Number(env.KNOT_DEFAULT_PRICE) || 0`——非法值直接变 0，不夹取。写 `KNOT_PRICE_MIN=200`/`KNOT_DEFAULT_PRICE=10` 时，schema 侧算 10、代码侧算 200",
+    "fix": "加 `price-order` 规则；`KNOT_COUPON_FACE` 的推导与 `points.js` 共用同一个夹取函数，非法值不要吞成 0",
+    "confidence": "高",
     "slice": "S19",
     "alsoReported": [],
     "handled": {
@@ -3883,8 +3883,8 @@
     "slice": "S19",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "超安全整数已挡；TTL、宽限天数类键仍无 max，能推出 Invalid Date"
     }
   },
   {
@@ -3925,9 +3925,9 @@
     "where": "`schema.mjs:1003-1012`、`:205-210`、`:304-311`",
     "dimension": "正确性",
     "problem": "`resolve` 在调用方没给 `ctx` 时会用空 `root`/`deployRoot` 拼出根目录下的绝对路径，得到一个合法但几乎一定错误的默认值，且不报错",
-    "evidence": "`derive: (env, ctx) => \\`${ctx.deployRoot \\",
-    "fix": "\\",
-    "confidence": "ctx.root}/var/uploads\\``：`resolve(entry, {}, {})` 得 `/var/uploads`；`KNOT_ARTIFACT_DIR` 的 `${ctx.root}/artifacts` 同理得 `/artifacts`。`resolve` 只做字符串选择，不做任何存在性判断",
+    "evidence": "`derive: (env, ctx) => \\`${ctx.deployRoot || ctx.root}/var/uploads\\``：`resolve(entry, {}, {})` 得 `/var/uploads`；`KNOT_ARTIFACT_DIR` 的 `${ctx.root}/artifacts` 同理得 `/artifacts`。`resolve` 只做字符串选择，不做任何存在性判断",
+    "fix": "`root`/`deployRoot` 都为空时 derive 返回 `\"\"`，让「空即未决定」成立，而不是落到文件系统根",
+    "confidence": "高",
     "slice": "S19",
     "alsoReported": [],
     "handled": {
@@ -3995,8 +3995,8 @@
     "slice": "S20",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "推送时已拒空值与共用路径；模板仍发空值，config.mjs check 仍报通过"
     }
   },
   {
@@ -4149,9 +4149,9 @@
     "where": "`api.js:5`、`api.js:127-175`",
     "dimension": "契约漂移",
     "problem": "两个小问题同源（同一个文件里的请求封装）：①`headers` 先合并、`...options` 后展开，调用方一旦传 `headers` 就把合并好的 `Content-Type` 整体顶掉；②同一类端点里 `encodeURIComponent` 有的加有的不加（`getInformation`/`reopen`/`tips` 加了，`dismiss`/`close`/`star`/`removeFriend`/`addCardFriend`/`download`/`share` 没加），id 一旦带 `/`、`?` 或 `#` 就打到别的路径上。",
-    "evidence": "`{ credentials: \"include\", headers: { …merged…, ...(options.headers \\",
-    "fix": "\\",
-    "confidence": "{}) }, ...options }`；`request(\\`/api/web/intel/${id}/dismiss\\`)` 对比 `request(\\`/api/web/intel/${encodeURIComponent(String(id \\",
+    "evidence": "`{ credentials: \"include\", headers: { …merged…, ...(options.headers || {}) }, ...options }`；`request(\\`/api/web/intel/${id}/dismiss\\`)` 对比 `request(\\`/api/web/intel/${encodeURIComponent(String(id || \"\").trim())}/reopen\\`)`。现有调用方都没传 `headers`、id 都来自服务端 UUID，所以是埋雷而非现网故障。",
+    "fix": "把 `...options` 挪到最前；id 统一走一个 `intelPath(id)` 编码函数。",
+    "confidence": "高",
     "slice": "S21",
     "alsoReported": [],
     "handled": {
@@ -4293,9 +4293,9 @@
     "where": "`download/consent.js:29-36`",
     "dimension": "错误处理",
     "problem": "`settleDownload(true)` 在 `job.short` 为真时既不 `finish()` 也不改 phase，只 `return`；那条 `new Promise` 永远不会 resolve，界面停在 confirm 且没有任何提示。今天靠确认按钮 `:disabled=\"short\"` 兜住，属于「UI 状态与 job 状态一旦不同步就悬挂」的防御缺口。",
-    "evidence": "`if (!accepted \\",
-    "fix": "\\",
-    "confidence": "job.short) { if (!accepted) finish(false); return; }`。",
+    "evidence": "`if (!accepted || job.short) { if (!accepted) finish(false); return; }`。",
+    "fix": "`short` 分支给一个明确结果（`finish(false)` + 置 error 文案），别留静默 return。",
+    "confidence": "低",
     "slice": "S21",
     "alsoReported": [],
     "handled": {
@@ -4309,9 +4309,9 @@
     "where": "`composers/cardDialog.js:22-28`",
     "dimension": "状态与竞态",
     "problem": "`show()` 在 `onOpen` 之后 `await nextTick()`，回来只看 `dialog.value.open`，不看重试时记录是否还是同一条。若 `await` 期间 store 被清空（用户点开又立刻关掉/按 Esc），`watch` 里的 `closeDialog()` 先跑（此时 `open` 还是 false，空操作），随后 `showModal()` 把空弹窗打开。",
-    "evidence": "`await nextTick(); if (!dialog.value \\",
-    "fix": "\\",
-    "confidence": "dialog.value.open) return; dialog.value.showModal();`。",
+    "evidence": "`await nextTick(); if (!dialog.value || dialog.value.open) return; dialog.value.showModal();`。",
+    "fix": "`await` 后补一句「`source()` 仍非空且 id 未变」再 show。",
+    "confidence": "低",
     "slice": "S21",
     "alsoReported": [],
     "handled": {
@@ -4325,9 +4325,9 @@
     "where": "`adminEntry.js:21-26`",
     "dimension": "正确性",
     "problem": "内网判断对内网 IPv6 的前 16 位做整数与运算，但压缩写法会算错：`fd::1`、`fc::1` 这类把 `fc00`/`fd00` 压成两三个字符的地址，`Number.parseInt(\"fd\", 16)` 得 `0xfd`，与 `0xfe00` 相与为 0，被判成公网。界面会因此改口吻（提示「不在内网」），不改变后端放行，属于提示错误。",
-    "evidence": "`const head = Number.parseInt(host.split(\":\")[0] \\",
-    "fix": "\\",
-    "confidence": "\"\", 16); return (head & 0xfe00) === 0xfc00 \\",
+    "evidence": "`const head = Number.parseInt(host.split(\":\")[0] || \"\", 16); return (head & 0xfe00) === 0xfc00 || …;`。",
+    "fix": "首位补零到 4 位再解析（`first.padEnd(4, \"0\")`），或直接按 `fc00::/7`、`fe80::/10` 做前缀字符串判断。",
+    "confidence": "中",
     "slice": "S21",
     "alsoReported": [],
     "handled": {
@@ -4443,8 +4443,8 @@
     "slice": "S22",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "死规则删掉大部分；`.information-preview`、`.demand-reply` 仍有 9 个选择器"
     }
   },
   {
@@ -4613,9 +4613,9 @@
     "where": "`views/WishView.vue:243-255`",
     "dimension": "资源/N+1",
     "problem": "「我发出」每张 wish 单发一次 `listRequestResponses`，`Promise.all` 全并发。一个常发 wish 的账号有 30 条待回应就是 30 个跨境请求；隧道限流时这些请求失败被 `catch { item.responses = [] }` 吞掉，卡片显示「还没有回应」——把「没取到」画成「没有」",
-    "evidence": "`rows.filter(...).map(async (item) => { const data = await listRequestResponses(item.id); item.responses = data.responses",
-    "fix": "",
-    "confidence": "[]; } catch { item.responses = []; } })`",
+    "evidence": "`rows.filter(...).map(async (item) => { const data = await listRequestResponses(item.id); item.responses = data.responses || []; } catch { item.responses = []; } })`",
+    "fix": "让 `/api/web/submissions` 或 `/requests?mine=1` 一次带回 responses 计数与首条；或限制并发并区分「空」与「取失败」（`responsesUnknown` 状态）",
+    "confidence": "高",
     "slice": "S23",
     "alsoReported": [],
     "handled": {
@@ -4645,9 +4645,9 @@
     "where": "`views/WishView.vue:53`",
     "dimension": "死代码/正确性",
     "problem": "`busy` 从来没有被写成 `true`（全文只有读取），于是 `:disabled=\"busy\"` 的那一排按钮、`when: () => !busy.value` 的轮询条件全是常量。表单没有「提交中」互斥，`submit()`/`submitReply()` 只靠清空输入后 `canSend()` 变 false 来挡第二次点击",
-    "evidence": "`const busy = ref(false);` 之后无 `busy.value = true`；`submit()` 里 `if (!canSend() \\",
-    "fix": "\\",
-    "confidence": "busy.value) return;`",
+    "evidence": "`const busy = ref(false);` 之后无 `busy.value = true`；`submit()` 里 `if (!canSend() || busy.value) return;`",
+    "fix": "要么接上 `outbox` 的发送态，要么删掉 `busy` 与相关 `:disabled`，别留一个永远为假的开关",
+    "confidence": "高",
     "slice": "S23",
     "alsoReported": [],
     "handled": {
@@ -4773,9 +4773,9 @@
     "where": "`stores/session.js:110`、`stores/session.js:160`",
     "dimension": "错误处理",
     "problem": "会话请求**任何**失败都当成「未登录」：`user=null`、`site` 回到最保守的 `INITIAL_SITE`，`ready` 仍置 true，之后不再自动重试。隧道抖一下就表现为被登出并锁在登录页；`setBalance(undefined)` 也会把余额直接写成 0",
-    "evidence": "`catch { this.user = null; this.site = { ...INITIAL_SITE }; … this.failed = true; }`；`setBalance`：`Math.max(0, Number(value) \\",
-    "fix": "\\",
-    "confidence": "0)`",
+    "evidence": "`catch { this.user = null; this.site = { ...INITIAL_SITE }; … this.failed = true; }`；`setBalance`：`Math.max(0, Number(value) || 0)`",
+    "fix": "区分 401 与网络错误（`failed` 时不改 `user`）；`setBalance` 先判 `Number.isFinite`",
+    "confidence": "中",
     "slice": "S23",
     "alsoReported": [],
     "handled": {
@@ -4853,9 +4853,9 @@
     "where": "`views/WishView.vue:471`、`views/WishView.vue:360-367`",
     "dimension": "边界",
     "problem": "回应时目标在轮询里过期/被关掉，`target` 变 null，`submitReply()` 第一行就静默 return，页面上没有任何提示；切换 `?respond=` 会把 `replyBody` 与已选附件一起清掉，没有确认",
-    "evidence": "`if (!target.value \\",
-    "fix": "\\",
-    "confidence": "!canReply() \\",
+    "evidence": "`if (!target.value || !canReply() || busy.value) return;`；`watch(respondId, async (id, prev) => { replyBody.value = \"\"; resetReply(); … })`",
+    "fix": "目标消失时显示「这条 wish 已结束」；切栏前有草稿就提示",
+    "confidence": "中",
     "slice": "S23",
     "alsoReported": [],
     "handled": {
@@ -4933,9 +4933,9 @@
     "where": "`instances.json:4`、`:13`、`README.md:44-46`",
     "dimension": "契约漂移/功能空转",
     "problem": "README 把「L2 活动数据」「L3 热点橱窗」列为中枢已提供能力（含门户橱窗位、最多 6 张卡片），但真实清单两条都没有 `statsUrl`/`cardsUrl`。生产构建永远拿不到这两层数据，门户对应区块只能落空态",
-    "evidence": "`instances.json` 两条（`:4-11`、`:13-19`）字段只有 `id/url/since/tier/status`；`server/app.mjs:493-494` 用 `instance.statsUrl \\",
-    "fix": "\\",
-    "confidence": "null` 原样透出、未按 `url` 推导；`server/app.mjs:556-557` 的能力矩阵因此 `cards: false, stats: false`；`e2e/browser/portal.spec.mjs:119-122` 对无橱窗只隐藏开关",
+    "evidence": "`instances.json` 两条（`:4-11`、`:13-19`）字段只有 `id/url/since/tier/status`；`server/app.mjs:493-494` 用 `instance.statsUrl || null` 原样透出、未按 `url` 推导；`server/app.mjs:556-557` 的能力矩阵因此 `cards: false, stats: false`；`e2e/browser/portal.spec.mjs:119-122` 对无橱窗只隐藏开关",
+    "fix": "二选一：补齐 `cardsUrl`/`statsUrl`（或按 `url` 推默认端点），或把 README 的 L2/L3 标成「可选、当前未启用」",
+    "confidence": "中",
     "slice": "S24",
     "alsoReported": [],
     "handled": {
@@ -5189,9 +5189,9 @@
     "where": "`admin.js:424-441`、`:531-549`、`:1145-1150`",
     "dimension": "数据一致性",
     "problem": "表单把草稿的全部字段一次性 POST，且请求里没有清单/名册版本号。①两个人先后编辑不同实例，后保存者会把自己页面加载时的整份快照写回去，静默覆盖先保存者的改动（服务端 `edit.mjs:150-193` 是读-改-写，没有锁或 ETag）；②实例不在名册里时，只改一个无关字段（例如 status）也会补一条名册成员，默认 `role: \"partner\"`、`listed: true`、`host` 取 url 主机名；③`member.since` 直接取 `inst.since`，改一个「加入时间」输入框会同时改写两份文件的日期",
-    "evidence": "`member: { … listed: member.listed, since: inst.since, … }`；`draftFrom` 里 `role: config.role \\",
-    "fix": "\\",
-    "confidence": "\"partner\"`、`standing: … \\",
+    "evidence": "`member: { … listed: member.listed, since: inst.since, … }`；`draftFrom` 里 `role: config.role || \"partner\"`、`standing: … || \"regular\"`、`listed: config.listed == null ? true : …`",
+    "fix": "提交前回读当前配置做 diff，只发改动字段；或由后端回显版本号做乐观锁；未入册实例的默认身份不要替人填（`listed` 默认 false + 明确「将新建名册成员」提示）",
+    "confidence": "高",
     "slice": "S25",
     "alsoReported": [],
     "handled": {
@@ -5733,9 +5733,9 @@
     "where": "`E2E.md:124`",
     "dimension": "契约漂移",
     "problem": "称伙伴信「`Reply-To` 为空（不接收回复）」",
-    "evidence": "`HUB.md:510` 写默认 `no-reply@xknot.si`；`index.mjs:212` 传 `XKNOT_MAIL_REPLY_TO \\",
-    "fix": "\\",
-    "confidence": "MAIL_FROM`；`e2e/partner.e2e.test.mjs:132` 断言 `replyTo === \"no-reply@xknot.si\"`",
+    "evidence": "`HUB.md:510` 写默认 `no-reply@xknot.si`；`index.mjs:212` 传 `XKNOT_MAIL_REPLY_TO || MAIL_FROM`；`e2e/partner.e2e.test.mjs:132` 断言 `replyTo === \"no-reply@xknot.si\"`",
+    "fix": "改成「`Reply-To` 是 `no-reply@`，不接收回复」",
+    "confidence": "高",
     "slice": "S27",
     "alsoReported": [],
     "handled": {
@@ -6117,9 +6117,9 @@
     "where": "`xknot.si/ops/validate-federation.mjs:25`、`:83-90`",
     "dimension": "安全/权限",
     "problem": "隧道账号只按 `^[a-z_][a-z0-9_-]{0,31}$` 校验字符集，`root`、`ec2-user`、`nginx`、`adm` 全部能通过。名册正是自动接通取账号与端口的唯一来源（`provision-worker.mjs:292` 的 `tunnelFor` 直接读 `federation.json`，写回时用的也是同一套 `validateRoster`，二次校验拦不住），一个手写条目就能让开通流程去操作已有系统账号",
-    "evidence": "`const ACCOUNT_RE = /^[a-z_][a-z0-9_-]{0,31}$/;`；`if (typeof tunnel.account !== \"string\" \\",
-    "fix": "\\",
-    "confidence": "!ACCOUNT_RE.test(tunnel.account))`",
+    "evidence": "`const ACCOUNT_RE = /^[a-z_][a-z0-9_-]{0,31}$/;`；`if (typeof tunnel.account !== \"string\" || !ACCOUNT_RE.test(tunnel.account))`",
+    "fix": "账号必须带固定前缀（`knot-tunnel-…`），并对 `root`/`ec2-user`/`nginx`/`adm`/`sshd` 等保留名显式黑名单；`tunnelFor` 取到时再断言一次",
+    "confidence": "中",
     "slice": "S29",
     "alsoReported": [],
     "handled": {
@@ -6181,9 +6181,9 @@
     "where": "`xknot.si/ops/xknot.si.conf:127-128`",
     "dimension": "凭据/日志",
     "problem": "`/case/`、`/claim/` 只关掉了访问日志，注释的理由是「链接本身就是能力凭据，不能写进访问日志」。但 nginx 在 upstream 超时/连接失败时写的 error 级日志会带 `request: \"GET /claim/<token> HTTP/1.1\"`，整条能力凭据就落到 `/var/log/nginx/error.log`（`adm` 组可读、会被日志采集收走）。`access_log off` 管不到这一路；接口重启、SQLite 锁、`proxy_read_timeout 20s` 到期都会触发",
-    "evidence": "`location ~ ^/(case\\",
-    "fix": "claim)/ { access_log off; proxy_pass http://127.0.0.1:5181; … }`，无 `error_log` 覆盖、token 在路径里",
-    "confidence": "首选把凭据从路径挪到 POST body（`/claim` 改成表单提交）；退一步给这两条路径单独 `error_log` 指到 0600 的专用文件并只记 `crit`，同时在轮转/采集里排除该文件",
+    "evidence": "`location ~ ^/(case|claim)/ { access_log off; proxy_pass http://127.0.0.1:5181; … }`，无 `error_log` 覆盖、token 在路径里",
+    "fix": "首选把凭据从路径挪到 POST body（`/claim` 改成表单提交）；退一步给这两条路径单独 `error_log` 指到 0600 的专用文件并只记 `crit`，同时在轮转/采集里排除该文件",
+    "confidence": "中高",
     "slice": "S29",
     "alsoReported": [],
     "handled": {
@@ -6501,9 +6501,9 @@
     "where": "`relay.mjs:44-66`",
     "dimension": "越权 / 伪造",
     "problem": "`replyTo` 允许落在 `contact` 的**主机**下的任意地址：contact 写成 gmail 时，可把回复指向该域下别人的地址，用中枢的信誉伪造回信对象",
-    "evidence": "`instanceReplyDomains` 里 `if (contact) hosts.add(hostOf(contact));`，`isAllowedReplyTo` 只做 `host === allowed",
-    "fix": "",
-    "confidence": "host.endsWith(\".\" + allowed)`",
+    "evidence": "`instanceReplyDomains` 里 `if (contact) hosts.add(hostOf(contact));`，`isAllowedReplyTo` 只做 `host === allowed || host.endsWith(\".\" + allowed)`",
+    "fix": "只允许 `url` 主机及其子域，或与 `contact` **完全一致**的地址",
+    "confidence": "中",
     "slice": "S30",
     "alsoReported": [],
     "handled": {
@@ -6517,9 +6517,9 @@
     "where": "`notify.mjs:542,560,578`",
     "dimension": "文案 / 逻辑",
     "problem": "断连提醒让伙伴「回复本信」，但伙伴信 Reply-To 指向 no-reply、正文又声明不接收回复，回信必退",
-    "evidence": "模板 `回复本信或联系 {outbox}`；`buildMail` 伙伴分支 `replyTo: options.replyTo",
-    "fix": "",
-    "confidence": "\"\"`，实际值取 `XKNOT_MAIL_REPLY_TO",
+    "evidence": "模板 `回复本信或联系 {outbox}`；`buildMail` 伙伴分支 `replyTo: options.replyTo || \"\"`，实际值取 `XKNOT_MAIL_REPLY_TO || MAIL_FROM`；同信结尾是「不接收回复」",
+    "fix": "删掉「回复本信」，只留案例页/门户链接与 `{outbox}`",
+    "confidence": "高",
     "slice": "S30",
     "alsoReported": [],
     "handled": {
@@ -6549,9 +6549,9 @@
     "where": "`backfill.mjs:44-68`",
     "dimension": "校验旁路",
     "problem": "补记申请单直接抄 profile 与清单，不过 `validateApplication`：邮箱不校格式、`region` 缺省写成 `GLOBAL`、名称/简介无长度上限",
-    "evidence": "`region: text(body.region) \\",
-    "fix": "\\",
-    "confidence": "\"GLOBAL\"`、`email: address` 直接进 `store.createApplication`；profile 原文来自伙伴站点，属外部输入",
+    "evidence": "`region: text(body.region) || \"GLOBAL\"`、`email: address` 直接进 `store.createApplication`；profile 原文来自伙伴站点，属外部输入",
+    "fix": "先过 `validateApplication`（或抽一层清洗）再写库，失败则报错",
+    "confidence": "中",
     "slice": "S30",
     "alsoReported": [],
     "handled": {
@@ -6645,9 +6645,9 @@
     "where": "`app.mjs:128-138`",
     "dimension": "资源 / 可用性",
     "problem": "进程内限流器的 Map 只增不删：键过期后不会移除，只有同一个键再次命中时才被 `filter` 重写，公网端点可凭大量来源地址把它撑到无界",
-    "evidence": "`const recent = (store.get(key) \\",
-    "fix": "\\",
-    "confidence": "[]).filter(...)`；`store.set(key, recent)`，无 `delete`、无容量上限、无清扫定时器。键来源是 `ipHash(clientIp)`，`/api/applications`、`/api/subdomains/check`、`/api/member/code`、`/api/admin/login` 都吃外部地址",
+    "evidence": "`const recent = (store.get(key) || []).filter(...)`；`store.set(key, recent)`，无 `delete`、无容量上限、无清扫定时器。键来源是 `ipHash(clientIp)`，`/api/applications`、`/api/subdomains/check`、`/api/member/code`、`/api/admin/login` 都吃外部地址",
+    "fix": "计数为空时 `store.delete(key)`；加周期性清扫（按 windowMs）或 `maxKeys` 上限，超限按最老淘汰",
+    "confidence": "高",
     "slice": "S31",
     "alsoReported": [],
     "handled": {
@@ -6661,9 +6661,9 @@
     "where": "`app.mjs:1274-1276`（对照 `store.mjs:753`）",
     "dimension": "鉴权 / 限流绕过",
     "problem": "按账号的登录限流键与真实账号不一致：限流键用 `body.username.toLowerCase()`，查库用 `trim().toLowerCase()`，用户名前后加空格即换一个限流桶，同一账号的「每账号 12 次 / 15 分钟」失效，只剩按 IP 一层",
-    "evidence": "`createHash(\"sha256\").update(body.username.toLowerCase())` vs `get(\"select * from admins where username = ?\", String(username \\",
-    "fix": "\\",
-    "confidence": "\"\").trim().toLowerCase())`",
+    "evidence": "`createHash(\"sha256\").update(body.username.toLowerCase())` vs `get(\"select * from admins where username = ?\", String(username || \"\").trim().toLowerCase())`",
+    "fix": "两处共用同一个归一化函数（`trim().toLowerCase()`），并让 store 暴露 `normalizeUsername`",
+    "confidence": "高",
     "slice": "S31",
     "alsoReported": [],
     "handled": {
@@ -6757,9 +6757,9 @@
     "where": "`app.mjs:1164`（对照 `387-393`）",
     "dimension": "契约漂移",
     "problem": "进度接口用**子域标签**当实例 id 查清单，而同文件判定「这张单对应哪个实例」用的是 URL 主机：两者一旦分叉（id 由 `manifest.mjs` 按主机名推、`edit.mjs` 又允许改 `url`），`tier` 回落 `free`、`since` 回落到 run 创建日",
-    "evidence": "`const listed = findInstance(application.subdomain \\",
-    "fix": "\\",
-    "confidence": "\"\")` vs `list.find((item) => hostOf(item?.url) === \\`${label}.xknot.si\\`)`；`findInstance` 只做 `item?.id === id`",
+    "evidence": "`const listed = findInstance(application.subdomain || \"\")` vs `list.find((item) => hostOf(item?.url) === \\`${label}.xknot.si\\`)`；`findInstance` 只做 `item?.id === id`",
+    "fix": "复用 `instanceOfApplication(application)` 取实例，与别处同一口径",
+    "confidence": "中",
     "slice": "S31",
     "alsoReported": [],
     "handled": {
@@ -6805,9 +6805,9 @@
     "where": "`store.mjs:547`",
     "dimension": "注入",
     "problem": "`setPublicKey` 把外部字符串原样落库，只截长度不校验；该列最终被逐字写进入口主机的 `authorized_keys`，含换行的公钥可注入第二条（可带 `command=` 选项）",
-    "evidence": "存储侧唯一约束是长度：`.run(String(publicKey).slice(0, 1000), ...)`；调用侧正则 `^(ssh-ed25519\\",
-    "fix": "ssh-rsa\\",
-    "confidence": "ecdsa-sha2-[a-z0-9-]+)\\s+[A-Za-z0-9+/=]+(\\s+.*)?$`（`app.mjs:1139`）里 `\\s` 含 `\\n`、`(\\s+.*)?` 允许换行后接一整行；`provision.mjs:415` `writeRootFile(...authorized_keys, \\`${key}\\n\\`, \"600\")` 逐字写入。构造：`ssh-ed25519 <b64>\\ncommand=\"curl …\\",
+    "evidence": "存储侧唯一约束是长度：`.run(String(publicKey).slice(0, 1000), ...)`；调用侧正则 `^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9-]+)\\s+[A-Za-z0-9+/=]+(\\s+.*)?$`（`app.mjs:1139`）里 `\\s` 含 `\\n`、`(\\s+.*)?` 允许换行后接一整行；`provision.mjs:415` `writeRootFile(...authorized_keys, \\`${key}\\n\\`, \"600\")` 逐字写入。构造：`ssh-ed25519 <b64>\\ncommand=\"curl …|sh\" ssh-ed25519 <b64>`（第二行整行可控，≤1000 字符）",
+    "fix": "在存储层做结构校验：只允许单行、`type base64 [comment]` 三段、拒绝任何 `\\s` 中的 `\\r\\n`；写入前再断言不含 CR/LF",
+    "confidence": "高",
     "slice": "S32",
     "alsoReported": [],
     "handled": {
@@ -6869,9 +6869,9 @@
     "where": "`store.mjs:642`<br>`store.mjs:708`",
     "dimension": "错误处理",
     "problem": "发信幂等键在\"插入占位\"时就永久占住 `(event, case_id, state_version)`：发送失败或限流置成 `failed`/`throttled` 后，同键再发一律 `duplicate:true`，SMTP 抖动一次这封信就再也不发；也没有像 relay 那样的 pending 回收",
-    "evidence": "`beginNotify` 先 `insert … status='pending'`，唯一索引 `notify_once on notify_log(event, case_id, state_version)`；`finishNotify` 只在 `status='pending'` 时改成 `failed`（`:669-671`），行仍在；`app.mjs:713` 遇 `duplicate` 直接 return。`:663` 还用错误消息正则 `/UNIQUE\\",
-    "fix": "constraint/i` 认定重复，任何 constraint 错误都会被当成\"已发过\"静默丢信。对照 `pruneStaleRelayPending`（`:1027`）只回收 relay",
-    "confidence": "失败时删除该行（或把唯一键改成只在 `sent` 时生效的部分索引），重试按 `notifySentFor` 判定；只把 `SQLITE_CONSTRAINT_UNIQUE` 当重复",
+    "evidence": "`beginNotify` 先 `insert … status='pending'`，唯一索引 `notify_once on notify_log(event, case_id, state_version)`；`finishNotify` 只在 `status='pending'` 时改成 `failed`（`:669-671`），行仍在；`app.mjs:713` 遇 `duplicate` 直接 return。`:663` 还用错误消息正则 `/UNIQUE|constraint/i` 认定重复，任何 constraint 错误都会被当成\"已发过\"静默丢信。对照 `pruneStaleRelayPending`（`:1027`）只回收 relay",
+    "fix": "失败时删除该行（或把唯一键改成只在 `sent` 时生效的部分索引），重试按 `notifySentFor` 判定；只把 `SQLITE_CONSTRAINT_UNIQUE` 当重复",
+    "confidence": "高",
     "slice": "S32",
     "alsoReported": [],
     "handled": {
@@ -6907,8 +6907,8 @@
     "slice": "S32",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "标签长度已上限；字符串入参按空格拆分、数组入参不拆，两种入口不一致"
     }
   },
   {
@@ -7093,9 +7093,9 @@
     "where": "`src/components/JoinPanel.vue:124`",
     "dimension": "错误处理",
     "problem": "登录被限流时提示「授权码不对」",
-    "evidence": "服务端 IP 级限流返回 `{ error: \"rate_limited\", retryAfter }`，不带 `reason`；前端只认 `data.reason === \"expired\" \\",
-    "fix": "\\",
-    "confidence": "\"too_many_attempts\"` 与 403，其余一律 `say(props.t(\"join.badCode\"))`。`join.rate` 这条文案存在，却只在发码路径用",
+    "evidence": "服务端 IP 级限流返回 `{ error: \"rate_limited\", retryAfter }`，不带 `reason`；前端只认 `data.reason === \"expired\" || \"too_many_attempts\"` 与 403，其余一律 `say(props.t(\"join.badCode\"))`。`join.rate` 这条文案存在，却只在发码路径用",
+    "fix": "先判 `response.status === 429`，用 `join.rate`（可带 `retryAfter`）",
+    "confidence": "高",
     "slice": "S33",
     "alsoReported": [],
     "handled": {
@@ -7227,8 +7227,8 @@
     "slice": "S33",
     "alsoReported": [],
     "handled": {
-      "status": "fixed",
-      "note": ""
+      "status": "partial",
+      "note": "占位符已接 t()；`portal.title` 仍是只被测试引用的死键"
     }
   },
   {
@@ -7253,9 +7253,9 @@
     "where": "`src/components/NodeCard.vue:151`、`src/App.vue:307`",
     "dimension": "状态",
     "problem": "`v-for` 拿站点自报的标签原文当 key",
-    "evidence": "`:key=\"tag\"`；标签是自由文本，`snapshot.js` 不做去重（去重只在取回时的 `cleanTags`）。标签筛选那排 `:key=\"chip.key \\",
-    "fix": "\\",
-    "confidence": "'all'\"`，若有站点把标签写成 `all`，与「全部」那颗撞 key",
+    "evidence": "`:key=\"tag\"`；标签是自由文本，`snapshot.js` 不做去重（去重只在取回时的 `cleanTags`）。标签筛选那排 `:key=\"chip.key || 'all'\"`，若有站点把标签写成 `all`，与「全部」那颗撞 key",
+    "fix": "用 `tag + index`；「全部」那颗换独立 key",
+    "confidence": "中",
     "slice": "S33",
     "alsoReported": [],
     "handled": {
@@ -7365,9 +7365,9 @@
     "where": "`xknot.si/web/package-lock.json:533`、`:1251`",
     "dimension": "依赖面／运维",
     "problem": "构建工具链的 Node 版本约束只存在于锁里，manifest 与仓库都没有声明；锁中最严的一条还来自一个 rollup 代码里根本没引用的原生包",
-    "evidence": "全仓各 `package.json` 均无 `engines`，也没有 `.nvmrc`；锁里 `vite@6.4.4` 要 `^18.0.0 \\",
-    "fix": "\\",
-    "confidence": "^20.0.0 \\",
+    "evidence": "全仓各 `package.json` 均无 `engines`，也没有 `.nvmrc`；锁里 `vite@6.4.4` 要 `^18.0.0 || ^20.0.0 || >=22.0.0`，而 `@napi-rs/lzma-linux-x64-gnu` 要 `^22.20 || ^24.12 || >=25`（由 `rollup@4.64.10` 的 `optionalDependencies` 带入，上游确实如此）。`rg lzma node_modules/rollup/dist` 只命中扩展名列表 `.lzma`，无 `require`",
+    "fix": "给 `web/package.json` 与根 `xknot.si/package.json` 补 `engines.node`（对齐 vite 的 `^18 || ^20 || >=22`），并在 `build-hub.sh` 开头校验；`@napi-rs/lzma-linux-x64-gnu` 属上游冗余，本仓无需处理，只需知道 linux-x64 构建会多下一次可选包",
+    "confidence": "高",
     "slice": "S34",
     "alsoReported": [],
     "handled": {
@@ -7397,9 +7397,9 @@
     "where": "`App.vue:52-62`、`App.vue:97`",
     "dimension": "数据一致性/契约漂移",
     "problem": "清单侧 `status` 的四态在门户完全不生效。`snapshot.js:41` 只滤 `pending`，`buildView` 把 `status` 带进视图，但 `web/src` 里没有任何消费点；筛选与在线计数只读 `health.status`。而 `suspended`/`retired` 按设计不再探测，于是被暂停的实例会带着最后一次 `up` 永久留在目录里、并计入「在线」，卡片上也没有任何「暂停」标记",
-    "evidence": "`rows.filter((item) => item.health.status === \"up\"",
-    "fix": "",
-    "confidence": "item.health.status === \"degraded\")`；`mapItems`: `status: item.health.status`；`rg '\\.status' web/src` 无 `item.status` 读取",
+    "evidence": "`rows.filter((item) => item.health.status === \"up\" || item.health.status === \"degraded\")`；`mapItems`: `status: item.health.status`；`rg '\\.status' web/src` 无 `item.status` 读取",
+    "fix": "在 `buildView` 里按清单状态产出 `suspended`/`retired` 标记（或直接过滤），在线计数只统计可探测的 `active`；卡片徽章显示暂停",
+    "confidence": "中",
     "slice": "S35",
     "alsoReported": [],
     "handled": {
@@ -7428,10 +7428,10 @@
     "severity": "P3",
     "where": "`App.vue:307`",
     "dimension": "正确性/边界",
-    "problem": "标签胶囊的 key 用 `chip.key \\",
-    "evidence": "\\",
-    "fix": "'all'`，与「全部」合成项撞车。`tags` 是自述自由文本（≤16 字符，`profile-schema.mjs:122` 不做保留字过滤），任何站只要写一个 `all` 标签，`v-for` 里就出现两个 `key=\"all\"` 的项：开发态报重复 key，patch 时「全部」与 `all` 两个胶囊的文案/计数可能被复用到同一节点",
-    "confidence": "`:key=\"chip.key \\",
+    "problem": "标签胶囊的 key 用 `chip.key || 'all'`，与「全部」合成项撞车。`tags` 是自述自由文本（≤16 字符，`profile-schema.mjs:122` 不做保留字过滤），任何站只要写一个 `all` 标签，`v-for` 里就出现两个 `key=\"all\"` 的项：开发态报重复 key，patch 时「全部」与 `all` 两个胶囊的文案/计数可能被复用到同一节点",
+    "evidence": "`:key=\"chip.key || 'all'\"`；首项由 `tagChips` 生成 `{ key: \"\", label: props.t(\"filter.all\") }`",
+    "fix": "key 加前缀（`all` 与 `tag:${value}`），或把「全部」单独渲染成一个按钮",
+    "confidence": "高",
     "slice": "S35",
     "alsoReported": [],
     "handled": {
@@ -7493,9 +7493,9 @@
     "where": "`App.vue:96`（渲染于 `NodeCard.vue:154`、`NetworkMap.vue:301`）",
     "dimension": "安全（外部输入）",
     "problem": "自述区 `name` 只经 `cleanText` 去掉 C0 控制符，零宽与双向控制符原样保留。`name` 同时是卡片标题、地图常驻点名和整张卡片点击层的**唯一可见文字**（`url` 不显示），一个已通过审核的实例可以把自己的名字渲染成另一个站，或用 RTL override 把真实后缀藏到左侧——在联邦目录里等同于身份混淆。这不是 XSS（Vue 转义生效），是展示层欺骗",
-    "evidence": "`cleanText` 只 `replace(/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]/g, \" \")`（`profile-schema.mjs:82`）；`name: instance.name \\",
-    "fix": "\\",
-    "confidence": "instance.id` 直接上屏；`<a class=\"name\" :href=\"item.url\">{{ item.name }}</a>`",
+    "evidence": "`cleanText` 只 `replace(/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]/g, \" \")`（`profile-schema.mjs:82`）；`name: instance.name || instance.id` 直接上屏；`<a class=\"name\" :href=\"item.url\">{{ item.name }}</a>`",
+    "fix": "取回档案与门户渲染两处都去掉 `\\p{Cf}`（至少 U+200B–200F、U+202A–202E、U+2066–2069）；卡片在名称旁常显域名，不把「点哪里」完全交给名称",
+    "confidence": "中",
     "slice": "S35",
     "alsoReported": [],
     "handled": {
