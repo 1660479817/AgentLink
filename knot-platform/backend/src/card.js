@@ -41,6 +41,13 @@ function storedOf(file) {
   };
   const direct = Boolean(file.image) || (Boolean(file.audio) && !file.image);
   if (direct && file.url) link.url = file.url;
+  // 图片带真实宽高：卡片据此排多图，比例来自数据而非等图下载完再量。
+  const width = Number(file.width) || 0;
+  const height = Number(file.height) || 0;
+  if (file.image && width > 0 && height > 0) {
+    link.width = width;
+    link.height = height;
+  }
   return link;
 }
 

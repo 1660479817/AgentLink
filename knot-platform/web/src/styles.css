@@ -3714,67 +3714,35 @@ a.intel-person:hover {
   list-style: none;
 }
 
+/* 图片（一张也算一行）：每行等高，行内每格宽度与图片比例成正比。
+   行高由 @knot/photo-layout 算好后经 `--row-aspect` 传进来，所以图片下载前版式就定死了，不跳版。
+   行是块级、宽度继承卡片，aspect-ratio 才能算出高度；若把行写成纵向 flex 的子项，
+   高度会退回由图片本身撑，裁切那几行就不受 --row-aspect 管了。 */
 .information-images {
-  display: grid;
-  gap: 2px;
+  display: block;
   margin: 0;
   padding: 0;
   overflow: hidden;
 }
 
-.information-images.is-1 {
-  grid-template-rows: auto;
+.information-photo-row {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  /* 行高是相对容器宽的倍数，由算法给出；不写死 px，窄屏上就不会变成一条竖着的长条。 */
+  aspect-ratio: var(--row-aspect, 1);
 }
 
-.information-images.is-1 .information-photo {
-  height: auto;
-  max-height: 36rem;
-  object-fit: contain;
-}
-
-.information-images.is-2 {
-  grid-template-columns: 1fr 1fr;
-  aspect-ratio: 2 / 1;
-}
-
-.information-images.is-3 {
-  grid-template-columns: 1.4fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  aspect-ratio: 3 / 2;
-}
-
-.information-images.is-3 > :first-child {
-  grid-row: span 2;
-}
-
-.information-images.is-4 {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  aspect-ratio: 1;
-}
-
-.information-images.is-5,
-.information-images.is-6,
-.information-images.is-7,
-.information-images.is-8,
-.information-images.is-9 {
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.information-images.is-5 .information-photo,
-.information-images.is-6 .information-photo,
-.information-images.is-7 .information-photo,
-.information-images.is-8 .information-photo,
-.information-images.is-9 .information-photo {
-  height: auto;
-  aspect-ratio: 1;
-  object-fit: cover;
+.information-photo-row + .information-photo-row {
+  margin-top: 2px;
 }
 
 .information-photo-btn {
   display: block;
-  width: 100%;
-  height: 100%;
+  /* 份额是「这一格比例 ÷ 这一行比例之和」，一行加起来正好 1。
+     不能直接拿比例当 flex-grow：grow 之和小于 1 时浏览器只分出去那么多空闲宽度，
+     一张竖图（0.75）单独一行就只占 75% 宽，右边空一条。份额归一之后一定铺满。 */
+  flex: var(--photo-share, 1) 0 0;
   min-width: 0;
   min-height: 0;
   padding: 0;
@@ -3786,8 +3754,10 @@ a.intel-person:hover {
   -webkit-tap-highlight-color: transparent;
 }
 
-.information-images.is-1 .information-photo-btn {
-  height: auto;
+/* 竖着裁过的行：裁掉的是图片下半截（长截图、长文），保留顶部，
+   也就是标题与开头先露出来；横着裁的行居中，两侧都没什么信息。 */
+.information-photo-row.is-vertical .information-photo {
+  object-position: center top;
 }
 
 .information-photo-btn:focus-visible {
@@ -3805,7 +3775,7 @@ a.intel-person:hover {
   height: 100%;
   min-height: 0;
   border-radius: 0;
-  object-fit: contain;
+  object-fit: cover;
   background: #f0f2f5;
 }
 
@@ -4276,10 +4246,6 @@ button.information-avatar:hover:not(:disabled) {
 .information-card .information-preview,
 .information-card .information-images {
   margin: 0.75rem 0 0;
-}
-
-.information-card .information-images {
-  gap: 2px;
 }
 
 .card:not(.information-card) > .information-images,

@@ -37,13 +37,14 @@ async function uploadDir() {
   return root;
 }
 
-async function writeImage(root, name, { width = 320, height = 240, format = "png" } = {}) {
+async function writeImage(root, name, { width = 320, height = 240, format = "png", orientation } = {}) {
   const file = tmpPath(root, name);
-  const bytes = await sharp({
+  const pipeline = sharp({
     create: { width, height, channels: 3, background: { r: 10, g: 20, b: 30 } },
-  })
-    [format]()
-    .toBuffer();
+  });
+  // 手机竖拍是「横着存 + orientation 标记」，卡片显示时才转正，尺寸也要跟着转。
+  if (orientation) pipeline.withMetadata({ orientation });
+  const bytes = await pipeline[format]().toBuffer();
   await writeFile(file, bytes);
   return file;
 }
@@ -60,6 +61,12 @@ test("image metadata comes from the decoded file, not the declared mime", async 
     // sharp 把 AVIF 报成 heif + compression=av1，不能因此拒收。
     const avif = await writeImage(dir, "a.bin", { width: 32, height: 24, format: "avif" });
     assert.deepEqual(await readImageMeta(avif), { mime: "image/avif", width: 32, height: 24 });
+
+    // 竖拍照片存成横的 + orientation，卡片显示图会转正，记下的尺寸也要换过来。
+    const turned = await writeImage(dir, "turn.jpg", { width: 400, height: 300, format: "jpeg", orientation: 6 });
+    assert.deepEqual(await readImageMeta(turned), { mime: "image/jpeg", width: 300, height: 400 });
+    const upright = await writeImage(dir, "upright.jpg", { width: 400, height: 300, format: "jpeg", orientation: 1 });
+    assert.deepEqual(await readImageMeta(upright), { mime: "image/jpeg", width: 400, height: 300 });
 
     const svg = path.join(dir, "a.svg");
     await writeFile(svg, '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');

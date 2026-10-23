@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoUrls, videoFrame } from "./packet.js";
+import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoItems, photoUrls, videoFrame } from "./packet.js";
 
 test("a card keeps each part inside its capacity", () => {
   const images = [
@@ -11,6 +11,12 @@ test("a card keeps each part inside its capacity", () => {
     { id: "e", url: "/e" },
   ];
   assert.deepEqual(photoUrls(images), ["/a", "/b", "/c", "/d", "/e"]);
+  // 卡片排版要比例：有尺寸就带上，没有就是 0，交给排版退回 4:3。
+  assert.deepEqual(photoItems([{ url: "/a", width: 800, height: 600 }, { url: "/b" }]), [
+    { url: "/a", width: 800, height: 600 },
+    { url: "/b", width: 0, height: 0 },
+  ]);
+  assert.deepEqual(photoItems([{ id: "a", width: 10, height: 10 }]), []);
   assert.deepEqual(lockedImages([{ id: "a", name: "a.png" }]).map((file) => file.id), ["a"]);
   assert.deepEqual(lockedImages([{ id: "a", name: "a.png" }, { id: "b", url: "/b" }]), []);
   assert.equal(packetAudio([{ id: "1" }, { id: "2" }]).length, 1);

@@ -8,7 +8,7 @@ import VideoFrame from "./VideoFrame.vue";
 import { t } from "../i18n/index.js";
 import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendCheckIcon, FriendRemoveIcon, ImageIcon, PaperclipIcon, RemovedIcon, ShareIcon, StarIcon, TipIcon, UserIcon } from "../icons/index.js";
 import { containsImage, isMarkdown, parse, toHtml, toPlain } from "@knot/markdown";
-import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoUrls } from "../packet.js";
+import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoItems } from "../packet.js";
 import { altLabel } from "../mediaLabel.js";
 import { expiryOf, hoursLeftAt } from "../record.js";
 import { useCardActionsStore } from "../stores/cardActions.js";
@@ -56,7 +56,7 @@ const emit = defineEmits(["author", "category", "topic", "dismiss", "star", "dow
 // 底栏的打赏与分享都交给弹窗：卡片只把这条记录递出去，弹窗里再加功能不用回头改这里。
 const cardActions = useCardActionsStore();
 
-const photos = computed(() => photoUrls(props.images));
+const photos = computed(() => photoItems(props.images));
 const pendingImages = computed(() => lockedImages(props.images));
 const clips = computed(() => packetAudio(props.audio));
 const links = computed(() => packetVideos(props.videos));

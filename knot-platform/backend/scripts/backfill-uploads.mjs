@@ -1,19 +1,22 @@
 #!/usr/bin/env node
 // 把 uploads 里缺的 size / sha256 / 宽高从磁盘补上，并报告没有引用的文件。
 // 默认只报告，不改库。确认后加 --apply。
+// 加 --sizes 时连已有的宽高也重算一遍：0.5.2 及更早记的是未转 EXIF 的宽高，
+// 竖拍照片存成横的，卡片按它排多图比例会正好反过来。
 //
 //   set -a; source sites/<站点>/platform.env; set +a
 //   node backend/scripts/backfill-uploads.mjs
-//   node backend/scripts/backfill-uploads.mjs --apply
+//   node backend/scripts/backfill-uploads.mjs --apply [--sizes]
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import pg from "pg";
-import sharp from "sharp";
 import { loadBootstrapConfig } from "../src/config.js";
 import { blobPath, blobsDir, readableBlobPath } from "../src/storage.js";
+import { readImageMeta } from "../src/uploadStore.js";
 
 const APPLY = process.argv.includes("--apply");
+const RECOMPUTE_SIZE = process.argv.includes("--sizes");
 
 // 原件在 blobs/<前两位>/ 里；旧布局的还在根目录。两处都要算进来。
 function walk(dir) {
@@ -43,13 +46,9 @@ async function digest(file) {
 }
 
 async function imageMeta(file) {
-  try {
-    const meta = await sharp(file, { failOn: "error" }).metadata();
-    if (!meta?.width || !meta?.height) return null;
-    return { width: meta.width, height: meta.height };
-  } catch {
-    return null;
-  }
+  // 与上传时同一份口径：按 EXIF 转正后的画面记宽高，卡片才排得对。
+  const meta = await readImageMeta(file);
+  return meta ? { width: meta.width, height: meta.height } : null;
 }
 
 function human(bytes) {
@@ -105,7 +104,7 @@ async function main() {
     const needsSize = Number(row.size) !== stat.size;
     // 文件被改写过时（例如头像收成 512），旧摘要和宽高也不能信，按磁盘重算。
     const needsDigest = !row.sha256 || needsSize;
-    const needsBox = String(row.mime || "").startsWith("image/") && (!row.width || !row.height || needsSize);
+    const needsBox = String(row.mime || "").startsWith("image/") && (RECOMPUTE_SIZE || !row.width || !row.height || needsSize);
     if (!needsSize && !needsDigest && !needsBox) continue;
     if (Number(row.size) === 0) zero += 1;
 

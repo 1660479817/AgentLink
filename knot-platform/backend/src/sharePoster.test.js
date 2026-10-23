@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
   buildSharePoster,
   ensureSharePoster,
   formatPosted,
+  loadShareCard,
   markdownTexts,
   priceLabel,
   renderSharePoster,
@@ -21,6 +22,7 @@ import {
   shareMetaKey,
   sharePosterPath,
   shareUrl,
+  shareSite,
   storeSharePoster,
   wrapText,
 } from "./sharePoster.js";
@@ -338,11 +340,19 @@ test("a public post is drawn once and then reused", async () => {
 });
 
 test("the QR points at the post's discover deep link", async () => {
+  // 期望值从 shareUrl 用的同一处配置来：这台机器上 KNOT_SITE 可能指向任意站点，
+  // 拿模块级 SHARE_PAGE（schema 默认值）当期望，会把「测试依赖外部环境」变成部署失败。
+  const page = shareSite().page.replace(/\/$/, "");
   assert.equal(
     shareUrl("11111111-1111-4111-8111-111111111111"),
-    `${SHARE_PAGE}/discover?post=11111111-1111-4111-8111-111111111111`,
+    `${page}/discover?post=11111111-1111-4111-8111-111111111111`,
   );
-  assert.equal(shareUrl(""), SHARE_PAGE);
+  // 显式给站点时结果与进程环境无关，深链拼接本身仍然被钉死。
+  assert.equal(
+    shareUrl("11111111-1111-4111-8111-111111111111", { page: "https://example.test/" }),
+    "https://example.test/discover?post=11111111-1111-4111-8111-111111111111",
+  );
+  assert.equal(shareUrl(""), page);
   const withId = await buildSharePoster({ id: "22222222-2222-4222-8222-222222222222", body: "短", video: false, audioName: "", fileName: "", image: false, preview: "" });
   const withoutId = await buildSharePoster({ body: "短", video: false, audioName: "", fileName: "", image: false, preview: "" });
   assert.notEqual(withId.qr.dark, withoutId.qr.dark);
@@ -449,3 +459,116 @@ test("an extremely tall preview is cropped instead of stretching the picture", a
   const meta = await sharp(jpeg).metadata();
   assert.equal(meta.height, layout.height);
 });
+
+function picture(width, height, color) {
+  return sharp({ create: { width, height, channels: 3, background: color } }).png().toBuffer();
+}
+
+test("several pictures are joined into one collage, in the card's own arrangement", async () => {
+  const red = await picture(400, 300, { r: 210, g: 20, b: 20 });
+  const green = await picture(400, 300, { r: 20, g: 160, b: 40 });
+  const content = {
+    body: "两张图",
+    video: false,
+    audioName: "",
+    fileName: "",
+    image: true,
+    photos: [
+      { file: red, width: 400, height: 300 },
+      { file: green, width: 400, height: 300 },
+    ],
+  };
+  const layout = await buildSharePoster(content);
+  // 两张 4:3 横图并成一行，各占一半——和卡片上的排法一致。
+  assert.equal(layout.photoBoxes.length, 2);
+  assert.equal(layout.previewBox, null);
+  assert.equal(layout.photoBoxes[0].y, layout.photoBoxes[1].y);
+  assert.ok(layout.photoBoxes[0].x < layout.photoBoxes[1].x);
+  assert.equal(layout.photoBoxes[0].x, 72);
+  assert.equal(layout.photoBoxes[1].x + layout.photoBoxes[1].width, 72 + 936);
+  // 拼图和正文都画得下，不靠「图片」占位。
+  assert.equal(layout.svg.includes(">图片<"), false);
+  assert.ok(layout.contentBottom >= layout.photoTop + layout.photoHeight);
+  assert.ok(layout.height <= MAX_HEIGHT);
+
+  const jpeg = await renderSharePoster(content);
+  const { data, info } = await sharp(jpeg).raw().toBuffer({ resolveWithObject: true });
+  const sample = (box, dx, dy) => {
+    const offset = (box.y + dy) * info.width * info.channels + (box.x + dx) * info.channels;
+    return [data[offset], data[offset + 1], data[offset + 2]];
+  };
+  const left = sample(layout.photoBoxes[0], 20, 20);
+  const right = sample(layout.photoBoxes[1], 20, 20);
+  assert.ok(left[0] > 150 && left[1] < 90, `left ${left}`);
+  assert.ok(right[1] > 110 && right[0] < 90, `right ${right}`);
+});
+
+test("a long screenshot keeps the top and never eats the whole picture", async () => {
+  const tall = await picture(300, 2400, { r: 30, g: 60, b: 200 });
+  const content = { body: "", video: false, audioName: "", fileName: "", image: true, photos: [{ file: tall, width: 300, height: 2400 }] };
+  const layout = await buildSharePoster(content);
+  const box = layout.photoBoxes[0];
+  // 比 1:2.5 还长的截图按 1:2.5 记（再长就跟内容无关了），行高仍在 3 倍内容宽以内。
+  assert.equal(box.height, Math.round(2.5 * 936));
+  assert.ok(box.height <= 3 * 936);
+  assert.ok(layout.height <= MAX_HEIGHT);
+  const jpeg = await renderSharePoster(content);
+  const { data, info } = await sharp(jpeg).raw().toBuffer({ resolveWithObject: true });
+  // 裁的是下半截：框顶那几行是原图的开头（蓝），不是空白。
+  const offset = (box.y + 12) * info.width * info.channels + (box.x + 12) * info.channels;
+  assert.ok(data[offset + 2] > 120 && data[offset] < 120);
+});
+
+test("a post with several pictures is read as a photo set", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "knot-share-"));
+  const row = {
+    id: POST,
+    content_hash: HASH,
+    body: "三张图",
+    videos: [],
+    links: {},
+    kind: "post",
+    is_public: true,
+    verdict: "passed",
+    actor: "person",
+    category: "",
+    price: 0,
+    created_at: "2026-10-16T02:42:00.000Z",
+    display_name: "甲",
+  };
+  const files = [
+    { mime: "image/png", original_name: "a.png", storage_name: "aa11111111111111.bin", width: 1200, height: 800 },
+    { mime: "image/png", original_name: "b.png", storage_name: "bb22222222222222.bin", width: 800, height: 1200 },
+  ];
+  for (const file of files) {
+    await mkdir(path.join(dir, "blobs", file.storage_name.slice(0, 2)), { recursive: true });
+    await writeFile(path.join(dir, "blobs", file.storage_name.slice(0, 2), file.storage_name), await picture(60, 40, { r: 10, g: 10, b: 10 }));
+  }
+  const pool = {
+    async query(sql) {
+      if (sql.includes("original_name")) return { rows: files };
+      if (sql.includes("FROM intel")) return { rows: [row] };
+      throw new Error(sql);
+    },
+  };
+  try {
+    const card = await loadShareCard(pool, POST, dir);
+    assert.equal(card.photos.length, 2);
+    assert.equal(card.preview, "");
+    assert.deepEqual(card.photos.map((photo) => [photo.width, photo.height]), [[1200, 800], [800, 1200]]);
+    // 少一张尺寸就退回单图，不按 4:3 硬猜。
+    const mixed = {
+      async query(sql) {
+        if (sql.includes("original_name")) return { rows: [files[0], { ...files[1], width: null, height: null }] };
+        if (sql.includes("FROM intel")) return { rows: [row] };
+        throw new Error(sql);
+      },
+    };
+    const fallback = await loadShareCard(mixed, POST, dir);
+    assert.deepEqual(fallback.photos, []);
+    assert.ok(fallback.preview.endsWith(files[0].storage_name));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
