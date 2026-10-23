@@ -23,8 +23,10 @@ export function probe(name) {
   const throttled = new Rate(`ep_${name}_throttled`);
 
   return {
-    // 判定默认接受 2xx/3xx；要更严的调用方自己传 ok。
-    record(res, ok = (r) => r.status >= 200 && r.status < 400) {
+    // 判定默认只认 2xx。以前 3xx 也算通过：k6 默认跟随重定向，剩下的 301/304
+    // 和「回 200 的维护页」一样会被记成成功，整张表就可能测的是另一个页面。
+    // 需要更宽的调用方自己传 ok。
+    record(res, ok = (r) => r.status >= 200 && r.status < 300) {
       const limited = res.status === 429;
       const passed = Boolean(ok(res));
       if (!limited) {

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { connect } from "node:tls";
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
@@ -38,8 +40,14 @@ function timedRequest(url, { headers = {}, timeout = 20000 } = {}) {
     const send = u.protocol === "https:" ? httpsRequest : httpRequest;
     const req = send(u, { method: "GET", headers: { "user-agent": UA, ...headers }, timeout }, (res) => {
       let text = "";
+      let firstByteMs = null;
+      let downloaded = 0;
       res.setEncoding("utf8");
       res.on("data", (chunk) => {
+        // 首字节与总耗时是两件事：以前 ttfbMs 在 end 里算，是整页下载完的时间，
+        // 却被 compare/summary 标成「TTFB」。大包体的站会看起来「服务端慢」。
+        if (firstByteMs == null) firstByteMs = Date.now() - started;
+        downloaded += Buffer.byteLength(chunk, "utf8");
         if (text.length < MAX_BODY) text += chunk;
       });
       res.on("end", () => {
@@ -48,8 +56,11 @@ function timedRequest(url, { headers = {}, timeout = 20000 } = {}) {
           status: res.statusCode,
           headers: res.headers,
           body: text,
-          ttfbMs: Date.now() - started,
-          bytes: Buffer.byteLength(text, "utf8"),
+          ttfbMs: firstByteMs ?? Date.now() - started,
+          // 字节数用真实收到的量，不用截断后的字符串：超过 MAX_BODY 的页面
+          // 以前会报成 400KB，看起来比实际轻。
+          bytes: downloaded,
+          truncated: downloaded > MAX_BODY,
         });
       });
     });
@@ -116,10 +127,15 @@ function titleOf(html) {
 export async function probeSite(base, { token = "", routes = ROUTES } = {}) {
   const host = hostOf(base);
   const isLoopback = /^(127\.|localhost$|\[?::1\]?$)/i.test(host.hostname);
+  // 内网地址（RFC1918）和回环一样是「直连源站」：没有入口与隧道，管理门本来就在。
+  // 以前只认回环，直接探测 192.168.x.x 时会把「管理入口可达」误报成泄漏，
+  // 又把直连数字当成公网数字看，和 scripts/run.mjs 的 isDirectBase 口径不一致。
+  const isPrivate = isLoopback || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host.hostname);
   const out = {
     base,
     host: host.hostname,
     isLoopback,
+    isPrivate,
     isXknotSubdomain: /\.xknot\.si$/i.test(host.hostname),
     probedAt: new Date().toISOString(),
     transport: {},
@@ -136,7 +152,7 @@ export async function probeSite(base, { token = "", routes = ROUTES } = {}) {
 
   if (!out.isXknotSubdomain) {
     out.warnings.push(
-      isLoopback
+      isPrivate
         ? `${host.hostname} 是源站直连，不含入口与隧道，数字不能和公网子域比`
         : `${host.hostname} 不是 *.xknot.si 子域，结果不能和联邦内的站点直接比较`
     );
@@ -221,7 +237,7 @@ export async function probeSite(base, { token = "", routes = ROUTES } = {}) {
     adminApi: adminApi.status,
     ok: adminPage.status >= 400 && adminApi.status >= 400,
   };
-  if (!out.leaks.ok && !isLoopback) {
+  if (!out.leaks.ok && !isPrivate) {
     out.warnings.push(`管理入口可达（/admin=${adminPage.status} /api/admin/posts=${adminApi.status}）`);
   }
 
@@ -299,14 +315,35 @@ export function summaryLines(target) {
   return lines;
 }
 
+// 授权码只从环境变量或 --token-file 读。--token 还留着，但它会进 ps 和 shell
+// 历史，和 README 的「不打印、不落盘」相矛盾；新写法优先用文件。
+function tokenFromFile(file) {
+  try {
+    const line = readFileSync(path.resolve(process.cwd(), file), "utf8")
+      .split("\n")
+      .map((s) => s.trim())
+      .find((s) => s && !s.startsWith("#")) || "";
+    return line.replace(/^KNOT_AGENT_TOKEN=/, "").trim().replace(/^["']|["']$/g, "");
+  } catch {
+    console.error(`读不到授权码文件：${file}`);
+    return "";
+  }
+}
+
 if (process.argv[1] && process.argv[1].endsWith("probe.mjs")) {
-  const base = String(process.argv[2] || process.env.BENCH_BASE || "").replace(/\/+$/, "");
+  const positional = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+  const base = String(positional[0] || process.env.BENCH_BASE || "").replace(/\/+$/, "");
   if (!base) {
-    console.error("用法：node scripts/probe.mjs https://<标签>.xknot.si [--token <授权码>]");
+    console.error("用法：node scripts/probe.mjs https://<标签>.xknot.si [--token-file ~/.knot/agent.env]");
     process.exit(2);
   }
+  const fileIndex = process.argv.indexOf("--token-file");
   const tokenIndex = process.argv.indexOf("--token");
-  const token = tokenIndex > 0 ? String(process.argv[tokenIndex + 1] || "") : String(process.env.KNOT_AGENT_TOKEN || "");
+  const token = fileIndex > 0
+    ? tokenFromFile(String(process.argv[fileIndex + 1] || ""))
+    : tokenIndex > 0
+      ? String(process.argv[tokenIndex + 1] || "")
+      : String(process.env.KNOT_AGENT_TOKEN || "");
   const result = await probeSite(base, { token });
   console.log(summaryLines(result).join("\n"));
   console.log("");

@@ -40,9 +40,10 @@ export const options = {
   vus: Math.max(1, Number(__ENV.VUS || 5)),
   duration: String(__ENV.DURATION || "20s"),
   // 写场景不跑 100 并发：每条都是 INSERT + 审核入队，先量 5 和 10 两档。
-  thresholds: {
-    "ep_write_delete_err": ["rate<0.02"],
-  },
+  //
+  // 不在这里设阈值：阈值只有一套，在 scripts/report.mjs 的 LIMITS 里。
+  // 两处各写一条时（这里是 2%，报告里按 write_ 前缀套另一条），同一次运行为什么
+  // 判失败会给出两种解释，退出码 99 也只在 k6 侧出现。
 };
 
 const p = {

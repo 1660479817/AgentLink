@@ -150,6 +150,15 @@ export function render(result) {
   }
 
   const failed = meta.failed || [];
+  // k6 在运行中说过的话：某个端点为什么没有指标（信息流为空、授权码只有一份），
+  // 以前退出码 0 就整段丢弃，读报告的人只能看见「这一行不存在」。
+  if (meta.warnings?.length) {
+    out.push("本轮 k6 提示：");
+    out.push("");
+    for (const line of meta.warnings.slice(0, 20)) out.push(`- ${line}`);
+    if (meta.warnings.length > 20) out.push(`- ……另有 ${meta.warnings.length - 20} 条，见 summary.json`);
+    out.push("");
+  }
   if (meta.skipped?.length || failed.length) {
     out.push("本轮未测：");
     out.push("");
@@ -185,6 +194,12 @@ export function render(result) {
     ms(r.overall.p99),
   ]);
   out.push(table(["并发", "场景", "请求数", "RPS", "错误率", "限流率", "p50", "p95", "p99"], overview));
+  out.push("");
+  // 这张表最容易被引用成「该站能承载 N QPS」。RPS 是这一档实际到达的速率，
+  // 不等于容量：容量要看换更高并发时 RPS 还涨不涨、p95 是否已经抬起来。
+  out.push(
+    "RPS 是这一档**实际到达**的请求速率（请求数 ÷ 时长），不是「系统能承载的容量」。判断是否饱和要看：并发加倍时 RPS 是否还跟着涨，以及同一档的 p95 有没有抬头。两者都不动的档，才是这台机器当前的吞吐上限。"
+  );
   out.push("");
 
   // ---- 端点 × 并发 p95 ----
@@ -272,7 +287,10 @@ export function render(result) {
         );
         continue;
       }
-      if (ep.p95 > limit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · p95 ${ms(ep.p95)}ms > ${limit}ms`);
+      // 判定与展示用同一个数。以前判定比未取整的 p95、展示取整，
+      // 产物里会出现「p95 1000ms > 1000ms」这种自相矛盾的一行。
+      const p95 = Math.round(ep.p95);
+      if (p95 > limit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · p95 ${p95}ms > ${limit}ms`);
       if (ep.errRate > errLimit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · 错误率 ${pct(ep.errRate)} > ${pct(errLimit)}`);
     }
   }
