@@ -10,6 +10,14 @@ const WINDOW = 8000;
 const SAMPLE_CAP = 12000;
 const EXTRACT_CAP = 200_000;
 
+// 压缩包会把输入放大的倍数交给攻击者定：50 MB 的 zip 解出几十 GB 只需要几行脚本，
+// 而解压发生在进程内（inflateRawSync 把结果整个放进内存）。所以三道闸：
+// 条目数、单条解压后大小、整包解压后总量。声明值先挡一道，声明造假由
+// maxOutputLength 兜住——它在超出上限时就抛，不会先分配再报错。
+const MAX_ZIP_ENTRIES = 2048;
+const MAX_ENTRY_UNPACKED = 32 * 1024 * 1024;
+const MAX_TOTAL_UNPACKED = 64 * 1024 * 1024;
+
 export function decodeXml(value) {
   return String(value || "")
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
@@ -32,26 +40,45 @@ export function unzip(buffer) {
   }
   if (eocd < 0) throw new Error("unreadable");
   const count = buffer.readUInt16LE(eocd + 10);
+  if (count > MAX_ZIP_ENTRIES) throw new Error("unreadable");
   let cursor = buffer.readUInt32LE(eocd + 16);
   const files = new Map();
+  let unpacked = 0;
   for (let n = 0; n < count; n += 1) {
-    if (buffer.readUInt32LE(cursor) !== 0x02014b50) throw new Error("unreadable");
+    if (cursor + 46 > buffer.length || buffer.readUInt32LE(cursor) !== 0x02014b50) throw new Error("unreadable");
     const method = buffer.readUInt16LE(cursor + 10);
     const compSize = buffer.readUInt32LE(cursor + 20);
+    const unpackedSize = buffer.readUInt32LE(cursor + 24);
     const nameLen = buffer.readUInt16LE(cursor + 28);
     const extraLen = buffer.readUInt16LE(cursor + 30);
     const commentLen = buffer.readUInt16LE(cursor + 32);
     const localOffset = buffer.readUInt32LE(cursor + 42);
+    // 中央目录里写着解压后多大：先按它挡一道，不用真的去解。
+    if (unpackedSize > MAX_ENTRY_UNPACKED || unpacked + unpackedSize > MAX_TOTAL_UNPACKED) {
+      throw new Error("unreadable");
+    }
     const name = buffer.toString("utf8", cursor + 46, cursor + 46 + nameLen);
     cursor += 46 + nameLen + extraLen + commentLen;
+    if (localOffset + 30 > buffer.length) throw new Error("unreadable");
     const localNameLen = buffer.readUInt16LE(localOffset + 26);
     const localExtraLen = buffer.readUInt16LE(localOffset + 28);
     const start = localOffset + 30 + localNameLen + localExtraLen;
     const compressed = buffer.subarray(start, start + compSize);
     let data = null;
     if (method === 0) data = Buffer.from(compressed);
-    else if (method === 8) data = inflateRawSync(compressed);
-    if (data) files.set(name.replaceAll("\\", "/"), data);
+    else if (method === 8) {
+      try {
+        // 声明值可以造假（甚至故意写小），真正兜住的是这个上限。
+        data = inflateRawSync(compressed, { maxOutputLength: MAX_ENTRY_UNPACKED });
+      } catch {
+        throw new Error("unreadable");
+      }
+    }
+    if (data) {
+      unpacked += data.length;
+      if (unpacked > MAX_TOTAL_UNPACKED) throw new Error("unreadable");
+      files.set(name.replaceAll("\\", "/"), data);
+    }
   }
   return files;
 }

@@ -1411,10 +1411,18 @@ export function parseEnv(text) {
   return env;
 }
 
+// 生成 .env 时先判断能不能不加引号。这里刻意把 $ ( ) | ` ; & < > " 都放在集合外：
+// 它们在 source 时有含义——$(...) 执行命令、$NAME 展开、| ; & 断句。
+// 唯一放行的扩展是 $HOME：schema 的默认值（$HOME/.ssh/...）靠它，也是站点配置里
+// 唯一用过的一种。其余带 $ 的值会被加引号并把 $ 转义，写进去是什么就读出什么。
+const SAFE_UNQUOTED = /^[A-Za-z0-9_@%+.,:/=~^-]+$/;
+const DOLLAR_HOME = /\$HOME(?![A-Za-z0-9_])/g;
+
 export function formatValue(value) {
   const text = value == null ? "" : String(value);
   if (!text) return "";
-  if (/^[A-Za-z0-9_@%+.,:/=~$()|^-]+$/.test(text) && !text.includes("#")) return text;
+  const rest = text.replace(DOLLAR_HOME, "");
+  if (!text.includes("#") && (rest === "" || SAFE_UNQUOTED.test(rest))) return text;
   return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/`/g, "\\`")}"`;
 }
 

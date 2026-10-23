@@ -99,6 +99,12 @@ cleanup() {
   if [[ -n "$STAGING" && -d "$STAGING" ]]; then
     rm -rf "$STAGING"
   fi
+  # 只删自己拿的那把锁：接管过别人的之后，别把继任者的锁一起删掉。
+  if [[ -n "${LOCK_DIR:-}" && -f "$LOCK_DIR/pid" ]]; then
+    if [[ "$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")" == "$$" ]]; then
+      rm -rf "$LOCK_DIR"
+    fi
+  fi
   return 0
 }
 trap cleanup EXIT
@@ -132,6 +138,19 @@ NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 
 MANIFEST="$KNOT_APP_DIR/BUILD.json"
 REL_NAME="$(node "$SCRIPT_DIR/artifact.mjs" field release "$MANIFEST")"
+
+# REL_NAME 来自 BUILD.json，会直接拼进路径，还参与 rm -rf。发布包是外部输入
+# （可以从别处拷来的 tar.gz），所以按不可信字符串处理：只允许字母、数字和 . _ + -，
+# 并且不能以 . 开头、不能含 ..。否则一个 release 写成 ../../.. 就能删到发布根外面。
+case "$REL_NAME" in
+  "" | .* | *..* | *[!A-Za-z0-9._+-]*)
+    knot_fail "BUILD.json 里的 release 名字不合法：'${REL_NAME}'
+这个名字会拼进 releases/ 下的目录、参与删除与回滚。只允许字母、数字和 . _ + -，
+且不能以 . 开头或包含 ..。请修 BUILD.json 或重新构建。"
+    ;;
+esac
+[[ "${#REL_NAME}" -le 120 ]] || knot_fail "release 名字太长（${#REL_NAME} 字符，上限 120）：${REL_NAME}"
+
 REL_VERSION="$(node "$SCRIPT_DIR/artifact.mjs" field version "$MANIFEST")"
 REL_COMMIT="$(node "$SCRIPT_DIR/artifact.mjs" field commit "$MANIFEST")"
 REL_PLATFORM="$(node "$SCRIPT_DIR/artifact.mjs" field platform "$MANIFEST")"
@@ -278,6 +297,23 @@ if [[ "$DRY_RUN" == 1 ]]; then
   echo "  接入      $([[ -f "$KNOT_XKNOT_ENV" ]] && echo "$KNOT_XKNOT_ENV" || echo "未接入 XKnot（可选）")"
   exit 0
 fi
+
+# ---- 并发保护 ----
+# 两个部署同时跑会互相覆盖 current 链接、互相删 releases/ 下的目录，
+# 表现是「部署成功但版本不对」，而且两次都说 OK。用目录当锁：mkdir 是原子的。
+LOCK_DIR="$KNOT_DEPLOY_ROOT/.deploy.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  HOLDER="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")"
+  if [[ -n "$HOLDER" ]] && kill -0 "$HOLDER" 2>/dev/null; then
+    knot_fail "另一个部署正在跑（pid ${HOLDER}），本次不动手。
+等它结束再重试；确认它卡死了，先看 ${LOCK_DIR}，再手动删掉。"
+  fi
+  # 持锁进程已经不在了：上次部署被强杀，没来得及清理。接管它。
+  knot_warn "接管残留的部署锁（pid ${HOLDER:-未知} 已不存在）。"
+  rm -rf "$LOCK_DIR"
+  mkdir "$LOCK_DIR" 2>/dev/null || knot_fail "抢不到部署锁：$LOCK_DIR"
+fi
+printf '%s\n' "$$" > "$LOCK_DIR/pid"
 
 # ---- 2. 装发布包 ----
 mkdir -p "$KNOT_RELEASES_DIR"

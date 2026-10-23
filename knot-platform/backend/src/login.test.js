@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adminEmail, defaultDisplayName, ensureOwner, feedbackMessage, isOwnerAccount, loginKeyMessage, newLoginKey, normalizeLoginKey, redeemLoginKey, relayUrl, requestLoginKey, sendLoginKey } from "./login.js";
+import { adminEmail, defaultDisplayName, ensureOwner, feedbackMessage, isOwnerAccount, loginKeyMessage, loginLockRemaining, LOGIN_LOCK_MS, LOGIN_MAX_FAILURES, newLoginKey, normalizeLoginKey, redeemLoginKey, relayUrl, requestLoginKey, resetLoginGuard, sendLoginKey } from "./login.js";
 import { installSystemPolicy, resetSystemPolicy } from "./system.js";
 
 test("login key is six digits", () => {
@@ -406,4 +406,97 @@ test("另一个进程刚好建好主理人时，以它为准", async () => {
     });
     assert.equal(await ensureOwner(pool), "owner-other");
   });
+});
+
+// 登录码是 6 位、10 分钟有效，一共 10^6 个取值。不设次数上限时，
+// 知道邮箱的人可以把空格基本走完——所以这里测的是「试错会被计数并被锁住」。
+
+function badKeyPool() {
+  return {
+    pool: poolWith((sql) => {
+      if (sql.includes("UPDATE login_keys")) return { rowCount: 0, rows: [] };
+      throw new Error(sql);
+    }),
+  };
+}
+
+test("wrong keys lock the mailbox before the code space can be walked", async () => {
+  resetLoginGuard();
+  try {
+    const email = "guess@example.com";
+    const { pool } = badKeyPool();
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+      const result = await redeemLoginKey(pool, email, "000000");
+      assert.equal(result.error, "bad_key");
+    }
+    const locked = await redeemLoginKey(pool, email, "000000");
+    assert.equal(locked.error, "too_many");
+    assert.equal(locked.status, 429);
+    assert.ok(locked.retryAfter > 0, "客户端要拿到准确的重试秒数");
+    assert.ok(loginLockRemaining(email) > 0);
+  } finally {
+    resetLoginGuard();
+  }
+});
+
+test("a correct key clears the count, so a typo or two never accumulates", async () => {
+  resetLoginGuard();
+  try {
+    const email = "paul@example.com";
+    const { pool: bad } = badKeyPool();
+    for (let i = 0; i < LOGIN_MAX_FAILURES - 1; i += 1) {
+      assert.equal((await redeemLoginKey(bad, email, "000000")).error, "bad_key");
+    }
+    const { pool: good } = redeemPool(() => ({ rows: [{ id: "user-1", points_balance: 100, role: "user" }] }));
+    assert.equal((await redeemLoginKey(good, email, "048291")).userId, "user-1");
+    assert.equal(loginLockRemaining(email), 0);
+    // 清零之后又能错满一整轮，说明计数没有跟着上一次的失败继续算。
+    for (let i = 0; i < LOGIN_MAX_FAILURES - 1; i += 1) {
+      assert.equal((await redeemLoginKey(bad, email, "000000")).error, "bad_key");
+    }
+    assert.equal(loginLockRemaining(email), 0);
+  } finally {
+    resetLoginGuard();
+  }
+});
+
+test("the lock lifts once its window has passed", async () => {
+  resetLoginGuard();
+  try {
+    const email = "late@example.com";
+    const { pool } = badKeyPool();
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) await redeemLoginKey(pool, email, "000000");
+    assert.ok(loginLockRemaining(email) > 0);
+    assert.equal(loginLockRemaining(email, Date.now() + LOGIN_LOCK_MS + 1), 0);
+  } finally {
+    resetLoginGuard();
+  }
+});
+
+test("a failure that is not a wrong key does not count against the mailbox", async () => {
+  resetLoginGuard();
+  try {
+    // 冻结注册返回 registration_closed：那不是猜码，记进去会让正常用户
+    // 在自己的注册窗口里被锁死。
+    const email = "closed@example.com";
+    installSystemPolicy({ registrationMode: "closed" });
+    try {
+      const pool = poolWith((sql) => {
+        if (sql.includes("UPDATE login_keys")) return { rowCount: 1, rows: [{ id: "key-1", invite_code_id: null }] };
+        if (sql.includes("role = 'owner'")) return { rows: [] };
+        if (sql.includes("INSERT INTO accounts")) {
+          return { rows: [{ id: "user-9", points_balance: 0, role: "user", inserted: true }] };
+        }
+        throw new Error(sql);
+      });
+      for (let i = 0; i < LOGIN_MAX_FAILURES * 2; i += 1) {
+        assert.equal((await redeemLoginKey(pool, email, "048291")).error, "registration_closed");
+      }
+      assert.equal(loginLockRemaining(email), 0);
+    } finally {
+      resetSystemPolicy();
+    }
+  } finally {
+    resetLoginGuard();
+  }
 });

@@ -32,7 +32,7 @@ import { DEFAULT_SITE_LOCALE, parseLocale } from "@knot/locale";
 import { guestBrowsing, siteConfig } from "../system.js";
 import { acceptAvatar, ensureCardImage, ensureUploadDir, newStorageName } from "../uploads.js";
 import { readableBlobPath, tmpDir } from "../storage.js";
-import { storeUploadedFile } from "../uploadStore.js";
+import { isInlineRenderableMime, storeUploadedFile } from "../uploadStore.js";
 import { sendUploadError } from "./uploadError.js";
 import { brandView } from "../profile.js";
 
@@ -183,7 +183,11 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     if (!email) return res.status(400).json({ error: "bad_email" });
     if (!key) return res.status(400).json({ error: "bad_key" });
     const redeemed = await redeemLoginKey(pool, email, key);
-    if (redeemed.error) return res.status(redeemed.status).json({ error: redeemed.error });
+    if (redeemed.error) {
+      // 锁定期要给出准确的重试时刻，否则前端只能猜，用户会一直连点。
+      if (redeemed.retryAfter) res.set("Retry-After", String(redeemed.retryAfter));
+      return res.status(redeemed.status).json({ error: redeemed.error });
+    }
     const userId = redeemed.userId;
     const sid = randomBytes(24).toString("hex");
     const expires = new Date(Date.now() + sessionTtlMs());
@@ -481,6 +485,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   router.get("/uploads/:id/display", async (req, res) => {
     const opened = await readableUpload(req);
     if (!opened?.image) return res.status(404).end();
+    res.set("X-Content-Type-Options", "nosniff");
     try {
       const display = await ensureCardImage(uploadDir, opened.row.storage_name);
       res.set("Cache-Control", mediaCacheControl(opened.audience));
@@ -504,7 +509,16 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
       "Cache-Control",
       opened.row.avatar || opened.row.sponsor ? "public, max-age=86400" : mediaCacheControl(opened.audience)
     );
-    res.type(opened.row.mime);
+    // 不管什么类型都不许浏览器自己猜：猜出来的类型可能比声明值更危险。
+    res.set("X-Content-Type-Options", "nosniff");
+    if (isInlineRenderableMime(opened.row.mime)) {
+      res.type(opened.row.mime);
+    } else {
+      // 白名单外的类型一律当附件交出去。库里可能有历史上按客户端声明存下的记录，
+      // 这条分支管的是「已经存进来的」，不依赖上传时那条校验。
+      res.set("Content-Type", "application/octet-stream");
+      res.set("Content-Disposition", attachmentDisposition(opened.row.original_name || opened.row.storage_name));
+    }
     fs.createReadStream(opened.filePath).pipe(res);
   });
 

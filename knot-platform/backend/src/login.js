@@ -44,6 +44,59 @@ export function hashLoginKey(key) {
   return createHash("sha256").update(key).digest("hex");
 }
 
+// 登录码只有 6 位，一共 10^6 个取值，有效期 10 分钟。不限制试错次数的话，
+// 知道邮箱的人可以在一个有效期内把空格基本走完——这不是猜测，是枚举。
+// 所以按邮箱记失败次数，超过阈值就锁一段时间；成功一次就清零。
+//
+// 为什么不落库：backend/migrations 只有一份基线，加表要整库重建（见 handoff.js）。
+// 代价是重启清空计数。这是刻意的取舍：能重启实例的人已经有更高权限，
+// 而把这张表塞进基线会让每台机器都得走一次结构变更。
+// 单进程内计数在多副本部署下会各算各的；当前部署是单 Backend，先按这个前提。
+export const LOGIN_MAX_FAILURES = 10;
+export const LOGIN_LOCK_MS = 15 * 60 * 1000;
+const MAX_GUARDED_EMAILS = 10_000;
+
+// email -> { count, until }。until 是锁定截止时刻，0 表示没锁。
+const guard = new Map();
+
+function lockedUntil(email, now) {
+  const entry = guard.get(email);
+  if (!entry) return 0;
+  if (!entry.until) return 0;
+  if (entry.until > now) return entry.until;
+  // 锁过期：整个条目作废，失败次数一起清掉，不带着旧账继续算。
+  guard.delete(email);
+  return 0;
+}
+
+export function loginLockRemaining(email, now = Date.now()) {
+  const until = lockedUntil(String(email || ""), now);
+  return until ? until - now : 0;
+}
+
+export function clearLoginFailures(email) {
+  guard.delete(String(email || ""));
+}
+
+export function resetLoginGuard() {
+  guard.clear();
+}
+
+function noteLoginFailure(email, now) {
+  const until = lockedUntil(email, now);
+  if (until) return; // 已经在锁里，不重复累计
+  const entry = guard.get(email) || { count: 0, until: 0 };
+  entry.count += 1;
+  if (entry.count >= LOGIN_MAX_FAILURES) {
+    entry.count = 0;
+    entry.until = now + LOGIN_LOCK_MS;
+  }
+  // 重新插入，把最近失败过的邮箱挪到表尾，淘汰时先丢最久没动的。
+  guard.delete(email);
+  guard.set(email, entry);
+  while (guard.size > MAX_GUARDED_EMAILS) guard.delete(guard.keys().next().value);
+}
+
 function smtpSecureEnabled() {
   const value = String(process.env.SMTP_SECURE || "").trim().toLowerCase();
   return value === "1" || value === "true" || value === "yes";
@@ -222,12 +275,22 @@ async function redeemOn(db, email, key) {
 }
 
 export async function redeemLoginKey(pool, email, key) {
+  // 锁定期内不连库直接拒。失败计数记在事务外：下面的 ROLLBACK 会把事务里
+  // 写下的任何东西一起丢掉，计数落在里面等于永远不涨。
+  const remaining = loginLockRemaining(email);
+  if (remaining > 0) {
+    return { error: "too_many", status: 429, retryAfter: Math.ceil(remaining / 1000) };
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const result = await redeemOn(client, email, key);
     if (result && result.error) await client.query("ROLLBACK");
     else await client.query("COMMIT");
+    // 只把「码不对」算作一次失败：冻结注册、邀请码无效这些不是猜码，
+    // 记进去会让正常用户在自己的注册窗口里被锁死。
+    if (result && result.userId) clearLoginFailures(email);
+    else if (result && result.error === "bad_key") noteLoginFailure(email, Date.now());
     return result;
   } catch (error) {
     try {

@@ -180,3 +180,22 @@ test("plain preview strips the markdown markers", () => {
   assert.equal(toPlain("**a *b* c**"), "a b c");
   assert.equal(toPlain("snake_case_name"), "snake_case_name");
 });
+
+test("a deeply nested quote renders instead of blowing the stack", () => {
+  // 层数由输入决定：几千个 ">" 就能把递归走穿。这段代码在渲染路径上，
+  // 一条发出去的内容不该让读它的页面崩掉。
+  const deep = Array.from({ length: 2000 }, (_, i) => `${">".repeat(i + 1)} x`).join("\n");
+  const html = toHtml(deep);
+  assert.equal(typeof html, "string");
+  // 输出要有上限，否则只是把栈溢出换成了内存溢出。
+  assert.ok(html.length < 64 * 1024, `html is ${html.length} bytes`);
+  assert.match(html, /<blockquote>/);
+});
+
+test("a nested list also stops at the depth cap", () => {
+  const lines = [];
+  for (let i = 0; i < 400; i += 1) lines.push(`${"  ".repeat(i)}- item ${i}`);
+  const html = toHtml(lines.join("\n"));
+  assert.equal(typeof html, "string");
+  assert.ok(html.length < 64 * 1024, `html is ${html.length} bytes`);
+});
