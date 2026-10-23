@@ -398,6 +398,7 @@
     "mail_unavailable": "邮件暂时发不出去",
     "mail_failed": "邮件没有寄出",
     "too_many": "稍等片刻再要一把密钥",
+    "waitSeconds": "请在 {seconds} 秒后再试",
     "bad_name": "称呼不能为空，也不能超过 40 个字",
     "bad_bio": "自我介绍不能超过 200 个字",
     "name_taken": "这个称呼已经有人用了",
