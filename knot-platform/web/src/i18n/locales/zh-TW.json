@@ -398,6 +398,7 @@
     "mail_unavailable": "郵件暫時寄不出去",
     "mail_failed": "郵件沒有寄出",
     "too_many": "稍等片刻再要一把金鑰",
+    "waitSeconds": "請在 {seconds} 秒後再試",
     "bad_name": "稱呼不能為空，也不能超過 40 個字",
     "bad_bio": "自我介紹不能超過 200 個字",
     "name_taken": "這個稱呼已經有人用了",
