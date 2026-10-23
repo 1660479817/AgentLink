@@ -117,7 +117,7 @@ A 完成的标志：中枢手上有这行回执，伙伴手上有账号与端口
 |------|------|------|------|
 | 2.1 | 伙伴 | 起隧道，再装常驻（断线自动重连） | 入口出现监听 |
 | 2.2 | 中枢 | 补 `/api/` 反代，`/api/admin` 404；`nginx -t` 后 reload | `/api` 通到实例 |
-| 2.3 | 中枢 | 探测 → `status: "active"` → 重新构建 → 寄 `partner.live` | 门户出现该条目 |
+| 2.3 | 中枢 | 探测 → `status: "active"` → 重算门户快照（`ops/republish.mjs`，接通即触发，另有 10 分钟定时器兜底）→ 自动寄 `partner.live`（`ops/notify-live.mjs`，同一申请只发一封）→ 改名册备注 | 门户出现该条目 |
 
 2.1 与 2.2 的顺序不敏感：反代先加，隧道没起时 `/api` 是 502，但清单还是 `pending`，门户不展示、探测也不跑，不会挂出一个中断的实例。2.3 必须最后。
 
@@ -276,8 +276,9 @@ curl -s https://〈子域〉/api/health
 # 3. 中枢：运行状态为 up / degraded（清单 status 已是 active）
 cd xknot.si && node ops/check-health.mjs | grep 〈id〉
 
-# 4. 门户：重新构建后条目出现
-npm run build
+# 4. 门户：条目出现。接通时 worker 已自动重算快照，xknot-republish.timer 每 10 分钟兜底。
+#    只想核对数据、不想整站构建时：
+node ops/republish.mjs          # 写 web/dist/data/hub.json；中枢上由 timer 写 /var/www/xknot/data/hub.json
 ```
 
 
@@ -296,7 +297,7 @@ npm run build
 阶段 1   中枢建账号、装公钥、写 sshd Match、分配端口
             │
             ▼
-         npm run admin -- access <申请编号> --id <实例 id> --with-relay --out /tmp/<id>-access.env
+         npm run admin -- access <申请编号> --id <实例 id> --out /tmp/<id>-access.env
             │
             ├─ 生成一次性领取令牌（库里只存 SHA-256）
             └─ 寄 partner.handoff，正文只有 /claim/<token>
@@ -330,7 +331,9 @@ XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
 （`0600`），用 `join-xknot.sh --payload` 写入；换个实现就直接读同样这几个键。
 
 `access` 会把接入件写到 `--out` 指定的文件并设 600；不给 `--out` 时只打到终端。
-不带 `--with-relay` 时没有凭据行，实例可以先用本机 SMTP。
+**默认签发一份委托发信凭据**并写进接入件；只有明确要纯 SMTP 时才加 `--no-relay`。
+自动接通的实例写的是同一份接入件：中枢把 `issued` 与凭据一起给出，实例按既有路径落盘即可，
+不需要为发信单独改代码或脚本。
 
 `partner.issuance` 这封信只在公钥迟到时用（它的正文就是向伙伴索取 `.pub`）。公钥按时交到时跳过它，前置完成直接寄 `partner.handoff`，这样全程只有一封等待伙伴动作的信。
 

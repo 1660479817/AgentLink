@@ -103,6 +103,8 @@ xknot.si/
 │   ├── traffic.mjs        入口访问日志 → 按子域的日流量，写 var/traffic/{id}.json
 │   ├── node-status.mjs    合成节点状态（探测 + 隧道 + 位置 + 流量），写 var/status.json
 │   ├── xknot-traffic.service / .timer  systemd 定时器（每小时）
+│   ├── republish.mjs      运行期重算门户快照：接通、档案改版后更新 data/hub.json
+│   ├── xknot-republish.service / .timer  systemd 定时器（每 10 分钟）
 │   ├── fetch-cards.mjs    橱窗拉取，写 var/cards/{id}.json
 │   ├── fetch-stats.mjs    活动数据拉取，写 var/stats/{id}.json
 │   ├── build-hub-data.mjs 合并清单、探测、活动数据与橱窗，写 data/hub.json
@@ -162,6 +164,7 @@ npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_
 | [ops/watch-health.mjs](ops/watch-health.mjs) | 定时巡检：连续断连提醒、暂时隐藏、恢复自动回 |
 | [ops/fetch-profile.mjs](ops/fetch-profile.mjs) | 取回各实例的 `/api/federation/profile`，写 `var/profiles/{id}.json` |
 | [ops/build-hub-data.mjs](ops/build-hub-data.mjs) | 合并清单、档案副本与探测结果，写 `data/hub.json` |
+| [ops/republish.mjs](ops/republish.mjs) | 运行期只重算 `data/hub.json`：接通与档案改版后由 worker 与 timer 调用 |
 | [ops/doc-page.mjs](ops/doc-page.mjs) | 通用文档页：markdown 渲染、标题简介提取、HTML 骨架，静态文档共用 |
 | [ops/local-hub.mjs](ops/local-hub.mjs) | 本机入口：静态站、安全头与反代，对齐 nginx |
 | [ops/local-stack.mjs](ops/local-stack.mjs) | 本地部署编排：临时数据目录、随机端口、起停 |

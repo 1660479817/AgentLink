@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh the xknot.si portal snapshot every 10 minutes
+
+[Timer]
+# 开机 4 分钟后先跑一次，之后每 10 分钟一次。
+# 错开健康巡检（2/17/32/47 分）与流量聚合（xx:18），让 hub.json 落在它们写完之后。
+OnBootSec=4min
+OnUnitActiveSec=10min
+AccuracySec=1min
+# 同 xknot-health.timer：Persistent= 只对 OnCalendar= 生效，这里写了也不起作用。
+
+[Install]
+WantedBy=timers.target

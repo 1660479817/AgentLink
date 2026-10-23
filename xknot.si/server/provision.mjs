@@ -220,6 +220,25 @@ server {
 
 export const ENTRY_PROXIED_MARK = "# 入口已接通：整站反代到隧道";
 
+// 入口访问日志：聚合端是 ops/traffic.mjs，按这些键读（见 docs/HUB.md）。
+//
+// 格式声明写在**每份 vhost 自己**的文件里，名字按子域唯一。两个原因：
+//   1. log_format 只能声明一次，不能每份 conf 都叫 knot_json；
+//   2. conf.d/*.conf 按文件名排序 include，共享的 knot-log.conf 排不到最前，
+//      cpswang 这种域名排在它前面的子域会报 "unknown log format"。
+// 自己声明就不依赖任何文件先被加载。字段与 knot-platform/ops/entry/log.conf.template
+// 必须一致——少一个键，traffic.mjs 就少一列。
+export const ENTRY_ACCESS_LOG = "/var/log/nginx/knot-access.log";
+const LOG_FORMAT_BODY = `'{"at":"$time_iso8601","host":"$host","status":$status,"method":"$request_method",'
+  '"uri":"$uri","bytes":$body_bytes_sent,"requestTime":$request_time,'
+  '"upstreamTime":"$upstream_response_time","cache":"$upstream_cache_status",'
+  '"ip":"$remote_addr","ua":"$http_user_agent","ref":"$http_referer"}'`;
+
+/** 每个子域一个格式名：log_format 的名字只能是字母、数字与下划线。 */
+export function logFormatName(domain) {
+  return `knot_json_${String(domain).replace(/[^a-zA-Z0-9]/g, "_")}`;
+}
+
 // 入口这一层不做压缩，JS/CSS/JSON 就按原文发出去：WebUI 主包 109KB，压完约 68KB。
 // 同一个 http 块里别的 vhost 各写各的，所以只能写在这份 conf 的 server 里。
 // gzip_proxied any 让穿过隧道的 /api 响应也压——JSON 收益最大。
@@ -264,6 +283,16 @@ export function renderVhost({ domain, root, port, entry = false }) {
 }
 `;
 
+  // 访问日志：格式声明与用户都写在这一份 conf 里，名字按子域唯一。
+  // conf.d 是按文件名顺序 include 的，共享的 knot-log.conf 可能排在后面，
+  // 那时 nginx -t 会报 unknown log format，整棵配置树都过不了。
+  const formatName = logFormatName(domain);
+  const logDirective = `# 访问日志格式（每个子域一份，名字唯一）。聚合端：ops/traffic.mjs。
+log_format ${formatName} escape=json
+  ${LOG_FORMAT_BODY};
+
+`;
+
   const rootLocation = proxied
     ? `    location / {
         proxy_pass http://${upstream};
@@ -293,7 +322,7 @@ export function renderVhost({ domain, root, port, entry = false }) {
 
   return `${header}
 
-${upstreamBlock}
+${upstreamBlock}${logDirective}
 server {
     listen 80;
     listen [::]:80;
@@ -318,6 +347,10 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # 每个子域一行，格式名就是上面那份唯一声明。
+    # 少了这一行，控制台里这个节点的「入口流量」永远是「未采集」。
+    access_log ${ENTRY_ACCESS_LOG} ${logFormatName(domain)};
 
     client_max_body_size 52m;
 
@@ -534,6 +567,8 @@ export async function runStep({
   }
 
   if (step === "vhost") {
+    // 日志格式先就位：后面每一份 vhost 都引用 knot_json，缺了这份文件 nginx -t
+    // 会在整棵配置树上失败，连别的站点都 reload 不了。
     await host.writeRootFile(`/etc/nginx/conf.d/${domain}.conf`, renderHttpVhost({ domain, root }), "644");
     const tested = await host.sudo(["nginx", "-t"]);
     if (tested.code !== 0) throw new ProvisionError("nginx_config_invalid", tested.stderr);
