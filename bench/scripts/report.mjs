@@ -196,7 +196,13 @@ export function render(result) {
   out.push("");
   out.push("- p95 是「一百次里有五次比它慢」。看它，不看平均。");
   out.push("- 并发升上去 p95 翻倍、错误率抬头：瓶颈在隧道或后端连接池，不在页面。");
-  out.push("- 静态端点（`/`、`/discover.json`、`/assets/*`）由入口主机直接回，不穿隧道。它们慢，是入口或带宽的问题。");
+  // 入口有两种投放：static 把页面放在入口主机磁盘上，proxy 连首页都回源到实例。
+  // 同一行建议不能两边都写，否则整站反代的站会被误判成「入口磁盘慢」。
+  if (target.capabilities?.staticEntry) {
+    out.push("- 静态端点（`/`、`/discover.json`、`/assets/*`）由入口主机直接回，不穿隧道。它们慢，是入口或带宽的问题。");
+  } else {
+    out.push("- 这个站是整站反代：连 `/`、`/discover.json`、`/assets/*` 都穿隧道。它们慢，先看隧道与实例，不是入口磁盘。");
+  }
   out.push("- `/api/*` 经隧道回实例；每个新建 TCP 都多一次跨洋往返，所以 keepalive 命中与否差别很大。");
   out.push("- 人那一层（`human/`）给的是单用户体感，不和这里的并发数混在一张表里。");
   out.push("");
