@@ -1,0 +1,22 @@
+{
+  "name": "knot-bench",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "*.xknot.si 个人站的访问速度测量：黑箱，只给一个 URL",
+  "scripts": {
+    "probe": "node scripts/probe.mjs",
+    "image": "node scripts/make-image.mjs",
+    "human": "node human/visitor.mjs",
+    "load": "node scripts/run.mjs",
+    "load:read": "node scripts/run.mjs --scenario read",
+    "load:agent": "node scripts/run.mjs --scenario agent",
+    "load:write": "node scripts/run.mjs --scenario write --allow-writes --levels 5,10 --duration 20s",
+    "report": "node scripts/report.mjs",
+    "compare": "node scripts/compare.mjs",
+    "install:browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "playwright": "1.57.0"
+  }
+}

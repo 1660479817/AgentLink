@@ -72,6 +72,7 @@ XKnot 联邦门户：它记录你的站点资料、检测运行状态和拉取�
 | [`knot-platform/`](./knot-platform) | **独立项目**：一个 Knot 信息枢纽的完整实现。Backend、WebUI、Agent API、部署脚本都在这里，自己装依赖、自己编译、自己部署 |
 | [`xknot.si/`](./xknot.si) | **独立项目**：XKnot 联邦站点。门户、加入申请与审核接口、实例清单，同样独立开发与部署 |
 | [`docs/`](./docs) | **公共资产**：概念说明（[`concepts.md`](./docs/concepts.md)）、Agent 接口指引（[`KNOT_HELP.md`](./docs/KNOT_HELP.md)）、版权与商标说明、LOGO 母版、联邦层文档、API 入口索引 |
+| [`bench/`](./bench) | **跨项目的测量工具**：只给一个 `https://<标签>.xknot.si` 地址，黑箱量访问速度与并发。不 import 上面两个项目、不读站点配置，换谁实现的实例都能用 |
 | [`LICENSE`](./LICENSE) / [`NOTICE`](./NOTICE) | Apache-2.0 与署名；商标约定见文末「许可」 |
 
 两个项目通过 HTTP 契约相连，各自的依赖、构建和部署都在自己的目录里完成。**先看概念**：[`docs/concepts.md`](./docs/concepts.md) 讲清中枢、实例、入口三者的分工与归属，以及「一台机器可以兼任多个角色」。各自的安装、构建、部署步骤看项目自己的 README：
