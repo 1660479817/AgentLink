@@ -24,8 +24,15 @@ function finish(result) {
 export function settleDownload(accepted) {
   const job = downloadConsent.value;
   if (!job || job.phase !== "confirm") return;
-  if (!accepted || job.short) {
-    if (!accepted) finish(false);
+  if (!accepted) {
+    finish(false);
+    return;
+  }
+  // 余额不够时确认键本来是禁用的；万一被程序调进来，也要给一个看得见的结果，
+  // 不能静默 return 把界面留在 confirm。
+  if (job.short) {
+    job.code = "insufficient_points";
+    job.phase = "error";
     return;
   }
   void runTask();

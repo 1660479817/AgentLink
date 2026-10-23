@@ -51,3 +51,11 @@ export function wishIsLive(item, now = Date.now()) {
   const deadline = wishDeadlineOf(item);
   return deadline === null || deadline > now;
 }
+
+// 审核结果 → 文案键。投稿列表与 wish 页原先各抄一份，改一处忘一处就会不一致。
+export function statusKey(verdict) {
+  if (verdict === "passed") return "submissions.statusPublished";
+  if (verdict === "rejected") return "submissions.statusRejected";
+  if (verdict === "removed") return "submissions.statusRemoved";
+  return "submissions.statusPending";
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { expiryOf, hoursLeftAt, hoursLeftOf, wishDeadlineOf, wishIsLive } from "./record.js";
+import { expiryOf, hoursLeftAt, hoursLeftOf, statusKey, wishDeadlineOf, wishIsLive } from "./record.js";
 
 const NOW = Date.UTC(2026, 9, 17, 12, 0, 0);
 const HOUR = 60 * 60 * 1000;
@@ -50,4 +50,14 @@ test("remaining hours round up and stop at zero", () => {
 test("an expired sale post is reported as expired, not missing", () => {
   const item = { kMeta: { kind: "post", expiresAt: new Date(NOW - 1).toISOString() } };
   assert.equal(hoursLeftOf(item, NOW), 0);
+});
+
+test("a verdict maps to one status label everywhere", () => {
+  assert.equal(statusKey("passed"), "submissions.statusPublished");
+  assert.equal(statusKey("rejected"), "submissions.statusRejected");
+  assert.equal(statusKey("removed"), "submissions.statusRemoved");
+  assert.equal(statusKey("pending"), "submissions.statusPending");
+  // 未知值（没有 verdict 字段、后端加了新状态）落到「待审核」，不返回空键。
+  assert.equal(statusKey(undefined), "submissions.statusPending");
+  assert.equal(statusKey("brand_new"), "submissions.statusPending");
 });

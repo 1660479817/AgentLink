@@ -92,9 +92,11 @@ a:hover {
   padding: 0 1rem;
   padding-left: max(1rem, env(safe-area-inset-left));
   padding-right: max(1rem, env(safe-area-inset-right));
-  display: flex;
+  display: grid;
+  /* 两侧按内容宽度，中间一列吃剩下的空间。原先给站点名写死 19.5rem 的预留，
+     与两侧真实宽度（约 222px）对不上，360px 下名字只剩两个汉字。 */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
 }
 
@@ -113,10 +115,11 @@ a:hover {
 /* 站点名固定在顶栏正中。两侧各留三个图标的位置，名字长了省略，
    不会压到按键；搜索展开时整条顶栏让给输入框。 */
 .site-title {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: calc(100% - 19.5rem);
+  justify-self: center;
+  min-width: 0;
+  max-width: 100%;
+  /* 44px 是触控下限：它同时是主理人弹窗的唯一入口。 */
+  min-height: 44px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -158,7 +161,6 @@ a:hover {
   }
 
   .site-title {
-    max-width: calc(100% - 18.5rem);
     font-size: 1rem;
   }
 }
@@ -268,6 +270,9 @@ body:has(.release-note) .search-sheet {
 }
 
 /* 搜索展开后盖住整条顶栏：返回键 + 输入框，不再和站点名抢位置。 */
+/* 下面这一整套（.header-search、.search-field、.search-backdrop、.search-sheet、
+   .search-history、.search-recent）当前没有入口：docs/KNOT_WEB_UI.md 写明顶栏不再放搜索按钮，
+   弹层与检索逻辑保留在 AppShell 里供以后另放入口。这是有意留的，不是死代码，别删。 */
 .header-search {
   position: absolute;
   inset: 0;
@@ -280,7 +285,6 @@ body:has(.release-note) .search-sheet {
   padding-right: max(1rem, env(safe-area-inset-right));
   background: var(--color-surface);
 }
-
 
 .header-search-icon {
   flex-shrink: 0;
@@ -410,7 +414,7 @@ body:has(.release-note) .search-sheet {
   border-radius: 999px;
   background: #e41e3f;
   color: #ffffff;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.15rem;
   text-align: center;
@@ -671,10 +675,6 @@ body:has(.release-note) .search-sheet {
   position: relative;
 }
 
-.locale-field {
-  display: block;
-}
-
 .locale-trigger {
   display: flex;
   align-items: center;
@@ -889,6 +889,14 @@ body:has(.release-note) .search-sheet {
 .friend-level,
 .friend-points {
   white-space: nowrap;
+}
+
+/* 移除好友的二次确认：两个次按键横排，窄屏也放不下时换行而不是挤出卡片。 */
+.friend-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
 }
 
 @media (min-width: 1024px) {
@@ -1211,7 +1219,9 @@ body:has(.release-note) .search-sheet {
   border: 0;
   background: var(--color-bg);
   box-shadow: none;
-  outline: none;
+  /* 全局 :focus-visible 特异性更低，会被这条盖掉；这里自己把焦点画出来。 */
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 .share-actions {
@@ -1372,16 +1382,6 @@ body:has(.release-note) .search-sheet {
   background: transparent;
 }
 
-.share-form-bar {
-  display: flex;
-  justify-content: flex-end;
-  margin: -0.15rem -0.2rem 0.15rem;
-}
-
-.share-close-icon {
-  font-size: 1.25rem;
-}
-
 .share-input.is-growing {
   min-height: calc(1.5em * 2);
   overflow: hidden;
@@ -1488,15 +1488,16 @@ body:has(.release-note) .search-sheet {
 }
 
 .share-consent {
-  min-height: 0;
+  /* 44px 是触控下限；文字允许折行，窄屏下不再横向压到发送键上。 */
+  min-height: 44px;
   font-size: 0.9rem;
-  line-height: 1;
+  line-height: 1.3;
 }
 
 .share-consent span {
-  white-space: nowrap;
+  white-space: normal;
   font-size: 1em;
-  line-height: 1;
+  line-height: 1.3;
 }
 
 .share-consent input,
@@ -1585,7 +1586,8 @@ body:has(.release-note) .search-sheet {
 textarea.share-input:focus {
   border: 0;
   box-shadow: none;
-  outline: none;
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .share-photos {
@@ -1689,69 +1691,7 @@ textarea.share-input:focus {
   margin-bottom: 0.75rem;
 }
 
-.share-submit {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.85rem;
-}
-
-.share-dialog-head,
-.composer-head {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.65rem;
-}
-
-.share-dialog-title {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-size: 1.2rem;
-  font-weight: 700;
-  line-height: 1.3;
-}
-
-.share-kinds {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.25rem;
-  margin: 0 0 0.85rem;
-  padding: 0.25rem;
-  border-radius: 999px;
-  background: var(--color-bg);
-}
-
-.share-kind {
-  min-height: 44px;
-  padding: 0.35rem 0.5rem;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-muted);
-  font-size: 0.95rem;
-  font-weight: 700;
-  transition: background-color 200ms ease, color 200ms ease;
-}
-
-.share-kind.is-selected,
-.share-kind[aria-selected="true"] {
-  background: #ffffff;
-  color: var(--color-text);
-  box-shadow: var(--shadow-card);
-}
-
-.share-kind:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-.share-switch-row,
-.share-price-row,
-.share-hours-row {
+.share-price-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1760,21 +1700,17 @@ textarea.share-input:focus {
   margin-top: 0.35rem;
 }
 
-.share-switch-copy,
 .share-price-copy {
   min-width: 0;
 }
 
-.share-switch-title,
-.share-price-copy,
-.share-hours-row label {
+.share-price-copy {
   display: block;
   margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
 }
 
-.share-switch-hint,
 .share-note {
   margin: 0.15rem 0 0;
   color: var(--color-muted);
@@ -1784,13 +1720,6 @@ textarea.share-input:focus {
 
 .share-note {
   margin-top: 0.75rem;
-}
-
-.share-switch-row input {
-  width: 1.25rem;
-  height: 1.25rem;
-  flex: 0 0 auto;
-  accent-color: var(--color-accent);
 }
 
 .share-price-row input.share-compact,
@@ -1805,12 +1734,6 @@ textarea.share-input:focus {
 button.intel-create[aria-pressed="true"],
 .intel-bounty[aria-pressed="true"] {
   box-shadow: 0 0 0 2px var(--color-accent);
-}
-
-.share-bounty-hours {
-  width: 100%;
-  max-width: 100%;
-  margin-bottom: 0.75rem;
 }
 
 @media (max-width: 720px) {
@@ -1870,7 +1793,7 @@ button.intel-create[aria-pressed="true"],
   height: 44px;
   border-radius: 50%;
   background: #ffffff;
-  color: #050505;
+  color: var(--color-text);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
   transform: translateY(-50%);
 }
@@ -1931,7 +1854,7 @@ button.intel-create:hover:not(:disabled) {
   height: var(--story-width);
   aspect-ratio: 1;
   background: #e4e6eb;
-  color: #050505;
+  color: var(--color-text);
   font-size: 2rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -2067,27 +1990,6 @@ a.intel-bounty:hover {
   line-height: 1;
 }
 
-.intel-bounty-line {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.22rem;
-  height: 1em;
-}
-
-.intel-bounty-mark {
-  display: block;
-  width: 1.2em;
-  height: 1.2em;
-  flex: 0 0 auto;
-}
-
-.intel-bounty-count {
-  font-size: 1em;
-  font-weight: 700;
-  line-height: 1;
-}
-
 /* 最近活跃用户：与情报横滑条同一套尺寸 */
 .intel-person {
   display: flex;
@@ -2170,7 +2072,7 @@ a.intel-person:hover {
 
 .intel-person-time {
   color: var(--color-muted);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   line-height: 1.2;
 }
 
@@ -2209,13 +2111,12 @@ a.intel-person:hover {
   right: 0.4rem;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.28);
+  background: rgba(0, 0, 0, 0.55);
   color: #ffffff;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.4;
 }
-
 
 .visually-hidden {
   position: absolute;
@@ -2227,42 +2128,6 @@ a.intel-person:hover {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-.search-context {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.search-context-label {
-  margin: 0;
-  font-weight: 600;
-}
-
-.feed-filter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.feed-filter-who {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  min-width: 0;
-}
-
-.feed-filter-name {
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .filter-bar {
@@ -2659,8 +2524,8 @@ a.intel-person:hover {
 }
 
 .intel-photo-caption input[type="text"],
-.intel-photo-draft input[type="text"],
-.intel-photo-price input[type="text"] {
+
+.intel-photo-draft input[type="text"] {
   margin: 0;
   font-family: inherit;
 }
@@ -2788,45 +2653,6 @@ a.intel-person:hover {
   background: rgba(255, 255, 255, 0.94);
 }
 
-.intel-photo-price {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 36px;
-  padding: 0 0.7rem;
-  border-radius: 999px;
-  background: var(--color-bg);
-}
-
-.intel-photo-price span {
-  flex: 0 0 auto;
-  color: var(--color-muted);
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.intel-photo-price input[type="text"] {
-  width: 7.5rem;
-  min-width: 0;
-  min-height: 36px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  font-size: 0.88rem;
-}
-
-.intel-photo-price input[type="text"]:focus {
-  border-color: transparent;
-  box-shadow: none;
-  outline: none;
-}
-
-.intel-photo-price:focus-within {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-
 .intel-compose.is-photo p.error {
   margin: 0.55rem 1rem 0;
 }
@@ -2843,138 +2669,6 @@ a.intel-person:hover {
   }
 }
 
-.intel-send-composer {
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-  padding: 0.2rem 0.25rem 0.2rem 0.85rem;
-  border: 1px solid var(--color-border-dim);
-  border-radius: 999px;
-  background: #ffffff;
-}
-
-.intel-send-composer:focus-within {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-
-.intel-send-input {
-  flex: 1;
-  min-width: 0;
-  min-height: 2.5rem;
-  padding: 0.35rem 0;
-  border: 0;
-  font-size: 0.95rem;
-  background: transparent;
-}
-
-.intel-send-input:focus {
-  outline: none;
-}
-
-.intel-send-composer .composer-price {
-  flex: 0 0 auto;
-  margin-right: 0.15rem;
-}
-
-.intel-send-composer .intel-send-btn.btn-icon {
-  width: 2.5rem;
-  height: 2.5rem;
-  min-width: 2.5rem;
-  min-height: 2.5rem;
-  background: var(--color-accent);
-  color: #ffffff;
-}
-
-.intel-send-composer .intel-send-btn.btn-icon:hover:not(:disabled) {
-  background: #0056d6;
-}
-
-.intel-text-composer {
-  border: 1px solid var(--color-border-dim);
-  border-radius: var(--radius-md);
-  background: #ffffff;
-  padding: 0.65rem 0.75rem;
-}
-
-.intel-text-composer:focus-within {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-
-.intel-text-input {
-  width: 100%;
-  min-height: 4.5rem;
-  padding: 0;
-  border: 0;
-  resize: vertical;
-  background: transparent;
-}
-
-.intel-text-input:focus {
-  outline: none;
-}
-
-.intel-text-tools {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.35rem;
-  margin-top: 0.35rem;
-}
-
-.composer-price,
-.composer-hours {
-  min-width: 0;
-  min-height: 36px;
-  margin-right: auto;
-  padding: 0 0.7rem;
-  border: 0;
-  border-radius: 999px;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 0.88rem;
-}
-
-.composer-price {
-  width: 6.5rem;
-}
-
-.composer-hours {
-  width: 7.5rem;
-}
-
-.composer-price:focus,
-.composer-hours:focus {
-  outline: none;
-}
-
-.composer-context,
-.composer-context-body {
-  margin: 0 0 0.35rem;
-  color: var(--color-muted);
-  font-size: 0.82rem;
-  line-height: 1.35;
-}
-
-.composer-context {
-  font-weight: 600;
-}
-
-.composer-context-body {
-  margin-bottom: 0.65rem;
-  color: var(--color-text);
-  font-size: 0.95rem;
-}
-
-.bounty-reply-note {
-  margin: 0.75rem 0 0.65rem;
-  color: var(--color-muted);
-  font-size: 0.82rem;
-  line-height: 1.35;
-}
-
 .wish-respond-hint {
   flex: 1 1 auto;
   min-width: 0;
@@ -2984,27 +2678,7 @@ a.intel-person:hover {
   line-height: 1.5;
 }
 
-.bounty-reply-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.bounty-reply {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.45rem;
-  margin: 0;
-  padding-top: 0.85rem;
-  border-top: 1px solid #e4e6eb;
-}
-
-.bounty-reply-meta,
-.bounty-reply-files {
+.bounty-reply-meta {
   margin: 0;
   color: var(--color-muted);
   font-size: 0.82rem;
@@ -3027,6 +2701,11 @@ a.intel-person:hover {
   display: flex;
   padding: 0;
   overflow: hidden;
+}
+
+/* 父级裁掉盒子外的 outline，焦点框只剩内侧两条边，改成向内画。 */
+.wish-lane:focus-visible {
+  outline-offset: -2px;
 }
 
 .wish-lane {
@@ -3087,7 +2766,7 @@ a.intel-person:hover {
   margin-top: 0.1rem;
   border-radius: 50%;
   background: #e4e6eb;
-  color: #050505;
+  color: var(--color-text);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -3278,52 +2957,7 @@ a.intel-person:hover {
   }
 }
 
-.intel-text-composer .intel-text-send.btn-icon {
-  width: 2.5rem;
-  height: 2.5rem;
-  min-width: 2.5rem;
-  min-height: 2.5rem;
-  background: var(--color-accent);
-  color: #ffffff;
-}
-
-.intel-text-composer .intel-text-send.btn-icon:hover:not(:disabled) {
-  background: #0056d6;
-}
-
-.chat-composer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-
-.chat-box {
-  width: 100%;
-  min-height: 5.5rem;
-  border: 0;
-  resize: vertical;
-  font: inherit;
-  color: var(--color-text);
-  background: transparent;
-}
-
-.chat-box:focus {
-  outline: none;
-}
-
-.chat-composer:focus-within {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-
-.chat-tools {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.chat-pending,
-.chat-attachments {
+.chat-pending {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -3338,117 +2972,10 @@ a.intel-person:hover {
   gap: 0.4rem;
 }
 
-.chat-thumb {
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
-  border-radius: var(--radius);
-}
-
-.chat-file-name,
-.chat-file-link {
+.chat-file-name {
   color: var(--color-text);
   font-size: 0.95rem;
   word-break: break-all;
-}
-
-.chat-history-title {
-  margin: 1rem 0 0.5rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--color-muted);
-}
-
-.demand-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.demand-kicker {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-
-.demand-time,
-.demand-kind,
-.demand-note {
-  color: var(--color-muted);
-  font-size: 0.85rem;
-  font-weight: 400;
-}
-
-.demand-time,
-.demand-kind,
-.demand-text,
-.demand-note {
-  margin: 0;
-}
-
-.demand-text {
-  white-space: pre-wrap;
-  font: inherit;
-  color: var(--color-text);
-}
-
-.demand-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.demand-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.35rem;
-}
-
-.demand-reply + .demand-reply {
-  margin-top: 0.35rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border-dim);
-}
-
-.demand-photos,
-.demand-files {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.demand-photo {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: var(--radius);
-}
-
-.demand-file {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-height: 44px;
-  color: var(--color-text);
-  text-decoration: none;
-  word-break: break-all;
-}
-
-.demand-file:hover {
-  text-decoration: none;
-}
-
-.demand-file-icon {
-  flex-shrink: 0;
-  color: var(--color-muted);
-  font-size: 1.05rem;
 }
 
 .card.post.is-unread {
@@ -3457,12 +2984,6 @@ a.intel-person:hover {
 
 .post-body + .post-body {
   margin-top: 0.35rem;
-}
-
-.post-head {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
 }
 
 .post-name {
@@ -3921,7 +3442,7 @@ a.intel-person:hover {
   max-height: 36px;
   background: #fff;
   border: 0;
-  color: #050505;
+  color: var(--color-text);
 }
 
 .information-dismiss.btn-icon:hover:not(:disabled) {
@@ -3943,7 +3464,7 @@ a.intel-person:hover {
   max-height: 36px;
   background: #fff;
   border: 0;
-  color: #050505;
+  color: var(--color-text);
 }
 
 .information-close.btn-icon:hover:not(:disabled) {
@@ -4094,7 +3615,7 @@ button.information-avatar:hover:not(:disabled) {
 }
 
 .actor-mark.is-platform {
-  color: #050505;
+  color: var(--color-text);
 }
 
 .information-time {
@@ -4208,7 +3729,7 @@ button.information-avatar:hover:not(:disabled) {
   padding: 0.28rem 0.55rem 0.28rem 0.42rem;
   border-radius: 999px;
   background: #f0f2f5;
-  color: #050505;
+  color: var(--color-text);
   font-size: 0.85rem;
   font-weight: 600;
   line-height: 1;
@@ -4261,12 +3782,6 @@ button.information-avatar:hover:not(:disabled) {
   padding: 0;
   background: transparent;
   color: #65676b;
-}
-
-.information-preview {
-  display: block;
-  width: 100%;
-  height: auto;
 }
 
 .information-card .information-preview,
@@ -4635,7 +4150,7 @@ body:has(.card-share[open]) {
 }
 
 .card-share-action-label {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   line-height: 1.2;
   color: var(--color-muted);
   white-space: nowrap;
@@ -4762,49 +4277,10 @@ button {
   text-decoration: none;
 }
 
-.btn:disabled {
+.btn:disabled,
+.btn.is-disabled {
   opacity: 0.45;
   cursor: not-allowed;
-}
-
-.btn-primary {
-  background: var(--color-accent);
-  color: #ffffff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-  color: #ffffff;
-}
-
-.btn-secondary {
-  background: var(--color-border-dim);
-  color: var(--color-text);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: #d8dadf;
-  color: var(--color-text);
-}
-
-.btn-icon {
-  position: relative;
-  width: var(--header-control);
-  height: var(--header-control);
-  min-width: var(--header-control);
-  min-height: var(--header-control);
-  max-height: var(--header-control);
-  aspect-ratio: 1;
-  flex-shrink: 0;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--color-border-dim);
-  color: var(--color-text);
-}
-
-.btn-icon:hover:not(:disabled) {
-  background: #d8dadf;
-  color: var(--color-text);
 }
 
 .btn-icon.is-plain {
@@ -5149,12 +4625,12 @@ body.is-lightbox {
   top: 0.75rem;
   right: 0.75rem;
   background: rgba(255, 255, 255, 0.92);
-  color: #050505;
+  color: var(--color-text);
 }
 
 .photo-lightbox-close.btn-icon:hover:not(:disabled) {
   background: #ffffff;
-  color: #050505;
+  color: var(--color-text);
 }
 
 .photo-lightbox-nav.btn-icon {
@@ -5163,12 +4639,12 @@ body.is-lightbox {
   top: 50%;
   transform: translateY(-50%);
   background: rgba(255, 255, 255, 0.92);
-  color: #050505;
+  color: var(--color-text);
 }
 
 .photo-lightbox-nav.btn-icon:hover:not(:disabled) {
   background: #ffffff;
-  color: #050505;
+  color: var(--color-text);
 }
 
 .photo-lightbox-nav.is-prev {
@@ -5289,11 +4765,6 @@ body.is-lightbox {
   line-height: 1.6;
 }
 
-.gate-showcase,
-.gate-preview {
-  margin: 1.35rem 0 0;
-}
-
 .gate-carousel {
   --carousel-h: min(84vw, 360px);
   --carousel-offset: calc(var(--carousel-h) * 0.5);
@@ -5352,16 +4823,6 @@ body.is-lightbox {
   z-index: 2;
   opacity: 0.5;
   cursor: pointer;
-}
-
-.gate-fade-enter-active,
-.gate-fade-leave-active {
-  transition: opacity 160ms ease;
-}
-
-.gate-fade-enter-from,
-.gate-fade-leave-to {
-  opacity: 0;
 }
 
 .gate-shot-label {
@@ -5680,15 +5141,6 @@ body.is-lightbox {
   color: var(--color-muted);
 }
 
-.rate-unpriced {
-  margin: 0.2rem 0 0;
-}
-
-.rate-hint {
-  margin: 0.85rem 0 0;
-  font-size: 0.85rem;
-}
-
 .economy-facts {
   margin-top: 0;
 }
@@ -5707,21 +5159,6 @@ body.is-lightbox {
   border-radius: 999px;
   background: var(--color-border-dim);
   color: var(--color-text);
-}
-
-.stage-seeding {
-  background: #f0f2f5;
-  color: var(--color-muted);
-}
-
-.stage-growing {
-  background: var(--color-accent-dim);
-  color: var(--color-accent);
-}
-
-.stage-breakeven {
-  background: #e6f4ea;
-  color: #18794e;
 }
 
 .breakeven-state {
@@ -5759,4 +5196,56 @@ body.is-lightbox {
 .stage-hint {
   margin: 0.35rem 0 0;
   font-size: 0.85rem;
+}
+
+/* 手机上可点区域一律不小于 44×44。顶栏图标缩到 40px、卡片关闭键 36px、
+   弹窗关闭键 32px，指头点上去容易落空；这里只补尺寸，颜色与位置不动。 */
+@media (max-width: 480px) {
+  .site-header .btn-icon {
+    width: var(--header-control);
+    height: var(--header-control);
+    min-width: var(--header-control);
+    min-height: var(--header-control);
+  }
+
+  .information-dismiss.btn-icon,
+  .information-close.btn-icon,
+  .card-tip-close.btn-icon,
+  .card-share-head .btn-icon {
+    width: var(--header-control);
+    height: var(--header-control);
+    min-width: var(--header-control);
+    min-height: var(--header-control);
+    max-height: var(--header-control);
+  }
+}
+
+/* 打印：去掉粘在页首的顶栏、浮层与深色背景，只把内容交给纸面。
+   界面固定浅色（color-scheme: light），不需要另写深色规则。 */
+@media print {
+  .site-header,
+  .skip-link,
+  .release-note,
+  .photo-lightbox,
+  .download-consent,
+  .card-tip,
+  .card-share,
+  .site-owner {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  .card {
+    box-shadow: none;
+    border: 1px solid #ced0d4;
+  }
+
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    color: #65676b;
+    font-size: 0.85em;
+  }
 }

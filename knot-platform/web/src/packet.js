@@ -30,11 +30,24 @@ export function packetAudio(audio = []) {
   return (audio || []).slice(0, PACKET_LIMITS.audio);
 }
 
+// 站外链接只放行 http/https：写入层现在都校验过，但卡片是最后一道，
+// 一旦有别的导入路径塞进 javascript:，这里点一下就会在站点源上执行。
+function isHttpUrl(parsed) {
+  return parsed.protocol === "http:" || parsed.protocol === "https:";
+}
+
 export function packetVideos(videos = []) {
   return (videos || [])
     .map((item) => {
       const url = typeof item === "string" ? item : item?.url;
       if (typeof url !== "string" || !url) return null;
+      let parsed;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return null;
+      }
+      if (!isHttpUrl(parsed)) return null;
       const poster = typeof item === "object" && typeof item.poster === "string" ? item.poster : "";
       const playUrl = typeof item === "object" && typeof item.playUrl === "string" ? item.playUrl : "";
       const out = poster ? { url, poster } : { url };
@@ -85,6 +98,8 @@ export function videoFrame(url, poster = "", playUrl = "") {
   } catch {
     return null;
   }
+  // 非 http(s)（javascript:、data: …）一律不画：这是 URL 出厂前最后一道协议白名单。
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
   const host = parsed.hostname.replace(/^www\./, "");
   const youtube = youtubeId(source);
   const known = youtube && /^[\w-]{6,}$/.test(youtube) ? `https://i.ytimg.com/vi/${youtube}/hqdefault.jpg` : "";

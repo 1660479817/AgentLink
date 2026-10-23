@@ -78,9 +78,12 @@ export function startReleaseWatch({
   let pending = false;
   let ticket = 0;
   let reloading = false;
+  // 停止后仍在飞的 fetch 不许再叫 onPending / reload：
+  // 页面可能已经在跳转，这时候回落或弹「有新版本」都会落在错的页面上。
+  let stopped = false;
 
   function settle() {
-    if (reloading) return;
+    if (stopped || reloading) return;
     if (!pending) {
       onPending(false);
       return;
@@ -95,6 +98,7 @@ export function startReleaseWatch({
   }
 
   async function check() {
+    if (stopped) return;
     const mine = ++ticket;
     let html = "";
     try {
@@ -102,13 +106,13 @@ export function startReleaseWatch({
     } catch {
       return;
     }
-    if (mine !== ticket || reloading) return;
+    if (stopped || mine !== ticket || reloading) return;
     pending = releaseChanged(current(), html);
     settle();
   }
 
   function poke() {
-    if (!pending || reloading) return;
+    if (stopped || !pending || reloading) return;
     settle();
   }
 
@@ -142,6 +146,7 @@ export function startReleaseWatch({
     check,
     poke,
     stop() {
+      stopped = true;
       cancel(timer);
       removeDraft();
       removeVisibility();

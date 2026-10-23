@@ -9,7 +9,8 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 import { addCardFriend, closeInformation, discoverSelf, dismissInformation, downloadInformation, fetchFacets, getHome, getInformation, listInformation, listPeople, removeCardFriend, searchInformation, starInformation, unstarInformation } from "../api.js";
 import FilterBar from "../components/FilterBar.vue";
 import { browserStorage, readBoardCache } from "../boardCache.js";
-import { applyDiscoverSelf, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
+import { cardProps } from "../cardProps.js";
+import { applyDiscoverSelf, cardGranted, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
 import { errorText, nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { feeOf, priceOf } from "../record.js";
@@ -64,6 +65,8 @@ let railObserver = null;
 let railDrag = null;
 let feedPoll = null;
 let refreshing = false;
+// 筛选与搜索词变化时会连续发请求：只让最后一次的结果落到列表上。
+let loadToken = 0;
 // 公开快照已经带着 facets 时，首屏不再为它多走一次接口。
 let facetsFromBoard = Boolean(cachedBoard?.facets);
 const FEED_POLL_MS = 60 * 1000;
@@ -134,6 +137,11 @@ async function focusPost() {
       if (info && info.id) {
         items.value = [info, ...items.value.filter((row) => row.id !== info.id)];
         feedReady.value = true;
+        // `/api/web/intel/:id` 把 granted 固定成 false：插入之后立刻叠一次这条的个人状态，
+        // 否则已购的附件会先画成「未获取」，等 discover-self 回来才纠正。
+        void discoverSelf([info.id])
+          .then((self) => applySelf(self))
+          .catch(() => {});
         // 旧地址会解到最新一版：把地址栏换成当前这条，复制出去的链接才不会又递出旧 id。
         if (info.id !== id) {
           id = info.id;
@@ -156,10 +164,11 @@ async function loadMore() {
     const incoming = Array.isArray(data.information) ? data.information : [];
     const seen = new Set(items.value.map((item) => item.id));
     const fresh = incoming.filter((row) => row?.id && !seen.has(row.id));
-    if (fresh.length) {
-      items.value = [...items.value, ...fresh];
-      cursor.value = fresh[fresh.length - 1].id;
-    }
+    if (fresh.length) items.value = [...items.value, ...fresh];
+    // 游标取本页最后一条（incoming 的末项），不能取去重后的 fresh 末项：
+    // refreshFeed 可能已经把本页新增的几条并进 items，fresh 的末项早于本页末尾，
+    // 下一页就会从中间开始，重复返回同一批。
+    if (incoming.length) cursor.value = incoming[incoming.length - 1].id;
     moreAvailable.value = incoming.length > 0;
   } catch {
     /* keep the button so the user can retry */
@@ -201,7 +210,7 @@ function personalise() {
   });
 }
 
-async function loadLive(options = {}) {
+async function loadLive(options = {}, token = loadToken) {
   const q = searchQ.value;
   const author = authorQ.value;
   // 公开快照关掉时用户条没有快照可画，首屏跟信息流一起取一次。
@@ -210,6 +219,7 @@ async function loadLive(options = {}) {
     q ? searchInformation(q, activeFilters.value) : listInformation(author, null, activeFilters.value),
     people.value.length ? Promise.resolve(null) : listPeople().catch(() => null),
   ]);
+  if (token !== loadToken) return;
   if (Array.isArray(roster?.people)) people.value = roster.people;
   filterAuthor.value = author ? info.author || null : null;
   const painted = { information: info.information || [], requests: [], people: people.value, facets: facets.value };
@@ -217,8 +227,9 @@ async function loadLive(options = {}) {
   showPainted(painted);
 }
 
-async function loadBoard() {
+async function loadBoard(token = loadToken) {
   const board = await fetchDiscoverBoard();
+  if (token !== loadToken) return;
   facetsFromBoard = Boolean(board.facets);
   if (readAhead() && !coveredBy(board)) {
     // 刚发布过：先把那一屏画出来，个人状态稍后再叠，不挡着首屏。
@@ -246,16 +257,21 @@ async function ensureFacets() {
 }
 
 async function load(options = {}) {
+  // 每次进来领一个号：回来时已经不是最新一次就整段丢弃，免得慢请求覆盖后发的结果。
+  const token = ++loadToken;
   // 公开快照关掉时直接走实时接口。
   const live = options.live === true || hasFilter.value || session.site.publicBoard === false;
   feedBusySeconds.value = 0;
   try {
     if (live) {
-      await loadLive({ ahead: options.live === true && !hasFilter.value });
+      await loadLive({ ahead: options.live === true && !hasFilter.value }, token);
+      if (token !== loadToken) return;
       // 走实时接口时首屏没有经过 loadBoard，会话与个人状态在这里补一次。
       void personalise();
-    } else await loadBoard();
+    } else await loadBoard(token);
+    if (token !== loadToken) return;
   } catch (error) {
+    if (token !== loadToken) return;
     if (hasFilter.value) {
       // 429 不是「搜不到」：把还要等多久记下来，模板据此换一句话。
       if (searchQ.value && error?.status === 429) feedBusySeconds.value = Number(error.retryAfter) || 1;
@@ -269,7 +285,8 @@ async function load(options = {}) {
     if (!live && (readAhead() || readDiscoverMemory() || opening.information.length)) return;
     if (!live) {
       try {
-        await loadLive();
+        await loadLive({}, token);
+        if (token !== loadToken) return;
         void personalise();
         return;
       } catch {
@@ -386,12 +403,16 @@ function onRailPointerUp(event) {
   endRailDrag();
   if (!moved) return;
   const el = railViewport.value;
+  if (!el) return;
   const stopClick = (clickEvent) => {
     clickEvent.preventDefault();
     clickEvent.stopPropagation();
-    el?.removeEventListener("click", stopClick, true);
+    el.removeEventListener("click", stopClick, true);
   };
-  el?.addEventListener("click", stopClick, true);
+  el.addEventListener("click", stopClick, true);
+  // 指针在轨道外松开时浏览器不补发 click，拦截器就会一直挂着，
+  // 之后轨道上的正常点击全部被吃掉。下一轮事件循环无条件摘掉它。
+  window.setTimeout(() => el.removeEventListener("click", stopClick, true), 0);
 }
 
 function clearAllFilters() {
@@ -478,11 +499,10 @@ async function dismissItem(item) {
   items.value = items.value.filter((row) => row.id !== item.id);
   try {
     await dismissInformation(item.id);
-  } catch (error) {
-    if (error.status !== 401) {
-      showDiscoverItem(item.id);
-      items.value = previous;
-    }
+  } catch {
+    // 删除失败（含 401）要把卡片放回来：服务端还在，界面不能先当它没了。
+    showDiscoverItem(item.id);
+    items.value = previous;
   }
 }
 
@@ -535,7 +555,7 @@ async function downloadItem(item) {
     const ok = await acceptDownload({
       price: priceOf(item),
       fee: feeOf(item),
-      granted: item.granted === true,
+      granted: cardGranted(item, session.user),
       mine: cardIsMine(item, session.user),
       balance: session.user?.pointsBalance,
       code: session.user ? "" : "no_session",
@@ -638,41 +658,17 @@ async function downloadItem(item) {
 
   <InformationCard
     v-for="item in items"
-    :key="item.id"
     :id="`intel-${item.id}`"
-    :post-id="item.id"
-    :body="item.body || ''"
-    :category="item.kMeta?.category || ''"
-    :topics="item.kMeta?.topics || []"
-    :category-selected="categoryQ === (item.kMeta?.category || '')"
-    :active-topic="topicQ"
-    :language="item.kMeta?.language || ''"
-    :price="priceOf(item)"
-    :tip-total="Number(item.tipTotal) || 0"
-    :granted="item.granted !== false"
-    :images="item.images || []"
-    :audio="item.audio || []"
-    :videos="item.videos || []"
-    :attachments="item.attachments || []"
-    :note="item.kMeta?.note || ''"
-    :verdict="item.kMeta?.verdict || ''"
-    :author-id="item.author?.id || ''"
-    :author-name="item.author?.name || ''"
-    :avatar-url="item.author?.avatarUrl || ''"
-    :author-selected="authorQ === item.author?.id"
-    :actor="item.actor || ''"
-    :created-at="item.kMeta?.createdAt || ''"
-    :kind="item.kMeta?.kind || ''"
-    :expires-at="item.kMeta?.expiresAt || ''"
-    :mine="cardIsMine(item, session.user)"
-    :starred="Boolean(item.starred)"
-    :can-star="Boolean(session.user)"
-    :friend="Boolean(item.friend)"
-    :can-friend="Boolean(item.canFriend)"
-    :busy="Boolean(item.downloading) || (Boolean(session.user) && item.personal === false)"
-    :notice="item.closeError || ''"
-    :can-close="Boolean(session.user?.admin)"
-    :closing="Boolean(item.closing)"
+    :key="item.id"
+    v-bind="cardProps(item, {
+      session,
+      category: categoryQ,
+      topic: topicQ,
+      author: authorQ,
+      notice: item.closeError || '',
+      canClose: Boolean(session.user?.admin),
+      busy: Boolean(item.downloading) || (Boolean(session.user) && item.personal === false),
+    })"
     @author="filterByAuthor(item)"
     @category="filterByCategory(item)"
     @topic="filterByTopic"

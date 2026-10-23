@@ -1,8 +1,10 @@
 async function request(path, options = {}) {
   const res = await fetch(path, {
+    // 先摊开 options 再写 headers：反过来的话调用方一旦传 headers，就会把这里合并出的
+    // Content-Type 整个顶掉，JSON 请求会缺头。
+    ...options,
     credentials: "include",
     headers: { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) },
-    ...options,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -107,8 +109,14 @@ export function listInformation(author, before, filters = {}) {
   return request(`/api/web/information${suffix}`);
 }
 
+// 所有 /intel/:id 的路径都从这里拼：id 来自服务端 UUID，但拼路径的地方一旦漏了编码，
+// 带 `/`、`?`、`#` 的值就会打到别的路由上，所以统一编码。
+function intelPath(id, suffix = "") {
+  return `/api/web/intel/${encodeURIComponent(String(id ?? "").trim())}${suffix}`;
+}
+
 export function getInformation(id) {
-  return request(`/api/web/intel/${encodeURIComponent(String(id || "").trim())}`);
+  return request(intelPath(id));
 }
 
 export function discoverSelf(ids) {
@@ -124,15 +132,15 @@ export function getEconomy() {
 }
 
 export function dismissInformation(id) {
-  return request(`/api/web/intel/${id}/dismiss`, { method: "POST", body: "{}" });
+  return request(intelPath(id, "/dismiss"), { method: "POST", body: "{}" });
 }
 
 export function closeInformation(id, reason = "") {
-  return request(`/api/web/intel/${id}/close`, { method: "POST", body: JSON.stringify({ reason }) });
+  return request(intelPath(id, "/close"), { method: "POST", body: JSON.stringify({ reason }) });
 }
 
 export function reopenInformation(id) {
-  return request(`/api/web/intel/${encodeURIComponent(String(id || "").trim())}/reopen`, { method: "POST", body: "{}" });
+  return request(intelPath(id, "/reopen"), { method: "POST", body: "{}" });
 }
 
 export function listStars() {
@@ -140,20 +148,20 @@ export function listStars() {
 }
 
 export function starInformation(id) {
-  return request(`/api/web/intel/${id}/star`, { method: "POST", body: "{}" });
+  return request(intelPath(id, "/star"), { method: "POST", body: "{}" });
 }
 
 export function unstarInformation(id) {
-  return request(`/api/web/intel/${id}/star`, { method: "DELETE" });
+  return request(intelPath(id, "/star"), { method: "DELETE" });
 }
 
 // 打赏：摘要公开，打赏要会话。金额上限与「不能打赏自己」在后端判。
 export function getTips(id) {
-  return request(`/api/web/intel/${encodeURIComponent(String(id || "").trim())}/tips`);
+  return request(intelPath(id, "/tips"));
 }
 
 export function tipInformation(id, amount) {
-  return request(`/api/web/intel/${encodeURIComponent(String(id || "").trim())}/tip`, {
+  return request(intelPath(id, "/tip"), {
     method: "POST",
     body: JSON.stringify({ amount }),
   });
@@ -164,15 +172,15 @@ export function listFriends() {
 }
 
 export function removeFriend(id) {
-  return request(`/api/web/friends/${id}`, { method: "DELETE" });
+  return request(`/api/web/friends/${encodeURIComponent(String(id ?? "").trim())}`, { method: "DELETE" });
 }
 
 export function addCardFriend(id) {
-  return request(`/api/web/intel/${id}/friend`, { method: "POST", body: "{}" });
+  return request(intelPath(id, "/friend"), { method: "POST", body: "{}" });
 }
 
 export function removeCardFriend(id) {
-  return request(`/api/web/intel/${id}/friend`, { method: "DELETE" });
+  return request(intelPath(id, "/friend"), { method: "DELETE" });
 }
 
 export function listRequests() {
@@ -184,7 +192,7 @@ export function listPeople() {
 }
 
 export function listRequestResponses(id) {
-  return request(`/api/web/requests/${id}/responses`);
+  return request(`/api/web/requests/${encodeURIComponent(String(id ?? "").trim())}/responses`);
 }
 
 export function listMyResponses() {
@@ -196,7 +204,7 @@ export function listLooks() {
 }
 
 export function lookRequest(id) {
-  return request(`/api/web/requests/${id}/look`, { method: "POST", body: "{}" });
+  return request(`/api/web/requests/${encodeURIComponent(String(id ?? "").trim())}/look`, { method: "POST", body: "{}" });
 }
 
 export function searchInformation(q, filters = {}) {
@@ -246,7 +254,7 @@ function saveResponseFile(res, fallback) {
 }
 
 export async function downloadInformation(id) {
-  const res = await fetch(`/api/web/intel/${id}/download`, {
+  const res = await fetch(intelPath(id, "/download"), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -264,7 +272,7 @@ export async function downloadInformation(id) {
 }
 
 export async function downloadShare(id) {
-  const res = await fetch(`/api/web/intel/${id}/share`, { credentials: "include" });
+  const res = await fetch(intelPath(id, "/share"), { credentials: "include" });
   const type = res.headers.get("content-type") || "";
   if (!res.ok || type.includes("json")) {
     const data = await res.json().catch(() => ({}));

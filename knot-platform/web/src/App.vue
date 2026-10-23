@@ -1,5 +1,5 @@
 <script setup>
-import { watch } from "vue";
+import { onBeforeUnmount, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import DownloadConsent from "./components/DownloadConsent.vue";
 import XknotMark from "./components/XknotMark.vue";
@@ -8,11 +8,16 @@ import { updateProfile } from "./api.js";
 import { t } from "./i18n/index.js";
 import { useLocaleStore } from "./stores/locale.js";
 import { useSessionStore } from "./stores/session";
+import { startClock, stopClock } from "./time.js";
 
 const router = useRouter();
 const session = useSessionStore();
 const locale = useLocaleStore();
 let syncing = "";
+
+// 「刚刚 / N 分钟前」要在原地自己往前走，定时器挂在应用根上，随页面卸下一起停。
+onMounted(() => startClock());
+onBeforeUnmount(() => stopClock());
 
 // 退出登录或会话过期后，站内浏览关着的话回登录/注册页。
 watch(

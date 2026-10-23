@@ -48,18 +48,19 @@ function close() {
 async function copyLink() {
   if (!post.value?.id) return;
   error.value = "";
-  try {
-    await copyCardLink(post.value.id, origin);
-    copied.value = true;
-    showLink.value = false;
-    clearTimeout(copyTimer);
-    copyTimer = setTimeout(() => {
-      copied.value = false;
-    }, 2000);
-  } catch {
+  const result = await copyCardLink(post.value.id, origin);
+  if (!result.copied) {
+    // 复制失败时把地址露出来让人手动选中，别让按钮按下去什么都不发生。
     showLink.value = true;
     error.value = t("home.shareLinkManual");
+    return;
   }
+  copied.value = true;
+  showLink.value = false;
+  clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => {
+    copied.value = false;
+  }, 2000);
 }
 
 async function saveImage() {

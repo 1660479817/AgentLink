@@ -67,11 +67,18 @@ function remove(id) {
       </li>
     </ul>
     <ul v-if="open" class="mention-menu" role="listbox" :aria-label="t('home.mention')">
-      <li v-if="friends.error === 'no_session'" class="mention-empty">{{ t("mine.login") }}</li>
-      <li v-else-if="friends.error" class="mention-empty">{{ t("error.request_failed") }}</li>
-      <li v-else-if="!visible.length" class="mention-empty">{{ t("home.mentionEmpty") }}</li>
-      <li v-for="friend in visible" :key="friend.id">
-        <button type="button" class="mention-option" role="option" :disabled="disabled" @click="pick(friend)">
+      <li v-if="friends.error === 'no_session'" class="mention-empty" role="presentation">{{ t("mine.login") }}</li>
+      <li v-else-if="friends.error" class="mention-empty" role="presentation">{{ t("error.request_failed") }}</li>
+      <li v-else-if="!visible.length" class="mention-empty" role="presentation">{{ t("home.mentionEmpty") }}</li>
+      <li v-for="friend in visible" :key="friend.id" role="presentation">
+        <button
+          type="button"
+          class="mention-option"
+          role="option"
+          aria-selected="false"
+          :disabled="disabled"
+          @click="pick(friend)"
+        >
           <span class="mention-avatar" aria-hidden="true">
             <img v-if="friend.avatarUrl" :src="friend.avatarUrl" alt="" />
             <UserIcon v-else />

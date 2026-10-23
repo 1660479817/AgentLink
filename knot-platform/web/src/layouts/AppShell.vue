@@ -18,6 +18,7 @@ import { startPolling } from "../polling.js";
 import { useNotificationStore } from "../stores/notifications";
 import { useOutboxStore } from "../stores/outbox";
 import { useSessionStore } from "../stores/session";
+import { internalHref } from "../links.js";
 
 const router = useRouter();
 const notifications = useNotificationStore();
@@ -77,10 +78,6 @@ function search(text = query.value) {
   remember(q);
   searchOpen.value = false;
   router.push({ name: "discover", query: { q } });
-}
-
-function internalHref(href) {
-  return typeof href === "string" && href.startsWith("/") && !href.startsWith("//");
 }
 
 function sponsorMark(title) {

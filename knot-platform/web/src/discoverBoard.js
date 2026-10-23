@@ -45,6 +45,14 @@ export function hideDiscoverItem(id) {
   if (id) hidden.add(id);
 }
 
+/** 退出登录时连模块级状态一起清：换个人登录后，上一个人的隐藏集合与记忆快照都不该留下。 */
+export function forgetDiscover() {
+  hidden.clear();
+  memory = null;
+  aheadFeed = null;
+  aheadIds = new Set();
+}
+
 export function showDiscoverItem(id) {
   hidden.delete(id);
 }
@@ -124,6 +132,16 @@ export function cardIsMine(item, user) {
   if (item.personal === false) return false;
   if (item.mine === true) return true;
   return item.canFriend === false;
+}
+
+/**
+ * 这条是不是已经付过、或本来就是自己的（下载不再扣分）。
+ * wish 记录里同时有 `granted` 与 `unlocked`（requests.js 自己算的那份），两个都认；
+ * 缺字段时按「没付过」处理：顶多多弹一次确认，不会多扣。
+ */
+export function cardGranted(item, user) {
+  if (cardIsMine(item, user)) return true;
+  return item?.granted === true || item?.unlocked === true;
 }
 
 export async function fetchDiscoverBoard() {

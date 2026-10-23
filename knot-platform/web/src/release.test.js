@@ -193,3 +193,32 @@ test("returning to the tab checks again", async () => {
   assert.equal(fetches, 1);
   handle.stop();
 });
+
+test("a check in flight when the watcher stops does not reload", async () => {
+  const calls = [];
+  let shown = null;
+  let release = () => {};
+  const handle = startReleaseWatch({
+    current: () => OLD,
+    fetchText: () =>
+      new Promise((resolve) => {
+        release = () => resolve(built(NEW));
+      }),
+    blocked: () => false,
+    reload: () => calls.push("reload"),
+    onPending: (show) => {
+      shown = show;
+    },
+    schedule: () => 0,
+    cancel: () => {},
+  });
+  const pending = handle.check();
+  handle.stop();
+  release();
+  await pending;
+  assert.deepEqual(calls, []);
+  assert.equal(shown, null);
+  // 停止之后连手动再问一次也不该有动作。
+  await handle.check();
+  assert.deepEqual(calls, []);
+});

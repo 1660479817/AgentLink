@@ -6,10 +6,15 @@ import { PencilIcon, RefreshIcon, UserIcon } from "../icons";
 import { t } from "../i18n";
 import { adminEntryState, adminUrl, isIntranetHost } from "../adminEntry";
 import { getAgent, issueAgent, requestAdminHandoff, retireAgent, updateProfile, uploadImage } from "../api";
+import { errorText } from "../composers/packet.js";
+import { listText } from "../format.js";
+import { useLocaleStore } from "../stores/locale.js";
+import { copyText } from "../share.js";
 import { useSessionStore } from "../stores/session";
 
 const router = useRouter();
 const session = useSessionStore();
+const locale = useLocaleStore();
 const error = ref("");
 const busy = ref(false);
 const agentCreatedAt = ref(null);
@@ -71,8 +76,10 @@ const bioUnchanged = computed(
 
 const entitlementText = computed(() => {
   const honors = session.user?.entitlements?.honors;
-  if (!Array.isArray(honors) || honors.length === 0) return t("mine.entitlementsEmpty");
-  return honors.filter((item) => typeof item === "string" && item.trim()).join("、");
+  const list = Array.isArray(honors) ? honors.filter((item) => typeof item === "string" && item.trim()) : [];
+  if (list.length === 0) return t("mine.entitlementsEmpty");
+  // 顿号是中文写法；en 下要逗号。交给 Intl 按当前语种拼，不再写死分隔符。
+  return listText(list, locale.current);
 });
 
 const muteLine = computed(() => {
@@ -98,9 +105,7 @@ function formatAgentTime(value) {
 }
 
 function showError(err) {
-  const key = `error.${err.code}`;
-  const message = t(key);
-  error.value = message === key ? t("error.request_failed") : message;
+  error.value = errorText(err.code, session.policy);
 }
 
 // 管理后台在实例自己的内网地址上，不在这个域名上。这里换一枚 5 分钟的票据拼成链接：
@@ -123,9 +128,7 @@ async function fetchAdminLink() {
     adminLink.value = link;
     return link;
   } catch (err) {
-    const key = `error.${err.code}`;
-    const message = t(key);
-    adminError.value = message === key ? t("mine.admin.failed") : message;
+    adminError.value = errorText(err.code, session.policy, "mine.admin.failed");
     return "";
   } finally {
     adminBusy.value = false;
@@ -158,33 +161,6 @@ async function copyAdminLink() {
   copiedTimer = window.setTimeout(() => {
     adminCopied.value = false;
   }, 2000);
-}
-
-// 内网地址常是 http://192.168.x.x，浏览器不当它是安全上下文，navigator.clipboard 可能是空的。
-// 那就退回选中一段临时文本再 copy：链接本身已经显示在卡片里，两条路都不通时人还能手选。
-async function copyText(text) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    // 落到下面的老办法。
-  }
-  try {
-    const area = document.createElement("textarea");
-    area.value = text;
-    area.setAttribute("readonly", "");
-    area.style.position = "fixed";
-    area.style.opacity = "0";
-    document.body.appendChild(area);
-    area.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(area);
-    return ok;
-  } catch {
-    return false;
-  }
 }
 
 onUnmounted(() => {
@@ -385,7 +361,7 @@ async function leave() {
       <h2 class="page-title">{{ t("mine.admin.title") }}</h2>
       <p class="muted admin-entry-hint">{{ t("mine.admin.hint") }}</p>
       <p v-if="adminEntry && adminEntry.alternates.length" class="muted admin-entry-note">
-        {{ t("mine.admin.other", { hosts: adminEntry.alternates.join("、") }) }}
+        {{ t("mine.admin.other", { hosts: listText(adminEntry.alternates, locale.current) }) }}
       </p>
       <p v-if="adminLink" class="admin-entry-link"><code>{{ adminLink }}</code></p>
       <p v-if="adminError" class="error" role="alert">{{ adminError }}</p>

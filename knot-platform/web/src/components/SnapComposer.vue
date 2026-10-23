@@ -1,8 +1,8 @@
 <script setup>
-import { computed, nextTick, onUnmounted, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import AppButton from "./AppButton.vue";
 import MentionPicker from "./MentionPicker.vue";
-import { errorText, MAX_IMAGES, requireSession } from "../composers/packet.js";
+import { MAX_IMAGES, errorText, requireSession, usePacketMedia } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
 import { AtIcon, CameraIcon, CloseIcon, PlusIcon } from "../icons/index.js";
 import { packetDraft, useOutboxStore } from "../stores/outbox";
@@ -15,11 +15,11 @@ const outbox = useOutboxStore();
 const body = ref("");
 const mentions = ref([]);
 const mentionOpen = ref(false);
-const images = ref([]);
-const previewUrls = ref([]);
+// 预览图的生命周期与数量/体积上限都交给 usePacketMedia：快拍和分享条用的是同一套规则，
+// 两处各写一份的话改一处就会两边筛得不一样。
+const { images, previewUrls, error, addImages, removeImage } = usePacketMedia();
 const photoIndex = ref(0);
 const isPublic = ref(true);
-const error = ref("");
 const busy = ref(false);
 const imageInput = ref(null);
 const photoActive = computed(() => {
@@ -28,16 +28,6 @@ const photoActive = computed(() => {
   return Math.min(photoIndex.value, last);
 });
 const canSend = computed(() => images.value.length > 0 || Boolean(body.value.trim()));
-
-function clearPreviews() {
-  for (const url of previewUrls.value) URL.revokeObjectURL(url);
-  previewUrls.value = [];
-}
-
-function syncPreviews() {
-  clearPreviews();
-  previewUrls.value = images.value.map((file) => URL.createObjectURL(file));
-}
 
 function openCamera() {
   if (images.value.length >= MAX_IMAGES) return;
@@ -48,19 +38,14 @@ function pickPhoto(event) {
   const files = Array.from(event.target.files || []);
   event.target.value = "";
   if (!files.length) return;
-  const next = [...images.value, files[0]].slice(0, MAX_IMAGES);
-  images.value = next;
-  syncPreviews();
-  photoIndex.value = next.length - 1;
+  addImages([files[0]]);
+  photoIndex.value = Math.max(0, images.value.length - 1);
 }
 
 function removePhoto(index) {
-  images.value = images.value.filter((_, i) => i !== index);
-  syncPreviews();
+  removeImage(index);
   if (photoIndex.value > index) photoIndex.value -= 1;
 }
-
-onUnmounted(clearPreviews);
 
 function submit() {
   if (!canSend.value || busy.value) return;

@@ -9,7 +9,7 @@ test("a card link opens the post in the discover feed", () => {
 });
 
 test("a trailing slash on the origin is not doubled", () => {
-  assert.equal(cardShareUrl(ID, "http://192.168.3.91:8080/"), `http://192.168.3.91:8080/discover?post=${ID}`);
+  assert.equal(cardShareUrl(ID, "http://192.0.2.10:8080/"), `http://192.0.2.10:8080/discover?post=${ID}`);
 });
 
 test("an empty card id has no link", () => {

@@ -27,8 +27,9 @@ import {
 } from "../api.js";
 import { ATTACHMENT_ACCEPT, errorText, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
-import { cardIsMine } from "../discoverBoard.js";
-import { feeOf, priceOf, wishIsLive } from "../record.js";
+import { cardGranted, cardIsMine } from "../discoverBoard.js";
+import { cardProps } from "../cardProps.js";
+import { feeOf, priceOf, statusKey, wishIsLive } from "../record.js";
 import { startPolling } from "../polling.js";
 import { timeAgo } from "../time.js";
 import { altLabel } from "../mediaLabel.js";
@@ -50,7 +51,11 @@ const replies = ref([]);
 // 进页面先给出售这一栏：公开可逛，未登录也能看。带 ?wish= 或 ?respond= 时再切到对应栏。
 const lane = ref("sales");
 const loaded = ref(false);
-const busy = ref(false);
+// 我的列表取失败时单独记一笔，界面据此说「没连上」而不是「没有」。
+const listFailed = ref(false);
+// 「提交中」= 出站队列里还有任务。原来这里是 ref(false) 且从未置真，
+// 于是 :disabled="busy" 与轮询的 when 条件全是常量，表单也没有提交互斥。
+const busy = computed(() => outbox.jobs.length > 0);
 const fields = ref(null);
 const imageInput = ref(null);
 const fileInput = ref(null);
@@ -72,6 +77,7 @@ let requestsPoll = null;
 const sales = ref([]);
 const salesCursor = ref(null);
 const salesLoaded = ref(false);
+const salesFailed = ref(false);
 const salesMore = ref(false);
 const salesLoading = ref(false);
 const {
@@ -163,8 +169,11 @@ async function loadSales(cursor = null) {
     salesCursor.value = incoming.length ? incoming[incoming.length - 1].id : cursor;
     salesMore.value = incoming.length > 0;
     salesLoaded.value = true;
+    salesFailed.value = false;
   } catch {
+    // 取失败不是「还没有出售」：空态与失败态要分开画。
     salesLoaded.value = true;
+    salesFailed.value = true;
   }
 }
 
@@ -173,13 +182,6 @@ async function loadMoreSales() {
   salesLoading.value = true;
   await loadSales(salesCursor.value || null);
   salesLoading.value = false;
-}
-
-function statusKey(verdict) {
-  if (verdict === "passed") return "submissions.statusPublished";
-  if (verdict === "rejected") return "submissions.statusRejected";
-  if (verdict === "removed") return "submissions.statusRemoved";
-  return "submissions.statusPending";
 }
 
 function fileRows(item) {
@@ -239,25 +241,30 @@ async function load() {
       });
     }
     const rows = [...byId.values()].sort((a, b) => String(b.kMeta?.createdAt).localeCompare(String(a.kMeta?.createdAt)));
-    await Promise.all(
-      rows
-        .filter((item) => item.kMeta?.verdict === "passed" || item.kMeta?.verdict === "pending")
-        .map(async (item) => {
+    // 一个常发 wish 的账号可能有几十条待回应：全并发就是几十个跨境请求。
+    // 这里按批取，最多四个在飞；失败的那条标成「取不到」，不画成「还没有」。
+    const asking = rows.filter((item) => item.kMeta?.verdict === "passed" || item.kMeta?.verdict === "pending");
+    for (let i = 0; i < asking.length; i += 4) {
+      await Promise.all(
+        asking.slice(i, i + 4).map(async (item) => {
           try {
             const data = await listRequestResponses(item.id);
             item.responses = data.responses || [];
+            item.responsesUnknown = false;
           } catch {
             item.responses = [];
+            item.responsesUnknown = true;
           }
         })
-    );
+      );
+    }
     wishes.value = rows;
     looks.value = (looked.looks || []).filter((look) => !look.wish || wishIsLive(look.wish));
     replies.value = authored.responses || [];
+    listFailed.value = false;
   } catch {
-    wishes.value = [];
-    looks.value = [];
-    replies.value = [];
+    // 不清空已经画出来的内容：隧道抖一下不该表现成「你什么都没有」。
+    listFailed.value = true;
   } finally {
     loaded.value = true;
   }
@@ -289,8 +296,43 @@ async function openCompose() {
   document.getElementById("wish-body")?.focus({ preventScroll: true });
 }
 
+// 出售栏卡片上的作者、分类、话题都要能点：emit 有了没人接就是死按钮。
+function filterByAuthor(item) {
+  const id = item?.author?.id;
+  if (!id) return;
+  router.push({ name: "discover", query: { author: id } });
+}
+
+function filterByCategory(item) {
+  const category = String(item?.kMeta?.category || "").trim();
+  if (!category) return;
+  router.push({ name: "discover", query: { category } });
+}
+
+function filterByTopic(topic) {
+  const value = String(topic || "").trim();
+  if (!value) return;
+  router.push({ name: "discover", query: { topic: value } });
+}
+
+const LANES = ["sales", "posted", "replied"];
+
 function selectLane(next) {
   lane.value = next;
+}
+
+// 三栏是一组 tab：只有当前栏在 Tab 序列里（roving tabindex），
+// 左右/上下键在栏间移动，Home/End 到首尾，这是 tablist 的键盘约定。
+function onLaneKey(event, index) {
+  let next = index;
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % LANES.length;
+  else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index + LANES.length - 1) % LANES.length;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = LANES.length - 1;
+  else return;
+  event.preventDefault();
+  selectLane(LANES[next]);
+  document.getElementById(`wish-tab-${LANES[next]}`)?.focus();
 }
 
 function hasStored(item) {
@@ -357,11 +399,47 @@ watch(
     if (revision) loadSales();
   }
 );
+// 回应草稿按 wish id 分开存：在左栏点到另一条 wish 时，不能把已经写好的正文和附件冲掉。
+// 附件是 File 对象，预览 URL 在 reset 时被回收，所以放回草稿要重新走 add*/set* 的校验入口。
+const replyDrafts = new Map();
+
+function stashReplyDraft(id) {
+  if (!id) return;
+  if (!canReply()) {
+    replyDrafts.delete(id);
+    return;
+  }
+  replyDrafts.set(id, {
+    body: replyBody.value,
+    price: replyPrice.value,
+    video: replyVideo.value,
+    images: [...replyImages.value],
+    files: [...replyFiles.value],
+    audio: replyAudio.value,
+    posterFile: replyPosterFile.value,
+  });
+}
+
+function restoreReplyDraft(id) {
+  const draft = replyDrafts.get(id);
+  if (!draft) return;
+  replyBody.value = draft.body;
+  replyPrice.value = draft.price;
+  replyVideo.value = draft.video;
+  if (draft.images.length) addReplyImages(draft.images);
+  if (draft.files.length) addReplyFiles(draft.files.map((item) => item.file));
+  if (draft.audio?.file) setReplyAudio(draft.audio.file);
+  if (draft.posterFile) setReplyPosterFile(draft.posterFile);
+}
+
 watch(respondId, async (id, prev) => {
-  if (!id || id === prev) return;
+  if (id === prev) return;
+  if (prev) stashReplyDraft(prev);
   replyBody.value = "";
   resetReply();
   replyError.value = "";
+  if (!id) return;
+  restoreReplyDraft(id);
   await ensureLook();
   if (respondId.value) await showLook(respondId.value);
 });
@@ -469,7 +547,12 @@ function submit() {
 }
 
 async function submitReply() {
-  if (!target.value || !canReply() || busy.value) return;
+  if (!target.value) {
+    // 轮询里这条 wish 可能已经过期或被关掉：不能静默什么都不做。
+    replyError.value = t("wish.replyMissing");
+    return;
+  }
+  if (!canReply() || busy.value) return;
   replyError.value = "";
   const link = readVideoLink(replyVideo.value);
   if (link === null) {
@@ -508,6 +591,8 @@ async function submitReply() {
   }));
   replyBody.value = "";
   resetReply();
+  // 发出去了，这条 wish 的草稿就不该再留着。
+  replyDrafts.delete(target.value.id);
   lane.value = "replied";
 }
 
@@ -519,8 +604,9 @@ async function downloadWish(wish) {
     const ok = await acceptDownload({
       price: priceOf(wish),
       fee: feeOf(wish),
-      granted: Boolean(wish.granted) && !wish.mine,
-      mine: Boolean(wish.mine),
+      // 与卡片同一套判定，不再用另一个字段名反推。
+      granted: cardGranted(wish, session.user),
+      mine: cardIsMine(wish, session.user),
       balance: session.user?.pointsBalance,
       code: session.user ? "" : "no_session",
       task: () => downloadInformation(wish.id),
@@ -545,7 +631,7 @@ async function downloadReply(item) {
     const ok = await acceptDownload({
       price: priceOf(item),
       fee: feeOf(item),
-      granted: item.granted === true,
+      granted: cardGranted(item, session.user),
       mine: false,
       balance: session.user?.pointsBalance,
       code: session.user ? "" : "no_session",
@@ -571,7 +657,7 @@ async function downloadSale(item) {
     const ok = await acceptDownload({
       price: priceOf(item),
       fee: feeOf(item),
-      granted: item.granted === true,
+      granted: cardGranted(item, session.user),
       mine: cardIsMine(item, session.user),
       balance: session.user?.pointsBalance,
       code: session.user ? "" : "no_session",
@@ -621,8 +707,10 @@ async function dismissSale(item) {
   sales.value = sales.value.filter((row) => row.id !== item.id);
   try {
     await dismissInformation(item.id);
-  } catch (error) {
-    if (error.status !== 401) sales.value = previous;
+  } catch {
+    // 请求失败就放回去，包括 401：服务端没删，界面不能先把这条吞掉。
+    // 会话过期由路由自己把人送回登录页，不靠这里少画一行来表达。
+    sales.value = previous;
   }
 }
 </script>
@@ -642,9 +730,11 @@ async function dismissSale(item) {
         role="tab"
         :class="{ 'is-active': lane === 'sales' }"
         :aria-selected="lane === 'sales'"
+        :tabindex="lane === 'sales' ? 0 : -1"
         aria-controls="wish-panel-sales"
         :aria-label="t('wish.salesTab')"
         @click="selectLane('sales')"
+        @keydown="onLaneKey($event, 0)"
       >
         <CoinIcon class="wish-lane-icon" aria-hidden="true" />
       </button>
@@ -655,9 +745,11 @@ async function dismissSale(item) {
         role="tab"
         :class="{ 'is-active': lane === 'posted' }"
         :aria-selected="lane === 'posted'"
+        :tabindex="lane === 'posted' ? 0 : -1"
         aria-controls="wish-panel-posted"
         :aria-label="t('wish.posted')"
         @click="selectLane('posted')"
+        @keydown="onLaneKey($event, 1)"
       >
         <SendIcon class="wish-lane-icon" aria-hidden="true" />
       </button>
@@ -668,16 +760,22 @@ async function dismissSale(item) {
         role="tab"
         :class="{ 'is-active': lane === 'replied' }"
         :aria-selected="lane === 'replied'"
+        :tabindex="lane === 'replied' ? 0 : -1"
         aria-controls="wish-panel-replied"
         :aria-label="t('wish.replied')"
         @click="selectLane('replied')"
+        @keydown="onLaneKey($event, 2)"
       >
         <RespondIcon class="wish-lane-icon" aria-hidden="true" />
       </button>
     </div>
 
     <div v-if="lane === 'sales'" id="wish-panel-sales" role="tabpanel" aria-labelledby="wish-tab-sales">
-      <section v-if="salesLoaded && sales.length === 0" class="card wish-empty">
+      <section v-if="salesFailed" class="card wish-empty">
+        <p class="error" role="alert">{{ t("error.request_failed") }}</p>
+        <AppButton variant="secondary" @click="loadSales()">{{ t("gate.retry") }}</AppButton>
+      </section>
+      <section v-else-if="salesLoaded && sales.length === 0" class="card wish-empty">
         <p class="empty-line">
           <CoinIcon class="empty-icon" aria-hidden="true" />
           <span>{{ t("wish.saleEmpty") }}</span>
@@ -688,33 +786,10 @@ async function dismissSale(item) {
         v-for="item in sales"
         :id="`sale-${item.id}`"
         :key="item.id"
-        :post-id="item.id"
-        :body="item.body || ''"
-        :category="item.kMeta?.category || ''"
-        :topics="item.kMeta?.topics || []"
-        :language="item.kMeta?.language || ''"
-        :price="priceOf(item)"
-        :tip-total="Number(item.tipTotal) || 0"
-        :granted="item.granted !== false"
-        :images="item.images || []"
-        :audio="item.audio || []"
-        :videos="item.videos || []"
-        :attachments="item.attachments || []"
-        :note="item.kMeta?.note || ''"
-        :verdict="item.kMeta?.verdict || ''"
-        :author-id="item.author?.id || ''"
-        :author-name="item.author?.name || ''"
-        :avatar-url="item.author?.avatarUrl || ''"
-        :actor="item.actor || ''"
-        :created-at="item.kMeta?.createdAt || ''"
-        :kind="item.kMeta?.kind || ''"
-        :expires-at="item.kMeta?.expiresAt || ''"
-        :mine="cardIsMine(item, session.user)"
-        :starred="Boolean(item.starred)"
-        :can-star="Boolean(session.user)"
-        :friend="Boolean(item.friend)"
-        :can-friend="Boolean(item.canFriend)"
-        :busy="Boolean(item.downloading)"
+        v-bind="cardProps(item, { session })"
+        @author="filterByAuthor(item)"
+        @category="filterByCategory(item)"
+        @topic="filterByTopic"
         @dismiss="dismissSale(item)"
         @star="toggleSaleStar(item)"
         @friend="toggleSaleFriend(item)"
@@ -739,6 +814,7 @@ async function dismissSale(item) {
       <p>{{ t("wish.login") }}</p>
       <AppButton variant="secondary" to="/">{{ t("wish.loginAction") }}</AppButton>
     </section>
+    <p v-if="listFailed" class="error" role="alert">{{ t("error.request_failed") }}</p>
     <section v-else-if="loaded && wishes.length === 0" class="card wish-empty">
       <p class="empty-line">
         <ChatIcon class="empty-icon" aria-hidden="true" />
@@ -779,7 +855,8 @@ async function dismissSale(item) {
       <VideoFrame v-if="wish.videos?.[0]" :url="wish.videos[0].url" :poster="wish.videos[0].poster || ''" :play-url="wish.videos[0].playUrl || ''" :label="altLabel(wish.body)" />
       <div class="wish-responses">
         <p class="wish-responses-label">{{ t("wish.responses") }}</p>
-        <p v-if="(wish.kMeta?.verdict === 'passed' || wish.kMeta?.verdict === 'pending') && !wish.responses.length" class="muted">{{ t("wish.responsesEmpty") }}</p>
+        <p v-if="wish.responsesUnknown" class="muted">{{ t("wish.responsesUnknown") }}</p>
+        <p v-else-if="(wish.kMeta?.verdict === 'passed' || wish.kMeta?.verdict === 'pending') && !wish.responses.length" class="muted">{{ t("wish.responsesEmpty") }}</p>
         <p v-else-if="wish.kMeta?.verdict === 'rejected' || wish.kMeta?.verdict === 'removed'" class="muted">{{ t("wish.responsesWait") }}</p>
         <div v-for="item in wish.responses" :key="item.id" class="wish-response">
           <p class="bounty-reply-meta">

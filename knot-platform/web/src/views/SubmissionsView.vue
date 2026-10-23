@@ -7,12 +7,15 @@ import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
 import VideoFrame from "../components/VideoFrame.vue";
 import { listSubmissions, reopenInformation } from "../api.js";
-import { hoursLeftOf } from "../record.js";
+import { errorText } from "../composers/packet.js";
+import { hoursLeftOf, statusKey } from "../record.js";
 import { t } from "../i18n/index.js";
 import { PaperclipIcon } from "../icons/index.js";
 import { packetFile, packetVideos } from "../packet.js";
 import { altLabel } from "../mediaLabel.js";
+import { useSessionStore } from "../stores/session";
 
+const session = useSessionStore();
 const items = ref([]);
 const loaded = ref(false);
 
@@ -39,13 +42,6 @@ function fileNote(item) {
   return "";
 }
 
-function statusKey(status) {
-  if (status === "passed") return "submissions.statusPublished";
-  if (status === "rejected") return "submissions.statusRejected";
-  if (status === "removed") return "submissions.statusRemoved";
-  return "submissions.statusPending";
-}
-
 // 出售帖 = post/fastpost、有存储的下载附件、且标价大于 0。与后端 SALE_POST 同口径：
 // item.attachments 已是「非图片、非音频」的分类（card.toRecord），stored=true 表示上传的。
 function isSale(item) {
@@ -68,8 +64,9 @@ async function reopen(item) {
     if (data?.intel?.kMeta) item.kMeta = { ...(item.kMeta || {}), ...data.intel.kMeta };
     // 再次开放之后有效期重置，按新时间重算这一行的剩余小时。
     item.expiryLeft = hoursLeftOf(item);
-  } catch {
-    item.reopenError = t("error.request_failed");
+  } catch (error) {
+    // 带上错误码：bad_state 与 not_found 要读得出区别，不要一律说「请求失败」。
+    item.reopenError = errorText(error.code, session.policy);
   } finally {
     item.reopening = false;
   }
