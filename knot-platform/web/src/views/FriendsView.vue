@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppButton from "../components/AppButton.vue";
 import { CloseIcon, FriendsIcon, UserIcon } from "../icons/index.js";
 import { errorText } from "../composers/packet.js";
@@ -10,19 +10,51 @@ import { useSessionStore } from "../stores/session";
 const session = useSessionStore();
 const friends = useFriendStore();
 const removeError = ref("");
+// 二次确认：箭头键与拇指都容易点到这个紧挨名字的圆形按键，误删一次就没法撤销。
+// 先点一下把这一行变成「确认移除 / 取消」，五秒不动就自己退回去。
+const pendingRemove = ref("");
+let pendingTimer = 0;
+let confirmEl = null;
+
+function confirmRef(el) {
+  confirmEl = el;
+}
 
 function friendName(friend) {
   return friend.displayName || t("home.author");
+}
+
+async function askRemove(friend) {
+  if (pendingRemove.value === friend.id) {
+    await removeListedFriend(friend.id);
+    return;
+  }
+  pendingRemove.value = friend.id;
+  window.clearTimeout(pendingTimer);
+  pendingTimer = window.setTimeout(() => {
+    pendingRemove.value = "";
+  }, 5000);
+  // 确认键换上来之后把焦点送过去，键盘用户不用再从头 Tab 一遍。
+  await nextTick();
+  confirmEl?.$el?.focus?.();
+}
+
+function cancelRemove() {
+  window.clearTimeout(pendingTimer);
+  pendingRemove.value = "";
 }
 
 async function removeListedFriend(id) {
   removeError.value = "";
   try {
     await friends.remove(id);
+    if (pendingRemove.value === id) cancelRemove();
   } catch (error) {
     removeError.value = errorText(error.code);
   }
 }
+
+onBeforeUnmount(() => window.clearTimeout(pendingTimer));
 
 onMounted(() => friends.load());
 watch(
@@ -56,11 +88,25 @@ watch(
             </span>
           </span>
         </span>
+        <span v-if="pendingRemove === friend.id" class="friend-confirm">
+          <AppButton
+            ref="confirmRef"
+            variant="secondary"
+            type="button"
+            @click="removeListedFriend(friend.id)"
+          >
+            {{ t("friends.confirmRemove") }}
+          </AppButton>
+          <AppButton variant="secondary" type="button" @click="cancelRemove">
+            {{ t("friends.cancelRemove") }}
+          </AppButton>
+        </span>
         <AppButton
+          v-else
           variant="icon"
           type="button"
           :aria-label="t('home.removeFriend')"
-          @click="removeListedFriend(friend.id)"
+          @click="askRemove(friend)"
         >
           <CloseIcon aria-hidden="true" />
         </AppButton>

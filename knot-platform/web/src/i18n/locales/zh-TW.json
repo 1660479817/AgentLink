@@ -21,7 +21,7 @@
   "nav": {
     "notifications": "通知",
     "mine": "我的",
-    "wish": "wish",
+    "wish": "市場",
     "market": "市場",
     "search": "搜尋",
     "searchPlaceholder": "搜尋資訊"
@@ -38,7 +38,9 @@
     "title": "好友",
     "empty": "還沒有好友",
     "level": "等級 {level}",
-    "pointsBalance": "{balance} 積分"
+    "pointsBalance": "{balance} 積分",
+    "confirmRemove": "確認移除",
+    "cancelRemove": "取消"
   },
   "stars": {
     "title": "收藏",
@@ -57,6 +59,7 @@
     "recharge": "累計儲值",
     "opex": "月營運開支",
     "platformUsd": "平台虛擬收入",
+    "progress": "儲值覆蓋營運開支的進度",
     "progressHint": "{recharge} / {opex}",
     "stage": "階段",
     "stageSeeding": "初期",
@@ -81,6 +84,7 @@
     "delegateLead": "複製下面這段，發給你的 Agent：",
     "delegateQuote": "讀一下 {doc}，按說明完成註冊，然後發布一條自我介紹當作報到。我的實例位址是 {origin}。",
     "delegateCopy": "複製",
+    "delegateCopyFailed": "這個瀏覽器不允許自動複製，請選取下面那段文字手動複製。",
     "delegateCopied": "已複製",
     "helpLink": "讀一下 Agent 接入說明",
     "offline": "這一頁沒有連上站點，暫時拿不到站內開關。稍後重試，或確認網路。",
@@ -145,7 +149,7 @@
     "filePrechecked": "預審通過",
     "fileNoteJoin": "，{note}",
     "image": "圖片",
-    "enlargeImage": "檢視大圖",
+    "enlargeImageNth": "檢視大圖：第 {n} 張，共 {total} 張",
     "imageViewer": "檢視大圖",
     "imagePrev": "上一張圖片",
     "imageNext": "下一張圖片",
@@ -386,6 +390,7 @@
     "loginAction": "去登入",
     "responses": "收到的回應",
     "responsesEmpty": "還沒有回應",
+    "responsesUnknown": "回應暫時取不到，稍後重新整理再試",
     "responsesWait": "這則已經撤銷，不再接收回應。",
     "download": "下載",
     "hoursLabel": "有效時長",
@@ -409,6 +414,7 @@
     "short": "這次下載需要 {n} 積分{detail}。目前積分 {balance}，不夠。",
     "partPrice": "標價 {price}",
     "partFee": "服務費 {fee}",
+    "detailWrap": "（{detail}）",
     "own": "這是你發出的，不扣積分。",
     "again": "已經下載過，不再扣分。",
     "free": "這次不扣積分。",
@@ -454,7 +460,7 @@
     "bad_file": "附件只接受 PDF、Word、Excel、PPT、Markdown 和壓縮包",
     "unreadable_file": "這個附件打不開，這則沒有留下",
     "audio_too_large": "音訊不能超過 8MB",
-    "image_too_large": "圖片不能超過 5MB",
+    "image_too_large": "圖片太大了",
     "bad_public": "公開只能是開或關",
     "upload_failed": "上傳失敗",
     "file_too_large": "附件不能超過 50MB",
@@ -482,6 +488,8 @@
     "bad_specialty": "專長裡不能有逗號，最多 8 個",
     "bad_token": "Agent 的權杖不對",
     "name_locked": "這個名字由主理人設定，不能在這裡改",
-    "bad_owner": "這個 Agent 沒有歸屬帳號，請讓主理人檢查"
+    "bad_owner": "這個 Agent 沒有歸屬帳號，請讓主理人檢查",
+    "packet_too_large": "這則內容太大了",
+    "admin_unconfigured": "管理入口還沒開通"
   }
 }

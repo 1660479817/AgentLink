@@ -6,7 +6,8 @@ import InformationCard from "../components/InformationCard.vue";
 import { StarIcon } from "../icons/index.js";
 import { addCardFriend, dismissInformation, downloadInformation, listStars, removeCardFriend, unstarInformation } from "../api.js";
 import { acceptDownload } from "../download/consent.js";
-import { cardIsMine } from "../discoverBoard.js";
+import { cardProps } from "../cardProps.js";
+import { cardGranted, cardIsMine } from "../discoverBoard.js";
 import { feeOf, priceOf } from "../record.js";
 import { t } from "../i18n/index.js";
 import { useFriendStore } from "../stores/friends";
@@ -25,6 +26,13 @@ function filterByAuthor(item) {
   router.push({ name: "discover", query: { author: id } });
 }
 
+// 卡片上的分类是 emit，父级不接就等于按钮点了没反应。
+function filterByCategory(item) {
+  const category = String(item?.kMeta?.category || "").trim();
+  if (!category) return;
+  router.push({ name: "discover", query: { category } });
+}
+
 async function downloadItem(item) {
   if (item.downloading) return;
   item.downloading = true;
@@ -33,8 +41,9 @@ async function downloadItem(item) {
     const ok = await acceptDownload({
       price: priceOf(item),
       fee: feeOf(item),
-      granted: item.granted === true,
-      mine: Boolean(session.user) && item.canFriend === false,
+      granted: cardGranted(item, session.user),
+      // 与卡片同一套判定：不要用 canFriend 反推 mine（role=platform 的帖会算错）。
+      mine: cardIsMine(item, session.user),
       balance: session.user?.pointsBalance,
       code: session.user ? "" : "no_session",
       task: () => downloadInformation(item.id),
@@ -59,8 +68,9 @@ async function toggleStar(item) {
   items.value = items.value.filter((row) => row.id !== item.id);
   try {
     await unstarInformation(item.id);
-  } catch (error) {
-    if (error.status !== 401) items.value = previous;
+  } catch {
+    // 取消收藏失败（含 401）就把这条放回去：服务端还留着，界面不能先删。
+    items.value = previous;
   }
 }
 
@@ -82,8 +92,9 @@ async function dismissItem(item) {
   items.value = items.value.filter((row) => row.id !== item.id);
   try {
     await dismissInformation(item.id);
-  } catch (error) {
-    if (error.status !== 401) items.value = previous;
+  } catch {
+    // 同上：失败就还原，401 也是失败。
+    items.value = previous;
   }
 }
 
@@ -127,32 +138,9 @@ onMounted(load);
     <InformationCard
       v-for="item in items"
       :key="item.id"
-      :post-id="item.id"
-      :body="item.body || ''"
-      :category="item.kMeta?.category || ''"
-      :language="item.kMeta?.language || ''"
-      :price="priceOf(item)"
-      :tip-total="Number(item.tipTotal) || 0"
-      :granted="item.granted !== false"
-      :images="item.images || []"
-      :audio="item.audio || []"
-      :videos="item.videos || []"
-      :attachments="item.attachments || []"
-      :note="item.kMeta?.note || ''"
-      :verdict="item.kMeta?.verdict || ''"
-      :author-id="item.author?.id || ''"
-      :author-name="item.author?.name || ''"
-      :avatar-url="item.author?.avatarUrl || ''"
-      :actor="item.actor || ''"
-      :created-at="item.kMeta?.createdAt || ''"
-      :kind="item.kMeta?.kind || ''"
-      :expires-at="item.kMeta?.expiresAt || ''"
-      :mine="cardIsMine(item, session.user)"
-      :starred="true"
-      :friend="Boolean(item.friend)"
-      :can-friend="Boolean(item.canFriend)"
-      :busy="Boolean(item.downloading)"
+      v-bind="cardProps(item, { session, starred: true })"
       @author="filterByAuthor(item)"
+      @category="filterByCategory(item)"
       @friend="toggleFriend(item)"
       @dismiss="dismissItem(item)"
       @star="toggleStar(item)"

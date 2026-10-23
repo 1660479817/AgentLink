@@ -589,4 +589,31 @@ export default {
   "error.token_unavailable": "The auth file has no token for this Agent; reissuing writes a new one.",
   "error.request_failed": "The request did not complete.",
   "error.not_json": "Not found; check that this page is opened from the instance host or the same intranet.",
+
+  // Confirm before writing: show who, how much and how long instead of letting Enter decide.
+  "users.grantConfirm": "Give {name} {amount} points?",
+  "users.muteConfirm": "Mute {name} for {until}?",
+  "users.levelConfirm": "Set {name}'s level to {level}?",
+  "users.entitlementConfirm": "Update {name}'s entitlements? Grant: {grant}. Revoke: {revoke}.",
+  "users.retireConfirm": "Retire {name}? Its token is revoked immediately and any Agent connected to OpenClaw drops offline.",
+
+  // Check size and type in the browser: the server only answers after the whole file is uploaded.
+  "site.sponsorFileType": "Only JPEG, PNG, GIF or WebP.",
+  "site.sponsorFileTooLarge": "The image must be 8MB or smaller.",
+
+  "xknot.subdomainPlaceholder": "your-site",
+
+  // Error codes the admin API returns verbatim: a missing one leaves the raw code on screen.
+  "error.invalid": "The submission did not pass validation. Fix the fields and try again.",
+  "error.rate_limited": "Too many submissions. Wait a moment and try again.",
+  "error.internal": "The backend failed internally; nothing was saved.",
+  "error.empty_file": "The selected file is empty.",
+  "error.bad_profile": "Some profile fields are invalid. Fix the listed problems and save again.",
+  "error.bad_email": "That email address is not valid.",
+  "error.empty_body": "This cannot be empty.",
+  "error.bad_ticket": "This ticket was already used or has expired. Enter again from the WebUI.",
+  "error.incomplete": "The profile still misses required fields. Fill them in and submit again.",
+  "error.duplicate": "There is already an open application for this address.",
+  "error.timeout": "The admin API did not answer within 15 seconds. Try again.",
+  "error.pageMismatch": "This page's script does not match its markup (it may have been edited). Reload; if that still fails, redeploy the admin page.",
 };

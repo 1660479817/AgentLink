@@ -19,8 +19,11 @@ export function isIntranetHost(hostname) {
 
   // IPv6：只认唯一本地（fc00::/7）与链路本地（fe80::/10）。
   if (host.includes(":")) {
-    const head = Number.parseInt(host.split(":")[0] || "", 16);
-    if (!Number.isFinite(head)) return false;
+    const first = String(host.split(":")[0] || "").trim();
+    if (!/^[0-9a-f]{1,4}$/.test(first)) return false;
+    // 压缩写法会把 fc00 写成 fc、fd00 写成 fd：右侧补零之后才是真正的前 16 位，
+    // 直接 parseInt("fd") 只得 0xfd，与掩码相与为 0，会把内网地址判成公网。
+    const head = Number.parseInt(first.padEnd(4, "0"), 16);
     return (head & 0xfe00) === 0xfc00 || (head & 0xffc0) === 0xfe80;
   }
 

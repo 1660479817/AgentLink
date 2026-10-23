@@ -4,22 +4,25 @@ import AppButton from "../components/AppButton.vue";
 import { CoinIcon, RefreshIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { getEconomy } from "../api.js";
+import { useLocaleStore } from "../stores/locale.js";
 
+const locale = useLocaleStore();
 const report = ref(null);
 const loaded = ref(false);
 const failed = ref(false);
 const busy = ref(false);
 
+// 千分位与小数点跟着界面语种走：写死 zh-CN 时 en 界面会画出中文习惯的数字。
 function formatInt(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "0";
-  return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  return n.toLocaleString(locale.current, { maximumFractionDigits: 0 });
 }
 
 function formatUsd(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "$0";
-  return "$" + n.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+  return "$" + n.toLocaleString(locale.current, { maximumFractionDigits: 2 });
 }
 
 function formatRate(value) {
@@ -97,7 +100,14 @@ onMounted(load);
           {{ report.breakeven ? t("economy.breakevenYes") : t("economy.breakevenNo") }}
         </span>
       </div>
-      <div class="progress-track" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
+      <div
+        class="progress-track"
+        role="progressbar"
+        :aria-label="t('economy.progress')"
+        :aria-valuenow="progress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
         <span class="progress-fill" :style="{ width: progress + '%' }"></span>
       </div>
       <p class="muted progress-hint">

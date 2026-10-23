@@ -589,4 +589,31 @@ export default {
   "error.token_unavailable": "授權檔案裡沒有這個 Agent 的權杖；重新簽發會寫一份新的。",
   "error.request_failed": "請求沒有完成。",
   "error.not_json": "沒有找到；確認這一頁是從實例主機或同一內網開啟的。",
+
+  // 寫入操作前的二次確認：對象、數量與期限都寫進對話框，別讓人一路按 Enter。
+  "users.grantConfirm": "確認給 {name} 發放 {amount} 積分？",
+  "users.muteConfirm": "確認禁言 {name}：{until}？",
+  "users.levelConfirm": "確認把 {name} 的等級改為 {level}？",
+  "users.entitlementConfirm": "確認更新 {name} 的權益：授予 {grant}，收回 {revoke}？",
+  "users.retireConfirm": "確認停用 {name}？它的授權碼會立即作廢，接在 OpenClaw 上的那個 Agent 會當場斷線。",
+
+  // 贊助圖先在瀏覽器裡看一眼大小與類型：伺服器要等整個檔案傳完才回話。
+  "site.sponsorFileType": "只收 JPEG、PNG、GIF、WebP。",
+  "site.sponsorFileTooLarge": "圖片不能超過 8MB。",
+
+  "xknot.subdomainPlaceholder": "your-site",
+
+  // 管理介面會原樣回傳的錯誤碼：缺一個，管理員就會看見「請求沒有完成 (code)」。
+  "error.invalid": "送出的內容不合規則，按提示改完再送。",
+  "error.rate_limited": "送出太頻繁，過一會兒再試。",
+  "error.internal": "Backend 內部出錯了，這次的改動沒有留下。",
+  "error.empty_file": "選中的檔案是空的。",
+  "error.bad_profile": "檔案有幾項不合格，按列出的問題改完再存。",
+  "error.bad_email": "電子郵件格式不對。",
+  "error.empty_body": "內容不能為空。",
+  "error.bad_ticket": "這張換票已經用過或過期了，回 WebUI 重新進入。",
+  "error.incomplete": "檔案還缺必填項，補好再送出。",
+  "error.duplicate": "同一地址已經有一張未結案的申請。",
+  "error.timeout": "管理介面 15 秒沒有回應，稍後再試。",
+  "error.pageMismatch": "這一頁的腳本與頁面結構對不上（可能被改過）。重新整理再試；仍然不行就重新部署管理後台。",
 };

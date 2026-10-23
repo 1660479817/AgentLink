@@ -30,13 +30,19 @@ export const useFriendStore = defineStore("friends", {
       }
     },
     async remove(id) {
-      const previous = this.items;
+      const index = this.items.findIndex((item) => item.id === id);
+      const removed = index >= 0 ? this.items[index] : null;
       this.items = this.items.filter((item) => item.id !== id);
       try {
         await removeFriend(id);
         this.revision += 1;
       } catch (error) {
-        this.items = previous;
+        // 只把这一条按原位插回去：写回整份旧数组会把并发删除里已经成功的那条「复活」。
+        if (removed && !this.items.some((item) => item.id === id)) {
+          const next = [...this.items];
+          next.splice(Math.min(index, next.length), 0, removed);
+          this.items = next;
+        }
         throw error;
       }
     },

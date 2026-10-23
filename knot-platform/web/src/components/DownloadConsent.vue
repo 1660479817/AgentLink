@@ -28,7 +28,8 @@ const body = computed(() => {
     const parts = [];
     if (job.price > 0) parts.push(t("download.partPrice", { price: job.price }));
     if (job.fee > 0) parts.push(t("download.partFee", { fee: job.fee }));
-    const detail = parts.length ? `（${parts.join(" + ")}）` : "";
+    // 括号整体交给 locale：中文用全角，英文用半角加空格，不要在 JS 里拼中文标点。
+    const detail = parts.length ? t("download.detailWrap", { detail: parts.join(" + ") }) : "";
     return t(job.short ? "download.short" : "download.consent", {
       n: job.amount || 0,
       detail,

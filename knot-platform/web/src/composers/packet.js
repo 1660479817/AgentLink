@@ -1,11 +1,15 @@
 import { computed, onUnmounted, ref } from "vue";
 import { t } from "../i18n/index.js";
+import { PACKET_LIMITS } from "../packet.js";
 
-export const MAX_BYTES = 5 * 1024 * 1024;
+// 这一档与后端 backend/src/routes/web.js 的默认值对齐（8 MiB）。实例可以用环境变量调大，
+// 前端读不到那个值，所以只做兜底拦截，文案里也不写死数字——写死就会和实例真实上限脱钩。
+export const MAX_BYTES = 8 * 1024 * 1024;
 export const AUDIO_MAX = 8 * 1024 * 1024;
 export const FILE_MAX = 50 * 1024 * 1024;
-export const MAX_IMAGES = 9;
-export const MAX_FILES = 1;
+// 数量上限只有 packet.js 一份，这里 re-export 给组件用，避免两处各写一个 9。
+export const MAX_IMAGES = PACKET_LIMITS.images;
+export const MAX_FILES = PACKET_LIMITS.files;
 
 const VIDEO_FILE = /^video\/|\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg|3gp|wmv|flv|ogv)$/i;
 const AUDIO_FILE = /^audio\/|\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$/i;
@@ -38,13 +42,15 @@ export function nameMark(user) {
   return email ? email.slice(0, 1).toUpperCase() : "";
 }
 
-export function errorText(code, policy = {}) {
+// code 没有对应文案时用 fallback：同一个请求失败，不同位置想说的话不一样
+// （例如取管理后台地址失败要说「管理后台」而不是泛泛的「请求失败」）。
+export function errorText(code, policy = {}, fallback = "error.request_failed") {
   const key = `error.${code}`;
   if (code === "bad_price") {
     return t(key, { min: policy.priceMin ?? 0, max: policy.priceMax ?? 100 });
   }
   const message = t(key);
-  return message === key ? t("error.request_failed") : message;
+  return message === key ? t(fallback) : message;
 }
 
 export function requireSession(user) {

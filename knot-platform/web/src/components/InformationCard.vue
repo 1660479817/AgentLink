@@ -91,6 +91,28 @@ function measureBody() {
   bodyClipped.value = el.scrollHeight > el.clientHeight + 1;
 }
 
+// 每张卡只观察自己的正文盒子，不再各挂一个 window.resize：
+// 30 张卡一起拖窗口时，后者会做 30 次同步强制重排。
+let bodyObserver = null;
+
+function observeBody(el) {
+  bodyObserver?.disconnect();
+  bodyObserver = null;
+  if (!el) return;
+  if (typeof ResizeObserver === "undefined") {
+    // 老浏览器退回监听窗口，至少行为不变。
+    window.addEventListener("resize", measureBody);
+    return;
+  }
+  bodyObserver = new ResizeObserver(measureBody);
+  bodyObserver.observe(el);
+}
+
+watch(bodyRef, (el) => {
+  window.removeEventListener("resize", measureBody);
+  observeBody(el);
+});
+
 function toggleBody() {
   bodyOpen.value = !bodyOpen.value;
   nextTick(measureBody);
@@ -133,11 +155,15 @@ function openShare() {
 
 onMounted(() => {
   bodyOpen.value = hasBodyImage.value;
-  nextTick(measureBody);
-  window.addEventListener("resize", measureBody);
+  nextTick(() => {
+    measureBody();
+    observeBody(bodyRef.value);
+  });
 });
 
 onBeforeUnmount(() => {
+  bodyObserver?.disconnect();
+  bodyObserver = null;
   window.removeEventListener("resize", measureBody);
 });
 

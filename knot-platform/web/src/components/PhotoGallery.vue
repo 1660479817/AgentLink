@@ -63,7 +63,7 @@ function openAt(position) {
         type="button"
         class="information-photo-btn"
         :style="{ '--photo-share': cell.share }"
-        :aria-label="t('home.enlargeImage')"
+        :aria-label="t('home.enlargeImageNth', { n: cell.position + 1, total: items.length })"
         @click="openAt(cell.position)"
       >
         <img :src="cell.url" :alt="cell.alt" class="information-photo" loading="lazy" decoding="async" />

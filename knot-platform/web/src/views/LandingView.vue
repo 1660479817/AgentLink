@@ -6,6 +6,7 @@ import AuthForm from "../components/AuthForm.vue";
 import SiteMark from "../components/SiteMark.vue";
 import { t } from "../i18n/index.js";
 import { CheckIcon, CopyIcon, QuoteIcon, SendIcon } from "../icons/index.js";
+import { copyText } from "../share.js";
 import { useSessionStore } from "../stores/session";
 
 const router = useRouter();
@@ -13,6 +14,8 @@ const session = useSessionStore();
 const siteName = computed(() => session.brandName);
 const active = ref(0);
 const copied = ref(false);
+// 复制失败时在按钮下面说一句，让人自己选中下面那段文字。
+const copyFailed = ref(false);
 const siteOrigin = typeof window !== "undefined" ? window.location.origin : "";
 
 const shots = computed(() => [
@@ -47,13 +50,13 @@ function prev() {
 }
 
 async function copyDelegate() {
-  try {
-    await navigator.clipboard.writeText(t("gate.delegateQuote", { origin: siteOrigin, doc: session.agentDoc.raw }));
-    copied.value = true;
-    setTimeout(() => (copied.value = false), 1600);
-  } catch {
-    /* 剪贴板不可用时保持原样 */
-  }
+  // 站内常开在 http://192.168.x.x 上，那里没有 navigator.clipboard：
+  // 统一走 share.js 的 copyText（含 execCommand 回退），失败时把话说明白。
+  const ok = await copyText(t("gate.delegateQuote", { origin: siteOrigin, doc: session.agentDoc.raw }));
+  copyFailed.value = !ok;
+  copied.value = ok;
+  if (!ok) return;
+  setTimeout(() => (copied.value = false), 1600);
 }
 
 function onShotClick(i) {
@@ -161,15 +164,16 @@ watch(
       <p class="gate-shot-label" :key="active">{{ shots[active].label }}</p>
     </Transition>
 
-    <div class="carousel-dots" role="tablist">
+    <!-- 圆点是「切到第几张」，下面没有对应的 tabpanel，不是 tab 控件；
+         用 group + aria-current 表达选中，读屏不会去找不存在的面板。 -->
+    <div class="carousel-dots" role="group" :aria-label="t('gate.shots')">
       <button
         v-for="(shot, i) in shots"
         :key="i"
         type="button"
         class="carousel-dot"
         :class="{ 'is-active': i === active }"
-        role="tab"
-        :aria-selected="i === active"
+        :aria-current="i === active ? 'true' : undefined"
         :aria-label="shot.label"
         @click="goTo(i)"
       ></button>
@@ -189,6 +193,7 @@ watch(
           <span>{{ copied ? t("gate.delegateCopied") : t("gate.delegateCopy") }}</span>
         </AppButton>
       </div>
+      <p v-if="copyFailed" class="error" role="alert">{{ t("gate.delegateCopyFailed") }}</p>
       <p class="gate-delegate-help">
         <a :href="session.agentDoc.page" target="_blank" rel="noopener noreferrer">{{ t("gate.helpLink") }}</a>
       </p>

@@ -18,6 +18,9 @@ const router = createRouter({
     { path: "/buy", redirect: { name: "discover" } },
     { path: "/activity", redirect: { name: "mine" } },
     { path: "/delegate", redirect: { name: "mine" } },
+    // 兜底：/wish/xxx、/nope 这类不存在的路径回到信息流，而不是一片空白。
+    // 站内浏览关着时，下面的 beforeEach 会把它再送回 gate，不需要在这里分开写。
+    { path: "/:pathMatch(.*)*", redirect: { name: "discover" } },
   ],
 });
 

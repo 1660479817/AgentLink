@@ -1,7 +1,8 @@
 import { defineStore } from "pinia";
 import { DEFAULT_SITE_LOCALE, isLocale } from "@knot/locale";
 import { confirmLoginKey, endSession, getAgent, getSession, requestLoginKey } from "../api.js";
-import { browserStorage, cachedBrand, cachedSite, readBoardCache } from "../boardCache.js";
+import { browserStorage, cachedBrand, cachedSite, clearBoardCache, readBoardCache } from "../boardCache.js";
+import { forgetDiscover } from "../discoverBoard.js";
 
 const INITIAL_POLICY = {
   defaultPrice: 10,
@@ -107,10 +108,14 @@ export const useSessionStore = defineStore("session", {
           // Agent 是否开通随会话一起回来，不再为这一项单独发一次请求。
           if (typeof data.agentDelegated === "boolean") this.agentDelegated = data.agentDelegated;
           this.failed = false;
-        } catch {
-          this.user = null;
-          this.site = { ...INITIAL_SITE };
-          this.agentDelegated = null;
+        } catch (error) {
+          // 只有 401 才算「这个人没登录」。隧道抖一下、请求超时都只是「这次没问到」：
+          // 把 user 清掉等于凭空把人踢出登录，把 site 退回 INITIAL_SITE 又会把访客游览关掉，
+          // 表现出来就是被登出并锁在登录页。已缓存的人与站点开关保持原样，只记 failed。
+          if (error?.status === 401) {
+            this.user = null;
+            this.agentDelegated = null;
+          }
           this.failed = true;
         } finally {
           this.userKnown = true;
@@ -159,12 +164,19 @@ export const useSessionStore = defineStore("session", {
     // 打赏这类接口会把扣款后的余额一起返回，直接写回来，不再为一次余额变化重取整个会话。
     setBalance(value) {
       if (!this.user) return;
-      this.user.pointsBalance = Math.max(0, Number(value) || 0);
+      const n = Number(value);
+      // 响应里没有余额（undefined / "" / NaN）时不要写成 0：界面会突然显示「没钱了」。
+      if (!Number.isFinite(n)) return;
+      this.user.pointsBalance = Math.max(0, n);
     },
     async end() {
       await endSession();
       this.user = null;
       this.agentDelegated = null;
+      // 快照与隐藏集合都是按「这个人看过的状态」记的，退出时一起清掉，
+      // 否则同一个浏览器换人登录，首屏还会画上一个人的样子。
+      clearBoardCache(browserStorage());
+      forgetDiscover();
     },
   },
 });

@@ -23,6 +23,8 @@ export function useCardDialog(source, { onOpen, afterOpen } = {}) {
     onOpen?.(record);
     await nextTick();
     if (!dialog.value || dialog.value.open) return;
+    // 这一帧里用户可能已经关掉了：store 清空后不要再把一个空弹窗打开。
+    if (source() !== record) return;
     dialog.value.showModal();
     afterOpen?.(record);
   }

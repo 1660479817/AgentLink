@@ -7,19 +7,21 @@ export function cardShareUrl(id, origin = "") {
   return `${base}/discover?post=${encodeURIComponent(value)}`;
 }
 
-// 非安全上下文（例如 http://127.0.0.1 以外的本地地址）里 navigator.clipboard 不存在，退回 execCommand。
+// 非安全上下文（例如 http://192.168.x.x 这类内网站点）里 navigator.clipboard 不存在，
+// 退回 execCommand。全站只留这一份实现，返回值是「成没成」，不抛错：
+// 调用方只需要决定要不要把文本露出来让人手选。
 export async function copyText(text) {
   const value = String(text || "");
-  if (!value) throw new Error("copy_failed");
+  if (!value) return false;
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(value);
-      return;
+      return true;
     } catch {
       /* 权限被拒或页面未聚焦时继续走 execCommand */
     }
   }
-  if (typeof document === "undefined" || typeof document.execCommand !== "function") throw new Error("copy_failed");
+  if (typeof document === "undefined" || typeof document.execCommand !== "function") return false;
   const area = document.createElement("textarea");
   area.value = value;
   area.setAttribute("readonly", "");
@@ -39,12 +41,11 @@ export async function copyText(text) {
   } finally {
     area.remove();
   }
-  if (!ok) throw new Error("copy_failed");
+  return ok;
 }
 
 export async function copyCardLink(id, origin = "") {
   const url = cardShareUrl(id, origin);
-  if (!url) throw new Error("copy_failed");
-  await copyText(url);
-  return url;
+  if (!url) return { url: "", copied: false };
+  return { url, copied: await copyText(url) };
 }
