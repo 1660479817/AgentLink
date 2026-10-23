@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { saveReviewExtract } from "./extracts.js";
-import { compareByWeight, deleteOwnPost, isDownloadableFile, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
+import { compareByWeight, deleteOwnPost, isDownloadableFile, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
+import { clearSearchCache } from "./searchCache.js";
 import { serviceFee, packetPrice, policyConfig } from "./points.js";
 
 const AUTHOR = "33333333-3333-4333-8333-333333333333";
@@ -152,6 +153,7 @@ test("the list projection carries expires_at so the reader side can show validit
 });
 
 test("search applies the same category and topic filters", async () => {
+  clearSearchCache();
   const calls = [];
   const pool = {
     async query(sql, params) {
@@ -161,7 +163,93 @@ test("search applies the same category and topic filters", async () => {
   };
   await searchPublicIntel(pool, "住房", null, { category: "房产" });
   assert.match(calls[0].sql, /AND i\.category = \$2/);
-  assert.deepEqual(calls[0].params, [null, "房产"]);
+  // $1 是账户，$2 是类别，$3 是查询的二元组，$4 是候选集上限。
+  assert.deepEqual(calls[0].params, [null, "房产", ["住房"], 2000]);
+  assert.match(calls[0].sql, /i\.search_bigrams && \$3::text\[\]/);
+  assert.match(calls[0].sql, /LIMIT \$4/);
+});
+
+test("search narrows candidates in SQL instead of pulling the heftiest rows", async () => {
+  clearSearchCache();
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+  };
+  await searchPublicIntel(pool, "人工智能", null);
+  assert.match(calls[0].sql, /i\.search_bigrams && \$2::text\[\]/);
+  // 单字查询没有二元组，退回子串匹配，否则一个字的查询永远收不到候选。
+  await searchPublicIntel(pool, "高", null);
+  assert.match(calls[1].sql, /i\.search_compact LIKE/);
+  // 回填未跑完的库也要能搜到：两列还没有值的行保留兜底条件。
+  assert.match(calls[0].sql, /i\.search_bigrams IS NULL OR/);
+});
+
+test("a cached search still records one event per request", async () => {
+  clearSearchCache();
+  const inserts = [];
+  let selects = 0;
+  const pool = {
+    async query(sql, params) {
+      if (sql.includes("INSERT INTO search_events")) {
+        inserts.push(params);
+        return { rows: [] };
+      }
+      selects += 1;
+      return { rows: [] };
+    },
+  };
+  const user = "44444444-4444-4444-8444-444444444444";
+  await searchPublicIntel(pool, "住房", user);
+  await searchPublicIntel(pool, "住房", user);
+  await new Promise((resolve) => setImmediate(resolve));
+  // 第二次命中缓存，但「有人检索了」这件事要记两次。
+  assert.equal(selects, 1);
+  assert.equal(inserts.length, 2);
+  clearSearchCache();
+});
+
+test("a cached row does not carry the index text", async () => {
+  clearSearchCache();
+  const id = "55555555-5555-4555-8555-555555555555";
+  const pool = {
+    async query(sql) {
+      if (sql.includes("INSERT INTO search_events")) return { rows: [] };
+      return {
+        rows: [{
+          id,
+          body: "住房",
+          detail: {},
+          videos: [],
+          weight: 1,
+          created_at: "2026-10-16T00:00:00.000Z",
+          search_compact: "住房",
+        }],
+      };
+    },
+  };
+  const found = await searchPublicIntel(pool, "住房", "66666666-6666-4666-8666-666666666666");
+  assert.equal(found.length, 1);
+  // 打分用的长文本留在检索内部：缓存与响应都不该带上它。
+  assert.equal("search_compact" in found[0], false);
+  const again = await searchPublicIntel(pool, "住房", "66666666-6666-4666-8666-666666666666");
+  assert.equal("search_compact" in again[0], false);
+  clearSearchCache();
+});
+
+test("a query with no letters or digits skips the database entirely", async () => {
+  clearSearchCache();
+  let queries = 0;
+  const pool = {
+    async query() {
+      queries += 1;
+      return { rows: [] };
+    },
+  };
+  assert.deepEqual(await searchPublicIntel(pool, "！！！", null), []);
+  assert.equal(queries, 0);
 });
 
 test("a public author is only someone with a visible post", async () => {
@@ -196,6 +284,7 @@ test("search order is weight, then newer", () => {
 });
 
 test("search matches text saved from a picture or a file", async () => {
+  clearSearchCache();
   const dir = await mkdtemp(path.join(os.tmpdir(), "knot-search-extract-"));
   const previous = process.env.UPLOAD_DIR;
   process.env.UPLOAD_DIR = dir;
@@ -470,3 +559,49 @@ test("deleting is quiet for someone else's post, another kind, or an already del
   assert.deepEqual(await deleteOwnPost(gone, AUTHOR, POST_V2), { ok: true, already: true, id: POST_V2 });
 });
 
+
+test("a review that blows up still lands the transcript it already wrote into the index", async () => {
+  // 评审员先把转写写盘，再交回结果。它超时或崩掉时，索引也必须跟着磁盘上的内容重算一次，
+  // 否则这一行永远少一段文字（search_bigrams 不为 NULL，兜底条件也救不回来）。
+  const id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const updates = [];
+  const pool = {
+    async query(sql, params) {
+      if (sql.startsWith("UPDATE intel SET search_compact")) {
+        updates.push(params);
+        return { rows: [] };
+      }
+      if (sql.startsWith("SELECT id, account_id, body")) {
+        return {
+          rows: [{
+            id,
+            account_id: AUTHOR,
+            body: "正文",
+            videos: [],
+            links: {},
+            verdict: "pending",
+            kind: "post",
+            responds_to: null,
+          }],
+        };
+      }
+      if (sql.startsWith("SELECT id, body, videos, detail")) {
+        return { rows: [{ id, body: "正文", videos: [], detail: null }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const before = { agent: process.env.OPENCLAW_INTEL_AGENT, bin: process.env.OPENCLAW_BIN };
+  process.env.OPENCLAW_INTEL_AGENT = "test-agent";
+  process.env.OPENCLAW_BIN = path.join(os.tmpdir(), "knot-no-such-openclaw-binary");
+  try {
+    await assert.rejects(() => judgeIntel(pool, id));
+  } finally {
+    if (before.agent === undefined) delete process.env.OPENCLAW_INTEL_AGENT;
+    else process.env.OPENCLAW_INTEL_AGENT = before.agent;
+    if (before.bin === undefined) delete process.env.OPENCLAW_BIN;
+    else process.env.OPENCLAW_BIN = before.bin;
+  }
+  assert.equal(updates.length, 1);
+  assert.match(String(updates[0][1]), /正文/);
+});

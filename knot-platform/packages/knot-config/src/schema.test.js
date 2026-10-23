@@ -23,6 +23,7 @@ import {
 } from "./schema.mjs";
 import { clearPriceOverride, economyConfig } from "../../../backend/src/points.js";
 import { loadBootstrapConfig } from "../../../backend/src/config.js";
+import { searchConfig } from "../../../backend/src/searchConfig.js";
 
 const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -335,6 +336,42 @@ test("schema defaults match the values the code falls back to", () => {
       else process.env[key] = value;
     }
     clearPriceOverride();
+  }
+});
+
+test("search defaults in the schema match the values the code falls back to", () => {
+  const keys = [
+    "KNOT_SEARCH_CANDIDATES",
+    "KNOT_SEARCH_RESULTS",
+    "KNOT_SEARCH_Q_MAX",
+    "KNOT_SEARCH_CACHE_TTL",
+    "KNOT_SEARCH_RATE_PER_MIN",
+    "KNOT_RETRIEVAL_RATE_PER_HOUR",
+    "KNOT_RETRIEVAL_CONCURRENCY",
+    "KNOT_RETRIEVAL_MAX_ATTEMPTS",
+    "KNOT_REVIEW_CONCURRENCY",
+    "KNOT_SEARCH_EVENT_RETENTION_DAYS",
+  ];
+  const saved = new Map(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  try {
+    const code = searchConfig();
+    const byKey = new Map(KEYS.map((entry) => [entry.key, entry]));
+    assert.equal(byKey.get("KNOT_SEARCH_CANDIDATES").default, code.candidates);
+    assert.equal(byKey.get("KNOT_SEARCH_RESULTS").default, code.results);
+    assert.equal(byKey.get("KNOT_SEARCH_Q_MAX").default, code.queryMax);
+    assert.equal(byKey.get("KNOT_SEARCH_CACHE_TTL").default * 1000, code.cacheTtlMs);
+    assert.equal(byKey.get("KNOT_SEARCH_RATE_PER_MIN").default, code.searchRatePerMinute);
+    assert.equal(byKey.get("KNOT_RETRIEVAL_RATE_PER_HOUR").default, code.retrievalRatePerHour);
+    assert.equal(byKey.get("KNOT_RETRIEVAL_CONCURRENCY").default, code.retrievalConcurrency);
+    assert.equal(byKey.get("KNOT_RETRIEVAL_MAX_ATTEMPTS").default, code.retrievalMaxAttempts);
+    assert.equal(byKey.get("KNOT_REVIEW_CONCURRENCY").default, code.reviewConcurrency);
+    assert.equal(byKey.get("KNOT_SEARCH_EVENT_RETENTION_DAYS").default, code.searchEventRetentionDays);
+  } finally {
+    for (const [key, value] of saved) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });
 

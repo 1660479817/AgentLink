@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { retrievalMessage } from "./agents/openclaw.js";
-import { createRetrieval } from "./retrieval.js";
+import { createRetrieval, existingResponseId } from "./retrieval.js";
 import { servicePrice } from "./points.js";
 
 test("a retrieval prompt carries the query and ranked internal results", () => {
@@ -50,4 +50,30 @@ test("the platform service price is a whole non-negative number", () => {
   assert.throws(() => servicePrice(-1), (error) => error.code === "bad_price");
   assert.throws(() => servicePrice(1.5), (error) => error.code === "bad_price");
   assert.throws(() => servicePrice(100_001), (error) => error.code === "bad_price");
+});
+
+const WISH = "77777777-7777-4777-8777-777777777777";
+
+test("a previous response is found before the agent runs again", async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [{ id: "respond-1" }] };
+    },
+  };
+  assert.equal(await existingResponseId(pool, WISH), "respond-1");
+  assert.deepEqual(calls[0].params, [WISH]);
+  assert.match(calls[0].sql, /kind = 'wishRespond'/);
+  // 被撤销或删掉的响应不算「已经有结果」，否则这条检索会永远停在进行中。
+  assert.match(calls[0].sql, /verdict NOT IN \('rejected', 'removed'\)/);
+});
+
+test("no response yet returns null", async () => {
+  const pool = {
+    async query() {
+      return { rows: [] };
+    },
+  };
+  assert.equal(await existingResponseId(pool, WISH), null);
 });

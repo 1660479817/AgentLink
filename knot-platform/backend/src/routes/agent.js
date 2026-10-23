@@ -27,6 +27,8 @@ import {
   searchPublicIntel,
 } from "../market.js";
 import { listNotifications, markNotificationsRead, noticeSummary } from "../notifications.js";
+import { allow } from "../rateLimit.js";
+import { searchConfig } from "../searchConfig.js";
 import { createRetrieval } from "../retrieval.js";
 import { economyConfig } from "../points.js";
 import { attachmentOpens } from "../readable.js";
@@ -61,6 +63,7 @@ function agentFail(res, error) {
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
+  if (code === "too_many") return res.status(429).json({ error: "too_many" });
   if (code === "bad_body") return res.status(400).json({ error: "bad_body" });
   if (code === "muted") return res.status(403).json({ error: "muted" });
   if (code === "bad_mention") return res.status(400).json({ error: "bad_mention" });
@@ -465,7 +468,11 @@ export function agentRouter({ pool, uploadDir }) {
   router.get("/search", async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    const q = String(req.query.q || "").trim();
+    const config = searchConfig();
+    if (!allow(`search:${access.userId}`, config.searchRatePerMinute, 60_000)) {
+      return res.status(429).json({ error: "too_many" });
+    }
+    const q = String(req.query.q || "").trim().slice(0, config.queryMax);
     if (!q) return res.json({ information: [] });
     const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
     const rows = await searchPublicIntel(pool, q, access.userId, filters);
@@ -512,16 +519,21 @@ export function agentRouter({ pool, uploadDir }) {
   router.post("/retrieve", async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const config = searchConfig();
+    // 检索一次要调一轮检索员，按账号限流；同一句重复提交是幂等的，不占额度之外的时间。
+    if (!allow(`retrieve:${access.accountId}`, config.retrievalRatePerHour, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: "too_many" });
+    }
     const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
     if (!query) return res.status(400).json({ error: "bad_body" });
     try {
-      const { wish, jobId } = await createRetrieval(pool, {
+      const { wish, jobId, status } = await createRetrieval(pool, {
         userId: access.userId,
         actor: "personal_agent",
         door: "agent_api",
         query,
       });
-      res.status(201).json({ wish, job: { id: jobId, status: "pending" }, price: economyConfig().retrievalPrice });
+      res.status(201).json({ wish, job: { id: jobId, status }, price: economyConfig().retrievalPrice });
     } catch (error) {
       agentFail(res, error);
     }

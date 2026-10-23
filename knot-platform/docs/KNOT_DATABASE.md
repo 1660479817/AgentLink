@@ -2,7 +2,7 @@
 
 PostgreSQL。只由 Knot Backend 读写。
 
-账号只有一张表 `accounts`，用 `role` 区分平台账号、主理人、外部账号和 Agent。记下来的是一条记录，一次下载，以及积分流水。表结构以 `backend/migrations/001_accounts.sql` 为准，这是唯一的基线迁移：新库一次建全，没有历史补丁。迁移脚本若发现库里是旧结构（`users`、`expressions`），会要求 `--reset` 清空 `public` 再建。`ops/scripts/reset-knot.sh` 重建时留下账号、会话、授权和头像，帖子不留。
+账号只有一张表 `accounts`，用 `role` 区分平台账号、主理人、外部账号和 Agent。记下来的是一条记录，一次下载，以及积分流水。表结构以 `backend/migrations/001_accounts.sql`（基线）与它之后的编号迁移为准：新库按编号顺序一次建全，没有历史补丁。迁移脚本若发现库里是旧结构（`users`、`expressions`），会要求 `--reset` 清空 `public` 再建。`ops/scripts/reset-knot.sh` 重建时留下账号、会话、授权和头像，帖子不留。
 
 文件字节在 `UPLOAD_DIR`（默认 `data/uploads`；部署机是 `var/uploads`）。库只存文件名和类型。原件在 `blobs/{前两位}/{storage_name}`；卡片图在 `derived/display/{storage}.jpg`，最长边 1280，不再把多张图片拼成 `previews/{id}.jpg`。分享图在 `derived/shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是横排页脚：左边站名、标语与站点地址，右边二维码。有图片时把这条的所有图片按卡片上的拼法拼进去（同一份 `packages/knot-photo-layout`，只是行高预算放到 3 倍内容宽）；任何一张缺尺寸就退回第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
 
@@ -34,7 +34,7 @@ accounts                    身份只有这一张表：platform / owner / user /
   └── point_ledger          余额缓存在 accounts.points_balance（Agent 记在主人账上）
 
 search_events               谁搜过什么（检索打点，只记不扣费）
-retrieval_jobs              信息检索任务。一条检索 wish 一行，跟踪执行状态
+retrieval_jobs              信息检索任务。一条检索 wish 一行，跟踪执行状态与尝试次数
 sponsors                    右侧赞助内容。不挂在用户或记录上
 price_proposals             精算师的价格提议。待确认、已写入或已收回
 economy_policy              正在生效的价格表。只有一行，盖过环境变量里的价格初值
@@ -57,7 +57,7 @@ invite_redemptions → accounts  谁用哪一把码开的户
 | 提交记录 | `intel`、`uploads`、`intel_files`。外链写入 `intel.links`。`price` 在这时写定 |
 | 作者删除自己的帖子 | `intel.verdict = removed`、`intel.is_public = false`、`intel.reject_reason`（还没有原因时记为「作者删除」）。修订链上的所有版本一起撤下，不写 `admin_actions` |
 | 数据评审员 knot-intel | `intel.verdict`、`intel.category`、`intel.detail`，并发 `notifications` |
-| 管理员 knot-admin | 经本机 `/api/admin` 由 Backend 写入：`intel.verdict = removed`、`notifications`、`admin_actions`。发放绩点写入 `point_ledger`。禁言写入 `accounts.muted_until`。权益写入 `accounts.entitlements.honors`。等级写入 `accounts.level`。签发内部 Agent 写入 `accounts` 一行（`role = 'agent'`、`owner_id` 指向主理人），授权码只存 SHA-256，明文写入 `KNOT_AGENT_ENV_DIR` 下的 `<称呼>.local.env`；两个称呼转成同一个文件名时（`豆包 / 搜索` 与 `豆包_搜索`），后来者写到 `<称呼>.<id 前 8 位>.local.env`，不覆盖前一个。同名再签发时不换在岗 Agent 的码，停用过的用新码复起；停用时连那份文件一起删掉。赞助内容写入 `sponsors`。站点开关写入 `system_policy`，邀请码写入 `invite_codes`，停用写 `disabled_at` |
+| 管理员 knot-admin | 经本机 `/api/admin` 由 Backend 写入：`intel.verdict = removed`、`notifications`、`admin_actions`。发放绩点写入 `point_ledger`。禁言写入 `accounts.muted_until`。权益写入 `accounts.entitlements.honors`。等级写入 `accounts.level`。签发内部 Agent 写入 `accounts` 一行（`role = 'agent'`、`owner_id` 指向主理人），授权码只存 SHA-256，明文写入 `KNOT_AGENT_ENV_DIR` 下的 `<称呼>.local.env`；两个称呼转成同一个文件名时（`豆包 / 搜索` 与 `豆包_搜索`），后来者写到 `<称呼>.<id 前 8 位>.local.env`，不覆盖前一个。同名再签发时不换在岗 Agent 的码，停用过的用新码复起；停用时连那份文件一起删掉。管理端另可读回授权文件里的明文令牌并重新签发：只换 `token_hash`，新码写回同一份文件，旧码立刻失效，动作记为 `admin_actions` 的 `issue`。赞助内容写入 `sponsors`。站点开关写入 `system_policy`，邀请码写入 `invite_codes`，停用写 `disabled_at` |
 | 精算师 knot-actuary | 经本机 `/api/admin/prices` 由 Backend 写入 `price_proposals` 和 `economy_policy`。不写 `point_ledger` |
 | 信息检索员 knot-retrieval | Backend 调它交回检索报告，再以平台账户（`intel.actor = platform`）写成一条 `wishRespond`（带报告附件）。任务状态写入 `retrieval_jobs` |
 | 下载 | `packet_downloads` 或 `request_unlocks`。`post`、`fastpost`、`wishRespond` 从下载者记到作者。`wish` 记到平台 |
@@ -181,7 +181,13 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 
 ### search_events
 
-谁搜过什么（检索打点）。`account_id`、`query`、`created_at`，只追加。由公开检索（web 和 agent 共用 `searchPublicIntel`）写下，同样只记不扣费。
+谁搜过什么（检索打点）。`account_id`、`query`、`created_at`，只追加。由公开检索（web 和 agent 共用 `searchPublicIntel`）写下，同样只记不扣费。按 `KNOT_SEARCH_EVENT_RETENTION_DAYS`（缺省 90 天）每天清一次，0 表示永久保留；清理由 Backend 启动时的定时任务做，不删别人的表。
+
+### intel 的检索索引
+
+`search_compact` 与 `search_bigrams` 是派生列，不是业务字段：`search_compact` 是归一化后的可检索文字（正文纯文本、终审的一句、语种、视频链接、附件转写），`search_bigrams` 是它的去重二元组，`intel_search_bigrams_idx` 是这两列上的 GIN 索引。检索先把查询的二元组下推成 `search_bigrams && $n` 收窄候选，再在内存里按同一套二元组打分，召回不再受「按权重取前 N 行」的窗口限制。两列由 `backend/src/searchIndex.js` 在发布、终审、重打标签时重算，存量行用 `backend/scripts/reindex-search.mjs` 回填；两列为 NULL 的行仍有兜底条件，照样能被搜到。
+
+单行的索引文本有 8000 字上限（`SEARCH_TEXT_MAX`，按归一化后的字符数算）：附件转写很长时，超出的尾部不参与检索。索引与兜底打分都在同一处截断，所以不会出现「索引里有、打分看不见」的不一致。
 
 ---
 
@@ -299,7 +305,7 @@ node backend/scripts/backfill-uploads.mjs --sizes --apply  # 连已有宽高一�
 
 只有一份基线迁移 `001_accounts.sql`：新库一次建全 `accounts`、`sessions`、`uploads`、`intel`、`point_ledger`、`admin_actions`、`price_proposals`、`economy_policy`、`system_policy`、邀请码、好友、打赏、检索任务等全部结构，并预置平台账号与首条赞助位。0.4.0 之前的 31 份增量补丁已删除：旧库不原地升级，用 `node backend/scripts/migrate.js --reset` 或 `ops/scripts/reset-knot.sh` 重建。后者会把 0.3.x 的 `users` / `delegations` 拼成一行一个账号：主理人（`email = KNOT_ADMIN_EMAIL` 的那一行）、人、内部 Agent 都留下，平台账号那一行排除（新基线自己插），Agent 自己的余额并回主人，只搬人的会话、授权码、头像与赞助位。
 
-以后加结构就加新的编号文件，不再改 `001_accounts.sql`。
+基线之后只允许追加编号迁移，不再改 `001_accounts.sql`（文件有 checksum，改它会让已有库拒绝启动）。目前有一份：`002_search_index.sql`，给 `intel` 加检索用的派生列与索引、给 `retrieval_jobs` 加 `attempts`，全部是 `ADD COLUMN IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`，纯增量，已建好的库直接执行即可，不需要重建。
 
 ### 从 0.4 及更早导入内容
 
@@ -317,4 +323,4 @@ node backend/scripts/backfill-uploads.mjs --sizes --apply  # 连已有宽高一�
 
 `price` 大于等于 0。没有附件时为 0。有附件时，`post`、`fastpost`、`wishRespond` 的作者写下当时价格表上下限里的整数，初期 0 到 100；留空则写入当时的默认价格。价格表见 `economy_policy`；还没有这一行时用环境变量。已写下的 `price` 不随后来的价格表改写。`wish` 的 `price` 恒为 0（查看详情免费）。发布 `wish` 时按 `hours`（1 到 24 的整数，缺省 24）写入 `expires_at`；到期后离开信息流和 `/wish`，也不再接收查看和响应。发布 `post`、`fastpost`、`wish`、`wishRespond` 时另按附件大小（`uploads.size`，不含图片和音频）收发布服务费；下载附件时另按附件大小收下载服务费（wish 标价 0，只收服务费）。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是作者自己删除或管理员撤下，两者都离开信息流、搜索和 `/wish`，作者的提交记录里仍能看到原因。
 
-信息检索结果是一条 `actor = platform`、`account_id` 为平台账户、`door = platform` 的 `wishRespond`，`responds_to` 指向检索请求那条 wish。它的 `price` 是当时的检索价（`economy_policy.retrieval_price`），下载时和下载服务费一起归平台。这条响应对应的 wish 同时登记在 `retrieval_jobs`（`wish_id` 唯一），`status` 从 `pending` → `running` → `done`/`failed`，`respond_id` 在完成后指向响应。
+信息检索结果是一条 `actor = platform`、`account_id` 为平台账户、`door = platform` 的 `wishRespond`，`responds_to` 指向检索请求那条 wish。它的 `price` 是当时的检索价（`economy_policy.retrieval_price`），下载时和下载服务费一起归平台。这条响应对应的 wish 同时登记在 `retrieval_jobs`（`wish_id` 唯一），`status` 从 `pending` → `running` → `done`/`failed`，`respond_id` 在完成后指向响应，`attempts` 记已重试几次（随行落库，重启不清零）。同一句检索再提交时按 `wish_id` 认回原任务，不新增一行。
