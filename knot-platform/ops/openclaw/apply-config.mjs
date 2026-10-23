@@ -103,7 +103,10 @@ export function patchInternal(config, ids) {
     const entry = next.agents.entries[id];
     if (!entry) continue;
     entry.skills = [];
-    entry.subagents = { ...(entry.subagents || {}), allowAgents: ids.filter((item) => item !== id) };
+    // 签发出来的内部 Agent 默认不互相委派：bravesearch 自己的边界就是不把任务
+    // 交给 knot-intel / knot-admin。「其余全部」等于给每个新账户开一道口子，
+    // 而它们各有各的令牌与工作区。要委派就在 internal_agent/<id>/ 里显式声明。
+    entry.subagents = { ...(entry.subagents || {}), allowAgents: [] };
   }
   return next;
 }
@@ -169,7 +172,10 @@ async function syncInternal(ids) {
       await copyFile(path.join(source, name), path.join(workspace, name));
     }
     await rm(path.join(workspace, "BOOTSTRAP.md"), { force: true });
-    const envDir = process.env.KNOT_AGENT_ENV_DIR || path.join(root, "../sites", process.env.KNOT_SITE || "", "agents");
+    // root 是 ops/openclaw，部署根在它的两级之上：<部署根>/sites/<站点>/agents。
+    // 少一层会落到 <部署根>/ops/sites，读不到就把 ENOENT 吞掉，同步照样报成功。
+    const envDir =
+      process.env.KNOT_AGENT_ENV_DIR || path.join(root, "..", "..", "sites", process.env.KNOT_SITE || "", "agents");
     const envFile = await agentEnvFile(envDir, id);
     const tokenFile = path.join(workspace, ".knot-agent.env");
     try {
@@ -177,6 +183,8 @@ async function syncInternal(ids) {
       await chmod(tokenFile, 0o600);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
+      // 没有授权码时这个 Agent 调不了接口。别静默：运维看到的「同步成功」会骗人。
+      console.error(`警告：没有 ${envFile}，${id} 这次没有 .knot-agent.env（先用 ensure-internal-agent.sh 签发）。`);
     }
   }
 }
@@ -187,8 +195,12 @@ async function readConfig() {
 
 async function writeConfig(config) {
   const tmp = `${configPath}.knot-tmp`;
-  await writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`);
+  // 这份配置里有 gateway/auth 等本机凭据。临时文件必须一开始就是 0600：
+  // 先按缺省权限写、再 rename，会把整份配置的权限降成 0644。
+  await writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
   await rename(tmp, configPath);
+  // 目标文件可能本来就在、权限更宽；rename 保留的是临时文件的权限，这里再对一次。
+  await chmod(configPath, 0o600);
 }
 
 async function snapshot() {

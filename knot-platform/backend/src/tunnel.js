@@ -58,8 +58,13 @@ export async function ensureTunnelKey({ file, comment = "knot-tunnel", exec = ex
   }
 }
 
-/** 案例链接 → 同一能力键下的接口地址。只接受 http(s) 与纯键名。 */
-export function caseEndpoint(caseUrl, action) {
+/** 案例链接 → 同一能力键下的接口地址。只接受 http(s) 与纯键名。
+ *
+ * 给了 hubOrigin 就把 origin 钉死在中枢上：caseUrl 来自中枢响应（写进 join.json），
+ * 是远端可控的数据。不比对 origin 时，一个响应过申请的中枢、或被改过的 join.json，
+ * 就能让实例对它发 GET .../progress 与 POST .../public-key（S12-02）。
+ */
+export function caseEndpoint(caseUrl, action, hubOrigin = "") {
   let url;
   try {
     url = new URL(String(caseUrl || ""));
@@ -67,13 +72,23 @@ export function caseEndpoint(caseUrl, action) {
     return null;
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const hub = String(hubOrigin || "").trim().replace(/\/+$/, "");
+  if (hub) {
+    let allowed;
+    try {
+      allowed = new URL(hub);
+    } catch {
+      return null;
+    }
+    if (allowed.origin !== url.origin) return null;
+  }
   const match = /^\/case\/([A-Za-z0-9_-]{6,64})\/?$/.exec(url.pathname);
   if (!match) return null;
   return `${url.origin}/api/case/${match[1]}/${action}`;
 }
 
-export async function submitPublicKey({ caseUrl, publicKey, fetchImpl = fetch } = {}) {
-  const target = caseEndpoint(caseUrl, "public-key");
+export async function submitPublicKey({ caseUrl, publicKey, hubOrigin = "", fetchImpl = fetch } = {}) {
+  const target = caseEndpoint(caseUrl, "public-key", hubOrigin);
   if (!target) return { error: "bad_case_url" };
   const body = new URLSearchParams({ publicKey: String(publicKey || "").trim() }).toString();
   try {
@@ -92,8 +107,8 @@ export async function submitPublicKey({ caseUrl, publicKey, fetchImpl = fetch } 
   }
 }
 
-export async function fetchProgress({ caseUrl, fetchImpl = fetch } = {}) {
-  const target = caseEndpoint(caseUrl, "progress");
+export async function fetchProgress({ caseUrl, hubOrigin = "", fetchImpl = fetch } = {}) {
+  const target = caseEndpoint(caseUrl, "progress", hubOrigin);
   if (!target) return { error: "bad_case_url" };
   try {
     const response = await fetchImpl(target, {
@@ -150,8 +165,15 @@ export async function applyManagedBlock({ file, block } = {}) {
   let next;
   if (start >= 0 && end > start) {
     next = `${current.slice(0, start)}${block}${current.slice(end + MANAGED_END.length)}`;
+  } else if (start >= 0) {
+    // 只剩 START、没有配对的 END：文件被手工截断或写入中途断电。
+    // 从 START 处截掉尾部再写，否则会把第二段托管块追加在后面（S12-15）。
+    const head = current.slice(0, start).trimEnd();
+    next = `${head}${head ? "\n\n" : ""}${block}\n`;
   } else {
-    next = `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${block}\n`;
+    // 孤立的 END（没有 START）也要带走，免得文件里留下半截标记。
+    const kept = end >= 0 ? `${current.slice(0, end)}${current.slice(end + MANAGED_END.length)}` : current;
+    next = `${kept.trimEnd()}${kept.trim() ? "\n\n" : ""}${block}\n`;
   }
 
   if (next === current) return { changed: false };

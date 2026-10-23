@@ -161,9 +161,7 @@ export async function sameWallet(db, leftId, rightId) {
   return left === (await walletOf(db, rightId));
 }
 
-export async function applyPoints(client, { userId, delta, reason, refId = null }) {
-  const wallet = await walletOf(client, userId);
-  if (!wallet) throw new Error("insufficient_points");
+async function applyWalletPoints(client, wallet, { delta, reason, refId = null }) {
   const { rows } = await client.query(
     `UPDATE accounts
      SET points_balance = points_balance + $2
@@ -177,4 +175,28 @@ export async function applyPoints(client, { userId, delta, reason, refId = null 
     [wallet, delta, reason, refId]
   );
   return rows[0].points_balance;
+}
+
+export async function applyPoints(client, { userId, delta, reason, refId = null }) {
+  const wallet = await walletOf(client, userId);
+  if (!wallet) throw new Error("insufficient_points");
+  return applyWalletPoints(client, wallet, { delta, reason, refId });
+}
+
+// 同一个事务里给多个钱包动账时，先按钱包 id 排序再逐笔更新。
+// 购买与出售是方向相反的两笔：不排序时「A 付给 B」和「B 付给 A」会以相反的顺序
+// 锁同一对 accounts 行，Postgres 判为死锁并回滚其中一笔，用户看到 500。
+// 排序只统一加锁顺序，资金结果与逐笔的先后无关。
+export async function applyPointsOrdered(client, entries) {
+  const resolved = [];
+  for (const entry of entries) {
+    const wallet = await walletOf(client, entry.userId);
+    // 与 applyPoints 一致：查不到钱包就按余额不足处理，不静默跳过。
+    if (!wallet) throw new Error("insufficient_points");
+    resolved.push({ ...entry, wallet });
+  }
+  resolved.sort((left, right) => (left.wallet < right.wallet ? -1 : left.wallet > right.wallet ? 1 : 0));
+  let balance = null;
+  for (const entry of resolved) balance = await applyWalletPoints(client, entry.wallet, entry);
+  return balance;
 }

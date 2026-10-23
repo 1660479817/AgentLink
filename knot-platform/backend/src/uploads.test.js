@@ -29,15 +29,20 @@ function jpeg(width, height) {
   return buffer;
 }
 
-test("any square avatar is accepted", () => {
+test("a square avatar is checked by decoding, not by its header", async () => {
   assert.equal(AVATAR_PX, 512);
-  assert.deepEqual(imageSize(png(512, 512)), { width: 512, height: 512 });
-  assert.equal(avatarBufferError(png(512, 512)), null);
-  assert.equal(avatarBufferError(jpeg(512, 512)), null);
-  assert.equal(avatarBufferError(png(64, 64)), null);
-  assert.equal(avatarBufferError(png(1024, 1024)), null);
-  assert.equal(avatarBufferError(png(800, 600)), "bad_avatar_square");
-  assert.equal(avatarBufferError(Buffer.from("not-an-image")), "bad_avatar_square");
+  const make = (width, height, format) =>
+    sharp({ create: { width, height, channels: 3, background: { r: 8, g: 102, b: 255 } } })[format]().toBuffer();
+  const square = await make(512, 512, "png");
+  assert.deepEqual(imageSize(square), { width: 512, height: 512 });
+  assert.equal(await avatarBufferError(square), null);
+  assert.equal(await avatarBufferError(await make(512, 512, "jpeg")), null);
+  assert.equal(await avatarBufferError(await make(64, 64, "png")), null);
+  assert.equal(await avatarBufferError(await make(1024, 1024, "png")), null);
+  assert.equal(await avatarBufferError(await make(800, 600, "png")), "bad_avatar_square");
+  // 24 字节伪造 PNG：头里写着 64×64，没有像素，解不出来。
+  assert.equal(await avatarBufferError(png(64, 64)), "bad_avatar_square");
+  assert.equal(await avatarBufferError(Buffer.from("not-an-image")), "bad_avatar_square");
 });
 
 test("avatars larger than 512 are compressed to a 512 jpeg", async () => {
@@ -123,10 +128,11 @@ test("a card image is a jpeg that fits the column", async () => {
   }
 });
 
-test("shrinking an avatar refreshes the stored size, digest and dimensions", async () => {
+test("shrinking an avatar writes a new row and leaves the original bytes alone", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "knot-avatar-"));
   try {
     const id = "11111111-1111-4111-8111-111111111111";
+    const next = "33333333-3333-4333-8333-333333333333";
     const name = `${id}.png`;
     const original = await sharp({
       create: { width: 800, height: 800, channels: 3, background: { r: 8, g: 102, b: 255 } },
@@ -142,24 +148,29 @@ test("shrinking an avatar refreshes the stored size, digest and dimensions", asy
       async query(sql, params = []) {
         calls.push({ sql, params });
         if (sql.includes("SELECT id, storage_name, mime")) {
-          return { rows: [{ id, storage_name: name, mime: "image/png" }] };
+          return { rows: [{ id, storage_name: name, mime: "image/png", original_name: "me.png" }] };
         }
+        if (sql.includes("INSERT INTO uploads")) return { rows: [{ id: next }] };
         return { rows: [] };
       },
     };
 
-    assert.deepEqual(await acceptAvatar(pool, dir, "22222222-2222-4222-8222-222222222222", id), { id });
-    const update = calls.find((call) => call.sql.includes("UPDATE uploads"));
-    assert.ok(update, "the upload row is updated");
-    const [nextName, size, sha256, width, height] = update.params;
-    assert.equal(nextName, `${id}.jpg`);
+    // 返回的是一张新的 upload：调用方据此改 accounts.avatar_upload_id。
+    assert.deepEqual(await acceptAvatar(pool, dir, "22222222-2222-4222-8222-222222222222", id), { id: next });
+    assert.equal(calls.some((call) => call.sql.includes("UPDATE uploads")), false, "no in-place rewrite");
+    const insert = calls.find((call) => call.sql.includes("INSERT INTO uploads"));
+    assert.ok(insert, "the avatar is a new upload row");
+    const [accountId, storedName, originalName, size, sha256, width] = insert.params;
+    assert.equal(accountId, "22222222-2222-4222-8222-222222222222");
+    assert.match(storedName, /^[0-9a-f-]{36}\.jpg$/);
+    assert.equal(originalName, "me.png");
     assert.equal(width, AVATAR_PX);
-    assert.equal(height, AVATAR_PX);
 
-    const written = await readFile(storagePath(dir, nextName));
+    const written = await readFile(storagePath(dir, storedName));
     assert.equal(size, written.length);
     assert.equal(sha256, createHash("sha256").update(written).digest("hex"));
-    assert.equal(fs.existsSync(storagePath(dir, name)), false, "the original png is removed");
+    // 原件不动：可能还有一条旧帖子在引用它。
+    assert.deepEqual(await readFile(source), original);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

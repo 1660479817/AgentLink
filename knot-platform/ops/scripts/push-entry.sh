@@ -62,10 +62,13 @@ if [[ "$BUILD" == 1 ]]; then
 fi
 [[ -f "$KNOT_APP_DIR/web/dist/index.html" ]] || knot_fail "缺少 web/dist/index.html。"
 
-SSH_OPTS=(-o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
+SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 ENTRY_KEY="$(knot_expand_path "$KNOT_ENTRY_SSH_KEY")"
 if [[ -n "$ENTRY_KEY" ]]; then
-  SSH_OPTS+=(-i "$ENTRY_KEY")
+  # IdentitiesOnly 只在显式给了 -i 时加：留空交给 ssh-agent 时加上它，agent 里的身份
+  # 一个都不会被提交，认证会直接失败。
+  [[ -f "$ENTRY_KEY" ]] || knot_fail "找不到推入口用的私钥：${ENTRY_KEY}（KNOT_ENTRY_SSH_KEY 可留空，改用 ssh-agent）"
+  SSH_OPTS+=(-i "$ENTRY_KEY" -o IdentitiesOnly=yes)
 fi
 
 knot_render_entry() {
@@ -133,24 +136,22 @@ case "$REMOTE_STAGE" in
 esac
 
 # 访问日志格式同一台入口主机只声明一次：log_format 重复定义会让整份配置过不了 nginx -t。
-# static 与 proxy 都要装，日志才分得出子域。
+# static 与 proxy 都要装，日志才分得出子域。先把文件传到中转目录，落地放在最后一步，
+# 和 site.conf 一起过 nginx -t —— 单独落地一个错的 log_format，下一次 reload 才炸。
 LOG_CONF="$(dirname "${CONF:-/etc/nginx/conf.d/knot.conf}")/knot-log.conf"
 scp "${SSH_OPTS[@]}" "$KNOT_APP_DIR/ops/entry/log.conf.template" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/knot-log.conf"
-echo "==> install $LOG_CONF"
-ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "
-  set -e
-  sudo mkdir -p '$(dirname "$LOG_CONF")'
-  sudo cp '$REMOTE_STAGE/knot-log.conf' '$LOG_CONF'
-  sudo touch '$KNOT_ENTRY_ACCESS_LOG'
-"
+
+# 真实客户端地址也是 http 级的：同一台入口主机上所有子域共用同一组 CF 网段，
+# 每个子域各声明一遍会互相覆盖，所以同样只装一份。
+REALIP_CONF="$(dirname "${CONF:-/etc/nginx/conf.d/knot.conf}")/knot-realip.conf"
+scp "${SSH_OPTS[@]}" "$KNOT_APP_DIR/ops/entry/realip.conf" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/knot-realip.conf"
 
 # 缓存区同一台入口主机只声明一次。
+CACHE_CONF=""
 if [[ "$SERVE" == "static" ]]; then
   CACHE_CONF="$(dirname "${CONF:-/etc/nginx/conf.d/knot.conf}")/knot-cache.conf"
   node "$SCRIPT_DIR/render-config.mjs" "$KNOT_APP_DIR/ops/entry/cache.conf.template" "$TMP_DIR/knot-cache.conf"
   scp "${SSH_OPTS[@]}" "$TMP_DIR/knot-cache.conf" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/knot-cache.conf"
-  echo "==> install $CACHE_CONF"
-  ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "sudo mkdir -p '$(dirname "$CACHE_CONF")' && sudo cp '$REMOTE_STAGE/knot-cache.conf' '$CACHE_CONF'"
 else
   echo "==> proxy 投放，跳过缓存区"
 fi
@@ -189,34 +190,75 @@ CONF_OUT="$TMP_DIR/$HOST.conf"
 knot_render_entry "$CONF_OUT"
 scp "${SSH_OPTS[@]}" "$CONF_OUT" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/site.conf"
 
-CHOWN_CMD=""
-if [[ -n "${KNOT_ENTRY_WEB_OWNER:-}" ]]; then
-  CHOWN_CMD="sudo chown -R $KNOT_ENTRY_WEB_OWNER '$WEB_ROOT' &&"
-fi
-
 echo "==> entry ${HOST}（${SERVE}）"
-if [[ "$SERVE" == "static" ]]; then
-  echo "    安装静态根 $WEB_ROOT"
-  ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "
-    set -e
-    sudo mkdir -p '$WEB_ROOT'
-    sudo rsync -a --delete --exclude .well-known --exclude /discover.json --exclude /media/ '$REMOTE_STAGE/web/' '$WEB_ROOT/'
-    $CHOWN_CMD true
-    sudo mkdir -p '$(dirname "$CONF")'
-    sudo cp '$REMOTE_STAGE/site.conf' '$CONF'
-    sudo nginx -t
-    $KNOT_ENTRY_RELOAD_CMD
-  "
+# 配置不能「先落地再校验」：nginx -t 不过时坏 conf 已经躺在 conf.d/ 里，
+# 当前运行的 nginx 还是旧配置，但下一次任何 reload（证书续期、别人推入口）
+# 都会失败。这里改成 备份 → 落地 → nginx -t → 通过才 reload，失败就整组还原。
+# site.conf、log、cache 三份一起测，避免 log_format 重复这类错误漏到下一次。
+ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" bash -s -- \
+  "$SERVE" "$REMOTE_STAGE" "$WEB_ROOT" "$CONF" "$LOG_CONF" "$CACHE_CONF" \
+  "${KNOT_ENTRY_WEB_OWNER:-}" "${KNOT_ENTRY_ACCESS_LOG:-/var/log/nginx/knot-access.log}" \
+  "${KNOT_ENTRY_RELOAD_CMD:-sudo systemctl reload nginx}" "$REALIP_CONF" <<'REMOTE'
+set -eu
+serve="$1"
+stage="$2"
+web_root="$3"
+conf="$4"
+log_conf="$5"
+cache_conf="$6"
+owner="$7"
+access_log="$8"
+reload_cmd="$9"
+realip_conf="${10}"
+
+if [ "$serve" = "static" ]; then
+  echo "    安装静态根 ${web_root}"
+  sudo mkdir -p "$web_root"
+  sudo rsync -a --delete --exclude .well-known --exclude /discover.json --exclude /media/ "$stage/web/" "$web_root/"
+  if [ -n "$owner" ]; then sudo chown -R "$owner" "$web_root"; fi
 else
   echo "    整站回源，不推静态文件"
-  ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "
-    set -e
-    sudo mkdir -p '$(dirname "$CONF")'
-    sudo cp '$REMOTE_STAGE/site.conf' '$CONF'
-    sudo nginx -t
-    $KNOT_ENTRY_RELOAD_CMD
-  "
 fi
+
+prev="$stage/prev"
+mkdir -p "$prev"
+backup_conf() {
+  [ -n "$1" ] || return 0
+  if [ -f "$1" ]; then sudo cp -p "$1" "$prev/$(basename "$1")"; fi
+}
+restore_conf() {
+  [ -n "$1" ] || return 0
+  if [ -f "$prev/$(basename "$1")" ]; then
+    sudo cp -p "$prev/$(basename "$1")" "$1"
+  else
+    sudo rm -f "$1"
+  fi
+}
+install_conf() {
+  sudo mkdir -p "$(dirname "$2")"
+  sudo install -m 644 "$1" "$2"
+}
+
+backup_conf "$log_conf"
+backup_conf "$cache_conf"
+backup_conf "$realip_conf"
+backup_conf "$conf"
+install_conf "$stage/knot-log.conf" "$log_conf"
+[ -n "$cache_conf" ] && install_conf "$stage/knot-cache.conf" "$cache_conf"
+install_conf "$stage/knot-realip.conf" "$realip_conf"
+install_conf "$stage/site.conf" "$conf"
+sudo touch "$access_log"
+
+if ! sudo nginx -t; then
+  restore_conf "$conf"
+  restore_conf "$cache_conf"
+  restore_conf "$log_conf"
+  restore_conf "$realip_conf"
+  echo "nginx -t 没通过，已把入口配置还原成推送前的样子。常见原因：证书没签好、端口被占、域名写错。" >&2
+  exit 1
+fi
+sh -c "$reload_cmd"
+REMOTE
 
 echo
 echo "OK: xknot.si 子域入口 $HOST 已更新"

@@ -188,16 +188,40 @@ if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
 }
 
 app.use((err, _req, res, _next) => {
-  console.error(err);
+  // 只记码与一句话：pg 的错误对象里 detail 会带上冲突行的取值（邮箱、正文片段），
+  // 整份 console.error(err) 等于把用户数据写进日志。
+  const code = String(err?.code || err?.status || "error");
+  console.error(`knot-backend 未处理的错误：${code} ${String(err?.message || "").slice(0, 200)}`);
   res.status(500).json({ error: "internal" });
 });
 
 await loadEconomyPolicy(pool);
 
-app.listen(bootstrap.port, bootstrap.bindHost, () => {
+const server = app.listen(bootstrap.port, bootstrap.bindHost, () => {
   console.log(`knot-backend listening on ${bootstrap.bindHost}:${bootstrap.port}`);
   resumePendingReviews(pool).catch((error) => console.error(error));
   resumePendingRetrievals(pool).catch((error) => console.error(error));
   // 检索打点只追加，按保留天数每天清一次，别让 count(*) 随运行时间变慢。
   startSearchEventRetention(pool);
 });
+
+// 部署脚本重启时先发 SIGTERM。不处理的话进程被直接掐断，进行中的上传、下载与
+// 发布事务断在半路，pg 连接也没有关。这里先停止接收新连接，等在途请求走完再关池。
+let closing = false;
+function shutdown(signal) {
+  if (closing) return;
+  closing = true;
+  console.log(`knot-backend 收到 ${signal}，停止接收新请求`);
+  server.close(() => {
+    pool
+      .end()
+      .catch((error) => console.error(error))
+      .finally(() => process.exit(0));
+  });
+  // 在途请求迟迟不结束也不能一直挂着：到点直接退出，交给部署脚本重新拉起。
+  const forced = setTimeout(() => process.exit(1), 15_000);
+  forced.unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

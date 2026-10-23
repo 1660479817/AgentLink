@@ -50,12 +50,9 @@ export function searchIndexOf(text) {
 // 重算一行。内容、终审结果或附件转写变化后都要调一次。现在的调用点是三处：
 // 发布（createIntel）、终审（judgeIntel，放在 finally 里，评审员超时也能算上已写盘的转写）、
 // 重打话题标签（retagIntelTopics）。
-export async function refreshSearchIndex(pool, intelId) {
-  if (!ID.test(String(intelId || ""))) return null;
-  const { rows } = await pool.query(`SELECT id, body, videos, detail FROM intel WHERE id = $1`, [intelId]);
-  const row = rows[0];
-  if (!row) return null;
-  const { uploadDir } = loadBootstrapConfig();
+async function writeSearchIndex(pool, uploadDir, row) {
+  // 附件转写在磁盘上，只能逐行读；正文、视频与 detail 由调用方的查询一并带出来，
+  // 不再为每一行回表一次（S12-16）。
   const index = searchIndexOf(searchTextOf(row, await readExtract(uploadDir, row.id)));
   await pool.query(
     `UPDATE intel SET search_compact = $2, search_bigrams = $3::text[] WHERE id = $1`,
@@ -64,23 +61,35 @@ export async function refreshSearchIndex(pool, intelId) {
   return index;
 }
 
+export async function refreshSearchIndex(pool, intelId) {
+  if (!ID.test(String(intelId || ""))) return null;
+  const { rows } = await pool.query(`SELECT id, body, videos, detail FROM intel WHERE id = $1`, [intelId]);
+  const row = rows[0];
+  if (!row) return null;
+  const { uploadDir } = loadBootstrapConfig();
+  return writeSearchIndex(pool, uploadDir, row);
+}
+
 export const REINDEX_BATCH = 200;
 
 // 回填存量行。按 id 键集翻页（uuid 有全序），不依赖偏移量，重跑幂等。
 // 只算派生列，不改任何业务字段，也不删除数据；回填到一半停下时，
 // 未回填的行 search_bigrams 仍为 NULL，检索的兜底条件照样能搜到它们。
+// 配置只解析一次、每页一次查询：原来的写法是逐行 SELECT + 每行重新 loadBootstrapConfig。
 export async function reindexSearch(pool, { batch = REINDEX_BATCH, onProgress = null } = {}) {
+  const { uploadDir } = loadBootstrapConfig();
   let cursor = "";
   let total = 0;
   for (;;) {
     const params = cursor ? [cursor, batch] : [batch];
+    const columns = `id, body, videos, detail`;
     const sql = cursor
-      ? `SELECT id FROM intel WHERE id > $1 ORDER BY id LIMIT $2`
-      : `SELECT id FROM intel ORDER BY id LIMIT $1`;
+      ? `SELECT ${columns} FROM intel WHERE id > $1 ORDER BY id LIMIT $2`
+      : `SELECT ${columns} FROM intel ORDER BY id LIMIT $1`;
     const { rows } = await pool.query(sql, params);
     if (!rows.length) break;
     for (const row of rows) {
-      await refreshSearchIndex(pool, row.id);
+      await writeSearchIndex(pool, uploadDir, row);
       total += 1;
     }
     cursor = rows[rows.length - 1].id;

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import express from "express";
 import {
+  adminDoorAddress,
   bearerToken,
   clipText,
   hoursWithin,
@@ -16,6 +17,8 @@ import {
   listAccountRoster,
   listPosts,
   muteUser,
+  patrolQueue,
+  recordPatrol,
   removePost,
   readManagedAgentToken,
   retireManagedAgent,
@@ -35,14 +38,28 @@ import { installSystemPolicy, resetSystemPolicy } from "./system.js";
 // 管理员邮箱现在必须来自配置；这个文件里签发的内部账户共用这个测试值。
 process.env.KNOT_ADMIN_EMAIL = process.env.KNOT_ADMIN_EMAIL || "admin@example.com";
 
-const POST_ID = "23737bf5-537f-441f-bc86-bf230d1cf9ed";
+const POST_ID = "33333333-3333-4333-8333-333333333333";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
+
+// 会开事务的写操作先 pool.connect() 再发语句。假池把同一个 query 交给「客户端」，
+// 事务控制语句不进调用记录：断言看到的仍是业务语句，顺序与原来一致。
+const TX_SQL = new Set(["BEGIN", "COMMIT", "ROLLBACK"]);
+function poolWithClient(query) {
+  const run = (sql, params) =>
+    TX_SQL.has(String(sql).trim()) ? Promise.resolve({ rows: [] }) : query(sql, params);
+  return {
+    query: run,
+    async connect() {
+      return { query: run, release() {} };
+    },
+  };
+}
 
 test("loopback is the machine itself", () => {
   assert.equal(isLoopbackAddress("127.0.0.1"), true);
   assert.equal(isLoopbackAddress("::1"), true);
   assert.equal(isLoopbackAddress("::ffff:127.0.0.1"), true);
-  assert.equal(isLoopbackAddress("192.168.3.91"), false);
+  assert.equal(isLoopbackAddress("192.168.1.10"), false);
   assert.equal(bearerToken("Bearer secret"), "secret");
   assert.equal(tokensMatch("secret", "secret"), true);
   assert.equal(tokensMatch("secret", "other"), false);
@@ -63,12 +80,12 @@ test("the admin door opens to the intranet, never to the public", () => {
     assert.equal(isIntranetAddress(address), true, address);
   }
   for (const address of [
-    "192.168.3.91",
+    "192.168.1.10",
     "10.1.2.3",
     "172.16.0.9",
     "172.31.255.254",
     "169.254.10.4",
-    "::ffff:192.168.3.91",
+    "::ffff:192.168.1.10",
     "fd00::12",
     "fe80::1%en0",
   ]) {
@@ -90,14 +107,12 @@ test("the admin door opens to the intranet, never to the public", () => {
 
 test("remove records the reason and tells the author", async () => {
   const calls = [];
-  const pool = {
-    async query(sql, params) {
-      calls.push({ sql, params });
-      if (sql.includes("UPDATE intel")) return { rows: [{ id: params[0], account_id: USER_ID }] };
-      if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
-      return { rows: [] };
-    },
-  };
+  const pool = poolWithClient(async (sql, params) => {
+    calls.push({ sql, params });
+    if (sql.includes("UPDATE intel")) return { rows: [{ id: params[0], account_id: USER_ID }] };
+    if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
   const result = await removePost(pool, POST_ID, "含有欺诈内容。");
   assert.equal(result.already, false);
   assert.equal(result.userId, USER_ID);
@@ -113,14 +128,12 @@ test("remove records the reason and tells the author", async () => {
 test("a web close records which human admin did it", async () => {
   const ADMIN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const calls = [];
-  const pool = {
-    async query(sql, params) {
-      calls.push({ sql, params });
-      if (sql.includes("UPDATE intel")) return { rows: [{ id: params[0], account_id: USER_ID }] };
-      if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
-      return { rows: [] };
-    },
-  };
+  const pool = poolWithClient(async (sql, params) => {
+    calls.push({ sql, params });
+    if (sql.includes("UPDATE intel")) return { rows: [{ id: params[0], account_id: USER_ID }] };
+    if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
   await removePost(pool, POST_ID, "平台关闭", { actorId: ADMIN_ID, platformClosed: true });
   const action = calls.find((call) => call.sql.includes("admin_actions"));
   assert.match(action.sql, /actor_account_id/);
@@ -134,16 +147,14 @@ test("a web close records which human admin did it", async () => {
 
 test("a second remove of the same post stays quiet", async () => {
   let updates = 0;
-  const pool = {
-    async query(sql) {
-      if (sql.includes("UPDATE intel")) {
-        updates += 1;
-        return { rows: [] };
-      }
-      if (sql.includes("verdict = 'removed'")) return { rows: [{ id: POST_ID }] };
+  const pool = poolWithClient(async (sql) => {
+    if (sql.includes("UPDATE intel")) {
+      updates += 1;
       return { rows: [] };
-    },
-  };
+    }
+    if (sql.includes("verdict = 'removed'")) return { rows: [{ id: POST_ID }] };
+    return { rows: [] };
+  });
   const result = await removePost(pool, POST_ID, "含有欺诈内容。");
   assert.equal(result.already, true);
   assert.equal(updates, 1);
@@ -152,17 +163,15 @@ test("a second remove of the same post stays quiet", async () => {
 test("removing one revision takes the whole chain down, old versions included", async () => {
   const V1 = "33333333-3333-4333-8333-333333333333";
   const calls = [];
-  const pool = {
-    async query(sql, params) {
-      calls.push({ sql, params });
-      // 新版与旧版同属一条链：一条 UPDATE 一起改，返回两行。
-      if (sql.includes("UPDATE intel")) {
-        return { rows: [{ id: V1, account_id: USER_ID }, { id: POST_ID, account_id: USER_ID }] };
-      }
-      if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
-      return { rows: [] };
-    },
-  };
+  const pool = poolWithClient(async (sql, params) => {
+    calls.push({ sql, params });
+    // 新版与旧版同属一条链：一条 UPDATE 一起改，返回两行。
+    if (sql.includes("UPDATE intel")) {
+      return { rows: [{ id: V1, account_id: USER_ID }, { id: POST_ID, account_id: USER_ID }] };
+    }
+    if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
   const result = await removePost(pool, POST_ID, "含有欺诈内容。");
   assert.equal(result.already, false);
   assert.equal(result.userId, USER_ID);
@@ -172,6 +181,67 @@ test("removing one revision takes the whole chain down, old versions included", 
   assert.deepEqual(update.params, [POST_ID, "含有欺诈内容。"]);
   // 作者只收一条通知，不按版本重复发。
   assert.equal(calls.filter((call) => call.sql.includes("INSERT INTO notifications")).length, 1);
+});
+
+test("a failed audit write rolls the removal back", async () => {
+  const tx = [];
+  const pool = {
+    async query() {
+      return { rows: [] };
+    },
+    async connect() {
+      return {
+        async query(sql) {
+          const text = String(sql).trim();
+          if (text === "BEGIN" || text === "COMMIT" || text === "ROLLBACK") {
+            tx.push(text);
+            return { rows: [] };
+          }
+          if (text.includes("UPDATE intel")) return { rows: [{ id: POST_ID, account_id: USER_ID }] };
+          if (text.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
+          if (text.includes("INSERT INTO admin_actions")) throw new Error("audit_down");
+          return { rows: [] };
+        },
+        release() {
+          tx.push("release");
+        },
+      };
+    },
+  };
+  // 帖、通知、流水同进同退：流水写不进去，撤下与通知一起回滚，管理员重试即可。
+  await assert.rejects(() => removePost(pool, POST_ID, "含有欺诈内容。"), /audit_down/);
+  assert.deepEqual(tx, ["BEGIN", "ROLLBACK", "release"]);
+});
+
+test("patrol moves its window to the last post it covered", async () => {
+  const COVERED = "44444444-4444-4444-8444-444444444444";
+  const seen = [];
+  const pool = poolWithClient(async (sql, params) => {
+    seen.push({ sql, params });
+    if (sql.includes("verdict = 'passed'")) {
+      return {
+        rows: [{ id: COVERED, body: "一", created_at: new Date(), account_id: USER_ID, email: "a@example.com", display_name: "甲" }],
+      };
+    }
+    return { rows: [{ id: COVERED }] };
+  });
+  const queue = await patrolQueue(pool);
+  assert.equal(queue.posts.length, 1);
+  // 水位由「上一轮看到的最后一条」推进，不再用报告提交时刻。
+  assert.equal(queue.through, COVERED);
+  assert.match(seen[0].sql, /a\.action = 'patrol' AND a\.intel_id IS NOT NULL/);
+  assert.match(seen[0].sql, /covered\.created_at/);
+
+  await recordPatrol(pool, "未发现违规。", queue.through);
+  const action = seen.find((item) => item.sql.includes("INSERT INTO admin_actions"));
+  assert.equal(action.params[0], "patrol");
+  assert.equal(action.params[2], COVERED);
+});
+
+test("a patrol report cannot point its window at nothing", async () => {
+  const pool = poolWithClient(async () => ({ rows: [] }));
+  await assert.rejects(() => recordPatrol(pool, "未发现。", "not-a-uuid"), (error) => error.code === "bad_args");
+  await assert.rejects(() => recordPatrol(pool, "未发现。", POST_ID), (error) => error.code === "not_found");
 });
 
 test("grant adds the amount once and tells the person", async () => {
@@ -214,6 +284,43 @@ test("grant adds the amount once and tells the person", async () => {
   assert.equal(note.params[1], "points_granted");
   assert.equal(note.params[2], "积分已到账");
   assert.equal(note.params[4], "/mine");
+  assert.equal(calls.at(-1).sql, "COMMIT");
+});
+
+test("the same grant submitted twice within the window credits once", async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      // 第二次提交时窗口里已经有同一笔：不再插流水、不再加钱。
+      if (sql.includes("FROM admin_actions") && sql.includes("interval '10 minutes'")) {
+        return { rows: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }] };
+      }
+      if (sql.includes("SELECT points_balance")) return { rows: [{ points_balance: "150" }] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async query(sql) {
+      if (sql.includes("FROM accounts")) {
+        return {
+          rows: [{ id: USER_ID, email: "a@example.com", display_name: "甲", label: "tester", points_balance: 100 }],
+        };
+      }
+      return { rows: [] };
+    },
+    async connect() {
+      return client;
+    },
+  };
+
+  const result = await grantPoints(pool, "a@example.com", 50, "补偿一次失败的下载。");
+  assert.equal(result.ok, true);
+  assert.equal(result.duplicate, true);
+  assert.equal(result.pointsBalance, 150);
+  assert.equal(calls.some((call) => call.sql.includes("INSERT INTO admin_actions")), false);
+  assert.equal(calls.some((call) => call.sql.includes("point_ledger")), false);
   assert.equal(calls.at(-1).sql, "COMMIT");
 });
 
@@ -315,7 +422,9 @@ test("mute blocks new speech until the deadline", async () => {
   });
   const week = await muteUser(timed.pool, "a@example.com", "7d", "请停止骚扰。");
   assert.equal(week.user.muted, true);
-  assert.ok(week.user.mutedUntil);
+  // 期限要真的落在七天附近：只断「非空」时，把 7d 错算成 7 小时也能过（S13-09）。
+  const days = (new Date(week.user.mutedUntil).getTime() - Date.now()) / 86_400_000;
+  assert.ok(days > 6.9 && days < 7.1, `expected about 7 days, got ${days}`);
 
   const closed = {
     async query() {
@@ -639,7 +748,7 @@ test("the admin door checks the token before it acts", async () => {
       headers: { Authorization: "Bearer secret" },
     });
     assert.equal(ok.status, 200);
-    assert.deepEqual(await ok.json(), { posts: [] });
+    assert.deepEqual(await ok.json(), { posts: [], through: null });
     const rejected = await fetch(`http://127.0.0.1:${port}/api/admin/points`, {
       method: "POST",
       headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
@@ -654,13 +763,22 @@ test("the admin door checks the token before it acts", async () => {
 
 test("the system door flips switches and records the change", async () => {
   const calls = [];
-  const pool = {
-    async query(sql, params) {
-      calls.push({ sql, params });
-      if (sql.includes("INSERT INTO system_policy")) return { rows: [{ updated_at: new Date("2026-10-19T00:00:00Z") }] };
-      return { rows: [] };
-    },
+  const query = async (sql, params = []) => {
+    calls.push({ sql, params });
+    if (sql.includes("INSERT INTO system_policy")) {
+      return {
+        rows: [{
+          guest_browsing: false,
+          registration_mode: "open",
+          public_board: false,
+          updated_at: new Date("2026-10-19T00:00:00Z"),
+        }],
+      };
+    }
+    return { rows: [] };
   };
+  // 配置与审计在同一事务里，路由会先 pool.connect()。
+  const pool = { query, async connect() { return { query, release() {} }; } };
   installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: true });
   const app = express();
   app.use(express.json());
@@ -680,7 +798,8 @@ test("the system door flips switches and records the change", async () => {
     assert.equal(body.system.publicBoard, false);
     assert.equal(body.system.registrationMode, "open");
     const audit = calls.find((call) => call.sql.includes("INSERT INTO admin_actions"));
-    assert.equal(audit.params[0], "站内浏览、公开快照");
+    assert.equal(audit.params[0], "config");
+    assert.equal(audit.params[1], "站内浏览、公开快照");
 
     const read = await fetch(`http://127.0.0.1:${port}/api/admin/system`, {
       headers: { Authorization: "Bearer secret" },
@@ -693,30 +812,30 @@ test("the system door flips switches and records the change", async () => {
 });
 
 test("the invite door hands out a code and rejects a taken one", async () => {
-  const pool = {
-    async query(sql, params) {
-      if (!sql.includes("INSERT INTO invite_codes")) return { rows: [] };
-      if (params[0] === "TAKEN") {
-        const error = new Error("duplicate key");
-        error.code = "23505";
-        throw error;
-      }
-      return {
-        rows: [
-          {
-            id: "inv-1",
-            code: params[0],
-            note: params[1],
-            max_uses: params[2],
-            used_count: 0,
-            expires_at: params[3],
-            disabled_at: null,
-            created_at: new Date("2026-10-19T00:00:00Z"),
-          },
-        ],
-      };
-    },
+  const query = async (sql, params = []) => {
+    if (!sql.includes("INSERT INTO invite_codes")) return { rows: [] };
+    if (params[0] === "TAKEN") {
+      const error = new Error("duplicate key");
+      error.code = "23505";
+      throw error;
+    }
+    return {
+      rows: [
+        {
+          id: "inv-1",
+          code: params[0],
+          note: params[1],
+          max_uses: params[2],
+          used_count: 0,
+          expires_at: params[3],
+          disabled_at: null,
+          created_at: new Date("2026-10-19T00:00:00Z"),
+        },
+      ],
+    };
   };
+  // 签发与审计在同一事务里，路由会先 pool.connect()。
+  const pool = { query, async connect() { return { query, release() {} }; } };
   const app = express();
   app.use(express.json());
   app.use("/api/admin", adminRouter({ pool, token: "secret" }));
@@ -750,9 +869,13 @@ test("the economy door hands back the three numbers and attention counters", asy
     "/api/admin",
     adminRouter({
       pool: {
-        query: async () => ({
-          rows: [{ total: "205", platform: "5" }],
-        }),
+        // 账户余额与注意力计数走不同的语句，假池按语句回不同的数；
+        // 全回同一行时 reads/searches 恒为 0，断言等于没断言（S13-09）。
+        query: async (sql) => {
+          if (sql.includes("intel_reads")) return { rows: [{ n: 12 }] };
+          if (sql.includes("search_events")) return { rows: [{ n: 3 }] };
+          return { rows: [{ total: "205", platform: "5" }] };
+        },
       },
       token: "secret",
     })
@@ -768,7 +891,7 @@ test("the economy door hands back the three numbers and attention counters", asy
       issued: 205,
       circulating: 200,
       platform: 5,
-      attention: { reads: 0, searches: 0 },
+      attention: { reads: 12, searches: 3 },
     });
   } finally {
     server.close();
@@ -1597,4 +1720,82 @@ test("an admin can stop an external account's agent too", async () => {
   assert.equal(action.params[0], "retire");
   assert.equal(action.params[1], EXTERNAL_AGENT_ID);
   assert.match(action.params[3], /外部 Agent 读者的 Agent/);
+});
+
+// 实例前面有一层本机反代（入口隧道）时，remoteAddress 恒为回环；管理门要读代理
+// 写下的真实客户端地址，否则「只给内网」这一条等于没开（S12-07）。
+test("the admin door reads the client behind the local proxy, not the proxy itself", () => {
+  assert.equal(adminDoorAddress({ socket: { remoteAddress: "192.168.3.20" }, ip: "192.168.3.20" }), "192.168.3.20");
+  assert.equal(adminDoorAddress({ socket: { remoteAddress: "127.0.0.1" }, ip: "203.0.113.9" }), "203.0.113.9");
+  assert.equal(adminDoorAddress({ socket: { remoteAddress: "::1" }, ip: "::ffff:203.0.113.9" }), "::ffff:203.0.113.9");
+  // 内网直连时伪造 X-Forwarded-For 也没用：对端不是回环就不看 req.ip。
+  assert.equal(adminDoorAddress({ socket: { remoteAddress: "192.168.3.20" }, ip: "127.0.0.1" }), "192.168.3.20");
+  // 取不到对端时按拒绝处理，不回落到可伪造的 req.ip。
+  assert.equal(adminDoorAddress({ ip: "127.0.0.1" }), "");
+});
+
+// 路由接线也要有用例：函数层通过不等于端点接对了（S13-03）。
+test("the mute door records the deadline and the audit row", async () => {
+  const { pool, calls } = accountPool(PERSON, (sql) => {
+    if (sql.includes("FOR UPDATE")) return { rows: [PERSON] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ ...PERSON, muted_until: new Date(Date.now() + 3_600_000) }] };
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/admin", adminRouter({ pool, token: "secret" }));
+  const server = await listen(app);
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/admin/mute`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ user: "a@example.com", until: "1h", body: "请停止骚扰。" }),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.user.muted, true);
+    const action = calls.find((call) => call.sql.includes("INSERT INTO admin_actions"));
+    assert.match(action.sql, /'mute'/);
+    assert.equal(action.params[0], USER_ID);
+  } finally {
+    server.close();
+  }
+});
+
+test("the remove door passes the reason through and writes one audit row", async () => {
+  const rows = [{ id: POST_ID, account_id: USER_ID }];
+  const client = {
+    async query(sql) {
+      if (sql === "BEGIN" || sql === "COMMIT") return { rows: [] };
+      if (sql.includes("UPDATE intel")) return { rows };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rows: [] };
+    },
+    async connect() {
+      return client;
+    },
+  };
+  const app = express();
+  app.use(express.json());
+  app.use("/api/admin", adminRouter({ pool, token: "secret" }));
+  const server = await listen(app);
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/admin/posts/${POST_ID}/remove`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "重复发布" }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, already: false, id: POST_ID, userId: USER_ID });
+  } finally {
+    server.close();
+  }
 });

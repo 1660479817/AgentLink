@@ -11,3 +11,8 @@ WorkingDirectory=__KNOT_CURRENT__
 ExecStart=__KNOT_CURRENT__/ops/scripts/backup-knot.sh
 Nice=10
 IOSchedulingClass=idle
+# 没有上限的 oneshot 会一直停在 active：pg_dump 卡在锁上时，之后每天的 timer
+# 触发都被 systemd 当成「上一次还没完」忽略掉，备份静默停摆。
+TimeoutStartSec=2h
+# 失败要有人看得见，不能只留在 journal 里。
+OnFailure=knot-backup-alert.service

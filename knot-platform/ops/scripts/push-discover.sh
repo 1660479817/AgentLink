@@ -52,7 +52,20 @@ if [[ "${SERVE:-static}" != "static" ]]; then
   exit 0
 fi
 WEB_ROOT="$(knot_entry_value "$ENTRY_FILE" KNOT_ENTRY_WEB_ROOT)"
-[[ -n "$WEB_ROOT" ]] || WEB_ROOT="$KNOT_ENTRY_WEB_ROOT"
+# 入口文件没写这一项时，knot_entry_value 会回落到共用的 /var/www/knot：
+# 同一台入口主机上所有子域共用的一份静态根。这条推送是 sudo 落进系统目录，
+# 落错地方就是把别的子域的快照覆盖掉。留空不是「用默认」，是配错。
+case "$WEB_ROOT" in
+  "" | /var/www/knot)
+    echo "入口 ${KNOT_DOMAIN} 的 KNOT_ENTRY_WEB_ROOT 是空的或共用缺省值（'${WEB_ROOT}'）。在 entry.${KNOT_DOMAIN}.env 里写成这个子域自己的静态根，例如 /var/www/<标签>。" >&2
+    exit 1
+    ;;
+  /*) ;;
+  *)
+    echo "入口 ${KNOT_DOMAIN} 的 KNOT_ENTRY_WEB_ROOT 必须是绝对路径：${WEB_ROOT}" >&2
+    exit 1
+    ;;
+esac
 
 rsync -az -e "ssh ${SSH_OPTS[*]}" "$BOARD/discover.json" "$KNOT_ENTRY_SSH:/tmp/knot-discover.json"
 

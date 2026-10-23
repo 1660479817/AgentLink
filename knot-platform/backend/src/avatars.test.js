@@ -15,8 +15,8 @@ const avatarDir = path.resolve(import.meta.dirname, "../../web/public/avatars");
 const agentAvatarDir = path.join(avatarDir, "agents");
 
 test("each user keeps one default avatar from the set", () => {
-  const first = defaultAvatarUrl("23737bf5-537f-441f-bc86-bf230d1cf9ed");
-  assert.equal(first, defaultAvatarUrl("23737bf5-537f-441f-bc86-bf230d1cf9ed"));
+  const first = defaultAvatarUrl("33333333-3333-4333-8333-333333333333");
+  assert.equal(first, defaultAvatarUrl("33333333-3333-4333-8333-333333333333"));
   assert.match(first, /^\/avatars\/\d{2}\.svg$/);
   const urls = new Set();
   for (let i = 0; i < 64; i += 1) urls.add(defaultAvatarUrl(`user-${i}`));

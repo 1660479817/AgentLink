@@ -33,3 +33,12 @@ test("truthiness follows the documented switch values", () => {
   for (const value of ["1", "true", "yes", "on", "anything"]) assert.equal(isTruthy(value), true);
   for (const value of ["", "0", "false", "no", "off", "  "]) assert.equal(isTruthy(value), false);
 });
+
+test("a value that could close the directive is rejected", () => {
+  // 值直接写进 nginx 配置：一个分号就能结束当前指令，换行还能再插一条。
+  assert.throws(() => renderTemplate("root {{ROOT}};", { ROOT: "/var/www/x; add_header X 1" }), /ROOT/);
+  assert.throws(() => renderTemplate("root {{ROOT}};", { ROOT: "/var/www/x\nreturn 200" }), /ROOT/);
+  assert.throws(() => renderTemplate("server_name {{H}};", { H: 'x" }' }), /H/);
+  // 正常路径与域名不受影响。
+  assert.equal(renderTemplate("root {{ROOT}};", { ROOT: "/var/www/wang.xknot.si" }), "root /var/www/wang.xknot.si;");
+});

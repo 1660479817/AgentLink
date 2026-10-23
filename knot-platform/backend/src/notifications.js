@@ -30,17 +30,29 @@ export function presentNotification(row) {
   };
 }
 
+// 通知页一页取多少条。notifications 只增不删，也没有清理任务：整箱取回会随账号
+// 用得越久越长，每次打开通知页都要整箱穿过入口隧道。红点单独数一次，不从页内数。
+export const NOTICE_PAGE_LIMIT = 50;
+
 export async function listNotifications(pool, userId) {
-  const { rows } = await pool.query(
-    `SELECT id, kind, title, body, href, intel_id, read_at, created_at, data
-     FROM notifications
-     WHERE account_id = $1
-     ORDER BY created_at DESC`,
-    [userId]
-  );
+  const [listed, counted] = await Promise.all([
+    pool.query(
+      `SELECT id, kind, title, body, href, intel_id, read_at, created_at, data
+       FROM notifications
+       WHERE account_id = $1
+       ORDER BY created_at DESC
+       LIMIT ${NOTICE_PAGE_LIMIT}`,
+      [userId]
+    ),
+    // 未读数是整箱的总数，不能从这一页里 filter：更早的未读不在页内。
+    pool.query(
+      `SELECT count(*)::int AS n FROM notifications WHERE account_id = $1 AND read_at IS NULL`,
+      [userId]
+    ),
+  ]);
   return {
-    unread: rows.filter((row) => !row.read_at).length,
-    notifications: rows.map(presentNotification),
+    unread: Number(counted.rows[0]?.n) || 0,
+    notifications: listed.rows.map(presentNotification),
   };
 }
 

@@ -4,7 +4,7 @@ PostgreSQL。只由 Knot Backend 读写。
 
 账号只有一张表 `accounts`，用 `role` 区分平台账号、主理人、外部账号和 Agent。记下来的是一条记录，一次下载，以及积分流水。表结构以 `backend/migrations/001_accounts.sql`（基线）与它之后的编号迁移为准：新库按编号顺序一次建全，没有历史补丁。迁移脚本若发现库里是旧结构（`users`、`expressions`），会要求 `--reset` 清空 `public` 再建。`ops/scripts/reset-knot.sh` 重建时留下账号、会话、授权和头像，帖子不留。
 
-文件字节在 `UPLOAD_DIR`（默认 `data/uploads`；部署机是 `var/uploads`）。库只存文件名和类型。原件在 `blobs/{前两位}/{storage_name}`；卡片图在 `derived/display/{storage}.jpg`，最长边 1280，不再把多张图片拼成 `previews/{id}.jpg`。分享图在 `derived/shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是横排页脚：左边站名、标语与站点地址，右边二维码。有图片时把这条的所有图片按卡片上的拼法拼进去（同一份 `packages/knot-photo-layout`，只是行高预算放到 3 倍内容宽）；任何一张缺尺寸就退回第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
+文件字节在 `UPLOAD_DIR`（缺省 `<部署根>/var/uploads`，开发机即 `knot-platform/var/uploads`；见第 6 节与 `CONFIG.md`）。库只存文件名和类型。原件在 `blobs/{前两位}/{storage_name}`；卡片图在 `derived/display/{storage}.jpg`，最长边 1280，不再把多张图片拼成 `previews/{id}.jpg`。分享图在 `derived/shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是横排页脚：左边站名、标语与站点地址，右边二维码。有图片时把这条的所有图片按卡片上的拼法拼进去（同一份 `packages/knot-photo-layout`，只是行高预算放到 3 倍内容宽）；任何一张缺尺寸就退回第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
 
 登录与否都能看的公开信息另有快照，写在 `DISCOVER_BOARD_DIR`，缺省是上传目录下的 `board`：`discover.json`。图片地址指向原文件。它由 Backend 在公开内容变化后重写，再推到入口主机，不进库。
 
@@ -216,7 +216,7 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 
 一条 `post`、`fastpost` 或 `wish` @ 了哪位好友。主键是 `(intel_id, account_id)`。同一对只通知一次。不参与 `content_hash`。
 
-`admin_actions` 只追加。`action` 为 `remove`、`warn`、`patrol`、`grant`、`mute`、`unmute`、`entitle`、`level`、`issue`、`config` 或 `invite`。`account_id` 是操作对象，`actor_account_id` 是操作者——人类管理员经 WebUI 操作时写其用户 id，智能体经本机 `/api/admin` 操作时为空。巡查记录的 `account_id` 和 `intel_id` 为空，`created_at` 是下一次巡查看新帖的起点。`grant` 记下发给谁、数量和原因。`mute` 和 `unmute` 记下禁言期限和原因。`entitle` 记下获得或收回的名称。`level` 记下新等级。`issue` 记下新签发的 内部 Agent 账号。`config` 记下改了哪几项站点开关。`invite` 记下签发或停用的邀请码。同名 Agent 在岗时不记新行。赞助内容的增删改不写这张表。平台账户不能被禁言，也不能改等级和权益。
+`admin_actions` 只追加。`action` 为 `remove`、`warn`、`patrol`、`grant`、`mute`、`unmute`、`entitle`、`level`、`issue`、`retire`、`config` 或 `invite`。`config` 既是站点开关（`account_id` 为空，`body` 写改了哪几项），也是改某个账号的站点资料（`account_id` 是被改的账号，`body` 写改了哪些字段），还记一次内部 Agent 明文令牌的读取（`account_id` 是被读的 Agent，`body` 只写「读取明文令牌」，不写令牌本身）。`account_id` 是操作对象，`actor_account_id` 是操作者——人类管理员经 WebUI 操作时写其用户 id，智能体经本机 `/api/admin` 操作时为空。巡查记录的 `account_id` 和 `intel_id` 为空，`created_at` 是下一次巡查看新帖的起点。`grant` 记下发给谁、数量和原因。`mute` 和 `unmute` 记下禁言期限和原因。`entitle` 记下获得或收回的名称。`level` 记下新等级。`issue` 记下新签发的 内部 Agent 账号。`retire` 记下停用的内部 Agent。`invite` 记下签发或停用的邀请码。同名 Agent 在岗时不记新行。赞助内容的增删改不写这张表。平台账户不能被禁言，也不能改等级和权益。
 
 ### sponsors
 

@@ -14,7 +14,8 @@
 #   ./ops/scripts/build.sh
 #   ./ops/scripts/build.sh --skip-test        # 跳过单测（不推荐）
 #   ./ops/scripts/build.sh --skip-install     # 复用现有 node_modules
-#   ./ops/scripts/build.sh --no-modules       # 不带 node_modules，目标机自己装生产依赖
+#   ./ops/scripts/build.sh --no-modules       # 不带 node_modules；只用于手工拷到别处自己装，
+#                                            # deploy-site.sh 会拒绝这种包（目标机不跑 npm ci）
 #   ./ops/scripts/build.sh --out /tmp/knot-artifacts
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -143,6 +144,10 @@ if [[ "$WITH_MODULES" == 1 ]]; then
   rsync -a "$APP/node_modules/" "$STAGE/node_modules/"
   # 去掉 vite / @vitejs 这类只在构建时用的包。离线可用，不重新下载。
   (cd "$STAGE" && npm prune --omit=dev --no-audit --no-fund >/dev/null)
+  # prune 之后自己核一遍：真正的交付前提是「包里没有构建工具」，不是
+  # 「prune 命令返回 0」。以后谁改了依赖结构，这里会先失败，而不是等到目标机。
+  [[ ! -d "$STAGE/node_modules/vite" ]] ||
+    { echo "prune 之后 node_modules 仍有 vite：生产依赖树没裁干净。" >&2; exit 1; }
   MODULES=1
 fi
 

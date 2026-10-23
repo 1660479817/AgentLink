@@ -17,8 +17,9 @@ export function wishExpiresAt(hours, now = Date.now()) {
   return new Date(now + hours * 60 * 60 * 1000);
 }
 
-// 018 迁移前写下的 wish 没有 expires_at，按创建时间加 24 小时算。
-function wishDeadline(alias = "i") {
+// 旧行可能没有 expires_at，按创建时间加 24 小时算；有就用库里那个时刻。
+// 公开快照的到期扫描也走这个表达式，两边对「什么时候算到期」只有一种说法（S14-07）。
+export function wishDeadline(alias = "i") {
   return `COALESCE(${alias}.expires_at, ${alias}.created_at + interval '${WISH_DEFAULT_HOURS} hours')`;
 }
 

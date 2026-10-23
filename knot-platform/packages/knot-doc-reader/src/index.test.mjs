@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deflateRawSync } from "node:zlib";
-import { execute, extractDocumentText, readDocument } from "./index.mjs";
+import { decodeXml, execute, extractDocumentText, readDocument } from "./index.mjs";
 
 function zip(entries) {
   const locals = [];
@@ -136,6 +136,23 @@ test("a locked path and a foreign file are refused", async () => {
   assert.equal(outside.body.error, "bad_file");
   const relative = await execute(["--file", "note.md"], { root });
   assert.equal(relative.code, 2);
+});
+
+test("an entity outside Unicode keeps its literal text", () => {
+  // &#x110000; 越过 U+10FFFF，String.fromCodePoint 会抛 RangeError；旧实现让一句
+  // 畸形实体把整份文档变成 unreadable。现在只丢这一处，别处照常解码。
+  assert.equal(decodeXml("A&#x110000;B"), "A&#x110000;B");
+  assert.equal(decodeXml("A&#9999999999;B"), "A&#9999999999;B");
+  assert.equal(decodeXml("&#65;&#x42;&amp;"), "AB&");
+});
+
+test("a file over the size cap is refused by the library itself", async () => {
+  // Backend 自己 readFile 后直接调库，不走 CLI 的 allowedPath；上限必须落在库里。
+  const big = Buffer.alloc(50 * 1024 * 1024 + 1, 0x61);
+  assert.equal(await extractDocumentText("big.md", big), "");
+  const result = await readDocument("big.md", big);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "bad_file");
 });
 
 test("later parts stay available", async () => {

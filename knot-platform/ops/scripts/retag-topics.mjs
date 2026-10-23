@@ -61,7 +61,14 @@ async function main(argv) {
   const site = arg(argv, "site", process.env.KNOT_SITE || "local");
   const dryRun = argv.includes("--dry-run");
   const all = argv.includes("--all");
-  const limit = Number(arg(argv, "limit", "0")) || 0;
+  // --limit 只收非负整数。以前 `Number(...) || 0` 会把 `--limit abc` 静默吃成 0，
+  // 而 0 的含义是「全库都跑一遍」，正好和「只处理几条」相反。
+  const limitArg = String(arg(argv, "limit", "0") ?? "0");
+  if (!/^\d+$/.test(limitArg)) {
+    console.error(`--limit 只收非负整数，收到 '${limitArg}'。`);
+    return 2;
+  }
+  const limit = Number(limitArg);
 
   const dir = siteDir(argv, site);
   const files = loadSiteEnv(dir, site);
@@ -71,40 +78,65 @@ async function main(argv) {
   console.log(`站点 ${site}（${files.join("、")}）${dryRun ? "· 只打印，不写库" : ""}`);
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   try {
-    const { rows } = await pool.query(
-      `SELECT id, detail FROM intel
-       WHERE detail ? 'topics' AND jsonb_typeof(detail -> 'topics') = 'array'
-         AND jsonb_array_length(detail -> 'topics') > 0
-       ORDER BY created_at ASC`
-    );
-    const targets = rows
-      .map((row) => {
+    // 分批按 (created_at, id) 往后翻，不要把整张表读进内存。一次几千条带标签的
+    // 记录在实例主机上就是几百 MB，加上评审员调用很容易把进程撑爆。
+    const BATCH = 200;
+    let cursor = null;
+    let scanned = 0;
+    let found = 0;
+    let processed = 0;
+    let failed = 0;
+
+    for (;;) {
+      const params = [];
+      let where = `WHERE detail ? 'topics' AND jsonb_typeof(detail -> 'topics') = 'array'
+         AND jsonb_array_length(detail -> 'topics') > 0`;
+      if (cursor) {
+        where += ` AND (created_at, id) > ($1, $2)`;
+        params.push(cursor.createdAt, cursor.id);
+      }
+      params.push(BATCH);
+      const { rows } = await pool.query(
+        `SELECT id, detail, created_at FROM intel ${where}
+         ORDER BY created_at ASC, id ASC
+         LIMIT $${params.length}`,
+        params
+      );
+      if (!rows.length) break;
+
+      for (const row of rows) {
+        scanned += 1;
+        cursor = { createdAt: row.created_at, id: row.id };
         const topics = Array.isArray(row.detail?.topics) ? row.detail.topics : [];
         const language = typeof row.detail?.language === "string" ? row.detail.language : "";
-        return { id: row.id, language, topics, bad: mismatch(topics, language) };
-      })
-      .filter((row) => all || row.bad.length > 0);
-    const picked = limit > 0 ? targets.slice(0, limit) : targets;
+        const bad = mismatch(topics, language);
+        if (!all && bad.length === 0) continue;
+        found += 1;
+        if (limit > 0 && processed >= limit) {
+          console.log(`已到 --limit ${limit}，余下的下次再处理。`);
+          break;
+        }
+        processed += 1;
+        const head = `[${processed}/${limit > 0 ? limit : found}] ${row.id} · ${language || "und"}`;
+        console.log(`${head}  before: ${JSON.stringify(topics)}`);
+        if (dryRun) continue;
+        try {
+          const result = await retagIntelTopics(pool, row.id);
+          console.log(`${head}  after:  ${JSON.stringify(result?.topics ?? [])}`);
+        } catch (error) {
+          failed += 1;
+          console.log(`${head}  失败：${error?.message || error}`);
+        }
+      }
+      if (limit > 0 && processed >= limit) break;
+      if (rows.length < BATCH) break;
+    }
 
-    if (!picked.length) {
-      console.log(`没有需要整理的记录（检查了 ${rows.length} 条带标签的记录）。`);
+    if (!found) {
+      console.log(`没有需要整理的记录（检查了 ${scanned} 条带标签的记录）。`);
       return 0;
     }
-    console.log(`需要整理 ${targets.length} 条${limit ? `，本次处理 ${picked.length} 条` : ""}。`);
-
-    let failed = 0;
-    for (const [index, row] of picked.entries()) {
-      const head = `[${index + 1}/${picked.length}] ${row.id} · ${row.language || "und"}`;
-      console.log(`${head}  before: ${JSON.stringify(row.topics)}`);
-      if (dryRun) continue;
-      try {
-        const result = await retagIntelTopics(pool, row.id);
-        console.log(`${head}  after:  ${JSON.stringify(result?.topics ?? [])}`);
-      } catch (error) {
-        failed += 1;
-        console.log(`${head}  失败：${error?.message || error}`);
-      }
-    }
+    console.log(`需要整理 ${found} 条${limit > 0 ? `，本次处理 ${processed} 条` : ""}。`);
     if (failed) console.log(`${failed} 条没整理成功，修好后重跑即可（已改过的会跳过）。`);
     return failed ? 1 : 0;
   } finally {

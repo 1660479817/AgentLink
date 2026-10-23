@@ -127,7 +127,7 @@ test("progress: read by case key, and a hub error is surfaced", async () => {
 });
 
 test("handoff: account, host and port are all checked before they reach site.env", () => {
-  assert.equal(handoffValid({ host: "54.169.33.64", account: "knot-tunnel-cpswang", port: 18090 }), true);
+  assert.equal(handoffValid({ host: "198.51.100.10", account: "knot-tunnel-cpswang", port: 18090 }), true);
   assert.equal(handoffValid({ host: "entry.xknot.si", account: "knot-tunnel-cpswang", port: 18081 }), true);
   // 注入：账号或主机不能带空格、分号、换行。
   assert.equal(handoffValid({ host: "h", account: "knot-tunnel-a\nKNOT_TUNNEL=0", port: 18090 }), false);
@@ -144,7 +144,7 @@ test("managed block: replaces only its own section and is idempotent", async () 
 
   const block = renderManagedBlock({
     account: "knot-tunnel-cpswang",
-    host: "54.169.33.64",
+    host: "198.51.100.10",
     port: 18090,
     localPort: 8081,
   });
@@ -153,7 +153,7 @@ test("managed block: replaces only its own section and is idempotent", async () 
   assert.equal(first.changed, true);
   const once = await readFile(file, "utf8");
   assert.match(once, /^# 手工加的一行留给以后/);
-  assert.match(once, /KNOT_TUNNEL_SSH=knot-tunnel-cpswang@54\.169\.33\.64/);
+  assert.match(once, /KNOT_TUNNEL_SSH=knot-tunnel-cpswang@198\.51\.100\.10/);
   assert.match(once, /^KNOT_TUNNEL_KEY=tunnel_ed25519$/m);
   assert.match(once, /KNOT_TUNNEL_REMOTE_PORT=18090/);
   assert.match(once, /KNOT_TUNNEL_LOCAL_PORT=8081/);
@@ -177,7 +177,7 @@ test("managed block: the key is a bare name, so the site dir can move", () => {
   // 托管段只认站点目录里的文件名，由 run-entry-tunnel.sh 按站点目录拼出绝对路径。
   const block = renderManagedBlock({
     account: "knot-tunnel-cpswang",
-    host: "54.169.33.64",
+    host: "198.51.100.10",
     port: 18090,
     localPort: 8081,
   });

@@ -203,34 +203,57 @@ async function describeImage(bin, agent, file, timeoutMs) {
   return text;
 }
 
+// 子进程的输出上限。评审回复是几 KB 的 JSON，正常不会到 1 MiB；
+// 设上限是为了「它不停写」时不把进程内存吃光（S11-07）。
+const OUTPUT_LIMIT = 1024 * 1024;
+// SIGTERM 之后给多久收尾。过了就 SIGKILL：有的 agent 包装脚本自己不理 SIGTERM。
+const KILL_GRACE_MS = 5000;
+
 function run(bin, args, timeoutMs) {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
-    const timer = setTimeout(() => {
+    let settled = false;
+    let timer = null;
+    let killTimer = null;
+    const settle = (done, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(killTimer);
+      done(value);
+    };
+    const collect = (text, chunk) =>
+      text.length >= OUTPUT_LIMIT ? text : (text + chunk).slice(0, OUTPUT_LIMIT);
+    // 超时只发一次 SIGTERM 就撒手，进程可能一直挂着、管道一直往里堆：
+    // 先 SIGTERM 让它收尾，宽限期后再 SIGKILL，并主动关掉管道停止累积。
+    const timedOut = () => {
       child.kill("SIGTERM");
-      reject(new Error("agent_timeout"));
-    }, timeoutMs);
+      killTimer = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
+      killTimer.unref?.();
+      child.stdout.destroy();
+      child.stderr.destroy();
+      settle(reject, new Error("agent_timeout"));
+    };
+    timer = setTimeout(timedOut, timeoutMs);
     child.stdout.on("data", (chunk) => {
-      out += chunk;
+      out = collect(out, chunk);
     });
     child.stderr.on("data", (chunk) => {
-      err += chunk;
+      err = collect(err, chunk);
     });
     child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
+      settle(reject, error);
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
       if (code !== 0) {
         const error = new Error("agent_failed");
         error.detail = err.slice(-2000);
-        reject(error);
+        settle(reject, error);
         return;
       }
-      resolve(out);
+      settle(resolve, out);
     });
   });
 }

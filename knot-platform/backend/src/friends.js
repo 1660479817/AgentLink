@@ -80,7 +80,8 @@ export async function listFriends(pool, userId) {
            WHERE f.account_id = $1 AND f.friend_id = u.id
          )
        )
-     ORDER BY u.display_name ASC, u.created_at ASC`,
+     ORDER BY u.display_name ASC, u.created_at ASC
+     LIMIT 200`,
     [userId]
   );
   return rows.map(presentFriend);

@@ -93,3 +93,35 @@ function exists(file) {
     return false;
   }
 }
+
+// 「这行 upload 还有没有引用」只写一份，审计脚本与 GC 共用：两边各写一条，
+// 少一类引用就会把仍被正文嵌着的图报成孤儿（S11-11）。videos 不是数组的历史行要跳过，
+// 否则 jsonb_array_elements 直接报错。
+export const USED_UPLOADS_SQL = `
+  SELECT upload_id AS id FROM intel_files
+  UNION SELECT avatar_upload_id FROM accounts WHERE avatar_upload_id IS NOT NULL
+  UNION SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL
+  UNION SELECT (regexp_match(v->>'poster', '/api/web/uploads/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/display'))[1]::uuid
+        FROM intel i
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(i.videos) = 'array' THEN i.videos ELSE '[]'::jsonb END
+        ) v
+        WHERE v->>'poster' ~ '/api/web/uploads/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/display'
+  UNION SELECT (m)[1]::uuid
+        FROM intel i
+        CROSS JOIN LATERAL regexp_matches(
+          i.body, '/api/web/uploads/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})', 'g'
+        ) m
+        WHERE i.body LIKE '%/api/web/uploads/%'
+`;
+
+// 派生件还该不该留：display 按原件的 storage_name，其余按记录 id。
+// 文件名大小写不敏感（storage_name 一律小写，历史行可能不是）。
+export function keepDerivedFile(kind, relativePath, storageNames, intelIds) {
+  const head = String(relativePath || "").split(path.sep)[0];
+  if (kind === "display") return storageNames.has(path.basename(head, ".jpg").toLowerCase());
+  if (kind === "packets") return intelIds.has(head.replace(/\.zip$/i, "").toLowerCase());
+  if (kind === "extracts") return intelIds.has(head.replace(/\.md$/i, "").toLowerCase());
+  if (kind === "shares") return intelIds.has(head.toLowerCase());
+  return true;
+}

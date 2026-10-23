@@ -19,12 +19,14 @@
 //   * 部署      ops/                     脚本、模板、LaunchAgent。不写任何站点取值。
 //   * 配置      sites/<站点>/             站点档案、拓扑、密钥。一个目录就是一份完整配置。
 //
-// 站点配置分四个文件：
+// 站点配置分五个文件：
 //   * site.env      站点拓扑：域名、主机、端口、路径、入口。不含密码。
 //   * profile.json  自述区：名称、默认语种、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（十项扁平字段）。
 //                   主理人在 /admin 编辑，不进版本库。
 //   * platform.env  实例主机自己的运行时值：SMTP 密码、价格初值、管理令牌。部署脚本生成，权限 600。
 //   * xknot.env     接入 XKnot 联邦：实例 id、中枢地址、签发日期、委托发信凭据。由中枢签发，不由部署推导。
+//   * tunnel.env    回源隧道：账号、私钥文件名、本机与入口端口。由 /admin 的 XKnot 栏写入，
+//                   与 site.env 的隧道组是同一批键；界面维护的那一份优先。
 //
 // 部署与接入是两条独立的线：不接联邦的实例照样能部署、能跑；接入只往 xknot.env 写，
 // 不回头改 site.env 或 platform.env。反过来，换机器重部署也不该动接入凭据。
@@ -32,7 +34,7 @@
 // 加一个配置项的步骤：
 //   1. 在这里加一条；
 //   2. 在代码里读 process.env 并给同样的默认值；
-//   3. 跑 `npm run config -- template --write`、`platform-template --write`、`xknot-template --write`；
+//   3. 跑 `npm run config -- template --write`、`platform-template --write`、`xknot-template --write`、`entry-template --write`；
 //   4. 跑 `npm run config -- docs --write` 重新生成文档；
 //   5. 跑测试。模板文件、文档、代码默认值任何一处漂移都会直接失败。
 
@@ -62,6 +64,17 @@ function hostOf(value) {
   }
 }
 
+// 对外地址里的端口。没写端口时按协议取默认值，别把 https 的 443 当成 0。
+function urlPort(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (url.port) return Number(url.port);
+    return url.protocol === "https:" ? 443 : 80;
+  } catch {
+    return 0;
+  }
+}
+
 // 官方只部署 xknot.si 签发的二级子域：<标签>.xknot.si。
 const XKNOT_SUBDOMAIN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.xknot\.si$/;
 
@@ -73,6 +86,19 @@ export function truthy(value) {
 
 export function isBlank(value) {
   return value == null || String(value).trim() === "";
+}
+
+// 经济键的夹取口径与 backend/src/points.js 一致：非法或缺失取代码默认值，
+// 再把默认价夹进 [min, max]。两处算同一个东西时必须用同一套规则。
+function nonNegativeInt(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
+function clampedDefaultPrice(env) {
+  const min = nonNegativeInt(env.KNOT_PRICE_MIN, 0);
+  const max = Math.max(nonNegativeInt(env.KNOT_PRICE_MAX, 100), min);
+  return Math.min(Math.max(nonNegativeInt(env.KNOT_DEFAULT_PRICE, 10), min), max);
 }
 
 // 站点键：写在 sites/<站点>/site.env。
@@ -168,6 +194,9 @@ const SITE_KEYS = [
     type: "string",
     default: "",
     secret: true,
+    // 写错协议或漏了主机时，进程照样起得来，第一条 SQL 才失败——那时已经分不清
+    // 是库没起还是串写错了。所以连接串在这里就要求长得像个 postgres 地址。
+    pattern: /^postgres(?:ql)?:\/\/[^\s]+$/,
     desc: "KNOT_DB_MODE=external 时的连接串。可能含密码，按密钥对待。",
     example: "postgres://knot:密码@db.example.com:5432/knot",
   },
@@ -205,7 +234,9 @@ const SITE_KEYS = [
     group: "platform",
     type: "path",
     default: "",
-    derive: (env, ctx) => `${ctx.deployRoot || ctx.root}/var/uploads`,
+    // 拿不到部署根时返回空，不要拼出一个 /var/uploads：那是个合法但几乎一定错的路径，
+    // 调用方看不出它是猜的。
+    derive: (env, ctx) => (ctx.deployRoot || ctx.root ? `${ctx.deployRoot || ctx.root}/var/uploads` : ""),
     desc: "上传目录。留空用 <部署根目录>/var/uploads；放在发布包外，升级和回滚都不动它。",
   },
   {
@@ -266,9 +297,12 @@ const SITE_KEYS = [
     key: "KNOT_DEPLOY_DIR",
     group: "publish",
     type: "path",
-    default: "~/knot/site",
+    default: "",
+    // 部署根按站点分。写成一个与站点无关的固定值（以前是 ~/knot/site）时，
+    // 两个站点照模板复制就共用 releases/ current deployed.json，部署与回滚会串站。
+    derive: (env, ctx) => (ctx.site ? `~/knot/${ctx.site}` : ""),
     scope: ["dev", "platform"],
-    desc: "实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。和源码仓库分开，按站点命名，例如 ~/knot/wang。",
+    desc: "实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。留空按站点名推导为 ~/knot/<站点>；一个部署根只放一个站点，不要和源码仓库或用另一站点的目录。",
   },
   {
     key: "KNOT_DEPLOY_SSH_KEY",
@@ -306,7 +340,7 @@ const SITE_KEYS = [
     type: "path",
     default: "",
     scope: ["dev"],
-    derive: (env, ctx) => `${ctx.root}/artifacts`,
+    derive: (env, ctx) => (ctx.root ? `${ctx.root}/artifacts` : ""),
     desc: "开发机上构建产物（发布包和校验和）的输出目录。留空用 <knot-platform>/artifacts。",
   },
   {
@@ -347,9 +381,9 @@ const SITE_KEYS = [
     key: "KNOT_ENTRY_SSH_KEY",
     group: "entry",
     type: "path",
-    default: "$HOME/.ssh/id_rsa",
+    default: "",
     scope: ["dev"],
-    desc: "在开发机上推页面用的私钥。",
+    desc: "在开发机上推页面用的私钥。留空用 ssh 默认身份或 ssh-agent；入口主机通常不认 id_rsa，要用专用的部署钥，例如 $HOME/.ssh/<专用部署钥>。",
   },
   {
     key: "KNOT_ENTRY_PUSH_KEY",
@@ -541,6 +575,9 @@ const PLATFORM_KEYS = [
     default: "",
     secret: true,
     computed: true,
+    // 启动闸口读的是这个运行时名字。外部库连接串写错（缺主机、拼错端口）时
+    // 以前一路放行，进程带着错串跑起来，报错落在第一条 SQL 上。
+    pattern: /^postgres(?:ql)?:\/\/[^\s]+$/,
     desc: "由部署脚本写入：local 模式是 postgres://knot@127.0.0.1:<KNOT_PGPORT>/knot，external 模式取 KNOT_DATABASE_URL。",
   },
   {
@@ -669,10 +706,13 @@ const PLATFORM_KEYS = [
     type: "int",
     default: "",
     min: 0,
-    derive: (env) => (isBlank(env.KNOT_DEFAULT_PRICE) ? 10 : Number(env.KNOT_DEFAULT_PRICE) || 0),
-    desc: "券面值（积分）。留空等于 KNOT_DEFAULT_PRICE。",
+    // 与 backend/src/points.js 的夹取保持同一口径：先夹价目区间，再取默认价。
+    // 直接用未夹取的 KNOT_DEFAULT_PRICE 时，schema 算出的券面值和代码发出去的券不一样。
+    derive: (env) => clampedDefaultPrice(env),
+    desc: "券面值（积分）。留空等于夹进 [KNOT_PRICE_MIN, KNOT_PRICE_MAX] 之后的 KNOT_DEFAULT_PRICE。",
   },
-  { key: "KNOT_COUPON_TTL_DAYS", group: "coupon", type: "int", default: 30, min: 0, desc: "券有效期（天）。" },
+  // 0 天的券等于「发了就过期」，没人能领到；要关掉发券用 KNOT_COUPON_SIGNUP=0。
+  { key: "KNOT_COUPON_TTL_DAYS", group: "coupon", type: "int", default: 30, min: 1, desc: "券有效期（天）。" },
   { key: "KNOT_COUPON_MAX", group: "coupon", type: "int", default: 1, min: 0, desc: "每个账户持有的未使用券上限。" },
   {
     key: "KNOT_COUPON_SIGNUP",
@@ -839,8 +879,8 @@ const PLATFORM_KEYS = [
     group: "admin",
     type: "url",
     default: "",
-    desc: "管理后台链接里写死的内网地址，例如 http://192.168.3.91:8080。留空时按 KNOT_BIND_HOST 与网卡推断；多网卡或隧道拓扑下可以用它写死，绑回环时也能给出内网链接。",
-    example: "http://192.168.3.91:8080",
+    desc: "管理后台链接里写死的内网地址，例如 http://192.0.2.10:8080。留空时按 KNOT_BIND_HOST 与网卡推断；多网卡或隧道拓扑下可以用它写死，绑回环时也能给出内网链接。",
+    example: "http://192.0.2.10:8080",
   },
 ];
 
@@ -1034,6 +1074,9 @@ function validateValue(entry, raw) {
     case "bytes": {
       if (!/^\d+$/.test(value)) return `${entry.key} 要是整数，现在是 "${value}"。`;
       const n = Number(value);
+      // 金额、TTL、日期都要拿它做算术：超出安全整数的值能过正则，却会在
+      // 求和/加时间时悄悄丢精度（Date 直接变 Invalid Date）。
+      if (!Number.isSafeInteger(n)) return `${entry.key} 超出安全整数范围：${value}。`;
       if (entry.type === "port" && (n < 1 || n > 65535)) return `${entry.key} 要是 1-65535 的端口，现在是 ${n}。`;
       if (entry.min != null && n < entry.min) return `${entry.key} 不能小于 ${entry.min}，现在是 ${n}。`;
       if (entry.max != null && n > entry.max) return `${entry.key} 不能大于 ${entry.max}，现在是 ${n}。`;
@@ -1055,6 +1098,9 @@ function validateValue(entry, raw) {
       return null;
     case "size":
       if (!/^\d+(?:\.\d+)?[kmg]?$/i.test(value)) return `${entry.key} 要写成 nginx 的大小，如 52m："${value}"。`;
+      // nginx 把 0 解释成「不限制」，而这个类型在别处被当成「实际字节数」用：
+      // 0 会被跨键检查跳过，看起来像「没设」。两种含义混在一个值上，宁可写错就报。
+      if (sizeToBytes(value) <= 0) return `${entry.key} 不能是 0：0 在 nginx 里表示不限制，不是一个字节数。`;
       return null;
     default:
       if (entry.pattern && !entry.pattern.test(value)) return `${entry.key} 格式不对："${value}"。`;
@@ -1092,10 +1138,11 @@ function isLocalOnlySite(env) {
 export const WARNINGS = [
   {
     id: "tunnel-same-port",
+    // 端口比较必须按数值：0o18080、18080 都是合法端口写法，字符串比较却说它们不等。
     when: (env) =>
       truthy(env.KNOT_ENTRY_ENABLED) &&
       truthy(env.KNOT_TUNNEL) &&
-      String(env.KNOT_ENTRY_PROXY_PORT || 18080) === String(env.KNOT_PORT || 8080),
+      Number(env.KNOT_ENTRY_PROXY_PORT || 18080) === Number(env.KNOT_PORT || 8080),
     message: "回源端口和 Backend 端口相同。入口如果和平台同机，会撞端口。",
   },
   {
@@ -1115,6 +1162,53 @@ export const WARNINGS = [
     message: "附件上限不小于入口请求体上限，大文件会在 nginx 被截断。调大 KNOT_ENTRY_MAX_BODY。",
   },
 ];
+
+// 跨文件校验：几条规则的左右两边分属不同文件。
+//
+// 「附件上限必须小于入口请求体上限」读的是 platform.env 与 entry 文件，
+// 「隧道端口不能和 Backend 端口相同」读的是 site.env、entry 与 tunnel.env。
+// 只在某一份的视图里求值时，另一半永远取不到，条件恒为假——这两条以前就是这样
+// 静默失效的。这里把三份配置合成一个视图再跑，只在部署前的 check 里调用。
+export function checkCrossFile({ site = {}, platform = {}, entry = {}, tunnel = {} } = {}) {
+  const view = { ...site, ...tunnel, ...platform, ...entry };
+  const errors = [];
+  const warnings = [];
+  for (const rule of RULES) {
+    if (!rule.when(view)) continue;
+    for (const key of rule.need) {
+      if (!isBlank(view[key])) continue;
+      const message = `${rule.message}（${key}）`;
+      if (!errors.includes(message)) errors.push(message);
+    }
+  }
+  for (const warning of WARNINGS) {
+    if (warning.when(view) && !warnings.includes(warning.message)) warnings.push(warning.message);
+  }
+  return { errors, warnings };
+}
+
+// sites/<站点>/tunnel.env 是第五份配置：由 /admin 的 XKnot 栏写入，键都在登记表里，
+// 但以前没有任何校验器读它。账号或端口写错只能等 ssh -R 失败，那时已经部署完了。
+// 这里只做单份文件的校验（键属于隧道组、取值类型对），与另三份的一致性由 checkCrossFile 管。
+export function checkTunnelFile(text) {
+  const env = parseEnv(text);
+  const errors = [];
+  const warnings = [];
+  for (const [key, value] of Object.entries(env)) {
+    const entry = BY_KEY.get(key);
+    if (!entry) {
+      warnings.push(`${key} 不在 packages/knot-config/src/schema.mjs 里，可能拼错了，或者已经废弃。`);
+      continue;
+    }
+    if (entry.file !== "site" || entry.group !== "tunnel") {
+      errors.push(`${key} 不属于回源隧道，写在 sites/<站点>/site.env 或 platform.env，不要写进 tunnel.env。`);
+      continue;
+    }
+    const message = validateValue(entry, value);
+    if (message) errors.push(message);
+  }
+  return { errors, warnings };
+}
 
 // 站点文件校验：类型、必填、跨键规则、未知键。
 export function checkSite(env) {
@@ -1157,6 +1251,14 @@ export function checkSite(env) {
     }
     if (origin && !isLocalOnlySite(env)) {
       errors.push("不接子域时 KNOT_PUBLIC_ORIGIN 必须是 http://127.0.0.1:<端口> 或 http://localhost:<端口>；独立域名或内网公开部署属于用户改造范围。");
+    } else if (origin) {
+      // 对外地址和监听端口是两行，改端口时最容易只改一处。写错时本机探活不看公网，
+      // 错的地址会一路进分享链接、登录邮件和 sitemap，直到有人点不开才发现。
+      const port = urlPort(origin);
+      const backendPort = Number(env.KNOT_PORT || 8080);
+      if (port && backendPort && port !== backendPort) {
+        errors.push(`KNOT_PUBLIC_ORIGIN 的端口 ${port} 与 KNOT_PORT=${backendPort} 不一致，改端口时两处要一起改。`);
+      }
     }
     if (truthy(env.KNOT_TUNNEL)) {
       errors.push("不接子域时不建回源隧道；请设 KNOT_TUNNEL=0。");
@@ -1202,7 +1304,9 @@ export function checkEntryFile(env, { file = "" } = {}) {
   const errors = [];
   const warnings = [];
 
-  for (const entry of ENTRY_KEYS) {
+  // 入口文件是叠加层：site.env 里的键在这里都能覆盖。所以站点键写进来是合法的，
+  // 但同样要按类型校验——KNOT_PORT=eighty 写在这里，部署脚本会照着渲染 nginx。
+  for (const entry of [...ENTRY_KEYS, ...SITE_KEYS]) {
     const value = String(env[entry.key] ?? "").trim();
     if (!value) continue;
     const message = validateValue(entry, value);
@@ -1223,20 +1327,10 @@ export function checkEntryFile(env, { file = "" } = {}) {
     }
   }
 
-  if (truthy(env.KNOT_ENTRY_SSL)) {
-    // 证书与私钥可以留空由 KNOT_DOMAIN 推导，所以按解析后的值判断，别把推导当成缺失。
-    const ssl = resolve(BY_KEY.get("KNOT_ENTRY_SSL"), env, {});
-    if (truthy(ssl)) {
-      const cert = resolve(BY_KEY.get("KNOT_ENTRY_CERT"), env, {});
-      const key = resolve(BY_KEY.get("KNOT_ENTRY_KEY"), env, {});
-      if (isBlank(cert) || isBlank(key)) {
-        errors.push("这个入口取不到证书路径：写 KNOT_ENTRY_CERT / KNOT_ENTRY_KEY，或写对 KNOT_DOMAIN 让它推导。");
-      }
-    }
-  }
-  if (isBlank(resolve(BY_KEY.get("KNOT_ENTRY_WEB_ROOT"), env, {}))) {
-    errors.push("取不到 KNOT_ENTRY_WEB_ROOT：写这个子域入口的静态根。");
-  }
+  // 不在这里判断证书与静态根「取不取得到」：SSL 只能是 1/0，证书与私钥都能由 KNOT_DOMAIN
+  // 推导，静态根也有非空默认值，任何「解析后为空」的分支都不可达——写成校验只会让人
+  // 以为查过了。真正的检查在入口主机上：push-entry.sh 先落站再跑 nginx -t，
+  // ssl_certificate 指向不存在的文件会当场失败并整组还原。
 
   const known = new Set([...ENTRY_KEYS.map((entry) => entry.key)]);
   // 入口文件是叠加层，可以覆盖 site.env 的键，所以登记的站点键都算已知。
@@ -1298,6 +1392,26 @@ export function checkPlatform(text, { mode = null } = {}) {
     if (message) errors.push(message);
   }
 
+  // 价格三元组：三个键各自只有下限，顺序错了不报错，代码侧再悄悄夹一次。
+  // 两边夹的口径一旦不同（券面值用的是未夹取的默认价），发出去的券就和配置对不上。
+  const priceMin = Number(env.KNOT_PRICE_MIN ?? 0) || 0;
+  const priceMax = Number(env.KNOT_PRICE_MAX ?? 100) || 0;
+  const defaultPrice = Number(env.KNOT_DEFAULT_PRICE ?? 10) || 0;
+  if (priceMin > priceMax) {
+    errors.push(`KNOT_PRICE_MIN=${priceMin} 大于 KNOT_PRICE_MAX=${priceMax}；作者可标的区间是空的。`);
+  } else if (defaultPrice < priceMin || defaultPrice > priceMax) {
+    errors.push(
+      `KNOT_DEFAULT_PRICE=${defaultPrice} 不在 [KNOT_PRICE_MIN=${priceMin}, KNOT_PRICE_MAX=${priceMax}] 之间；标价会被静默夹到区间里。`
+    );
+  }
+
+  // 两个发信地址都填且不同时，实际用的是 MAIL_FROM。心里填的是 SMTP_FROM 的人会以为生效了。
+  const smtpFrom = String(env.SMTP_FROM ?? "").trim();
+  const mailFrom = String(env.MAIL_FROM ?? "").trim();
+  if (smtpFrom && mailFrom && smtpFrom !== mailFrom) {
+    warnings.push(`SMTP_FROM=${smtpFrom} 与 MAIL_FROM=${mailFrom} 不同，实际用 MAIL_FROM；把不用的那行删掉。`);
+  }
+
   if (mode != null && (mode & 0o077) !== 0) {
     const hasSecret = Object.keys(env).some((key) => runtimeEntry(key)?.secret);
     if (hasSecret) warnings.push(`运行时配置权限是 0${(mode & 0o777).toString(8)}，里面有密钥，建议 chmod 600。`);
@@ -1312,7 +1426,7 @@ export function checkPlatform(text, { mode = null } = {}) {
 //   * 委托发信只要凭据就能用，地址可以按中枢地址推导；写了地址却没凭据是配错了；
 //   * 部署键、平台键混进来一律报错，避免又回到「凭据淹在 platform.env 里」。
 // 文件不存在是合法的：没接入联邦的实例照样能跑。
-export function checkJoin(text, { mode = null } = {}) {
+export function checkJoin(text, { mode = null, site = null } = {}) {
   const env = parseEnv(text);
   const errors = [];
   const warnings = [];
@@ -1347,6 +1461,17 @@ export function checkJoin(text, { mode = null } = {}) {
 
   if (mode != null && (mode & 0o077) !== 0) {
     warnings.push(`接入配置权限是 0${(mode & 0o777).toString(8)}，里面有委托发信凭据，建议 chmod 600。`);
+  }
+
+  // 同一件事有两个中枢地址：KNOT_HUB_ORIGIN（申请去哪个中枢，写在 site.env）与
+  // XKNOT_HUB_ORIGIN（联邦与委托发信用哪个中枢，写在 xknot.env）。两者默认值相同，
+  // 掩盖了「申请在 A、发信去 B」的错配，所以显式比较一次主机名。
+  const siteHub = String(site?.KNOT_HUB_ORIGIN ?? "").trim();
+  const joinHub = String(env.XKNOT_HUB_ORIGIN ?? "").trim();
+  if (siteHub && joinHub && hostOf(siteHub) && hostOf(joinHub) && hostOf(siteHub) !== hostOf(joinHub)) {
+    warnings.push(
+      `XKNOT_HUB_ORIGIN=${joinHub} 与 site.env 的 KNOT_HUB_ORIGIN=${siteHub} 不是同一个中枢：申请与委托发信会打到两台机器上。`
+    );
   }
   return { errors, warnings };
 }
@@ -1421,6 +1546,9 @@ const DOLLAR_HOME = /\$HOME(?![A-Za-z0-9_])/g;
 export function formatValue(value) {
   const text = value == null ? "" : String(value);
   if (!text) return "";
+  // 换行会把一行拆成两行写进 .env：读回来时值被截断，后半行成了另一个键。
+  // 引号救不了它（parseEnv 按行解析），所以只能拒绝——写盘前就知道，比部署后取值不对好查。
+  if (/[\r\n]/.test(text)) throw new Error(`配置值里不能有换行：${JSON.stringify(text)}`);
   const rest = text.replace(DOLLAR_HOME, "");
   if (!text.includes("#") && (rest === "" || SAFE_UNQUOTED.test(rest))) return text;
   return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/`/g, "\\`")}"`;
@@ -1471,6 +1599,51 @@ const XKNOT_HEADER = `# XKnot 接入配置模板。由 packages/knot-config/src/
 # 不接入联邦的实例不需要这个文件。
 #
 # 下面除了中枢地址，都留空——没有接入件就没有接入。`;
+
+// 生成 sites/_template/entry.example.env。
+//
+// 入口文件是 site.env 的叠加层：写在这里的键会盖掉站点默认值，所以模板只列
+// 每个入口必须自己决定的项（域名、静态根、nginx 配置路径、证书、出页方式），
+// 其余沿用 site.env。键与说明都从登记表来，别手写第二份——手写的那份一旦
+// 落后于 ENTRY_KEYS，改键时不会有人发现。
+export const ENTRY_TEMPLATE_KEYS = [
+  "KNOT_DOMAIN",
+  "KNOT_ENTRY_WEB_ROOT",
+  "KNOT_ENTRY_CONF",
+  "KNOT_ENTRY_CERT",
+  "KNOT_ENTRY_KEY",
+  "KNOT_ENTRY_SERVE",
+];
+
+const ENTRY_HEADER = `# 一个 xknot.si 子域入口。由 packages/knot-config/src/schema.mjs 生成，不要手改。
+#
+# 复制成 sites/<站点>/entry.<标签>.xknot.si.env，再把 <标签>.xknot.si 换成下面的 KNOT_DOMAIN。
+#
+# 官方只支持一个入口，域名必须是 xknot.si 签发的二级子域（<标签>.xknot.si）。
+# 它是叠加层：site.env 里的键在这里都能覆盖，没写的沿用 site.env。
+#
+# 只写「这个入口和站点默认值不一样」的项。KNOT_ENTRY_WEB_ROOT 与 KNOT_ENTRY_CONF
+# 必须按这个子域写清，留空等于和别的子域共用同一个静态根与 nginx 配置；
+# config.mjs check 会拦住缺失或写错的域名。
+#
+# 改配置项请改 schema 后跑 node ops/scripts/config.mjs entry-template --write。`;
+
+export function renderEntryExample() {
+  const parts = [ENTRY_HEADER];
+  for (const key of ENTRY_TEMPLATE_KEYS) {
+    const entry = BY_KEY.get(key);
+    if (!entry) continue;
+    parts.push("");
+    parts.push(...commentLines(entry));
+    // 这几个按子域决定，模板里留空逼着填：证书由 KNOT_DOMAIN 推导，
+    // 静态根与 nginx 配置留空就会和别的子域共用，S20-01 就是这么出的事。
+    const perSite = ["KNOT_ENTRY_CERT", "KNOT_ENTRY_KEY", "KNOT_ENTRY_WEB_ROOT", "KNOT_ENTRY_CONF"];
+    const value = perSite.includes(key) ? "" : entry.default;
+    parts.push(`${key}=${formatValue(value)}`);
+  }
+  parts.push("");
+  return `${parts.join("\n")}\n`;
+}
 
 // 生成 sites/_template/site.env。
 export function renderSiteExample() {
@@ -1593,6 +1766,7 @@ export function renderDocs() {
     "node ops/scripts/config.mjs template --write           # sites/_template/site.env",
     "node ops/scripts/config.mjs platform-template --write  # sites/_template/platform.env",
     "node ops/scripts/config.mjs xknot-template --write     # sites/_template/xknot.env",
+    "node ops/scripts/config.mjs entry-template --write      # sites/_template/entry.example.env",
     "node ops/scripts/config.mjs docs --write               # 重新生成本文",
     "```",
     "",
@@ -1622,6 +1796,7 @@ export function renderDocs() {
     "| `sites/<站点>/profile.json` | 自述区：名称、默认语种、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（十项扁平字段）。不进版本库 | 主理人，在 `/admin` 的 XKnot 栏编辑 |",
     "| `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。权限 600 | 部署脚本 |",
     "| `sites/<站点>/xknot.env` | 实例 id、中枢地址、签发日期与委托发信凭据。权限 600 | 中枢签发，`join-xknot.sh` 写入 |",
+    "| `sites/<站点>/tunnel.env` | 回源隧道的账号、私钥文件名与本机/入口端口（`KNOT_TUNNEL` 一组）。权限 600 | `/admin` 的 XKnot 栏自动接通时写入 |",
     "| `sites/<站点>/entry.<标签>.xknot.si.env` | 接入 xknot.si 子域时的入口：域名、静态根、conf、证书。一个站点一份 | 运维 |",
     "| `sites/<站点>/agents/` | Internal Personal Agent 的授权码，权限 700 | 脚本 |",
     "",

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -37,6 +37,8 @@ async function withJoinAdmin(fn, { site = null } = {}) {
   const file = path.join(dir, "profile.json");
   const store = createProfileStore({ file });
   if (site) await store.save({ site });
+  // 预先放一把公钥，走「已有就不生成」那条路：测试不该调本机的 ssh-keygen。
+  writeFileSync(path.join(dir, "tunnel_ed25519.pub"), "ssh-ed25519 AAAAtest knot-tunnel\n");
 
   const previous = process.env.KNOT_HUB_ORIGIN;
   process.env.KNOT_HUB_ORIGIN = HUB;
@@ -109,10 +111,14 @@ test("中枢连不上时给 502，不假装成「不可用」", async () => {
 test("提交申请：自述区转成中枢的字段，201 原样带回", async () => {
   await withJoinAdmin(async ({ call }) => {
     let sent = null;
+    let keyed = "";
     stubHub(async (url, init) => {
-      assert.equal(url, `${HUB}/api/applications`);
-      sent = JSON.parse(init.body);
-      return hubReply(201, { application: { id: "XK-1", caseUrl: `${HUB}/case/k` } });
+      if (url === `${HUB}/api/applications`) {
+        sent = JSON.parse(init.body);
+        return hubReply(201, { application: { id: "XK-1", caseUrl: `${HUB}/case/abcdef12` } });
+      }
+      keyed = url;
+      return { status: 303, text: async () => "" };
     });
 
     const response = await call("/xknot/apply", {
@@ -122,6 +128,9 @@ test("提交申请：自述区转成中枢的字段，201 原样带回", async (
     assert.equal(response.status, 201);
     const data = await response.json();
     assert.equal(data.application.id, "XK-1");
+    // 公钥与申请一起交上去，结果要在响应里：只写日志，界面就不知道缺哪一步。
+    assert.equal(keyed, `${HUB}/api/case/abcdef12/public-key`);
+    assert.deepEqual(data.key, { delivered: true, created: false, error: "" });
     assert.equal("mode" in sent, false);
     assert.equal(sent.subdomain, "nordhavn");
     assert.equal(sent.operator, "Lin");
@@ -133,8 +142,27 @@ test("提交申请：自述区转成中枢的字段，201 原样带回", async (
     assert.equal(recorded.status, 200);
     const state = await recorded.json();
     assert.equal(state.application.id, "XK-1");
-    assert.equal(state.application.caseUrl, `${HUB}/case/k`);
+    assert.equal(state.application.caseUrl, `${HUB}/case/abcdef12`);
     assert.ok(state.file.endsWith("join.json"));
+  }, { site: SITE });
+});
+
+test("申请受理了、公钥没交上：仍给 201，但把失败写在 key 里", async () => {
+  await withJoinAdmin(async ({ call }) => {
+    stubHub(async (url) => {
+      if (url === `${HUB}/api/applications`) {
+        return hubReply(201, { application: { id: "XK-2", caseUrl: `${HUB}/case/abcdef34` } });
+      }
+      return { status: 400, text: async () => "bad key" };
+    });
+
+    const response = await call("/xknot/apply", {
+      method: "POST",
+      body: JSON.stringify({ subdomain: "nordhavn", email: "lin@example.com" }),
+    });
+    assert.equal(response.status, 201);
+    const data = await response.json();
+    assert.deepEqual(data.key, { delivered: false, created: false, error: "rejected" });
   }, { site: SITE });
 });
 

@@ -10,7 +10,7 @@ import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./fr
 import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
 import { speakerAccount } from "./account.js";
-import { applyPoints, serviceFee, economyConfig, packetPrice, servicePrice, sameWallet, PLATFORM_ACCOUNT_ID } from "./points.js";
+import { applyPointsOrdered, serviceFee, economyConfig, packetPrice, servicePrice, sameWallet, PLATFORM_ACCOUNT_ID } from "./points.js";
 import { compact, scoreCompact, uniqueGrams } from "./search.js";
 import { cacheGet, cacheSet, searchCacheKey } from "./searchCache.js";
 import { searchConfig } from "./searchConfig.js";
@@ -164,7 +164,10 @@ async function notifyWishResponse(pool, { wishId, ownerId }) {
 
 export async function judgeIntel(pool, id) {
   const intel = await loadIntel(pool, id);
-  if (!intel || intel.verdict !== "pending") return presentIntel(intel);
+  if (!intel) return null;
+  // 已经终审过的记录也走同一套装配：presentIntel 只看行上的字段，不带附件与卡片图，
+  // 管理端的「重新终审」或并发重入会拿到一份残缺卡片。
+  if (intel.verdict !== "pending") return loadPresentedIntel(pool, id);
   let result = { verdict: "pass", reason: "", note: "", category: "", language: "", topics: [] };
   try {
     if (intelAgentId()) {
@@ -292,8 +295,14 @@ export async function noteReviewFailure(pool, id, error) {
 
 const reviewQueue = [];
 const reviewing = new Set();
-const reviewAttempts = new Map();
 let reviewPumping = false;
+
+// 终审失败的重试上限。次数落库（detail.reviewAttempts），进程重启不清零。
+// 没有上限时，一条永远失败的 pending 会按退避一直重跑评审员；到期时间封顶 15 分钟，
+// 等于每 15 分钟白跑一次，直到进程重启。
+const REVIEW_MAX_ATTEMPTS = 10;
+// 启动恢复每页取多少条，避免一次把全部待审行读进内存。
+const REVIEW_RESUME_BATCH = 200;
 
 function reviewDelay(attempt) {
   return Math.min(15 * 60 * 1000, 15_000 * 2 ** Math.min(attempt - 1, 6));
@@ -305,10 +314,51 @@ function enqueueReview(pool, id) {
   pumpReviews(pool);
 }
 
-function scheduleReviewRetry(pool, id) {
-  const attempt = (reviewAttempts.get(id) || 0) + 1;
-  reviewAttempts.set(id, attempt);
-  const timer = setTimeout(() => enqueueReview(pool, id), reviewDelay(attempt));
+// 记一次失败并返回累计次数。只数还在 pending 的行：期间被终审或删掉的返回 0。
+async function countReviewFailure(pool, id) {
+  const { rows } = await pool.query(
+    `UPDATE intel
+     SET detail = COALESCE(detail, '{}'::jsonb)
+       || jsonb_build_object('reviewAttempts', COALESCE((detail->>'reviewAttempts')::int, 0) + 1)
+     WHERE id = $1 AND verdict = 'pending'
+     RETURNING COALESCE((detail->>'reviewAttempts')::int, 0) AS attempts`,
+    [id]
+  );
+  return Number(rows[0]?.attempts) || 0;
+}
+
+// 停止重试时得让作者知道：记录停在 pending，从提交页面上看不出「不会再试了」。
+async function notifyReviewGaveUp(pool, id, attempts) {
+  const { rows } = await pool.query(`SELECT account_id, detail FROM intel WHERE id = $1`, [id]);
+  const intel = rows[0];
+  if (!intel) return;
+  const code = intel.detail && typeof intel.detail.reviewError === "string" ? intel.detail.reviewError : "";
+  await recordNotification(pool, {
+    userId: intel.account_id,
+    kind: "intel_review_error",
+    title: "审核已停止重试",
+    body: `数据评审员连续 ${attempts} 次没有完成审核${code ? `（${code}）` : ""}。这条记录仍然可见，请联系管理员处理。`,
+    href: "/mine/submissions",
+    data: { code, attempts, gaveUp: true },
+  });
+}
+
+async function scheduleReviewRetry(pool, id) {
+  let attempts = 0;
+  try {
+    attempts = await countReviewFailure(pool, id);
+  } catch (countError) {
+    // 次数写不进库（库抖一下）也不能把这条记录丢在队列外：按第一次的退避再排一次。
+    console.error(countError);
+    attempts = 1;
+  }
+  // 已经不是 pending（被终审、被删掉），不必再排。
+  if (!attempts) return;
+  if (attempts >= REVIEW_MAX_ATTEMPTS) {
+    await notifyReviewGaveUp(pool, id, attempts);
+    return;
+  }
+  const timer = setTimeout(() => enqueueReview(pool, id), reviewDelay(attempts));
   timer.unref();
 }
 
@@ -319,13 +369,17 @@ async function holdForRetry(pool, id, error) {
   } catch (notifyError) {
     console.error(notifyError);
   }
-  scheduleReviewRetry(pool, id);
+  try {
+    await scheduleReviewRetry(pool, id);
+  } catch (retryError) {
+    // 这里抛出会变成队列里的未处理拒绝，把整个进程带走；重试排不上只记一笔。
+    console.error(retryError);
+  }
 }
 
 async function reviewOne(pool, id) {
   try {
     await judgeIntel(pool, id);
-    reviewAttempts.delete(id);
   } catch (error) {
     await holdForRetry(pool, id, error);
   }
@@ -355,9 +409,28 @@ function pumpReviews(pool) {
   step();
 }
 
+// 启动恢复：按 (created_at, id) 键集分页，一页 200 条。超时重跑的任务不会被这一页
+// 边界漏掉，单次查询也不会把全部待审行一次读回内存。
 export async function resumePendingReviews(pool) {
-  const { rows } = await pool.query(`SELECT id FROM intel WHERE verdict = 'pending' ORDER BY created_at ASC`);
-  for (const row of rows) enqueueReview(pool, row.id);
+  let anchor = null;
+  for (;;) {
+    const { rows } = anchor
+      ? await pool.query(
+          `SELECT id, created_at FROM intel
+            WHERE verdict = 'pending' AND (created_at, id) > ($1::timestamptz, $2::uuid)
+            ORDER BY created_at ASC, id ASC
+            LIMIT ${REVIEW_RESUME_BATCH}`,
+          [anchor.created_at, anchor.id]
+        )
+      : await pool.query(
+          `SELECT id, created_at FROM intel WHERE verdict = 'pending'
+            ORDER BY created_at ASC, id ASC
+            LIMIT ${REVIEW_RESUME_BATCH}`
+        );
+    for (const row of rows) enqueueReview(pool, row.id);
+    if (rows.length < REVIEW_RESUME_BATCH) return;
+    anchor = rows[rows.length - 1];
+  }
 }
 
 async function assertRespondsTo(pool, requestId, ownerId) {
@@ -389,9 +462,13 @@ function resolveKind({ kind, respondsTo }) {
 }
 
 // 修订只对 post / fastpost 开放：wish 有时效、wishRespond 是响应，都不修订。
-// origin 是首版 id，version 是 origin 内的序号。早期流量低，先不做跨事务行锁。
+// origin 是首版 id，version 是 origin 内的序号。
+//
+// 这里只校验归属，不取号。取号必须和 INSERT 在同一个事务里，并且先锁住 origin 那一行：
+// 两笔并发修订各自「查 MAX(version) 再 +1」会拿到同一个号，而信息流去重的判据是
+// `newer.version > i.version`，同号的两行互相不排除，两版会同时留在信息流与搜索里。
 async function assertRevision(pool, userId, revises, kind) {
-  if (!revises) return { originId: null, version: 1 };
+  if (!revises) return { originId: null };
   if (kind !== "post" && kind !== "fastpost") {
     const error = new Error("bad_state");
     error.code = "bad_state";
@@ -406,12 +483,7 @@ async function assertRevision(pool, userId, revises, kind) {
     error.code = "bad_state";
     throw error;
   }
-  const originId = rows[0].origin_id || rows[0].id;
-  const { rows: latest } = await pool.query(
-    `SELECT COALESCE(MAX(version), 0)::int AS v FROM intel WHERE COALESCE(origin_id, id) = $1`,
-    [originId]
-  );
-  return { originId, version: (latest[0]?.v || 0) + 1 };
+  return { originId: rows[0].origin_id || rows[0].id };
 }
 
 export async function createIntel(pool, input) {
@@ -483,6 +555,17 @@ export async function createIntel(pool, input) {
     const order = new Map(uploadIds.map((id, index) => [id, index]));
     owned = rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   }
+  const billable = owned.filter((row) => isAttachmentUpload({ originalname: row.original_name }));
+  // 价格只按平台上传的附件算（下载包也只能装这些）。帖子里只有外链附件时，
+  // packetPrice(0, price) 会把作者填的价格静默抹成 0：卡片上仍列着附件名，作者以为
+  // 在卖，实际既不进出售区也收不到钱。这里明确拒绝，而不是悄悄改价。
+  const givenPrice = price == null || String(price).trim() === "" ? null : Number(price);
+  if (kind !== "wish" && actor !== "platform" && fileUrls.length && !billable.length && givenPrice > 0) {
+    const error = new Error("bad_price");
+    error.code = "bad_price";
+    throw error;
+  }
+  const priced = kind === "wish" ? 0 : actor === "platform" ? servicePrice(price) : packetPrice(billable.length, price);
   const videoLinks = videoItems.map((item) => item.url);
   const posterIds = [...new Set(videoItems.filter((item) => item.poster.id).map((item) => item.poster.id))];
   const posterById = new Map();
@@ -518,8 +601,6 @@ export async function createIntel(pool, input) {
     attachments: fileUrls.map((url) => ({ url })),
   };
   const listed = kind === "post" || kind === "fastpost" ? publicOf(isPublic) : false;
-  const billable = owned.filter((row) => isAttachmentUpload({ originalname: row.original_name }));
-  const priced = kind === "wish" ? 0 : actor === "platform" ? servicePrice(price) : packetPrice(billable.length, price);
   // 出售帖 = post/fastpost 且有可下载附件、且标价大于 0。与 SALE_POST 同口径，平台时长、用户不可填。
   // 零价附件帖只是「附带全文」，不设有效期。
   const isSale = (kind === "post" || kind === "fastpost") && priced > 0 && owned.some(isDownloadableFile);
@@ -528,10 +609,21 @@ export async function createIntel(pool, input) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // 修订版本号与插入放在同一个事务里：先锁住 origin 行，后来的修订在锁上排队，
+    // 取号与插入之间不会被另一笔修订插队，同一条 origin 上不会出现两个相同的 version。
+    let version = 1;
+    if (revision.originId) {
+      await client.query(`SELECT id FROM intel WHERE id = $1 FOR UPDATE`, [revision.originId]);
+      const { rows: latest } = await client.query(
+        `SELECT COALESCE(MAX(version), 0)::int AS v FROM intel WHERE COALESCE(origin_id, id) = $1`,
+        [revision.originId]
+      );
+      version = (latest[0]?.v || 0) + 1;
+    }
     const inserted = await client.query(
       `INSERT INTO intel (account_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to, price, expires_at, origin_id, version)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
-      [userId, actor, door, body, JSON.stringify(storedVideos), JSON.stringify(external), hash, listed, kind, respondsTo, priced, expiresAt, revision.originId, revision.version]
+      [userId, actor, door, body, JSON.stringify(storedVideos), JSON.stringify(external), hash, listed, kind, respondsTo, priced, expiresAt, revision.originId, version]
     );
     intelId = inserted.rows[0].id;
     for (let i = 0; i < owned.length; i += 1) {
@@ -594,7 +686,12 @@ const PUBLIC_INTEL_COLUMNS = `
     ) AS liked,
     ($1::uuid IS NOT NULL AND (
       i.account_id = $1 OR EXISTS (
-        SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.account_id = $1
+        -- 判「已解锁」按钱包算，不按这一行的账号算：Agent 付的是主人的钱，主人下载过的东西
+        -- 也不该让它的 Agent 再付一次。只比 account_id 时两者互不认（S04-07）。
+        SELECT 1 FROM packet_downloads pd
+        JOIN accounts pa ON pa.id = pd.account_id
+        WHERE pd.intel_id = i.id
+          AND COALESCE(pa.owner_id, pa.id) = COALESCE((SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $1), $1)
       )
     )) AS granted,
 ${FRIEND_COLUMNS},
@@ -1024,8 +1121,11 @@ async function intelBytes(db, intelId) {
 async function chargePublish(client, { userId, intelId, bytes }) {
   const fee = serviceFee(bytes, economyConfig().publishServiceFeePerMb, economyConfig().serviceFeeCap);
   if (fee <= 0) return;
-  await applyPoints(client, { userId, delta: -fee, reason: "publish", refId: intelId });
-  await applyPoints(client, { userId: PLATFORM_ACCOUNT_ID, delta: fee, reason: "publish", refId: intelId });
+  // 扣作者、入平台，两笔在同一事务里；统一走排序后的动账，避免与反向的转账互相等锁。
+  await applyPointsOrdered(client, [
+    { userId, delta: -fee, reason: "publish", refId: intelId },
+    { userId: PLATFORM_ACCOUNT_ID, delta: fee, reason: "publish", refId: intelId },
+  ]);
 }
 
 // wish 下载前先解锁响应列表（免费），服务费由 chargeDownload 收。
@@ -1040,38 +1140,31 @@ async function unlockRequest(client, intel, userId) {
 async function chargeDownload(client, intel, userId) {
   // 同一个钱包（账号与它名下的 Agent）不付自己的钱。
   if (await sameWallet(client, intel.account_id, userId)) return;
+  // 判重也按钱包：同一份附件的钱只该付一次，不管这一行是账号还是它的 Agent 记的。
+  // 只比 account_id 时，人下过、Agent 再下会各记一行、各扣一次（S12-03）。
   const prior = await client.query(
-    `SELECT 1 FROM packet_downloads WHERE account_id = $1 AND intel_id = $2`,
+    `SELECT 1
+       FROM packet_downloads pd
+       JOIN accounts a ON a.id = pd.account_id
+      WHERE pd.intel_id = $2
+        AND COALESCE(a.owner_id, a.id) = COALESCE((SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $1), $1)
+      LIMIT 1`,
     [userId, intel.id]
   );
-  if (prior.rows.length) return;
-  const price = Number(intel.price) || 0;
-  const fee = serviceFee(await intelBytes(client, intel.id), economyConfig().downloadServiceFeePerMb, economyConfig().serviceFeeCap);
-  const total = price + fee;
-  if (total > 0) {
-    await applyPoints(client, {
-      userId,
-      delta: -total,
-      reason: "download",
-      refId: intel.id,
-    });
-    if (price > 0) {
-      await applyPoints(client, {
-        userId: intel.account_id,
-        delta: price,
-        reason: "download",
-        refId: intel.id,
-      });
-    }
-    if (fee > 0) {
-      await applyPoints(client, {
-        userId: PLATFORM_ACCOUNT_ID,
-        delta: fee,
-        reason: "download_fee",
-        refId: intel.id,
-      });
+  if (!prior.rows.length) {
+    const price = Number(intel.price) || 0;
+    const fee = serviceFee(await intelBytes(client, intel.id), economyConfig().downloadServiceFeePerMb, economyConfig().serviceFeeCap);
+    const total = price + fee;
+    if (total > 0) {
+      // 买家付款、作者入账、平台服务费是同一个事务里的三笔动账。两个人互相下载对方的
+      // 出售帖时，这两笔的方向正好相反；按钱包 id 排序后加锁顺序一致，不会被 Postgres 判死锁。
+      const entries = [{ userId, delta: -total, reason: "download", refId: intel.id }];
+      if (price > 0) entries.push({ userId: intel.account_id, delta: price, reason: "download", refId: intel.id });
+      if (fee > 0) entries.push({ userId: PLATFORM_ACCOUNT_ID, delta: fee, reason: "download_fee", refId: intel.id });
+      await applyPointsOrdered(client, entries);
     }
   }
+  // 钱包已经付过也照样记一行：这个账号在信息流里要显示「已解锁」。
   await client.query(
     `INSERT INTO packet_downloads (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [userId, intel.id]

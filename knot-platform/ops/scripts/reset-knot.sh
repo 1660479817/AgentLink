@@ -33,12 +33,33 @@ if [[ ! -f "$KNOT_PLATFORM_ENV" ]]; then
 fi
 knot_source_platform_env
 
+# set -u 只拦「没定义」，拦不住「定义为空」：空串等于 libpq 全默认（本机 socket +
+# 系统用户 + 默认库），此时 DROP SCHEMA public CASCADE 打在哪套库上取决于环境。
+# 重建会清库，连接串不明就一步都别走。
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  echo "错误：${KNOT_PLATFORM_ENV} 里没有 DATABASE_URL。重建会清空库，连接串不明时不动手。" >&2
+  exit 1
+fi
+
 UPLOAD_DIR="${UPLOAD_DIR:-$KNOT_DEPLOY_ROOT/var/uploads}"
 UID_NUM="$(id -u)"
 SYSTEMD_UNIT="$KNOT_SYSTEMD_DIR/knot-backend.service"
 PID_FILE="$KNOT_DEPLOY_ROOT/var/run/backend.pid"
 
+# 停服务按「装过什么」判断，不要先看 pid 文件。从 --runtime none 换成
+# launchd/systemd 之后，残留的 pid 文件会让脚本去 kill 一个早已不存在的 pid，
+# 真正在跑的服务没停——接着 DROP SCHEMA public，正在用的库被清掉。
 stop_backend() {
+  if [[ -f "$SYSTEMD_UNIT" ]]; then
+    if [[ "$(id -u)" == "0" ]]; then systemctl stop knot-backend 2>/dev/null || true; else sudo systemctl stop knot-backend 2>/dev/null || true; fi
+    rm -f "$PID_FILE"
+    return 0
+  fi
+  if [[ "$(uname -s)" == "Darwin" ]] && launchctl print "gui/$UID_NUM/com.knot.platform" >/dev/null 2>&1; then
+    launchctl bootout "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    return 0
+  fi
   if [[ -f "$PID_FILE" ]]; then
     local pid
     pid="$(cat "$PID_FILE" 2>/dev/null || true)"
@@ -48,10 +69,6 @@ stop_backend() {
       sleep 0.1
     done
     rm -f "$PID_FILE"
-  elif [[ "$(uname -s)" == "Darwin" ]]; then
-    launchctl bootout "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
-  elif [[ -f "$SYSTEMD_UNIT" ]]; then
-    if [[ "$(id -u)" == "0" ]]; then systemctl stop knot-backend 2>/dev/null || true; else sudo systemctl stop knot-backend 2>/dev/null || true; fi
   fi
 }
 

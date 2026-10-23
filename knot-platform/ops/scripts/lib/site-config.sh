@@ -66,8 +66,11 @@ knot_list_sites() {
 }
 
 knot_site_name_ok() {
+  # 站点名会直接拼进 $KNOT_SITES_DIR/$KNOT_SITE 与远端 sites/$KNOT_SITE。
+  # 只排除非法字符不够：`.` 与 `..` 都合法却不指向一个站点目录，
+  # `--site ..` 会把站点目录指到部署根，`--site ../../x` 写到 sites/ 之外。
   case "${1:-}" in
-    "" | *[!A-Za-z0-9._-]*) return 1 ;;
+    "" | .* | *[!A-Za-z0-9._-]*) return 1 ;;
     *) return 0 ;;
   esac
 }
@@ -203,7 +206,8 @@ KNOT_SERVICE_USER="${KNOT_SERVICE_USER:-knot}"
 KNOT_DEPLOY_SSH="${KNOT_DEPLOY_SSH:-}"
 # 远端路径：`~/...` 按目标机的 home 展开，不按本机。site.env 里写 `~`
 # 会被 source 成本机 home，push-deploy.sh 会再换回远端 home。
-KNOT_DEPLOY_DIR="${KNOT_DEPLOY_DIR:-~/knot/AgentLink/knot-platform}"
+# 留空按站点名推导：一个部署根只放一个站点，两个站点共用同一个根会互相切走 current。
+KNOT_DEPLOY_DIR="${KNOT_DEPLOY_DIR:-~/knot/$KNOT_SITE}"
 KNOT_DEPLOY_SSH_KEY="${KNOT_DEPLOY_SSH_KEY:-}"
 KNOT_DEPLOY_VERIFY_URL="${KNOT_DEPLOY_VERIFY_URL:-}"
 KNOT_DEPLOY_KEEP="${KNOT_DEPLOY_KEEP:-5}"
@@ -212,8 +216,10 @@ KNOT_ARTIFACT_DIR="${KNOT_ARTIFACT_DIR:-$KNOT_APP_DIR/artifacts}"
 # ---- 公网入口 ----
 KNOT_ENTRY_ENABLED="${KNOT_ENTRY_ENABLED:-0}"
 KNOT_ENTRY_SSH="${KNOT_ENTRY_SSH:-}"
-# 从开发机推页面用的私钥
-KNOT_ENTRY_SSH_KEY="${KNOT_ENTRY_SSH_KEY:-$HOME/.ssh/id_rsa}"
+# 从开发机推页面用的私钥。故意不回落到 id_rsa：入口主机通常不认这把个人主身份钥，
+# 照旧默认值第一次推就会 auth 失败，而且把主钥当部署钥用本来就不该是默认行为。
+# 留空表示交给 ssh 默认身份或 ssh-agent。
+KNOT_ENTRY_SSH_KEY="${KNOT_ENTRY_SSH_KEY:-}"
 # 实例主机上推公开快照用的私钥（和开发机不是同一把）
 KNOT_ENTRY_PUSH_KEY="${KNOT_ENTRY_PUSH_KEY:-$HOME/.ssh/knot-entry-publish}"
 KNOT_ENTRY_WEB_OWNER="${KNOT_ENTRY_WEB_OWNER:-nginx:nginx}"
@@ -317,6 +323,13 @@ knot_env_get() {
   )
 }
 
+# 转义 sed 替换串里会被特殊解释的字符。
+# 部署根或站点名里出现 `&` 时，sed 会把它换成匹配到的整段（`__KNOT_HOME__` 原样留着），
+# 装出来的 plist / unit 就是坏的；分隔符 `|` 同理会把整句拆断。
+knot_sed_value() {
+  printf '%s' "${1:-}" | sed -e 's/[\\&|]/\\&/g'
+}
+
 # 装一个 LaunchAgent。
 # plist 模板里的占位符：
 #   __KNOT_HOME__         部署根（放 sites/、var/、releases/）
@@ -329,11 +342,16 @@ knot_install_launchd() {
   local domain="gui/$(id -u)"
   local dest="$HOME/Library/LaunchAgents/$label.plist"
   local attempt=1
+  local home_value current_value root_value site_value
+  home_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT")"
+  current_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT/current")"
+  root_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT")"
+  site_value="$(knot_sed_value "$KNOT_SITE")"
   mkdir -p "$(dirname "$dest")" "$KNOT_DEPLOY_ROOT/var/log"
-  sed -e "s|__KNOT_HOME__|$KNOT_DEPLOY_ROOT|g" \
-    -e "s|__KNOT_CURRENT__|$KNOT_DEPLOY_ROOT/current|g" \
-    -e "s|__KNOT_DEPLOY_ROOT__|$KNOT_DEPLOY_ROOT|g" \
-    -e "s|__KNOT_SITE__|$KNOT_SITE|g" "$src" >"$dest"
+  sed -e "s|__KNOT_HOME__|$home_value|g" \
+    -e "s|__KNOT_CURRENT__|$current_value|g" \
+    -e "s|__KNOT_DEPLOY_ROOT__|$root_value|g" \
+    -e "s|__KNOT_SITE__|$site_value|g" "$src" >"$dest"
   # 先记下旧进程：bootout 是异步的，函数返回时它可能还活着、还占着端口。
   # launchctl print 在标签没加载时返回非零，这里必须吞掉：脚本是 set -e + pipefail，
   # 一次探测失败就会让整个安装过程在这里静默中断（部署停在 "start backend"）。
@@ -374,14 +392,24 @@ knot_install_systemd_unit() {
   local src="$1"
   local name="$2"
   local tmp
+  local home_value current_value root_value site_value user_value env_value xknot_value upload_value
+  home_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT")"
+  current_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT/current")"
+  root_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT")"
+  site_value="$(knot_sed_value "$KNOT_SITE")"
+  user_value="$(knot_sed_value "$KNOT_SERVICE_USER")"
+  env_value="$(knot_sed_value "$KNOT_PLATFORM_ENV")"
+  xknot_value="$(knot_sed_value "$KNOT_XKNOT_ENV")"
+  upload_value="$(knot_sed_value "$KNOT_UPLOAD_DIR")"
   tmp="$(mktemp "${TMPDIR:-/tmp}/knot-unit.XXXXXX")"
-  sed -e "s|__KNOT_HOME__|$KNOT_DEPLOY_ROOT|g" \
-    -e "s|__KNOT_CURRENT__|$KNOT_DEPLOY_ROOT/current|g" \
-    -e "s|__KNOT_DEPLOY_ROOT__|$KNOT_DEPLOY_ROOT|g" \
-    -e "s|__KNOT_SITE__|$KNOT_SITE|g" \
-    -e "s|__KNOT_USER__|$KNOT_SERVICE_USER|g" \
-    -e "s|__KNOT_ENV_FILE__|$KNOT_PLATFORM_ENV|g" \
-    -e "s|__KNOT_XKNOT_ENV__|$KNOT_XKNOT_ENV|g" "$src" >"$tmp"
+  sed -e "s|__KNOT_HOME__|$home_value|g" \
+    -e "s|__KNOT_CURRENT__|$current_value|g" \
+    -e "s|__KNOT_DEPLOY_ROOT__|$root_value|g" \
+    -e "s|__KNOT_SITE__|$site_value|g" \
+    -e "s|__KNOT_USER__|$user_value|g" \
+    -e "s|__KNOT_ENV_FILE__|$env_value|g" \
+    -e "s|__KNOT_XKNOT_ENV__|$xknot_value|g" \
+    -e "s|__KNOT_UPLOAD_DIR__|$upload_value|g" "$src" >"$tmp"
   if [[ -w "$KNOT_SYSTEMD_DIR" ]]; then
     install -m 644 "$tmp" "$KNOT_SYSTEMD_DIR/$name"
   else

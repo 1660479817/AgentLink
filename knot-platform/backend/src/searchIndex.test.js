@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { saveReviewExtract, discardExtract } from "./extracts.js";
-import { refreshSearchIndex, searchIndexOf, searchTextOf } from "./searchIndex.js";
+import { refreshSearchIndex, reindexSearch, searchIndexOf, searchTextOf } from "./searchIndex.js";
 
 const ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
@@ -64,6 +64,39 @@ test("refreshing an unknown or malformed id does nothing", async () => {
     },
   };
   assert.equal(await refreshSearchIndex(pool, "not-a-uuid"), null);
+});
+
+test("a backfill reads whole pages, not one row at a time", async () => {
+  const first = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const second = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const calls = [];
+  const progress = [];
+  const pool = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      // 第一页两行（等于 batch，继续翻页），第二页空，回填结束。
+      if (sql.startsWith("SELECT id, body")) {
+        return params.length === 1
+          ? {
+              rows: [
+                { id: first, body: "第一页甲", videos: [], detail: {} },
+                { id: second, body: "第一页乙", videos: [], detail: {} },
+              ],
+            }
+          : { rows: [] };
+      }
+      return { rows: [] };
+    },
+  };
+  const total = await reindexSearch(pool, { batch: 2, onProgress: (n) => progress.push(n) });
+  assert.equal(total, 2);
+  assert.deepEqual(progress, [2]);
+  // 每次翻页只查一次，正文随页取出；不再为每行回表 SELECT。
+  assert.equal(calls.filter((call) => call.sql.startsWith("SELECT")).length, 2);
+  assert.equal(calls.some((call) => /SELECT id, body, videos, detail FROM intel WHERE id = \$1$/.test(call.sql)), false);
+  // ANALYZE 等所有行写完再跑。
+  assert.equal(calls[calls.length - 1].sql, "ANALYZE intel");
+  assert.equal(calls.filter((call) => call.sql.startsWith("UPDATE intel")).length, 2);
 });
 
 test("the attachment transcript reaches the index and leaves it again", async () => {

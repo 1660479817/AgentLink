@@ -69,6 +69,13 @@ command -v "$PSQL" >/dev/null 2>&1 || knot_fail "找不到 psql。装 postgresql
 
 SID="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))')"
 DAYS="${KNOT_SESSION_TTL_DAYS:-30}"
+# 这个值经 psql -v 文本替换拼进 SQL（make_interval(days => :days)），
+# 带 `)` 或 `;` 就能改语句。来源是 platform.env，风险低但机制成立：
+# 只认 1 到 3650 的整数。
+case "$DAYS" in
+  "" | *[!0-9]*) knot_fail "KNOT_SESSION_TTL_DAYS 只能是整数天，现在是 '${DAYS}'。" ;;
+esac
+(( DAYS >= 1 && DAYS <= 3650 )) || knot_fail "KNOT_SESSION_TTL_DAYS 要在 1 到 3650 之间，现在是 ${DAYS}。"
 # 显示名不能为空，也不能和已有账户重名；取邮箱前缀，重了就用整串补上。
 NAME="${EMAIL%%@*}"
 
@@ -98,6 +105,7 @@ ROLE="普通账户"
 [[ "$EMAIL" == "${KNOT_ADMIN_EMAIL:-}" ]] && ROLE="管理员"
 
 if [[ "$URL_ONLY" == 1 ]]; then
+  echo "注意：下面这一行就是一枚可用的管理员会话，不要贴进工单、聊天或截图。"
   echo "${BASE}/?${COOKIE}=${SID}"
   exit 0
 fi
@@ -107,6 +115,9 @@ cat <<EOF
   站点    ${BASE}（${KNOT_SITE}）
   账户    ${EMAIL}  ${ROLE}
   有效期  ${DAYS} 天
+
+注意：下面的 cookie 就是这枚会话本身，拿到它的人就是以这个账户登录。
+不要贴进工单、聊天或截图；用完整份就再跑一次这个脚本换一枚。
 
 浏览器里执行一次（或者开一个无痕窗口，用下面的地址）：
   document.cookie = "${COOKIE}=${SID}; path=/"

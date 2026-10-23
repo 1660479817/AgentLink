@@ -111,6 +111,39 @@ fi
 # KNOT_DISCOVER_PUSH_CMD 都写成经 current 的路径，换链接就跟着换了版本。
 ln -sfn "releases/$TARGET_NAME" "$CURRENT_LINK"
 
+# 用哪种运行时，先看装过什么（LaunchAgent / systemd unit 是明确的证据），
+# 最后才按 var/run 里的 pid 文件推断。以前先看 pid 文件：从 --runtime none
+# 切到 launchd/systemd 之后，残留的 pid 文件会让脚本去 kill 一个早就不存在的
+# pid、删掉文件，而真正在跑的服务没被重启——current 换了，进程还是旧的。
+restart_backend() {
+  local pid_file="$KNOT_DEPLOY_ROOT/var/run/backend.pid"
+  if [[ -f "$HOME/Library/LaunchAgents/com.knot.platform.plist" ]]; then
+    local uid_num
+    uid_num="$(id -u)"
+    launchctl kickstart -k "gui/$uid_num/com.knot.platform" 2>/dev/null || true
+    return 0
+  fi
+  if [[ -f "$KNOT_SYSTEMD_DIR/knot-backend.service" ]]; then
+    if [[ "$(id -u)" == "0" ]]; then systemctl restart knot-backend; else sudo systemctl restart knot-backend; fi
+    return 0
+  fi
+  if [[ -f "$pid_file" ]]; then
+    restart_manual
+    return 0
+  fi
+  case "$(uname -s)" in
+    Darwin)
+      local uid_num
+      uid_num="$(id -u)"
+      launchctl kickstart -k "gui/$uid_num/com.knot.platform" 2>/dev/null || true
+      ;;
+    Linux)
+      if [[ "$(id -u)" == "0" ]]; then systemctl restart knot-backend; else sudo systemctl restart knot-backend; fi
+      ;;
+    *) ;;
+  esac
+}
+
 # 没有服务管理器时（deploy-site.sh --runtime none）由部署根下的 pid 文件管进程。
 restart_manual() {
   local pid_file="$KNOT_DEPLOY_ROOT/var/run/backend.pid"
@@ -138,31 +171,30 @@ restart_manual() {
   done
 }
 
-if [[ -f "$KNOT_DEPLOY_ROOT/var/run/backend.pid" ]]; then
-  restart_manual
-else
-  case "$(uname -s)" in
-    Darwin)
-      UID_NUM="$(id -u)"
-      launchctl kickstart -k "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
-      ;;
-    Linux)
-      if [[ "$(id -u)" == "0" ]]; then systemctl restart knot-backend; else sudo systemctl restart knot-backend; fi
-      ;;
-    *) ;;
-  esac
-fi
+wait_healthy() {
+  local bound="${1:-30}"
+  local _
+  for _ in $(seq 1 "$bound"); do
+    if curl -sf "http://127.0.0.1:$KNOT_PORT/api/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
 
-healthy=0
-for _ in $(seq 1 30); do
-  if curl -sf "http://127.0.0.1:$KNOT_PORT/api/health" >/dev/null 2>&1; then
-    healthy=1
-    break
+restart_backend
+
+if ! wait_healthy 30; then
+  # 回滚也可能落在一个坏版本上（另一个版本同样起不来）。这时候别把 current
+  # 留在坏版本上就走人：切回原来的版本再试一次，至少回到「回滚之前」的状态。
+  knot_warn "回滚到 ${TARGET_NAME} 后后端没有起来，切回 ${CURRENT_NAME}。"
+  ln -sfn "releases/$CURRENT_NAME" "$CURRENT_LINK"
+  restart_backend || true
+  if wait_healthy 30; then
+    knot_fail "回滚到 ${TARGET_NAME} 失败（后端没起来），已切回 ${CURRENT_NAME}。看 $KNOT_DEPLOY_ROOT/var/log/knot-platform.err.log"
   fi
-  sleep 1
-done
-if [[ "$healthy" != 1 ]]; then
-  knot_fail "回滚后后端没有起来。看 $KNOT_DEPLOY_ROOT/var/log/knot-platform.err.log"
+  knot_fail "回滚到 ${TARGET_NAME} 失败，切回 ${CURRENT_NAME} 后仍不通。current 现在是 ${CURRENT_NAME}；看 $KNOT_DEPLOY_ROOT/var/log/knot-platform.err.log"
 fi
 
 BUILD_INFO="$KNOT_RELEASES_DIR/$TARGET_NAME/BUILD.json"

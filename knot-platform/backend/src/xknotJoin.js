@@ -56,6 +56,21 @@ export async function checkSubdomain({ label, hubOrigin, fetchImpl = fetch } = {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+// 中枢那一侧 email 上限 120 码点。
+const EMAIL_MAX = 120;
+
+// 中枢响应里的 caseUrl 只能指向它自己的 origin：这是远端可控的数据，
+// 存盘前按提交时用的中枢地址钉一次，读回时再比一次（S12-02）。
+// 对不上就把地址丢掉——申请本身仍然有效，只是不能拿它去发请求。
+export function pinnedCaseUrl(caseUrl, hubOrigin) {
+  const hub = String(hubOrigin || "").trim().replace(/\/+$/, "");
+  if (!hub || !caseUrl) return "";
+  try {
+    return new URL(String(caseUrl)).origin === new URL(hub).origin ? String(caseUrl) : "";
+  } catch {
+    return "";
+  }
+}
 
 function cut(value, max) {
   return [...String(value ?? "").trim()].slice(0, max).join("");
@@ -73,7 +88,7 @@ export function applicationPayload(site = {}, { subdomain = "", email = "", loca
     subdomain: cut(subdomain, 40).toLowerCase(),
     intro: cut(site.tagline || site.intro, 60),
     operator: cut(site.owner, 80),
-    email: cut(email || site.contact, 120),
+    email: String(email || site.contact || "").trim(),
     region: /^[A-Z]{2}$/.test(region) ? region : "GLOBAL",
     timezone: cut(site.timezone, 40) || "UTC",
     tags: Array.isArray(site.tags) ? site.tags.slice(0, 9) : [],
@@ -87,7 +102,9 @@ export function missingFields(payload) {
   const missing = [];
   if (!payload.name) missing.push("name");
   if (!payload.operator) missing.push("operator");
-  if (!EMAIL_RE.test(payload.email)) missing.push("email");
+  // 邮箱不能先截断再校验：截出来的前缀往往仍像合法地址，中枢收到的是错联系人。
+  // 超长按「填错」报出去，让人回去改，不替他编一个短一点的。
+  if ([...String(payload.email || "")].length > EMAIL_MAX || !EMAIL_RE.test(payload.email)) missing.push("email");
   if (!payload.intro) missing.push("intro");
   return missing;
 }

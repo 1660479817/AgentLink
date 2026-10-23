@@ -149,7 +149,25 @@ export function attachmentDisposition(name) {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`;
 }
 
+function packetTooLarge() {
+  const error = new Error("packet_too_large");
+  error.code = "packet_too_large";
+  return error;
+}
+
 export function buildZip(files) {
+  // ZIP 的格式上限：条目数用 16 位写、偏移与大小用 32 位写，超了 writeUInt32LE/16LE
+  // 会抛 RangeError，最终变成 500。当前 MAX_FILES=1、附件 50 MiB 兜住了这条边界，
+  // 但那是调用方的约束，不是这里的校验，先把上限查出来给一个明确的错误。
+  if (files.length > 0xffff) throw packetTooLarge();
+  let bytes = 0;
+  for (const file of files) {
+    if (!file || !Buffer.isBuffer(file.data)) throw packetTooLarge();
+    const nameBytes = Buffer.byteLength(String(file.name || ""), "utf8");
+    if (nameBytes > 0xffff) throw packetTooLarge();
+    bytes += 30 + nameBytes + 46 + nameBytes + file.data.length;
+    if (file.data.length > 0xffffffff || bytes > 0xffffffff) throw packetTooLarge();
+  }
   const locals = [];
   const centrals = [];
   let offset = 0;

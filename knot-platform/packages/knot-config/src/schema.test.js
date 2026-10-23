@@ -14,6 +14,7 @@ import {
   formatValue,
   parseEnv,
   renderDocs,
+  renderEntryExample,
   renderJoinExample,
   renderPlatformExample,
   renderPlatformFile,
@@ -48,6 +49,8 @@ test("generated example files and docs are committed as generated", () => {
   assert.equal(read("sites/_template/site.env"), renderSiteExample());
   assert.equal(read("sites/_template/platform.env"), renderPlatformExample());
   assert.equal(read("sites/_template/xknot.env"), renderJoinExample());
+  // 入口模板以前是手写的，改 ENTRY_KEYS 时不会有人发现它落后；现在它也是生成物。
+  assert.equal(read("sites/_template/entry.example.env"), renderEntryExample());
   assert.equal(read("docs/CONFIG.md"), renderDocs());
 });
 
@@ -120,6 +123,7 @@ test("a loopback-only site is not warned about missing backups", () => {
   const local = checkSite({
     KNOT_ADMIN_EMAIL: "dev@example.com",
     KNOT_PUBLIC_ORIGIN: "http://127.0.0.1:8081",
+    KNOT_PORT: "8081",
   });
   assert.deepEqual(local.errors, []);
   assert.deepEqual(local.warnings, []);
@@ -390,11 +394,12 @@ test("derived values follow site.env without being written back", () => {
   assert.equal(resolve(byKey.get("KNOT_TUNNEL_REMOTE_PORT"), env, ctx), "18081");
   assert.equal(resolve(byKey.get("KNOT_UPLOAD_DIR"), {}, ctx), "/srv/knot/var/uploads");
   assert.equal(resolve(byKey.get("KNOT_TUNNEL_KEY"), {}, ctx), "/Users/me/.ssh/knot-entry");
-  // 展示远端路径时不展开本机的 home。
+  // 部署根按站点推导：省略这一项时，两个站点不能落到同一个根上。
   assert.equal(
-    resolve(byKey.get("KNOT_DEPLOY_DIR"), {}, { root: "/srv/knot", home: "/Users/me" }),
-    "~/knot/site"
+    resolve(byKey.get("KNOT_DEPLOY_DIR"), {}, { root: "/srv/knot", home: "/Users/me", site: "wang" }),
+    "~/knot/wang"
   );
+  assert.equal(resolve(byKey.get("KNOT_DEPLOY_DIR"), {}, { root: "/srv/knot", home: "/Users/me" }), "");
 });
 
 test("parseEnv understands quotes, inline comments and does not expand variables", () => {
@@ -634,4 +639,11 @@ test("an entry entry accepts a certificate derived from its domain", () => {
     {},
   );
   assert.deepEqual(result.errors, []);
+});
+
+test("a size of 0 is refused: nginx reads it as unlimited", () => {
+  // 0 在 nginx 里是「不限制」，在跨键比较里又被当成「没设」。同一个值两种含义，
+  // 只能报出来，不能猜运维想的是哪一种。
+  const result = checkEntryFile({ KNOT_DOMAIN: "wang.xknot.si", KNOT_ENTRY_MAX_BODY: "0" });
+  assert.match(result.errors.join("\n"), /KNOT_ENTRY_MAX_BODY 不能是 0/);
 });

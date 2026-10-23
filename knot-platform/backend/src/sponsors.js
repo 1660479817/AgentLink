@@ -100,17 +100,31 @@ export async function createSponsor(pool, input) {
   const image = has(input, "image") ? await sponsorImage(pool, input.image) : { imageUrl: null, imageUploadId: null };
   const caption = line(input?.caption, CAPTION_MAX);
   const source = line(input?.source, SOURCE_MAX);
-  const { rows } = await pool.query(
-    `SELECT count(*)::int AS n, COALESCE(max(position), 0)::int AS max FROM sponsors`
-  );
-  if (Number(rows[0].n) >= SPONSOR_LIMIT) throw fail("sponsor_full");
-  const inserted = await pool.query(
-    `INSERT INTO sponsors (title, href, position, image_url, image_upload_id, caption, source)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING ${SPONSOR_COLUMNS}`,
-    [title, href, Number(rows[0].max) + 1, image.imageUrl, image.imageUploadId, caption, source]
-  );
-  return present(inserted.rows[0], true);
+  // 计数、取位置、插入在同一事务里，并先取一把咨询锁：并发签发时各自读到同一个
+  // count/max，会一起越过 SPONSOR_LIMIT，位置也撞同一个号（S12-10）。
+  // 锁的 key 用固定字符串，不依赖行数据；没有行可锁的时候也要能串起来。
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, ["knot:sponsors"]);
+    const { rows } = await client.query(
+      `SELECT count(*)::int AS n, COALESCE(max(position), 0)::int AS max FROM sponsors`
+    );
+    if (Number(rows[0].n) >= SPONSOR_LIMIT) throw fail("sponsor_full");
+    const inserted = await client.query(
+      `INSERT INTO sponsors (title, href, position, image_url, image_upload_id, caption, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING ${SPONSOR_COLUMNS}`,
+      [title, href, Number(rows[0].max) + 1, image.imageUrl, image.imageUploadId, caption, source]
+    );
+    await client.query("COMMIT");
+    return present(inserted.rows[0], true);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function storeSponsorImage(pool, uploadDir, file) {

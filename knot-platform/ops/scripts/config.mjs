@@ -8,6 +8,7 @@
 //   node ops/scripts/config.mjs template [--write]
 //   node ops/scripts/config.mjs platform-template [--write]
 //   node ops/scripts/config.mjs xknot-template [--write]
+//   node ops/scripts/config.mjs entry-template [--write]
 //   node ops/scripts/config.mjs docs [--write]
 //   node ops/scripts/config.mjs env --site <站点> [--out path] [--root path] [--deploy-root path]
 //   node ops/scripts/config.mjs join --site <站点> [--in <接入件>] [--out path]
@@ -22,15 +23,18 @@ import { fileURLToPath } from "node:url";
 import {
   KEYS,
   FORBIDDEN_PLATFORM_KEYS,
+  checkCrossFile,
   checkEntryFile,
   checkJoin,
   checkPlatform,
   checkSite,
+  checkTunnelFile,
   formatValue,
   isBlank,
   parseEnv,
   removeEnvKeys,
   renderDocs,
+  renderEntryExample,
   renderJoinExample,
   renderJoinFile,
   renderPlatformExample,
@@ -64,6 +68,7 @@ const PATHS = {
   siteTemplate: path.join(DEPLOY, "sites", "_template", "site.env"),
   platformTemplate: path.join(DEPLOY, "sites", "_template", "platform.env"),
   xknotTemplate: path.join(DEPLOY, "sites", "_template", "xknot.env"),
+  entryTemplate: path.join(DEPLOY, "sites", "_template", "entry.example.env"),
   docs: path.join(APP, "docs", "CONFIG.md"),
 };
 
@@ -122,7 +127,8 @@ function cmdCheck(argv) {
       return 0;
     }
     const mode = statSync(joinPath).mode;
-    return report("XKnot 接入配置", checkJoin(readText(joinPath), { mode }));
+    // 带上 site.env 一起看：两个中枢地址（申请用的与发信用的）在这里才能比较。
+    return report("XKnot 接入配置", checkJoin(readText(joinPath), { mode, site: readSiteEnv(paths) }));
   }
 
   if (has(argv, "--platform")) {
@@ -136,14 +142,27 @@ function cmdCheck(argv) {
     return report(`实例运行时配置 ${path.basename(platformPath)}`, checkPlatform(text, { mode }));
   }
 
-  const site = checkSite(readSiteEnv(paths));
+  const siteEnv = readSiteEnv(paths);
+  const site = checkSite(siteEnv);
   const entries = checkEntries(paths);
   const title = entries.count
     ? `站点配置 ${label}（1 个 xknot.si 子域入口）`
     : `站点配置 ${label}`;
+
+  // 跨文件约束要同时看到几份配置：附件上限在 platform.env、入口请求体上限在入口文件、
+  // 隧道端口可能在 tunnel.env。「隧道」这一份以前没有任何校验器读，写错只能等 ssh -R 失败。
+  const platform = parseEnv(readText(paths.platformEnv));
+  const entryFile = listEntryFiles(paths.dir)[0];
+  const entryEnv = entryFile ? readEntryFile(paths, entryFile) : {};
+  const tunnelText = readText(path.join(paths.dir, "tunnel.env"));
+  const tunnelCheck = checkTunnelFile(tunnelText);
+  const cross = checkCrossFile({ site: siteEnv, platform, entry: entryEnv, tunnel: parseEnv(tunnelText) });
+
+  // 同一句话可能被单文件校验与跨文件校验各说一次，报告里只留一份。
+  const merge = (...lists) => [...new Set(lists.flat())];
   return report(title, {
-    errors: [...site.errors, ...entries.errors],
-    warnings: [...site.warnings, ...entries.warnings],
+    errors: merge(site.errors, entries.errors, tunnelCheck.errors, cross.errors),
+    warnings: merge(site.warnings, entries.warnings, tunnelCheck.warnings, cross.warnings),
   });
 }
 
@@ -196,12 +215,23 @@ function checkEntries(paths) {
     );
   }
 
+  // 有域名、自己又不推入口、也没有中枢写下的 tunnel.env：公网这一层什么都没接上。
+  // 本机访问一切正常，外面却 502，这是最难查的一种部署。
+  if (!isBlank(base.KNOT_DOMAIN) && !enabled && !existsSync(path.join(paths.dir, "tunnel.env"))) {
+    warnings.push(
+      `KNOT_DOMAIN=${base.KNOT_DOMAIN} 但 KNOT_ENTRY_ENABLED=0，也没有 sites/${paths.name}/tunnel.env：本机能打开，公网子域不会有回源。` +
+        "自己推入口就把 KNOT_ENTRY_ENABLED 设成 1，交给中枢自动接通就等界面写下 tunnel.env。"
+    );
+  }
+
   return { errors, warnings, count: entry ? 1 : 0 };
 }
 
 function writeOut(file, text, mode = 0o644) {
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, text);
+  // 先按目标权限创建再写：writeFileSync 后 chmod 之间有一个窗口，文件按 umask
+  // （通常 0644）存在。这个函数写的是 platform.env，里面有 DATABASE_URL。
+  writeFileSync(file, text, { mode });
   chmodSync(file, mode);
   console.log(`写入 ${path.relative(DEPLOY, file)}`);
 }
@@ -223,6 +253,14 @@ function cmdPlatformTemplate(argv) {
 function cmdXknotTemplate(argv) {
   const text = renderJoinExample();
   if (has(argv, "--write")) writeOut(PATHS.xknotTemplate, text);
+  else process.stdout.write(text);
+  return 0;
+}
+
+// 入口模板以前是手写的：没有生成函数，也没有字节比对测试，改 ENTRY_KEYS 时它会静默落后。
+function cmdEntryTemplate(argv) {
+  const text = renderEntryExample();
+  if (has(argv, "--write")) writeOut(PATHS.entryTemplate, text);
   else process.stdout.write(text);
   return 0;
 }
@@ -447,7 +485,7 @@ function cmdShow(argv) {
   const role = argValue(argv, "--for", "platform");
   const paths = selectedSite(argv);
   const env = readSiteEnv(paths);
-  const ctx = { root: APP, deployRoot: DEPLOY, home: process.env.HOME || "" };
+  const ctx = { root: APP, deployRoot: DEPLOY, home: process.env.HOME || "", site: paths.name };
   for (const entry of KEYS) {
     if (entry.file !== "site") continue;
     if (!entry.scope.includes(role)) continue;
@@ -463,6 +501,7 @@ const COMMANDS = {
   template: cmdTemplate,
   "platform-template": cmdPlatformTemplate,
   "xknot-template": cmdXknotTemplate,
+  "entry-template": cmdEntryTemplate,
   docs: cmdDocs,
   env: cmdEnv,
   join: cmdJoin,
@@ -474,7 +513,7 @@ function main(argv) {
   const run = COMMANDS[command];
   if (!run) {
     console.error(
-      "用法：config.mjs <sites|init|check|template|platform-template|xknot-template|docs|env|join|show> [选项]"
+      "用法：config.mjs <sites|init|check|template|platform-template|xknot-template|entry-template|docs|env|join|show> [选项]"
     );
     return 2;
   }

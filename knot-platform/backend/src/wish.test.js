@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { WISH_DEFAULT_HOURS, WISH_MAX_HOURS, wishExpiresAt, wishHours, wishLive } from "./wish.js";
+import { WISH_DEFAULT_HOURS, WISH_MAX_HOURS, wishDeadline, wishExpiresAt, wishHours, wishLive } from "./wish.js";
 
 test("a wish lasts 24 hours unless it asks for less", () => {
   assert.equal(WISH_MAX_HOURS, 24);
@@ -26,7 +26,8 @@ test("an expiry is counted in hours from now", () => {
 
 test("the live filter falls back to 24 hours for wishes written before the column existed", () => {
   const sql = wishLive("i");
-  assert.match(sql, /i\.expires_at/);
-  assert.match(sql, /i\.created_at \+ interval '24 hours'/);
+  // 没有 expires_at 的旧行也要有到期时刻，否则永远算在有效期内。
+  assert.match(sql, /COALESCE\(i\.expires_at, i\.created_at \+ interval '24 hours'\)/);
+  assert.equal(sql, `${wishDeadline("i")} > now()`);
   assert.match(sql, /> now\(\)/);
 });

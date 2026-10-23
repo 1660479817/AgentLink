@@ -72,10 +72,10 @@
 | GET | `/api/admin/profile` | `/admin` | 同一份数据，另带 `file`（路径）与 `problems`（逐条问题） |
 | PUT | `/api/admin/profile` | `/admin` | `{ site }` 整份替换；成功时回与 GET 相同的一份视图（含 `issued`），校验不过返回 400 `bad_profile` 和 `problems`；没有站点目录时返回 503 `profile_unconfigured` |
 | GET | `/api/admin/xknot/subdomain?label=` | `/admin` | 把标签转发到中枢的 `GET /api/subdomains/check`，返回 `available`、`reason` 与候选建议 |
-| POST | `/api/admin/xknot/apply` | `/admin` | 把自述与联系邮箱交给中枢的 `POST /api/applications`；中枢的状态码与 `fields` 原样带回 |
+| POST | `/api/admin/xknot/apply` | `/admin` | 把自述与联系邮箱交给中枢的 `POST /api/applications`；中枢的状态码与 `fields` 原样带回。成功时另带 `key`：`{ delivered, created, error }`，说明顺手交上去的隧道公钥有没有被中枢收下 |
 | GET | `/api/admin/xknot/application` | `/admin` | 本地底账：已交申请的编号、案例链接、状态与提交时间；没有记录时 `application` 为 `null` |
 
-`POST /api/admin/xknot/apply` 成功后会把这四项写进与 `profile.json` 同级的 `join.json`（权限 `600`）。案例链接本身就是能力凭据，不进版本库、不进发布包；邮件只是同步通知，刷新页面后从「接入 XKnot」卡片还能打开进度。
+`POST /api/admin/xknot/apply` 成功后会把这四项写进与 `profile.json` 同级的 `join.json`（权限 `600`）。受理后同一个请求会生成（或复用）隧道密钥并把公钥交到案例页；这一步失败不回滚申请，响应里的 `key.delivered` 为 `false`，`key.error` 说明是生成失败还是中枢拒收。案例链接本身就是能力凭据，不进版本库、不进发布包；邮件只是同步通知，刷新页面后从「接入 XKnot」卡片还能打开进度。
 
 `/api/web/session` 里的 `defaultLocale` 是 `site.locale`，档案里没有这一项时为 `zh-CN`；`brand` 是 `site` 的子集（名称、一句话介绍、长介绍、logo、主理人、联系方式），本站 WebUI 只用这六项。
 

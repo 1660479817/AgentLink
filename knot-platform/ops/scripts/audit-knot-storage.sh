@@ -20,13 +20,20 @@ UPLOAD_DIR="$(cd "$UPLOAD_DIR" 2>/dev/null && pwd)" || {
 
 echo "== 目录 =="
 echo "根：$UPLOAD_DIR"
+# 旧位置原件的字节数用 wc 累加：`stat -f%z` 是 BSD 语法，Linux 上恒报错，
+# 被 2>/dev/null 吞掉之后汇总永远显示 0.0 MB，巡检结论就失真了。
+OLD_BYTES=0
+while IFS= read -r -d '' old_file; do
+  OLD_BYTES=$(( OLD_BYTES + $(wc -c <"${old_file}" | tr -d ' ') ))
+done < <(find "$UPLOAD_DIR" -maxdepth 1 -type f -print0)
+OLD_SIZE="$(awk -v bytes="$OLD_BYTES" 'BEGIN { printf "%.1f MB", bytes / 1048576 }')"
 find "$UPLOAD_DIR" -maxdepth 1 -mindepth 1 -type d -print0 | while IFS= read -r -d '' dir; do
   printf '  %-24s %8s  %s 个文件\n' "$(basename "$dir")" \
     "$(du -sh "$dir" | cut -f1 | tr -d ' ')" \
     "$(find "$dir" -type f | wc -l | tr -d ' ')"
 done
 printf '  %-24s %8s  %s 个文件\n' "（旧位置原件）" \
-  "$(find "$UPLOAD_DIR" -maxdepth 1 -type f -exec stat -f%z {} + 2>/dev/null | awk '{s+=$1} END {printf "%.1f MB", s/1048576}')" \
+  "$OLD_SIZE" \
   "$(find "$UPLOAD_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')"
 for kind in display packets extracts shares; do
   if [[ -d "$UPLOAD_DIR/derived/$kind" ]]; then

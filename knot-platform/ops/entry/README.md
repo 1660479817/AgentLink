@@ -48,7 +48,8 @@ sites/<站点>/entry.<标签>.xknot.si.env  这个子域的静态根、conf、�
 | `log.conf.template` | 入口访问日志格式 `knot_json`，同一台入口主机只声明一次 |
 | `cache.conf.template` | 入口上传缓存区，同一台入口主机只声明一次 |
 | `sshd-tunnel.conf.template` | 入口隧道账号的 sshd Match 块（变量化） |
-| `sshd-knot-tunnel.conf` | 上面模板渲染出来的成品，`knot-tunnel` + `18080` 的实例 |
+| `sshd-knot-tunnel.conf` | 说明文件：为什么不给成品、按子域怎么渲染（不要照抄） |
+| `realip.conf` | 入口在 Cloudflare 后面时还原真实客户端地址（`set_real_ip_from` + `real_ip_header`） |
 
 子域的签发、交接与验收属于联邦中枢，不在本目录：[`xknot.si/docs/HANDOFF.md`](../../../xknot.si/docs/HANDOFF.md)。
 
@@ -103,6 +104,15 @@ KNOT_ENTRY_SERVE=static        # 或 proxy
 - 只记 `$uri`，不记查询串：分享令牌与搜索词不该进日志。
 - 文件用默认的 `/etc/logrotate.d/nginx` 轮转（匹配 `*.log`）；名字带 `knot-` 是为了不和别的项目混在一起。
 - 中枢的流量聚合服务要读这份文件；日志是 `0640 root:adm` 时，把该服务用户加进 `adm` 组。
+
+## 真实客户端地址
+
+入口在 Cloudflare 后面，`$remote_addr` 默认是 CF 边缘地址，直接写进 `X-Real-IP` 与 `X-Forwarded-For` 的话，后端按 IP 的限流、封禁与审计只剩「一个 CF 网段」。
+
+- `realip.conf` 声明 `real_ip_header CF-Connecting-IP` 与 CF 自己的网段，`push-entry.sh` 装成 conf 同目录的 `knot-realip.conf`，和 `site.conf` 一起过 `nginx -t`。
+- 只信任 CF 网段：从别处送来的 `CF-Connecting-IP` 不采信，伪造这个头改不了 `$remote_addr`。
+- 声明在 http 级、一台入口主机一份；**不要**写进 `site.conf.template`，每个子域各写一份只会互相盖掉。
+- 网段抄自 <https://www.cloudflare.com/ips-v4> 与 `/ips-v6`；漏了新段只是新段客户端仍显示边缘地址，不会让配置失效。
 
 ## 入口首页不是构建产物
 

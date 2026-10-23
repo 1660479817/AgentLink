@@ -53,11 +53,21 @@ test("开关认 0/1 和常见字样，不认别的", () => {
 test("保存后进程里的策略立刻换掉", async () => {
   resetSystemPolicy();
   let seen = null;
+  let statement = "";
   const pool = {
     async query(sql, params) {
       assert.match(sql, /INSERT INTO system_policy/);
+      statement = sql;
       seen = params;
-      return { rows: [{ updated_at: new Date("2026-10-19T00:00:00Z") }] };
+      // 关掉站内浏览时 publicBoard 跟着关，所以这里 RETURNING 三个列都要有。
+      return {
+        rows: [{
+          guest_browsing: true,
+          registration_mode: "invite",
+          public_board: true,
+          updated_at: new Date("2026-10-19T00:00:00Z"),
+        }],
+      };
     },
   };
   const saved = await saveSystemPolicy(pool, { guestBrowsing: true, registrationMode: "invite" });
@@ -67,5 +77,9 @@ test("保存后进程里的策略立刻换掉", async () => {
   assert.equal(saved.publicBoard, true);
   assert.equal(saved.updatedAt, "2026-10-19T00:00:00.000Z");
   assert.equal(siteConfig().registrationMode, "invite");
+  // 只覆盖这次改的列：没提到的 public_board 保留库里的值，并发 PATCH 才不会互相抹掉。
+  assert.match(statement, /registration_mode = EXCLUDED\.registration_mode/);
+  assert.match(statement, /guest_browsing = EXCLUDED\.guest_browsing/);
+  assert.doesNotMatch(statement, /public_board = EXCLUDED\.public_board/);
   resetSystemPolicy();
 });

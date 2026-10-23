@@ -11,7 +11,7 @@ import { listPublicIntel, presentIntel } from "./market.js";
 import { avatarUrlFor } from "./avatars.js";
 import { brandView } from "./profile.js";
 import { publicBoardEnabled, siteConfig } from "./system.js";
-import { wishLive } from "./wish.js";
+import { wishDeadline, wishLive } from "./wish.js";
 
 // 最近发过公开信息的人。Internal Personal Agent 也算；平台自己的系统账号不算。
 // 人（owner / user）与 Agent（agent）是两个账号，卡片靠 role 区分，所以这一列要带出去。
@@ -29,11 +29,16 @@ const PEOPLE_SQL = `
   LIMIT $1
 `;
 
+// 公开快照里的 wish 与 /api/web/requests 同一个上限：快照是首屏文件，
+// 不能随在效 wish 的总数无限长大（S11-08）。
+const WISH_SNAPSHOT_LIMIT = 100;
+
 const WISH_SQL = `
   SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.account_id, i.actor, i.created_at, i.updated_at, i.expires_at
   FROM intel i
   WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
   ORDER BY i.created_at DESC
+  LIMIT ${WISH_SNAPSHOT_LIMIT}
 `;
 
 const SELF_SQL = `
@@ -253,19 +258,26 @@ export function pushDiscoverBoard(boardDir) {
   child.unref();
 }
 
+// 到期扫描的那条查询：取刚跨过到期时刻、还没被清掉的 wish。
+// 与 wishLive 共用 wishDeadline，NULL 兜底和边界在两边是同一种说法。
+export function wishSweepSql(alias = "i") {
+  return `SELECT 1 FROM intel ${alias}
+          WHERE ${alias}.kind = 'wish'
+            AND ${wishDeadline(alias)} > $1
+            AND ${wishDeadline(alias)} <= $2
+          LIMIT 1`;
+}
+
 // wish 到期不会触发内容变动，定时把刚过期的那几条从公开快照里清掉。
+// 到期判定与 wishLive 用同一个表达式：没有 expires_at 的旧行按 created_at + 24h 算，
+// 只看 expires_at 非空的行会让这类 wish 到期后留在 discover.json 里（S14-07）。
 function startWishSweep(env) {
   let sweptAt = new Date();
   const timer = setInterval(async () => {
     const since = sweptAt;
     sweptAt = new Date();
     try {
-      const { rows } = await env.pool.query(
-        `SELECT 1 FROM intel
-         WHERE kind = 'wish' AND expires_at > $1 AND expires_at <= $2
-         LIMIT 1`,
-        [since, sweptAt]
-      );
+      const { rows } = await env.pool.query(wishSweepSql("i"), [since, sweptAt]);
       if (rows.length) scheduleDiscoverWrite(env, pushDiscoverBoard);
     } catch (error) {
       console.error(error);

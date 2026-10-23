@@ -145,17 +145,30 @@ function hardBreakBefore(text, index) {
   return /(?: {2,}|\\)$/.test(text.slice(Math.max(0, index - 40), index));
 }
 
-function findClose(text, from, ch, len) {
+function findClose(text, from, ch, len, cache) {
+  // 找不到闭合时，从更后面的位置起扫同样找不到（可选的闭合符只少不多）。
+  // 所以失败一次就记住「从哪儿往后都没有」，否则 "*a " 重复一万遍这种输入会
+  // 让每个 * 都把剩下的全文重扫一遍，二十万字符就能卡住浏览器一秒以上。
+  //
+  // 例外是转义对和行内代码：它们会盖住候选符，从前一次被盖住的区域里重新
+  // 起扫，反而可能看见那次跳过的符号。所以记的是「起点越过最后一个跳过区」
+  // 之后的位置（barrier），从那儿往后才认这条记忆。
+  const key = ch + len;
+  const deadFrom = cache?.get(key);
+  if (deadFrom !== undefined && from >= deadFrom) return null;
+  let barrier = from;
   let j = from;
   while (j < text.length) {
     const c = text[j];
     if (c === "\\") {
       j += 2;
+      barrier = Math.max(barrier, j);
       continue;
     }
     if (c === "`") {
       const span = codeSpanAt(text, j);
       j = span ? span.end : j + 1;
+      barrier = Math.max(barrier, j);
       continue;
     }
     if (c === ch) {
@@ -172,6 +185,11 @@ function findClose(text, from, ch, len) {
     }
     j += 1;
   }
+  if (cache) {
+    const threshold = Math.max(from, barrier);
+    const known = cache.get(key);
+    if (known === undefined || threshold > known) cache.set(key, threshold);
+  }
   return null;
 }
 
@@ -185,7 +203,7 @@ function pushText(nodes, value) {
   nodes.push({ type: "text", value });
 }
 
-function emphasisAt(text, index, ch, depth, inLink) {
+function emphasisAt(text, index, ch, depth, inLink, closeCache) {
   const run = runLength(text, index, ch);
   if (ch === "~" && run < 2) return null;
   const max = ch === "~" ? 2 : Math.min(run, 3);
@@ -198,7 +216,7 @@ function emphasisAt(text, index, ch, depth, inLink) {
     if (!first || /\s/.test(first)) continue;
     if (ch === "_" && prev && WORD_CHAR.test(prev)) continue;
 
-    const close = findClose(text, start, ch, len);
+    const close = findClose(text, start, ch, len, closeCache);
     if (!close) continue;
     const inner = text.slice(start, close.index);
     if (!inner.trim()) continue;
@@ -221,6 +239,8 @@ export function parseInline(text, depth = 0, inLink = false) {
     pushText(out, src);
     return out;
   }
+  // 一次行内解析里所有强调符共用一个「找不到闭合」的记忆，键是符号加长度。
+  const closeCache = new Map();
 
   let i = 0;
   while (i < src.length) {
@@ -318,7 +338,7 @@ export function parseInline(text, depth = 0, inLink = false) {
     }
 
     if (ch === "*" || ch === "_" || ch === "~") {
-      const em = emphasisAt(src, i, ch, depth, inLink);
+      const em = emphasisAt(src, i, ch, depth, inLink, closeCache);
       if (em) {
         out.push(em.node);
         i = em.end;

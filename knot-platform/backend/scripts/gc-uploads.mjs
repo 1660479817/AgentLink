@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
 import { loadBootstrapConfig } from "../src/config.js";
-import { DERIVED_KINDS, blobPath, blobsDir, derivedDir, legacyBlobPath, legacyPreviewDir } from "../src/storage.js";
+import { DERIVED_KINDS, USED_UPLOADS_SQL, blobPath, blobsDir, derivedDir, keepDerivedFile, legacyBlobPath, legacyPreviewDir } from "../src/storage.js";
 
 const APPLY = process.argv.includes("--apply");
 const WITH_PREVIEWS = process.argv.includes("--previews");
@@ -28,29 +28,6 @@ const graceArg = process.argv.find((arg) => arg.startsWith("--grace-hours="));
 const GRACE_HOURS = Number(graceArg ? graceArg.split("=")[1] : process.env.KNOT_GC_GRACE_HOURS || 24);
 if (!Number.isFinite(GRACE_HOURS) || GRACE_HOURS < 0) throw new Error("--grace-hours 要是非负数字");
 const GRACE_MS = GRACE_HOURS * 3600 * 1000;
-
-// 引用集合：帖子附件、头像、赞助图、视频封面、正文里嵌的地址。
-// 视频封面在 intel.videos[].poster 里存的是 `/api/web/uploads/{id}/display`。
-// 正文里的地址是 Agent 自己写的 markdown（开发日志就用这种），不挂在 intel_files 上；
-// 少这一条，会把还贴在正文里的图当成孤儿删掉。
-// videos 不是数组的历史行要跳过，否则 jsonb_array_elements 会直接报错。
-const USED_SQL = `
-  SELECT upload_id AS id FROM intel_files
-  UNION SELECT avatar_upload_id FROM accounts WHERE avatar_upload_id IS NOT NULL
-  UNION SELECT image_upload_id FROM sponsors WHERE image_upload_id IS NOT NULL
-  UNION SELECT (regexp_match(v->>'poster', '/api/web/uploads/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/display'))[1]::uuid
-        FROM intel i
-        CROSS JOIN LATERAL jsonb_array_elements(
-          CASE WHEN jsonb_typeof(i.videos) = 'array' THEN i.videos ELSE '[]'::jsonb END
-        ) v
-        WHERE v->>'poster' ~ '/api/web/uploads/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/display'
-  UNION SELECT (m)[1]::uuid
-        FROM intel i
-        CROSS JOIN LATERAL regexp_matches(
-          i.body, '/api/web/uploads/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})', 'g'
-        ) m
-        WHERE i.body LIKE '%/api/web/uploads/%'
-`;
 
 function human(bytes) {
   const n = Number(bytes) || 0;
@@ -134,7 +111,7 @@ async function main() {
 
   const orphans = (
     await client.query(
-      `WITH used AS (${USED_SQL})
+      `WITH used AS (${USED_UPLOADS_SQL})
        SELECT u.id, u.storage_name, u.size, u.created_at
        FROM uploads u
        WHERE NOT EXISTS (SELECT 1 FROM used x WHERE x.id = u.id)
@@ -153,7 +130,7 @@ async function main() {
     await client.query("BEGIN");
     try {
       const locked = await client.query(
-        `WITH used AS (${USED_SQL})
+        `WITH used AS (${USED_UPLOADS_SQL})
          SELECT u.id
          FROM uploads u
          WHERE u.id = ANY($1::uuid[])
@@ -248,13 +225,8 @@ async function main() {
     const doomed = [];
     let bytes = 0;
     for (const file of walk(dir)) {
-      const rel = path.relative(dir, file);
-      const head = rel.split(path.sep)[0];
-      let keep = true;
-      if (kind === "display") keep = storageNames.has(path.basename(head, ".jpg").toLowerCase());
-      else if (kind === "packets") keep = intelIds.has(head.replace(/\.zip$/i, "").toLowerCase());
-      else if (kind === "extracts") keep = intelIds.has(head.replace(/\.md$/i, "").toLowerCase());
-      else if (kind === "shares") keep = intelIds.has(head.toLowerCase());
+      // 判定与审计、测试共用一份（storage.keepDerivedFile），别在这里另写一套。
+      const keep = keepDerivedFile(kind, path.relative(dir, file), storageNames, intelIds);
       if (keep || !stale(file)) continue;
       doomed.push(file);
       bytes += sizeOf(file);

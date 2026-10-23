@@ -16,6 +16,21 @@ import { fileURLToPath } from "node:url";
 
 const TOKEN = /\{\{([#^/]?)([A-Za-z0-9_]+)\}\}/g;
 
+// 模板变量会被原样写进 nginx 配置。一个含 `;` 或换行的值就能结束当前指令、
+// 再插一条自己的（自由文本键最容易）。这里按「值只占一个 token」来约束：
+// 控制字符、分号、花括号、引号和反斜杠一律拒绝，路径与域名照常通过。
+const UNSAFE_VALUE = /[\x00-\x1f\x7f;{}"'\\]/;
+
+export function checkValue(name, value) {
+  const text = String(value ?? "");
+  if (UNSAFE_VALUE.test(text)) {
+    throw new Error(
+      `模板变量 ${name} 的值里有会破坏配置的字符（控制字符、; { } 引号或反斜杠）：${JSON.stringify(text)}`
+    );
+  }
+  return text;
+}
+
 export function isTruthy(value) {
   const text = String(value ?? "").trim().toLowerCase();
   if (!text) return false;
@@ -53,7 +68,7 @@ export function renderTemplate(template, env = process.env) {
       continue;
     }
     if (!Object.hasOwn(env, name)) throw new Error(`模板变量未定义：${name}`);
-    out += String(env[name] ?? "");
+    out += checkValue(name, env[name]);
     cursor = TOKEN.lastIndex;
   }
   out += template.slice(cursor);

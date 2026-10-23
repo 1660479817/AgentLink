@@ -3,6 +3,10 @@
   "version": "0.6.0",
   "license": "Apache-2.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "npm@11.20.0",
   "type": "module",
   "workspaces": [
     "backend",
@@ -14,10 +18,7 @@
     "config": "node ops/scripts/config.mjs",
     "build": "./ops/scripts/build.sh",
     "build:web": "npm run build -w web",
-    "deploy": "./ops/scripts/deploy-site.sh",
     "deploy:local": "./ops/scripts/push-deploy.sh --site local",
-    "push": "./ops/scripts/push-deploy.sh",
-    "rollback": "./ops/scripts/rollback.sh",
     "migrate": "node backend/scripts/migrate.js",
     "dev:platform": "npm run dev -w knot-platform",
     "dev:web": "npm run dev -w web"

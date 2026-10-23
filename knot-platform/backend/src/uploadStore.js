@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { publicUploadUrl, storagePath } from "./uploads.js";
+import { isAttachmentUpload } from "./information.js";
 
 // 每人上传字节上限。0 表示不限；未配置时给 1 GiB，够正常使用，也挡得住把盘写满。
 const DEFAULT_QUOTA_BYTES = 1024 * 1024 * 1024;
@@ -255,18 +256,51 @@ export async function storeUploadedFile({ uploadDir, pool, userId, file, kind, n
   }
 
   let inserted;
+  // 配额判断与写入必须在同一事务里，并且先按钱包取一把咨询锁：
+  // 「先查后写」时同一钱包的 N 个并发上传各自读到同一个 used，全部通过，
+  // 实际用量能超上限 N 倍（S14-04）。锁按钱包归一，Agent 与主人互相排队。
+  const client = await pool.connect();
   try {
-    inserted = await pool.query(
+    await client.query("BEGIN");
+    if (!skipQuota) {
+      const limit = uploadQuotaBytes();
+      if (limit > 0) {
+        const wallet = await client.query(`SELECT COALESCE(owner_id, id) AS wallet FROM accounts WHERE id = $1`, [userId]);
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+          String(wallet.rows[0]?.wallet || userId),
+        ]);
+        const used = await userUploadBytes(client, userId);
+        if (used + bytes > limit) throw uploadError("quota_exceeded");
+      }
+    }
+    inserted = await client.query(
       `INSERT INTO uploads (account_id, storage_name, mime, original_name, size, sha256, width, height)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id`,
       [userId, storageName, mime, name || null, bytes, sha256, width, height]
     );
+    await client.query("COMMIT");
   } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
     removeFile(blob);
     throw error;
+  } finally {
+    client.release();
   }
 
   const id = inserted.rows[0].id;
-  return { id, url: publicUploadUrl(id), name: name || null, mime, bytes, sha256, width, height };
+  // 附件只走下载包（POST /api/web/intel/:id/download，按字节收费），
+  // /api/web/uploads/:id 对附件一律 404。这里给它一个地址就是给了一个死链，
+  // 调用方还以为是可直接取的文件；所以只回 id，读文件另走下载包那条路。
+  const attachment = isAttachmentUpload({ originalname: name || storageName });
+  return {
+    id,
+    url: attachment ? null : publicUploadUrl(id),
+    name: name || null,
+    mime,
+    bytes,
+    sha256,
+    width,
+    height,
+  };
 }
