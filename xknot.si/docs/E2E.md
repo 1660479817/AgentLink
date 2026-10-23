@@ -136,6 +136,8 @@ E2E_CHANNEL= npm run test:ui
 - `GET /api/federation/mail` 返回 24 小时额度；同一幂等键重试不重复发信。
 - 字段非法按字段拒绝：`to` 带显示名、`subject` 带换行、`replyTo` 落到外部域名。
 - 缺凭据、伪造凭据 401；实例暂停后立刻 403（改清单不用重启接口）；吊销后 401。
+- 按实例开关：`relay-disable` 后 403 `relay_disabled`，`relay-enable` 后同一个凭据直接能继续发，不需要重签或重启。
+- 中枢总闸：`/admin` 点 OFF（或 `settings.mail=off`）后，代发与额度查询都 503 `relay_unavailable`，伙伴信不发也不写 `notify_log`；点回 ON 后同一个凭据立刻能发。
 - 每日额度用完 429；单凭据每分钟第 7 封 429。
 - SMTP 不可用 502，`relay-log` 记 `failed`，日志里没有正文与完整地址。
 

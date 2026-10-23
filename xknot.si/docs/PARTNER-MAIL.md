@@ -1,6 +1,6 @@
 # XKnot 联邦 · 伙伴邮件模板
 
-版本 2.0，2026-10-21。
+版本 2.1，2026-10-23。
 
 本文是 `xknot.si → 伙伴` 邮件的规格说明：事件、触发条件、收件人、三语全文、变量、幂等键与链接规范。运行时的真源是 `server/notify.mjs`，两边必须一致；改文案时先改本文，再改代码、升 `TEMPLATE_VERSION`，跑 `npm test`。
 
@@ -183,10 +183,9 @@
 
 接下来由运营方把实例写进联邦清单并接通入口。收录当天，门户的实例目录里会出现这个条目：状态先是「待验收」，公网 /api/health 通过后转为在线。
 
-收录不包含下面两项，需要时另行确认：
+收录不包含入口主机与 SSH 反向隧道，需要时另行确认。
 
-- 入口主机与 SSH 反向隧道
-- 委托发信凭据
+委托发信默认由中枢代发：接入件里带一份发信凭据，不必再单独申请，也不用自己配 SMTP。
 
 申请状态与公钥提交：
 {caseUrl}
@@ -209,10 +208,9 @@
 
 接下來由營運方把實例寫進聯邦清單並接通入口。收錄當天，入口的實例目錄裡會出現這個條目：狀態先是「待驗收」，公網 /api/health 通過後轉為上線。
 
-收錄不包含下面兩項，需要時另行確認：
+收錄不包含入口主機與 SSH 反向隧道，需要時另行確認。
 
-- 入口主機與 SSH 反向隧道
-- 委託發信憑證
+委託發信預設由中樞代發：接入件裡帶一份發信憑證，不必再單獨申請，也不用自己設 SMTP。
 
 申請狀態與公鑰提交：
 {caseUrl}
@@ -235,10 +233,9 @@ Current tier: free
 
 The operator will now add the instance to the federation manifest and connect the entry. The entry appears in the portal's instance directory on the day it is listed: first as pending, then as online once the public /api/health check passes.
 
-Listing does not include the following, which are confirmed separately:
+Listing does not include the entry host and SSH reverse tunnel, which are confirmed separately.
 
-- the entry host and SSH reverse tunnel
-- a relay token for delegated mail
+Delegated mail is on by default: the access material includes a relay token, so there is no separate application and no SMTP setup of your own.
 
 Application status and public key:
 {caseUrl}
@@ -357,7 +354,7 @@ This message was sent automatically; replies are not monitored.
 
 领取页只显示一次，内容包含：
 
-- 委托发信凭据（如已开通）
+- 委托发信凭据
 - 接入件（实例 id、中枢地址、签发日期）
 - 连通参数（隧道账号、专属端口；直连为空）
 - 接通前的验收命令
@@ -381,7 +378,7 @@ This message was sent automatically; replies are not monitored.
 
 領取頁只顯示一次，內容包含：
 
-- 委託發信憑證（如已開通）
+- 委託發信憑證
 - 接入件（實例 id、中樞位址、簽發日期）
 - 連通參數（隧道帳號、專屬埠；直連為空）
 - 接通前的驗收命令
@@ -405,7 +402,7 @@ Claim it within {claimTtl}:
 
 The claim page is shown once and contains:
 
-- the relay token, if delegated mail is enabled
+- the relay token
 - the access material (instance id, hub origin, issue date)
 - the connectivity parameters (tunnel account and port; empty for direct)
 - the acceptance commands
@@ -474,6 +471,8 @@ This message was sent automatically; replies are not monitored.
 
 — XKnot Federation
 ```
+
+**触发**：`ops/provision-worker.mjs` 探测到 `/api/health` 通过、清单 `status` 转 `active` 的那一轮自动发送（`ops/notify-live.mjs`）。事件 + 申请号在 `notify_log` 里唯一，进程重启不会补发第二封；投递失败标 `failed`，之后可用 `admin-cli live <申请号>` 补发。没有 SMTP 配置时只打一行日志，不影响验收。
 
 ---
 
@@ -812,3 +811,4 @@ This message was sent automatically; replies are not monitored.
 | 2026-10-20 | 1.1 | 落地：模板注册表、`notify_log` 去重、验证/案例/领取三页、状态机、管理命令与测试；限流调整为 12/30/200；案例链接改为不透明 `caseKey` |
 | 2026-10-20 | 1.2 | 申请改为只按子域走；新增 `partner.unreachable_24h` 与 `partner.hidden_7d`（13 封伙伴信 + 3 封内部信）；去掉归属验证条目码与文案；内部告警增加 `down_7d` / `never_14d` / `never_30d` |
 | 2026-10-21 | 2.0 | 提交即通过：删掉 `partner.received` / `partner.verified` / `partner.hold` / `partner.rejected` / `internal.application_verified`；`partner.approved` 改为提交时唯一的结果信；档位改为 `free` / `paid`；模板版本 2.0.0 |
+| 2026-10-23 | 2.1 | 委托发信改为默认开通：`partner.approved` 与 `partner.handoff` 不再把发信凭据写成「另行确认」；模板版本 2.1.0 |

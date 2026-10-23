@@ -63,6 +63,10 @@ const EVENT_LABEL = {
   "claim.consumed": "领取交付资料",
   "relay.token_created": "签发发信凭据",
   "relay.token_revoked": "吊销发信凭据",
+  "relay.disabled": "暂停某实例代发",
+  "relay.enabled": "恢复某实例代发",
+  "setting.changed": "改了运行期开关",
+  "setting.cleared": "清掉运行期开关",
   "admin.created": "建管理员",
   "admin.deleted": "删管理员",
   "admin.password_reset": "重设口令",
@@ -162,6 +166,10 @@ const state = {
   copied: false,
   // 控制台级提示：退出没送达这类与某条记录无关的错误。
   topError: "",
+  // 发信总闸的一次切换。与 state.busy 分开：它不该禁用整页的按钮，
+  // 也不该让「退出」在切换期间失灵。
+  mailBusy: false,
+  mailError: "",
 };
 
 // 每次读取带一个序号。晚到的旧响应直接丢掉，避免它把刚点开的分类又重绘回去。
@@ -1144,6 +1152,48 @@ function renderOverview() {
     )
   );
 
+  // 发信总闸：一个按钮。三件事必须说清——现在是开还是关、关掉之后谁会受影响、
+  // 以及关的是「发信」不是「配置」。没配 SMTP 时禁用并说明先填什么。
+  const mailOn = mail.switch !== "off";
+  const mailSwitch = el(
+    "div",
+    { class: "mail-line" },
+    [
+      el("span", {}, "发信总闸"),
+      el(
+        "button",
+        {
+          type: "button",
+          class: "switch",
+          role: "switch",
+          "aria-checked": mailOn ? "true" : "false",
+          "aria-label": mailOn ? "发信已开启，点一下停发" : "发信已停止，点一下开启",
+          // 没配 SMTP 时这个开关没有意义（点了也不会有一封信能出去），禁用。
+          disabled: !mail.configured || state.mailBusy,
+          onclick: () => toggleMail(!mailOn),
+        },
+        [
+          el("span", { class: "switch-track", "aria-hidden": "true" }, [el("span", { class: "switch-thumb" })]),
+          el("span", {}, state.mailBusy ? "处理中…" : mailOn ? "ON" : "OFF"),
+        ]
+      ),
+    ]
+  );
+
+  const mailSwitchNote = (value) => {
+    if (!value.configured) return "还没有配 SMTP：填好 SMTP_HOST 与 MAIL_FROM 之后这个开关才有意义。";
+    if (value.switch === "off") {
+      return "已停发：伙伴信与内部信不再寄出，/api/federation/mail 返回 503，各节点的登录密钥会跟着寄不出去。凭据、额度与记录都不动，打开即恢复。";
+    }
+    // 环境变量是另一道闸，只管代发；总闸开着的时候它照样能让节点撞墙，
+    // 所以这句必须写出来，否则面板显示「已开启」而节点一直是 503。
+    if (relay.envOff) {
+      return "发信本身在开；但环境变量 XKNOT_RELAY_ENABLED=0 关掉了委托发信，各节点的代发请求仍返回 503。";
+    }
+    return "关掉后：伙伴信与内部信不再寄出，各节点提交的代发请求返回 503（它们的登录密钥会寄不出去）。凭据与额度不动，打开即恢复。";
+  };
+  const mailError = state.mailError;
+
   const events = ov.events.length
     ? el(
         "div",
@@ -1203,8 +1253,10 @@ function renderOverview() {
       ),
       kpi(
         "24 小时发信",
-        mail.enabled ? String(mail.sent) : "未配置",
-        mail.enabled ? `失败 ${mail.failed} · 限流 ${mail.throttled}` : "设置 SMTP_* 后启用",
+        mail.configured ? (mail.switch === "off" ? "已停发" : String(mail.sent)) : "未配置",
+        mail.configured
+          ? `失败 ${mail.failed} · 限流 ${mail.throttled}`
+          : "设置 SMTP_* 后启用",
         mail.failed ? "bad" : ""
       ),
       kpi(
@@ -1244,9 +1296,12 @@ function renderOverview() {
         ]),
         el("section", { class: "panel" }, [
           el("div", { class: "panel-head", "data-panel": "mail" }, [el("h2", {}, "发信")]),
+          mailSwitch,
+          el("p", { class: "panel-note switch-note" }, mailSwitchNote(mail)),
+          mailError ? el("p", { class: "alert", role: "alert" }, mailError) : null,
           el("div", { class: "mail-line" }, [
-            el("span", {}, "伙伴与内部信"),
-            el("span", { class: "mono" }, mail.enabled ? "SMTP 已配置" : "未配置"),
+            el("span", {}, "SMTP"),
+            el("span", { class: "mono" }, mail.configured ? "已配置" : "未配置"),
           ]),
           el("div", { class: "mail-line" }, [
             el("span", {}, "24 小时"),
@@ -1571,6 +1626,32 @@ async function loadOverview() {
       // 用户已经切到申请列表时不再整棵重绘，否则会把他正点着的那一行换掉。
       if (state.view === view) render();
     }
+  }
+}
+
+// 发信总闸。成功后重新读一次总览：KPI 与「委托发信」那一行都要跟着变，
+// 只改本地一个布尔会和后端的真实状态分叉。
+async function toggleMail(next) {
+  if (state.mailBusy) return;
+  state.mailBusy = true;
+  state.mailError = "";
+  render();
+  try {
+    await api("/api/admin/mail", {
+      method: "POST",
+      body: JSON.stringify({ enabled: next }),
+    });
+    await loadOverview();
+  } catch (error) {
+    if (error.status === 401) {
+      clearSessionState();
+      return;
+    }
+    state.mailError =
+      error.timeout ? "切换超时，请重试。" : "切换失败，请检查接口是否在运行。";
+  } finally {
+    state.mailBusy = false;
+    render();
   }
 }
 

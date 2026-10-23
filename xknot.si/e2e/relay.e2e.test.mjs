@@ -186,6 +186,22 @@ test("relay: 吊销后 401 token_revoked", async () => {
   assert.equal(result.data.error, "token_revoked");
 });
 
+test("relay: 按实例暂停后 403 relay_disabled，恢复后同一个凭据还能用", async () => {
+  const token = await stack.issueRelayToken("e2e-node");
+  assert.equal((await relay({ body: message, token })).status, 200);
+
+  const off = await stack.adminCli(["relay-disable", "e2e-node", "--note", "e2e 验证"]);
+  assert.match(off, /已暂停/);
+  const blocked = await relay({ body: message, token });
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.data.error, "relay_disabled");
+
+  const on = await stack.adminCli(["relay-enable", "e2e-node"]);
+  assert.match(on, /已恢复/);
+  // 暂停不是吊销：不需要新凭据，也不需要重启接口。
+  assert.equal((await relay({ body: message, token })).status, 200);
+});
+
 test("relay: SMTP 不可用时 502，日志记 failed 且不含正文", async () => {
   const token = await stack.issueRelayToken("e2e-node");
   // 只让这一条看不到收信端：关掉共享 sink 会让同文件后面的用例全红在「没有信」上（S24-13）。

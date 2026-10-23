@@ -12,13 +12,17 @@
 //                                                          写清单；给了隧道参数时同时写 federation.json
 //   node server/admin-cli.mjs relay-token <instance> [--label text] [--daily 50]
 //                                                          签一份委托发信凭据，明文只打印这一次
-//   node server/admin-cli.mjs access <id> [--id slug] [--with-relay] [--daily 50] [--out 文件]
+//   node server/admin-cli.mjs access <id> [--id slug] [--no-relay] [--daily 50] [--out 文件]
 //                                                          生成实例的接入件（env 格式，见 docs/FEDERATION.md 7.4）
+//                                                          默认签一份委托发信凭据；--no-relay 才不带
 //   node server/admin-cli.mjs backfill <实例 id> [--email 邮箱] [--admin 操作者]
 //                                                          给清单里已有、库里没有申请单的实例补一张已通过的申请
 //   node server/admin-cli.mjs relay-tokens                 列出凭据（不含明文）
 //   node server/admin-cli.mjs relay-revoke <tokenId|instance>
 //                                                          吊销一份凭据，或整个实例的全部凭据
+//   node server/admin-cli.mjs relay-disable <instance> [--note 原因]
+//                                                          暂停该实例的委托发信：凭据与额度不动，可恢复
+//   node server/admin-cli.mjs relay-enable <instance>      恢复该实例的委托发信
 //   node server/admin-cli.mjs relay-log [n]                最近 n 条发信记录（只有域名，没有地址和正文）
 //   node server/admin-cli.mjs notify <id> <event> [--url URL]
 //                                                          补发/重发一封伙伴信；event 见 docs/PARTNER-MAIL.md
@@ -114,9 +118,20 @@ function mailerFromEnv() {
   };
 }
 
+// 控制台上的发信总闸。库里没有这一行就是开着，所以老部署行为不变。
+function mailSwitchError() {
+  return store.getSetting("mail")?.value === "off"
+    ? "发信总闸已关闭：打开 /admin 的「发信」面板，把它开回来再跑这条命令。"
+    : null;
+}
+
 // 命令行发信与接口走同一套模板和同一张日志表，区别只是同步等待结果。
 async function sendEvent(eventName, application, extra = {}, { dedupeVersion = null } = {}) {
   if (!ALL_EVENTS.includes(eventName)) return fail(`未知事件：${eventName}`);
+  // 发信总闸由 /admin 控制。关着的时候命令行也不许发，否则运维在终端绕一圈
+  // 就能把「已经停掉的信」发出去，而界面上还显示着停。
+  const closed = mailSwitchError();
+  if (closed) return fail(closed);
   const env = mailerFromEnv();
   if (env.error) return fail(env.error);
 
@@ -383,7 +398,7 @@ async function main(argv) {
     // 实例把它存进自己的配置即可，用什么文件名、放哪个目录是它自己的事。
     const id = rest[0];
     if (!id || id === "--help" || id === "-h") {
-      return fail("用法：access <申请编号> [--id 实例 id] [--with-relay] [--daily 50] [--out 文件]");
+      return fail("用法：access <申请编号> [--id 实例 id] [--no-relay] [--daily 50] [--out 文件]");
     }
     const application = store.getApplication(id);
     if (!application) return fail("没有这条申请");
@@ -416,7 +431,9 @@ async function main(argv) {
       `XKNOT_HUB_ORIGIN=${origin}`,
     ];
 
-    if (rest.includes("--with-relay")) {
+    // 委托发信默认开通：联邦只有一张已验证的发信地址，实例自己配 SMTP 送达不稳。
+    // 运营方要留一份纯 SMTP 的接入件时才写 --no-relay。
+    if (!rest.includes("--no-relay")) {
       const daily = Number(flag(rest, "daily", 50)) || 50;
       // 重签即作废：每跑一次 access 都会发出去一份新件，旧件留着就是一把没人回收的钥匙。
       // 作废与新签在同一个事务里，见 store.rotateRelayToken。
@@ -432,7 +449,13 @@ async function main(argv) {
       lines.push(`XKNOT_HUB_RELAY_TOKEN=${issued.token}`);
       console.error(`已签委托发信凭据 ${issued.record.id}，每日上限 ${issued.record.dailyLimit}。`);
     } else {
-      lines.push("# 不带 --with-relay 时没有发信凭据。实例可以先用本机 SMTP。", "# XKNOT_HUB_RELAY_TOKEN=");
+      // 生成一份不带发信凭据的接入件，等于让这个实例回到纯 SMTP：
+      // 库里还留着的旧凭据也要一起收掉，否则旧件仍能按中枢的发信地址发信。
+      const revoked = store.revokeRelayToken(instanceId);
+      if (revoked.revoked) {
+        console.error(`按 --no-relay 已吊销该实例的 ${revoked.revoked} 份委托发信凭据。`);
+      }
+      lines.push("# 按 --no-relay 不带发信凭据；实例需要自己配 SMTP。", "# XKNOT_HUB_RELAY_TOKEN=");
     }
 
     const out = flag(rest, "out");
@@ -476,16 +499,49 @@ async function main(argv) {
 
   if (command === "relay-tokens") {
     const tokens = store.listRelayTokens();
+    const off = new Set(store.listRelaySwitches().map((row) => row.instanceId));
     if (!tokens.length) {
       console.log("还没有委托发信凭据。");
       return;
     }
     for (const token of tokens) {
-      const state = token.revokedAt ? `已吊销 ${token.revokedAt.slice(0, 10)}` : "有效";
+      const state = token.revokedAt
+        ? `已吊销 ${token.revokedAt.slice(0, 10)}`
+        : off.has(token.instanceId)
+          ? "已关闭（可恢复）"
+          : "有效";
       console.log(
         `${token.id}  ${token.instanceId.padEnd(16)} ${state.padEnd(16)} 每日 ${token.dailyLimit}  最近使用 ${token.lastUsedAt || "—"}  ${token.label || ""}`
       );
     }
+    return;
+  }
+
+  // 暂停受理：凭据与额度都留着，实例侧不需要改任何东西。与吊销分开报，
+  // 因为吊销是不可逆的——实例得换一份文件才能再发信。
+  if (command === "relay-disable") {
+    const instanceId = rest[0];
+    if (!instanceId) return fail("用法：relay-disable <instance> [--note 原因]");
+    const manifest = await readManifest();
+    if (!manifest.instances.some((item) => item.id === instanceId)) {
+      return fail(`清单里没有实例 "${instanceId}"`);
+    }
+    const result = store.setRelaySwitch(instanceId, {
+      disabled: true,
+      note: flag(rest, "note", ""),
+      by: process.env.XKNOT_ADMIN_USER || "cli",
+    });
+    if (result.error) return fail(`关闭失败：${result.error}`);
+    console.log(`已暂停 ${instanceId} 的委托发信。凭据仍在，实例会收到 403 relay_disabled；relay-enable 可恢复。`);
+    return;
+  }
+
+  if (command === "relay-enable") {
+    const instanceId = rest[0];
+    if (!instanceId) return fail("用法：relay-enable <instance>");
+    const result = store.setRelaySwitch(instanceId, { disabled: false });
+    if (result.error) return fail(`恢复失败：${result.error}`);
+    console.log(`${instanceId} 的委托发信已恢复。`);
     return;
   }
 
@@ -534,6 +590,9 @@ async function main(argv) {
     const payload = (await readFile(path.resolve(file), "utf8")).trim();
     if (!payload) return fail("payload 文件是空的");
     if (payload.length > 8000) return fail("payload 超过 8000 字，请精简后再交付");
+    // 信发不出去时别先把领取令牌造出来：那会留下一条谁也不知道的令牌。
+    const closed = mailSwitchError();
+    if (closed) return fail(closed);
 
     // ttl 可传 1–168：交付信与终端提示都要读这个值，写死 72 小时就是在
     // 告诉伙伴一个比真实过期时间更长的期限。

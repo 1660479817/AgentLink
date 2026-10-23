@@ -122,6 +122,15 @@ create table if not exists relay_tokens (
 
 create index if not exists relay_tokens_instance on relay_tokens(instance_id);
 
+-- 每个实例的委托发信开关。可逆：关掉只是暂停受理，凭据与额度都原样留着，
+-- 打开就恢复。吊销凭据是不可逆的（实例得换文件），所以临时停一个节点不能靠吊销。
+create table if not exists relay_switches (
+  instance_id text primary key,
+  disabled_at text not null,
+  note        text,
+  by          text
+);
+
 -- 只记域名与结果，不存收件地址和正文；删掉日志不影响任何实例。
 create table if not exists relay_log (
   seq          integer primary key autoincrement,
@@ -175,6 +184,16 @@ create table if not exists provision_runs (
 );
 
 create index if not exists provision_runs_updated on provision_runs(updated_at);
+
+-- 中枢自己的一点点运行期开关。放库里而不是配置文件：改完立刻生效，
+-- 不用登机器、不用改 env、不用重启；多进程（接口、CLI、worker）读同一份。
+-- 没有这一行就是「按环境变量的默认值走」，所以清空等于恢复出厂。
+create table if not exists settings (
+  key   text primary key,
+  value text not null,
+  at    text not null,
+  by    text
+);
 `;
 
 // 依赖迁移补出来的列的索引，必须在 migrate() 之后建：
@@ -1057,6 +1076,44 @@ export function openStore(file) {
       return { revoked: rows.length, at, instanceId: rows[0].instance_id };
     },
 
+    // ---- 委托发信开关（按实例，可逆） ----
+
+    // 关掉一个实例的委托发信，等于「这个节点现在不许提交」，但凭据、额度、
+    // 记录都不动：打开就恢复，实例侧一个字都不用改。
+    setRelaySwitch(instanceId, { disabled = true, note = "", by = null } = {}) {
+      const id = String(instanceId || "").trim();
+      if (!/^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/.test(id)) return { error: "invalid_instance" };
+      if (!disabled) {
+        db.prepare("delete from relay_switches where instance_id = ?").run(id);
+        event("relay.enabled", id, by || "");
+        return { instanceId: id, disabled: false };
+      }
+      const at = nowIso();
+      db.prepare(
+        `insert into relay_switches (instance_id, disabled_at, note, by) values (?, ?, ?, ?)
+         on conflict(instance_id) do update set disabled_at = excluded.disabled_at,
+           note = excluded.note, by = excluded.by`
+      ).run(id, at, String(note || "").slice(0, 120), by);
+      event("relay.disabled", id, note || "");
+      return { instanceId: id, disabled: true, at };
+    },
+
+    relaySwitch(instanceId) {
+      const id = String(instanceId || "").trim();
+      if (!id) return { disabled: false };
+      const row = get("select * from relay_switches where instance_id = ?", id);
+      return row ? { disabled: true, at: row.disabled_at, note: row.note || "", by: row.by || "" } : { disabled: false };
+    },
+
+    listRelaySwitches() {
+      return all("select * from relay_switches order by disabled_at desc").map((row) => ({
+        instanceId: row.instance_id,
+        at: row.disabled_at,
+        note: row.note || "",
+        by: row.by || "",
+      }));
+    },
+
     // 24 小时窗口内成功、失败、在途与结果不明都算一次：在途先占住额度，
     // 避免并发请求同时通过检查后一起发信；unknown 是已发出去但没来得及记结果的，
     // 不算回来就等于白送一次额度。
@@ -1313,6 +1370,33 @@ export function openStore(file) {
     },
     events(limit = 50) {
       return all("select * from events order by seq desc limit ?", Math.min(Number(limit) || 50, 200));
+    },
+
+    // ---- 中枢运行期开关 ----
+
+    // 读不到就是 null，调用方自己决定「没有值时按什么算」。
+    getSetting(key) {
+      const row = get("select * from settings where key = ?", String(key || ""));
+      return row ? { value: row.value, at: row.at, by: row.by || "" } : null;
+    },
+
+    // 写一行或删一行。value 传 null 就是删掉，回到环境变量给的默认值。
+    setSetting(key, value, by = null) {
+      const name = String(key || "").trim();
+      if (!/^[a-z][a-z0-9_.-]{0,40}$/.test(name)) return { error: "invalid_key" };
+      if (value === null || value === undefined) {
+        db.prepare("delete from settings where key = ?").run(name);
+        event("setting.cleared", name, by || "");
+        return { key: name, value: null };
+      }
+      const text = String(value);
+      const at = nowIso();
+      db.prepare(
+        `insert into settings (key, value, at, by) values (?, ?, ?, ?)
+         on conflict(key) do update set value = excluded.value, at = excluded.at, by = excluded.by`
+      ).run(name, text, at, by);
+      event("setting.changed", name, text);
+      return { key: name, value: text, at, by: by || "" };
     },
   };
 }
