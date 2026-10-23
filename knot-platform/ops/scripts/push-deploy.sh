@@ -14,7 +14,7 @@
 #   ./ops/scripts/push-deploy.sh --site local --runtime none # local，且不装成开机自启
 #
 # KNOT_DEPLOY_SSH 留空表示目标就是这台机器：构建、解包、装服务、探活都在本地做完，
-# 部署根是仓库本身（sites/ 在那里），不 ssh、不 scp。开发者的 local 站点走这条路。
+# 不 ssh、不 scp。部署根取 KNOT_DEPLOY_DIR（和仓库分开）；没配时才退回仓库本身。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -78,7 +78,7 @@ source "$SCRIPT_DIR/lib/site-config.sh"
 knot_require KNOT_PUBLIC_ORIGIN "在 sites/$KNOT_SITE/site.env 里写 KNOT_PUBLIC_ORIGIN。"
 
 # KNOT_DEPLOY_SSH 留空 = 目标就是这台机器。开发者的 local 站点用它：
-# 构建后直接就地安装，不走 ssh/scp，部署根是仓库本身（sites/ 在这里）。
+# 构建后直接就地安装，不走 ssh/scp。部署根取 KNOT_DEPLOY_DIR。
 LOCAL_DEPLOY=0
 if [[ -z "${KNOT_DEPLOY_SSH:-}" ]]; then
   LOCAL_DEPLOY=1
@@ -118,8 +118,9 @@ esac
 
 # ---- 2. 本机安装（KNOT_DEPLOY_SSH 为空）----
 if [[ "$LOCAL_DEPLOY" == 1 ]]; then
-  # 本机部署根就是仓库：sites/ 在这里，releases/、current、var/ 也落在这里。
-  DEPLOY_DIR="$APP"
+  # 部署根和仓库分开：仓库只放源码与站点配置稿，releases/、current、var/ 落在部署根。
+  # 没写 KNOT_DEPLOY_DIR 时退回旧行为（部署根 = 仓库），只给临时调试用。
+  DEPLOY_DIR="$(knot_expand_path "${KNOT_DEPLOY_DIR:-$APP}")"
   VERIFY_URL="${KNOT_DEPLOY_VERIFY_URL:-http://127.0.0.1:$KNOT_PORT/api/health}"
 
   echo "==> $REL_NAME  $PLATFORM"
@@ -137,6 +138,19 @@ if [[ "$LOCAL_DEPLOY" == 1 ]]; then
   fi
 
   echo "==> install"
+  # 站点配置属于这台机器，不进发布包：先落到部署根，deploy-site.sh 从部署根读它。
+  # 部署根还等于仓库时（没配 KNOT_DEPLOY_DIR）不要把自己截断。
+  mkdir -p "$DEPLOY_DIR/artifacts" "$DEPLOY_DIR/sites/$KNOT_SITE"
+  chmod 700 "$DEPLOY_DIR/sites/$KNOT_SITE"
+  if [[ "$(cd "$DEPLOY_DIR/sites/$KNOT_SITE" && pwd -P)" != "$(cd "$KNOT_SITE_DIR" && pwd -P)" ]]; then
+    cp "$KNOT_SITE_ENV" "$DEPLOY_DIR/sites/$KNOT_SITE/site.env"
+    chmod 600 "$DEPLOY_DIR/sites/$KNOT_SITE/site.env"
+    for entry_file in "$KNOT_SITE_DIR"/entry.*.env; do
+      [[ -f "$entry_file" ]] || continue
+      cp "$entry_file" "$DEPLOY_DIR/sites/$KNOT_SITE/$(basename "$entry_file")"
+      chmod 600 "$DEPLOY_DIR/sites/$KNOT_SITE/$(basename "$entry_file")"
+    done
+  fi
   DEPLOY_ARGS=(--site "$KNOT_SITE" --deploy-root "$DEPLOY_DIR" --artifact "$ARTIFACT")
   [[ -n "$RUNTIME_ARG" ]] && DEPLOY_ARGS+=(--runtime "$RUNTIME_ARG")
   "$SCRIPT_DIR/deploy-site.sh" "${DEPLOY_ARGS[@]}"

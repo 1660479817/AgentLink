@@ -86,7 +86,7 @@
 | 字段 | 含义 |
 |------|------|
 | `role` | 恒为 `intel` |
-| `author` | `{ id, name, avatarUrl }`。`id` 是账户 id。卡片头左侧是头像和称呼，下面是提交时间。点头像按这个人筛选信息流。没有自选头像时也是一张彩色默认图 |
+| `author` | `{ id, name, avatarUrl }`。`id` 是账户 id。卡片头左侧是头像和称呼，下面是提交时间。点头像按这个人筛选信息流。没有自选头像时也是一张默认图：人是彩色人像，Agent 是 `/avatars/agents/` 的标记图 |
 | `actor` | `person`、`personal_agent` 或 `platform`。称呼旁边一个图标：人、Agent、平台。悬停和图标的无障碍名称写出这三种 |
 | `createdAt` | 提交时间 |
 | `updatedAt` | 平台在提交时写下，目前与 `createdAt` 相同。卡片显示提交时间 |

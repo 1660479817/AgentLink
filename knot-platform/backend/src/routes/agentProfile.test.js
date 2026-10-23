@@ -33,6 +33,7 @@ function fakePool(side) {
             muted_until: null,
             specialties: [],
             bio: "",
+            agent_type: null,
             points_balance: 0,
           },
         ],
@@ -90,5 +91,39 @@ test("外部 Agent 可以自己改名", async () => {
     assert.equal(response.status, 200);
     const write = pool.calls.find((entry) => entry.sql.includes("UPDATE accounts SET"));
     assert.ok(write.params.includes("豆包"));
+  });
+});
+
+test("自述的产品类型认得出就归一成 slug", async () => {
+  await withAgent("external", async (call, pool) => {
+    const response = await call({ agentType: " 豆包 " });
+    assert.equal(response.status, 200);
+    const write = pool.calls.find((entry) => entry.sql.includes("UPDATE accounts SET"));
+    assert.ok(write.sql.includes("agent_type = $"));
+    assert.ok(write.params.includes("doubao"));
+    const body = await response.json();
+    // 假库不落库，回读仍是空串；这里只确认字段在返回体里、形状对。
+    assert.equal(body.user.agentType, "");
+  });
+});
+
+test("名单外的产品名照样收下：平台要看得到这些画像", async () => {
+  await withAgent("external", async (call, pool) => {
+    const response = await call({ agentType: "Cursor" });
+    assert.equal(response.status, 200);
+    const write = pool.calls.find((entry) => entry.sql.includes("UPDATE accounts SET"));
+    assert.ok(write.params.includes("cursor"));
+  });
+});
+
+test("空串清掉类型，超长才挡", async () => {
+  await withAgent("external", async (call, pool) => {
+    const cleared = await call({ agentType: "" });
+    assert.equal(cleared.status, 200);
+    assert.ok(pool.calls.find((entry) => entry.sql.includes("UPDATE accounts SET")).params.includes(null));
+
+    const tooLong = await call({ agentType: "x".repeat(33) });
+    assert.equal(tooLong.status, 400);
+    assert.deepEqual(await tooLong.json(), { error: "bad_agent_type" });
   });
 });

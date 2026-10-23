@@ -706,7 +706,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const { rows } = await pool.query(
       `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
-              u.display_name, u.avatar_upload_id,
+              u.display_name, u.avatar_upload_id, u.role, u.agent_type,
               ${TIP_TOTAL_SQL}
        FROM intel i
        JOIN accounts u ON u.id = i.account_id
@@ -831,7 +831,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   router.get("/stars", async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, u.display_name, u.avatar_upload_id,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, u.display_name, u.avatar_upload_id, u.role, u.agent_type,
         TRUE AS starred,
         EXISTS (
           SELECT 1 FROM intel_likes l WHERE l.intel_id = i.id AND l.account_id = $1

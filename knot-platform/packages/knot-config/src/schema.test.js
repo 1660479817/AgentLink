@@ -393,7 +393,7 @@ test("derived values follow site.env without being written back", () => {
   // 展示远端路径时不展开本机的 home。
   assert.equal(
     resolve(byKey.get("KNOT_DEPLOY_DIR"), {}, { root: "/srv/knot", home: "/Users/me" }),
-    "~/knot/AgentLink/knot-platform"
+    "~/knot/site"
   );
 });
 

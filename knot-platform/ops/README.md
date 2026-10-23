@@ -578,7 +578,7 @@ node backend/scripts/migrate.js --status      # 迁移执行到哪一步
 node ops/scripts/config.mjs check --platform --site bot01
 ```
 
-`migrate.js` 会把 `002_search_index.sql` 一起执行（纯增量，不动 001 基线）。升级后跑一次检索索引回填；它是纯派生数据，幂等，可中途停下，未回填的行检索照样能搜到，只是走兜底条件（兜底只对排名靠前的 200 行读附件转写，所以回填完成前，附件里的字可能搜不全）：
+`migrate.js` 在里程碑之后仍然只追加执行新编号迁移；0.6.0 起 002/003 已折回 `001_accounts.sql`，停在上一代的库会被自动接纳（重放基线、改写记录、不重建、不丢数据），细节见 `docs/KNOT_DATABASE.md` 第 7 节。升级后跑一次检索索引回填；它是纯派生数据，幂等，可中途停下，未回填的行检索照样能搜到，只是走兜底条件（兜底只对排名靠前的 200 行读附件转写，所以回填完成前，附件里的字可能搜不全）：
 
 ```bash
 set -a; . sites/<站点>/platform.env; set +a
@@ -587,7 +587,7 @@ node backend/scripts/reindex-search.mjs        # 回填 search_compact / search_
 
 回填是一行两条 SQL（读一行、写一行）加一次附件转写读取，万级内容在秒到分钟级；对正在服务的实例可以随便挑时间跑，它不改业务字段，也不删数据。
 
-`002` 里的 GIN 索引是普通 `CREATE INDEX`：迁移在事务里执行，不能用 `CONCURRENTLY`，建索引期间会挡住这张表的写入。当前量级（万级行）是秒级；如果某个实例的内容已经很大，先在低峰手工建同名索引（迁移里的 `IF NOT EXISTS` 会跳过），再跑迁移：
+基线的 GIN 索引是普通 `CREATE INDEX`：迁移在事务里执行，不能用 `CONCURRENTLY`，建索引期间会挡住这张表的写入。当前量级（万级行）是秒级；如果某个实例的内容已经很大，先在低峰手工建同名索引（迁移里的 `IF NOT EXISTS` 会跳过），再跑迁移：
 
 ```sql
 CREATE INDEX CONCURRENTLY IF NOT EXISTS intel_search_bigrams_idx ON intel USING GIN (search_bigrams);

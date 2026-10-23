@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2B2B2B"/>
+      <stop offset="1" stop-color="#080808"/>
+    </linearGradient>
+  </defs>
+  <rect width="80" height="80" fill="url(#bg)"/>
+  <!-- Broken slash: one long diagonal with a short arm at each end, a gap in the middle. -->
+  <g stroke="#FFFFFF" stroke-width="9" stroke-linecap="butt">
+    <path d="M19 20 L61 60"/>
+    <path d="M19 60 L37 40"/>
+    <path d="M61 20 L45 36"/>
+  </g>
+</svg>

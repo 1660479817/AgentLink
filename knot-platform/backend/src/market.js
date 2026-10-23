@@ -566,7 +566,7 @@ export async function createIntel(pool, input) {
 
 const PUBLIC_INTEL_COLUMNS = `
   i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
-    u.display_name, u.avatar_upload_id,
+    u.display_name, u.avatar_upload_id, u.role, u.agent_type,
     EXISTS (
       SELECT 1 FROM intel_stars s
       WHERE s.intel_id = i.id AND s.account_id = $1
@@ -770,7 +770,7 @@ export async function listPublicIntel(pool, limit = 30, userId = null, authorId 
 
 export async function publicAuthor(pool, authorId) {
   const { rows } = await pool.query(
-    `SELECT u.id, u.display_name, u.avatar_upload_id, u.role
+    `SELECT u.id, u.display_name, u.avatar_upload_id, u.role, u.agent_type
      FROM accounts u
      WHERE u.id = $1
        AND EXISTS (

@@ -1,5 +1,16 @@
 -- Knot 的账户与内容底座。这是唯一的基线迁移：新库从这里建起，没有历史补丁。
 --
+-- 里程碑 2026-10（产品 0.6.0）：0.5.x 的 002_search_index.sql 与 003_agent_type.sql
+-- 已经并进这一份，不再有独立补丁。整份写成可重放的形式（IF NOT EXISTS / 守卫块），
+-- 这样停在上一组迁移上的库可以就地接纳，不必重建、不动数据：
+--
+--   node backend/scripts/migrate.js --status        # 看库里记的是哪一组
+--   node backend/scripts/migrate.js                 # 接纳（migrate.js 自动判断）
+--
+-- 接纳之后，这份文件又回到「只读」状态：已有库的 checksum 会被校验，
+-- 再改它就要整库重建。里程碑之后的新结构一律追加编号迁移，不要回头改这里。
+--
+--
 -- 只有一张身份表 accounts，用 role 区分四类身份：
 --   platform  平台层管理账号。一个，机器用，没有邮箱，不能登录，不参与配額。
 --   owner     平台内部账号（站点主理人）。一个，唯一绑定 KNOT_ADMIN_EMAIL，管理员。
@@ -16,7 +27,7 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TABLE accounts (
+CREATE TABLE IF NOT EXISTS accounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   role TEXT NOT NULL CHECK (role IN ('platform', 'owner', 'user', 'agent')),
   side TEXT CHECK (side IN ('internal', 'external')),
@@ -33,6 +44,9 @@ CREATE TABLE accounts (
   specialties JSONB NOT NULL DEFAULT '[]'::jsonb,
   locale TEXT CHECK (locale IS NULL OR locale IN ('zh-CN', 'zh-TW', 'en')),
   bio TEXT NOT NULL DEFAULT '' CHECK (char_length(bio) <= 200),
+  -- Agent 自述的产品类型（grok、manus、doubao……），人这一行恒为空。
+  -- 只用于画默认头像与看产品分布，不参与权限、计费与信任判断。
+  agent_type TEXT,
   retired_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -50,16 +64,31 @@ CREATE TABLE accounts (
   CHECK (role <> 'agent' OR (points_balance = 0 AND level = 1 AND entitlements = '{}'::jsonb))
 );
 
-CREATE UNIQUE INDEX accounts_email_key ON accounts (lower(email)) WHERE email IS NOT NULL;
-CREATE UNIQUE INDEX accounts_display_name_key ON accounts (lower(btrim(display_name)));
-CREATE UNIQUE INDEX accounts_token_key ON accounts (token_hash) WHERE token_hash IS NOT NULL;
-CREATE UNIQUE INDEX accounts_label_key ON accounts (label) WHERE label IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_key ON accounts (lower(email)) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_display_name_key ON accounts (lower(btrim(display_name)));
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_token_key ON accounts (token_hash) WHERE token_hash IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_label_key ON accounts (label) WHERE label IS NOT NULL;
 -- 平台账号与主理人账号各只有一个。
-CREATE UNIQUE INDEX accounts_one_platform ON accounts ((true)) WHERE role = 'platform';
-CREATE UNIQUE INDEX accounts_one_owner ON accounts ((true)) WHERE role = 'owner';
-CREATE INDEX accounts_owner_idx ON accounts (owner_id, created_at) WHERE role = 'agent';
-CREATE INDEX accounts_side_idx ON accounts (side, display_name, created_at);
-CREATE INDEX accounts_specialties_idx ON accounts USING GIN (specialties);
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_platform ON accounts ((true)) WHERE role = 'platform';
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_owner ON accounts ((true)) WHERE role = 'owner';
+CREATE INDEX IF NOT EXISTS accounts_owner_idx ON accounts (owner_id, created_at) WHERE role = 'agent';
+CREATE INDEX IF NOT EXISTS accounts_side_idx ON accounts (side, display_name, created_at);
+CREATE INDEX IF NOT EXISTS accounts_specialties_idx ON accounts USING GIN (specialties);
+
+-- 里程碑重放：老库的 accounts 已经存在，上面的 CREATE TABLE 不会补列，这里补。
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS agent_type TEXT;
+
+-- 认得出哪个产品由 Backend 的 agentTypes.js 判断，库里只守两件不会变的事：
+-- 只有 Agent 行能有值，长度有上界。名单不写进 CHECK，产品起落不用迁移。
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'accounts_agent_type_check') THEN
+    ALTER TABLE accounts ADD CONSTRAINT accounts_agent_type_check
+      CHECK (agent_type IS NULL OR (
+        role = 'agent' AND char_length(agent_type) BETWEEN 1 AND 32
+      ));
+  END IF;
+END $$;
 
 -- 名额在库这一层守住：任何写入路径（Backend、运维脚本、psql）都绕不过去。
 -- front-end 只负责把 KN001 / KN002 翻译成人话。
@@ -114,17 +143,18 @@ BEGIN
   RETURN NEW;
 END $$;
 
+DROP TRIGGER IF EXISTS accounts_guard ON accounts;
 CREATE TRIGGER accounts_guard BEFORE INSERT OR UPDATE ON accounts
   FOR EACH ROW EXECUTE FUNCTION knot_guard_account();
 
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
   sid TEXT PRIMARY KEY,
   account_id UUID NOT NULL REFERENCES accounts (id),
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE login_keys (
+CREATE TABLE IF NOT EXISTS login_keys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT NOT NULL,
   key_hash TEXT NOT NULL,
@@ -134,9 +164,9 @@ CREATE TABLE login_keys (
   invite_code_id UUID
 );
 
-CREATE INDEX login_keys_email_idx ON login_keys (email, created_at DESC);
+CREATE INDEX IF NOT EXISTS login_keys_email_idx ON login_keys (email, created_at DESC);
 
-CREATE TABLE uploads (
+CREATE TABLE IF NOT EXISTS uploads (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts (id),
   storage_name TEXT NOT NULL,
@@ -149,13 +179,18 @@ CREATE TABLE uploads (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX uploads_account_created_idx ON uploads (account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS uploads_account_created_idx ON uploads (account_id, created_at DESC);
 
-ALTER TABLE accounts
-  ADD CONSTRAINT accounts_avatar_upload_fk
-  FOREIGN KEY (avatar_upload_id) REFERENCES uploads (id);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'accounts_avatar_upload_fk') THEN
+    ALTER TABLE accounts
+      ADD CONSTRAINT accounts_avatar_upload_fk
+      FOREIGN KEY (avatar_upload_id) REFERENCES uploads (id);
+  END IF;
+END $$;
 
-CREATE TABLE intel (
+CREATE TABLE IF NOT EXISTS intel (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts (id),
   actor TEXT NOT NULL CHECK (actor IN ('person', 'personal_agent', 'platform')),
@@ -176,79 +211,96 @@ CREATE TABLE intel (
   expires_at TIMESTAMPTZ,
   origin_id UUID REFERENCES intel (id),
   version INTEGER NOT NULL DEFAULT 1,
+  -- 检索派生列：归一化后的可检索文字与它的去重二元组，由 backend/src/searchIndex.js 计算。
+  -- 未回填的行为 NULL，检索语句对 NULL 保留兜底条件，回填到一半也不会搜不到。
+  search_compact TEXT,
+  search_bigrams TEXT[],
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX intel_feed_idx ON intel (weight DESC, created_at DESC)
+CREATE INDEX IF NOT EXISTS intel_feed_idx ON intel (weight DESC, created_at DESC)
   WHERE verdict IN ('pending', 'passed') AND is_public AND kind IN ('post', 'fastpost');
-CREATE INDEX intel_feed_time_idx ON intel (created_at DESC, weight DESC)
+CREATE INDEX IF NOT EXISTS intel_feed_time_idx ON intel (created_at DESC, weight DESC)
   WHERE verdict IN ('pending', 'passed') AND is_public AND kind IN ('post', 'fastpost');
-CREATE INDEX intel_account_idx ON intel (account_id, door, created_at DESC);
-CREATE INDEX intel_wishes_idx ON intel (created_at DESC) WHERE kind = 'wish';
-CREATE INDEX intel_wish_expires_idx ON intel (expires_at DESC) WHERE kind = 'wish';
-CREATE INDEX intel_responses_idx ON intel (responds_to, created_at) WHERE kind = 'wishRespond';
-CREATE INDEX intel_origin_idx ON intel (COALESCE(origin_id, id), version DESC);
-CREATE UNIQUE INDEX intel_account_content_idx ON intel (account_id, content_hash);
+CREATE INDEX IF NOT EXISTS intel_account_idx ON intel (account_id, door, created_at DESC);
+CREATE INDEX IF NOT EXISTS intel_wishes_idx ON intel (created_at DESC) WHERE kind = 'wish';
+CREATE INDEX IF NOT EXISTS intel_wish_expires_idx ON intel (expires_at DESC) WHERE kind = 'wish';
+CREATE INDEX IF NOT EXISTS intel_responses_idx ON intel (responds_to, created_at) WHERE kind = 'wishRespond';
+CREATE INDEX IF NOT EXISTS intel_origin_idx ON intel (COALESCE(origin_id, id), version DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS intel_account_content_idx ON intel (account_id, content_hash);
 -- 视频封面存在 intel.videos 里：preview.js 用 @> 找封面，每次冷图片请求都会走。
-CREATE INDEX intel_videos_poster_idx ON intel USING GIN (videos jsonb_path_ops);
+CREATE INDEX IF NOT EXISTS intel_videos_poster_idx ON intel USING GIN (videos jsonb_path_ops);
 
-CREATE TABLE intel_files (
+-- 里程碑重放：老库的 intel 已经存在，补检索派生列。
+ALTER TABLE intel ADD COLUMN IF NOT EXISTS search_compact TEXT;
+ALTER TABLE intel ADD COLUMN IF NOT EXISTS search_bigrams TEXT[];
+
+-- 数组默认操作符类支持 &&（重叠判定），与打分的「有没有碰到」一致。
+CREATE INDEX IF NOT EXISTS intel_search_bigrams_idx ON intel USING GIN (search_bigrams);
+
+-- 回填未完成时，未索引的行要能被兜底条件找到。检索语句里写的是
+-- `search_bigrams IS NULL OR search_bigrams && $n`，没有这一支的索引路径时，
+-- 整条查询会因为一支不可索引而退化成全表顺序扫描。
+-- 回填完成后这个部分索引是空的，维护成本接近零。
+CREATE INDEX IF NOT EXISTS intel_search_unindexed_idx ON intel (id) WHERE search_bigrams IS NULL;
+
+CREATE TABLE IF NOT EXISTS intel_files (
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
   upload_id UUID NOT NULL REFERENCES uploads (id) ON DELETE CASCADE,
   sort_order INT NOT NULL DEFAULT 0,
   PRIMARY KEY (intel_id, upload_id)
 );
 
-CREATE INDEX intel_files_upload_idx ON intel_files (upload_id);
+CREATE INDEX IF NOT EXISTS intel_files_upload_idx ON intel_files (upload_id);
 
-CREATE TABLE intel_stars (
+CREATE TABLE IF NOT EXISTS intel_stars (
   account_id UUID NOT NULL REFERENCES accounts (id),
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, intel_id)
 );
 
-CREATE TABLE intel_likes (
+CREATE TABLE IF NOT EXISTS intel_likes (
   account_id UUID NOT NULL REFERENCES accounts (id),
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, intel_id)
 );
 
-CREATE INDEX intel_likes_intel_idx ON intel_likes (intel_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS intel_likes_intel_idx ON intel_likes (intel_id, created_at DESC);
 
-CREATE TABLE intel_dismissals (
+CREATE TABLE IF NOT EXISTS intel_dismissals (
   account_id UUID NOT NULL REFERENCES accounts (id),
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, intel_id)
 );
 
-CREATE INDEX intel_dismissals_account_idx ON intel_dismissals (account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS intel_dismissals_account_idx ON intel_dismissals (account_id, created_at DESC);
 
-CREATE TABLE packet_downloads (
+CREATE TABLE IF NOT EXISTS packet_downloads (
   account_id UUID NOT NULL REFERENCES accounts (id),
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, intel_id)
 );
 
-CREATE TABLE request_unlocks (
+CREATE TABLE IF NOT EXISTS request_unlocks (
   account_id UUID NOT NULL REFERENCES accounts (id),
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, intel_id)
 );
 
-CREATE TABLE request_looks (
+CREATE TABLE IF NOT EXISTS request_looks (
   account_id UUID NOT NULL REFERENCES accounts (id),
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, intel_id)
 );
 
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts (id),
   kind TEXT NOT NULL,
@@ -260,9 +312,9 @@ CREATE TABLE notifications (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX notifications_inbox_idx ON notifications (account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS notifications_inbox_idx ON notifications (account_id, created_at DESC);
 
-CREATE TABLE point_ledger (
+CREATE TABLE IF NOT EXISTS point_ledger (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts (id),
   delta INT NOT NULL,
@@ -271,7 +323,7 @@ CREATE TABLE point_ledger (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE admin_actions (
+CREATE TABLE IF NOT EXISTS admin_actions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   action TEXT NOT NULL CHECK (action IN (
     'remove', 'warn', 'patrol', 'grant', 'mute', 'unmute', 'entitle',
@@ -285,9 +337,9 @@ CREATE TABLE admin_actions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX admin_actions_patrol_idx ON admin_actions (created_at DESC) WHERE action = 'patrol';
+CREATE INDEX IF NOT EXISTS admin_actions_patrol_idx ON admin_actions (created_at DESC) WHERE action = 'patrol';
 
-CREATE TABLE sponsors (
+CREATE TABLE IF NOT EXISTS sponsors (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
   href TEXT NOT NULL,
@@ -300,9 +352,9 @@ CREATE TABLE sponsors (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX sponsors_position_idx ON sponsors (position ASC, created_at ASC);
+CREATE INDEX IF NOT EXISTS sponsors_position_idx ON sponsors (position ASC, created_at ASC);
 
-CREATE TABLE friendships (
+CREATE TABLE IF NOT EXISTS friendships (
   account_id UUID NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
   friend_id UUID NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -310,21 +362,21 @@ CREATE TABLE friendships (
   CHECK (account_id <> friend_id)
 );
 
-CREATE TABLE friend_dismissals (
+CREATE TABLE IF NOT EXISTS friend_dismissals (
   account_id UUID NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
   friend_id UUID NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, friend_id)
 );
 
-CREATE TABLE intel_mentions (
+CREATE TABLE IF NOT EXISTS intel_mentions (
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
   account_id UUID NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (intel_id, account_id)
 );
 
-CREATE TABLE price_proposals (
+CREATE TABLE IF NOT EXISTS price_proposals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   default_price INT NOT NULL,
   price_min INT NOT NULL,
@@ -347,11 +399,11 @@ CREATE TABLE price_proposals (
   CHECK (retrieval_price >= 0 AND retrieval_price <= 100000)
 );
 
-CREATE UNIQUE INDEX price_proposals_one_pending_idx
+CREATE UNIQUE INDEX IF NOT EXISTS price_proposals_one_pending_idx
   ON price_proposals ((true))
   WHERE status = 'pending';
 
-CREATE TABLE economy_policy (
+CREATE TABLE IF NOT EXISTS economy_policy (
   id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   default_price INT NOT NULL,
   price_min INT NOT NULL,
@@ -373,7 +425,7 @@ CREATE TABLE economy_policy (
   CHECK (retrieval_price >= 0 AND retrieval_price <= 100000)
 );
 
-CREATE TABLE system_policy (
+CREATE TABLE IF NOT EXISTS system_policy (
   id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   guest_browsing BOOLEAN NOT NULL DEFAULT true,
   registration_mode TEXT NOT NULL DEFAULT 'open'
@@ -384,7 +436,7 @@ CREATE TABLE system_policy (
 
 INSERT INTO system_policy (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
-CREATE TABLE invite_codes (
+CREATE TABLE IF NOT EXISTS invite_codes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code TEXT NOT NULL UNIQUE,
   note TEXT NOT NULL DEFAULT '',
@@ -396,13 +448,18 @@ CREATE TABLE invite_codes (
   CHECK (used_count <= max_uses)
 );
 
-CREATE INDEX invite_codes_created_idx ON invite_codes (created_at DESC);
+CREATE INDEX IF NOT EXISTS invite_codes_created_idx ON invite_codes (created_at DESC);
 
-ALTER TABLE login_keys
-  ADD CONSTRAINT login_keys_invite_fk
-  FOREIGN KEY (invite_code_id) REFERENCES invite_codes (id);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'login_keys_invite_fk') THEN
+    ALTER TABLE login_keys
+      ADD CONSTRAINT login_keys_invite_fk
+      FOREIGN KEY (invite_code_id) REFERENCES invite_codes (id);
+  END IF;
+END $$;
 
-CREATE TABLE invite_redemptions (
+CREATE TABLE IF NOT EXISTS invite_redemptions (
   invite_id UUID NOT NULL REFERENCES invite_codes (id) ON DELETE CASCADE,
   account_id UUID NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
   email TEXT NOT NULL,
@@ -410,27 +467,27 @@ CREATE TABLE invite_redemptions (
   PRIMARY KEY (invite_id, account_id)
 );
 
-CREATE INDEX invite_redemptions_account_idx ON invite_redemptions (account_id);
+CREATE INDEX IF NOT EXISTS invite_redemptions_account_idx ON invite_redemptions (account_id);
 
-CREATE TABLE intel_reads (
+CREATE TABLE IF NOT EXISTS intel_reads (
   account_id UUID NOT NULL REFERENCES accounts (id),
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, intel_id)
 );
 
-CREATE INDEX intel_reads_intel_idx ON intel_reads (intel_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS intel_reads_intel_idx ON intel_reads (intel_id, created_at DESC);
 
-CREATE TABLE search_events (
+CREATE TABLE IF NOT EXISTS search_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts (id),
   query TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX search_events_account_idx ON search_events (account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS search_events_account_idx ON search_events (account_id, created_at DESC);
 
-CREATE TABLE retrieval_jobs (
+CREATE TABLE IF NOT EXISTS retrieval_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   wish_id UUID NOT NULL UNIQUE REFERENCES intel (id) ON DELETE CASCADE,
   account_id UUID NOT NULL REFERENCES accounts (id),
@@ -438,14 +495,19 @@ CREATE TABLE retrieval_jobs (
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed')),
   error TEXT,
   respond_id UUID REFERENCES intel (id),
+  -- 尝试次数随行落库：只在进程内存里的话，重启就把「最多几次」清零。
+  attempts INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX retrieval_jobs_pending_idx ON retrieval_jobs (created_at ASC)
+-- 里程碑重放：老库的 retrieval_jobs 已经存在，补这一列。
+ALTER TABLE retrieval_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS retrieval_jobs_pending_idx ON retrieval_jobs (created_at ASC)
   WHERE status IN ('pending', 'running');
 
-CREATE TABLE intel_tips (
+CREATE TABLE IF NOT EXISTS intel_tips (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts (id),
   intel_id UUID NOT NULL REFERENCES intel (id) ON DELETE CASCADE,
@@ -454,13 +516,27 @@ CREATE TABLE intel_tips (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX intel_tips_intel_idx ON intel_tips (intel_id, created_at DESC);
-CREATE INDEX intel_tips_giver_idx ON intel_tips (account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS intel_tips_intel_idx ON intel_tips (intel_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS intel_tips_giver_idx ON intel_tips (account_id, created_at DESC);
 
 -- 平台层管理账号：机器身份。没有邮箱、不能登录，也不计入任何名额。
+-- 重放时这一行已在，ON CONFLICT 让它成为空操作。
 INSERT INTO accounts (id, role, display_name, points_balance)
-VALUES ('00000000-0000-4000-8000-000000000001', 'platform', 'Knot', 0);
+VALUES ('00000000-0000-4000-8000-000000000001', 'platform', 'Knot', 0)
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO sponsors (title, href, position)
 SELECT 'wish', '/wish', 1
 WHERE NOT EXISTS (SELECT 1 FROM sponsors);
+
+-- 这份库停在哪个里程碑。迁移脚本按它判断「已经接纳过」，运维也据此对版本。
+CREATE TABLE IF NOT EXISTS schema_milestone (
+  id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  version TEXT NOT NULL,
+  adopted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO schema_milestone (id, version)
+VALUES (1, '2026-10-0.6.0')
+ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version
+  WHERE schema_milestone.version IS DISTINCT FROM EXCLUDED.version;

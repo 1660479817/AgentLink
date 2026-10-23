@@ -130,7 +130,7 @@ export async function listRequestResponses(pool, userId, requestId) {
   if (!owned.rows.length) return { error: "not_found", status: 404 };
   const { rows } = await pool.query(
     `SELECT i.id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.reject_reason, i.category, i.price, i.kind, i.is_public, i.created_at, i.updated_at,
-            i.account_id, u.display_name, u.avatar_upload_id,
+            i.account_id, u.display_name, u.avatar_upload_id, u.role, u.agent_type,
             EXISTS (
               SELECT 1 FROM packet_downloads pd
               WHERE pd.intel_id = i.id AND pd.account_id = $2

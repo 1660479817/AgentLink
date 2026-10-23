@@ -521,6 +521,22 @@ if (( KEEP > 0 )) && [[ -d "$KNOT_RELEASES_DIR" ]]; then
     done
 fi
 
+# 发布包按同一份保留数清：只有已安装过的 tar.gz 才算冗余，没装过的是「待用」。
+# 安装失败时 .incoming 会留下来，这里把超过一天的一并清掉。
+if (( KEEP > 0 )) && [[ -d "$KNOT_DEPLOY_ROOT/artifacts" ]]; then
+  ls -1t "$KNOT_DEPLOY_ROOT/artifacts"/*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) |
+    while IFS= read -r file; do
+      base="$(basename "$file")"
+      # 当前版本对应的包先留着，下一轮再清。
+      [[ "$base" == "${REL_NAME}"-*.tar.gz ]] && continue
+      echo "==> 清理旧发布包 $(basename "$file")"
+      rm -f "$file" "$file.sha256"
+    done
+fi
+if [[ -d "$KNOT_DEPLOY_ROOT/.incoming" ]]; then
+  find "$KNOT_DEPLOY_ROOT/.incoming" -mindepth 1 -maxdepth 1 -type d -mtime +1 -print -exec rm -rf {} + 2>/dev/null || true
+fi
+
 echo "OK: $KNOT_PUBLIC_ORIGIN"
 echo "    版本 $REL_VERSION ($REL_COMMIT)  $REL_NAME"
 echo "    本机 http://127.0.0.1:$KNOT_PORT"
