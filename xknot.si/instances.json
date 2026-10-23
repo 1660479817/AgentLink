@@ -1,6 +1,6 @@
 {
   "version": 6,
-  "updatedAt": "2026-10-22",
+  "updatedAt": "2026-10-23",
   "instances": [
     {
       "id": "wang",
@@ -13,6 +13,13 @@
       "id": "cpswang",
       "url": "https://cpswang.xknot.si",
       "since": "2026-10-21",
+      "tier": "free",
+      "status": "active"
+    },
+    {
+      "id": "zhoujj",
+      "url": "https://zhoujj.xknot.si",
+      "since": "2026-10-23",
       "tier": "free",
       "status": "active"
     }
