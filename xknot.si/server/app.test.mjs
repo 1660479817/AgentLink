@@ -310,6 +310,132 @@ test("api: a new application emails the approval and the admin notice", async (t
   assert.match(admin.text, /https:\/\/xknot\.si\/admin\//);
 });
 
+test("api: the mail switch stops partner mail, member codes and relay, and can be turned back on", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store } = await start(t, {
+    mailer,
+    adminEmail: "admin@example.com",
+    instances: [{ id: "alpha", url: "https://alpha.xknot.si", status: "active" }],
+  });
+  const cookie = await loginAs(call, store);
+
+  // 默认是开：总览里 switch=on，配好的 SMTP 就算「正在发信」。
+  let overview = (await call("/api/admin/overview", { cookie })).data;
+  assert.equal(overview.mail.switch, "on");
+  assert.equal(overview.mail.configured, true);
+  assert.equal(overview.mail.enabled, true);
+
+  // 关掉。用布尔而不是字符串，避免 "false" 被当成真。
+  const off = await call("/api/admin/mail", { method: "POST", cookie, body: { enabled: false } });
+  assert.equal(off.status, 200);
+  assert.equal(off.data.mail.switch, "off");
+  assert.equal(off.data.mail.enabled, false);
+
+  overview = (await call("/api/admin/overview", { cookie })).data;
+  assert.equal(overview.mail.switch, "off");
+  assert.equal(overview.mail.enabled, false);
+  assert.equal(overview.relay.enabled, false, "停发信时委托发信一起停");
+
+  // 停发期间不收申请单的信，也不留一条永远发不出去的日志占位。
+  const before = mailer.sent.length;
+  const submitted = await call("/api/applications", { method: "POST", body: { ...valid, subdomain: "stopped" } });
+  assert.equal(submitted.status, 201);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(mailer.sent.length, before);
+  assert.equal(store.listNotifyLog(10).length, 0);
+
+  // 成员登录码同样拒绝：否则用户会一直等一封不会来的信。
+  const code = await call("/api/member/code", { method: "POST", body: { email: "lin@example.com" } });
+  assert.equal(code.status, 503);
+  assert.equal(code.data.error, "mail_unavailable");
+
+  // 代发也跟着停：同一个 503，端侧不用分辨是哪一层关的。
+  assert.equal(overview.relay.enabled, false);
+
+  // 打开；信又能发，而且停发期间漏掉的那封不会被当成「已经发过」。
+  const on = await call("/api/admin/mail", { method: "POST", cookie, body: { enabled: true } });
+  assert.equal(on.status, 200);
+  assert.equal(on.data.mail.enabled, true);
+  const again = await call("/api/applications", { method: "POST", body: { ...valid, subdomain: "resumed" } });
+  assert.equal(again.status, 201);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(mailer.sent.length, before + 2);
+});
+
+test("api: the mail switch needs a session and a boolean", async (t) => {
+  const { call, store } = await start(t, { mailer: recordingMailer(), adminEmail: "admin@example.com" });
+  assert.equal((await call("/api/admin/mail", { method: "POST", body: { enabled: false } })).status, 401);
+
+  const cookie = await loginAs(call, store);
+  assert.equal((await call("/api/admin/mail", { method: "POST", cookie, body: {} })).status, 400);
+  assert.equal((await call("/api/admin/mail", { method: "POST", cookie, body: { enabled: "off" } })).status, 400);
+  assert.equal(store.getSetting("mail"), null, "非法请求不改库");
+});
+
+test("api: XKNOT_RELAY_ENABLED=0 turns relay off without locking the console switch", async (t) => {
+  const store = openMemoryStore();
+  const { handle } = createApp({
+    store,
+    config: {
+      secret: "test",
+      adminDir: null,
+      mailer: recordingMailer(),
+      origin: "https://xknot.si",
+      instances: [],
+      relay: { enabled: false, dailyLimit: 50 },
+    },
+  });
+  const server = createServer((req, res) => handle(req, res).catch(() => res.writeHead(500).end()));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  });
+
+  const call = async (path, { method = "GET", body, cookie } = {}) => {
+    const headers = { accept: "application/json" };
+    if (body) headers["content-type"] = "application/json";
+    if (cookie) headers.cookie = cookie;
+    const response = await fetch(base + path, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await response.text();
+    return { status: response.status, data: text ? JSON.parse(text) : null, headers: response.headers };
+  };
+
+  const cookie = await loginAs(call, store);
+  const overview = await call("/api/admin/overview", { cookie });
+  // 环境变量单独关掉了代发：总闸仍是 on，但面板必须能说出「代发被环境关了」。
+  assert.equal(overview.data.mail.switch, "on");
+  assert.equal(overview.data.relay.envOff, true);
+  assert.equal(overview.data.relay.enabled, false);
+
+  // 总闸仍然能改：它停的是全部发信，环境变量只管代发，两件事不互相锁死。
+  const attempt = await call("/api/admin/mail", { method: "POST", cookie, body: { enabled: false } });
+  assert.equal(attempt.status, 200);
+  assert.equal(attempt.data.mail.enabled, false);
+});
+
+test("store: a setting is a single row that can be cleared back to the default", () => {
+  const store = openMemoryStore();
+  assert.equal(store.getSetting("mail"), null);
+  const off = store.setSetting("mail", "off", "paul");
+  assert.equal(off.value, "off");
+  assert.equal(store.getSetting("mail").value, "off");
+  assert.equal(store.getSetting("mail").by, "paul");
+  // 再写一次是覆盖，不是追加：一个键只能有一行。
+  store.setSetting("mail", "on", "paul");
+  assert.equal(store.getSetting("mail").value, "on");
+  // 传 null 就是删掉，回到「按环境变量的默认值」。
+  store.setSetting("mail", null, "paul");
+  assert.equal(store.getSetting("mail"), null);
+  assert.equal(store.setSetting("bad key!", "x").error, "invalid_key");
+  store.close();
+});
+
 test("api: a broken mailer never fails the submission", async (t) => {
   t.mock.method(console, "error", () => {});
   const mailer = {

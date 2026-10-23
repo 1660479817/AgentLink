@@ -276,6 +276,11 @@ export function createApp({ store, config }) {
   const memberCodeIpLimit = createLimiter({ windowMs: 3600_000, max: 10 });
   const memberLoginLimit = createLimiter({ windowMs: 900_000, max: 12 });
   const mailer = config.mailer || null;
+  // 发信总闸：环境里配好了 SMTP 只是「能发」，控制台那一行才是「现在发不发」。
+  // 读库而不是读一个常量：开关改完立刻对接口、CLI、worker 同时生效，不用重启。
+  // 没有这一行时按「开」算——老部署升级上来行为不变。
+  const mailSwitchOff = () => store.getSetting("mail")?.value === "off";
+  const mailOpen = () => Boolean(mailer) && !mailSwitchOff();
   const adminEmail = String(config.adminEmail || "").trim();
   const origin = String(config.origin || "https://xknot.si").replace(/\/+$/, "");
   const supportUrl = String(config.supportUrl || "").trim();
@@ -294,7 +299,12 @@ export function createApp({ store, config }) {
     return list.find((item) => item?.id === id) || null;
   }
   const relayMailer = mailer;
-  const relayEnabled = Boolean(config.relay?.enabled) && Boolean(relayMailer);
+  // 环境开关是一道闸：配了 SMTP、且没被 XKNOT_RELAY_ENABLED=0 关掉。
+  const relayConfigured = Boolean(config.relay?.enabled) && Boolean(relayMailer);
+  // 「环境变量明确关了」与「压根没配这一项」要分开：只有前者会锁住控制台的开关。
+  const relayEnvOff = config.relay?.enabled === false;
+  // 实际放行还要过控制台那一行：停发信时委托发信一起停，端侧看到 503。
+  const relayOpen = () => relayConfigured && mailOpen();
   const relayDefaultLimit = Math.min(Math.max(Number(config.relay?.dailyLimit) || 50, 1), 5000);
   const relayMinuteLimit = createLimiter({ windowMs: 60_000, max: RELAY_LIMITS.perMinute });
   const relayHourLimit = createLimiter({ windowMs: 3600_000, max: RELAY_LIMITS.perHour });
@@ -694,16 +704,25 @@ export function createApp({ store, config }) {
         approvedNotListed,
       },
       mail: {
-        enabled: Boolean(mailer),
-        relayEnabled,
+        // enabled 是「现在发不发」，configured 是「有没有配 SMTP」。两者分开报：
+        // 只给一个布尔，控制台分不清「没配 SMTP」与「被总闸关了」。
+        enabled: mailOpen(),
+        configured: Boolean(mailer),
+        switch: mailSwitchOff() ? "off" : "on",
         windowHours: 24,
         ...store.notifyStats(since),
       },
       relay: {
-        enabled: relayEnabled && Boolean(mailer),
+        enabled: relayOpen(),
+        configured: relayConfigured,
+        // 环境变量单独关掉了代发（XKNOT_RELAY_ENABLED=0）：控制台的开关没关，
+        // 但节点侧已经撞墙。面板要把这句说出来，别让人以为代发是好的。
+        envOff: relayEnvOff,
         windowHours: 24,
         tokens: tokens.length,
         activeTokens: tokens.filter((token) => !token.revokedAt).length,
+        // 每实例开关关掉的那些：凭据还在，只是暂停受理。
+        disabled: store.listRelaySwitches().map((row) => row.instanceId),
         ...store.relayStats(since),
       },
       events: store.events(12),
@@ -718,7 +737,9 @@ export function createApp({ store, config }) {
   // 反过来就等于让请求体覆盖 origin / replyTo，一封信里的所有链接
   // 可以被指到任意域，回信地址也能被换掉。
   function dispatchMail(eventName, application, extra = {}, { dedupeVersion = null } = {}) {
-    if (!mailer) return null;
+    // 总闸关着就不排队、不占去重位：打开之后同一件事还能补发一次。
+    // 这里不写 notify_log，否则「停发期间的那封信」会变成一个永远 sent 不了的占位。
+    if (!mailOpen()) return null;
     let message = null;
     let reserved = null;
     try {
@@ -823,7 +844,7 @@ export function createApp({ store, config }) {
 
   // ---- 委托发信：POST 送一封，GET 查额度 ----
   async function handleRelay(req, res) {
-    if (!relayEnabled) return send(res, 503, { error: "relay_unavailable" });
+    if (!relayOpen()) return send(res, 503, { error: "relay_unavailable" });
 
     const token = bearerToken(req);
     if (!token) return send(res, 401, { error: "missing_token" });
@@ -834,6 +855,10 @@ export function createApp({ store, config }) {
     const listed = findInstance(grant.token.instanceId);
     if (!listed) return send(res, 403, { error: "instance_not_listed" });
     if (listed.status !== "active") return send(res, 403, { error: "instance_inactive" });
+    // 每实例开关：关掉就只是暂停受理，凭据与额度都还在，打开即恢复。
+    // 与 401 token_revoked 分开报，实例侧从状态码就能看出「还该不该等」。
+    const gate = store.relaySwitch(grant.token.instanceId);
+    if (gate.disabled) return send(res, 403, { error: "relay_disabled" });
     const instance = withSite(listed);
 
     const limit = Math.min(grant.token.dailyLimit || relayDefaultLimit, relayDefaultLimit);
@@ -1034,7 +1059,7 @@ export function createApp({ store, config }) {
 
     if (route === "/api/member/code" && method === "POST") {
       // 没有发信能力时明确说一句：否则用户会一直等一封不会来的信。
-      if (!mailer) return send(res, 503, { error: "mail_unavailable" });
+      if (!mailOpen()) return send(res, 503, { error: "mail_unavailable" });
 
       const ip = clientIp(req, trustProxy);
       const ipHit = memberCodeIpLimit(ipHash(ip, secret));
@@ -1389,6 +1414,18 @@ export function createApp({ store, config }) {
     // 控制台首页用的汇总：实例与探测、申请记录、发信与最近事件。
     if (route === "/api/admin/overview" && method === "GET") {
       return send(res, 200, buildOverview());
+    }
+
+    // 发信总闸。只有两个取值，落库而不是改配置：改完立刻生效，不用登机器、
+    // 不用改 env、不用重启。要回到「按环境变量的默认值」，清掉这一行即可。
+    if (route === "/api/admin/mail" && method === "POST") {
+      const body = await readBody(req);
+      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
+      if (body.error) return send(res, 400, { error: "bad_json" });
+      if (typeof body.enabled !== "boolean") return send(res, 400, { error: "invalid" });
+      const result = store.setSetting("mail", body.enabled ? "on" : "off", admin.username);
+      if (result.error) return send(res, 500, { error: result.error });
+      return send(res, 200, { ok: true, mail: { enabled: mailOpen(), switch: body.enabled ? "on" : "off" } });
     }
 
     // 改实例配置：清单字段与名册字段一起提交，先校验整份文件再原子写回。

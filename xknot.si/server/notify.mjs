@@ -9,7 +9,7 @@
 //     因此所有需要申请人动作的事都必须给链接，不能写「请回复本邮件」。
 //  2. 正文只放事实：不放内部备注、审核人、IP、哈希，也不放任何凭据明文。
 
-export const TEMPLATE_VERSION = "2.0.0";
+export const TEMPLATE_VERSION = "2.1.0";
 
 const LOCALES = ["zh-CN", "zh-TW", "en"];
 
@@ -76,10 +76,9 @@ export const TEMPLATES = {
 
 接下来由运营方把实例写进联邦清单并接通入口。收录当天，门户的实例目录里会出现这个条目：状态先是「待验收」，公网 /api/health 通过后转为在线。
 
-收录不包含下面两项，需要时另行确认：
+收录不包含入口主机与 SSH 反向隧道，需要时另行确认。
 
-- 入口主机与 SSH 反向隧道
-- 委托发信凭据
+委托发信默认由中枢代发：接入件里带一份发信凭据，不必再单独申请，也不用自己配 SMTP。
 
 申请状态与公钥提交：
 {caseUrl}
@@ -99,10 +98,9 @@ ${SIGN["zh-CN"]}`,
 
 接下來由營運方把實例寫進聯邦清單並接通入口。收錄當天，入口的實例目錄裡會出現這個條目：狀態先是「待驗收」，公網 /api/health 通過後轉為上線。
 
-收錄不包含下面兩項，需要時另行確認：
+收錄不包含入口主機與 SSH 反向隧道，需要時另行確認。
 
-- 入口主機與 SSH 反向隧道
-- 委託發信憑證
+委託發信預設由中樞代發：接入件裡帶一份發信憑證，不必再單獨申請，也不用自己設 SMTP。
 
 申請狀態與公鑰提交：
 {caseUrl}
@@ -122,10 +120,9 @@ Current tier: free
 
 The operator will now add the instance to the federation manifest and connect the entry. The entry appears in the portal's instance directory on the day it is listed: first as pending, then as online once the public /api/health check passes.
 
-Listing does not include the following, which are confirmed separately:
+Listing does not include the entry host and SSH reverse tunnel, which are confirmed separately.
 
-- the entry host and SSH reverse tunnel
-- a relay token for delegated mail
+Delegated mail is on by default: the access material includes a relay token, so there is no separate application and no SMTP setup of your own.
 
 Application status and public key:
 {caseUrl}
@@ -238,7 +235,7 @@ ${SIGN.en}`,
 
 领取页只显示一次，内容包含：
 
-- 委托发信凭据（如已开通）
+- 委托发信凭据
 - 接入件（实例 id、中枢地址、签发日期）
 - 连通参数（隧道账号、专属端口；直连为空）
 - 接通前的验收命令
@@ -257,7 +254,7 @@ ${SIGN["zh-CN"]}`,
 
 領取頁只顯示一次，內容包含：
 
-- 委託發信憑證（如已開通）
+- 委託發信憑證
 - 接入件（實例 id、中樞位址、簽發日期）
 - 連通參數（隧道帳號、專屬埠；直連為空）
 - 接通前的驗收命令
@@ -276,7 +273,7 @@ Claim it within {claimTtl}:
 
 The claim page is shown once and contains:
 
-- the relay token, if delegated mail is enabled
+- the relay token
 - the access material (instance id, hub origin, issue date)
 - the connectivity parameters (tunnel account and port; empty for direct)
 - the acceptance commands

@@ -11,7 +11,7 @@
 
 | 问题 | 结论 |
 |------|------|
-| 怎么加入 | 先在本机部署实例 → 打开 `/admin` → 填自述、选子域标签并提交 → 平台当场核对并签发子域，**提交即通过** → 运营方写进 `instances.json` → 接通验收 → 重新构建门户。**通过不等于上线。** |
+| 怎么加入 | 先在本机部署实例 → 打开 `/admin` → 填自述、选子域标签并提交 → 平台当场核对并签发子域，**提交即通过** → 运营方写进 `instances.json` → 接通验收，门户快照自动重算。**通过不等于上线。** |
 | 要提供域名吗 | 不用。地址由中枢签发：`<标签>.xknot.si`，标签 6–32 位。已经有自有域名的站点不需要走联邦这一步。 |
 | 身份是什么 | 清单里的 `url`，只有这一个地址，签发了就不再变。换机器、换 IP 只重连隧道、改解析，不改 `url`。 |
 | 接入形态 | 只有一种：中枢签发 `<标签>.xknot.si`；隧通之前入口发占位页，通了之后整站（含 `/`）都经**本机主动连出的 SSH 反向隧道**回到实例。名册 `mode` 恒为 `subdomain`，`tunnel` 必填。 |
@@ -121,8 +121,8 @@ npm run build                                    # 校验、探测、构建
 |----|------|------------|
 | 前置 | 中枢（自动） | 清单 `pending` 与名册成员写好；账号、端口、静态页、子域 conf、公钥、sshd `Match`、DNS 检查、证书全部就绪 |
 | 交换点 A | 实例来取 | 实例按案例键读 `GET /api/case/<key>/progress`，在 `handoff` 里拿到入口主机、账号与端口，写进 `sites/<站点>/tunnel.env` 并起隧道；`issued` 里有签发的 id、地址、档位与日期 |
-| 收尾 | 中枢（自动） | 探测通过后把 `status` 改成 `active`；`XKNOT_AFTER_ACTIVATE` 可挂重建门户的命令 |
-| 收尾 | 实例（自动） | 看到 `run.state = active` 后把 `issued` 写成 `sites/<站点>/xknot.env`，重启 Backend；`/api/federation/profile` 从此有内容 |
+| 收尾 | 中枢（自动） | 探测通过后把 `status` 改成 `active`，随即重算门户快照（`ops/republish.mjs`），卡片出现在首页；`xknot-republish.timer` 每 10 分钟补一次。`XKNOT_AFTER_ACTIVATE` 还能再挂一条自定义命令 |
+| 收尾 | 实例（自动） | 看到 `run.state = active` 后把 `issued` 写成 `sites/<站点>/xknot.env`，重启 Backend；`/api/federation/profile` 从此有内容。接入件里如果带了发信凭据，登录密钥也就开始走中枢代发 |
 
 **通讯方向。** 实例在 NAT 后，中枢拨不进去。所有动作都是实例连出：交公钥、读进度、取交接参数。案例键本身就是能力凭据，不再另发领取链接。
 
@@ -285,21 +285,23 @@ IP 变了不需要改任何清单字段：实例重新连出、入口主机的�
 | 通配多租户 `*.xknot.si` 入口 nginx | **未做**；每签发子域仍手工一份 conf，不能自动按 Host 分租户 |
 | 中枢站点 HTTPS / NS 切换细节 | 见 `ops/README-deploy-aws.md`；证书与部分 DNS 步骤标为另任务 |
 
-## 7. 委托发信（可选）
+## 7. 委托发信（默认开通）
 
 自己的 SMTP 难送达时，可以把通知信交给中枢代发。契约在 [FEDERATION.md](FEDERATION.md) 第 7 节。
+**现在默认就走这一条**：接入件里本来就带一份发信凭据，实例不需要自己配 SMTP。
 
 | 项 | 说明 |
 |----|------|
 | 前提 | 实例已在清单里且 `status: active`；中枢已配 SMTP |
-| 怎么开通 | 向运营方要一份发信凭据，由中枢命令行签发，明文只给一次 |
+| 怎么开通 | 默认开通。运营方 `access` 生成的接入件里带 `XKNOT_HUB_RELAY_TOKEN`，实例写入接入件并重启即可，节点侧不需要改代码 |
+| 怎么关 | 中枢按实例：`relay-disable <instance>`（可恢复）/ `relay-revoke <instance>`（不可逆）；整体：`/admin` 的发信总闸（点一下即停，可恢复）或 `XKNOT_RELAY_ENABLED=0`（只停代发）。实例侧想要纯 SMTP：不写这一项即可 |
 | 实例配置 | `XKNOT_HUB_ORIGIN=https://xknot.si`、`XKNOT_HUB_RELAY_TOKEN=…`；发信地址按中枢地址推导 |
 | 发信人 | 恒为中枢的 `MAIL_FROM`，实例不能覆盖 |
 | 回信 | `Reply-To` 必须落在实例自己的域名；省略时用清单里的 `contact` |
 | 内容 | 只发纯文本，≤4000 字，不收附件、HTML、抄送与密送 |
 | 额度 | 默认每 24 小时 50 封，可调；单凭据每分钟 6 封 |
 | 记录 | 中枢只留收件域名、地址哈希与结果，不留正文 |
-| 停用 | 运营方 `relay-revoke <instance>` 即刻生效；不影响实例其他功能 |
+| 停用 | 运营方 `relay-disable <instance>` 即刻生效、可恢复；`relay-revoke <instance>` 是吊销，不可逆。两者都不影响实例其他功能 |
 
 退信与投诉由实例自己盯。滥发会导致与中枢共用的发信域一起被降权，凭据会被直接吊销。
 

@@ -14,7 +14,7 @@
 
 `xknot.si` 是 XKnot 联邦的中枢，提供三项信息：**站点档案、运行状态、热点橱窗**。用户、内容、积分和运营属于各实例。
 
-另有一项单向服务：**委托发信**（第 7 节）。实例把一封纯文本通知交给中枢的 SMTP 送出，因为联邦只有一张已验证的发信地址。它不属于上面三层信息，也不写中枢的数据。
+另有一项单向服务：**委托发信**（第 7 节）。实例把一封纯文本通知交给中枢的 SMTP 送出，因为联邦只有一张已验证的发信地址。它不属于上面三层信息，也不写中枢的清单与快照；凭据默认写进接入件，中枢可以按实例暂停受理。
 
 ## 1. 三层信息
 
@@ -76,7 +76,7 @@
 中枢不接收写入，也不存伙伴的数据。清单之外的数据都由实例发布，中枢只取回副本。
 
 委托发信是唯一的写调用，判定条件另算：它必须绑定清单里的实例、只发纯文本、不留正文、
-有独立凭据与额度、可随时吊销，且不改变中枢的任何数据。不满足就不做。
+有独立凭据与额度、可随时吊销或暂停，且不改变中枢的任何数据。不满足就不做。
 
 ## 3. 实施里程碑
 
@@ -409,7 +409,11 @@ Accept: application/json
 联邦里只有一张通过验证的发信地址。实例量小、域名新，自己配 SMTP 容易进垃圾箱；
 可以把通知信交给中枢代发。这是三层信息之外唯一的一项服务，也是中枢唯一的写入口。
 
-它**不写中枢的数据**：不改清单、不写快照、不存正文，只在 `relay_log` 里记一条不含地址与正文的记录。
+**默认开通。** 凭据由运营方在生成接入件时签发，随接入件一次交到实例手里；
+实例用它发信即可，不需要自己配 SMTP，也不需要另外申请。中枢按实例保留一个开关，
+可以随时暂停或恢复受理（第 7.2 节）。
+
+它**不写中枢的清单与快照**：不改 `instances.json`、不写快照、不存正文，只在 `relay_log` 里记一条不含地址与正文的记录。
 
 ### 7.1 为什么由中枢发
 
@@ -419,13 +423,46 @@ Accept: application/json
 
 代价是收件人看到的发信人是中枢的地址，回信要靠 `Reply-To` 回到实例。
 
-### 7.2 凭据
+### 7.2 凭据与开关
 
 - 一份凭据绑定一个实例；`relay_tokens` 只存令牌的 SHA-256。
 - 明文只在签发时打印一次，写进实例的环境变量。
 - 吊销可以按凭据 id，也可以按实例 id 一次吊销该实例的全部凭据。
-- 实例必须仍在清单里且 `status: active`；下架或暂停后凭据自动失效。
+- 实例必须仍在清单里且 `status: active`；下架或状态不是 `active` 时请求被拒。
 - 每份凭据有自己的 24 小时额度，默认 50 封，上限受中枢配置约束。
+
+**三道开关，分开表达三件事。**
+
+| 开关 | 范围 | 怎么用 | 实例看到 | 可逆 |
+|------|------|--------|----------|------|
+| `/admin` 的「发信总闸」 | 中枢全部发信 | 控制台点一下，落库、立刻生效 | 代发 `503 relay_unavailable` | 再点一下即恢复 |
+| `XKNOT_RELAY_ENABLED=0` | 中枢全部实例 | 中枢环境变量；出事时一键停 | `503 relay_unavailable` | 改回来即恢复 |
+| `relay-disable <instance>` | 单个实例 | 运营命令；记原因 | `403 relay_disabled` | `relay-enable` 即恢复，凭据不动 |
+| `relay-revoke` | 单个实例 | 凭据泄露、退出联邦 | `401 token_revoked` | **不可逆**，要重签并让实例换文件 |
+
+控制台那个总闸管的是**整个中枢发不发信**：伙伴信、内部告警、成员登录码与委托发信一起停。
+它落进 `settings` 表（`mail=off`），不写配置、不改环境变量、不用重启；清掉这一行就回到默认。
+环境变量 `XKNOT_RELAY_ENABLED=0` 是另一道、只管代发的闸：它不锁控制台，总闸开着时面板会说明
+「代发仍返回 503」，两件事各说各的，不互相冒充。
+
+暂停与吊销是两件事：**暂停只停受理**，凭据、额度与历史记录原样留着，打开就继续用；
+**吊销是让那把钥匙作废**，实例必须换一份新接入件才能再发信。日常限流、退信率升高用暂停，
+凭据泄露才用吊销。总闸关着的时候 `admin-cli notify / handoff / live` 也会直接拒绝，
+免得「界面上停着、终端里又发出去一封」。
+
+```bash
+cd xknot.si
+node server/admin-cli.mjs relay-disable cpswang --note "退信率升高"
+node server/admin-cli.mjs relay-enable cpswang
+```
+
+**实例侧要不要走代发，实例自己决定**：环境里有 `XKNOT_HUB_ORIGIN` 与 `XKNOT_HUB_RELAY_TOKEN`
+就交给中枢，没有就走自己的 SMTP。中枢不预先通知，只在收到请求时按上表拒绝。
+
+**一处必须知道的取舍。** 实例把委托发信排在本地 SMTP 之前，且这个选择在进程启动时定下：
+一旦手里有凭据，中枢停掉以后它不会退回本地 SMTP，只会报发信失败。所以**对一台没有配 SMTP 的实例，
+暂停等于它的登录密钥寄不出去**（XKnot 的登录只有邮箱验证码一条路）。运营上只有两条路：
+要么确认该实例自己有 SMTP 再停，要么接受它暂时不能登录。这不是实现缺陷，是「端侧不改代码」的代价。
 
 签发、查看与吊销：
 
@@ -448,8 +485,10 @@ XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
 这两项只管委托发信；**接入件**里还有实例 id、中枢地址与签发快照，完整键表见第 7.4 节。一次生成整份：
 
 ```bash
-node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tmp/wang-access.env
+node server/admin-cli.mjs access <申请编号> --id wang --out /tmp/wang-access.env
 ```
+
+`access` 默认签发一份委托发信凭据并写进接入件；确实要一份纯 SMTP 的接入件时才加 `--no-relay`。
 
 ### 7.3 接口
 
@@ -457,6 +496,8 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 |------------|------|------|
 | `POST /api/federation/mail` | `Authorization: Bearer <token>` | 送一封纯文本通知 |
 | `GET /api/federation/mail` | 同上 | 查 24 小时额度 |
+
+只有这两条。凭据的签发与暂停都在中枢命令行上，不开放给案例键或网页会话。
 
 请求体：
 
@@ -504,11 +545,12 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 | 400 | `bad_json` | 请求体不是 JSON |
 | 401 | `missing_token` / `invalid_token` / `token_revoked` | 凭据缺失、无效或已吊销 |
 | 403 | `instance_not_listed` / `instance_inactive` | 实例不在清单里，或状态不是 `active` |
+| 403 | `relay_disabled` | 该实例的委托发信被暂停；凭据仍然有效，恢复后可以继续用 |
 | 413 | `too_large` | 请求体超过 16KB |
 | 429 | `rate_limited` | 单凭据每分钟 6 封，或全站每小时 240 封 |
 | 429 | `quota_exceeded` | 24 小时额度用完 |
 | 502 | `smtp_failed` | 中枢的 SMTP 拒绝或超时；可以用同一个幂等键重试 |
-| 503 | `relay_unavailable` | 中枢没有配 SMTP，或关掉了委托发信 |
+| 503 | `relay_unavailable` | 中枢没有配 SMTP，或 `/admin` 的发信总闸、`XKNOT_RELAY_ENABLED=0` 任一把关了 |
 
 ### 7.4 接入件
 
@@ -525,7 +567,7 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 | `XKNOT_ISSUED_AT` | 是 | 与 `XKNOT_HUB_ISSUED_AT` 同值；早期实例按这个名字读，保留 |
 | `XKNOT_TIER` | 是 | 签发时的档位（`free` / `paid` / `demo`），只作记录 |
 | `XKNOT_STATUS` | 是 | 签发时的状态（`pending` / `active`），只作记录 |
-| `XKNOT_HUB_RELAY_TOKEN` | 否 | 委托发信凭据；不签发委托发信时没有这一项 |
+| `XKNOT_HUB_RELAY_TOKEN` | 否 | 委托发信凭据；默认签发，用 `--no-relay` 生成时没有这一项 |
 | `XKNOT_HUB_RELAY_URL` | 否 | 委托发信地址，中枢不签发：缺省由 `XKNOT_HUB_ORIGIN` 推导，只有换入口时实例自己加 |
 
 `XKNOT_ISSUED_URL`、`XKNOT_ISSUED_AT`、`XKNOT_TIER`、`XKNOT_STATUS` 是签发时的快照，便于实例侧核对；
@@ -533,8 +575,10 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 
 规则：
 
-- 生成：`node server/admin-cli.mjs access <申请编号> --id <instance> [--with-relay] --out <文件>`，
-  只发给已通过的申请。
+- 生成：`node server/admin-cli.mjs access <申请编号> --id <instance> [--no-relay] --out <文件>`，
+  只发给已通过的申请；默认带一份委托发信凭据。
+- 写入：实例用既有的接入件写入路径落盘（`knot-platform` 是 `join-xknot.sh --payload`），
+  然后重启 Backend 让它生效。**节点侧不需要为此改任何代码或脚本**——它本来就从环境里读这两项。
 - 传输：一次性领取，`0600`，不进聊天、不进邮件正文、不进版本库。
 - 存放：实例自己保存；不接入联邦的实例不需要这份文件，功能照常。
 - 范围：**只含接入**。域名、端口、入口主机、隧道账号、静态文件归属属于部署拓扑，
@@ -553,14 +597,15 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 - 不存正文、完整收件地址与主题；日志只留实例、收件域名、地址哈希、主题长度和结果。
 - 每次发信额外带 `X-XKnot-Instance: <id>`，便于收信方与中枢对账。
 - 中枢不做退信处理，也不代管订阅。退信率和投诉率由实例自己控制。
-- 中枢可以随时吊销凭据；吊销不影响实例的其他功能。
+- 中枢可以随时暂停或吊销凭据；两者都不影响实例的其他功能，只是发信被拒。
 
 ### 7.6 滥用与处置
 
 | 现象 | 动作 |
 |------|------|
-| 单个实例退信率升高 | 调低该凭据的 `--daily`，或 `relay-revoke <instance>` |
-| 收到垃圾邮件投诉 | 立即吊销，从清单下架，并删除 L3 缓存 |
+| 单个实例退信率升高 | `relay-disable <instance>` 先停住（可恢复）；确认原因后再决定调低 `--daily` 还是吊销 |
+| 收到垃圾邮件投诉 | 立即 `relay-disable`，再 `relay-revoke` 并下架；同时删 L3 缓存 |
+| 凭据泄露 | `relay-revoke`（不可逆），重新 `access` 签一份并让实例换文件 |
 | 收件人回复无人处理 | 检查实例的 `contact` 与 `replyTo`，回信应落到实例自己的信箱 |
 
 `relay_log` 默认保留 30 天：启动时清理一次，之后每 6 小时清理更早的记录；`pending` 每分钟检查一次，超过 15 分钟仍是 `pending` 的占位视为进程在发信途中退出，直接回收，不再占用额度，也不会一直挡住同一个幂等键。
@@ -569,7 +614,7 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 
 - 中枢只访问清单中的地址。加入申请只收子域标签与站点信息，接收时不解析、不抓取；只有申请通过、写进清单并验收之后，构建时才探测。
 - 探测与拉取在解析 DNS 后拒绝回环、私有网段、链路本地和云元数据地址。
-- 写入路径只有两条：`POST /api/applications`（只收表单字段，不存文件，不回显 HTML，字段有长度上限与蜜罐）和 `POST /api/federation/mail`（Bearer 凭据、纯文本、独立额度、不留正文）。
+- 写入路径只有两条：`POST /api/applications`（只收表单字段，不存文件，不回显 HTML，字段有长度上限与蜜罐）和 `POST /api/federation/mail`（Bearer 凭据、纯文本、独立额度、不留正文）。凭据的签发、暂停与吊销都只在中枢命令行上，没有对应的 HTTP 入口。
 - 委托发信与浏览器会话完全隔离：不读 Cookie，不接受 `Origin` 跨站的 POST 复用会话。
 - 控制台需要管理员账号和会话；账号由命令行建立，口令用 scrypt 加盐存储，会话 Cookie 为 `HttpOnly`、`SameSite=Strict`。
 - 门户不执行伙伴脚本，不嵌 iframe。外链带 `rel="noopener noreferrer"`。

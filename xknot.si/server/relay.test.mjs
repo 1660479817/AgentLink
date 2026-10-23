@@ -160,6 +160,32 @@ test("store: tokens are stored hashed, revocable and bound to an instance", () =
   store.close();
 });
 
+test("store: the per-instance switch pauses one instance without touching its credential", () => {
+  const store = openMemoryStore();
+  const north = store.createRelayToken({ instanceId: "nordhavn", dailyLimit: 50 });
+  const other = store.createRelayToken({ instanceId: "cpswang", dailyLimit: 50 });
+  assert.equal(store.relaySwitch("nordhavn").disabled, false);
+
+  const off = store.setRelaySwitch("nordhavn", { disabled: true, note: "退信率升高", by: "cli" });
+  assert.equal(off.disabled, true);
+  assert.deepEqual(store.listRelaySwitches().map((row) => row.instanceId), ["nordhavn"]);
+  // 关的是「受理」，不是凭据：令牌照样校验通过，额度与记录都没动。
+  assert.equal(store.verifyRelayToken(north.token).token.instanceId, "nordhavn");
+  assert.equal(store.relaySwitch("cpswang").disabled, false);
+  assert.equal(store.listRelayTokens().filter((row) => !row.revokedAt).length, 2);
+
+  store.setRelaySwitch("nordhavn", { disabled: false });
+  assert.equal(store.relaySwitch("nordhavn").disabled, false);
+  assert.equal(store.listRelaySwitches().length, 0);
+
+  assert.equal(store.setRelaySwitch("Bad Id", { disabled: true }).error, "invalid_instance");
+  // 吊销仍然是另一件事：它让凭据本身作废，两条路径互不影响。
+  store.revokeRelayToken(other.record.id);
+  store.setRelaySwitch("cpswang", { disabled: true });
+  assert.equal(store.verifyRelayToken(other.token).error, "revoked");
+  store.close();
+});
+
 test("store: relay reservations hold quota, dedupe in-flight keys and expire", () => {
   const store = openMemoryStore();
   const token = store.createRelayToken({ instanceId: "nordhavn", dailyLimit: 5 }).record;
@@ -363,4 +389,73 @@ test("relay api: disabled relay answers 503", async (t) => {
   const result = await call("/api/federation/mail", { method: "POST", body: message, token });
   assert.equal(result.status, 503);
   assert.equal(result.data.error, "relay_unavailable");
+});
+
+// 每实例开关：关掉只影响这一个节点，恢复后同一个凭据立刻又能用。
+const LISTED = [{ ...instance, url: "https://nordhavn.xknot.si", status: "active" }];
+
+test("relay api: a switched-off instance gets 403 relay_disabled and recovers as-is", async (t) => {
+  const { store, call } = await start(t, { instances: LISTED });
+  const token = issue(store);
+
+  assert.equal((await call("/api/federation/mail", { method: "POST", body: message, token })).status, 200);
+
+  store.setRelaySwitch("nordhavn", { disabled: true, note: "退信率升高" });
+  const blocked = await call("/api/federation/mail", { method: "POST", body: message, token });
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.data.error, "relay_disabled");
+  // 查额度也一并拒绝：实例从状态码就能判断「等一等还有没有意义」。
+  assert.equal((await call("/api/federation/mail", { token })).status, 403);
+
+  store.setRelaySwitch("nordhavn", { disabled: false });
+  assert.equal((await call("/api/federation/mail", { method: "POST", body: message, token })).status, 200);
+});
+
+test("relay api: the console mail switch pauses delegated mail and restores it as-is", async (t) => {
+  const { store, call, mailer } = await start(t, { instances: LISTED });
+  const token = issue(store);
+
+  assert.equal((await call("/api/federation/mail", { method: "POST", body: message, token })).status, 200);
+
+  // 控制台那一行（/admin 的发信总闸）关掉：与「环境变量没开」同一个 503，
+  // 端侧据此判断「这次不是我的问题，等中枢」。
+  store.setSetting("mail", "off", "paul");
+  const blocked = await call("/api/federation/mail", { method: "POST", body: message, token });
+  assert.equal(blocked.status, 503);
+  assert.equal(blocked.data.error, "relay_unavailable");
+  // 查额度同样 503：这时候说「还有 49 封额度」是误导。
+  assert.equal((await call("/api/federation/mail", { token })).status, 503);
+  assert.equal(mailer.sent.length, 1, "停发期间一封都不能出去");
+
+  // 打开即恢复：凭据、额度、日志都不动。
+  store.setSetting("mail", "on", "paul");
+  assert.equal((await call("/api/federation/mail", { method: "POST", body: message, token })).status, 200);
+  assert.equal(mailer.sent.length, 2);
+});
+
+test("relay api: the hub-wide switch still answers 503, distinct from a per-instance pause", async (t) => {
+  const { store, call } = await start(t, { enabled: false, instances: LISTED });
+  const token = issue(store);
+  store.setRelaySwitch("nordhavn", { disabled: true });
+  const result = await call("/api/federation/mail", { method: "POST", body: message, token });
+  assert.equal(result.status, 503);
+  assert.equal(result.data.error, "relay_unavailable");
+});
+
+test("relay api: the case key cannot mint credentials any more", async (t) => {
+  const { store, call } = await start(t, { instances: LISTED });
+  const application = store.createApplication({
+    name: "nordhavn",
+    subdomain: "nordhavn",
+    operator: "Ops",
+    email: "ops@nordhavn.example",
+    region: "SE",
+    timezone: "Europe/Stockholm",
+    intro: "自用实例。",
+  });
+  // 自取端点已撤掉：案例键只剩交公钥、读进度、撤回三件事。
+  // 落不到任何签发逻辑上，也就不可能绕开运营方拿到凭据。
+  const result = await call(`/api/case/${application.caseKey}/relay`, { method: "POST" });
+  assert.notEqual(result.status, 200);
+  assert.equal(store.listRelayTokens().length, 0);
 });

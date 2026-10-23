@@ -9,7 +9,7 @@
 | 门户 | Vue 静态站 | Vue 3 + Vite，三语入口，运行时读取 `/data/hub.json` |
 | 接口 | Node 常驻进程 | `POST /api/applications` 收加入申请，`/api/subdomains/check` 回答标签能不能签，`/api/locations` 给各实例观测到的区域，`/api/probes` 给各实例当前的探测结果，`/api/member/*` 供成员入口使用，`/api/admin/*` 供控制台使用，`/api/federation/mail` 代实例发信 |
 | 控制台 | 静态页 + 接口 | `/admin/`，管理员登录后先看总览（实例与探测、申请记录、发信、最近事件），再查记录、改实例配置、取清单条目 |
-| 申请存储 | SQLite | `var/xknot.db`，表 `applications`、`admins`、`sessions`、`member_codes`、`member_sessions`、`events`、`claim_tokens`、`notify_log`、`relay_tokens`、`relay_log`、`provision_runs` |
+| 申请存储 | SQLite | `var/xknot.db`，表 `applications`、`admins`、`sessions`、`member_codes`、`member_sessions`、`events`、`claim_tokens`、`notify_log`、`relay_tokens`、`relay_switches`、`relay_log`、`provision_runs` |
 | 健康探测 | 构建步骤 + 定时巡检 | 构建时探测一次；`ops/watch-health.mjs` 每 15 分钟一次，写 `var/health.json` 并按连续时长发信 |
 | 活动数据拉取 | 构建步骤 | 构建时拉取 `statsUrl`，写 `var/stats/{id}.json` |
 | 入口流量 | 每小时聚合 | 读入口 nginx 的访问日志，按子域写 `var/traffic/{id}.json`；只给控制台看 |
@@ -87,10 +87,13 @@ xknot.si/
 │   ├── subdomain.mjs            子域名归一、保留名与长度校验、候选建议
 │   ├── probe-target.mjs         探测地址与开关：按清单 url 拼 /api/health
 │   ├── provision-worker.mjs     自动接通常驻：开通入口、切换反代，顺带采集位置
+│   ├── republish.mjs            运行期重算门户快照：接通、档案改版后更新 data/hub.json
 │   ├── xknot-health.service     巡检服务单元（oneshot）
 │   ├── xknot-health.timer       巡检定时器（每 15 分钟）
 │   ├── xknot-traffic.service    流量聚合单元（oneshot）
 │   ├── xknot-traffic.timer      流量聚合定时器（每小时）
+│   ├── xknot-republish.service  门户快照重算单元（oneshot）
+│   ├── xknot-republish.timer    门户快照重算定时器（每 10 分钟）
 │   ├── build-hub-data.mjs       合并清单、探测、活动数据与橱窗，写 data/hub.json
 │   ├── doc-page.mjs             通用文档页：markdown → 单页 HTML + 原文，门户上所有静态文档共用
 │   ├── render-knot-help.mjs     把仓库根 docs/KNOT_HELP.md 发成 /knot-help 与 /knot-help.md
@@ -155,6 +158,7 @@ npm run api           # 只起接口
 npm run build         # 校验、探测、构建、写快照，产物在 web/dist
 npm run build:preview # 并入样例条目构建，只看版式，不用于发布
 npm run verify        # 复核 dist/data/hub.json 的实例与 instances.json 一致
+npm run republish     # 只重算 data/hub.json（不打包、不碰资产），运行期用
 npm run validate      # 清单 + 名册两份校验
 npm run test          # 单元测试（清单、名册、页面逻辑、接口与邮件）
 ```
@@ -276,6 +280,27 @@ npm run test     # 纯逻辑单元测试
 - 时间用 `formatWhen`：7 天内为相对时间，超过为绝对日期，按实例的 `timezone` 计算。
 - 区域分组由 `src/lib/regions.js` 的 `groupsOf` 从国家码推出。国家码优先取 `/api/locations` 的观测值，没有再取 `hub.json` 的 `region`。
 - `hub.json` 由 nginx 以 `no-cache` 提供；里面的 `health` 与 `region` 是构建那一刻的采样，重新构建才会变。页面同时取 `/api/probes` 与 `/api/locations`，状态与位置不重新构建也能更新。
+
+### 3.2 接通之后：快照自己更新
+
+`build-hub.sh` 出的是**整站**，要前端工具链；而「节点刚接通」这件事只需要更新 `data/hub.json` 一份。所以运行期另有一条只做数据的路径：
+
+```bash
+node ops/republish.mjs --out /var/www/xknot/data/hub.json --quiet
+```
+
+它按同样的顺序取档案 → 读探测、橱窗、活动数据 → `buildHubData` → `verifyHubData` → 原子替换 `hub.json`。不打包、不碰 dist 里的资产，所以中枢主机不装 Vite 也能用。
+
+谁在调它：
+
+| 触发 | 位置 | 作用 |
+|------|------|------|
+| 节点验收通过 | `ops/provision-worker.mjs` 的 `refreshPortal()` | 把 `status` 改成 `active` 之后立刻重算，卡片几秒内出现 |
+| 每 10 分钟 | `ops/xknot-republish.timer` | 补档案改版、健康状态、流量与新节点；也补上面那次失败 |
+
+两条约束写在 `ops/republish.mjs` 里：快照过不了 `verifyHubData` 就不落盘（宁可不更新，也不发一份坏的）；某个伙伴的档案拉不到只记一条 warning，卡片退回 id，不让整站停更。
+
+**这一环以前是缺的**：`status` 变 `active` 只改了清单，没有任何人重算快照，节点会一直「在线但首页没有它」，直到有人手工 `build-hub.sh` + `deploy-hub.sh`。部署到中枢后 `deploy-api.sh` 会启用这个 timer；`systemctl list-timers xknot-republish.timer` 能确认。
 
 ## 4. 页面
 
@@ -524,7 +549,7 @@ npm run preview  # 预览构建产物（在 web/ 内执行）
 | `XKNOT_MAIL_REPLY_TO` | 取 `MAIL_FROM` | 伙伴信的 `Reply-To`；默认 `no-reply@xknot.si` |
 | `XKNOT_SUPPORT_URL` | （空） | 伙伴信里的可选联系入口；留空整行省略 |
 | `XKNOT_REVIEW_SLA` | — | 已不再使用：提交即通过，没有审核时限 |
-| `XKNOT_RELAY_ENABLED` | 随 SMTP | 委托发信开关；配了 SMTP 即开，置 `0` 可单独关掉 |
+| `XKNOT_RELAY_ENABLED` | 随 SMTP | 委托发信开关；配了 SMTP 即开，置 `0` 可单独关掉代发（不锁控制台的发信总闸，面板会注明） |
 | `XKNOT_RELAY_DAILY_LIMIT` | `50` | 每份凭据 24 小时内的发信上限 |
 
 生产把密码放在 `/opt/xknot/var/mail.env`（`0600`），由 systemd 的 `EnvironmentFile` 读入，不写进 unit 文件。`npm run mail:test -- <收件地址>` 用同一套环境变量发一封测试信。
@@ -647,8 +672,10 @@ M2：
 - [ ] `to` 带显示名、`subject` 带换行、`text` 超过 4000 字时返回 400
 - [ ] `replyTo` 用外部域名返回 400 `foreign_domain`
 - [ ] 超过每日额度返回 429；同一 `idempotencyKey` 重试不重复发信
+- [ ] `relay-disable <instance>` 后返回 403 `relay_disabled`，`relay-enable` 后同一个凭据立刻又能用
 - [ ] SMTP 故障返回 502，`relay-log` 里有一条 `failed`，且日志不含正文与完整地址
 - [ ] 未配 SMTP 或 `XKNOT_RELAY_ENABLED=0` 时返回 503
+- [ ] `/admin` 的发信总闸点 OFF 后：代发返回 503、伙伴信不发、`notify_log` 不新增；点回 ON 后立刻恢复
 
 M3：加入申请
 
@@ -682,10 +709,12 @@ M3：加入申请
 | `claim_tokens` | 一次性领取令牌：SHA-256、申请、交付内容、签发/过期/使用时间 |
 | `notify_log` | 发信记录：事件、案例、状态版本、语种、收件域名、地址哈希、模板版本、结果；不含正文 |
 | `relay_tokens` | 委托发信凭据：实例、标签、令牌 SHA-256、每日上限、签发与吊销时间 |
+| `relay_switches` | 每实例的委托发信开关：关掉只暂停受理，凭据留着，`relay-enable` 即恢复 |
 | `relay_log` | 发信记录：实例、收件域名、地址哈希、主题长度、结果；不含正文 |
 | `member_codes` | 成员登录授权码：邮箱、实例、码的 SHA-256、签发/过期/使用时间、试错次数 |
 | `member_sessions` | 成员会话：令牌的 SHA-256、邮箱、实例、签发与过期时间 |
 | `provision_runs` | 自动接通的运行记录：申请 id、整个 run 的 JSON（状态、逐项步骤与错误码、入口主机、账号、端口）、创建与更新时间；一张单一行，每次推进整行覆盖 |
+| `settings` | 中枢运行期开关：`key` / `value` / 改的人 / 时间。目前只有 `mail`（`on` / `off`）。没有这一行就是按环境变量的默认值，清掉即恢复 |
 
 申请状态与迁移：
 
@@ -716,7 +745,8 @@ M3：加入申请
 | `POST /api/admin/login` | 公开 | 用户名 + 口令，成功后种 `xknot_admin` Cookie |
 | `POST /api/admin/logout` | 会话 | 删除当前会话 |
 | `GET /api/admin/session` | 会话 | 当前管理员 |
-| `GET /api/admin/overview` | 会话 | 总览汇总：实例与逐个账号的配置、探测、申请记录、24 小时发信与最近事件；每个实例带 `location`（观测位置，`{ country, at, source }` 或 `null`），与自述的 `regions` 并排 |
+| `GET /api/admin/overview` | 会话 | 总览汇总：实例与逐个账号的配置、探测、申请记录、24 小时发信与最近事件；每个实例带 `location`（观测位置，`{ country, at, source }` 或 `null`），与自述的 `regions` 并排。`mail` 分开报 `switch`（`on` / `off`）、`configured`、`enabled`（现在发不发）；`relay.envOff` 表示环境变量把代发单独关了 |
+| `POST /api/admin/mail` | 会话 | 发信总闸：`{ enabled: true \| false }`，写 `settings.mail` 并立刻生效 |
 | `POST /api/admin/instances/:id/config` | 会话 | 改实例配置：`{ instance, member }` 两份补丁，整份校验通过后原子写回 `instances.json` 与 `federation.json`；不合法返回 400 + `fields[]` |
 | `GET /api/admin/applications?status=` | 会话 | 列表与各状态计数（`approved` / `withdrawn` / `rejected` / `expired`） |
 | `POST /api/admin/applications/:id/notify` | 会话 | 补发任意伙伴事件（`event` 取自 PARTNER-MAIL.md） |
@@ -736,8 +766,10 @@ M3：加入申请
 委托发信：
 
 - 凭据由命令行签发：`npm run admin -- relay-token <instance> [--label text] [--daily 50]`。明文只打印一次，库里只有 SHA-256。
-- 实例要的接入件由 `npm run admin -- access <申请编号> --id <instance> --with-relay --out <文件>` 生成：只含实例 id、中枢地址、签发日期与委托发信凭据（发信地址由中枢地址推导）。格式与键名见 [FEDERATION.md 第 7.4 节](FEDERATION.md#74-接入件)；实例存成什么文件名、放哪个目录，是实例自己的事。站点拓扑不进这份文件，部署与接入因此互不牵连。清单 `status` 是 `pending` 时就能签：验收前伙伴正是靠这份接入件起隧道，挂起或退出后不再签。
-- 吊销按凭据 id，或按实例 id 一次吊销该实例全部凭据：`npm run admin -- relay-revoke <id|instance>`。
+- **默认开通**：`access` 生成的接入件里本来就带一份凭据；节点按既有路径写入接入件、重启 Backend 即可，**不需要改任何节点代码**（它从环境里读 `XKNOT_HUB_RELAY_TOKEN`）。要纯 SMTP 的接入件才加 `--no-relay`，那会把该实例旧的凭据一并吊销。
+- 实例要的接入件由 `npm run admin -- access <申请编号> --id <instance> --out <文件>` 生成：只含实例 id、中枢地址、签发日期与委托发信凭据（发信地址由中枢地址推导）。格式与键名见 [FEDERATION.md 第 7.4 节](FEDERATION.md#74-接入件)；实例存成什么文件名、放哪个目录，是实例自己的事。站点拓扑不进这份文件，部署与接入因此互不牵连。清单 `status` 是 `pending` 时就能签：验收前伙伴正是靠这份接入件起隧道，挂起或退出后不再签。
+- 两道开关：中枢整体 `XKNOT_RELAY_ENABLED=0` 一律 503；按实例暂停用 `relay-disable <instance> --note 原因`（`403 relay_disabled`，`relay-enable` 即恢复，凭据不动）。
+- 吊销按凭据 id，或按实例 id 一次吊销该实例全部凭据：`npm run admin -- relay-revoke <id|instance>`。吊销不可逆，实例得换新接入件。
 - 只认 `Authorization: Bearer`，不读 Cookie；实例必须在清单里且 `status: active`。
 - 单凭据每分钟 6 封、默认每 24 小时 50 封；全站每小时最多 240 封。
 - 只发纯文本，发信人恒为 `MAIL_FROM`；`Reply-To` 必须落在实例自己的域名，省略时用 `contact`。
@@ -769,6 +801,12 @@ M3：加入申请
 `/admin/` 是一个不参与构建的静态页：
 
 - 登录后默认是**总览**：四个数字（实例、已通过申请、24 小时发信、委托发信），实例与探测列表，申请记录，以及最近事件。数据来自 `GET /api/admin/overview`。
+- 「发信」面板顶上是一个**发信总闸**（`role="switch"`，ON / OFF）。点一下走 `POST /api/admin/mail`，写进 `settings` 表（`mail=on` / `mail=off`），立刻生效、不用重启：
+  - OFF：伙伴信、内部告警、成员登录码都不再寄出，`/api/federation/mail` 对每个实例返回 `503 relay_unavailable`（它们的登录密钥会跟着寄不出去）。凭据、额度与历史记录一个都不动，再点一下即恢复。
+  - 停发期间不收新信，也不写 `notify_log`：打开之后同一件事还能补发，不会被去重键当成「已经发过」。
+  - 没配 SMTP 时开关禁用，提示先填 `SMTP_HOST` 与 `MAIL_FROM`。
+  - 环境变量 `XKNOT_RELAY_ENABLED=0` 是只管代发的另一道闸：总闸开着时面板会加一句「各节点的代发请求仍返回 503」，不假装代发是好的。
+  - 命令行也受同一行约束：总闸关着时 `admin-cli notify / handoff / live` 直接报错退出，不会出现「界面停着、终端又发了一封」。
 - 实例行显示名称、地址、分级、在线/离线/未探测、延迟或断连时长；有橱窗或活动数据的实例带标记。
 - 点一行在下面展开这个账号的配置，不跳站点：名册身份、席位、隧道账号与端口、清单列出、加入时间、时区、语言、运营者、所有者、联系邮箱、对外地址、探测地址、橱窗与统计入口，以及名册备注。地址类字段单独给链接，跳站是明确动作，点整行只展开。
 - 配置里的身份字段来自 `federation.json`，地址类字段来自 `instances.json`；两边都按文件 `mtime` 读，改完刷新总览就能看到，不用重启接口。清单里有、名册里没有的实例会显示「未进名册」。
@@ -801,7 +839,7 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug \
 | 字段 | 取值 |
 |------|------|
 | `tier` | `free` |
-| `status` | `pending`（验收后人工改 `active`） |
+| `status` | `pending`（验收后由 `xknot-provision` 自动改 `active`） |
 | `since` | 通过当天 |
 | `id` | 由站点域名推出 |
 
@@ -809,7 +847,7 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug \
 
 清单没有探测地址字段：它恒为 `url` + `/api/health`。收录时 `status` 是 `pending`，不探测也不上门户；验收通过后改成 `active`。
 
-申请通过不会自动上线，也不会自动部署。写清单、重新构建、同步 `dist` 仍是三步人工操作。
+申请通过不会自动上线，也不会自动部署。写清单之后的事——等隧道接通、探测通过、改 `active`、把名册那句「等待接通验收」换成「已接通」、重算门户快照——都由 `xknot-provision` 与 `xknot-republish.timer` 接着做，不需要人工构建。唯一要人工补的是把中枢上新增的条目取回仓库（`deploy-api.sh --pull-manifest`）。
 
 ### 9.5 补记缺失的申请单
 
@@ -860,14 +898,25 @@ node server/admin-cli.mjs access XK-2026-XXXXXX --id wang
 
 ## 10. 运维
 
+定时任务（都在中枢主机上，`deploy-api.sh` 安装并启用）：
+
+| 单元 | 节拍 | 做什么 |
+|------|------|--------|
+| `xknot-health.timer` | 15 分钟 | 探测所有实例，写 `var/health.json`；连续断连发信、7 天隐藏 |
+| `xknot-traffic.timer` | 1 小时 | 入口访问日志 → `var/traffic/{id}.json` |
+| `xknot-republish.timer` | 10 分钟 | 重算 `/var/www/xknot/data/hub.json`：新节点、档案改版、健康与流量都靠它上页面 |
+
+常驻的 `xknot-provision`（20 秒一轮）不在上表：它推进开通、验收后改 `active`，并当场触发一次快照重算。
+
 | 场景 | 操作 |
 |------|------|
-| 新增实例 | 申请通过 → `npm run admin -- publish <id> --tunnel-account <账号> --tunnel-port <端口>`（`status: pending`，清单与名册一起写）→ 前置（账号、端口、DNS、证书、静态页、conf、公钥、`access` 领取链接）→ 交换点 A → 验收后把 `status` 改 `active` → `npm run build`。顺序见 [HANDOFF.md](HANDOFF.md) |
+| 新增实例 | 申请通过 → `npm run admin -- publish <id> --tunnel-account <账号> --tunnel-port <端口>`（`status: pending`，清单与名册一起写）→ 前置（账号、端口、DNS、证书、静态页、conf、公钥、`access` 领取链接）→ 交换点 A → 验收后把 `status` 改 `active` → 门户快照自动重算，无需手工构建。顺序见 [HANDOFF.md](HANDOFF.md) |
 | 暂停实例 | `status` 改 `suspended`，保留上次健康结果 |
 | 实例失联 | 构建时探测失败即显示 `down`，连续 30 天再决定是否删除 |
 | 橱窗违规 | 删除 `var/cards/{id}.json`，从清单移除 `cardsUrl`，重新构建 |
 | 探测异常 | 查 `var/health.json` 的 `error` 字段：`timeout`、`redirect`、`bad_payload`、`http_<code>` |
 | 页面异常 | `npm run build` 重建 `web/dist` |
+| 节点在线但首页没有卡片 | 先看 `instances.json` 里是不是 `active`；再看 `systemctl status xknot-republish.timer` 与 `journalctl -u xknot-republish`（快照被守卫拒绝会打 `snapshot rejected`），最后 `curl -s https://xknot.si/data/hub.json \| grep <id>` |
 | 状态不刷新 | 先看 `GET /api/probes`：它是当前值，页面拿它覆盖快照。两边一致说明实例真的没通，不一致说明接口没起来或页面取不到它；只有快照里的旧值才需要重新构建 |
 | 忘记管理员口令 | 删掉该账号再建：`npm run admin -- delete-admin <name>`，然后 `create-admin` |
 | 接口挂了 | 看进程日志；库文件在 `var/`，重启不丢申请 |
@@ -901,6 +950,8 @@ node server/admin-cli.mjs access XK-2026-XXXXXX --id wang
 
 前提是入口装了日志格式：`knot-platform/ops/entry/log.conf.template` 定义 `log_format knot_json`，`site.conf.template` 里每个 server 块写一行 `access_log /var/log/nginx/knot-access.log knot_json;`。同一台入口主机只装一次，`push-entry.sh` 负责。
 
+自动接通签发的子域不经过 `push-entry.sh`，所以 `server/provision.mjs` 自己带这套：`renderVhost` 在每份 conf 里**自己声明**一个按子域唯一的格式（`knot_json_<子域>`，域名里的点写成下划线），再在 443 的 server 里写 `access_log ... <那个名字>`。不共用 `knot-log.conf` 是因为 `conf.d/*.conf` 按文件名 include：共享那份排在 `cpswang.xknot.si.conf` 之后，那里声明的 `knot_json` 在那个文件里还不存在，`nginx -t` 直接报 `unknown log format`。少这一行，新节点的「入口流量」就一直是「未采集」。
+
 - 只记 `$uri`，不记查询串：分享令牌和搜索词不该进日志。
 - `$host` 是唯一的子域标识，聚合端按 `instances.json` 映射到 id；清单外的 host 只计数、不落盘。
 - 原始日志按默认的 `/etc/logrotate.d/nginx` 轮转，**7 天**；`var/traffic/{id}.json` 保留最近 **30 天**。聚合不只看当前文件，也读最近三天的轮转档（`.1`、`-YYYYMMDD` 及 `.gz`），跨零点那批请求因此不会落在两次聚合之间。
@@ -923,7 +974,7 @@ node ops/traffic.mjs --log ./fixtures/access.log --out ./var/traffic
 | 场景 | 操作 |
 |------|------|
 | 控制台没有流量 | `systemctl status xknot-traffic.timer`；`journalctl -u xknot-traffic` 看是不是「没有访问日志」 |
-| 流量全是 0 或没有子域 | 入口 conf 里有没有 `access_log ... knot_json`；`knot-log.conf` 在不在 conf.d；`nginx -t` 过不过 |
+| 流量全是 0 或没有子域 | 入口 conf 里有没有 `access_log ... knot_json_<子域>`，同一份文件里有没有对应的 `log_format`；`nginx -t` 过不过。自动接通生成的 conf 自带这两行，手工写的（如 `wang`）用 `knot-log.conf` 里的 `knot_json`，靠文件名排在它前面才对 |
 | 某个子域数字明显偏小 | 它可能走了 `proxy` 投放且缓存命中高，看 `cache` 与 `upstream.requests`，不要只看 bytes |
 | 清单外的 host 有请求 | 查入口 conf 的 `server_name` 与 DNS；聚合日志里会列出被忽略的 host |
 | 隧道总是「断开」 | `var/peers.json` 里有没有该 id；没有就是隧道没连，或中枢不在入口主机 |

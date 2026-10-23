@@ -118,15 +118,15 @@ test("access: the file is 600 even when it already existed as 644", async (t) =>
   assert.match(text, /^XKNOT_HUB_ORIGIN=https:\/\/xknot\.si$/m);
 });
 
-test("access --with-relay: the previous credential stops working when a new one is issued", async (t) => {
+test("access: issuing again replaces the previous credential", async (t) => {
   const { cli, dir, application, env } = await fixture(t);
   const out = path.join(dir, "cpswang.env");
 
-  const first = await cli(["access", application.id, "--id", "cpswang", "--with-relay", "--daily", "20", "--out", out]);
+  const first = await cli(["access", application.id, "--id", "cpswang", "--daily", "20", "--out", out]);
   assert.equal(first.code, 0, first.stderr);
   assert.match(await readFile(out, "utf8"), /^XKNOT_HUB_RELAY_TOKEN=xkr_\S+$/m);
 
-  const second = await cli(["access", application.id, "--id", "cpswang", "--with-relay", "--out", out]);
+  const second = await cli(["access", application.id, "--id", "cpswang", "--out", out]);
   assert.equal(second.code, 0, second.stderr);
   // 终端要说清旧件已经作废：运营看到这句才知道不必再追着回收。
   assert.match(second.stderr, /已作废/);
@@ -137,6 +137,52 @@ test("access --with-relay: the previous credential stops working when a new one 
   assert.equal(tokens.length, 2);
   assert.equal(tokens.filter((token) => !token.revokedAt).length, 1, "同时只有一份有效");
   assert.ok(tokens.some((token) => token.revokedAt && token.dailyLimit === 20));
+});
+
+test("access: a relay credential is issued by default, and --no-relay revokes the old one", async (t) => {
+  const { cli, dir, application, env } = await fixture(t);
+
+  const out = path.join(dir, "cpswang.env");
+  const byDefault = await cli(["access", application.id, "--id", "cpswang", "--out", out]);
+  assert.equal(byDefault.code, 0, byDefault.stderr);
+  assert.match(await readFile(out, "utf8"), /^XKNOT_HUB_RELAY_TOKEN=xkr_\S+$/m);
+
+  // 不要发信能力时明确关掉：文件里没有凭据，库里那份也一并作废。
+  const smtpOnly = path.join(dir, "cpswang-smtp.env");
+  const off = await cli(["access", application.id, "--id", "cpswang", "--no-relay", "--out", smtpOnly]);
+  assert.equal(off.code, 0, off.stderr);
+  assert.doesNotMatch(await readFile(smtpOnly, "utf8"), /^XKNOT_HUB_RELAY_TOKEN=xkr_/m);
+
+  const store = openStore(path.join(env.XKNOT_DATA_DIR, "xknot.db"));
+  t.after(() => store.close());
+  const tokens = store.listRelayTokens().filter((token) => token.instanceId === "cpswang");
+  assert.equal(tokens.filter((token) => !token.revokedAt).length, 0, "no usable credential is left");
+});
+
+test("relay-disable / relay-enable: one switch per instance, and the credential survives it", async (t) => {
+  const { cli, env } = await fixture(t);
+  const store = openStore(path.join(env.XKNOT_DATA_DIR, "xknot.db"));
+  t.after(() => store.close());
+  const issued = store.createRelayToken({ instanceId: "cpswang", dailyLimit: 30 });
+
+  const off = await cli(["relay-disable", "cpswang", "--note", "退信率升高"]);
+  assert.equal(off.code, 0, off.stderr);
+  assert.equal(store.relaySwitch("cpswang").disabled, true);
+  assert.equal(store.relaySwitch("cpswang").note, "退信率升高");
+  // 暂停不是吊销：令牌照样能校验通过，额度也没变。
+  assert.equal(store.verifyRelayToken(issued.token).token.instanceId, "cpswang");
+  assert.equal(store.listRelayTokens()[0].dailyLimit, 30);
+
+  // 列表要能看出是「关掉了」而不是「吊销了」。
+  const listed = await cli(["relay-tokens"]);
+  assert.match(listed.stdout, /已关闭（可恢复）/);
+
+  const on = await cli(["relay-enable", "cpswang"]);
+  assert.equal(on.code, 0, on.stderr);
+  assert.equal(store.relaySwitch("cpswang").disabled, false);
+
+  assert.notEqual((await cli(["relay-disable", "nosuch"])).code, 0);
+  assert.notEqual((await cli(["relay-disable"])).code, 0);
 });
 
 test("access: a withdrawn application gets no credentials", async (t) => {
