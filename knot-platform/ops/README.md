@@ -659,6 +659,13 @@ node backend/scripts/backfill-uploads.mjs
 node backend/scripts/backfill-uploads.mjs --apply
 ```
 
+卡片按图片真实宽高排多图之后，更早记下的宽高是**未转 EXIF**的（竖拍照片存成横的），那些帖子的多图比例会正好反过来。升级后跑一次 `--sizes` 把已有的宽高重算：
+
+```bash
+node backend/scripts/backfill-uploads.mjs --sizes
+node backend/scripts/backfill-uploads.mjs --sizes --apply
+```
+
 从 0.4 及更早的库搬内容（`users` → `accounts`）：
 
 ```bash

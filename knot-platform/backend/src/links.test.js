@@ -63,7 +63,7 @@ test("a card shows a stored image", () => {
       created_at: "2026-10-13T00:00:00.000Z",
     },
     {
-      files: [{ id: ID, name: "a.jpg", mime: "image/jpeg", url: `/api/web/uploads/${ID}`, image: true, size: 3 * 1024 * 1024 }],
+      files: [{ id: ID, name: "a.jpg", mime: "image/jpeg", url: `/api/web/uploads/${ID}`, image: true, size: 3 * 1024 * 1024, width: 1280, height: 720 }],
       granted: false,
     }
   );
@@ -73,6 +73,9 @@ test("a card shows a stored image", () => {
   assert.deepEqual(record.kMeta.commerce, { price: 10, fee: 0, payee: "author" });
   assert.equal(record.images[0].url, `/api/web/uploads/${ID}`);
   assert.equal(record.images[0].stored, true);
+  // 卡片按宽高排多图，比例要随记录下发，不能让前端等图下载完再量。
+  assert.equal(record.images[0].width, 1280);
+  assert.equal(record.images[0].height, 720);
   assert.equal(record.kMeta.note, "");
 });
 
