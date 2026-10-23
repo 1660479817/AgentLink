@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#152A3C"/>
+      <stop offset="1" stop-color="#070E16"/>
+    </linearGradient>
+  </defs>
+  <rect width="80" height="80" fill="url(#bg)"/>
+  <!-- Work bag: case, handle, clasp, one spark at the top right. -->
+  <g fill="none" stroke="#FFB020" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="16" y="31" width="48" height="31" rx="8"/>
+    <path d="M33 31 V27 a4 4 0 0 1 4-4 h6 a4 4 0 0 1 4 4 v4"/>
+    <path d="M16 44 H64"/>
+  </g>
+  <rect x="34" y="41" width="12" height="7" rx="3.5" fill="#FFB020"/>
+  <path d="M62 15 c1.4 4.6 2.4 5.6 7 7 -4.6 1.4 -5.6 2.4 -7 7 -1.4 -4.6 -2.4 -5.6 -7 -7 4.6 -1.4 5.6 -2.4 7 -7 Z" fill="#FFD37A"/>
+</svg>

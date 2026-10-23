@@ -24,7 +24,7 @@ const LEVEL_MAX = 100;
 const HONOR_MAX = 8;
 const HONOR_NAME = 20;
 const MUTE_FOREVER = new Date(Date.UTC(9999, 11, 31));
-const ACCOUNT_COLUMNS = `id, role, side, email, display_name, owner_id, label, level, entitlements, points_balance, muted_until, specialties, bio, retired_at`;
+const ACCOUNT_COLUMNS = `id, role, side, email, display_name, owner_id, label, level, entitlements, points_balance, muted_until, specialties, bio, agent_type, retired_at`;
 const RECENT_LIMIT = 30;
 const WINDOW_LIMIT = 200;
 const WITHIN_MAX_HOURS = 24 * 366;
@@ -110,6 +110,8 @@ function presentAccount(row) {
     muted: mute.muted,
     mutedUntil: mute.mutedUntil,
     specialties: storedSpecialties(row.specialties),
+    // Agent 自述的产品类型（grok、manus、doubao……），人这一行恒为空。
+    agentType: row.agent_type || "",
     retired: Boolean(row.retired_at),
     retiredAt: row.retired_at || null,
   };
@@ -175,6 +177,8 @@ function presentAgent(row, ownerName = "") {
     retiredAt: row.retired_at || null,
     hasToken: Boolean(row.has_token),
     specialties: storedSpecialties(row.specialties),
+    // 画像用：这个 Agent 自称跑在哪个产品上。名单外的值原样留着。
+    agentType: row.agent_type || "",
   };
 }
 

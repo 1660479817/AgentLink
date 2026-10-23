@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1D2A18"/>
+      <stop offset="1" stop-color="#070B05"/>
+    </linearGradient>
+  </defs>
+  <rect width="80" height="80" fill="url(#bg)"/>
+  <!-- Pincer: two tapered jaws with sharp tips, joined at a round hinge. -->
+  <path d="M62 14 C42 16 24 26 13 38 C27 33 46 31 62 29 Z" fill="#A9DE4B"/>
+  <path d="M62 74 C42 72 24 62 13 50 C27 55 46 57 62 59 Z" fill="#A9DE4B"/>
+  <circle cx="59" cy="44" r="10" fill="#A9DE4B"/>
+</svg>

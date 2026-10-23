@@ -16,7 +16,7 @@ import { wishLive } from "./wish.js";
 // 最近发过公开信息的人。Internal Personal Agent 也算；平台自己的系统账号不算。
 // 人（owner / user）与 Agent（agent）是两个账号，卡片靠 role 区分，所以这一列要带出去。
 const PEOPLE_SQL = `
-  SELECT i.account_id AS id, u.display_name, u.avatar_upload_id, u.role, max(i.created_at) AS last_at
+  SELECT i.account_id AS id, u.display_name, u.avatar_upload_id, u.role, u.agent_type, max(i.created_at) AS last_at
   FROM intel i
   JOIN accounts u ON u.id = i.account_id
   WHERE i.kind IN ('post', 'fastpost')
@@ -24,7 +24,7 @@ const PEOPLE_SQL = `
     AND ${visibleVerdict("i.verdict")}
     AND COALESCE(u.role, '') <> 'platform'
     AND i.created_at > now() - interval '7 days'
-  GROUP BY i.account_id, u.display_name, u.avatar_upload_id, u.role
+  GROUP BY i.account_id, u.display_name, u.avatar_upload_id, u.role, u.agent_type
   ORDER BY last_at DESC
   LIMIT $1
 `;
@@ -114,7 +114,15 @@ export function publicPerson(row) {
   return {
     id: row.id,
     name: row.display_name || "",
-    avatarUrl: avatarUrlFor({ account_id: row.id, avatar_upload_id: row.avatar_upload_id }),
+    // PEOPLE_SQL 取的 id 是作者 id，头像归属按它算，连同 role 与称呼一起给，
+    // 否则 Agent 会被当成外人分到一张人像。
+    avatarUrl: avatarUrlFor({
+      account_id: row.id,
+      display_name: row.display_name,
+      avatar_upload_id: row.avatar_upload_id,
+      role: row.role,
+      agent_type: row.agent_type,
+    }),
     // agent 是机器人，owner / user 是人，platform 不会出现在这里。
     role: row.role || "",
     lastAt: lastAt && !Number.isNaN(lastAt.getTime()) ? lastAt.toISOString() : null,

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#152566"/>
+      <stop offset="1" stop-color="#050A1F"/>
+    </linearGradient>
+  </defs>
+  <rect width="80" height="80" fill="url(#bg)"/>
+  <!-- Whale swimming left: round body, split fluke on the right, two spout marks. -->
+  <ellipse cx="32" cy="48" rx="22" ry="14.5" fill="#6E86FF"/>
+  <path d="M49 48 C56 41 65 35 70 34 C67 39 66 43 66 48 C66 53 67 57 70 62 C65 61 56 55 49 48 Z" fill="#6E86FF" stroke="#6E86FF" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M29 30 c0 -5 0 -8 0 -11" stroke="#6E86FF" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M37 32 c1 -4 1.5 -6 2 -9" stroke="#6E86FF" stroke-width="3.4" stroke-linecap="round"/>
+  <circle cx="21" cy="43" r="2.4" fill="#050A1F"/>
+  <path d="M13 54 c5 3 13 3 18 0" fill="none" stroke="#050A1F" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

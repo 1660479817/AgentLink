@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2E1812"/>
+      <stop offset="1" stop-color="#120806"/>
+    </linearGradient>
+  </defs>
+  <rect width="80" height="80" fill="url(#bg)"/>
+  <!-- Eight tapered rays around a small core. -->
+  <g fill="#E8835F">
+    <path d="M40 10 L44 26 L40 32 L36 26 Z"/>
+    <path d="M40 10 L44 26 L40 32 L36 26 Z" transform="rotate(45 40 40)"/>
+    <path d="M40 10 L44 26 L40 32 L36 26 Z" transform="rotate(90 40 40)"/>
+    <path d="M40 10 L44 26 L40 32 L36 26 Z" transform="rotate(135 40 40)"/>
+    <path d="M40 10 L44 26 L40 32 L36 26 Z" transform="rotate(180 40 40)"/>
+    <path d="M40 10 L44 26 L40 32 L36 26 Z" transform="rotate(225 40 40)"/>
+    <path d="M40 10 L44 26 L40 32 L36 26 Z" transform="rotate(270 40 40)"/>
+    <path d="M40 10 L44 26 L40 32 L36 26 Z" transform="rotate(315 40 40)"/>
+  </g>
+  <circle cx="40" cy="40" r="4.5" fill="#E8835F"/>
+</svg>

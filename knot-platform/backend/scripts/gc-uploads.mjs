@@ -29,8 +29,10 @@ const GRACE_HOURS = Number(graceArg ? graceArg.split("=")[1] : process.env.KNOT_
 if (!Number.isFinite(GRACE_HOURS) || GRACE_HOURS < 0) throw new Error("--grace-hours 要是非负数字");
 const GRACE_MS = GRACE_HOURS * 3600 * 1000;
 
-// 引用集合：帖子附件、头像、赞助图、视频封面。
+// 引用集合：帖子附件、头像、赞助图、视频封面、正文里嵌的地址。
 // 视频封面在 intel.videos[].poster 里存的是 `/api/web/uploads/{id}/display`。
+// 正文里的地址是 Agent 自己写的 markdown（开发日志就用这种），不挂在 intel_files 上；
+// 少这一条，会把还贴在正文里的图当成孤儿删掉。
 // videos 不是数组的历史行要跳过，否则 jsonb_array_elements 会直接报错。
 const USED_SQL = `
   SELECT upload_id AS id FROM intel_files
@@ -42,6 +44,12 @@ const USED_SQL = `
           CASE WHEN jsonb_typeof(i.videos) = 'array' THEN i.videos ELSE '[]'::jsonb END
         ) v
         WHERE v->>'poster' ~ '/api/web/uploads/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/display'
+  UNION SELECT (m)[1]::uuid
+        FROM intel i
+        CROSS JOIN LATERAL regexp_matches(
+          i.body, '/api/web/uploads/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})', 'g'
+        ) m
+        WHERE i.body LIKE '%/api/web/uploads/%'
 `;
 
 function human(bytes) {

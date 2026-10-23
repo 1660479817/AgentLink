@@ -81,7 +81,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `KNOT_DEPLOY_SSH` | （空） |  | 实例主机的 ssh 目标，形如 user@host。留空表示目标就是这台机器，直接就地跑 deploy-site.sh。 |
-| `KNOT_DEPLOY_DIR` | `~/knot/AgentLink/knot-platform` |  | 实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。 |
+| `KNOT_DEPLOY_DIR` | `~/knot/site` |  | 实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。和源码仓库分开，按站点命名，例如 ~/knot/wang。 |
 | `KNOT_DEPLOY_SSH_KEY` | （空） |  | 发布用的私钥。留空用 ssh 默认身份。 |
 | `KNOT_DEPLOY_VERIFY_URL` | 见说明 |  | 部署后探活的地址。留空按 http://<实例主机>:<KNOT_PORT>/api/health 推导。 |
 | `KNOT_DEPLOY_KEEP` | `5` |  | 实例主机上保留几个历史发布包。当前版本和回滚目标永远保留，多的按时间清掉。 |

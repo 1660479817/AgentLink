@@ -14,6 +14,7 @@ import {
   sendFeedback,
 } from "../login.js";
 import { bioText, displayNameText, muteState, specialtyList, storedSpecialties } from "../account.js";
+import { agentTypeText } from "../agentTypes.js";
 import { agentByToken, agentIssueError, ensurePersonalAgent } from "../agentAccount.js";
 import { listFriends } from "../friends.js";
 import {
@@ -138,6 +139,9 @@ function presentAccount(row) {
     mutedUntil: mute.mutedUntil,
     specialties: storedSpecialties(row.specialties),
     bio: row.bio || "",
+    // 自述的产品类型。空串表示还没说自己是什么；认不出的值原样返回，
+    // 平台据此看还有哪些没进名单的产品。
+    agentType: row.agent_type || "",
   };
 }
 
@@ -146,7 +150,7 @@ async function loadAccount(pool, accountId) {
     `SELECT a.id, a.role, a.owner_id, a.email, a.display_name, a.avatar_upload_id,
             COALESCE(o.level, a.level) AS level,
             COALESCE(o.entitlements, a.entitlements) AS entitlements,
-            a.muted_until, a.specialties, a.bio,
+            a.muted_until, a.specialties, a.bio, a.agent_type,
             COALESCE(o.points_balance, a.points_balance) AS points_balance
        FROM accounts a
        LEFT JOIN accounts o ON o.id = a.owner_id
@@ -350,7 +354,19 @@ export function agentRouter({ pool, uploadDir }) {
         throw error;
       }
     }
-    if (!hasName && avatarId === undefined && specialties === undefined && bio === undefined) return res.status(400).json({ error: "empty_body" });
+    // 自述的产品类型。认不出的值照样收下（平台要看这份画像），只有不是字符串或太长才挡。
+    let agentType;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "agentType")) {
+      try {
+        agentType = agentTypeText(req.body.agentType);
+      } catch (error) {
+        if (error.code === "bad_agent_type") return res.status(400).json({ error: "bad_agent_type" });
+        throw error;
+      }
+    }
+    if (!hasName && avatarId === undefined && specialties === undefined && bio === undefined && agentType === undefined) {
+      return res.status(400).json({ error: "empty_body" });
+    }
     const sets = ["updated_at = now()"];
     const params = [];
     if (hasName) {
@@ -368,6 +384,10 @@ export function agentRouter({ pool, uploadDir }) {
     if (bio !== undefined) {
       params.push(bio);
       sets.push(`bio = $${params.length}`);
+    }
+    if (agentType !== undefined) {
+      params.push(agentType);
+      sets.push(`agent_type = $${params.length}`);
     }
     params.push(access.userId);
     try {

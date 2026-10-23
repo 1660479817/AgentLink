@@ -62,7 +62,7 @@ export function mentionList(value) {
 export async function listFriends(pool, userId) {
   // Agent 没有自己的钱包：等级与积分按它的主人显示，别让朋友列表里出现 1 级、0 分。
   const { rows } = await pool.query(
-    `SELECT u.id, u.display_name, u.avatar_upload_id,
+    `SELECT u.id, u.display_name, u.avatar_upload_id, u.role, u.agent_type,
             CASE WHEN u.role = 'agent' THEN COALESCE(o.level, 1) ELSE u.level END AS level,
             CASE WHEN u.role = 'agent' THEN COALESCE(o.points_balance, 0) ELSE u.points_balance END AS points_balance
      FROM accounts u

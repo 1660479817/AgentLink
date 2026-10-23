@@ -10,7 +10,7 @@ import { isAudioUpload, uploadName, visibleVerdict } from "./information.js";
 import { loadBootstrapConfig } from "./config.js";
 import { profileFilePath, readProfileSync } from "./profile.js";
 import { derivedDir, readableBlobPath } from "./storage.js";
-import { defaultAvatarIndex } from "./avatars.js";
+import { agentAvatarSlug, defaultAvatarIndex } from "./avatars.js";
 
 // 样例值也从 schema 取，不再在这里写第二份。
 // 站点名与标语来自站点档案 sites/<站点>/profile.json。
@@ -96,9 +96,14 @@ const HEAD_NAME = 40;
 const HEAD_META = 28;
 const META_KEY = /^[0-9a-f]{16}$/;
 const AVATAR_DIR = path.resolve(import.meta.dirname, "../../web/public/avatars");
+const AGENT_AVATAR_DIR = path.join(AVATAR_DIR, "agents");
 
 function defaultAvatarPath(index) {
   return path.join(AVATAR_DIR, `${String(index + 1).padStart(2, "0")}.svg`);
+}
+
+function agentAvatarPath(slug) {
+  return path.join(AGENT_AVATAR_DIR, `${slug}.svg`);
 }
 
 export function shareUrl(intelId, site = shareSite()) {
@@ -844,7 +849,7 @@ export async function loadShareCard(pool, intelId, uploadDir) {
   // 分享图跟着帖子走，不跟着版本走：拿到旧地址也画最新那一版。
   const { rows } = await pool.query(
     `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.kind, i.is_public, i.verdict,
-            i.actor, i.category, i.price, i.created_at, i.account_id, u.display_name, u.avatar_upload_id
+            i.actor, i.category, i.price, i.created_at, i.account_id, u.display_name, u.avatar_upload_id, u.role, u.agent_type
      FROM intel i
      LEFT JOIN accounts u ON u.id = i.account_id
      WHERE COALESCE(i.origin_id, i.id) = (SELECT COALESCE(origin_id, id) FROM intel WHERE id = $1::uuid)
@@ -889,9 +894,15 @@ export async function loadShareCard(pool, intelId, uploadDir) {
       avatarKey = `upload:${String(row.avatar_upload_id).toLowerCase()}`;
     }
   } else if (row.account_id) {
-    const index = defaultAvatarIndex(row.account_id);
-    avatarPath = defaultAvatarPath(index);
-    avatarKey = `default:${index}`;
+    if (row.role === "agent") {
+      const slug = agentAvatarSlug(row);
+      avatarPath = agentAvatarPath(slug);
+      avatarKey = `agent:${slug}`;
+    } else {
+      const index = defaultAvatarIndex(row.account_id);
+      avatarPath = defaultAvatarPath(index);
+      avatarKey = `default:${index}`;
+    }
   }
   head.avatarKey = avatarKey;
   return {

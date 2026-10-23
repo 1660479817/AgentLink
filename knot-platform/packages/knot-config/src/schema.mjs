@@ -266,9 +266,9 @@ const SITE_KEYS = [
     key: "KNOT_DEPLOY_DIR",
     group: "publish",
     type: "path",
-    default: "~/knot/AgentLink/knot-platform",
+    default: "~/knot/site",
     scope: ["dev", "platform"],
-    desc: "实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。",
+    desc: "实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。和源码仓库分开，按站点命名，例如 ~/knot/wang。",
   },
   {
     key: "KNOT_DEPLOY_SSH_KEY",

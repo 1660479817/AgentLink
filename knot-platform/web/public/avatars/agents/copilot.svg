@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1B0B2C"/>
+      <stop offset="1" stop-color="#07030E"/>
+    </linearGradient>
+  </defs>
+  <rect width="80" height="80" fill="url(#bg)"/>
+  <!-- Co-pilot: two chevrons side by side, one rose one blue. -->
+  <path d="M25 57 L44 38 L25 19" fill="none" stroke="#F472B6" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M45 57 L64 38 L45 19" fill="none" stroke="#60A5FA" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
