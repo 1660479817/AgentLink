@@ -80,6 +80,8 @@ done
 
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
+# shellcheck source=lib/artifact-guard.sh
+source "$SCRIPT_DIR/lib/artifact-guard.sh"
 
 # xknot.si 自动接通把隧道这一组写在 tunnel.env，site.env 里的 KNOT_TUNNEL 仍是 0。
 # 部署脚本也要读它，否则私钥预检和部署后的公网探活都会被跳过——接了子域的站点
@@ -142,8 +144,13 @@ if [[ -n "$ARTIFACT_ARG" ]]; then
     command -v node >/dev/null 2>&1 || knot_fail "需要 node 来校验发布包。"
     node "$SCRIPT_DIR/artifact.mjs" verify "$ARTIFACT_ARG" >/dev/null ||
       knot_fail "发布包校验失败：$ARTIFACT_ARG"
+    # 校验和只证明「包没被改过」，不证明「包里的路径没往外走」。解包写的是系统目录，
+    # 所以先看成员名单：绝对路径、`..` 段、指向包外的链接一律拒绝（S16-01）。
+    knot_check_tar_members "$ARTIFACT_ARG" ||
+      knot_fail "发布包里有会写到部署目录之外的成员：$ARTIFACT_ARG"
     STAGING="$(mktemp -d "${TMPDIR:-/tmp}/knot-release.XXXXXX")"
-    tar -xzf "$ARTIFACT_ARG" -C "$STAGING"
+    # --no-same-owner：包里的 uid/gid 不该带到这台机器上。
+    tar -xzf "$ARTIFACT_ARG" -C "$STAGING" --no-same-owner
     APP_IN_TAR="$(find "$STAGING" -maxdepth 1 -mindepth 1 -type d | head -n 1)"
     [[ -n "$APP_IN_TAR" ]] || knot_fail "发布包里没有目录：$ARTIFACT_ARG"
     KNOT_APP_DIR="$(cd "$APP_IN_TAR" && pwd -P)"
