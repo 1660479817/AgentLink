@@ -180,7 +180,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     const key = normalizeLoginKey(req.body?.key);
     if (!email) return res.status(400).json({ error: "bad_email" });
     if (!key) return res.status(400).json({ error: "bad_key" });
-    const redeemed = await redeemLoginKey(pool, email, key);
+    const redeemed = await redeemLoginKey(pool, email, key, { ip: req.ip });
     if (redeemed.error) {
       // 锁定期要给出准确的重试时刻，否则前端只能猜，用户会一直连点。
       if (redeemed.retryAfter) res.set("Retry-After", String(redeemed.retryAfter));

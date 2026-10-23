@@ -324,6 +324,68 @@ test("the same grant submitted twice within the window credits once", async () =
   assert.equal(calls.at(-1).sql, "COMMIT");
 });
 
+// 带幂等键的发放：键相同就是同一笔，键不同就是另一笔。
+function grantPool({ calls, replay = false, insertFails = null }) {
+  return poolWithClient(async (sql, params) => {
+    calls.push({ sql, params });
+    // 顺序有讲究：walletOf 与 oneUser 都查 accounts，先认特征更强的那条。
+    if (sql.includes("SELECT points_balance")) return { rows: [{ points_balance: "150" }] };
+    if (sql.includes("COALESCE(owner_id, id)")) return { rows: [{ wallet: params[0] }] };
+    if (sql.includes("SELECT id FROM admin_actions") && sql.includes("request_id")) {
+      return { rows: replay ? [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }] : [] };
+    }
+    if (sql.includes("INSERT INTO admin_actions")) {
+      if (insertFails) throw Object.assign(new Error(insertFails), { code: "23505", constraint: insertFails });
+      return { rows: [{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }] };
+    }
+    if (sql.includes("FROM accounts")) {
+      return { rows: [{ id: USER_ID, email: "a@example.com", display_name: "甲", label: "tester", points_balance: 100 }] };
+    }
+    if (sql.includes("UPDATE accounts")) return { rows: [{ points_balance: 150 }] };
+    if (sql.includes("INSERT INTO notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+}
+
+test("同一个幂等键重试只记一笔，键本身写进流水", async () => {
+  const calls = [];
+  const result = await grantPoints(grantPool({ calls, replay: true }), "a@example.com", 50, "补偿。", "req-abc-1234");
+  assert.equal(result.duplicate, true);
+  assert.equal(result.pointsBalance, 150);
+  assert.equal(calls.some((call) => call.sql.includes("INSERT INTO admin_actions")), false);
+  assert.equal(calls.some((call) => call.sql.includes("point_ledger")), false);
+});
+
+test("换了键的同金额同理由照常发第二笔，不再按内容猜重放", async () => {
+  const calls = [];
+  const result = await grantPoints(grantPool({ calls }), "a@example.com", 50, "补偿。", "req-abc-5678");
+  assert.equal(result.duplicate, undefined);
+  assert.equal(result.pointsBalance, 150);
+  const insert = calls.find((call) => call.sql.includes("INSERT INTO admin_actions"));
+  assert.equal(insert.params[2], "req-abc-5678");
+  // 走了键的分支就不该再查那个 10 分钟窗口。
+  assert.equal(calls.some((call) => call.sql.includes("interval '10 minutes'")), false);
+});
+
+test("幂等键格式不对时直接拒，不落账", async () => {
+  const calls = [];
+  const pool = grantPool({ calls });
+  await assert.rejects(grantPoints(pool, "a@example.com", 50, "补偿。", "../../etc/passwd"), (error) => error.code === "bad_request_id");
+  assert.equal(calls.length, 0);
+});
+
+test("并发撞上唯一索引时按重复处理，不冒 500", async () => {
+  const calls = [];
+  const result = await grantPoints(
+    grantPool({ calls, insertFails: "admin_actions_request_id_idx" }),
+    "a@example.com",
+    50,
+    "补偿。",
+    "req-abc-9012"
+  );
+  assert.equal(result.duplicate, true);
+});
+
 test("a grant needs one account, a positive amount, and a reason", async () => {
   const pool = {
     async query(sql) {
