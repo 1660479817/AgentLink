@@ -6,8 +6,8 @@
 |---|---|
 | 原始行数 | 469 |
 | 去重后 | **469** |
-| 已修 | 436 |
-| 部分 | 17 |
+| 已修 | 438 |
+| 部分 | 15 |
 | 暂缓 | 13 |
 | 复核不成立 | 3 |
 
@@ -24,8 +24,6 @@
 | ID | 级 | 结论 | 说明 |
 |---|---|---|---|
 | S03-04 | P2 | 部分 | 凭据可走文件，但仍受 --base 支配 |
-| S03-07 | P2 | 部分 | 只认 2xx，响应体未校验 |
-| S03-14 | P3 | 部分 | 已认内网段，DNS 泄漏未查 |
 | S10-08 | P2 | 部分 | zip 加密头不再整份转码；readFile 整份读入与 zipNames 同步扫描未改 |
 | S10-12 | P3 | 部分 | 可见性口径已统一；附件口径（HAS_ATTACHMENT 等）语义不同，未合并 |
 | S10-14 | P3 | 部分 | 补了 points/requests/market 用例；下载打包与计费的端到端用例仍缺 |
@@ -141,14 +139,14 @@
 | [ ] | S03-04 | P2 | ``bench/scripts/run.mjs:169-180,231`；`bench/scripts/probe.mjs:306-310`；`bench/human/visitor.mjs:31`` | 授权码与会话 cookie 不和 `--base` 绑定：`runK6` 把 `KNOT_AGENT_TOKEN` 放进子进程环境，`probeSite(BASE, { token })` 先发 `Authorization: Bearer` 再按 401 判断有效性——目标是哪台就把码发给哪台（`--base` 打错一位就等于把码交给陌生主机记日志）。另外 `probe.mjs --token <码>`、`visitor.mjs --cookie <sid>` 走 argv，会进 `ps` 和 shell 历史，与 README「只从环境变量或显式 `--token-file` / `--cookies-file` 读，不打印、不落盘」相矛盾。 | 部分 |
 | [x] | S03-05 | P2 | ``bench/scripts/run.mjs:295-306`；`bench/README.md:100`` | README 说预热是「DNS、TLS、隧道、连接池，各档共用」，实际每档都 `spawnSync` 一个全新的 k6 进程，TCP/TLS/keep-alive 连接全在这一档内新建。预热只热了服务端的缓存与连接池，客户端侧的握手成本一点没省，每档开头仍有一批冷连接样本混进 p95。 | 已修 |
 | [x] | S03-06 | P2 | ``bench/scripts/run.mjs:184-191`；`bench/k6/agent-read.js:52-54`` | 成功时 `res.stdout/stderr` 被直接丢弃，只有非 0 退出码才取末尾 8 行。于是 k6 侧的 `console.warn`（「Agent 信息流为空，卡片详情将跳过」「只有一份授权码…」「setup: base=… ids=0」）全部消失；对应端点的 `ep_*` 指标压根不产生，报告里整行 `GET /api/agent/intel/:id` 就此不见，没有任何说明。 | 已修 |
-| [ ] | S03-07 | P2 | ``bench/k6/lib/probe.js:27-31`` | 成功判定只有 `status >= 200 && status < 400`，从不校验响应体。3xx 被当成功（k6 默认还跟随重定向），`304`、入口维护页回 200 的 HTML、任何 `200 {"error":…}` 都算通过。整套报告因此可能测的是「一个回 200 的页面」，而错误率仍是 0%。 | 部分 |
+| [x] | S03-07 | P2 | ``bench/k6/lib/probe.js:27-31`` | 成功判定只有 `status >= 200 && status < 400`，从不校验响应体。3xx 被当成功（k6 默认还跟随重定向），`304`、入口维护页回 200 的 HTML、任何 `200 {"error":…}` 都算通过。整套报告因此可能测的是「一个回 200 的页面」，而错误率仍是 0%。 | 已修 |
 | [x] | S03-08 | P2 | ``bench/scripts/probe.mjs:41-58`；`bench/scripts/compare.mjs:65,70`` | `timedRequest` 的 `ttfbMs` 在 `res.on("end")` 里计算，是整个响应下载完的耗时，不是首字节。这个数被 `compare.mjs` 标成「首页 TTFB」「路由中位」、被 `summaryLines` 当链路指标输出——名字与事实不符，看到 384ms 会以为服务端慢，实际可能只是包体大。同一函数的 `bytes` 来自被 `MAX_BODY=400_000` 截断后的字符串，超过 400KB 的页面字节数偏小。 | 已修 |
 | [x] | S03-09 | P2 | ``bench/scripts/compare.mjs:89-129`` | `--runs` 把两份 `summary.json` 并排时，表头只有 host，不比压测机（`meta.machine`）、每档时长（`meta.duration`）、身份模式（`meta.identity.mode`）、版本（`meta.git`）。两份档位不同只落成 `-`；一份 5s、一份 30s 也能并排成一张表。末尾只有一句通用提醒。 | 已修 |
 | [ ] | S03-10 | P2 | ``bench/human/visitor.mjs:128-145`` | `--allow-writes` 会对 `/api/web/uploads` 上传一张 PNG，从不删除，也没有对应的删除调用。每次 `human` 跑 `VIEWPORTS × RUNS` 次就多若干张孤儿图，只能等后端 `gc-uploads.mjs` 在 24h 宽限期后回收（前提是 GC 被定时跑到）。k6 侧的 `write.js` 同类：上传了图却从不把它挂到帖子上。 | 暂缓 |
 | [x] | S03-11 | P2 | ``bench/human/visitor.mjs:276-277,290-291`（对照 `:11`）` | 文件头声明这一层回答「含重定向、失败请求、控制台错误」，实际 `requestfailed` 与 `console` error 只推进 `failed` / `consoleErrors` 数组写进 `human.json`，`summarize()` 的 `errors` 只数 `i.error \ | 已修 |
 | [x] | S03-12 | P2 | ``bench/scripts/report.mjs:156-168,224`` | 总览把「RPS」和 p50/p95/p99 放在同一张表，判定段对每一档分别下「通过」，却没有任何一处说明 RPS 是「实际到达的请求速率」而非「系统能承载的容量」，也没有吞吐是否随并发线性增长、是否已饱和的判定。实测产物里 100 并发 Agent 读到 175.8 RPS，这张表最容易被引用成「该站能承载 176 QPS」。 | 已修 |
 | [x] | S03-13 | P3 | ``bench/scripts/report.mjs:38,218`` | 判定用未取整的 `ep.p95`，展示用 `Math.round`，于是产物里出现自相矛盾的一行：「p95 1000ms > 1000ms」（`bench/results/2026-10-23T01-36-11/summary.md` 判定段）。 | 已修 |
-| [ ] | S03-14 | P3 | ``bench/k6/lib/common.js:39-46` / `bench/scripts/probe.mjs:104-108`；`bench/scripts/run.mjs:134-143` / `bench/scripts/probe.mjs:118`` | `assetPaths` 在 k6 与 scripts 各写一份；`arg()` 在 `run.mjs:26`、`compare.mjs:14`、`visitor.mjs:20`、`make-image.mjs:68` 各写一份，语义还不一致（前者把空值也当缺省取 fallback，后者不校验）。「是不是直连源站」也有两套：`isDirectBase` 认 10./192.168./172.16-31，`probe.mjs` 的 `isLoopback` 只认 127./localhost/::1，所以直接对 `192.168.3.91` 探测会误报「管理入口可达」。 | 部分 |
+| [x] | S03-14 | P3 | ``bench/k6/lib/common.js:39-46` / `bench/scripts/probe.mjs:104-108`；`bench/scripts/run.mjs:134-143` / `bench/scripts/probe.mjs:118`` | `assetPaths` 在 k6 与 scripts 各写一份；`arg()` 在 `run.mjs:26`、`compare.mjs:14`、`visitor.mjs:20`、`make-image.mjs:68` 各写一份，语义还不一致（前者把空值也当缺省取 fallback，后者不校验）。「是不是直连源站」也有两套：`isDirectBase` 认 10./192.168./172.16-31，`probe.mjs` 的 `isLoopback` 只认 127./localhost/::1，所以直接对 `192.168.3.91` 探测会误报「管理入口可达」。 | 已修 |
 | [x] | S03-15 | P3 | ``bench/package-lock.json:6` / `bench/package.json:3`` | lock 顶部仍写 `"version": "0.1.0"`，`package.json` 已到 `0.2.0`。依赖本身干净：只有 `playwright@1.57.0` → `playwright-core@1.57.0` + 可选 `fsevents`，全部来自 registry.npmjs.org，无 install 脚本（`fsevents` 除外，macOS 常规）。 | 已修 |
 | [x] | S03-16 | P3 | ``bench/k6/write.js:39-41` / `bench/k6/lib/common.js:22-23`` | `common.js` 注释明确「阈值不在这里设，由 `scripts/report.mjs` 的 LIMITS 统一判定」，`write.js` 却自带 `thresholds: { "ep_write_delete_err": ["rate<0.02"] }`。于是同一条「删除失败」有两条线：k6 侧 2%（触发退出码 99）与 report 侧按 `write_` 前缀套 `LIMITS.writeErrorRate`。 | 已修 |
 | [x] | S03-17 | P3 | ``bench/scripts/run.mjs:168`` | k6 超时按 duration 字符串里的数字 +120s 估：`30s`→150s 正常，`5m`→`125s`，而实际要跑 300s，会在第 125 秒被 `spawnSync` 杀掉，这一档按 S03-01 静默消失。 | 已修 |

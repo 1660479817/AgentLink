@@ -491,8 +491,8 @@
     "slice": "S03",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "只认 2xx，响应体未校验"
+      "status": "fixed",
+      "note": ""
     }
   },
   {
@@ -603,8 +603,8 @@
     "slice": "S03",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "已认内网段，DNS 泄漏未查"
+      "status": "fixed",
+      "note": ""
     }
   },
   {

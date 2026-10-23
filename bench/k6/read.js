@@ -22,13 +22,13 @@ export const options = baseOptions();
 
 const p = {
   index: probe("index"),
-  board: probe("board"),
-  session: probe("session"),
-  home: probe("home"),
-  feed: probe("feed"),
-  card: probe("card"),
-  search: probe("search"),
-  sponsors: probe("sponsors"),
+  board: probe("board", { expect: "json" }),
+  session: probe("session", { expect: "json" }),
+  home: probe("home", { expect: "json" }),
+  feed: probe("feed", { expect: "json" }),
+  card: probe("card", { expect: "json" }),
+  search: probe("search", { expect: "json" }),
+  sponsors: probe("sponsors", { expect: "json" }),
   asset: probe("asset"),
 };
 

@@ -1,3 +1,4 @@
+import { arg } from "../lib/cli.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -17,10 +18,6 @@ import { probeSite, summaryLines } from "../scripts/probe.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 
-function arg(name, fallback) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
-}
 
 const BASE = String(arg("base", process.env.BENCH_BASE || "")).replace(/\/+$/, "");
 if (!BASE) {

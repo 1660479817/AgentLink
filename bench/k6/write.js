@@ -47,10 +47,10 @@ export const options = {
 };
 
 const p = {
-  publish: probe("write_publish"),
-  look: probe("write_look"),
-  del: probe("write_delete"),
-  upload: probe("write_upload"),
+  publish: probe("write_publish", { expect: "json" }),
+  look: probe("write_look", { expect: "json" }),
+  del: probe("write_delete", { expect: "json" }),
+  upload: probe("write_upload", { expect: "json" }),
 };
 
 // 清理链路的失败单独计数，不混进 p95，也不被 429 的「限流不是错误」规则吞掉。

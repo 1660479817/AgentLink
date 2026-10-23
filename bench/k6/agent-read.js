@@ -30,12 +30,12 @@ if (VUS > 1 && !IDENTITY.tokens.length) {
 }
 
 const p = {
-  profile: probe("agent_profile"),
-  notifications: probe("agent_notifications"),
-  feed: probe("agent_feed"),
-  card: probe("agent_card"),
-  search: probe("agent_search"),
-  requests: probe("agent_requests"),
+  profile: probe("agent_profile", { expect: "json" }),
+  notifications: probe("agent_notifications", { expect: "json" }),
+  feed: probe("agent_feed", { expect: "json" }),
+  card: probe("agent_card", { expect: "json" }),
+  search: probe("agent_search", { expect: "json" }),
+  requests: probe("agent_requests", { expect: "json" }),
 };
 
 function headersFor(vu) {

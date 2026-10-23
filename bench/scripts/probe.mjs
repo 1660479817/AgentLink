@@ -1,3 +1,5 @@
+import { assetPaths } from "../lib/assets.js";
+import { isDirectHost } from "../lib/net.mjs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { connect } from "node:tls";
@@ -111,13 +113,6 @@ function parseJson(text) {
   }
 }
 
-function assetPaths(html) {
-  const assets = [];
-  const re = /["'](\/assets\/[A-Za-z0-9._-]+\.(?:js|css))["']/g;
-  let m;
-  while ((m = re.exec(html || "")) !== null) if (!assets.includes(m[1])) assets.push(m[1]);
-  return assets;
-}
 
 function titleOf(html) {
   const m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html || "");
@@ -130,7 +125,7 @@ export async function probeSite(base, { token = "", routes = ROUTES } = {}) {
   // 内网地址（RFC1918）和回环一样是「直连源站」：没有入口与隧道，管理门本来就在。
   // 以前只认回环，直接探测 192.168.x.x 时会把「管理入口可达」误报成泄漏，
   // 又把直连数字当成公网数字看，和 scripts/run.mjs 的 isDirectBase 口径不一致。
-  const isPrivate = isLoopback || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host.hostname);
+  const isPrivate = isDirectHost(host.hostname);
   const out = {
     base,
     host: host.hostname,

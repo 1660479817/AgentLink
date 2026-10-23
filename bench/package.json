@@ -14,7 +14,7 @@
     "load:write": "node scripts/run.mjs --scenario write --allow-writes --levels 5,10 --duration 20s",
     "report": "node scripts/report.mjs",
     "compare": "node scripts/compare.mjs",
-    "test": "node --test scripts/*.test.mjs k6/lib/*.test.mjs",
+    "test": "node --test scripts/*.test.mjs k6/lib/*.test.mjs lib/*.test.mjs",
     "install:browser": "playwright install chromium"
   },
   "devDependencies": {
