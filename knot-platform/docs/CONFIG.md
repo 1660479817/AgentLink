@@ -115,7 +115,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | --- | --- | --- | --- |
 | `KNOT_TUNNEL` | `0` |  | 1 表示实例主机主动连出建隧道，让 xknot.si 子域入口能回源。没有入口时留 0；本机也接了子域时由 sites/<站点>/tunnel.env 写 1。 |
 | `KNOT_TUNNEL_SSH` | 见说明 |  | 隧道账号。留空是 knot-tunnel@<KNOT_ENTRY_SSH 的主机>。 |
-| `KNOT_TUNNEL_KEY` | `$HOME/.ssh/knot-entry` |  | 实例主机上建隧道用的私钥。 |
+| `KNOT_TUNNEL_KEY` | `$HOME/.ssh/knot-entry` |  | 实例主机上建隧道用的私钥。相对路径按站点目录（sites/<站点>/）解析；自动接通写的 tunnel.env 用 tunnel_ed25519。 |
 | `KNOT_TUNNEL_LOCAL_PORT` | 见说明 |  | 隧道落回本机的端口。留空等于 KNOT_PORT。 |
 | `KNOT_TUNNEL_REMOTE_PORT` | 见说明 |  | 隧道在入口主机上占用的端口。留空等于 KNOT_ENTRY_PROXY_PORT。 |
 

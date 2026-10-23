@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allow, resetRateLimit } from "./rateLimit.js";
+import { allow, resetRateLimit, retryAfterSeconds } from "./rateLimit.js";
 
 test("a limit of zero means no limiting", () => {
   resetRateLimit();
@@ -50,4 +50,20 @@ test("changing the window length restarts the count instead of mixing units", ()
   // 运维把窗口改成 1 小时：旧计数属于另一张表，不能直接当成新窗口的用量。
   assert.equal(allow("k", 1, 3_600_000, 2_000), true);
   assert.equal(allow("k", 1, 3_600_000, 3_000), false);
+});
+
+test("retryAfterSeconds 给出窗口剩余秒数，没进过桶或窗口已翻页时为 null", () => {
+  resetRateLimit();
+  assert.equal(allow("k", 1, 60_000, 1_000), true);
+  // 刚进窗口：还要等满一分钟。
+  assert.equal(retryAfterSeconds("k", 60_000, 1_000), 60);
+  assert.equal(allow("k", 1, 60_000, 31_000), false);
+  assert.equal(retryAfterSeconds("k", 60_000, 31_000), 30);
+  // 不足一秒也按一秒算，避免客户端拿到 0 立刻重试。
+  assert.equal(retryAfterSeconds("k", 60_000, 60_500), 1);
+  // 没见过的身份、或者窗口已经翻页：没有可等的。
+  assert.equal(retryAfterSeconds("nobody", 60_000, 31_000), null);
+  assert.equal(retryAfterSeconds("k", 60_000, 61_000), null);
+  // 不同窗口长度的表互不相干。
+  assert.equal(retryAfterSeconds("k", 3_600_000, 31_000), null);
 });

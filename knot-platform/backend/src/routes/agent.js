@@ -28,7 +28,7 @@ import {
   searchPublicIntel,
 } from "../market.js";
 import { listNotifications, markNotificationsRead, noticeSummary } from "../notifications.js";
-import { allow } from "../rateLimit.js";
+import { allow, retryAfterSeconds } from "../rateLimit.js";
 import { searchConfig } from "../searchConfig.js";
 import { createRetrieval } from "../retrieval.js";
 import { economyConfig } from "../points.js";
@@ -43,12 +43,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_WAIT_MS = 60_000;
 const feedbackAt = new Map();
 
-function feedbackTooSoon(userId) {
+// 放行时返回 0；被挡住时返回还要等多少秒，供 Retry-After 用。
+function feedbackWaitSeconds(userId) {
   const now = Date.now();
   const last = feedbackAt.get(userId) || 0;
-  if (now - last < FEEDBACK_WAIT_MS) return true;
+  const left = FEEDBACK_WAIT_MS - (now - last);
+  if (left > 0) return Math.max(1, Math.ceil(left / 1000));
   feedbackAt.set(userId, now);
-  return false;
+  return 0;
 }
 
 function agentFail(res, error) {
@@ -489,7 +491,11 @@ export function agentRouter({ pool, uploadDir }) {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const config = searchConfig();
-    if (!allow(`search:${access.userId}`, config.searchRatePerMinute, 60_000)) {
+    const key = `search:${access.userId}`;
+    const windowMs = 60_000;
+    if (!allow(key, config.searchRatePerMinute, windowMs)) {
+      const wait = retryAfterSeconds(key, windowMs);
+      if (wait) res.set("Retry-After", String(wait));
       return res.status(429).json({ error: "too_many" });
     }
     const q = String(req.query.q || "").trim().slice(0, config.queryMax);
@@ -541,7 +547,11 @@ export function agentRouter({ pool, uploadDir }) {
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const config = searchConfig();
     // 检索一次要调一轮检索员，按账号限流；同一句重复提交是幂等的，不占额度之外的时间。
-    if (!allow(`retrieve:${access.accountId}`, config.retrievalRatePerHour, 60 * 60 * 1000)) {
+    const retrieveKey = `retrieve:${access.accountId}`;
+    const retrieveWindow = 60 * 60 * 1000;
+    if (!allow(retrieveKey, config.retrievalRatePerHour, retrieveWindow)) {
+      const wait = retryAfterSeconds(retrieveKey, retrieveWindow);
+      if (wait) res.set("Retry-After", String(wait));
       return res.status(429).json({ error: "too_many" });
     }
     const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
@@ -585,7 +595,11 @@ export function agentRouter({ pool, uploadDir }) {
     const text = typeof req.body?.body === "string" ? req.body.body.trim() : "";
     if (!text) return res.status(400).json({ error: "empty_body" });
     if (text.length > FEEDBACK_MAX) return res.status(400).json({ error: "bad_body" });
-    if (feedbackTooSoon(access.userId)) return res.status(429).json({ error: "too_many" });
+    const feedbackWait = feedbackWaitSeconds(access.userId);
+    if (feedbackWait) {
+      res.set("Retry-After", String(feedbackWait));
+      return res.status(429).json({ error: "too_many" });
+    }
     try {
       await sendFeedback({
         kind,

@@ -115,12 +115,18 @@ export function handoffValid(handoff) {
   return ACCOUNT_RE.test(account) && HOST_RE.test(host) && Number.isInteger(port) && port >= 1024 && port <= 65535;
 }
 
-/** 写进 tunnel.env 的那一段。键名与 site-config.sh / run-entry-tunnel.sh 读的一致。 */
-export function renderManagedBlock({ account, host, port, keyPath, localPort }) {
+/**
+ * 写进 tunnel.env 的那一段。键名与 site-config.sh / run-entry-tunnel.sh 读的一致。
+ *
+ * 私钥只记文件名，不记绝对路径：托管段与密钥同住一个站点目录，站点目录在仓库、
+ * 在部署根、还是被整份搬走，隧道都读自己旁边那把钥匙。写绝对路径就绑死了「当时
+ * 从哪个目录跑 Backend」——一旦那份目录被清理或换位置，密钥跟着消失，入口直接 502。
+ */
+export function renderManagedBlock({ account, host, port, localPort }) {
   return `${MANAGED_START}
 KNOT_TUNNEL=1
 KNOT_TUNNEL_SSH=${account}@${host}
-KNOT_TUNNEL_KEY=${keyPath}
+KNOT_TUNNEL_KEY=${KEY_FILE}
 KNOT_TUNNEL_REMOTE_PORT=${port}
 KNOT_TUNNEL_LOCAL_PORT=${localPort}
 ${MANAGED_END}`;

@@ -37,6 +37,8 @@ const cursor = ref(null);
 const loadingMore = ref(false);
 const moreAvailable = ref(false);
 const feedEnd = ref(null);
+// 检索被限流时不要把「稍等」画成「没有结果」：这两个空态对用户是两件不同的事。
+const feedBusySeconds = ref(0);
 let feedObserver = null;
 const railViewport = ref(null);
 const railCanPrev = ref(false);
@@ -246,14 +248,17 @@ async function ensureFacets() {
 async function load(options = {}) {
   // 公开快照关掉时直接走实时接口。
   const live = options.live === true || hasFilter.value || session.site.publicBoard === false;
+  feedBusySeconds.value = 0;
   try {
     if (live) {
       await loadLive({ ahead: options.live === true && !hasFilter.value });
       // 走实时接口时首屏没有经过 loadBoard，会话与个人状态在这里补一次。
       void personalise();
     } else await loadBoard();
-  } catch {
+  } catch (error) {
     if (hasFilter.value) {
+      // 429 不是「搜不到」：把还要等多久记下来，模板据此换一句话。
+      if (searchQ.value && error?.status === 429) feedBusySeconds.value = Number(error.retryAfter) || 1;
       items.value = [];
       feedReady.value = true;
       cursor.value = null;
@@ -678,7 +683,7 @@ async function downloadItem(item) {
     @close="closeItem(item)"
   />
   <p v-if="feedReady && items.length === 0" class="muted feed-empty">
-    {{ searchQ ? t("home.searchEmpty") : hasFilter ? t("home.filterEmpty") : t("home.empty") }}
+    {{ feedBusySeconds ? t("home.searchTooFast", { seconds: feedBusySeconds }) : searchQ ? t("home.searchEmpty") : hasFilter ? t("home.filterEmpty") : t("home.empty") }}
   </p>
   <div v-else-if="feedReady && !searchQ" class="feed-more">
     <div ref="feedEnd" class="feed-end" aria-hidden="true"></div>

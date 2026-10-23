@@ -9,6 +9,8 @@ async function request(path, options = {}) {
     const error = new Error(data.error || res.statusText);
     error.code = data.error || "request_failed";
     error.status = res.status;
+    // 429 告诉你还要等多少秒；其它响应没有这个头，就是 0。
+    error.retryAfter = Number(res.headers.get("Retry-After")) || 0;
     throw error;
   }
   return data;

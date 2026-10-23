@@ -68,6 +68,10 @@ KNOT_AGENT_TOKEN=... npm run load -- --base https://wang.xknot.si
 # 或从文件读，避免进 shell 历史
 npm run load -- --base https://wang.xknot.si --token-file ~/.knot/wang-agent.env
 
+# 每个 VU 一个身份：检索限流按人算，共用一条 Cookie / 一个码会成片 429
+npm run load -- --base https://wang.xknot.si --cookies-file ~/.knot/cookies.txt
+npm run load -- --base https://wang.xknot.si --scenario agent --token-file ~/.knot/agent-tokens.txt
+
 # 快速验证只跑一档
 npm run load -- --base https://wang.xknot.si --levels 2,4 --duration 5s --cooldown 2
 
@@ -86,7 +90,9 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 | `--duration` | `30s` | 每档稳态时长 |
 | `--cooldown` | `15` | 档间冷却，等连接池和队列回落 |
 | `--scenario` | `read,agent` | `read` / `agent` / `write`，逗号分隔 |
-| `--token-file` | 无 | 从中取 `KNOT_AGENT_TOKEN=` 那一行，不打印 |
+| `--token-file` | 无 | 每行一个 Agent 授权码（`KNOT_AGENT_TOKENS` 同义，换行或逗号分隔）；单份时所有 VU 共用 |
+| `--cookies-file` | 无 | 每行一个 Cookie 头，按 VU 轮着分；也可用 `BENCH_COOKIES` |
+| `--identity` | `shared` | `xff`：每个 VU 一个 `X-Forwarded-For`，只对直连源站或信任并透传 XFF 的代理有效 |
 | `--label` | 无 | 给这一轮起个名字（写进报告） |
 | `--viewport` | `both` | 人那一层：`mobile` / `desktop` / `both` |
 | `--cookie` | 无 | 人那一层带会话，跑登录后的页面 |
@@ -154,9 +160,19 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 
 **写场景**（默认关闭）：发一条 `public: false` 的 post → 记一次看公开卡 → 立刻删掉；每 5 次多传一张 640×480 PNG。用 post 而不是 wish，是因为 `DELETE /intel/:id` 只接受 post / fastpost；`public: false` 让它不进信息流和快照。
 
+## 身份与限流
+
+检索限流按「一个人一分钟 120 次」算：访客按账号或 IP，Agent 按账号。压测里所有 VU 共用一个出口 IP 或一个授权码时，它们其实是一个人；前一档把额度用完，后一档就会成片 429，看起来像「间歇错误」。所以：
+
+- 公网入口：用 `--cookies-file` 给每个 VU 一条登录 Cookie。入口 nginx 会把真实 IP 追加到 `X-Forwarded-For` 右边，从公网伪造 XFF 不会换身份。
+- 直连源站：`--identity xff` 给每个 VU 一个 `198.18.x.x`（RFC 2544 基准段），不碰真实用户。
+- Agent：`--token-file` 每行一个授权码（`KNOT_AGENT_TOKEN=...` 或裸码），也可用 `KNOT_AGENT_TOKENS`（换行/逗号分隔）。身份数少于最高并发时，脚本会在开跑前提示。
+
+429 不是服务错误：`ep_<name>_throttled` 单独记，`ep_<name>_err` 与 `ep_<name>_ms` 都排除它，报告里另有一栏「限流率」。限流率不为 0 时，先看身份有没有分开，再看该实例的 `KNOT_SEARCH_RATE_PER_MIN`。
+
 ## 指标与判定
 
-每个端点独立一对指标：`ep_<name>_ms`（Trend）、`ep_<name>_err`（Rate）。报告按「端点 × 并发」出 p95 矩阵。
+每个端点独立三个指标：`ep_<name>_ms`（Trend，只含未被限流的请求）、`ep_<name>_err`（Rate，不含 429）、`ep_<name>_throttled`（Rate，429 占比）；另有 `served_ms` 汇总所有真正被服务的请求。报告按「端点 × 并发」出 p95 矩阵。
 
 验收线写在 `scripts/report.mjs` 的 `LIMITS`：
 
@@ -178,7 +194,7 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 | 缓存 | 能看到主包的 `immutable` 与压缩；卡片图片走入口缓存，脚本刻意不请求 | 不能主动清入口缓存，下架后 1 天内仍可能命中旧图；`X-Knot-Cache` 不单独统计 |
 | 写入 | 能写、能自己删、能看删除有没有失败 | 不能查库确认没留痕；删除失败会留一条不公开记录，`ep_write_delete_err` 单独报 |
 
-授权码与会话 cookie 只从环境变量或显式 `--token-file` 读，不打印、不落盘。`probe.json` 与 `summary.json` 只有 `token: true/false`。上传用的 PNG 由 `scripts/make-image.mjs` 现生成，不进版本库。
+授权码与会话 cookie 只从环境变量或显式 `--token-file` / `--cookies-file` 读，不打印、不落盘。`probe.json` 与 `summary.json` 只有 `token: true/false` 和身份份数。上传用的 PNG 由 `scripts/make-image.mjs` 现生成，不进版本库。
 
 ## 怎么读
 

@@ -222,6 +222,22 @@ KNOT_TUNNEL_LOCAL_PORT="${KNOT_TUNNEL_LOCAL_PORT:-$KNOT_PORT}"
 KNOT_TUNNEL_REMOTE_PORT="${KNOT_TUNNEL_REMOTE_PORT:-$KNOT_ENTRY_PROXY_PORT}"
 KNOT_TUNNEL_USER="${KNOT_TUNNEL_USER:-${KNOT_TUNNEL_SSH%%@*}}"
 
+# 隧道私钥的绝对路径。
+#
+# 托管段（sites/<站点>/tunnel.env，由 /admin 的 XKnot 栏写）只存文件名
+# `tunnel_ed25519`，相对路径按站点目录解析：站点目录整体搬家（仓库 ↔ 部署根、
+# 换机器、复制一份调试）时，隧道跟着读它自己旁边那把钥匙，不会指到别处去。
+# 绝对路径仍然认，手工配置沿用 `$HOME/.ssh/knot-entry` 这类写法。
+knot_tunnel_key_path() {
+  local value
+  value="$(knot_expand_path "${KNOT_TUNNEL_KEY:-}")"
+  case "$value" in
+    "") printf '%s/%s' "$KNOT_SITE_DIR" "tunnel_ed25519" ;;
+    /*) printf '%s' "$value" ;;
+    *) printf '%s/%s' "$KNOT_SITE_DIR" "$value" ;;
+  esac
+}
+
 # ---- 工具 ----
 
 knot_require() {

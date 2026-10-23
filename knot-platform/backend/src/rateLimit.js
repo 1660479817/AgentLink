@@ -39,6 +39,18 @@ export function allow(key, limit, windowMs, now = Date.now()) {
   return true;
 }
 
+// 被限流时告诉客户端还要等多久。窗口是固定长度，剩余时间是算得出来的：
+// 客户端拿到 Retry-After 就能自己退避，而不是盲目重试、继续把桶打满。
+// 没有被限流（或窗口已翻页）时返回 null。
+export function retryAfterSeconds(key, windowMs, now = Date.now()) {
+  const id = String(key || "");
+  if (!id || !windowMs || windowMs <= 0) return null;
+  const bucket = windows.get(windowMs)?.get(id);
+  if (!bucket) return null;
+  const left = windowMs - (now - bucket.start);
+  return left > 0 ? Math.max(1, Math.ceil(left / 1000)) : null;
+}
+
 export function resetRateLimit() {
   windows.clear();
 }

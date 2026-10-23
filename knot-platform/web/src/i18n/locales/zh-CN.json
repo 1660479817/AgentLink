@@ -89,6 +89,7 @@
   "home": {
     "searchResults": "搜索：{q}",
     "searchEmpty": "没有对得上的信息",
+    "searchTooFast": "搜得太频繁了，约 {seconds} 秒后再试",
     "openAuthor": "查看{name}的信息",
     "filter": "筛选",
     "filterAll": "全部",

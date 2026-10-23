@@ -8,7 +8,7 @@
 # 托管件里的键：
 #   KNOT_TUNNEL=1
 #   KNOT_TUNNEL_SSH=<隧道账号>@<入口主机>
-#   KNOT_TUNNEL_KEY=<站点目录>/tunnel_ed25519
+#   KNOT_TUNNEL_KEY=tunnel_ed25519      相对站点目录；绝对路径也认，手工配置常用 $HOME/.ssh/...
 #   KNOT_TUNNEL_REMOTE_PORT=<中枢分配的回环端口>
 #   KNOT_TUNNEL_LOCAL_PORT=<本机 Backend 端口>
 #
@@ -35,7 +35,15 @@ fi
 knot_require KNOT_TUNNEL_SSH "在 sites/$KNOT_SITE/tunnel.env 里写 KNOT_TUNNEL_SSH=<账号>@<入口主机>。"
 knot_require KNOT_TUNNEL_REMOTE_PORT "在 sites/$KNOT_SITE/tunnel.env 里写 KNOT_TUNNEL_REMOTE_PORT。"
 
-KEY="$(knot_expand_path "$KNOT_TUNNEL_KEY")"
+KEY="$(knot_tunnel_key_path)"
+# 密钥不在就说清楚是哪一份配置把它指到这里，不要留给 ssh 一句
+# "Identity file ... not accessible" —— 那行看不出是谁写的路径。
+if [[ ! -f "$KEY" ]]; then
+  echo "隧道私钥不存在：$KEY" >&2
+  echo "  来自 sites/$KNOT_SITE 的 KNOT_TUNNEL_KEY=${KNOT_TUNNEL_KEY:-（空，按站点目录取 tunnel_ed25519）}" >&2
+  echo "  密钥丢了不要重用旧名：换一个文件名让实例重新生成并提交，中枢会从建账号那一步重跑。" >&2
+  exit 1
+fi
 # ConnectTimeout 是给系统级 VPN 留的：WARP 一类全局 TUN 接管到入口主机的
 # TCP 时，握手能成但密钥交换的大包过不去，没有超时这个 ssh 会一直挂着，
 # launchd 以为它还活着，/api 就一直是 502 而不是快速失败后重连。
