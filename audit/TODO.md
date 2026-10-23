@@ -5,14 +5,15 @@
 注意「已修」的口径：清单里没有逐条修复记录，`已修` 的默认含义是「没被列进下面三类例外」，
 不是「已经验证过代码里有这个改动」。2026-10-23 做过一次抽样复核：7 组共核 124 条
 （全部 P0/P1 + 各片等距抽样的 P2/P3），其中 14 条只做到修复建议的一半，已降为「部分」。
+其中 5 条 P1 当天补齐并各加了回归测试，现在剩 9 条。
 剩下的 400 余条仍是「未逐条验证」，只是没有发现反例。
 
 | 项 | 数字 |
 |---|---|
 | 原始行数 | 469 |
 | 去重后 | **469** |
-| 已修 | 424 |
-| 部分 | 29 |
+| 已修 | 430 |
+| 部分 | 23 |
 | 暂缓 | 13 |
 | 复核不成立 | 3 |
 
@@ -29,9 +30,6 @@
 | ID | 级 | 结论 | 说明 |
 |---|---|---|---|
 | S03-04 | P2 | 部分 | 凭据可走文件，但仍受 --base 支配 |
-| S03-12 | P2 | 部分 | 脚注已说明 RPS 是到达速率；报告仍无按档的吞吐增长比与饱和判定 |
-| S08-01 | P1 | 部分 | 公告/积分/禁言等表单已统一 writeForm；上报问题、系统设置、赞助三处仍只 guard，金额类无幂等键 |
-| S10-01 | P1 | 部分 | 枚举路径已封（进程内按邮箱 10 次锁 15 分钟）；无 IP 维度、不落库、未作废已发密钥，重启清零 |
 | S10-05 | P2 | 部分 | 查询已加 LIMIT 50；无键集分页与保留期，第 51 条以前的未读在界面上不可达且不提示 |
 | S10-08 | P2 | 部分 | zip 加密头不再整份转码；readFile 整份读入与 zipNames 同步扫描未改 |
 | S10-12 | P3 | 部分 | 可见性口径已统一；附件口径（HAS_ATTACHMENT 等）语义不同，未合并 |
@@ -41,11 +39,8 @@
 | S13-04 | P2 | 部分 | 删帖与警告已入事务；令牌换发要先落授权码文件，只能是补偿路径 |
 | S14-01 | P0 | 部分 | 存储层按 kind 定类型、服务层非媒体强制 attachment；音频仍不校验魔数 |
 | S14-06 | P3 | 部分 | 上传响应的附件 url 已置 null；帖子附件视图仍拼 /api/web/uploads/:id，取回 404 |
-| S16-01 | P1 | 部分 | release 名白名单已挡住 `..`；`tar -xzf` 仍不校验成员路径、无 `--no-same-owner` |
 | S16-04 | P2 | 部分 | 只在 README 约束「一个部署根一个站点」，按站点分槽位未做 |
-| S17-02 | P1 | 部分 | push-entry 已改远端 mktemp；push-discover 仍走固定 /tmp 中转且没有推送锁 |
 | S19-06 | P2 | 部分 | 超安全整数已挡；TTL、宽限天数类键仍无 max，能推出 Invalid Date |
-| S20-01 | P1 | 部分 | 推送时已拒空值与共用路径；模板仍发空值，config.mjs check 仍报通过 |
 | S21-07 | P3 | 部分 | AppButton 的 to 分支补了禁用态；弹窗内分享/打赏仍是自有皮肤 |
 | S21-10 | P3 | 部分 | resize 监听改 ResizeObserver；首屏同步整份 JSON.parse 未改 |
 | S21-12 | P3 | 部分 | 下载状态机已补测试；打赏弹窗仍未抽成可测模块 |
@@ -163,7 +158,7 @@
 | [x] | S03-09 | P2 | ``bench/scripts/compare.mjs:89-129`` | `--runs` 把两份 `summary.json` 并排时，表头只有 host，不比压测机（`meta.machine`）、每档时长（`meta.duration`）、身份模式（`meta.identity.mode`）、版本（`meta.git`）。两份档位不同只落成 `-`；一份 5s、一份 30s 也能并排成一张表。末尾只有一句通用提醒。 | 已修 |
 | [ ] | S03-10 | P2 | ``bench/human/visitor.mjs:128-145`` | `--allow-writes` 会对 `/api/web/uploads` 上传一张 PNG，从不删除，也没有对应的删除调用。每次 `human` 跑 `VIEWPORTS × RUNS` 次就多若干张孤儿图，只能等后端 `gc-uploads.mjs` 在 24h 宽限期后回收（前提是 GC 被定时跑到）。k6 侧的 `write.js` 同类：上传了图却从不把它挂到帖子上。 | 暂缓 |
 | [x] | S03-11 | P2 | ``bench/human/visitor.mjs:276-277,290-291`（对照 `:11`）` | 文件头声明这一层回答「含重定向、失败请求、控制台错误」，实际 `requestfailed` 与 `console` error 只推进 `failed` / `consoleErrors` 数组写进 `human.json`，`summarize()` 的 `errors` 只数 `i.error \|\| status >= 400`，`markdown()` 也不引用这两个数组。页面 500 个资源 404、控制台报错，md 里仍显示「备注」为空。 | 已修 |
-| [ ] | S03-12 | P2 | ``bench/scripts/report.mjs:156-168,224`` | 总览把「RPS」和 p50/p95/p99 放在同一张表，判定段对每一档分别下「通过」，却没有任何一处说明 RPS 是「实际到达的请求速率」而非「系统能承载的容量」，也没有吞吐是否随并发线性增长、是否已饱和的判定。实测产物里 100 并发 Agent 读到 175.8 RPS，这张表最容易被引用成「该站能承载 176 QPS」。 | 部分 |
+| [x] | S03-12 | P2 | ``bench/scripts/report.mjs:156-168,224`` | 总览把「RPS」和 p50/p95/p99 放在同一张表，判定段对每一档分别下「通过」，却没有任何一处说明 RPS 是「实际到达的请求速率」而非「系统能承载的容量」，也没有吞吐是否随并发线性增长、是否已饱和的判定。实测产物里 100 并发 Agent 读到 175.8 RPS，这张表最容易被引用成「该站能承载 176 QPS」。 | 已修 |
 | [x] | S03-13 | P3 | ``bench/scripts/report.mjs:38,218`` | 判定用未取整的 `ep.p95`，展示用 `Math.round`，于是产物里出现自相矛盾的一行：「p95 1000ms > 1000ms」（`bench/results/2026-10-23T01-36-11/summary.md` 判定段）。 | 已修 |
 | [x] | S03-14 | P3 | ``bench/k6/lib/common.js:39-46` / `bench/scripts/probe.mjs:104-108`；`bench/scripts/run.mjs:134-143` / `bench/scripts/probe.mjs:118`` | `assetPaths` 在 k6 与 scripts 各写一份；`arg()` 在 `run.mjs:26`、`compare.mjs:14`、`visitor.mjs:20`、`make-image.mjs:68` 各写一份，语义还不一致（前者把空值也当缺省取 fallback，后者不校验）。「是不是直连源站」也有两套：`isDirectBase` 认 10./192.168./172.16-31，`probe.mjs` 的 `isLoopback` 只认 127./localhost/::1，所以直接对 `192.168.3.91` 探测会误报「管理入口可达」。 | 已修 |
 | [x] | S03-15 | P3 | ``bench/package-lock.json:6` / `bench/package.json:3`` | lock 顶部仍写 `"version": "0.1.0"`，`package.json` 已到 `0.2.0`。依赖本身干净：只有 `playwright@1.57.0` → `playwright-core@1.57.0` + 可选 `fsevents`，全部来自 registry.npmjs.org，无 install 脚本（`fsevents` 除外，macOS 常规）。 | 已修 |
@@ -207,7 +202,7 @@
 | [x] | S07-07 | P3 | ``index.html:8`、`862`；`i18n.test.mjs:111-124`` | `placeholder="your-site"` 与 `<title>` 是硬编码、没进三份字典；「页面里没有硬编码中文」的测试只扫 `admin.js`，`index.html` 只校验 key 存在，查不出这类遗漏 | 已修 |
 | [x] | S07-08 | P3 | ``i18n.js:50-52`、`110-112`；`i18n.test.mjs:81`` | `isLocale`、`dictionary` 导出后全仓无引用；对应测试的断言恒真 | 已修 |
 | [x] | S07-09 | P3 | ``index.html:412-415`` | 简介 200 字上限硬编码三处（`maxlength`、静态 `0 / 200`、`updateBioCount` 的模板串），改名一处就漂 | 已修 |
-| [ ] | S08-01 | P1 | ``admin.js:1427`、`admin.js:1444`、`admin.js:1461`、`admin.js:1499`、`admin.js:1522`、`admin.js:1833`、`admin.js:829`、`admin.js:817`` | 写操作按钮在请求期间不禁用，双击即重复提交。`/points` 每次调用都追加一条 `point_ledger`，双击就是发两笔积分；`/mute`、`/warnings`、`/invites` 同样会重复落库与重复通知 | 部分 |
+| [x] | S08-01 | P1 | ``admin.js:1427`、`admin.js:1444`、`admin.js:1461`、`admin.js:1499`、`admin.js:1522`、`admin.js:1833`、`admin.js:829`、`admin.js:817`` | 写操作按钮在请求期间不禁用，双击即重复提交。`/points` 每次调用都追加一条 `point_ledger`，双击就是发两笔积分；`/mute`、`/warnings`、`/invites` 同样会重复落库与重复通知 | 已修 |
 | [x] | S08-02 | P1 | ``admin.js:692-701`、`admin.js:628`` | 「按账号查帖」只回最近 30 条（给了时间窗时 200 条），摘要却写「共 N 条」，既不说被截断，也没有翻页或游标。更早的帖子在管理端根本调不出来，删不掉 | 已修 |
 | [x] | S08-03 | P2 | ``admin.js:452-456`` | `enter()` 在**任意**异常（隧道 502、`bad_response`、断网）下都执行 `state.token = ""; forget();`，把存在 localStorage 的 30 天凭据直接删掉。一次临时断线就要回到 WebUI 重新换票 | 已修 |
 | [x] | S08-04 | P2 | ``admin.js:1427`、`admin.js:1522`、`admin.js:1586-1594`` | 发积分、改权益（含收回）、停用 Agent（令牌立刻作废）都没有二次确认；而同页的删帖（`admin.js:718`）、禁用邀请码（`admin.js:1845`）、应用价格（`admin.js:2075`）、删赞助（`admin.js:2002`）、换令牌（`admin.js:1710`）都有 `confirm`，同一类风险两套标准 | 已修 |
@@ -233,7 +228,7 @@
 | [x] | S09-07 | P3 | ``admin.css:480-508`` | 子域输入要「视觉上是一条完整地址」，但实现自相矛盾：输入端去掉右边框并把右侧圆角置 0、后缀端去掉左边框并把左侧圆角置 0，中间却又留了 `gap: 8px`。结果是两个各缺一条边的框被 8px 空白隔开，接缝处没有边框 | 已修 |
 | [x] | S09-08 | P3 | ``admin.css:681-689`、`admin.css:206`` | 浅灰正文落在浅灰底上，比 AA 的 4.5:1 差一点：`.pill` 的 `#6b7280` 配 `#f3f4f6` 约 4.39:1；页面底色 `#f3f4f6` 上直接放的 `.muted`（`.view-head` 的说明段）同样 4.39:1，字号 12–14px，不满足大字号豁免 | 已修 |
 | [x] | S09-09 | P3 | ``admin.css:858`、`admin.css:1266`` | 没有 `@media print`：名册 `.user-list { max-height: min(62vh, 720px); overflow-y: auto }` 与 `.detail-card { max-height: calc(100vh - 48px); overflow-y: auto }` 打印时只输出可视区，其余行被裁掉；顶栏与左导航是 sticky，会跟着每页重复。管理员把名册/详情打印或「另存为 PDF」留档时拿到的是残缺内容 | 已修 |
-| [ ] | S10-01 | P1 | ``src/login.js:161-172`（调用点 `src/routes/web.js:180`）` | 六位数字登录密钥的校验没有任何失败计数或锁定：`/api/web/login/key` 只做 `normalizeEmail`/`normalizeLoginKey`，随后直接进 `redeemLoginKey`。密钥 10 分钟有效、空间 1e6，攻击者拿到任意邮箱即可在窗口内穷举；命中即替该邮箱建会话，`role = 'owner'` 的账号同样适用。`requestLoginKey` 只限制「同一邮箱 60 秒内只寄一次」，不构成尝试上限 | 部分 |
+| [x] | S10-01 | P1 | ``src/login.js:161-172`（调用点 `src/routes/web.js:180`）` | 六位数字登录密钥的校验没有任何失败计数或锁定：`/api/web/login/key` 只做 `normalizeEmail`/`normalizeLoginKey`，随后直接进 `redeemLoginKey`。密钥 10 分钟有效、空间 1e6，攻击者拿到任意邮箱即可在窗口内穷举；命中即替该邮箱建会话，`role = 'owner'` 的账号同样适用。`requestLoginKey` 只限制「同一邮箱 60 秒内只寄一次」，不构成尝试上限 | 已修 |
 | [x] | S10-02 | P1 | ``src/market.js:443-452`` | 作者删除（`verdict='removed'`）或被终审撤销（`rejected`）后，用**完全相同的内容**再发一次，`createIntel` 不新建记录，而是把那条已不可见的旧记录当「重复提交」返回：接口 201、`kMeta.verdict` 为 `removed`/`rejected`，信息流与「我的提交」都不会出现新帖。库上 `intel_account_content_idx` 是 `(account_id, content_hash)` **全量唯一**（无 `verdict` 谓词），即使绕开预检也会在 INSERT 撞 23505 走同一条返回 | 已修 |
 | [x] | S10-03 | P2 | ``src/market.js:386-408`` | 修订版本号是「先查 MAX(version) 再 +1」，两步之间没有行锁也没有事务包裹（代码注释承认「先不做跨事务行锁」）。两笔并发修订会拿到同一个 `version`；而信息流「同 origin 只留最新版」的判据是 `newer.version > i.version`，同版本的两行互相不排除，会**同时留在信息流/搜索里**（库里 `intel_origin_idx` 是普通索引，不拦重复） | 已修 |
 | [x] | S10-04 | P2 | ``src/market.js:1034-1056`` | `chargeDownload` 固定按「先买家、后作者」改 `accounts`。两个用户互相下载对方的出售帖时，两笔事务加锁顺序相反（A→B 与 B→A），Postgres 判定死锁并回滚其中一笔，用户看到 500 `internal`。资金不会错（整体回滚），但这是正常业务下可复现的失败路径 | 已修 |
@@ -306,7 +301,7 @@
 | [x] | S15-05 | P3 | ``knot-platform/docs/KNOT_PROJECT_PLAN.md:44`` | 把管理员邮箱写成「初期为 `manwjh@gmail.com`」。schema 里该项缺省是空串且 `required: true`，实例取值应写在 `sites/<站点>/site.env`，不进版本库文档；照着写会把个人邮箱固化成「默认值」 | 已修 |
 | [x] | S15-06 | P3 | ``knot-platform/docs/KNOT_PROJECT_PLAN.md:132-150`` | 第 9 节「Agent API」表只列 15 个端点，漏了上传三件套和通知两条。Agent 只读这一节会以为没有上传入口、取不到通知 | 已修 |
 | [x] | S15-07 | P3 | ``knot-platform/docs/profile-sections.svg:6-8`` | 该 SVG 的 `<title>`、`<desc>` 里混入 59 个非法 UTF-8 字节（`d9 b9 63 48 84 24 57 1a …`）。图内 16 个 `<text>` 正常，但 `aria-labelledby="title desc"` 指向的内容是乱码，读屏与检索拿到的是替换字符；工具链（`file`/diff/部分渲染器）把整份当二进制，`S15.tsv` 也标成 `binary 0 行` | 已修 |
-| [ ] | S16-01 | P1 | ``knot-platform/ops/scripts/deploy-site.sh:124`、`:250`、`:282`、`:371`；`knot-platform/ops/scripts/build.sh:105`` | 发布目录名取自发布包内的 `BUILD.json`，只校验非空、不校验字符集，随后直接拼进路径交给 `rm -rf` 和 `ln -sfn`。`release` 写成 `../../x` 会删掉部署根之外的目录，`current` 也会指向外部 | 部分 |
+| [x] | S16-01 | P1 | ``knot-platform/ops/scripts/deploy-site.sh:124`、`:250`、`:282`、`:371`；`knot-platform/ops/scripts/build.sh:105`` | 发布目录名取自发布包内的 `BUILD.json`，只校验非空、不校验字符集，随后直接拼进路径交给 `rm -rf` 和 `ln -sfn`。`release` 写成 `../../x` 会删掉部署根之外的目录，`current` 也会指向外部 | 已修 |
 | [x] | S16-02 | P1 | ``knot-platform/ops/scripts/deploy-site.sh:272`–`:286`；`knot-platform/ops/scripts/backup-knot.sh:91`；`knot-platform/ops/scripts/ensure-openclaw.sh:56`–`:80`` | 整条部署链没有任何互斥锁（`ops/scripts` 下没有 `flock`/锁目录）。两个部署同时跑同一条发布包时共用同一个 `REL_DIR`：A 的 `rm -rf "$REL_DIR"` 会删掉 B 刚 `mv` 进去的目录，B 的 `ln -sfn` 又可能指向已被删除的目录，launchd 一旦重启就是崩溃循环 | 已修 |
 | [x] | S16-03 | P2 | ``knot-platform/ops/scripts/deploy-site.sh:272`–`:286`、`:333`` | 同名发布包重装时，`rm -rf "$REL_DIR"` 发生在停服务（`:333`）之前，删的正是当前在跑的那一份代码目录；且「解包 → 删旧 → mv」不是原子替换，中途中断会让 `current` 指向不存在的目录 | 已修 |
 | [ ] | S16-04 | P2 | ``knot-platform/ops/scripts/deploy-site.sh:250`、`:371`、`:544`–`:556`；`knot-platform/ops/launchd/com.knot.platform.plist:8`` | `--site` 只区分配置目录，运行实例（`current`、`releases/`、`deployed.json`、`var/run/backend.pid`、LaunchAgent label `com.knot.platform`）按部署根共用。同一部署根下两个站点会互相顶掉：部署 B 把 A 的 `current` 也切走，A 的服务重启后跑的是 B 的代码；`KNOT_DEPLOY_KEEP` 清理只保护「本站点」的 current 与 previous，另一个站点的活动版本会被当旧包删掉 | 部分 |
@@ -330,7 +325,7 @@
 | [x] | S16-22 | P3 | ``knot-platform/ops/entry/site.conf.template:77`、`:110`` | 入口在 Cloudflare 后面（模板里读 `$http_cf_ipcountry`），但没有 `real_ip`/`set_real_ip_from`，`X-Real-IP` 与追加的 `X-Forwarded-For` 记的是 Cloudflare 边缘地址。后端按 IP 做的限流、封禁与审计都会退化成「一个 CF 网段」 | 已修 |
 | [x] | S16-23 | P3 | ``knot-platform/ops/openclaw/apply-config.mjs:102`–`:106`` | 每个内部 Agent 的 `allowAgents` 被设成「其余全部内部 Agent」，与 `bravesearch` 自己的边界（不把任务交给 `knot-intel`/`knot-admin`）相反，等于给每个签发出来的账户开了互相委派的口子 | 已修 |
 | [x] | S17-01 | P1 | ``reset-knot.sh:63`` | 重建脚本第一句就删暂存区。上一次重建若在 `DROP SCHEMA public` 之后、回灌之前失败，账号、会话、授权码、头像的唯一剩余副本只在 `knot_keep` 里；脚本自己的异常文案就是让人"修好再重跑"，而重跑第一步把这份副本删掉。全程没有 `pg_dump`。 | 已修 |
-| [ ] | S17-02 | P1 | ``push-entry.sh:130`（`:109`、`:122`、`:148`）；`push-discover.sh:57`` | 推入口用固定的远端 `/tmp` 名字中转，再由 root 装进系统目录。一台入口主机服务多个子域时，两个站点的推送共用同一份暂存目录，后到的覆盖先到的；`/tmp/knot-web/` 里可能是另一个站的 dist，带 `--delete` 直接落进本站静态根。`/tmp` 里其他人也可预置/替换，而安装动作是 `sudo`。全流程无锁。 | 部分 |
+| [x] | S17-02 | P1 | ``push-entry.sh:130`（`:109`、`:122`、`:148`）；`push-discover.sh:57`` | 推入口用固定的远端 `/tmp` 名字中转，再由 root 装进系统目录。一台入口主机服务多个子域时，两个站点的推送共用同一份暂存目录，后到的覆盖先到的；`/tmp/knot-web/` 里可能是另一个站的 dist，带 `--delete` 直接落进本站静态根。`/tmp` 里其他人也可预置/替换，而安装动作是 `sudo`。全流程无锁。 | 已修 |
 | [x] | S17-03 | P2 | ``reset-knot.sh:62`（`:295`、`:330`）` | 三处 `psql "$DATABASE_URL"` 都不校验非空。`set -u` 只拦"未定义"，拦不住"定义为空"：空串等于 libpq 全默认（本机 socket + 系统用户 + 默认库），此时 `DROP SCHEMA public CASCADE` 打在哪套库上取决于环境。 | 已修 |
 | [x] | S17-04 | P2 | ``reset-knot.sh:287`（`:295`、`:367`）` | 破坏性重建没有失败保护：`DROP SCHEMA public CASCADE` 后任意一步失败（migrate.js、回灌、ensure-tester），`set -e` 直接退出，`restart_backend` 不会执行，站点停在"后端已停 + 库为空"；也没有自动回灌路径。 | 已修 |
 | [x] | S17-05 | P2 | ``push-entry.sh:177`（`:186`、`:114`、`:124`）` | nginx 配置"先落地再校验"：`sudo cp` 覆盖 `$CONF` 后才 `nginx -t`。测试失败（证书未签、语法错、端口冲突）时坏 conf 已留在 `conf.d/`，运行中的 nginx 还是旧配置，但下一次任何 reload（证书续期、别人推入口）都会失败。`knot-log.conf` / `knot-cache.conf` 连 `nginx -t` 都没有。 | 已修 |
@@ -377,7 +372,7 @@
 | [x] | S19-10 | P3 | ``schema.mjs:1226-1238`` | `checkEntryFile` 里两条「取不到路径」的闸口都不可达，真正该拦的（证书/私钥文件不存在、静态根不可写）没有检查 | 已修 |
 | [x] | S19-11 | P3 | ``schema.mjs:269`` | `KNOT_DEPLOY_DIR` 的默认值在登记表（及由它生成的 CONFIG.md、site.env 模板）里是 `~/knot/site`，shell 库实际回落的是源码仓库路径 `~/knot/AgentLink/knot-platform`。省略该项时部署落到仓库目录，而文档说落到部署根 | 已修 |
 | [x] | S19-12 | P3 | ``schema.mjs:415`、`:675`、`:1016-1024`` | `0` 的语义在不同层不一致：`size` 类型接受 `0`，`sizeToBytes` 返回 0 后跨键检查直接跳过；而 nginx 的 `client_max_body_size 0` 是「不限制」。同一组 TTL 里 `KNOT_SALE_TTL_HOURS` 是 `min: 1`，`KNOT_COUPON_TTL_DAYS` 却是 `min: 0`（允许发放立即过期的券） | 已修 |
-| [ ] | S20-01 | P1 | ``_template/entry.example.env:7,14,17`；`_template/site.env:95,97`` | 入口模板把 `KNOT_ENTRY_WEB_ROOT` 与 `KNOT_ENTRY_CONF` 留空，注释说「由部署脚本按这个子域使用」；实际没有按子域推导，回落到**同一台入口主机上所有子域共用**的 `/var/www/knot` 与 `/etc/nginx/conf.d/knot.conf`。第二个子域照模板留空部署时，`rsync --delete` 会清掉第一个子域的静态根，`cp` 会覆盖它的 nginx conf，前一个站点直接换品牌或停站。 | 部分 |
+| [x] | S20-01 | P1 | ``_template/entry.example.env:7,14,17`；`_template/site.env:95,97`` | 入口模板把 `KNOT_ENTRY_WEB_ROOT` 与 `KNOT_ENTRY_CONF` 留空，注释说「由部署脚本按这个子域使用」；实际没有按子域推导，回落到**同一台入口主机上所有子域共用**的 `/var/www/knot` 与 `/etc/nginx/conf.d/knot.conf`。第二个子域照模板留空部署时，`rsync --delete` 会清掉第一个子域的静态根，`cp` 会覆盖它的 nginx conf，前一个站点直接换品牌或停站。 | 已修 |
 | [x] | S20-02 | P2 | ``_template/platform.env:116-117`` | 唯一进版本库的运行时配置样例里，把真实实例主机的内网地址当「例」写了两遍，等于把生产内网拓扑固化进公开仓库。 | 已修 |
 | [x] | S20-03 | P2 | ``_template/site.env:74`；`ops/scripts/lib/site-config.sh:176`；`ops/README.md:117`` | `KNOT_DEPLOY_DIR` 的三处默认值不一致，且默认值不带站点名。同一份 `site.env` 少写这一行，shell 与 `config.mjs` 会算出两个不同部署根；两个站点照模板复制后共用同一个部署根（`releases/ current deployed.json var/uploads` 全共享），部署/回滚会串站。 | 已修 |
 | [x] | S20-04 | P2 | ``_template/site.env:86,123`；`packages/knot-config/src/schema.mjs:1150-1156`；`ops/scripts/deploy-site.sh:482`` | 入口相关校验只有单向：`KNOT_ENTRY_ENABLED=1` 必须 `KNOT_TUNNEL=1`。反过来，`KNOT_DOMAIN` 非空、`KNOT_ENTRY_ENABLED=0`、又**没有** `tunnel.env` 时零报错；部署后的公网探活又只在 `KNOT_TUNNEL` 为真时执行，于是「本机好、公网 502」这种最误导的部署照旧静默通过。模板把两个开关写成互不相干的两行，还断言「接子域用 `KNOT_ENTRY_ENABLED=1`」，与 `CONFIG.md` 里「开发机接子域时可以是 0，隧道由中枢写」的口径相反。 | 已修 |

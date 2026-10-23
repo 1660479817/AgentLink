@@ -571,8 +571,8 @@
     "slice": "S03",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "脚注已说明 RPS 是到达速率；报告仍无按档的吞吐增长比与饱和判定"
+      "status": "fixed",
+      "note": ""
     }
   },
   {
@@ -1275,8 +1275,8 @@
     "slice": "S08",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "公告/积分/禁言等表单已统一 writeForm；上报问题、系统设置、赞助三处仍只 guard，金额类无幂等键"
+      "status": "fixed",
+      "note": ""
     }
   },
   {
@@ -1691,8 +1691,8 @@
     "slice": "S10",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "枚举路径已封（进程内按邮箱 10 次锁 15 分钟）；无 IP 维度、不落库、未作废已发密钥，重启清零"
+      "status": "fixed",
+      "note": ""
     }
   },
   {
@@ -2859,8 +2859,8 @@
     "slice": "S16",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "release 名白名单已挡住 `..`；`tar -xzf` 仍不校验成员路径、无 `--no-same-owner`"
+      "status": "fixed",
+      "note": ""
     }
   },
   {
@@ -3243,8 +3243,8 @@
     "slice": "S17",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "push-entry 已改远端 mktemp；push-discover 仍走固定 /tmp 中转且没有推送锁"
+      "status": "fixed",
+      "note": ""
     }
   },
   {
@@ -3995,8 +3995,8 @@
     "slice": "S20",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "推送时已拒空值与共用路径；模板仍发空值，config.mjs check 仍报通过"
+      "status": "fixed",
+      "note": ""
     }
   },
   {
