@@ -1,0 +1,27 @@
+# S24 — xknot.si
+# 23 个文件, 2660 行
+# 输出：audit/code/S24.md
+
+324	source	xknot.si/e2e/api.e2e.test.mjs
+209	source	xknot.si/e2e/browser/admin.spec.mjs
+48	source	xknot.si/e2e/browser/constants.mjs
+154	source	xknot.si/e2e/browser/member.spec.mjs
+161	source	xknot.si/e2e/browser/portal.spec.mjs
+80	source	xknot.si/e2e/limits.e2e.test.mjs
+79	source	xknot.si/e2e/package-lock.json
+17	source	xknot.si/e2e/package.json
+241	source	xknot.si/e2e/partner.e2e.test.mjs
+51	source	xknot.si/e2e/playwright.config.mjs
+199	source	xknot.si/e2e/relay.e2e.test.mjs
+147	source	xknot.si/e2e/smtp-sink.mjs
+35	source	xknot.si/federation.json
+120	source	xknot.si/fixtures/preview-cards.json
+116	source	xknot.si/fixtures/preview-health.json
+77	source	xknot.si/fixtures/preview-instances.json
+252	source	xknot.si/fixtures/preview-profiles.json
+27	source	xknot.si/fixtures/preview-stats.json
+20	source	xknot.si/instances.json
+26	source	xknot.si/NOTICE
+29	generated	xknot.si/package-lock.json
+42	source	xknot.si/package.json
+206	source	xknot.si/README.md

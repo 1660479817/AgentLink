@@ -1,0 +1,8 @@
+# S20 — knot-platform/sites
+# 4 个文件, 315 行
+# 输出：audit/code/S20.md
+
+25	source	knot-platform/sites/_template/entry.example.env
+119	source	knot-platform/sites/_template/platform.env
+132	source	knot-platform/sites/_template/site.env
+39	source	knot-platform/sites/_template/xknot.env

@@ -1,0 +1,28 @@
+# S17 — knot-platform/ops
+# 24 个文件, 2998 行
+# 输出：audit/code/S17.md
+
+112	source	knot-platform/ops/scripts/entry-html.test.mjs
+16	source	knot-platform/ops/scripts/gc-knot-storage.sh
+189	source	knot-platform/ops/scripts/join-xknot.sh
+433	source	knot-platform/ops/scripts/lib/site-config.sh
+116	source	knot-platform/ops/scripts/local-login.sh
+292	source	knot-platform/ops/scripts/migrate-profile.mjs
+190	source	knot-platform/ops/scripts/migrate-profile.test.mjs
+304	source	knot-platform/ops/scripts/push-deploy.sh
+70	source	knot-platform/ops/scripts/push-discover.sh
+193	source	knot-platform/ops/scripts/push-entry.sh
+90	source	knot-platform/ops/scripts/render-config.mjs
+35	source	knot-platform/ops/scripts/render-config.test.mjs
+368	source	knot-platform/ops/scripts/reset-knot.sh
+120	source	knot-platform/ops/scripts/retag-topics.mjs
+191	source	knot-platform/ops/scripts/rollback.sh
+60	source	knot-platform/ops/scripts/run-entry-tunnel.sh
+26	source	knot-platform/ops/scripts/run-knot-platform.sh
+35	source	knot-platform/ops/scripts/scripts-punct.test.mjs
+92	source	knot-platform/ops/scripts/speed-check.sh
+23	source	knot-platform/ops/systemd/knot-backend.service
+13	source	knot-platform/ops/systemd/knot-backup.service
+9	source	knot-platform/ops/systemd/knot-backup.timer
+12	source	knot-platform/ops/systemd/knot-gc.service
+9	source	knot-platform/ops/systemd/knot-gc.timer

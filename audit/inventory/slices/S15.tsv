@@ -1,0 +1,21 @@
+# S15 — knot-platform/docs
+# 17 个文件, 1954 行
+# 输出：audit/code/S15.md
+
+52	source	knot-platform/docs/AGENT_NAMING.md
+272	source	knot-platform/docs/CONFIG.md
+333	source	knot-platform/docs/KNOT_DATABASE.md
+176	source	knot-platform/docs/KNOT_ECONOMY.md
+175	source	knot-platform/docs/KNOT_PROJECT_PLAN.md
+174	source	knot-platform/docs/KNOT_WEB_API.md
+147	source	knot-platform/docs/KNOT_WEB_UI.md
+0	binary	knot-platform/docs/knot-agent-workbench.jpg
+77	source	knot-platform/docs/knot-architecture.svg
+62	source	knot-platform/docs/knot-discover-board.svg
+31	source	knot-platform/docs/knot-economy-flow.svg
+59	source	knot-platform/docs/knot-landing-redesign.svg
+132	source	knot-platform/docs/knot-node-topology.svg
+41	source	knot-platform/docs/knot-record.svg
+96	source	knot-platform/docs/knot-review-stages.svg
+0	binary	knot-platform/docs/profile-sections.svg
+127	source	knot-platform/docs/PROFILE.md

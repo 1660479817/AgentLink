@@ -1,0 +1,29 @@
+# S18 — knot-platform/packages
+# 25 个文件, 3346 行
+# 输出：audit/code/S18.md
+
+14	source	knot-platform/packages/knot-config/package.json
+28	source	knot-platform/packages/knot-config/README.md
+622	source	knot-platform/packages/knot-config/src/schema.test.js
+18	source	knot-platform/packages/knot-doc-reader/package.json
+38	source	knot-platform/packages/knot-doc-reader/README.md
+7	source	knot-platform/packages/knot-doc-reader/src/cli.mjs
+402	source	knot-platform/packages/knot-doc-reader/src/index.mjs
+146	source	knot-platform/packages/knot-doc-reader/src/index.test.mjs
+38	source	knot-platform/packages/knot-doc-reader/src/pdf-engine.test.mjs
+14	source	knot-platform/packages/knot-locale/package.json
+14	source	knot-platform/packages/knot-locale/README.md
+60	source	knot-platform/packages/knot-locale/src/index.mjs
+66	source	knot-platform/packages/knot-locale/src/index.test.mjs
+14	source	knot-platform/packages/knot-markdown/package.json
+137	source	knot-platform/packages/knot-markdown/src/html.js
+50	source	knot-platform/packages/knot-markdown/src/index.js
+644	source	knot-platform/packages/knot-markdown/src/parse.js
+131	source	knot-platform/packages/knot-markdown/src/plain.js
+141	source	knot-platform/packages/knot-markdown/src/runs.js
+104	source	knot-platform/packages/knot-markdown/test/api.test.js
+182	source	knot-platform/packages/knot-markdown/test/render.test.js
+14	source	knot-platform/packages/knot-photo-layout/package.json
+16	source	knot-platform/packages/knot-photo-layout/README.md
+208	source	knot-platform/packages/knot-photo-layout/src/index.js
+238	source	knot-platform/packages/knot-photo-layout/test/photoLayout.test.js

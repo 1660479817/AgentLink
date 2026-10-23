@@ -1,0 +1,21 @@
+# S29 — xknot.si/ops
+# 17 个文件, 2306 行
+# 输出：audit/code/S29.md
+
+447	source	xknot.si/ops/traffic.mjs
+246	source	xknot.si/ops/traffic.test.mjs
+226	source	xknot.si/ops/validate-federation.mjs
+83	source	xknot.si/ops/validate-instances.mjs
+121	source	xknot.si/ops/validate-instances.test.mjs
+112	source	xknot.si/ops/validate-profile.test.mjs
+164	source	xknot.si/ops/verify-hub-data.mjs
+164	source	xknot.si/ops/verify-hub-data.test.mjs
+219	source	xknot.si/ops/watch-health.mjs
+203	source	xknot.si/ops/watch-health.test.mjs
+27	source	xknot.si/ops/xknot-api.service
+15	source	xknot.si/ops/xknot-health.service
+12	source	xknot.si/ops/xknot-health.timer
+25	source	xknot.si/ops/xknot-provision.service
+18	source	xknot.si/ops/xknot-traffic.service
+12	source	xknot.si/ops/xknot-traffic.timer
+212	source	xknot.si/ops/xknot.si.conf
