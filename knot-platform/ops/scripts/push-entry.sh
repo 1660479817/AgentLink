@@ -192,10 +192,12 @@ echo "==> entry ${HOST}（${SERVE}）"
 # 当前运行的 nginx 还是旧配置，但下一次任何 reload（证书续期、别人推入口）
 # 都会失败。这里改成 备份 → 落地 → nginx -t → 通过才 reload，失败就整组还原。
 # site.conf、log、cache 三份一起测，避免 log_format 重复这类错误漏到下一次。
+# reload 命令带空格（如 `sudo systemctl reload nginx`），塞进位置参数会被远端 ssh
+# 重新拆词，后面的参数全部错位；改成主脚本跑完、确认成功后再单独发一条命令。
 ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" bash -s -- \
   "$SERVE" "$REMOTE_STAGE" "$WEB_ROOT" "$CONF" "$LOG_CONF" "$CACHE_CONF" \
   "${KNOT_ENTRY_WEB_OWNER:-}" "${KNOT_ENTRY_ACCESS_LOG:-/var/log/nginx/knot-access.log}" \
-  "${KNOT_ENTRY_RELOAD_CMD:-sudo systemctl reload nginx}" "$REALIP_CONF" <<'REMOTE'
+  "$REALIP_CONF" <<'REMOTE'
 set -eu
 serve="$1"
 stage="$2"
@@ -205,8 +207,7 @@ log_conf="$5"
 cache_conf="$6"
 owner="$7"
 access_log="$8"
-reload_cmd="$9"
-realip_conf="${10}"
+realip_conf="$9"
 
 if [ "$serve" = "static" ]; then
   echo "    安装静态根 ${web_root}"
@@ -254,8 +255,11 @@ if ! sudo nginx -t; then
   echo "nginx -t 没通过，已把入口配置还原成推送前的样子。常见原因：证书没签好、端口被占、域名写错。" >&2
   exit 1
 fi
-sh -c "$reload_cmd"
 REMOTE
+
+# 主脚本成功（含 nginx -t 通过）才 reload：把整条命令作为单个参数交给 ssh，
+# 由远端 shell 自己拆词，带空格的自定义命令也能原样执行。
+ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "${KNOT_ENTRY_RELOAD_CMD:-sudo systemctl reload nginx}"
 
 echo
 echo "OK: xknot.si 子域入口 $HOST 已更新"
