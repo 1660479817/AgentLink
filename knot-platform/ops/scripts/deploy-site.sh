@@ -732,7 +732,7 @@ if (( KEEP > 0 )) && [[ -d "$KNOT_RELEASES_DIR" ]]; then
       [[ "releases/$name" == "${PREV_TARGET:-}" ]] && continue
       echo "==> 清理旧发布包 $name"
       rm -rf "$dir"
-    done
+    done || true
 fi
 
 # 发布包按同一份保留数清：只有已安装过的 tar.gz 才算冗余，没装过的是「待用」。
@@ -745,7 +745,7 @@ if (( KEEP > 0 )) && [[ -d "$KNOT_DEPLOY_ROOT/artifacts" ]]; then
       [[ "$base" == "${REL_NAME}"-*.tar.gz ]] && continue
       echo "==> 清理旧发布包 $(basename "$file")"
       rm -f "$file" "$file.sha256"
-    done
+    done || true
 fi
 if [[ -d "$KNOT_DEPLOY_ROOT/.incoming" ]]; then
   find "$KNOT_DEPLOY_ROOT/.incoming" -mindepth 1 -maxdepth 1 -type d -mtime +1 -print -exec rm -rf {} + 2>/dev/null || true
