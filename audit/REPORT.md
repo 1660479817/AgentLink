@@ -1,7 +1,8 @@
 # XKnot 全仓审计报告
 
 审计对象：`/Users/wangjunhui/Work-Sync/active/AgentLink` @ `e944be8`（v0.6.0，与两站线上版本一致）
-审计日期：2026-10-23
+审计日期：2026-10-23（约 15:05 结束）
+有效期：**48 小时**，至 **2026-10-25 15:05**。过期即视为历史，本目录可整目录焚毁；对应的代码修复已在 git 提交历史里，不以本目录为准。
 方式：全量切片 + 并行深读 + 主线程逐条复核关键项 + 两套线上库与运行时实测
 
 ---
@@ -199,7 +200,7 @@ export function getPool(databaseUrl) {
 | `audit/REPORT.md` | 本报告 |
 | `audit/RUBRIC.md` | 审计口径（10 个维度、4 级严重度） |
 | `audit/TODO.md` | 待修清单（`todo.json` 的核对基准，全部修完的台账） |
-| `audit/FIXLOG.md` | 五批修复日志（合并自原 `fix-log*.md`） |
+| `audit/db/round2/db-findings.md` | 第二轮数据库重扫结论（迁移漂移） |
 | `audit/findings/verification-log.md` | **复核台账**：哪些已证实、哪些修正、哪些推翻 |
 
 ## 七、诚实说明局限
