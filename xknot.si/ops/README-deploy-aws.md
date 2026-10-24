@@ -185,7 +185,7 @@ curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 
 ## instances.json 备注
 
-清单里当前有两个实例：自营旗舰 `wang`（`https://wang.xknot.si`）和社区成员 `cpswang`（`https://cpswang.xknot.si`），两者都是 `subdomain` 模式、`status: active`。清单里没有探测地址字段，地址恒为 `url` + `/api/health`。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
+清单里当前有三个实例：创始实例 `wang`（`https://wang.xknot.si`）、创始人的国际站点 `cpswang`（`https://cpswang.xknot.si`，旗舰实现示范）与 `zhoujj`（`https://zhoujj.xknot.si`），都是 `subdomain` 模式、`status: active`，前两者 `tier: paid`。清单里没有探测地址字段，地址恒为 `url` + `/api/health`。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
 
 ## 新增与下架实例
 

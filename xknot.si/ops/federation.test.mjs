@@ -23,22 +23,29 @@ test("the shipped roster and manifest agree", async () => {
   assert.deepEqual(validateRoster(roster, manifest), []);
 });
 
-test("the founder is a permanent account and cannot be unlisted", async () => {
+test("every founder is a permanent account and cannot be unlisted", async () => {
   const { roster, manifest } = await load();
-  const founder = roster.members.find((member) => member.role === "founder");
-  assert.equal(founder.id, "wang");
-  assert.equal(founder.standing, "permanent");
+  const founders = roster.members.filter((member) => member.role === "founder");
+  assert.deepEqual(founders.map((member) => member.id), ["wang", "cpswang"]);
+  for (const founder of founders) assert.equal(founder.standing, "permanent");
 
-  const broken = clone(roster);
-  broken.members.find((member) => member.id === "wang").listed = false;
-  const problems = validateRoster(broken, manifest);
-  assert.ok(problems.some(([id, errors]) => id === "wang" && errors.some((e) => e.startsWith("listed"))));
+  const unlisted = clone(roster);
+  unlisted.members.find((member) => member.id === "cpswang").listed = false;
+  assert.ok(
+    validateRoster(unlisted, manifest).some(([id, errors]) => id === "cpswang" && errors.some((e) => e.startsWith("listed")))
+  );
+
+  const demoted = clone(roster);
+  demoted.members.find((member) => member.id === "cpswang").standing = "regular";
+  assert.ok(
+    validateRoster(demoted, manifest).some(([id, errors]) => id === "cpswang" && errors.some((e) => e.startsWith("standing")))
+  );
 });
 
-test("exactly one founder is allowed", async () => {
+test("a roster without a founder is rejected", async () => {
   const { roster, manifest } = await load();
   const broken = clone(roster);
-  broken.members.find((member) => member.id === "cpswang").role = "founder";
+  for (const member of broken.members) member.role = "partner";
   const problems = validateRoster(broken, manifest);
   assert.ok(problems.some(([id, errors]) => id === "—" && errors.some((e) => e.startsWith("founder:"))));
 });
@@ -84,8 +91,8 @@ test("a member listed in the roster must exist in the manifest, and the reverse"
   const { roster, manifest } = await load();
 
   const missingEntry = clone(roster);
-  missingEntry.members.find((member) => member.id === "cpswang").listed = false;
-  assert.ok(validateRoster(missingEntry, manifest).some(([id, errors]) => id === "cpswang" && errors[0].includes("present in instances.json")));
+  missingEntry.members.find((member) => member.id === "zhoujj").listed = false;
+  assert.ok(validateRoster(missingEntry, manifest).some(([id, errors]) => id === "zhoujj" && errors[0].includes("present in instances.json")));
 
   const orphan = clone(manifest);
   orphan.instances.push({ ...orphan.instances[0], id: "ghost" });
@@ -112,21 +119,21 @@ test("a listed member needs since, and reserved hosts stay out of the manifest",
   assert.ok(validateRoster(roster, leaked).some(([id, errors]) => id === "travel" && errors[0].includes("not registered in federation.json")));
 });
 
-test("the founder must stay in the paid tier", async () => {
+test("every founder stays in the paid tier", async () => {
   const { roster, manifest } = await load();
   const broken = clone(manifest);
-  broken.instances.find((instance) => instance.id === "wang").tier = "free";
+  broken.instances.find((instance) => instance.id === "cpswang").tier = "free";
   const problems = validateRoster(roster, broken);
-  assert.ok(problems.some(([id, errors]) => id === "wang" && errors.some((e) => e.startsWith("tier:"))));
+  assert.ok(problems.some(([id, errors]) => id === "cpswang" && errors.some((e) => e.startsWith("tier:"))));
 });
 
 test("unknown enum values are rejected", async () => {
   const { roster, manifest } = await load();
   const broken = clone(roster);
-  const partner = broken.members.find((member) => member.id === "cpswang");
-  partner.role = "owner";
-  partner.standing = "trial";
-  partner.mode = "vpn";
+  const member = broken.members.find((entry) => entry.id === "cpswang");
+  member.role = "owner";
+  member.standing = "trial";
+  member.mode = "vpn";
   const errors = validateRoster(broken, manifest).find(([id]) => id === "cpswang")?.[1] || [];
   assert.ok(errors.some((e) => e.startsWith("role:")));
   assert.ok(errors.some((e) => e.startsWith("standing:")));

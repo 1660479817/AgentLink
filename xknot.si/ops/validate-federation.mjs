@@ -125,14 +125,15 @@ export function validateRoster(roster, manifest) {
     if (errors.length) problems.push([label, errors]);
   }
 
-  // 创始实例：有且只有一个，永久账号，必须已收录。
+  // 创始实例：至少一个，每个都是永久账号、必须已收录、留在 paid 档。
   const founders = roster.members.filter((member) => member?.role === "founder");
-  if (founders.length !== 1) {
-    problems.push(["—", [`founder: exactly one member must have role "founder" (found ${founders.length})`]]);
+  if (!founders.length) {
+    problems.push(["—", ['founder: at least one member must have role "founder"']]);
   } else {
-    const founder = founders[0];
-    if (founder.standing !== "permanent") problems.push([founder.id, ["standing: the founder must be permanent"]]);
-    if (founder.listed !== true) problems.push([founder.id, ["listed: the founder cannot be unlisted"]]);
+    for (const founder of founders) {
+      if (founder.standing !== "permanent") problems.push([founder.id, ["standing: a founder must be permanent"]]);
+      if (founder.listed !== true) problems.push([founder.id, ["listed: a founder cannot be unlisted"]]);
+    }
   }
 
   // 名册与清单必须一一对应：名册里 listed 的成员要出现在清单里，清单里每个实例都要在名册里。
@@ -169,7 +170,7 @@ export function validateRoster(roster, manifest) {
       }
     }
     if (member.role === "founder" && instance.tier !== "paid") {
-      problems.push([id, [`tier: the founder must be tier "paid", got "${instance.tier}"`]]);
+      problems.push([id, [`tier: a founder must be tier "paid", got "${instance.tier}"`]]);
     }
   }
 

@@ -170,8 +170,8 @@ npm run test          # 单元测试（清单、名册、页面逻辑、接口�
 | `hub` | 主机名 | 中枢自己的主机，固定 `xknot.si` |
 | `members[].id` | 小写 kebab | 必须与 `instances.json` 的 `id` 一致 |
 | `members[].host` | 主机名 | 必须等于清单 `url` 的主机 |
-| `members[].role` | `founder` / `partner` | 有且只有一个 `founder` |
-| `members[].standing` | `permanent` / `regular` | `founder` 必须是 `permanent`，且不能 `listed: false` |
+| `members[].role` | `founder` / `partner` | 至少一个 `founder` |
+| `members[].standing` | `permanent` / `regular` | 每个 `founder` 必须是 `permanent`，且不能 `listed: false` |
 | `members[].mode` | `subdomain`（唯一取值） | 接入形态。地址恒为 `https://<标签>.xknot.si` |
 | `members[].tunnel` | `{ account, port }` | 必填，不能为 `null`；账号与端口全名册唯一 |
 | `members[].listed` | `true` / `false` | 是否已收录；决定是否要在清单里出现 |
@@ -610,7 +610,7 @@ M1：
 - [ ] 停掉一个实例，重新构建后它的点变红，同时显示上次正常时间，其他实例不受影响
 - [ ] 停掉一个实例但不重新构建，等下一轮巡检（15 分钟）后刷新页面：状态跟着变，说明 `/api/probes` 在覆盖快照
 - [ ] `instances.json` 加一条、`federation.json` 同步登记、重新构建后页面出现新条目，无需改代码
-- [ ] `npm run validate:federation` 对缺名册、缺清单、重复端口、两个 founder 都返回 1
+- [ ] `npm run validate:federation` 对缺名册、缺清单、重复端口、没有 founder 都返回 1
 - [ ] `status` 不是 `active` 的条目保留上次结果，不被探测覆盖
 - [ ] 区域筛选按分组工作，未知国家落「其他」
 - [ ] 目录是卡片网格：宽屏两列、窄屏单列，卡片等高，悬停抬升并露出状态色条
@@ -624,7 +624,7 @@ M1：
 - [ ] 页面只请求同源的 `/data/hub.json`、`/api/probes`、`/api/locations` 与 `/api/applications`，不直接请求伙伴站点
 - [ ] `validate-instances.mjs` 对正确清单返回 0，对错误清单返回 1
 - [ ] `validate-federation.mjs` 对正确名册返回 0；清单多一条、名册少一条时返回 1
-- [ ] `federation.test.mjs` 覆盖 founder 唯一、永久账号不可下架、账号与端口唯一、名册与清单一一对应
+- [ ] `federation.test.mjs` 覆盖至少一个 founder、永久账号不可下架、账号与端口唯一、名册与清单一一对应
 
 M2：
 
@@ -776,7 +776,7 @@ M3：加入申请
 - 配置里的身份字段来自 `federation.json`，地址类字段来自 `instances.json`；两边都按文件 `mtime` 读，改完刷新总览就能看到，不用重启接口。清单里有、名册里没有的实例会显示「未进名册」。
 - 展开后点「编辑」可以就地改配置，不跳页：清单侧的对外地址、分级、状态、加入时间、橱窗与统计地址，以及名册侧的域名、角色、席位、隧道账号与端口、是否写进清单、备注。名称、介绍、区域、时区、联系方式不在这里改——那是实例自己的自述区，归它的 `/admin`。
 - 保存走 `POST /api/admin/instances/:id/config`：先整份跑 `validateInstances` 与 `validateRoster`，通过才用临时文件 + rename 写回两份 JSON；不通过时错误列在表单里，输入不丢，文件一个字节也不改。接入形态不由表单改：`mode` 固定写 `subdomain`，`tunnel` 必须同时填账号与端口。
-- 名册里还没有的账号，表单会按默认身份补一条（`role: partner`、`standing: regular`、`mode: subdomain`、`listed: true`，`tunnel` 取表单里的账号与端口）；保存前会检查名册里已有成员，不会出现两个创始席位。
+- 名册里还没有的账号，表单会按默认身份补一条（`role: partner`、`standing: regular`、`mode: subdomain`、`listed: true`，`tunnel` 取表单里的账号与端口）；保存前整份跑校验，要改成 `founder` 就得同时满足 `permanent`、已收录、`paid`。
 - 申请记录按状态列出数量，点一行直接切到对应的分类；「已通过但未写进清单」会单独提示。
 - 「申请记录」按状态分栏（已通过、已撤回、全部），左侧列表、右侧详情。
 - 详情显示站点、运营者、邮箱、区域、时区、简介、标签、档位、公钥与提交时间；「通过」一栏写明`提交即通过`。
