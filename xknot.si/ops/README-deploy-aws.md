@@ -1,82 +1,82 @@
-# xknot.si 中枢部署
+# xknot.si hub deployment
 
-面向算力助理 / 运维：在公网主机上托管**联盟门户**的静态站与申请接口。
+For the compute assistant / ops: hosting the **federation portal**'s static site and application API on a public host.
 
-这是联盟门户自己的部署。用 `knot-platform` 部署的伙伴站点不在这里，也不由这套脚本管理；两台若是同一台机器，只说明共用主机，不构成依赖。
+This is the federation portal's own deployment. Partner sites deployed with `knot-platform` are not here and are not managed by these scripts; if the two are on the same machine, it only means they share a host, not a dependency.
 
-这台机器同时是**中枢主机**和**入口主机**（`wang.xknot.si` 等实例入口）。角色与归属见 [`docs/concepts.md`](../../docs/concepts.md)：中枢的配置归本项目的 `ops/`，入口的配置归实例侧 `knot-platform/ops/entry/`，两边不互相引用。
+This machine is both the **hub host** and the **entry host** (the entry for `wang.xknot.si` and other instances). Roles and ownership in [`docs/concepts.md`](../../docs/concepts.md): the hub's config belongs to this project's `ops/`, the entry's config belongs to the instance side `knot-platform/ops/entry/`, and the two do not reference each other.
 
-## 主机
+## Host
 
-仓库里不写死主机。下面的值只是当前实例，改动时以实际那台为准，或直接覆盖环境变量。
+The repo does not hardcode the host. The values below are only the current instance; when they change, go by the actual machine, or override the env vars directly.
 
 ```bash
 HUB=ec2-user@54.169.33.64
 KEY=~/.ssh/suanli-sg-probe.pem
 ```
 
-| 项 | 值 |
+| Item | Value |
 |----|----|
-| 区域 | `ap-southeast-1` |
-| 实例 | `i-0c876685a64c75538` |
-| 公网 | `54.169.33.64`（随 EIP / 重建变化） |
-| SSH | `ssh -i $KEY $HUB`（`id_rsa` 在这台机上会被拒） |
-| DNS | `xknot.si` 与 `www` 的 A 记录指向这里 |
-| 同机其它站点 | 这台机同时托管实例侧站点：`/var/www/wang`（`wang.xknot.si`），以及无关的 `/var/www/aiugc`。`conf.d/` 下各配置各自独立，改 conf 前务必 `nginx -t` |
+| Region | `ap-southeast-1` |
+| Instance | `i-0c876685a64c75538` |
+| Public | `54.169.33.64` (changes with EIP / rebuild) |
+| SSH | `ssh -i $KEY $HUB` (`id_rsa` is rejected on this machine) |
+| DNS | the A records of `xknot.si` and `www` point here |
+| Other sites on the same machine | this machine also hosts instance-side sites: `/var/www/wang` (`wang.xknot.si`), and the unrelated `/var/www/aiugc`. Each config under `conf.d/` is independent; always `nginx -t` before changing a conf |
 
-门户与这些实例站点共用一台机器，但目录、进程与配置互不重叠：门户是 `/var/www/xknot` + `/opt/xknot` + `xknot-api`，实例是各自的 `ops/` 部署产物。共用的只是 nginx 进程、证书目录与这台机的容量。
+The portal and these instance sites share one machine, but directories, processes, and configs do not overlap: the portal is `/var/www/xknot` + `/opt/xknot` + `xknot-api`, and the instances are their own `ops/` deployment artifacts. What they share is only the nginx process, the certificate directory, and this machine's capacity.
 
-## 路径
+## Paths
 
-| 路径 | 用途 |
+| Path | Use |
 |------|------|
-| `/var/www/xknot` | 门户静态（`web/dist`） |
-| `/opt/xknot/server` | 接口源码 `server/index.mjs` |
-| `/opt/xknot/admin` | 控制台静态 |
-| `/opt/xknot/docs` | 本项目文档（systemd 的 `Documentation=`） |
-| `/opt/xknot/instances.json` | 接口读取的实例清单（委托发信判断实例是否在册、是否 active） |
-| `/opt/xknot/ops/validate-instances.mjs` | 清单校验（`manifest.mjs` 依赖） |
-| `/opt/xknot/ops/{check-health,watch-health,fetch-guard}.mjs` | 定时健康巡检：探测、发信、暂时隐藏 |
-| `/opt/xknot/ops/{peers,geoip}.mjs` | 站点位置：隧道对端 → 出口 IP → 国家码 |
-| `/opt/xknot/var/geoip/` | DB-IP Lite 库 + IP 判定缓存 + `locations.json`（生成物，约 4.5 MB，不入仓） |
-| `/opt/xknot/web/src/lib/` | 纯函数与静态表（`i18n`、`regions`），兜底校验依赖；部署整目录同步 |
-| `/opt/xknot/var` | SQLite / session-secret（`0600`，勿入仓） |
-| `/etc/nginx/conf.d/xknot.si.conf` | 门户 + `/api` `/admin` 反代 |
-| `/etc/systemd/system/xknot-api.service` | 接口常驻 |
-| `/etc/systemd/system/xknot-health.{service,timer}` | 每 15 分钟巡检一次 |
-| `/etc/systemd/system/xknot-provision.service` | 自动接通：逐项配置入口主机，探测通过后改 `active` |
-| `/opt/xknot/var/provision.env` | 自动接通的输入：`XKNOT_ENTRY_HOST`（`0600`，首次部署由 `XKNOT_ENTRY_HOST` 生成） |
+| `/var/www/xknot` | portal static (`web/dist`) |
+| `/opt/xknot/server` | API source `server/index.mjs` |
+| `/opt/xknot/admin` | console static |
+| `/opt/xknot/docs` | this project's docs (systemd's `Documentation=`) |
+| `/opt/xknot/instances.json` | the instance manifest the API reads (mail relay checks whether an instance is listed and active) |
+| `/opt/xknot/ops/validate-instances.mjs` | manifest validation (a dependency of `manifest.mjs`) |
+| `/opt/xknot/ops/{check-health,watch-health,fetch-guard}.mjs` | scheduled health patrol: probe, mail, temporary hiding |
+| `/opt/xknot/ops/{peers,geoip}.mjs` | site location: tunnel peer → egress IP → country code |
+| `/opt/xknot/var/geoip/` | DB-IP Lite database + IP resolution cache + `locations.json` (generated, ~4.5 MB, not in the repo) |
+| `/opt/xknot/web/src/lib/` | pure functions and static tables (`i18n`, `regions`), a dependency of fallback validation; deployed as a whole directory |
+| `/opt/xknot/var` | SQLite / session-secret (`0600`, do not commit) |
+| `/etc/nginx/conf.d/xknot.si.conf` | portal + `/api` `/admin` reverse proxy |
+| `/etc/systemd/system/xknot-api.service` | the API resident |
+| `/etc/systemd/system/xknot-health.{service,timer}` | patrol every 15 minutes |
+| `/etc/systemd/system/xknot-provision.service` | automatic provisioning: configures the entry host item by item, changes to `active` after the probe passes |
+| `/opt/xknot/var/provision.env` | input for automatic provisioning: `XKNOT_ENTRY_HOST` (`0600`, generated from `XKNOT_ENTRY_HOST` on first deploy) |
 
-## 环境变量（systemd）
+## Environment variables (systemd)
 
-见 unit `ops/xknot-api.service`：
+See unit `ops/xknot-api.service`:
 
-| 变量 | 生产值 |
+| Variable | Production value |
 |------|--------|
 | `XKNOT_API_HOST` | `127.0.0.1` |
 | `XKNOT_API_PORT` | `5181` |
 | `XKNOT_DATA_DIR` | `/opt/xknot/var` |
 | `XKNOT_TRUST_PROXY` | `1` |
-| `XKNOT_SECURE_COOKIE` | 有 HTTPS 时 `1`（当前 unit 已置 `1`）；只在 HTTP 阶段临时关掉 |
+| `XKNOT_SECURE_COOKIE` | `1` when HTTPS (the current unit already sets `1`); only turn off temporarily in the HTTP phase |
 | `XKNOT_PUBLIC_ORIGIN` | `https://xknot.si` |
-| `EnvironmentFile` | `-/opt/xknot/var/mail.env`，可选；不存在时只是不发信 |
+| `EnvironmentFile` | `-/opt/xknot/var/mail.env`, optional; when missing it just does not send mail |
 
-接口只监听回环；nginx 反代 `/api/`、`/admin/`。
+The API listens only on the loopback; nginx reverse-proxies `/api/` and `/admin/`.
 
-自动接通另有一份输入，见 unit `ops/xknot-provision.service`：
+Automatic provisioning has its own input, see unit `ops/xknot-provision.service`:
 
-| 变量 | 生产值 |
+| Variable | Production value |
 |------|--------|
-| `XKNOT_ENTRY_HOST` | 入口主机公网地址（与中枢同机时为 `54.169.33.64`）；写 `/opt/xknot/var/provision.env`，不写进 unit |
-| `XKNOT_ADMIN_EMAIL` | 证书登记邮箱，复用 `mail.env` 里的 `XKNOT_ADMIN_EMAIL` |
-| `XKNOT_PROVISION_INTERVAL_MS` | 可选，默认 `20000` |
-| `XKNOT_AFTER_ACTIVATE` | 可选；改成 `active` 后额外执行的命令（门户快照已由 worker 自己重算，这里只给补充动作） |
+| `XKNOT_ENTRY_HOST` | the entry host's public address (same machine as the hub: `54.169.33.64`); written to `/opt/xknot/var/provision.env`, not into the unit |
+| `XKNOT_ADMIN_EMAIL` | the certificate registration email, reusing `XKNOT_ADMIN_EMAIL` from `mail.env` |
+| `XKNOT_PROVISION_INTERVAL_MS` | optional, default `20000` |
+| `XKNOT_AFTER_ACTIVATE` | optional; an extra command to run after changing to `active` (the portal snapshot is already recomputed by the worker itself; this is only for supplementary actions) |
 
-worker 每轮只推进一步，失败只记错误码（`dns_missing`、`tls_failed`…）并原地重试，这些码会原样出现在实例管理界面的 XKnot 栏。它需要 `sudo`：建账号、写 sshd 与 nginx 配置、跑 certbot。**DNS 不在它手里**——入口域名需要一条泛解析 `*.xknot.si → XKNOT_ENTRY_HOST`；没有它，`dns` 这一步永远过不去。
+The worker advances one step per round, recording only an error code on failure (`dns_missing`, `tls_failed`…) and retrying in place; these codes show as-is in the XKnot section of the instance admin UI. It needs `sudo`: creating accounts, writing sshd and nginx config, running certbot. **DNS is not in its hands** — the entry domain needs a wildcard `*.xknot.si → XKNOT_ENTRY_HOST`; without it the `dns` step never passes.
 
-## 邮件（可选）
+## Mail (optional)
 
-发信凭据不进 unit（unit 是 `0644`），单独放 `/opt/xknot/var/mail.env`，权限 `0600`：
+Sending credentials do not go into the unit (the unit is `0644`); they live in `/opt/xknot/var/mail.env`, mode `0600`:
 
 ```bash
 ssh -i "$KEY" "$HUB"
@@ -84,22 +84,22 @@ sudo install -m 600 -o ec2-user -g ec2-user /dev/null /opt/xknot/var/mail.env
 sudo -u ec2-user vi /opt/xknot/var/mail.env
 ```
 
-内容（阿里云邮件推送，465 隐式 TLS）。`SMTP_HOST` 跟着控制台区域走：华东是 `smtpdm.aliyun.com`，新加坡是 `smtpdm-ap-southeast-1.aliyuncs.com`。
+Contents (Aliyun DirectMail, 465 implicit TLS). `SMTP_HOST` follows the console region: East China is `smtpdm.aliyun.com`, Singapore is `smtpdm-ap-southeast-1.aliyuncs.com`.
 
 ```bash
 SMTP_HOST=smtpdm.aliyun.com
 SMTP_PORT=465
 SMTP_SECURE=1
 SMTP_USER=no-reply@xknot.si
-SMTP_PASS='该发信地址的 SMTP 密码，不是阿里云登录密码'
+SMTP_PASS='the SMTP password of that sending address, not the Aliyun login password'
 SMTP_FROM=no-reply@xknot.si
 MAIL_FROM=no-reply@xknot.si
 XKNOT_ADMIN_EMAIL=manwjh@gmail.com
 ```
 
-`xknot.si` 的 MX 已经指向 `mx01.dm.aliyun.com`，这个域只发信；不要再给它配企业邮箱收信。
+`xknot.si`'s MX already points to `mx01.dm.aliyun.com`; this domain only sends. Do not configure a corporate mailbox to receive on it.
 
-`SMTP_USER` 必须与 `SMTP_FROM` 一致，这是阿里云邮件推送的认证规则。改完 unit 或 env 后：
+`SMTP_USER` must equal `SMTP_FROM`, which is Aliyun DirectMail's auth rule. After changing a unit or env:
 
 ```bash
 sudo systemctl daemon-reload
@@ -107,108 +107,108 @@ sudo systemctl restart xknot-api
 sudo -u ec2-user bash -c 'set -a; . /opt/xknot/var/mail.env; set +a; cd /opt/xknot && npm run mail:test -- manwjh@gmail.com'
 ```
 
-测试信只证明 SMTP 认证与投递通了；是否进箱要看收件方原始邮件头里的 `spf=pass`、`dkim=pass`、`dmarc=pass`。发信域名在阿里云控制台验证后，DNS 记录不要删。
+The test mail only proves SMTP auth and delivery; whether it lands in the inbox depends on `spf=pass`, `dkim=pass`, `dmarc=pass` in the recipient's raw headers. After verifying the sending domain in the Aliyun console, do not delete the DNS records.
 
-新建发信地址或刚改 SMTP 密码后，阿里云侧生效有延迟，约 10 分钟内仍会返回 `535 Authentication failure`；先等一会儿再试，不要急着当成密码错误。区域要与控制台一致，华东是 `smtpdm.aliyun.com`，拿华东的地址去打新加坡端点同样报 535。
+After creating a new sending address or changing an SMTP password, Aliyun's propagation has a delay; within about 10 minutes it still returns `535 Authentication failure`. Wait a bit before retrying, rather than assuming a wrong password. The region must match the console: East China is `smtpdm.aliyun.com`; hitting the Singapore endpoint with an East China address also returns 535.
 
-共享给伙伴时，一个发信域名下按站点建不同发信地址，每个地址单独设 SMTP 密码；伙伴只填上面 6 个 `SMTP_*` / `MAIL_FROM`，不要拿到中枢的管理员邮箱与会话密钥。
+When sharing with partners, create one sending address per site under one sending domain, each with its own SMTP password; partners fill only the six `SMTP_*` / `MAIL_FROM` above, and must not receive the hub's admin mailbox or session secret.
 
-## 构建与部署
+## Build and deploy
 
 ```bash
 cd xknot.si
 
-# 静态站
-./ops/build-hub.sh                 # 或 --offline
+# static site
+./ops/build-hub.sh                 # or --offline
 XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-hub.sh
 
-# 接口、控制台与配置
+# API, console, and config
 XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh
 ```
 
-`deploy-hub.sh` 已 `--exclude .well-known`，避免冲掉 ACME 挑战目录；它带 `--delete`，所以先拒绝空值、根目录、站点父目录与源目录本身，真同步前再空跑一次把要删的路径打出来。`deploy-api.sh` 同步 `server/`、`admin/`、`docs/`、整个 `ops/`、`web/src/lib/` 与 `instances.json`，安装 nginx 配置与八个 systemd unit（`xknot-api`、`xknot-provision`、`xknot-health.{service,timer}`、`xknot-traffic.{service,timer}`、`xknot-republish.{service,timer}`）。账号、端口这些网关脚本都收在 `ops/` 里，所以那一层整目录过去；同步之前先跑 `ops/check-server-imports.mjs`，`server/` 里若有 import 落到 `server/`、`ops/`、`web/src/lib/` 之外，脚本直接退出——那种写法本地与单测全绿，远端必然 `ERR_MODULE_NOT_FOUND`。nginx 配置先备份（`<conf>.bak-<UTC 时间>`，留最近 10 份）再落盘，`nginx -t` 不通过就恢复旧文件并退出；通过后才 daemon-reload、重启接口、启用三个 timer、reload nginx，最后在回环上验证 `/api/health`。两者互不覆盖。
+`deploy-hub.sh` already `--exclude .well-known` to avoid wiping the ACME challenge directory; it carries `--delete`, so it first refuses empty values, the root, the site parent, and the source directory itself, and dry-runs once before the real sync to print what will be deleted. `deploy-api.sh` syncs `server/`, `admin/`, `docs/`, the whole `ops/`, `web/src/lib/`, and `instances.json`, installs the nginx config and eight systemd units (`xknot-api`, `xknot-provision`, `xknot-health.{service,timer}`, `xknot-traffic.{service,timer}`, `xknot-republish.{service,timer}`). Accounts, ports — all these gateway scripts live in `ops/`, so that whole layer goes over as a directory; before syncing it runs `ops/check-server-imports.mjs`, and if an import in `server/` falls outside `server/`, `ops/`, `web/src/lib/`, the script exits outright — that style passes locally and in unit tests, but remotely it is guaranteed `ERR_MODULE_NOT_FOUND`. The nginx config is backed up first (`<conf>.bak-<UTC time>`, keeping the latest 10), then written; if `nginx -t` fails it restores the old file and exits; on success it daemon-reloads, restarts the API, enables the three timers, reloads nginx, and finally verifies `/api/health` on the loopback. The two do not overwrite each other.
 
-自动接通会在中枢上直接往 `instances.json` 与 `federation.json` 里加节点，仓库里那两份不会跟着变。所以 `deploy-api.sh` 同步前先比一次 id 集合：中枢有、仓库没有就拒绝覆盖，提示先取回：
+Automatic provisioning adds nodes directly to `instances.json` and `federation.json` on the hub; the two copies in the repo do not follow. So before syncing, `deploy-api.sh` compares the id sets: if the hub has an id the repo lacks, it refuses to overwrite and asks you to pull first:
 
 ```bash
 XKNOT_HUB_SSH=$HUB XKNOT_SSH_KEY=$KEY ./ops/deploy-api.sh --pull-manifest
 ```
 
-取回会覆盖仓库里这两份（各自留一份 `.pull-backup`），跑过 `validate` 后提示提交。**顺序是「先取回、提交，再部署」**；反过来做会把刚接通的节点从清单里删掉——门户少一张卡片，worker 下一轮会发现条目整个消失（它会按 `provision_runs` 补回并记一条 `instance.manifest_restored`，但不该指望这条兜底）。
+Pulling overwrites the repo's two files (each keeps a `.pull-backup`), then prompts to commit after `validate` passes. **The order is "pull, commit, then deploy"**; doing it the other way deletes the just-connected node from the manifest — the portal loses a card, and the worker's next round finds the entry gone entirely (it restores it via `provision_runs` and records `instance.manifest_restored`, but you should not count on that fallback).
 
-门户数据那一段（`/var/www/xknot/data/hub.json`）由 `xknot-republish.timer` 每 10 分钟重算，不需要重新部署前端；节点接通时 worker 还会立刻重算一次。
+The portal data section (`/var/www/xknot/data/hub.json`) is recomputed by `xknot-republish.timer` every 10 minutes, no frontend redeploy needed; the worker also recomputes it immediately on connect.
 
-先看会做什么，不连远端：
+To see what will happen without touching the remote:
 
 ```bash
 XKNOT_HUB_SSH=$HUB ./ops/deploy-hub.sh --dry-run
 XKNOT_HUB_SSH=$HUB ./ops/deploy-api.sh --dry-run
 ```
 
-## nginx 现状
+## nginx current state
 
-- `xknot.si` / `www.xknot.si`：443 提供门户，`/` 302 到 `/en/`；80 只留 ACME 并 301 到 HTTPS。
-- 443 的 server 里开了 gzip（文本类，含 JS/CSS/JSON/SVG/XML）；不压图片与字体，它们本来就压过。门户是纯静态站，这一层不压就没有别处可压。
-- `/api/`、`/admin/` 反代到 `127.0.0.1:5181`；`/assets/` 长缓存，`/data/hub.json` 用 `no-cache`。
-- 门户带 HSTS、`nosniff`、`Referrer-Policy`、`X-Frame-Options: DENY` 与 CSP；`/admin/` 的严格 CSP 由接口的 `serveAdminFile` 发出，nginx 只补 HSTS。`/assets/` 与 `/data/hub.json` 不要写 `add_header`，否则 nginx 会丢掉 server 级安全头。
-- 没有其它子域。`root.xknot.si` 已删除：DNS 记录、nginx 配置与证书都清理掉了，不要重新加回来。
-- 证书由 Certbot 管理，不动 `ssl_certificate` 那几行。
+- `xknot.si` / `www.xknot.si`: 443 serves the portal, `/` 302s to `/en/`; 80 only keeps ACME and 301s to HTTPS.
+- The 443 server enables gzip (text types, including JS/CSS/JSON/SVG/XML); images and fonts are not compressed since they are already compressed. The portal is a pure static site; if this layer does not compress, nothing else will.
+- `/api/`, `/admin/` reverse-proxy to `127.0.0.1:5181`; `/assets/` long-cache, `/data/hub.json` uses `no-cache`.
+- The portal carries HSTS, `nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY`, and CSP; `/admin/`'s strict CSP is sent by the API's `serveAdminFile`, nginx only adds HSTS. Do not write `add_header` on `/assets/` and `/data/hub.json`, otherwise nginx drops the server-level security headers.
+- There are no other subdomains. `root.xknot.si` is deleted: DNS records, nginx config, and certificate are all cleaned up; do not add it back.
+- Certificates are managed by Certbot; do not touch the `ssl_certificate` lines.
 
-## 证书
+## Certificate
 
 ```bash
-# 1) 确认 A/AAAA 已指向本机，HTTP ACME 可通
+# 1) confirm A/AAAA point here and HTTP ACME is reachable
 curl -sI -H 'Host: xknot.si' http://54.169.33.64/.well-known/acme-challenge/ping
 
-# 2) 签证书（webroot）
+# 2) sign the certificate (webroot)
 sudo certbot certonly --webroot -w /var/www/xknot -d xknot.si -d www.xknot.si
 
-# 3) reload 并确认 Secure Cookie 已开
+# 3) reload and confirm the Secure Cookie is on
 sudo nginx -t && sudo systemctl reload nginx
-sudo systemctl show xknot-api -p Environment   # 应含 XKNOT_SECURE_COOKIE=1
+sudo systemctl show xknot-api -p Environment   # should contain XKNOT_SECURE_COOKIE=1
 ```
 
-`xknot.si` 的证书覆盖 `xknot.si` 与 `www.xknot.si` 两个名字。
+`xknot.si`'s certificate covers both names `xknot.si` and `www.xknot.si`.
 
-## 验收
+## Acceptance
 
-按域名验（证书与 SNI 都走真实路径）：
+Verify by domain (certificate and SNI both take the real path):
 
 ```bash
 curl -sI https://xknot.si/                        # 302 → /en/
 curl -sI https://xknot.si/en/                     # 200
 curl -sI -H 'Accept-Encoding: gzip' https://xknot.si/assets/<main js> | grep -i content-encoding  # gzip
-curl -sI https://xknot.si/data/hub.json           # 200，no-cache
+curl -sI https://xknot.si/data/hub.json           # 200, no-cache
 curl -s  https://xknot.si/api/health              # {"ok":true,...}
 curl -sI https://xknot.si/admin/                  # 200
 curl -sI https://xknot.si/api/admin/applications   # 401
 
-# 同机其它站点不得受影响
-curl -sI https://wang.xknot.si/                   # 实例，200
+# other sites on the same machine must be unaffected
+curl -sI https://wang.xknot.si/                   # instance, 200
 ```
 
-在 DNS 还没切、只想验这台机时，用 `--resolve` 指定解析，不要直接连 IP：
+When DNS has not switched and you only want to verify this machine, use `--resolve`, not a direct IP:
 
 ```bash
 curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 ```
 
-## instances.json 备注
+## instances.json note
 
-清单里当前有三个实例：自营旗舰 `wang`（`https://wang.xknot.si`）、社区成员 `cpswang`（`https://cpswang.xknot.si`）与 `zhoujj`（`https://zhoujj.xknot.si`），都是 `subdomain` 模式、`status: active`。清单里没有探测地址字段，地址恒为 `url` + `/api/health`。`root.xknot.si` 已下线，不要再登记。门户可以先上线；探测结果是构建时采样，不影响静态站与申请接口。
+The manifest currently has three instances: the self-operated flagship `wang` (`https://wang.xknot.si`), the community member `cpswang` (`https://cpswang.xknot.si`), and `zhoujj` (`https://zhoujj.xknot.si`), all `subdomain` mode and `status: active`. The manifest has no probe-address field; the address is always `url` + `/api/health`. `root.xknot.si` is offline; do not list it again. The portal can go live first; probe results are build-time samples and do not affect the static site or the application API.
 
-## 新增与下架实例
+## Adding and delisting instances
 
-新增一条：自动接通会自己写清单与名册（`status` 先 `pending`，验收后改 `active`），不需要手工登记；**要人工做的是把它同步回仓库**——`./ops/deploy-api.sh --pull-manifest`，然后 `npm run validate` 并提交。手工加一条时：先改 `federation.json`（身份、隧道账号与端口），再改 `instances.json`（签发区），然后 `npm run validate`。下架一条：两个文件同时删掉这条，再删入口主机上的 conf 与静态根；`var/health.json` 与 `var/status.json` 下次巡检会自然丢掉它，`var/profiles/` 里的副本要手工删。子域跟着 `*.xknot.si` 的泛解析走，没有单独的 DNS 记录要清。
+Adding one: automatic provisioning writes the manifest and roster itself (`status` first `pending`, then `active` after acceptance), no manual listing needed; **what must be done by hand is syncing it back to the repo** — `./ops/deploy-api.sh --pull-manifest`, then `npm run validate` and commit. Adding one manually: change `federation.json` first (identity, tunnel account and port), then `instances.json` (issued zone), then `npm run validate`. Delisting one: delete the entry from both files at once, then delete the conf and static root on the entry host; `var/health.json` and `var/status.json` drop it naturally on the next patrol, and the copy in `var/profiles/` must be deleted by hand. The subdomain follows the `*.xknot.si` wildcard, so there is no separate DNS record to clear.
 
-历史：`zjj`（2026-10-19 签发、未接通）是早期试验，2026-10-22 已下架并删除登记与入口文件。
+History: `zjj` (issued 2026-10-19, never connected) was an early experiment, delisted 2026-10-22 with its listing and entry files removed.
 
-## 实例侧
+## Instance side
 
-实例怎么部署、入口与隧道怎么配，不在本文范围。当前实例实现是 `knot-platform`：入口与隧道见 `knot-platform/ops/entry/README.md`，主机与密钥由各自的 `sites/<站点>/site.env` 给出。换别的实现，本文不需要改——中枢只认 `/api/health` 与接入件。
+How an instance deploys, and how its entry and tunnel are configured, is outside this document. The current instance implementation is `knot-platform`: entry and tunnel in `knot-platform/ops/entry/README.md`, host and keys given by each `sites/<site>/site.env`. Swapping implementations does not change this document — the hub only recognizes `/api/health` and the access material.
 
-## 禁止
+## Forbidden
 
-- 未切 NS 前不要对 xknot.si 跑 certbot
-- 不要改 Dynadot / 不要动 Route53 `zenheart` 区
-- 不要 terminate 实例；不要停同机其它站点的服务
+- Do not run certbot for xknot.si before the NS switch
+- Do not change Dynadot / do not touch the Route53 `zenheart` zone
+- Do not terminate the instance; do not stop other sites' services on the same machine

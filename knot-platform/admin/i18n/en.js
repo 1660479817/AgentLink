@@ -39,6 +39,7 @@ export default {
   "nav.users": "People",
   "nav.site": "Site",
   "nav.xknot": "XKnot",
+  "nav.logs": "Logs",
 
   "overview.title": "Overview",
   "overview.lead": "Issuance, circulation and platform share, plus attention counters.",
@@ -122,6 +123,20 @@ export default {
   "verdict.rejected": "Withdrawn",
   "verdict.removed": "Removed",
   "verdict.unknown": "Unknown",
+
+  "logs.title": "Logs",
+  "logs.lead": "Records whose review did not finish. Authors no longer get these notices; they are collected here.",
+  "logs.queue": "Review failures",
+  "logs.queueHint": "When the reviewer times out, fails or returns bad output, the record stays in review; retries stop at the limit.",
+  "logs.empty": "No review failures right now.",
+  "logs.count": "{count}",
+  "logs.attempts": "{count} attempts",
+  "logs.gaveUp": "Retries stopped",
+  "logs.review.agent_timeout": "Reviewer timed out",
+  "logs.review.agent_failed": "Reviewer did not finish",
+  "logs.review.agent_bad_json": "Reviewer returned unusable output",
+  "logs.review.agent_empty": "Reviewer returned no content",
+  "logs.review.other": "Review did not finish",
 
   "registration.open": "Open",
   "registration.invite": "Invite code required",

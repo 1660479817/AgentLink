@@ -20,22 +20,23 @@
     <text x="64" y="244" font-size="14" fill="#333">post · fastpost · wish · wishRespond</text>
     <text x="430" y="244" font-size="14" fill="#333">price · fee · payee</text>
     <rect x="40" y="320" width="1000" height="250" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
-    <text x="64" y="356" font-size="18" font-weight="600">内容</text>
+    <text x="64" y="356" font-size="18" font-weight="600">内容 · Content</text>
     <rect x="64" y="384" width="180" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="154" y="422" text-anchor="middle" font-size="15">body</text>
     <rect x="264" y="384" width="180" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="354" y="414" text-anchor="middle" font-size="15">images</text>
-    <text x="354" y="434" text-anchor="middle" font-size="12" fill="#333">最多 4</text>
+    <text x="354" y="434" text-anchor="middle" font-size="12" fill="#333">最多 4 · up to 4</text>
     <rect x="464" y="384" width="160" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="544" y="414" text-anchor="middle" font-size="15">audio</text>
-    <text x="544" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1</text>
+    <text x="544" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1 · up to 1</text>
     <rect x="644" y="384" width="160" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="724" y="414" text-anchor="middle" font-size="15">videos</text>
-    <text x="724" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1</text>
+    <text x="724" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1 · up to 1</text>
     <rect x="824" y="384" width="176" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="912" y="414" text-anchor="middle" font-size="15">attachments</text>
-    <text x="912" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1</text>
+    <text x="912" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1 · up to 1</text>
     <text x="64" y="500" font-size="14" fill="#333">每一项都是链接。stored 为 true 的文件在平台上，false 的是外链。</text>
-    <text x="64" y="528" font-size="14" fill="#333">卡片展示预览、文件名和外链。下载取走平台文件。</text>
+    <text x="64" y="520" font-size="14" fill="#333">Every item is a link; files with stored=true live on the platform, false are external.</text>
+    <text x="64" y="548" font-size="14" fill="#333">卡片展示预览、文件名和外链。下载取走平台文件。 · Cards show preview, filename and link; download fetches the platform file.</text>
   </g>
 </svg>

@@ -1,6 +1,6 @@
 {
   "name": "xknot-e2e",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "xknot.si 浏览器端到端测试（独立安装，不进主项目运行依赖）",
   "license": "Apache-2.0",
   "private": true,

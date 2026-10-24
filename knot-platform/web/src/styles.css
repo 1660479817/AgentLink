@@ -3227,22 +3227,16 @@ a.intel-person:hover {
 }
 
 .information-status + .information-body,
-.information-status + .information-preview,
 .information-status + .information-images,
 .information-status + .information-files,
-.information-body + .information-preview,
 .information-body + .information-images,
 .information-body + .information-audio,
 .information-body + .information-video,
 .information-body + .information-files,
-.information-body-wrap + .information-preview,
 .information-body-wrap + .information-images,
 .information-body-wrap + .information-audio,
 .information-body-wrap + .information-video,
 .information-body-wrap + .information-files,
-.information-preview + .information-audio,
-.information-preview + .information-video,
-.information-preview + .information-files,
 .information-images + .information-audio,
 .information-images + .information-video,
 .information-images + .information-files,
@@ -3415,8 +3409,7 @@ a.intel-person:hover {
   margin-top: 0.75rem;
 }
 
-.card:not(.information-card) > .information-video,
-.demand-reply .information-video {
+.card:not(.information-card) > .information-video {
   margin-left: -1rem;
   margin-right: -1rem;
   width: calc(100% + 2rem);
@@ -3784,13 +3777,11 @@ button.information-avatar:hover:not(:disabled) {
   color: #65676b;
 }
 
-.information-card .information-preview,
 .information-card .information-images {
   margin: 0.75rem 0 0;
 }
 
-.card:not(.information-card) > .information-images,
-.demand-reply .information-images {
+.card:not(.information-card) > .information-images {
   margin-left: -1rem;
   margin-right: -1rem;
   width: calc(100% + 2rem);

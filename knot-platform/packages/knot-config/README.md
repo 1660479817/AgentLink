@@ -1,22 +1,22 @@
 # @knot/config
 
-Knot 配置的唯一事实来源。每个配置键在这里登记一次：类型、默认值、是否必填、属于哪台机器、是不是密钥。
+The single source of truth for Knot configuration. Each config key is registered here once: type, default, whether required, which machine it belongs to, whether it's a secret.
 
-三处读同一份登记表：
+Three readers share the one registry:
 
-| 读的人 | 用途 |
+| Reader | Purpose |
 | --- | --- |
-| `backend/src/config.js` | 取默认值。代码里不再另写一份常量。 |
-| `backend/src/runtimeConfig.js` | 启动时校验进程环境。值不合法直接退出。 |
-| `ops/scripts/config.mjs` | 校验站点、生成 `sites/_template/*`、生成 `docs/CONFIG.md`、写实例运行时文件。 |
+| `backend/src/config.js` | Get defaults. The code no longer writes a second copy of constants. |
+| `backend/src/runtimeConfig.js` | Validate the process environment at startup. Invalid values exit immediately. |
+| `ops/scripts/config.mjs` | Validate sites, generate `sites/_template/*`, generate `docs/CONFIG.md`, write instance runtime files. |
 
-这份包属于**代码层**。`ops/` 是部署层，`sites/<站点>/` 是配置层，两边都从这里派生，不各写一份。
+This package belongs to the **code layer**. `ops/` is the deployment layer and `sites/<site>/` the config layer; both derive from here rather than each keeping its own copy.
 
-## 加一个配置项
+## Adding a config key
 
-1. 在 `src/schema.mjs` 的 `SITE_KEYS`（站点拓扑，写进 `site.env`）或 `PLATFORM_KEYS`（实例主机运行时值，写进 `platform.env`）里加一条；
-2. 运行时键要写 `runtime`，表示它在进程环境里的名字（例如 `KNOT_PORT` → `PORT`）；
-3. 回到 `knot-platform/` 跑：
+1. Add an entry to `SITE_KEYS` (site topology, written into `site.env`) or `PLATFORM_KEYS` (instance-host runtime values, written into `platform.env`) in `src/schema.mjs`;
+2. A runtime key must declare `runtime`, its name in the process environment (e.g. `KNOT_PORT` → `PORT`);
+3. Back in `knot-platform/`, run:
 
 ```bash
 node ops/scripts/config.mjs template --write
@@ -25,4 +25,4 @@ node ops/scripts/config.mjs docs --write
 npm test
 ```
 
-模板、文档、代码默认值任何一处漂移，`packages/knot-config/src/schema.test.js` 都会失败。
+Any drift among template, docs, and code defaults fails `packages/knot-config/src/schema.test.js`.

@@ -203,7 +203,7 @@ test("schema: an existing database is not migrated twice", (t) => {
   const reopened = openStore(file);
   t.after(() => reopened.close());
   const db = new DatabaseSync(file, { readOnly: true });
-  assert.equal(Number(db.prepare("pragma user_version").get().user_version), 1);
+  assert.equal(Number(db.prepare("pragma user_version").get().user_version), 2);
   db.close();
   assert.equal(reopened.listApplications().length, 1);
 });

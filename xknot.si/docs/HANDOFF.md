@@ -1,316 +1,314 @@
-# XKnot 联邦 · 收录交付单
+# XKnot Federation · Listing Handoff Sheet
 
-版本 3.2，2026-10-21。
+Version 3.2, 2026-10-21.
 
-[JOIN.md](JOIN.md) 讲策略：怎么申请、签发后怎么接通。本文只回答一个问题——**从申请通过到实例接通，两边各自做什么、在哪一步碰上**。
+[JOIN.md](JOIN.md) explains policy: how to apply and how to connect after issuance. This document answers a single question — **from application approval to instance connection, what each side does and where they meet**.
 
-> **现状：默认自动。** 申请通过且公钥到齐后，入口主机上的常驻进程 `xknot-provision` 按第 3 节的顺序自动做完前置（`ops/provision-worker.mjs`，步骤代码在 `server/provision.mjs`）。做完后实例按案例键读 `GET /api/case/<key>/progress` 取走入口主机、账号与端口，自己写 `site.env` 并起隧道；中枢探测 `/api/health` 通过就改成 `active`。
+> **Current state: automatic by default.** After approval and with the public key in, the resident `xknot-provision` process on the entry host finishes the pre-staging automatically in the order of section 3 (`ops/provision-worker.mjs`, step code in `server/provision.mjs`). When done, the instance reads `GET /api/case/<key>/progress` by case key to take the entry host, account, and port, writes its own `site.env`, and starts the tunnel; the hub changes it to `active` once probing `/api/health` passes.
 >
-> 下面第 2–5 节仍然有效，但只在两种情况下用：worker 停着，或某一张单要人工从头做一遍。写进代码的规则以 `server/provision.mjs` 与 `ops/provision-worker.mjs` 为准；两边不一致时先改代码，再改这份单。
+> Sections 2–5 below still hold, but only in two situations: the worker is stopped, or a given application must be redone manually from scratch. The rules written into code are `server/provision.mjs` and `ops/provision-worker.mjs`; where they diverge, change the code first, then this sheet.
 
-每个新实例复制一份填完再开工。填不满的部分就是还没谈定的部分，不要开工。
+Copy one per new instance and fill it in before starting. Any part left blank is a part not yet settled — do not start.
 
-![收录交付：中枢先把能做的做完，然后只见一次面](handoff-flow.svg)
+![Listing handoff: the hub finishes everything it can first, then meets once](handoff-flow.svg)
 
 ---
 
-## 0. 一句话
+## 0. One sentence
 
-**只碰一次面。** 申请人提交时就把公钥交上来；申请通过后，中枢把**不需要伙伴在场**的配置一次做完（清单、名册、DNS、证书、静态页、入口 conf、账号、公钥、接入件）；然后是一个**交换点 A**，两边各交一样只有自己才有的东西；剩下两步两边各做各的，最后一次探测收尾。
+**Meet exactly once.** The applicant hands over the public key at submission; after approval the hub finishes, in one pass, everything that needs **no partner presence** (manifest, roster, DNS, certificate, static page, entry conf, account, public key, access material); then comes an **exchange point A**, where each side hands over the one thing only it has; the remaining two steps each side does alone, with one final probe to close out.
 
-收录不等于接通：写进清单时 `status` 是 `pending`，中枢不探测、门户不展示；`/api/health` 返回 `ok: true` 后才改成 `active`。
+Listing is not connection: when written into the manifest, `status` is `pending`, the hub does not probe and the portal does not show it; only after `/api/health` returns `ok: true` does it become `active`.
 
-申请阶段只确定子域标签。接入只有一种形态：
+The application phase determines only the subdomain label. Access has only one shape:
 
-| 地址 | 签发子域 | 入口隧道 | 交换点 A |
+| Address | Issued subdomain | Entry tunnel | Exchange point A |
 |------|----------|----------|----------|
-| `https://<标签>.xknot.si`，中枢签发 | 需要 | 需要 | 账号 + 端口 + 公钥回执 |
+| `https://<label>.xknot.si`, hub-issued | required | required | account + port + public-key receipt |
 
-自有域名的站点不走这一步：它自己就是入口，不需要签发，也没有隧道。
+A site with its own domain does not take this step: it is its own entry, needs no issuance, and has no tunnel.
 
 ---
 
-## 1. 四个阶段
+## 1. Four phases
 
-| 阶段 | 谁执行 | 结束标志 | 清单 `status` | 运行状态 |
+| Phase | Who runs it | Done when | Manifest `status` | Runtime status |
 |------|--------|----------|----------------|----------|
-| 0 申请 | 伙伴 | 提交（即通过）+ 在案例页贴公钥 | 还没条目 | — |
-| 1 前置 | 中枢 | 第 3 节八步全就绪，run 进入 `awaiting_tunnel` | `pending` | `unknown`（合法） |
-| A 交换 | 双方一次 | 中枢拿到自测回执；伙伴从 `progress` 拿到入口主机、账号、端口与 `issued`（手工路径另发 `/claim` 链接与交付信） | `pending` | `unknown` |
-| 2 收尾 | 双方各做 | 隧道通、`/api` 通、探测 `up` | `active` | `up` 或 `degraded` |
+| 0 application | partner | submitted (which is approval) + public key pasted at the case page | no entry yet | — |
+| 1 pre-staging | hub | all eight steps of section 3 ready, run enters `awaiting_tunnel` | `pending` | `unknown` (legal) |
+| A exchange | both sides once | the hub has the self-test receipt; the partner has the entry host, account, port, and `issued` from `progress` (the manual path sends a `/claim` link and handoff mail separately) | `pending` | `unknown` |
+| 2 finish | both, separately | tunnel up, `/api` up, probe `up` | `active` | `up` or `degraded` |
 
-规则只有一条：**凡是中枢不用等伙伴就能做的，全部放在 A 之前做完。** A 之前没有来回，A 之后也不用再等答复。
+There is only one rule: **everything the hub can do without waiting for the partner goes before A.** There is no back-and-forth before A, and no waiting for replies after A.
 
 ---
 
-## 2. 阶段 0：申请时就把公钥交上来
+## 2. Phase 0: hand over the public key at application time
 
-| 步骤 | 谁做 | 产物 |
+| Step | Who | Artifact |
 |------|------|------|
-| 填表 | 伙伴 | 子域标签 + 站点档案 |
-| 提交 | 伙伴 | `POST /api/applications`，平台当场通过并签发子域 |
-| 贴公钥 | 伙伴 | `/case/<caseKey>` 里的 textarea，`ssh-ed25519 AAAA…` 一行 |
-| 记录 | 中枢 | 控制台只读：申请已是 `approved`，没有审核动作 |
+| fill the form | partner | subdomain label + site profile |
+| submit | partner | `POST /api/applications`, the platform approves and issues the subdomain on the spot |
+| paste the public key | partner | the textarea at `/case/<caseKey>`, one line `ssh-ed25519 AAAA…` |
+| record | hub | console read-only: the application is already `approved`, no review action |
 
-**公钥为什么要在申请阶段交。** 它是前置阶段唯一的输入：账号、`authorized_keys`、sshd `Match` 全靠它。等通过再要一次，就等于多一次来回，A 也会被拖成两轮。案例页在提交后就能提交公钥，已经实现了（`POST /api/case/<key>/public-key`）。
+**Why the public key at application time.** It is the only input of the pre-staging phase: the account, `authorized_keys`, and sshd `Match` all depend on it. Asking again after approval is one more round-trip, and A would drag into two rounds. The case page accepts the public key right after submission — already implemented (`POST /api/case/<key>/public-key`).
 
-私钥不出本机。伙伴只贴 `.pub` 文本，工作人员不索要、不接收、不复制私钥。
+The private key never leaves the machine. The partner pastes only the `.pub` text; staff do not request, receive, or copy the private key.
 
-公钥漏交时：前置停在 `account` 这一步——它要拿公钥写 `authorized_keys`，缺了报 `public_key_missing`；后面的 `sshd`、`static`、`dns`、`vhost`、`tls` 等公钥到了再补。run 不进 `awaiting_tunnel`，`progress` 里的 `handoff` 因此一直是 `null`——伙伴这时起隧道也没有参数可用。
+If the public key is missing: pre-staging stops at the `account` step — it needs the key to write `authorized_keys`, and reports `public_key_missing`; the later `sshd`, `static`, `dns`, `vhost`, `tls` wait for the key. The run does not enter `awaiting_tunnel`, so `handoff` in `progress` stays `null` — the partner has no parameters to start the tunnel with.
 
 ---
 
-## 3. 阶段 1：中枢前置（不需要伙伴在场）
+## 3. Phase 1: hub pre-staging (no partner presence needed)
 
-按序做完，每步有产物可核。自动路径是 `server/provision.mjs` 的 `STEP_ORDER`：`allocate → publish → account → sshd → static → dns → vhost → tls`，跑完 run 停在 `awaiting_tunnel`，不再寄交付信——实例自己按案例键读 `GET /api/case/<key>/progress` 取回 `handoff { host, account, port }` 与 `issued`，然后写 `tunnel.env` 起隧道。下表按同一顺序列出产物，`validate` 通过才算做完。
+Done in order, each step with a verifiable artifact. The automatic path is `server/provision.mjs`'s `STEP_ORDER`: `allocate → publish → account → sshd → static → dns → vhost → tls`; when done, the run stops at `awaiting_tunnel` and no handoff mail is sent — the instance reads `GET /api/case/<key>/progress` by case key to take `handoff { host, account, port }` and `issued`, then writes `tunnel.env` and starts the tunnel. The table below lists the artifacts in the same order; a step counts as done only after `validate` passes.
 
-| # | 动作 | 产物 | 停下会怎样 |
+| # | Action | Artifact | What happens if it stops |
 |---|------|------|------------|
-| 1 | 写清单 | `instances.json` 新条目，`status: "pending"` | 后面没有可挂的地址 |
-| 2 | 写名册 | `federation.json` 同名成员：`mode`、`host`、`role`、`standing`、`since` | `validate` 报「不在名册里」，构建停 |
-| 3 | 分配账号与端口 | `knot-tunnel-<id>` + 一个专属回环端口，写进名册 `tunnel` | 不能建账号 |
-| 4 | DNS | `<标签>.xknot.si` 的 A/AAAA 指向入口公网 IP | 证书签不下来 |
-| 5 | 证书 | `certbot certonly --webroot`，确认续期任务 | 入口只能 HTTP |
-| 6 | 静态根与占位页 | `/var/www/<id>` + `/` 能打开一张静态页 | 签发当天没有可见物 |
-| 7 | 子域 conf（占位版） | `/etc/nginx/conf.d/<id>.conf`：`/` 发占位页，`/api/` 已接到回环端口；`nginx -t` 后 reload | 域名打不开 |
-| 8 | 建账号 + 装公钥 + sshd | 系统账号、`authorized_keys`（600）、`Match User` 块、`sshd -t` 后 reload | A 之后伙伴连不上 |
-| 9 | 接入件与领取令牌（手工路径） | `access` 生成 env + `handoff` 生成 `/claim/<token>` 链接（72 小时）；自动路径不发链接，`issued` 随 `progress` 给出 | 伙伴拿不到凭据 |
-| 10 | 寄交付信（手工路径） | `partner.handoff`，正文只有领取链接；自动路径靠 `progress` 自取，不寄信 | 伙伴不知道可以连了 |
+| 1 | write manifest | new `instances.json` entry, `status: "pending"` | no address to hang anything on |
+| 2 | write roster | same-name member in `federation.json`: `mode`, `host`, `role`, `standing`, `since` | `validate` reports "not in the roster", build stops |
+| 3 | allocate account and port | `knot-tunnel-<id>` + one dedicated loopback port, written into the roster `tunnel` | cannot create the account |
+| 4 | DNS | A/AAAA of `<label>.xknot.si` points to the entry public IP | the certificate cannot be signed |
+| 5 | certificate | `certbot certonly --webroot`, confirm the renewal job | the entry can only serve HTTP |
+| 6 | static root and placeholder page | `/var/www/<id>` + `/` serves a static page | nothing visible on issuance day |
+| 7 | subdomain conf (placeholder version) | `/etc/nginx/conf.d/<id>.conf`: `/` serves the placeholder page, `/api/` already on the loopback port; `nginx -t` then reload | the domain does not open |
+| 8 | create account + install key + sshd | system account, `authorized_keys` (600), `Match User` block, `sshd -t` then reload | the partner cannot connect after A |
+| 9 | access material and claim token (manual path) | `access` generates env + `handoff` generates the `/claim/<token>` link (72 hours); the automatic path sends no link, `issued` comes with `progress` | the partner cannot get credentials |
+| 10 | send handoff mail (manual path) | `partner.handoff`, body has only the claim link; the automatic path relies on `progress` self-fetch and sends no mail | the partner does not know it can connect |
 
-注意事项：
+Notes:
 
-- 第 4、5 步必须在第 7 步之前。先 reload 一份证书还不存在的 conf，整个入口会起不来。
-- 第 8 步的 `Match` 块按账号匹配，**一个子域一套账号一个端口**，不共用（原因见第 9 节第 1 条）。
-- 第 8 步装公钥用的是阶段 0 交上来的那一份；指纹对不上就停下来问，不要自己生成。
-- 第 9 步只在手工路径出现：领取链接只显示一次，过期重跑 `handoff`。自动路径的口令没有这一步，`handoff` 字段在节点资料就绪后由 `progress` 直接给出。
+- Steps 4 and 5 must come before step 7. Reloading a conf whose certificate does not exist yet takes the whole entry down.
+- Step 8's `Match` block matches by account; **one subdomain, one account, one port**, never shared (reason in section 9 item 1).
+- Step 8 installs the public key handed over in phase 0; if the fingerprint does not match, stop and ask — do not generate your own.
+- Step 9 appears only in the manual path: the claim link shows once, and re-running `handoff` reissues after expiry. The automatic path has no such step; the `handoff` field is given directly by `progress` once the node data is ready.
 
-前置做完，中枢这边就没有等待项了。此时公网 `https://<标签>.xknot.si/` 能打开静态页，`/api/health` 返回的是 SPA 兜底（HTML），所以清单仍是 `pending`，不去探测。
+After pre-staging, the hub has nothing left to wait for. At this point the public `https://<label>.xknot.si/` serves the static page, and `/api/health` returns the SPA fallback (HTML), so the manifest is still `pending` and no probe runs.
 
-**入口 conf 分两版。** 前置阶段写的那一份，`/` 发 `/var/www/<id>` 下的占位页（「子域已签发，入口正在接通」），只有 `/api/` 预先接到回环端口上。探测通过的那一刻，worker 用同一个生成器改写这份 conf：`/` 也反代到隧道，访客看到的是实例自己的 WebUI，占位页随之退场（静态 root 只剩 ACME 校验在用）。切换先 `nginx -t`，不通过就把旧内容写回去。之后每轮还会核对一次，conf 被覆盖或删掉都会自动切回来。
+**The entry conf has two versions.** The one written during pre-staging serves `/` from `/var/www/<id>`'s placeholder page ("subdomain issued, entry connecting"), with only `/api/` pre-connected to the loopback port. The moment the probe passes, the worker rewrites this conf with the same generator: `/` reverse-proxies to the tunnel too, visitors see the instance's own WebUI, and the placeholder page retires (the static root is left only for ACME). The switch runs `nginx -t` first and writes the old content back on failure. Afterwards each round re-checks; a conf that is overwritten or deleted is switched back automatically.
 
 ---
 
-## 4. 交换点 A：只交换两样东西
+## 4. Exchange point A: exchange only two things
 
-这是整个流程里唯一需要双方同时在场的地方。交换的东西是「只有对方才有」的：
+This is the only place in the whole flow where both sides must be present at once. What is exchanged is "what only the other side has":
 
-| 方向 | 内容 | 为什么只能由它给 |
+| Direction | Content | Why only it can give it |
 |------|------|------------------|
-| 中枢 → 伙伴 | 隧道账号、专属端口、入口主机、已装公钥的指纹（自动路径从 `progress` 取；手工路径另有 `/claim` 链接） | 端口与账号是中枢分配的 |
-| 伙伴 → 中枢 | 本机 `curl -s localhost:8080/api/health` 的一行输出 | 实例在内网，只有伙伴能测 |
+| hub → partner | tunnel account, dedicated port, entry host, the installed public-key fingerprint (the automatic path takes them from `progress`; the manual path also has the `/claim` link) | the port and account are allocated by the hub |
+| partner → hub | one line of `curl -s localhost:8080/api/health` output from the local machine | the instance is on the intranet; only the partner can test it |
 
-伙伴的回执长这样，一行就够：
+The partner's receipt looks like this — one line is enough:
 
 ```text
 {"ok":true,"service":"knot-platform","version":"0.2.0"}
 ```
 
-判读：`ok` 必须是 `true`。不是 `true` 就停在 A，不要起隧道——隧道会把一个不健康的后端原样暴露到公网。
+Reading it: `ok` must be `true`. If it is not `true`, stop at A — do not start the tunnel. The tunnel would expose an unhealthy backend to the public as-is.
 
-A 完成的标志：中枢手上有这行回执，伙伴手上有账号与端口。此后不再有「等你确认」的环节。
+A is complete when: the hub has this receipt in hand, and the partner has the account and port. From then on there is no more "waiting for your confirmation".
 
 ---
 
-## 5. 阶段 2：收尾（并行，不用互相等）
+## 5. Phase 2: finish (parallel, no waiting for each other)
 
-| 步骤 | 谁做 | 动作 | 产物 |
+| Step | Who | Action | Artifact |
 |------|------|------|------|
-| 2.1 | 伙伴 | 起隧道，再装常驻（断线自动重连） | 入口出现监听 |
-| 2.2 | 中枢 | 补 `/api/` 反代，`/api/admin` 404；`nginx -t` 后 reload | `/api` 通到实例 |
-| 2.3 | 中枢 | 探测 → `status: "active"` → 重算门户快照（`ops/republish.mjs`，接通即触发，另有 10 分钟定时器兜底）→ 自动寄 `partner.live`（`ops/notify-live.mjs`，同一申请只发一封）→ 改名册备注 | 门户出现该条目 |
+| 2.1 | partner | start the tunnel, then install the resident service (auto-reconnect on drop) | the entry shows a listener |
+| 2.2 | hub | add the `/api/` reverse proxy, `/api/admin` 404; `nginx -t` then reload | `/api` reaches the instance |
+| 2.3 | hub | probe → `status: "active"` → recompute the portal snapshot (`ops/republish.mjs`, triggered on connect, plus a 10-minute timer as backup) → auto-send `partner.live` (`ops/notify-live.mjs`, once per application) → update the roster note | the portal shows the entry |
 
-2.1 与 2.2 的顺序不敏感：反代先加，隧道没起时 `/api` 是 502，但清单还是 `pending`，门户不展示、探测也不跑，不会挂出一个中断的实例。2.3 必须最后。
+The order of 2.1 and 2.2 is not sensitive: if the reverse proxy is added first, `/api` is 502 while the tunnel is down, but the manifest is still `pending`, so the portal does not show it and the probe does not run — no down instance is hung out. 2.3 must come last.
 
-伙伴侧的部署项（写成什么键、放哪个文件由实例实现决定）：
+The partner-side deployment items (which keys to write, which file they go in, is up to the instance implementation):
 
-| 项 | 值 |
+| Item | Value |
 |----|----|
-| 对外地址 | `https://〈子域〉` |
-| 隧道对端 | `knot-tunnel-〈id〉@〈入口主机〉`，私钥是本机那把 |
-| 本地与远端端口 | 远端 `〈1808x〉` → 本地后端端口（Knot 默认 8080） |
+| public address | `https://〈subdomain〉` |
+| tunnel peer | `knot-tunnel-〈id〉@〈entry host〉`, the private key is the local one |
+| local and remote port | remote `〈1808x〉` → local backend port (Knot default 8080) |
 
-用 `knot-platform` 部署时，这几项落在 `sites/<站点>/site.env`（键名与示例见
-[`../../knot-platform/ops/entry/README.md`](../../knot-platform/ops/entry/README.md)），
-由 `deploy-site.sh` 装隧道常驻服务。此时**不要跑 `push-entry.sh`**——静态文件的归属由交付单 6.5 决定。
-换别的实现，照上表做，不需要知道 `site.env` 是什么。
+When deploying with `knot-platform`, these land in `sites/<site>/site.env` (keys and examples in
+[`../../knot-platform/ops/entry/README.md`](../../knot-platform/ops/entry/README.md)),
+installed by `deploy-site.sh` as the tunnel resident service. In that case do **not** run `push-entry.sh` — static-file ownership is decided by handoff sheet 6.5.
+With another implementation, follow the table above; there is no need to know what `site.env` is.
 
-接入件与这些部署项是两回事：接入件只含中枢签发的东西，不含域名、端口和主机。
+The access material and these deployment items are two different things: the access material only contains what the hub issues, no domain, port, or host.
 
 ---
 
-## 6. 附录：交付单（复制填写）
+## 6. Appendix: handoff sheet (copy and fill in)
 
-占位符用 `〈…〉`。交付单的最终版本写进该实例的 runbook，不进 `instances.json`。
+Placeholders use `〈…〉`. The final version of the sheet goes into that instance's runbook, not into `instances.json`.
 
-### 6.1 身份
+### 6.1 Identity
 
-| 项 | 值 | 责任方 |
+| Item | Value | Responsibility |
 |----|----|--------|
-| 实例 `id` | 子域标签（小写 kebab，2–32 位；新签发的至少 6 位） | 伙伴选，工作人员确认 |
-| 对外地址 | `https://〈子域〉.xknot.si`，由标签拼成 | 工作人员 |
-| 运营方 / 主理人 | 〈运营方〉 / 〈主理人〉 | 伙伴 |
-| 区域 | `region`：〈国家码或 `GLOBAL`〉 | 伙伴在实例 `/admin` 里填（自述区），工作人员不写清单 |
-| 联系邮箱 | 与申请单里的一致，也是后续通信地址；不进清单，属于自述区 | 伙伴 |
-| 公钥指纹（`SHA256:…`） | 〈指纹〉，阶段 0 收，双方各记一份 | 伙伴交，工作人员核对 |
+| instance `id` | subdomain label (lowercase kebab, 2–32 chars; newly issued ones at least 6) | partner picks, staff confirm |
+| public address | `https://〈subdomain〉.xknot.si`, built from the label | staff |
+| operator / owner | 〈operator〉 / 〈owner〉 | partner |
+| region | `region`: 〈country code or `GLOBAL`〉 | partner fills it in the instance `/admin` (self-described zone); staff do not write the manifest |
+| contact email | same as on the application, also the later communication address; not in the manifest, belongs to the self-described zone | partner |
+| public-key fingerprint (`SHA256:…`) | 〈fingerprint〉, received in phase 0, one copy kept by each side | partner hands over, staff verify |
 
-### 6.2 入口与隧道
+### 6.2 Entry and tunnel
 
-| 项 | 值 | 责任方 |
+| Item | Value | Responsibility |
 |----|----|--------|
-| 入口主机 | 〈host〉，SSH 端口 〈22〉 | 工作人员 |
-| 入口静态根 | `/var/www/〈id〉` | 工作人员 |
-| 入口 nginx conf | `/etc/nginx/conf.d/〈id〉.conf` | 工作人员 |
-| 隧道系统账号 | `knot-tunnel-〈id〉` | 工作人员新建 |
-| 专属回环端口 | `〈1808x〉` | 工作人员分配 |
-| 私钥 | 只在伙伴机器，路径伙伴自定，权限 600 | 伙伴，**不上交** |
+| entry host | 〈host〉, SSH port 〈22〉 | staff |
+| entry static root | `/var/www/〈id〉` | staff |
+| entry nginx conf | `/etc/nginx/conf.d/〈id〉.conf` | staff |
+| tunnel system account | `knot-tunnel-〈id〉` | staff create |
+| dedicated loopback port | `〈1808x〉` | staff allocate |
+| private key | only on the partner machine, path of the partner's choosing, mode 600 | partner, **not handed over** |
 
-### 6.3 清单与名册
+### 6.3 Manifest and roster
 
-两份文件，各管一段。**同一 `id` 必须两边都有或两边都没有**，否则构建停下。
+Two files, each managing its own part. **The same `id` must be in both or neither**, otherwise the build stops.
 
-清单 `instances.json`（签发区，门户渲染用）：
+Manifest `instances.json` (issued zone, used for portal rendering):
 
-| 项 | 值 | 责任方 |
+| Item | Value | Responsibility |
 |----|----|--------|
-| `id` | 子域标签 | 工作人员 |
-| `url` | `https://〈子域〉.xknot.si`，由标签拼成 | 工作人员 |
-| `since` | 收录日期 | 工作人员 |
-| `tier` / `status` | `free` / 先 `pending`，验收后 `active` | 工作人员 |
-| `statsUrl` / `cardsUrl` | 先 `null`，伙伴要公开活动数据或橱窗时再填 | 工作人员 |
+| `id` | subdomain label | staff |
+| `url` | `https://〈subdomain〉.xknot.si`, built from the label | staff |
+| `since` | listing date | staff |
+| `tier` / `status` | `free` / first `pending`, then `active` after acceptance | staff |
+| `statsUrl` / `cardsUrl` | first `null`, filled when the partner wants to publish activity data or a showcase | staff |
 
-清单里**不写**名称、介绍、联系方式：那是自述区，主理人在自己实例的 `/admin` 里填，中枢按 `GET /api/federation/profile` 取回（见 [FEDERATION.md](FEDERATION.md) 第 4 节）。所以验收后要提醒伙伴填档案；不填时门户只用签发区字段兜底。
+The manifest does **not** write name, intro, or contact: that is the self-described zone, filled by the owner in their own instance's `/admin` and fetched by the hub via `GET /api/federation/profile` (see [FEDERATION.md](FEDERATION.md) section 4). So after acceptance, remind the partner to fill the profile; without it the portal only uses the issued-zone fields as fallback.
 
-名册 `federation.json`（成员事实，不参与渲染）：
+Roster `federation.json` (membership facts, not rendered):
 
-| 项 | 值 | 责任方 |
+| Item | Value | Responsibility |
 |----|----|--------|
-| `host` | 清单 `url` 的主机，两处必须一致 | 工作人员 |
-| `role` / `standing` | `partner` / `regular`（创始实例为 `founder` / `permanent`） | 工作人员 |
-| `mode` | 恒为 `subdomain` | 工作人员 |
-| `tunnel` | 必填 `{ account, port }`，不能为 `null`；账号与端口同机唯一 | 工作人员 |
-| `listed` / `since` | `true` / 收录日期 | 工作人员 |
+| `host` | the manifest `url`'s host; the two must match | staff |
+| `role` / `standing` | `partner` / `regular` (founding instance is `founder` / `permanent`) | staff |
+| `mode` | always `subdomain` | staff |
+| `tunnel` | required `{ account, port }`, not `null`; account and port unique on the machine | staff |
+| `listed` / `since` | `true` / listing date | staff |
 
-### 6.4 分工
+### 6.4 Division of labor
 
-| 项 | 值 | 责任方 |
+| Item | Value | Responsibility |
 |----|----|--------|
-| 静态 WebUI 谁推到入口 | 工作人员推 / 伙伴自行 rsync | 交付单选定一种 |
-| 穿隧道的动态路径 | `/api/` | 固定 |
-| 管理面 | 入口 `^~ /api/admin` 返回 404，不穿隧道 | 固定 |
-| 隧道常驻 | 断线自动重连；用哪种服务管理由伙伴决定 | 伙伴 |
-| 数据库、上传、账号、积分、备份 | 伙伴 | 固定 |
+| who pushes the static WebUI to the entry | staff push / partner rsync | chosen on the handoff sheet |
+| dynamic paths through the tunnel | `/api/` | fixed |
+| admin surface | entry `^~ /api/admin` returns 404, not tunneled | fixed |
+| tunnel resident service | auto-reconnect on drop; which service manager is the partner's choice | partner |
+| database, uploads, accounts, points, backups | partner | fixed |
 
-### 6.5 人与时间
+### 6.5 People and time
 
-| 项 | 值 |
+| Item | Value |
 |----|----|
-| 工作人员执行人 | 〈姓名〉 |
-| 伙伴执行人 | 〈姓名〉 |
-| 交换点 A 时间（含时区） | 〈时间〉 |
-| 交付单签发日 | 〈YYYY-MM-DD〉 |
+| staff executor | 〈name〉 |
+| partner executor | 〈name〉 |
+| exchange point A time (with timezone) | 〈time〉 |
+| handoff sheet issue date | 〈YYYY-MM-DD〉 |
 
 ---
 
----
+## 7. Probe contract
 
-## 7. 探测契约
+The hub sends one `GET` to `<url>/api/health` at build time (`ops/check-health.mjs`). The address is derived from the manifest's `url` and needs no registration. The partner implements `/api/health` per this table.
 
-中枢在构建时对 `<url>/api/health` 发一次 `GET`（`ops/check-health.mjs`）。地址由清单的 `url` 推出，不用登记。伙伴按这张表实现 `/api/health`。
-
-| 项 | 要求 |
+| Item | Requirement |
 |----|------|
-| 协议 | 必须 `https`，不得带 URL 用户名/密码 |
-| 方法 | `GET`，不带 Cookie、不带令牌 |
-| 重定向 | **不跟随**；3xx 记 `down` |
-| 超时 | 5 秒 |
-| 响应体 | 必须是 JSON 且 `ok === true`，否则 `bad_payload` |
-| 实例标识 | 可空。带了 `instance` 就必须等于清单 `id`，否则 `instance_mismatch` |
-| 判定 | ≤2 秒 `up`，>2 秒 `degraded` |
+| Protocol | must be `https`, no URL username/password |
+| Method | `GET`, no Cookie, no token |
+| Redirect | **not followed**; 3xx is `down` |
+| Timeout | 5 seconds |
+| Response body | must be JSON and `ok === true`, otherwise `bad_payload` |
+| Instance identifier | optional. If `instance` is present it must equal the manifest `id`, otherwise `instance_mismatch` |
+| Determination | ≤2s `up`, >2s `degraded` |
 
-接入联邦的实例应当在响应里带上 `instance`（值取自接入件的 `XKNOT_INSTANCE_ID`）。中枢用它确认「这个域名后面是不是清单里的那个实例」；不带的实例照常按 `ok` 判活。
+An instance joining the federation should include `instance` in the response (value from the access material's `XKNOT_INSTANCE_ID`). The hub uses it to confirm "is this domain actually the instance in the manifest"; instances without it are still judged by `ok`.
 
-清单 `status` 为 `pending` 时不探测，运行状态 `unknown`。验收通过后改成 `active`。
-
----
-
-## 8. 边界
-
-中枢提供：入口页、站点档案、运行状态、热点橱窗、委托发信。
-
-中枢不提供、也不代管：
-
-- 私钥、入口 sudo、伙伴的数据库与备份。
-- 伙伴的内容、账号、积分、订单、审核。
-- 替伙伴自建的自有域名配证书或反代；替伙伴维持隧道。
-- `instances.json` 之外的任何写入入口。
+While the manifest `status` is `pending` it is not probed and runtime status is `unknown`. After acceptance it becomes `active`.
 
 ---
 
-## 9. 常见卡点
+## 8. Boundary
 
-1. **两个实例共用隧道账号会静默失败。** sshd 的 `Match` 首条匹配生效，同一个 `User` 写两段只有第一段算数；`PermitListen` 又只允许一个端口。第二个实例连上来占不到端口，`ExitOnForwardFailure=yes` 直接退出，日志里只有一行 `remote port forwarding failed`。必须一子域一账号一端口。
-2. **以为整站都穿隧道。** 实际是静态文件读入口主机上的磁盘，只有 `/api` 穿隧道。漏掉这点就没人负责推 WebUI 产物，页面打开只有接口能通。交付单 6.4 要写清静态由谁推。
-3. **清单提早改成 `active`。** 门户先挂一个中断的实例。收录时保持 `pending`，`/api` 通了再改。
-4. **reload 前没 `nginx -t`，或先装 conf 后签证书。** 入口通常同时托管多个 `server_name`，一份坏 conf 带停一片。
-5. **以为探测地址要手填，或把内网地址当成 `url`。** 探测地址由 `url` 推出，清单里没有这个字段，写了反而校验不过；`url` 必须是公网可达的 `https://…`，构建机在公网侧解析，内网地址只会得到 `down`。
-6. **前置阶段漏了公钥。** 账号建了、`Match` 写了，`authorized_keys` 是空的，A 之后伙伴连不上，还要再要一次公钥。公钥在阶段 0 收。
-7. **隧道只在终端里手动跑。** 断开后没人拉起。常驻服务是完成条件，不是可选项。
-8. **隧道账号的登录 shell 设成 `nologin`。** `ForceCommand` 经登录 shell 执行，会话会立刻退出。登录限制靠 `PermitTTY no` + `PermitOpen none` + `ForceCommand`，不靠换 shell。
-9. **只改清单，忘记名册。** `federation.json` 里没有对应 `id`，`npm run validate:federation` 直接失败，构建停下。两条一起加。
-10. **清单 `url` 不在 `xknot.si` 下。** 接入只有签发子域一种，`validate-instances.mjs` 与 `validate-federation.mjs` 都会拒绝。
-11. **名册成员没有 `tunnel`。** 每个成员都走入口隧道，`null` 就是校验错误，不是可选字段。
+The hub provides: entry page, site profile, runtime status, showcase, mail relay.
+
+The hub does not provide, and does not host on behalf of:
+
+- private keys, entry sudo, the partner's database and backups.
+- the partner's content, accounts, points, orders, review.
+- certificates or reverse proxies for the partner's own self-built domain; maintaining the tunnel for the partner.
+- any write entry outside `instances.json`.
 
 ---
 
-## 10. 完成定义
+## 9. Common blockers
 
-四条同时成立才算交付：
+1. **Two instances sharing a tunnel account fail silently.** sshd's first matching `Match` block wins; two blocks for the same `User` only count the first; and `PermitListen` allows only one port. The second instance connects and cannot claim the port; with `ExitOnForwardFailure=yes` it exits directly, leaving only one `remote port forwarding failed` line in the log. Must be one subdomain, one account, one port.
+2. **Assuming the whole site goes through the tunnel.** Actually static files are read from the entry host's disk, and only `/api` goes through the tunnel. Missing this point means no one is responsible for pushing the WebUI artifact, and the page opens with only the API working. Handoff sheet 6.4 must state who pushes the static.
+3. **Changing the manifest to `active` too early.** The portal first hangs a down instance. Keep `pending` at listing, change to `active` after `/api` works.
+4. **Not running `nginx -t` before reload, or installing the conf before signing the certificate.** The entry usually hosts multiple `server_name`s; one bad conf takes down a whole cluster.
+5. **Assuming the probe address must be filled by hand, or treating the intranet address as `url`.** The probe address is derived from `url`; the manifest has no such field, and writing one fails validation; `url` must be a publicly reachable `https://…`, the build machine resolves on the public side, and an intranet address only gets `down`.
+6. **Missing the public key during pre-staging.** Account created, `Match` written, `authorized_keys` empty — after A the partner cannot connect and the key has to be asked for again. The key is received in phase 0.
+7. **Running the tunnel manually in a terminal only.** After a drop no one brings it back. The resident service is a completion condition, not an option.
+8. **Setting the tunnel account's login shell to `nologin`.** `ForceCommand` runs through the login shell; the session exits immediately. Login restriction relies on `PermitTTY no` + `PermitOpen none` + `ForceCommand`, not on swapping the shell.
+9. **Changing only the manifest and forgetting the roster.** No matching `id` in `federation.json`, `npm run validate:federation` fails outright, the build stops. Add both together.
+10. **Manifest `url` not under `xknot.si`.** Access only has issued subdomains; both `validate-instances.mjs` and `validate-federation.mjs` reject it.
+11. **Roster member without `tunnel`.** Every member goes through the entry tunnel; `null` is a validation error, not an optional field.
+
+---
+
+## 10. Definition of done
+
+All four hold at once to count as delivered:
 
 ```bash
-# 1. 入口：端口被该隧道账号持有
-sudo ss -lntp | grep 〈端口〉
+# 1. entry: the port is held by that tunnel account
+sudo ss -lntp | grep 〈port〉
 
-# 2. 公网：健康检查是 JSON 且 ok 为 true
-curl -s https://〈子域〉/api/health
+# 2. public: the health check is JSON with ok true
+curl -s https://〈subdomain〉/api/health
 
-# 3. 中枢：运行状态为 up / degraded（清单 status 已是 active）
+# 3. hub: runtime status is up / degraded (manifest status already active)
 cd xknot.si && node ops/check-health.mjs | grep 〈id〉
 
-# 4. 门户：条目出现。接通时 worker 已自动重算快照，xknot-republish.timer 每 10 分钟兜底。
-#    只想核对数据、不想整站构建时：
-node ops/republish.mjs          # 写 web/dist/data/hub.json；中枢上由 timer 写 /var/www/xknot/data/hub.json
+# 4. portal: the entry appears. On connect the worker already recomputed the snapshot,
+#    and xknot-republish.timer tops up every 10 minutes.
+#    To only check data without a whole-site build:
+node ops/republish.mjs          # writes web/dist/data/hub.json; on the hub the timer writes /var/www/xknot/data/hub.json
 ```
 
-
-缺任何一条，清单 `status` 保持 `pending`，对外不宣告已收录完成。
+Missing any one keeps the manifest `status` at `pending`, not announced as listed complete.
 
 ---
 
-## 10.1 凭据、公钥与领取链接
+## 10.1 Credentials, public key, and claim links
 
-交付单里的凭据（委托发信令牌、连通参数）**不进邮件正文，也不进交付单的公开版本**。
+The credentials in the handoff sheet (relay token, connectivity parameters) **do not go into mail bodies, nor into the public version of the sheet**.
 
 ```text
-阶段 0   伙伴在 /case/<caseKey> 贴 .pub
+phase 0   partner pastes .pub at /case/<caseKey>
             │
             ▼
-阶段 1   中枢建账号、装公钥、写 sshd Match、分配端口
+phase 1   hub creates the account, installs the key, writes sshd Match, allocates the port
             │
             ▼
-         npm run admin -- access <申请编号> --id <实例 id> --out /tmp/<id>-access.env
+         npm run admin -- access <application id> --id <instance id> --out /tmp/<id>-access.env
             │
-            ├─ 生成一次性领取令牌（库里只存 SHA-256）
-            └─ 寄 partner.handoff，正文只有 /claim/<token>
+            ├─ generates a one-time claim token (only SHA-256 stored)
+            └─ sends partner.handoff, body has only /claim/<token>
                     │
                     ▼
-交换点 A 伙伴打开领取页，点按钮，明文只显示一次（72 小时过期）
+exchange A  partner opens the claim page, clicks the button, plaintext shows once (72-hour expiry)
             │
             ▼
-阶段 2   写进实例配置（用 knot-platform 时是 ./ops/scripts/join-xknot.sh --payload <文件>）
+phase 2   write into the instance config (with knot-platform: ./ops/scripts/join-xknot.sh --payload <file>)
 ```
 
-**接入件只含中枢签发的东西**，是一份 env 文件，键名与语义见
-[FEDERATION.md 第 7.4 节](FEDERATION.md#74-接入件)：
+**The access material only contains what the hub issues**, an env file whose keys and semantics are in
+[FEDERATION.md section 7.4](FEDERATION.md#74-接入件):
 
 ```bash
 XKNOT_INSTANCE_ID=wang
@@ -323,55 +321,52 @@ XKNOT_STATUS=active
 XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
 ```
 
-发信地址按中枢地址推导，不写进接入件。它**不含**部署拓扑：域名、端口、入口主机、
-隧道账号由工作人员在交付单里写给人看，落在伙伴自己的部署配置里（第 5 节）。
-这样接入件可以走邮件领取，部署配置留在伙伴自己的机器上。
+The send address is derived from the hub address, not written into the access material. It **does not** contain deployment topology: domain, port, entry host, and tunnel account are written by staff in the handoff sheet for people to read, and land in the partner's own deployment config (section 5). Thus the access material can go through mail claim, and the deployment config stays on the partner's own machine.
 
-实例怎么存这份文件由实例决定：`knot-platform` 的约定是 `sites/<站点>/xknot.env`
-（`0600`），用 `join-xknot.sh --payload` 写入；换个实现就直接读同样这几个键。
+How the instance stores this file is its own decision: `knot-platform`'s convention is `sites/<site>/xknot.env`
+(`0600`), written with `join-xknot.sh --payload`; another implementation just reads the same keys.
 
-`access` 会把接入件写到 `--out` 指定的文件并设 600；不给 `--out` 时只打到终端。
-**默认签发一份委托发信凭据**并写进接入件；只有明确要纯 SMTP 时才加 `--no-relay`。
-自动接通的实例写的是同一份接入件：中枢把 `issued` 与凭据一起给出，实例按既有路径落盘即可，
-不需要为发信单独改代码或脚本。
+`access` writes the access material to the file named by `--out` and sets 600; without `--out` it only prints to the terminal.
+**It issues one relay token by default** and writes it into the access material; only when pure SMTP is explicitly wanted do you add `--no-relay`.
+The automatically connected instance writes the same access material: the hub gives `issued` together with the credential, and the instance persists it along the existing path, with no separate code or script change for mail.
 
-`partner.issuance` 这封信只在公钥迟到时用（它的正文就是向伙伴索取 `.pub`）。公钥按时交到时跳过它，前置完成直接寄 `partner.handoff`，这样全程只有一封等待伙伴动作的信。
+The `partner.issuance` mail is used only when the public key is late (its body asks the partner for the `.pub`). When the key arrives on time, it is skipped, and pre-staging sends `partner.handoff` directly after finishing — so the whole flow has only one mail waiting on partner action.
 
-- 领取链接只出现一次，过期或已领取都只能重新签发。
-- `handoff` 会把 `claimUrl` 打到终端，邮件失败时可以线下转交；不要把这条输出存进版本库或聊天记录。
-- 邮件正文只写「去哪里领」，不写「领什么」。任何凭据明文出现在信里都算事故。
-- 领取页与案例页在 nginx 里关闭了 `access_log`。
-- 撤销接入：`npm run admin -- relay-revoke <instance>`；实例侧删掉接入件（`knot-platform` 用
-  `./ops/scripts/join-xknot.sh --remove`）。
+- The claim link shows once; expired or already claimed both require reissue.
+- `handoff` prints `claimUrl` to the terminal so it can be passed offline if mail fails; do not commit this output to version control or chat.
+- The mail body only says "where to claim", not "what to claim". Any credential plaintext in a mail counts as an incident.
+- The claim page and case page have `access_log` disabled in nginx.
+- Revoke access: `npm run admin -- relay-revoke <instance>`; the instance side deletes the access material (`knot-platform` uses
+  `./ops/scripts/join-xknot.sh --remove`).
 
 ---
 
-## 11. 变更记录
+## 11. Change log
 
-| 日期 | 版本 | 变更 |
+| Date | Version | Change |
 |------|------|------|
-| 2026-10-19 | 1.0 | 首版：两段式交接、勾选清单 |
-| 2026-10-20 | 1.1 | 补交接示意图 `handoff-flow.svg`；阶段表加入运行状态；术语按 NAMING 统一；补「仅隧道模式」标注与 `nologin` 卡点；增加完成定义 |
-| 2026-10-20 | 1.2 | 接入件与部署分开：新增 `admin-cli access` 生成 env 格式的接入件，伙伴侧写入实例配置；接入件不含站点拓扑 |
-| 2026-10-20 | 1.3 | 接入件定为契约（键名与语义见 FEDERATION.md 7.4）：发信地址由中枢地址推导、不再随件下发；`/api/health` 可带 `instance` 供中枢核对身份 |
-| 2026-10-20 | 2.0 | 收敛成两种接入模式：`own-domain` 与 `subdomain`；名册改为 `mode` + `tunnel`；清单删去 `canonical` / `redirect` / `healthUrl`，探测门控改为 `status === "active"` |
-| 2026-10-20 | 3.0 | 流程改为「申请时交公钥 → 中枢一次性前置 → 交换点 A → 收尾并行」：把不需要伙伴在场的十项配置全部提前；公钥从审核后索取改为申请阶段提交；`partner.issuance` 降级为公钥迟到时的补发信，正常流程只寄一封 `partner.handoff` |
-| 2026-10-21 | 3.1 | 停用 `own-domain`：接入只有签发子域一种，清单 `url` 必须是 `https://<标签>.xknot.si`，名册 `tunnel` 必填；删除第 6.6 节与模式选择 |
-| 2026-10-22 | 3.2 | 删除 zjj 样例：该实例从未接通，作为早期试验下架，登记与入口文件一并清除 |
+| 2026-10-19 | 1.0 | first version: two-phase handoff, checklist |
+| 2026-10-20 | 1.1 | added the handoff diagram `handoff-flow.svg`; phase table adds runtime status; terms unified per NAMING; added the "tunnel-only mode" note and the `nologin` blocker; added definition of done |
+| 2026-10-20 | 1.2 | split access material from deployment: new `admin-cli access` generates the env-format access material, the partner side writes it into instance config; the access material contains no site topology |
+| 2026-10-20 | 1.3 | access material fixed as contract (keys and semantics in FEDERATION.md 7.4): send address derived from the hub address, no longer shipped; `/api/health` may carry `instance` for the hub to verify identity |
+| 2026-10-20 | 2.0 | converged to two access modes `own-domain` and `subdomain`; roster becomes `mode` + `tunnel`; manifest drops `canonical` / `redirect` / `healthUrl`, probe gate becomes `status === "active"` |
+| 2026-10-20 | 3.0 | flow becomes "public key at application → hub one-pass pre-staging → exchange point A → parallel finish": all ten config items that need no partner presence moved earlier; public key requested at application instead of after review; `partner.issuance` demoted to the late-key catch-up mail, the normal flow sends only one `partner.handoff` |
+| 2026-10-21 | 3.1 | retired `own-domain`: access only has issued subdomains, manifest `url` must be `https://<label>.xknot.si`, roster `tunnel` required; deleted section 6.6 and mode selection |
+| 2026-10-22 | 3.2 | deleted the zjj sample: that instance never connected, delisted as an early experiment, its listing and entry files cleared together |
 
 ---
 
-## 12. 相关文件
+## 12. Related files
 
-| 路径 | 用途 |
+| Path | Use |
 |------|------|
-| [JOIN.md](JOIN.md) | 申请、自动通过、入口与隧道、探测注意 |
-| [FEDERATION.md](FEDERATION.md) | 中枢契约 |
-| [HUB.md](HUB.md) | 中枢实现与运维 |
-| [NAMING.md](NAMING.md) | 术语与写法 |
-| [`../federation.json`](../federation.json) | 联邦名册：成员身份、接入形态、隧道账号与端口 |
-| [`../instances.json`](../instances.json) | 实例清单：签发区字段 |
-| [`../ops/validate-federation.mjs`](../ops/validate-federation.mjs) | 名册校验（与清单交叉核对） |
-| [`../../knot-platform/ops/entry/README.md`](../../knot-platform/ops/entry/README.md) | 入口与隧道的通用模板（实例侧） |
-| `ops/check-health.mjs` | 健康探测实现（第 7 节的来源） |
-| `ops/watch-health.mjs` | 每 15 分钟巡检：24 小时提醒、7 天隐藏 |
+| [JOIN.md](JOIN.md) | application, auto-approval, entry and tunnel, probe notes |
+| [FEDERATION.md](FEDERATION.md) | the hub contract |
+| [HUB.md](HUB.md) | hub implementation and ops |
+| [NAMING.md](NAMING.md) | terms and wording |
+| [`../federation.json`](../federation.json) | federation roster: membership identity, access mode, tunnel account and port |
+| [`../instances.json`](../instances.json) | instance manifest: issued-zone fields |
+| [`../ops/validate-federation.mjs`](../ops/validate-federation.mjs) | roster validation (cross-checked with the manifest) |
+| [`../../knot-platform/ops/entry/README.md`](../../knot-platform/ops/entry/README.md) | the shared entry and tunnel template (instance side) |
+| `ops/check-health.mjs` | the health probe implementation (source of section 7) |
+| `ops/watch-health.mjs` | 15-minute patrol: 24h reminder, 7d hide |

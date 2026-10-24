@@ -1,21 +1,30 @@
-# 已签发子域的入口（中枢侧）
+# Entry for issued subdomains (hub side)
 
-本目录放**中枢为某个已签发子域在入口主机上装的那一份东西**：具体域名的 nginx conf，以及把它从占位接通到 `/api` 可用的 runbook。
+This directory holds **what the hub installs on the entry host for a specific issued subdomain**: the concrete domain's nginx conf, and the runbook that takes it from a placeholder to a working `/api`.
 
-它不是入口软件，也不是模板：
+It is not entry software and not a template:
 
-| 想知道 | 看 |
+| You want to know | See |
 |--------|-----|
-| 入口怎么渲染、模板长什么样、`static` 与 `proxy` 怎么选 | 实例侧 [`knot-platform/ops/entry/`](../../../knot-platform/ops/entry/) |
-| 某个子域现在装的是哪份 conf、怎么接通 | 本目录下的 `<子域>.conf` 与 `<id>-tunnel.md` |
-| 子域怎么签发、交接单怎么填 | [`../../docs/HANDOFF.md`](../../docs/HANDOFF.md)、[`../../docs/JOIN.md`](../../docs/JOIN.md) |
+| How the entry renders, what the template looks like, how to choose `static` vs `proxy` | instance side [`knot-platform/ops/entry/`](../../../knot-platform/ops/entry/) |
+| Which conf a subdomain currently has installed, and how to connect it | the `<subdomain>.conf` and `<id>-tunnel.md` in this directory |
+| How subdomains are issued, how the handoff sheet is filled | [`../../docs/HANDOFF.md`](../../docs/HANDOFF.md), [`../../docs/JOIN.md`](../../docs/JOIN.md) |
 
-判断方法：换个实例还能用 → 实例侧；写死了某个子域 → 本目录。
+The test: if another instance could reuse it → instance side; if it hardcodes a specific subdomain → this directory.
 
-## 现有条目
+## Who writes `<subdomain>.conf`
 
-暂无。`cpswang` 的入口 conf 由自动接通写进 `/etc/nginx/conf.d/cpswang.xknot.si.conf`，不留在仓库里；需要手工维护的签发记录才放这里。
+Two writers exist, and they must not fight:
 
-## 为什么和中枢配置放在一起
+- **Hub auto-connect** (`server/provision.mjs` → `renderVhost`) writes confs whose first line carries `由 auto-connect 生成，请勿手改`. It verifies them every 20 seconds and rewrites when the template changes.
+- **The instance's own `push-entry.sh`** writes from `knot-platform/ops/entry/site.conf.template`, with a first line naming `render-config.mjs`. It is the only path that can serve `static` (dist pushed to the entry disk).
 
-中枢主机与入口主机当前是同一台机器（`54.169.33.64`）。这些 conf 由中枢工作人员在签发与接通时安装、改动，所以随中枢仓库走；但角色归属不变——它们是**入口主机上的配置**，不是中枢站点 `xknot.si` 的配置。同机时最容易犯的错，是拿入口的 conf 去改中枢站点，或反过来。概念见 [`../../../docs/concepts.md`](../../../docs/concepts.md)。
+The hub reads a conf before touching it and steps aside when the marker is not its own (`MANAGED_MARK` in `server/provision.mjs`, covered by `provision.test.mjs`). That is why an instance can switch itself to static serving without the hub reverting it on the next tick, and why nothing in this directory should be hand-edited into `conf.d/` on a shared host: hand-written confs belong here only when they need maintenance no generator does.
+
+## Existing entries
+
+None yet. `cpswang`'s entry conf is written to `/etc/nginx/conf.d/cpswang.xknot.si.conf` by automatic provisioning and is not kept in the repo; only issuance records needing manual maintenance belong here.
+
+## Why it sits with the hub config
+
+The hub host and the entry host are currently the same machine (`54.169.33.64`). These confs are installed and changed by hub staff during issuance and connection, so they follow the hub repo; but the role ownership is unchanged — they are **config on the entry host**, not config for the hub site `xknot.si`. The easiest mistake on a shared machine is editing the hub site with an entry conf, or the reverse. Concepts in [`../../../docs/concepts.md`](../../../docs/concepts.md).

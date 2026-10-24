@@ -4,9 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { saveReviewExtract } from "./extracts.js";
-import { compareByWeight, createIntel, deleteOwnPost, isDownloadableFile, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
+import { chargeDownload, compareByWeight, createIntel, deleteOwnPost, isDownloadableFile, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
 import { clearSearchCache } from "./searchCache.js";
-import { serviceFee, packetPrice, policyConfig } from "./points.js";
+import { serviceFee, packetPrice, policyConfig, PLATFORM_ACCOUNT_ID } from "./points.js";
 
 const AUTHOR = "33333333-3333-4333-8333-333333333333";
 
@@ -328,54 +328,37 @@ test("text is free and a blank file price uses the default", () => {
   assert.throws(() => packetPrice(1, 1.5), (error) => error.code === "bad_price");
 });
 
-test("a review failure names the exception and says the record stays visible", () => {
-  const error = new Error("agent_timeout");
-  error.detail = "openclaw timed out";
-  const text = reviewFailureText(error);
-  assert.match(text, /数据评审员超时/);
-  assert.match(text, /agent_timeout/);
-  assert.match(text, /openclaw timed out/);
-  assert.match(text, /仍然可见/);
-});
-
-test("the same review failure is told once, and a new one is told again", async () => {
+test("a review failure records the error code without notifying the author", async () => {
   const id = "33333333-3333-4333-8333-333333333333";
   const userId = "11111111-1111-4111-8111-111111111111";
-  const notes = [];
+  const writes = [];
   let detail = null;
   const pool = {
     async query(sql, params) {
-      if (sql.includes("SELECT account_id, verdict, detail")) {
+      if (sql.includes("SELECT verdict, detail")) {
         return { rows: [{ account_id: userId, verdict: "pending", detail }] };
       }
       if (sql.includes("UPDATE intel")) {
         detail = { reviewError: JSON.parse(params[1]).reviewError };
-        return { rows: [{ account_id: userId }] };
+        writes.push(params[1]);
+        return { rows: [{ id }] };
       }
-      if (sql.includes("INSERT INTO notifications")) {
-        notes.push(params);
-        return { rows: [{ id: "n1" }] };
-      }
-      return { rows: [] };
+      throw new Error(`unexpected query: ${sql}`);
     },
   };
   assert.equal(await noteReviewFailure(pool, id, new Error("agent_timeout")), true);
   assert.equal(await noteReviewFailure(pool, id, new Error("agent_timeout")), false);
-  assert.equal(notes.length, 1);
-  assert.equal(notes[0][1], "intel_review_error");
-  assert.equal(notes[0][2], "审核异常");
-  assert.match(notes[0][3], /agent_timeout/);
-  assert.equal(notes[0][4], "/mine/submissions");
-  assert.deepEqual(JSON.parse(notes[0][6]), { code: "agent_timeout", detail: "" });
+  assert.equal(writes.length, 1);
+  assert.equal(JSON.parse(writes[0]).reviewError, "agent_timeout");
   assert.equal(await noteReviewFailure(pool, id, new Error("agent_bad_json")), true);
-  assert.equal(notes.length, 2);
-  assert.match(notes[1][3], /没有交回可用结果/);
+  assert.equal(writes.length, 2);
+  assert.equal(JSON.parse(writes[1]).reviewError, "agent_bad_json");
 });
 
-test("a finished record does not get a review-failure notice", async () => {
+test("a finished record does not record a review failure", async () => {
   const pool = {
     async query(sql) {
-      if (sql.includes("SELECT account_id, verdict, detail")) {
+      if (sql.includes("SELECT verdict, detail")) {
         return { rows: [{ account_id: "u", verdict: "passed", detail: null }] };
       }
       throw new Error("unexpected");
@@ -830,4 +813,88 @@ test("a missing record is judged as nothing, not an empty card", async () => {
     },
   };
   assert.equal(await judgeIntel(pool, "12121212-1212-4212-8212-121212121212"), null);
+});
+
+// S10-14：下载计费在同一事务里「扣买家、入作者、收平台费」，且按钱包排序避免死锁；
+// 同一钱包重复下载只记一次账、不重复扣钱。
+const BUYER = "11111111-1111-4111-8111-111111111111";
+
+function downloadClient({ prior = [] } = {}) {
+  const wallets = new Map([
+    [BUYER, "wallet-z"],
+    [AUTHOR, "wallet-a"],
+    [PLATFORM_ACCOUNT_ID, "wallet-p"],
+  ]);
+  const updates = [];
+  const ledger = [];
+  const downloads = [];
+  return {
+    updates,
+    ledger,
+    downloads,
+    async query(sql, params) {
+      if (sql.includes("FROM packet_downloads")) {
+        return { rows: prior };
+      }
+      if (sql.includes("SELECT COALESCE(owner_id, id) AS wallet")) {
+        const wallet = wallets.get(params[0]);
+        return { rows: wallet ? [{ wallet }] : [] };
+      }
+      if (sql.includes("FROM intel_files f")) {
+        // 3 MB 附件：按默认费率 1/MB 收 3 积分服务费。
+        return { rows: [{ size: 3 * 1024 * 1024, original_name: "report.pdf" }] };
+      }
+      if (sql.includes("UPDATE accounts")) {
+        updates.push([params[0], Number(params[1])]);
+        return { rows: [{ points_balance: 100 }] };
+      }
+      if (sql.includes("INSERT INTO point_ledger")) {
+        ledger.push(params);
+        return { rows: [] };
+      }
+      if (sql.includes("INSERT INTO packet_downloads")) {
+        downloads.push(params);
+        return { rows: [] };
+      }
+      throw new Error(`不该走到这条 SQL：${sql.slice(0, 80)}`);
+    },
+  };
+}
+
+test("a download charges the buyer once and credits author and platform in one batch", async () => {
+  const client = downloadClient();
+  await chargeDownload(client, { id: "intel-1", account_id: AUTHOR, price: 10 }, BUYER);
+
+  const { downloadServiceFeePerMb, serviceFeeCap } = policyConfig();
+  const fee = serviceFee(3 * 1024 * 1024, downloadServiceFeePerMb, serviceFeeCap);
+  assert.equal(fee, 3);
+  // 三笔动账按钱包 id 排序：作者 +10、平台 +3、买家 -13。
+  assert.deepEqual(client.updates, [["wallet-a", 10], ["wallet-p", 3], ["wallet-z", -13]]);
+  assert.deepEqual(client.ledger.map((row) => [row[0], row[1], row[2]]), [
+    ["wallet-a", 10, "download"],
+    ["wallet-p", 3, "download_fee"],
+    ["wallet-z", -13, "download"],
+  ]);
+  // 解锁行照记，供信息流显示「已解锁」。
+  assert.deepEqual(client.downloads, [[BUYER, "intel-1"]]);
+});
+
+test("a repeated download bills once but still records the unlock", async () => {
+  const client = downloadClient({ prior: [{ exists: 1 }] });
+  await chargeDownload(client, { id: "intel-1", account_id: AUTHOR, price: 10 }, BUYER);
+
+  // 判重命中：不再动账，也不写账本。
+  assert.deepEqual(client.updates, []);
+  assert.deepEqual(client.ledger, []);
+  assert.deepEqual(client.downloads, [[BUYER, "intel-1"]]);
+});
+
+test("a download from the same wallet pays nothing", async () => {
+  const client = downloadClient();
+  await chargeDownload(client, { id: "intel-1", account_id: AUTHOR, price: 10 }, AUTHOR);
+
+  // 作者（或其 Agent）下自己的东西：sameWallet 直接放行，不记解锁行也不动账。
+  assert.deepEqual(client.updates, []);
+  assert.deepEqual(client.ledger, []);
+  assert.deepEqual(client.downloads, []);
 });

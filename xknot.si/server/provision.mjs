@@ -197,7 +197,7 @@ export function renderPlaceholder({ instanceId, name }) {
 
 /** 只有 80：够 certbot 做 HTTP-01，证书拿到之前不写 443，免得 nginx -t 失败。 */
 export function renderHttpVhost({ domain, root }) {
-  return `# ${domain}：签发阶段的 HTTP 入口，由 auto-connect 生成，请勿手改。
+  return `# ${domain}：签发阶段的 HTTP 入口，${MANAGED_MARK}。
 # 证书签发成功后会被同一份生成器改写成 443 + /api 反代的完整版本。
 
 server {
@@ -220,6 +220,25 @@ server {
 
 export const ENTRY_PROXIED_MARK = "# 入口已接通：整站反代到隧道";
 
+/**
+ * 「这份 conf 由中枢生成」的唯一标记。
+ *
+ * 入口的 vhost 有两个来源：中枢自动接通（两份都带这一行），以及伙伴自己
+ * 跑 `push-entry.sh` 推上来的静态投放（带 `由 ops/scripts/render-config.mjs`）。
+ * 中枢只能改自己生成的那种：否则它每 20 秒核对一次，会把伙伴刚推上来的
+ * 静态 conf 改回整站反代，两边互相覆盖，谁也不知道最后是谁的配置。
+ *
+ * 判定用「有没有这一行」，不是「内容像不像」：外部 conf 的版式随时会变，
+ * 而这一行是我们自己写的，改版式时也不会丢。
+ */
+export const MANAGED_MARK = "由 auto-connect 生成，请勿手改";
+
+/** 当前 conf 是不是中枢生成的。null（文件不存在）按「可以创建」处理。 */
+export function isManagedEntryConf(text) {
+  if (text == null) return true;
+  return String(text).includes(MANAGED_MARK);
+}
+
 // 入口访问日志：聚合端是 ops/traffic.mjs，按这些键读（见 docs/HUB.md）。
 //
 // 格式声明写在**每份 vhost 自己**的文件里，名字按子域唯一。两个原因：
@@ -229,6 +248,9 @@ export const ENTRY_PROXIED_MARK = "# 入口已接通：整站反代到隧道";
 // 自己声明就不依赖任何文件先被加载。字段与 knot-platform/ops/entry/log.conf.template
 // 必须一致——少一个键，traffic.mjs 就少一列。
 export const ENTRY_ACCESS_LOG = "/var/log/nginx/knot-access.log";
+
+// reload 之后唯一的失败证据。见 reloadNginx() 上面那段。
+export const NGINX_ERROR_LOG = "/var/log/nginx/error.log";
 const LOG_FORMAT_BODY = `'{"at":"$time_iso8601","host":"$host","status":$status,"method":"$request_method",'
   '"uri":"$uri","bytes":$body_bytes_sent,"requestTime":$request_time,'
   '"upstreamTime":"$upstream_response_time","cache":"$upstream_cache_status",'
@@ -252,6 +274,31 @@ const GZIP_BLOCK = `    gzip on;
 `;
 
 /**
+ * 反代到隧道的一组公共指令。
+ *
+ * 入口上每一个回源 location 都必须带这一整组：少了 `Connection ""`，nginx 给上游
+ * 发 close，upstream 的 keepalive 形同虚设（每个请求重开一条穿隧道的 TCP）；
+ * 少了 `proxy_send_timeout`，在慢上行发大文件会按默认 60 秒被掐断。
+ * 所以四处（/api/、/api/web/uploads/、/assets/、/）都从这里取，不各写一份。
+ */
+function proxyDirectives(indent, upstream) {
+  const pad = " ".repeat(indent);
+  return [
+    `proxy_pass http://${upstream};`,
+    "proxy_http_version 1.1;",
+    'proxy_set_header Connection "";',
+    "proxy_set_header Host $host;",
+    "proxy_set_header X-Real-IP $remote_addr;",
+    "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+    "proxy_set_header X-Forwarded-Proto $scheme;",
+    "proxy_read_timeout 120s;",
+    "proxy_send_timeout 120s;",
+  ]
+    .map((line) => `${pad}${line}`)
+    .join("\n");
+}
+
+/**
  * 443 的完整入口 conf。
  *
  * 两个阶段：
@@ -271,8 +318,8 @@ export function renderVhost({ domain, root, port, entry = false }) {
   const proxied = Boolean(entry);
   const upstream = `knot_entry_${port}`;
   const header = proxied
-    ? `# ${domain}：入口 conf，由 auto-connect 生成，请勿手改。\n${ENTRY_PROXIED_MARK}\n# 整站经本机回环端口 ${port} 回到实例（SSH 反向隧道）。`
-    : `# ${domain}：入口 conf，由 auto-connect 生成，请勿手改。\n# 静态页落在 ${root}；/api 经本机回环端口 ${port} 回到实例（SSH 反向隧道）。`;
+    ? `# ${domain}：入口 conf，${MANAGED_MARK}。\n${ENTRY_PROXIED_MARK}\n# 整站经本机回环端口 ${port} 回到实例（SSH 反向隧道）。`
+    : `# ${domain}：入口 conf，${MANAGED_MARK}。\n# 静态页落在 ${root}；/api 经本机回环端口 ${port} 回到实例（SSH 反向隧道）。`;
 
   // 回源统一走 upstream 才能复用连接：一条新 TCP 要穿隧道重建一次 channel，
   // 跨境多一个 RTT。keepalive_timeout 压在 Backend 的 keepAliveTimeout（Node 默认 5s）之下。
@@ -293,17 +340,69 @@ log_format ${formatName} escape=json
 
 `;
 
+  // 伙伴节点在境外：整站反代之后，`/assets/` 里的每个 JS/CSS 都要穿一次隧道回源，
+  // 一页 4–6 个资源就是 4–6 次跨境往返。这些文件名带内容哈希（Vite 产物），
+  // 内容变了名就变了，所以可以在入口长期缓存：第二次访问起直接由新加坡的磁盘出。
+  // proxy_cache_use_stale 让隧道抖动时还能发已缓存的资源——这正是「二级域名打不开」
+  // 最常见的时刻：隧道断了，页面骨架还在，主包发不出去。
+  //
+  // 页面骨架（`/`，SPA 兜底回 index.html）也进同一个 zone，但只留 10 秒：
+  //   - 上游对 index.html 发的是 no-cache，不加 proxy_ignore_headers 就一条都存不下；
+  //   - 10 秒内的重复导航不必再穿一次隧道；日志里 cache 列能看出命中；
+  //   - 隧道断时 use_stale 还能发上一次的壳（静态投放的同档能力），
+  //     访客看到的是页面打开、数据处报错，而不是白屏；
+  //   - 代价：发版后 ≤10 秒内可能有访客拿到旧壳，指向已改名的旧资源。
+  //     旧资源在缓存里留 30 天，只有「那个旧资源此前从没被谁取过」才会 404，窗口很小。
+  const cacheName = `knot_cache_${String(domain).replace(/[^a-zA-Z0-9]/g, "_")}`;
+  const cacheBlock = proxied
+    ? `# 入口缓存：/assets/ 按哈希名长期留，页面骨架只留 10 秒。目录与 zone 名按子域唯一。
+proxy_cache_path /var/cache/nginx/${cacheName} levels=1:2 keys_zone=${cacheName}:10m
+  max_size=256m inactive=30d use_temp_path=off;
+
+`
+    : "";
+
   const rootLocation = proxied
-    ? `    location / {
-        proxy_pass http://${upstream};
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
+    ? `    # 上传文件（信息流图片 /display、头像、赞助图）：入口缓存，避免每张图都穿隧道回平台。
+    # 与静态投放的入口同一套语义：缓存键只有 $uri、不含会话，「能不能进共享缓存」
+    # 完全交给后端的 Cache-Control（公开内容 public，只有当事人能读的 private，
+    # 生成失败回退原件 no-store）。所以这里不 ignore 任何头——后端说了算。
+    location ^~ /api/web/uploads/ {
+${proxyDirectives(8, upstream)}
         proxy_request_buffering off;
+        proxy_cache ${cacheName};
+        proxy_cache_key "$uri";
+        proxy_cache_valid 200 1d;
+        proxy_cache_lock on;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        add_header X-Knot-Cache $upstream_cache_status;
+    }
+
+    location ^~ /assets/ {
+${proxyDirectives(8, upstream)}
+        proxy_cache ${cacheName};
+        proxy_cache_valid 200 30d;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_lock on;
+        # 上游对 /assets/ 发的是 no-cache 语义（资源要能立刻换），入口按哈希名缓存。
+        proxy_ignore_headers Cache-Control Expires Set-Cookie;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    location / {
+${proxyDirectives(8, upstream)}
+        proxy_request_buffering off;
+        proxy_cache ${cacheName};
+        proxy_cache_valid 200 10s;
+        # 过期后先把旧的发出去，刷新在后台做：过期那一下也不让访客等隧道。
+        proxy_cache_background_update on;
+        # 隧道断了、后端 5xx 了，发上一次的壳。这是静态投放那一档能力，
+        # 没有它，隧道一抖整页就打不开。
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_lock on;
+        # 上游对 index.html 发 no-cache，不忽略就存不下。只忽略这两头，
+        # 带 Set-Cookie 的响应仍然不进缓存——宁可不缓存，也不把别人的会话发出去。
+        proxy_ignore_headers Cache-Control Expires;
     }`
     : `    location = /index.html {
         root ${root};
@@ -321,7 +420,7 @@ log_format ${formatName} escape=json
     }`;
 
   return `${header}
-
+${cacheBlock}
 ${upstreamBlock}${logDirective}
 server {
     listen 80;
@@ -372,14 +471,7 @@ ${GZIP_BLOCK}
     }
 
     location /api/ {
-        proxy_pass http://${upstream};
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
+${proxyDirectives(8, upstream)}
         proxy_request_buffering off;
     }
 
@@ -567,13 +659,17 @@ export async function runStep({
   }
 
   if (step === "vhost") {
-    // 日志格式先就位：后面每一份 vhost 都引用 knot_json，缺了这份文件 nginx -t
-    // 会在整棵配置树上失败，连别的站点都 reload 不了。
-    await host.writeRootFile(`/etc/nginx/conf.d/${domain}.conf`, renderHttpVhost({ domain, root }), "644");
+    // 只写中枢自己的 conf：伙伴已经用 push-entry.sh 推过静态入口时，这一步不能盖掉它。
+    // 首次开通时文件不存在，isManagedEntryConf(null) 为真，照常写。
+    const file = `/etc/nginx/conf.d/${domain}.conf`;
+    if (!isManagedEntryConf(await host.readRootFile(file))) {
+      return { note: "入口 conf 由外部管理（静态投放），未覆盖", external: true };
+    }
+    await host.writeRootFile(file, renderHttpVhost({ domain, root }), "644");
     const tested = await host.sudo(["nginx", "-t"]);
     if (tested.code !== 0) throw new ProvisionError("nginx_config_invalid", tested.stderr);
-    await host.sudo(["systemctl", "reload", "nginx"]);
-    return { note: "HTTP 入口已生效" };
+    const applied = await reloadNginx({ host });
+    return { note: applied.restarted ? "HTTP 入口已生效（master 重新读取配置）" : "HTTP 入口已生效" };
   }
 
   if (step === "tls") {
@@ -597,14 +693,95 @@ export async function runStep({
       { timeoutMs: 180_000 }
     );
     if (issued.code !== 0) throw new ProvisionError("tls_failed", tail(issued.stderr));
-    await host.writeRootFile(`/etc/nginx/conf.d/${domain}.conf`, renderVhost({ domain, root, port: run.port }), "644");
+    // 证书照签（ACME 校验用的是静态 root，与 conf 归属无关），但 conf 依旧是
+    // 谁写的归谁：外部管理的入口只把证书交给它，不覆盖它的反代/静态配置。
+    const file = `/etc/nginx/conf.d/${domain}.conf`;
+    if (!isManagedEntryConf(await host.readRootFile(file))) {
+      return { note: "证书已签发；入口 conf 由外部管理，未覆盖", external: true };
+    }
+    await host.writeRootFile(file, renderVhost({ domain, root, port: run.port }), "644");
     const tested = await host.sudo(["nginx", "-t"]);
     if (tested.code !== 0) throw new ProvisionError("nginx_config_invalid", tested.stderr);
-    await host.sudo(["systemctl", "reload", "nginx"]);
-    return { note: "证书已签发，/api 反代已接上" };
+    const applied = await reloadNginx({ host });
+    return {
+      note: applied.restarted ? "证书已签发，/api 反代已接上（master 重新读取配置）" : "证书已签发，/api 反代已接上",
+    };
   }
 
   throw new ProvisionError("unknown_step", step);
+}
+
+/**
+ * 把新配置交给 nginx，并确认它真的被接受了。
+ *
+ * reload 与 restart 的差别不在「会不会断连接」，而在「谁有权拒绝」：
+ * reload 只是给 master 发 SIGHUP，它用新配置起新 worker。master 自己判断不了的
+ * 改动——共享内存 zone 的 key 变了，比如 limit_req_zone 的 key 从 $binary_remote_addr
+ * 换成 map 出来的变量——会被它整份拒掉，旧配置继续跑，而命令仍然返回 0。
+ * 这种失败只在 error.log 里留一行 [emerg]，退出码看不出来。
+ *
+ * 2026-10-23 就是这么过去的：门户的限流修复写进了磁盘，线上跑了三天旧配置，
+ * 每次部署都「成功」，每次 reload 都被拒。所以 reload 之后要回头读一次日志：
+ * 出现新的 [emerg] 就 restart，让 master 重新读盘。
+ *
+ * 日志读不到（没有权限、文件不在）时不猜：按 nginx -t 的结果放行，
+ * 返回 confirmed:false 让调用方知道这一步没有证据。
+ */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function logOffset(host, file) {
+  const size = await host.sudo(["stat", "-c", "%s", file]);
+  if (size.code !== 0) return null;
+  const value = Number(String(size.stdout).trim());
+  return Number.isFinite(value) ? value : null;
+}
+
+async function logSince(host, file, offset) {
+  if (offset == null) return null;
+  const read = await host.sudo(["tail", "-c", `+${offset + 1}`, file]);
+  return read.code === 0 ? String(read.stdout) : null;
+}
+
+export async function reloadNginx({
+  host,
+  errorLog = NGINX_ERROR_LOG,
+  attempts = 5,
+  delayMs = 100,
+} = {}) {
+  const offset = await logOffset(host, errorLog);
+  const reloaded = await host.sudo(["systemctl", "reload", "nginx"]);
+  if (reloaded.code !== 0) throw new ProvisionError("nginx_reload_failed", tail(reloaded.stderr));
+
+  // 没有日志可看：只能信 nginx -t 与退出码。
+  if (offset == null) return { restarted: false, confirmed: false };
+
+  let fresh = "";
+  for (let i = 0; i < attempts; i += 1) {
+    const read = await logSince(host, errorLog, offset);
+    // 读到一半失败，或者日志根本没长：没有证据，不再等。
+    if (read == null || (read === "" && i >= 1)) return { restarted: false, confirmed: false };
+    fresh = read;
+    // master 先打 notice 再决定收不收这份配置；[emerg] 一出现就是拒了。
+    if (fresh.includes("[emerg]")) break;
+    // 成功 reload 的标志：新 worker 起来了。看到就不必再等。
+    if (fresh.includes("start worker process")) return { restarted: false, confirmed: true };
+    await sleep(delayMs);
+  }
+  if (!fresh.includes("[emerg]")) return { restarted: false, confirmed: false };
+
+  const reason = tail(
+    fresh.split("\n").find((line) => line.includes("[emerg]")) || fresh,
+    200
+  );
+  const restarted = await host.sudo(["systemctl", "restart", "nginx"]);
+  const active = await host.sudo(["systemctl", "is-active", "nginx"]);
+  if (restarted.code !== 0 || String(active.stdout).trim() !== "active") {
+    throw new ProvisionError(
+      "nginx_restart_failed",
+      `${reason}；restart 之后 nginx 没在跑：${tail(restarted.stderr)}`
+    );
+  }
+  return { restarted: true, confirmed: true, reason };
 }
 
 /**
@@ -624,6 +801,10 @@ export async function switchEntry({ host, run, entry = true }) {
   const conf = renderVhost({ domain, root, port: run.port, entry });
   const current = await host.readRootFile(file);
   if (current === conf) return { changed: false };
+  // 伙伴自己跑 push-entry.sh 推上来的静态 conf 不归中枢管。中枢每 20 秒核对一次，
+  // 若在这里覆盖，两边会互相改写：伙伴推静态、中枢改回反代、伙伴再推……
+  // 认「谁写的」而不是「内容像不像」，见 MANAGED_MARK。
+  if (!isManagedEntryConf(current)) return { changed: false, external: true };
 
   await host.writeRootFile(file, conf, "644");
   const tested = await host.sudo(["nginx", "-t"]);
@@ -631,9 +812,19 @@ export async function switchEntry({ host, run, entry = true }) {
     if (current != null) await host.writeRootFile(file, current, "644");
     throw new ProvisionError("nginx_config_invalid", tail(tested.stderr));
   }
-  const reloaded = await host.sudo(["systemctl", "reload", "nginx"]);
-  if (reloaded.code !== 0) throw new ProvisionError("nginx_reload_failed", tail(reloaded.stderr));
-  return { changed: true };
+  let outcome;
+  try {
+    outcome = await reloadNginx({ host });
+  } catch (error) {
+    // reload 被拒、restart 又起不来：磁盘上这份 conf 不能留着——下一次 reload
+    // 读到的还是它，连回滚的机会都没有。恢复旧内容再起一次。
+    if (current != null) {
+      await host.writeRootFile(file, current, "644");
+      await host.sudo(["systemctl", "restart", "nginx"]);
+    }
+    throw error;
+  }
+  return { changed: true, restarted: outcome.restarted };
 }
 
 function tail(text, limit = 300) {

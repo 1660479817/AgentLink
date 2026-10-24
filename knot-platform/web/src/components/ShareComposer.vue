@@ -134,8 +134,8 @@ function onMedia(kind) {
   }
 }
 
-function pickImages(event) {
-  addImages(Array.from(event.target.files || []));
+async function pickImages(event) {
+  await addImages(Array.from(event.target.files || []));
   event.target.value = "";
 }
 

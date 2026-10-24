@@ -97,6 +97,10 @@
             <span class="icon" data-icon="globe" aria-hidden="true"></span>
             <span data-i18n="nav.xknot"></span>
           </button>
+          <button class="nav-button" type="button" data-view="logs">
+            <span class="icon" data-icon="logs" aria-hidden="true"></span>
+            <span data-i18n="nav.logs"></span>
+          </button>
         </nav>
 
         <main class="main">
@@ -960,6 +964,30 @@
                 </section>
               </div>
             </details>
+          </section>
+
+          <section class="view" data-view="logs" hidden>
+            <div class="view-head">
+              <div>
+                <h2 data-i18n="logs.title"></h2>
+                <p class="muted" data-i18n="logs.lead"></p>
+              </div>
+              <button id="logs-refresh" class="button ghost" type="button">
+                <span class="icon" data-icon="refresh" aria-hidden="true"></span>
+                <span data-i18n="common.refresh"></span>
+              </button>
+            </div>
+
+            <article class="card">
+              <div class="card-head">
+                <div class="head-stack">
+                  <h3 data-i18n="logs.queue"></h3>
+                  <p class="muted small" data-i18n="logs.queueHint"></p>
+                </div>
+                <span id="logs-count" class="card-tag">—</span>
+              </div>
+              <div id="logs-list" class="post-list"></div>
+            </article>
           </section>
         </main>
       </div>

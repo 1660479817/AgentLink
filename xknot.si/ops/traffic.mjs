@@ -395,12 +395,24 @@ export async function run(options = {}) {
   const hostToId = hostMapOf(manifest);
   const agg = emptyAggregate();
   const files = await logFiles(logPath, { now: now() });
+  let readOk = 0;
+  const failures = [];
   for (const file of files) {
     try {
       await readLines(file, (line) => accumulate(agg, parseLine(line), hostToId));
+      readOk += 1;
     } catch (error) {
+      failures.push(`${file}：${error.message}`);
       log(`读取失败，跳过 ${file}：${error.message}`);
     }
+  }
+  // 文件在，但一份都读不开，不是「没流量」，是采集坏了：权限、属主、被截断。
+  // 2026-10-24 就是这种：logrotate 把 knot-access.log 建成 0640 nginx:root，
+  // 聚合以 ec2-user 跑，每小时 EACCES 一次，却都以 0 退出、把昨天的数字重写一遍。
+  // 于是控制台看着一切正常，当天的数据一条都没进。这里必须以失败退出，
+  // 让 systemd 把这次运行标成 failed，而不是安静地维持一个过期快照。
+  if (files.length > 0 && readOk === 0) {
+    throw new Error(`一份访问日志都读不到（${failures.length} 份），保留上一次的聚合：${failures[0]}`);
   }
 
   const byId = finalizeAggregate(agg);

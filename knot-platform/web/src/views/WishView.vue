@@ -420,13 +420,13 @@ function stashReplyDraft(id) {
   });
 }
 
-function restoreReplyDraft(id) {
+async function restoreReplyDraft(id) {
   const draft = replyDrafts.get(id);
   if (!draft) return;
   replyBody.value = draft.body;
   replyPrice.value = draft.price;
   replyVideo.value = draft.video;
-  if (draft.images.length) addReplyImages(draft.images);
+  if (draft.images.length) await addReplyImages(draft.images);
   if (draft.files.length) addReplyFiles(draft.files.map((item) => item.file));
   if (draft.audio?.file) setReplyAudio(draft.audio.file);
   if (draft.posterFile) setReplyPosterFile(draft.posterFile);
@@ -439,13 +439,13 @@ watch(respondId, async (id, prev) => {
   resetReply();
   replyError.value = "";
   if (!id) return;
-  restoreReplyDraft(id);
+  await restoreReplyDraft(id);
   await ensureLook();
   if (respondId.value) await showLook(respondId.value);
 });
 
-function pickImages(event) {
-  addImages(Array.from(event.target.files || []));
+async function pickImages(event) {
+  await addImages(Array.from(event.target.files || []));
   event.target.value = "";
 }
 
@@ -460,8 +460,8 @@ function pickAudio(event) {
   if (file) setAudio(file);
 }
 
-function pickReplyImages(event) {
-  addReplyImages(Array.from(event.target.files || []));
+async function pickReplyImages(event) {
+  await addReplyImages(Array.from(event.target.files || []));
   event.target.value = "";
 }
 

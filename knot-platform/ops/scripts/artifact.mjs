@@ -28,8 +28,7 @@ export function releaseName(info) {
   // 或者出现「目录叫 A、健康检查说 B」的部署记录。
   const explicit = String(info.release || "").trim();
   if (explicit) return explicit;
-  const suffix = info.dirty ? "-dirty" : "";
-  return `knot-${info.version}-${info.commit}${suffix}`;
+  return `knot-${info.version}-${info.commit}`;
 }
 
 export function readBuildFile(target) {

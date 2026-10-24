@@ -28,6 +28,43 @@ export function isAttachmentFile(file) {
   return ATTACHMENT_FILE.test(String(file?.name || ""));
 }
 
+// iOS 的相机/相册可能交出 HEIC/HEIF：后端只收 JPEG、PNG、WebP、GIF、AVIF，而服务端的
+// sharp 没编进 HEVC 解码器（libde265），无法在服务端转码。这里借浏览器的原生解码
+// （iOS/macOS Safari 能解 HEIC）先转成 JPEG 再上传；解不了的浏览器退回原文件，交给
+// 后端按 bad_mime 拒绝，至少不会把一个「看起来传上去了」的坏文件发出去。
+const HEIC_TYPE = /^image\/hei[cf](-sequence)?$/i;
+
+export async function normalizeImageFile(file) {
+  if (!file || typeof file !== "object") return file;
+  if (!HEIC_TYPE.test(String(file.type || ""))) return file;
+  try {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("heic_decode_failed"));
+        el.src = url;
+      });
+      const width = img.naturalWidth || img.width || 0;
+      const height = img.naturalHeight || img.height || 0;
+      if (!width || !height) throw new Error("heic_decode_failed");
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      if (!blob) throw new Error("heic_encode_failed");
+      const name = String(file.name || "image").replace(/\.hei[cf](-sequence)?$/i, "") + ".jpg";
+      return new File([blob], name, { type: "image/jpeg" });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    return file;
+  }
+}
+
 export function nameMark(user) {
   const name = String(user?.displayName || "").trim();
   if (name) {
@@ -106,17 +143,18 @@ export function usePacketMedia() {
     previewUrls.value = images.value.map((file) => URL.createObjectURL(file));
   }
 
-  function addImages(list) {
+  async function addImages(list) {
     error.value = "";
     const next = [...images.value];
     for (const file of list) {
       if (next.length >= MAX_IMAGES) break;
       if (!String(file.type || "").startsWith("image/")) continue;
-      if (file.size > MAX_BYTES) {
+      const normalized = await normalizeImageFile(file);
+      if (normalized.size > MAX_BYTES) {
         error.value = t("error.image_too_large");
         continue;
       }
-      next.push(file);
+      next.push(normalized);
     }
     images.value = next;
     syncPreviews();

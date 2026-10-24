@@ -61,9 +61,16 @@ async function start(t, options = {}) {
     store.close();
   });
 
-  async function call(path, { method = "GET", body, form, cookie, origin } = {}) {
+  async function call(path, { method = "GET", body, form, raw, cookie, origin } = {}) {
     const headers = { accept: "application/json" };
-    const payload = form !== undefined ? new URLSearchParams(form).toString() : body === undefined ? undefined : JSON.stringify(body);
+    const payload =
+      raw !== undefined
+        ? raw
+        : form !== undefined
+          ? new URLSearchParams(form).toString()
+          : body === undefined
+            ? undefined
+            : JSON.stringify(body);
     if (payload !== undefined) {
       headers["content-type"] =
         form !== undefined ? "application/x-www-form-urlencoded" : "application/json";
@@ -159,10 +166,11 @@ test("validate: over-long text is rejected instead of silently cut", () => {
   assert.equal(validateApplication({ ...valid, tags: "a,b,c,d,e,f,g,h,i,j" }).errors.tags, "too_many_tags");
 });
 
-test("normalize: tags split on both comma styles and drop duplicates", () => {
-  assert.deepEqual(normalizeTags("Agent，工具 chain, agent"), ["Agent", "工具", "chain"]);
-  // 实例按数组提交：标签里的空格是标签的一部分，不再拆开。
+test("normalize: tags split on comma styles only, spaces stay in the tag", () => {
+  // 字符串与数组两种入口一致：空格属于标签本身，不再按 \s 拆开。
+  assert.deepEqual(normalizeTags("Agent，工具 chain, agent"), ["Agent", "工具 chain"]);
   assert.deepEqual(normalizeTags(["vibe coding", "Agent"]), ["vibe coding", "Agent"]);
+  assert.deepEqual(normalizeTags("vibe coding"), ["vibe coding"]);
   // 子域规则只有一份，在 ops/subdomain.mjs。
   assert.deepEqual(checkLabel("https://travel.xknot.si/"), { label: "travel", available: true, reason: "ok" });
   assert.equal(checkLabel("BAD_Label").reason, "format");
@@ -1304,4 +1312,38 @@ test("a public key is one line, and a smuggled second line is refused", () => {
   assert.equal(normalizePublicKey("ssh-ed25519 " + "A".repeat(2000)), null);
   assert.equal(normalizePublicKey(""), null);
   assert.equal(normalizePublicKey(null), null);
+});
+
+test("every JSON endpoint answers a bad body the same way", async (t) => {
+  // 「体太大」与「JSON 坏」是客户端错误，不是业务错误：同一个服务上
+  // /api/applications 回 413、/api/admin/login 却落到字段校验回 400 invalid，
+  // 排查时看不出是谁的错。这两条码只在 readJsonBody 里定义一次。
+  const { call, store } = await start(t);
+  const cookie = await loginAs(call, store);
+  const big = { blob: "x".repeat(17 * 1024) };
+
+  // /api/member/code 不在这一组：没配发信时它先回 503，读体在那之后。
+  for (const path of ["/api/applications", "/api/member/session"]) {
+    const result = await call(path, { method: "POST", body: big });
+    assert.equal(result.status, 413, `${path} 超大体的码`);
+    assert.equal(result.data.error, "too_large", `${path} 超大体的 error`);
+  }
+
+  for (const path of ["/api/admin/login", "/api/admin/mail", "/api/admin/instances/wang/config"]) {
+    const result = await call(path, { method: "POST", body: big, cookie });
+    assert.equal(result.status, 413, `${path} 超大体的码`);
+    assert.equal(result.data.error, "too_large", `${path} 超大体的 error`);
+  }
+
+  // 坏 JSON 统一 400 bad_json：不能穿透到后面按字段校验变成 invalid / invalid_email。
+  for (const path of ["/api/applications", "/api/member/session", "/api/admin/login"]) {
+    const result = await call(path, { method: "POST", raw: "{not json" });
+    assert.equal(result.status, 400, `${path} 坏 JSON 的码`);
+    assert.equal(result.data.error, "bad_json", `${path} 坏 JSON 的 error`);
+  }
+
+  // `error` 是合法的业务字段名：客户端发 {"error":"too_large"} 必须当普通数据，
+  // 不能因为字段值撞上内部标记就回 413。读体失败只认内部符号。
+  const spoof = await call("/api/applications", { method: "POST", body: { error: "too_large" } });
+  assert.notEqual(spoof.status, 413, "误把业务字段当成读体失败");
 });

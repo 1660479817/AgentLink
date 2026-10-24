@@ -17,6 +17,7 @@ import {
   pendingStep,
   reconcileTunnel,
   refreshKeySteps,
+  reloadNginx,
   renderHttpVhost,
   renderPlaceholder,
   renderSshdMatch,
@@ -176,7 +177,8 @@ test("render: compression, HTTP/2 and tunnel keepalive do not depend on static s
     assert.match(conf, /keepalive 16;/);
     assert.match(conf, /keepalive_timeout 4s;/);
     // 有 upstream 还必须配 Connection ""，否则 nginx 给上游发 close，keepalive 形同虚设。
-    assert.equal((conf.match(/proxy_set_header Connection "";/g) || []).length, entry ? 2 : 1);
+    // entry 阶段多三处：`/assets/`、`/api/web/uploads/` 与 `location /`。
+    assert.equal((conf.match(/proxy_set_header Connection "";/g) || []).length, entry ? 4 : 1);
     // 一个 conf 里 upstream 只能声明一次，否则 nginx -t 直接失败。
     assert.equal((conf.match(/^upstream /gm) || []).length, 1);
   }
@@ -418,12 +420,51 @@ test("render: before the tunnel is up, / is the placeholder and only /api is pro
 test("render: once the tunnel is up, / proxies to the instance so the WebUI shows", () => {
   const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry: true });
   assert.match(conf, new RegExp(ENTRY_PROXIED_MARK));
-  assert.equal((conf.match(/proxy_pass http:\/\/knot_entry_18090;/g) || []).length, 2);
+  // `location /`、`/assets/`、`/api/web/uploads/` 与 `/api/` 各一条。
+  assert.equal((conf.match(/proxy_pass http:\/\/knot_entry_18090;/g) || []).length, 4);
   // 占位页不再有人访问：静态 root 只剩下 ACME 校验在用。
   assert.doesNotMatch(conf, /try_files/);
   assert.doesNotMatch(conf, /location = \/index\.html/);
   // 安全头交给 Backend（它每个响应都发），入口不再叠一行同名头。
   assert.doesNotMatch(conf, /add_header X-Content-Type-Options/);
+});
+
+test("render: the proxied entry caches /assets/ so a partner node is not re-drilled per file", () => {
+  // 伙伴节点的静态资源要穿隧道回源，一页 4–6 个文件就是 4–6 次跨境往返。
+  // 文件名带内容哈希，可以长期缓存；占位页阶段没有 /assets/ 可缓存，不该声明 zone。
+  const proxied = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry: true });
+  assert.match(proxied, /^proxy_cache_path \/var\/cache\/nginx\/knot_cache_cpswang_xknot_si /m);
+  assert.match(proxied, /keys_zone=knot_cache_cpswang_xknot_si:10m/);
+  assert.match(proxied, /location \^~ \/assets\/ \{/);
+  assert.match(proxied, /proxy_cache knot_cache_cpswang_xknot_si;/);
+  assert.match(proxied, /proxy_cache_valid 200 30d;/);
+  // 隧道抖动时发已缓存的资源，而不是把整页打空。
+  assert.match(proxied, /proxy_cache_use_stale .*http_502/);
+  assert.match(proxied, /add_header Cache-Control "public, max-age=31536000, immutable" always;/);
+
+  const placeholder = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090 });
+  assert.doesNotMatch(placeholder, /proxy_cache_path/);
+  assert.doesNotMatch(placeholder, /location \^~ \/assets\//);
+
+  // zone 名在同一台 nginx 里必须唯一：重名是致命错误。
+  const other = renderVhost({ domain: "zhoujj.xknot.si", root: "/var/www/zhoujj", port: 18091, entry: true });
+  assert.match(other, /keys_zone=knot_cache_zhoujj_xknot_si:10m/);
+});
+
+test("render: the page shell is cached briefly so a tunnel blip opens a shell instead of a blank page", () => {
+  // 静态投放时 index.html 在入口磁盘上，隧道全断也能画出骨架；整站反代没有这一步。
+  // 10 秒缓存 + use_stale 把这一档补回来：命中不必穿隧道，断了发上一次的壳。
+  const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry: true });
+  // 从最后那个 `location /` 开始：前面 80 端口那份是 301 跳转。
+  const shell = conf.slice(conf.lastIndexOf("location / {"));
+  assert.match(shell, /proxy_cache knot_cache_cpswang_xknot_si;/);
+  assert.match(shell, /proxy_cache_valid 200 10s;/);
+  assert.match(shell, /proxy_cache_background_update on;/);
+  assert.match(shell, /proxy_cache_use_stale error timeout updating/);
+  // 上游对 index.html 发 no-cache，不忽略就一条都存不下。
+  assert.match(shell, /proxy_ignore_headers Cache-Control Expires;/);
+  // 带 Set-Cookie 的响应仍然不进缓存：宁可不缓存，也不把别人的会话发出去。
+  assert.doesNotMatch(shell, /proxy_ignore_headers [^;]*Set-Cookie/);
 });
 
 test("switch: an identical conf is left alone; a failing test restores the old one", async () => {
@@ -441,7 +482,7 @@ test("switch: an identical conf is left alone; a failing test restores the old o
   };
   const run = { host: "cpswang.xknot.si", instanceId: "cpswang", port: 18090 };
 
-  assert.deepEqual(await switchEntry({ host: fake, run, entry: true }), { changed: true });
+  assert.deepEqual(await switchEntry({ host: fake, run, entry: true }), { changed: true, restarted: false });
   assert.equal(writes.length, 1);
   // 再来一次：内容一样，不再写、不再 reload。
   assert.deepEqual(await switchEntry({ host: fake, run, entry: true }), { changed: false });
@@ -453,4 +494,207 @@ test("switch: an identical conf is left alone; a failing test restores the old o
   // 写坏的 conf 已经被旧内容盖回去了。
   assert.equal(writes.length, 2);
   assert.match(writes[1], new RegExp(ENTRY_PROXIED_MARK));
+});
+// ---- reload 与 restart ----
+//
+// reload 被 master 拒绝时命令仍然返回 0：`nginx -s reload` 只负责把 SIGHUP 送出去。
+// 所以判据只能是 error.log 里新出现的那几行。
+
+const NOTICE = "2026/10/24 01:45:32 [notice] 580914#580914: signal 1 (SIGHUP) received, reconfiguring\n";
+const WORKER = "2026/10/24 01:45:32 [notice] 580914#580914: start worker process 580916\n";
+const ZONE_EMERG =
+  '2026/10/24 01:45:32 [emerg] 580914#580914: limit_req "xknot_apply" uses the "$xknot_write_key" ' +
+  'key while previously it used the "$binary_remote_addr" key\n';
+
+function reloadHost({ onReload = WORKER, restart = { code: 0, stdout: "", stderr: "" }, active = "active\n", noLog = false } = {}) {
+  const calls = [];
+  let log = "old line\n";
+  return {
+    calls,
+    async sudo(argv) {
+      calls.push(argv);
+      const line = argv.join(" ");
+      if (line === "systemctl reload nginx") {
+        log += onReload;
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (line === "systemctl restart nginx") return restart;
+      if (line === "systemctl is-active nginx") return { code: 0, stdout: active, stderr: "" };
+      if (argv[0] === "stat") {
+        return noLog
+          ? { code: 1, stdout: "", stderr: "No such file" }
+          : { code: 0, stdout: String(log.length), stderr: "" };
+      }
+      if (argv[0] === "tail") {
+        const from = Number(String(argv[2]).slice(1)) - 1;
+        return { code: 0, stdout: log.slice(from), stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  };
+}
+
+test("reload: a reload the master accepted is not restarted", async () => {
+  const host = reloadHost();
+  const result = await reloadNginx({ host });
+  assert.deepEqual(result, { restarted: false, confirmed: true });
+  assert.ok(!host.calls.some((argv) => argv.join(" ") === "systemctl restart nginx"));
+});
+
+test("reload: an [emerg] the master wrote means the config was rejected, so restart", async () => {
+  // 这条正是 2026-10-23 那三天：部署全部「成功」，线上一直跑旧配置。
+  const host = reloadHost({ onReload: NOTICE + ZONE_EMERG });
+  const result = await reloadNginx({ host });
+  assert.equal(result.restarted, true);
+  assert.match(result.reason, /xknot_apply/);
+  const order = host.calls.map((argv) => argv.join(" "));
+  assert.ok(order.indexOf("systemctl restart nginx") > order.indexOf("systemctl reload nginx"));
+});
+
+test("reload: a restart that leaves nginx down is a hard failure", async () => {
+  const host = reloadHost({
+    onReload: NOTICE + ZONE_EMERG,
+    restart: { code: 0, stdout: "", stderr: "" },
+    active: "failed\n",
+  });
+  await assert.rejects(() => reloadNginx({ host }), /nginx_restart_failed/);
+});
+
+test("reload: no error.log to read means no evidence, and no blind restart", async () => {
+  const host = reloadHost({ noLog: true });
+  assert.deepEqual(await reloadNginx({ host }), { restarted: false, confirmed: false });
+  assert.ok(!host.calls.some((argv) => argv.join(" ") === "systemctl restart nginx"));
+});
+
+test("switch: a rejected reload that cannot restart puts the old conf back", async () => {
+  const writes = [];
+  let current = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090 });
+  const calls = [];
+  const host = {
+    readRootFile: async () => current,
+    writeRootFile: async (_file, text) => {
+      writes.push(text);
+      current = text;
+    },
+    sudo: async (argv) => {
+      calls.push(argv.join(" "));
+      if (argv[0] === "nginx") return { code: 0, stdout: "", stderr: "" };
+      if (argv.join(" ") === "systemctl reload nginx") return { code: 0, stdout: "", stderr: "" };
+      if (argv.join(" ") === "systemctl restart nginx") return { code: 1, stdout: "", stderr: "Job failed" };
+      if (argv[0] === "stat") return { code: 0, stdout: "0", stderr: "" };
+      if (argv[0] === "tail") {
+        // offset 取的是 reload 前的 0，所以整段都算「新写入的」。
+        return { code: 0, stdout: String(argv[2]).startsWith("+1") ? ZONE_EMERG : "", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  };
+  const run = { host: "cpswang.xknot.si", instanceId: "cpswang", port: 18090 };
+  await assert.rejects(() => switchEntry({ host, run, entry: true }), /nginx_restart_failed/);
+  // 新 conf 写进去过，失败后又把旧内容盖回来了。
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1], renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090 }));
+});
+
+// ---- 入口能力的一致性 ----
+//
+// 一段修在一个 location 里、另一段忘了跟，是这边最容易出的错：2026-10-24 之前
+// 只有 /assets/ 有缓存、/api/web/uploads/ 每个图都穿隧道，就是「一个症状一套改法」
+// 留下的。下面按「每个回源 location 必须具备哪些能力」逐条列，新增 location 时
+// 必须同时在清单里补一行，否则这里不会替你检查——清单本身就是这份契约。
+
+const PROXY_LOCATIONS = ["/api/", "/api/web/uploads/", "/assets/", "/"];
+
+function locationsOf(conf) {
+  const found = new Map();
+  const heads = {
+    "/api/": "    location /api/ {",
+    "/api/web/uploads/": "    location ^~ /api/web/uploads/ {",
+    "/assets/": "    location ^~ /assets/ {",
+    "/": "    location / {",
+  };
+  for (const name of PROXY_LOCATIONS) {
+    // `location /` 在 80 端口那份里也有一条（301），取 443 里那条。
+    const at = conf.lastIndexOf(heads[name]);
+    if (at < 0) continue;
+    const end = conf.indexOf("\n    }", at);
+    found.set(name, conf.slice(at, end));
+  }
+  return found;
+}
+
+test("render: every proxied location carries the same tunnel plumbing", () => {
+  // 少一处 Connection "" 就是那条路径每个请求重开一条穿隧道的 TCP；
+  // 少 proxy_send_timeout 就是慢上行发大文件按默认 60 秒被掐。
+  const conf = renderVhost({ domain: "zhoujj.xknot.si", root: "/var/www/zhoujj", port: 18091, entry: true });
+  const found = locationsOf(conf);
+  assert.equal(found.size, PROXY_LOCATIONS.length, `没找到：${PROXY_LOCATIONS.filter((n) => !found.has(n)).join(", ")}`);
+  for (const [name, block] of found) {
+    for (const directive of [
+      "proxy_pass http://knot_entry_18091;",
+      "proxy_http_version 1.1;",
+      'proxy_set_header Connection "";',
+      "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+      "proxy_set_header X-Forwarded-Proto $scheme;",
+      "proxy_read_timeout 120s;",
+      "proxy_send_timeout 120s;",
+    ]) {
+      assert.ok(block.includes(directive), `${name} 缺 ${directive}`);
+    }
+  }
+});
+
+test("render: uploads are cached at the entry, but the backend keeps the last word", () => {
+  // 上传文件占的字节最多：不缓存就是每张图、每段视频都穿一次隧道。
+  // 但「能不能进共享缓存」必须由后端的 Cache-Control 决定（私帖是 private），
+  // 所以这里绝不能像 /assets/ 那样 ignore Cache-Control。
+  const conf = renderVhost({ domain: "zhoujj.xknot.si", root: "/var/www/zhoujj", port: 18091, entry: true });
+  const uploads = locationsOf(conf).get("/api/web/uploads/");
+  assert.match(uploads, /proxy_cache knot_cache_zhoujj_xknot_si;/);
+  assert.match(uploads, /proxy_cache_key "\$uri";/);
+  assert.match(uploads, /proxy_cache_valid 200 1d;/);
+  assert.match(uploads, /add_header X-Knot-Cache \$upstream_cache_status;/);
+  assert.doesNotMatch(uploads, /proxy_ignore_headers/);
+
+  // /api/ 与 /assets/ 不缓存：前者是动态响应，后者的缓存由自己那条 location 管。
+  const api = locationsOf(conf).get("/api/");
+  assert.doesNotMatch(api, /proxy_cache /);
+});
+
+test("render: a conf someone else wrote is never rewritten", async () => {
+  // 伙伴跑 push-entry.sh 推静态入口时写的是另一份模板，开头没有中枢的标记。
+  // 中枢每 20 秒核对一次，若照旧覆盖，两边就会互相改写。
+  const external = `# Knot 公网入口。由 ops/scripts/render-config.mjs 从 sites/zhoujj/site.env 生成。\nserver { server_name zhoujj.xknot.si; }\n`;
+  const writes = [];
+  const host = {
+    readRootFile: async () => external,
+    writeRootFile: async (_file, text) => writes.push(text),
+    sudo: async () => ({ code: 0, stdout: "", stderr: "" }),
+  };
+  const run = { host: "zhoujj.xknot.si", instanceId: "zhoujj", port: 18091 };
+
+  assert.deepEqual(await switchEntry({ host, run, entry: true }), { changed: false, external: true });
+  assert.equal(writes.length, 0);
+});
+
+test("run: vhost and tls steps leave an externally managed conf alone", async () => {
+  const external = "# 由 ops/scripts/render-config.mjs 生成\n";
+  const host = fakeHost({ onCall: () => null });
+  host.readRootFile = async (file) => (file === "/etc/nginx/conf.d/cpswang.xknot.si.conf" ? external : null);
+  const run = createRun({
+    application: APP,
+    tunnel: { account: "knot-tunnel-cpswang", port: 18090 },
+    entryHost: "54.169.33.64",
+  });
+
+  const vhost = await runStep({ step: "vhost", run, application: APP, host, entry: {}, roster });
+  assert.equal(vhost.external, true);
+  assert.equal(host.fileWrites.length, 0);
+  assert.ok(!host.calls.some((call) => call.argv.join(" ") === "systemctl reload nginx"));
+
+  // 首次开通（文件不存在）仍然照常写。
+  const fresh = fakeHost();
+  const written = await runStep({ step: "vhost", run, application: APP, host: fresh, entry: {}, roster });
+  assert.equal(written.external, undefined);
+  assert.equal(fresh.fileWrites.length, 1);
 });

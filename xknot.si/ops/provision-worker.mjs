@@ -69,6 +69,15 @@ function log(...args) {
   console.log(new Date().toISOString(), ...args);
 }
 
+// 「入口 conf 由外部管理」每个实例只说一次：这轮核对每 20 秒跑一遍，
+// 每次都打一行会把 journal 刷满，而这件事本身不变化。
+const externalNoted = new Set();
+function noteExternal(instanceId, where) {
+  if (externalNoted.has(instanceId)) return;
+  externalNoted.add(instanceId);
+  log(`${instanceId}: 入口 conf 由伙伴自己管理（${where}），中枢不覆盖；隧道与健康照常采集`);
+}
+
 // 门户是静态快照：把 status 改成 active 只是改了清单，卡片要等 data/hub.json 重算。
 // 不在这里重算，节点就会一直「在线但首页没有它」，直到有人手工构建一次。
 // 用子进程跑，不阻塞轮询；失败只留一行日志，xknot-republish.timer 会补。
@@ -233,6 +242,7 @@ export async function advance(run) {
     try {
       const conf = await switchEntry({ host, run, entry: true });
       if (conf.changed) log(`${run.instanceId}: 入口已切回整站反代`);
+      else if (conf.external) noteExternal(run.instanceId, "整站反代核对");
     } catch (error) {
       log(`${run.instanceId}: 入口 conf 核对失败 ${error.code || error.message}`);
     }
@@ -310,6 +320,7 @@ export async function advance(run) {
       try {
         const conf = await switchEntry({ host, run, entry: true });
         if (conf.changed) log(`${run.instanceId}: 隧道已通，首页改为整站反代`);
+        else if (conf.external) noteExternal(run.instanceId, "接通时");
       } catch (error) {
         const code = error instanceof ProvisionError ? error.code : "entry_switch_failed";
         log(`${run.instanceId}: 切换整站反代失败 ${code}，下一轮重试`);

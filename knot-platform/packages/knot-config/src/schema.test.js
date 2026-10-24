@@ -99,6 +99,28 @@ test("types are checked, not just presence", () => {
   assert.match(text, /KNOT_OPENCLAW/);
 });
 
+// 金额/天数类键有 max：安全整数范围内但大到能推出 Invalid Date 的值也要拦（S19-06）。
+test("date arithmetic keys cap their max, not just their safe-integer range", () => {
+  const base = {
+    KNOT_PUBLIC_ORIGIN: "http://127.0.0.1:8080",
+    KNOT_ADMIN_EMAIL: "admin@example.com",
+    KNOT_ENTRY_ENABLED: "0",
+    KNOT_BACKUP_DIR: "$HOME/knot/backups",
+  };
+  const over = checkSite({
+    ...base,
+    KNOT_SALE_TTL_HOURS: "999999999999999",
+    KNOT_COUPON_TTL_DAYS: "999999999999999",
+    KNOT_GC_GRACE_HOURS: "999999999999999",
+    KNOT_SEARCH_EVENT_RETENTION_DAYS: "999999999999999",
+  });
+  const text = over.errors.join("\n");
+  assert.match(text, /KNOT_SALE_TTL_HOURS/);
+  assert.match(text, /KNOT_COUPON_TTL_DAYS/);
+  assert.match(text, /KNOT_GC_GRACE_HOURS/);
+  assert.match(text, /KNOT_SEARCH_EVENT_RETENTION_DAYS/);
+});
+
 test("cross-key rules fire only when their condition holds", () => {
   const base = { KNOT_ADMIN_EMAIL: "admin@example.com", KNOT_BACKUP_DIR: "/backups" };
   assert.deepEqual(checkSite({ ...base, KNOT_ENTRY_ENABLED: "0" }).errors, []);

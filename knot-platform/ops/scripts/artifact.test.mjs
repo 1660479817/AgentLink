@@ -14,20 +14,18 @@ const INFO = {
   commit: "abc1234",
   platform: "darwin-arm64",
   builtAt: "2026-10-20T03:00:00.000Z",
-  dirty: false,
 };
 
-test("release name follows version, commit and dirty flag", () => {
+test("release name follows version and commit", () => {
   assert.equal(releaseName(INFO), "knot-0.2.0-abc1234");
-  assert.equal(releaseName({ ...INFO, dirty: true }), "knot-0.2.0-abc1234-dirty");
 });
 
 test("an explicit release in BUILD.json wins over the computed name", () => {
-  // 脏构建带时间戳：目录名、deployed.json 与 /api/health 必须用同一个字符串，
+  // 目录名、deployed.json 与 /api/health 必须用同一个字符串，
   // 所以有 release 字段就照抄，不能再按 version+commit 算一遍。
   assert.equal(
-    releaseName({ ...INFO, dirty: true, release: "knot-0.2.0-abc1234-dirty-20261023-040435" }),
-    "knot-0.2.0-abc1234-dirty-20261023-040435",
+    releaseName({ ...INFO, release: "knot-0.2.0-abc1234-custom" }),
+    "knot-0.2.0-abc1234-custom",
   );
 });
 

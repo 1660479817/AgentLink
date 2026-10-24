@@ -243,34 +243,18 @@ export async function retagIntelTopics(pool, id) {
   return { id, language: tagLanguage, before, topics };
 }
 
-const REVIEW_LABELS = {
-  agent_timeout: "数据评审员超时",
-  agent_failed: "数据评审员没有完成审核",
-  agent_bad_json: "数据评审员没有交回可用结果",
-  agent_empty: "数据评审员没有交回内容",
-};
-
+// 终审失败的归类码：写进 intel.detail.reviewError，管理端「日志」栏据此显示。
+// 只存码、不存 stderr——原始输出里可能夹着内部路径与用户数据，不进库。
 function reviewFailureCode(error) {
   const code = String(error?.message || "").replace(/\s+/g, " ").trim().slice(0, 120);
   return code || "review_failed";
 }
 
-export function reviewFailureParts(error) {
-  const code = reviewFailureCode(error);
-  const detail = String(error?.detail || "").replace(/\s+/g, " ").trim().slice(0, 180);
-  return { code, detail };
-}
-
-export function reviewFailureText(error) {
-  const { code, detail } = reviewFailureParts(error);
-  const lead = REVIEW_LABELS[code] || "审核没有完成";
-  const tail = "这条记录仍然可见，稍后会再试。";
-  return detail ? `${lead}（${code}）。${detail} ${tail}` : `${lead}（${code}）。${tail}`;
-}
-
+// 终审失败只落库（detail.reviewError），不给作者发通知：评审员超时、报错是平台侧
+// 的系统性问题，作者做不了什么，发出去只会把内部错误码暴露给人。管理端「日志」栏统一看。
 export async function noteReviewFailure(pool, id, error) {
   const code = reviewFailureCode(error);
-  const { rows } = await pool.query(`SELECT account_id, verdict, detail FROM intel WHERE id = $1`, [id]);
+  const { rows } = await pool.query(`SELECT verdict, detail FROM intel WHERE id = $1`, [id]);
   const intel = rows[0];
   if (!intel || intel.verdict !== "pending") return false;
   const previous = intel.detail && typeof intel.detail.reviewError === "string" ? intel.detail.reviewError : "";
@@ -278,19 +262,10 @@ export async function noteReviewFailure(pool, id, error) {
   const updated = await pool.query(
     `UPDATE intel SET detail = COALESCE(detail, '{}'::jsonb) || $2::jsonb
      WHERE id = $1 AND verdict = 'pending'
-     RETURNING account_id`,
+     RETURNING id`,
     [id, JSON.stringify({ reviewError: code })]
   );
-  if (!updated.rows.length) return false;
-  await recordNotification(pool, {
-    userId: updated.rows[0].account_id,
-    kind: "intel_review_error",
-    title: "审核异常",
-    body: reviewFailureText(error),
-    href: "/mine/submissions",
-    data: reviewFailureParts(error),
-  });
-  return true;
+  return Boolean(updated.rows.length);
 }
 
 const reviewQueue = [];
@@ -300,7 +275,7 @@ let reviewPumping = false;
 // 终审失败的重试上限。次数落库（detail.reviewAttempts），进程重启不清零。
 // 没有上限时，一条永远失败的 pending 会按退避一直重跑评审员；到期时间封顶 15 分钟，
 // 等于每 15 分钟白跑一次，直到进程重启。
-const REVIEW_MAX_ATTEMPTS = 10;
+export const REVIEW_MAX_ATTEMPTS = 10;
 // 启动恢复每页取多少条，避免一次把全部待审行读进内存。
 const REVIEW_RESUME_BATCH = 200;
 
@@ -327,22 +302,6 @@ async function countReviewFailure(pool, id) {
   return Number(rows[0]?.attempts) || 0;
 }
 
-// 停止重试时得让作者知道：记录停在 pending，从提交页面上看不出「不会再试了」。
-async function notifyReviewGaveUp(pool, id, attempts) {
-  const { rows } = await pool.query(`SELECT account_id, detail FROM intel WHERE id = $1`, [id]);
-  const intel = rows[0];
-  if (!intel) return;
-  const code = intel.detail && typeof intel.detail.reviewError === "string" ? intel.detail.reviewError : "";
-  await recordNotification(pool, {
-    userId: intel.account_id,
-    kind: "intel_review_error",
-    title: "审核已停止重试",
-    body: `数据评审员连续 ${attempts} 次没有完成审核${code ? `（${code}）` : ""}。这条记录仍然可见，请联系管理员处理。`,
-    href: "/mine/submissions",
-    data: { code, attempts, gaveUp: true },
-  });
-}
-
 async function scheduleReviewRetry(pool, id) {
   let attempts = 0;
   try {
@@ -354,10 +313,8 @@ async function scheduleReviewRetry(pool, id) {
   }
   // 已经不是 pending（被终审、被删掉），不必再排。
   if (!attempts) return;
-  if (attempts >= REVIEW_MAX_ATTEMPTS) {
-    await notifyReviewGaveUp(pool, id, attempts);
-    return;
-  }
+  // 到上限就不再排：记录停在 pending，detail.reviewAttempts 已经记满，管理端「日志」栏看得到。
+  if (attempts >= REVIEW_MAX_ATTEMPTS) return;
   const timer = setTimeout(() => enqueueReview(pool, id), reviewDelay(attempts));
   timer.unref();
 }
@@ -1137,7 +1094,7 @@ async function unlockRequest(client, intel, userId) {
   );
 }
 
-async function chargeDownload(client, intel, userId) {
+export async function chargeDownload(client, intel, userId) {
   // 同一个钱包（账号与它名下的 Agent）不付自己的钱。
   if (await sameWallet(client, intel.account_id, userId)) return;
   // 判重也按钱包：同一份附件的钱只该付一次，不管这一行是账号还是它的 Agent 记的。

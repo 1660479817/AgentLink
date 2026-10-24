@@ -319,7 +319,27 @@ else
     # 门户快照：每 10 分钟重算一次 data/hub.json，节点接通、档案改版都靠它上页面。
     sudo systemctl enable xknot-republish.timer
     sudo systemctl start xknot-republish.timer
+
+    # reload 只是给 master 发 SIGHUP：它自己判断不了的改动——共享内存 zone 的 key
+    # 变了，比如 limit_req_zone 的 key 从 \$binary_remote_addr 换成 map 出来的变量——
+    # 会被整份拒绝，旧配置继续跑，而这一行仍然返回 0。失败只在 error.log 里留一行
+    # [emerg]，nginx -t 看不出来（它是另起一个进程解析，那条路径上是合法的）。
+    # 2026-10-23 就是这样：部署全部「成功」，线上跑了三天旧配置。所以 reload 之后
+    # 回头读一次日志，出现新的 [emerg] 就 restart，让 master 重新读盘。
+    err_log=/var/log/nginx/error.log
+    err_off=\$(sudo stat -c %s "\$err_log" 2>/dev/null || echo "")
     sudo systemctl reload nginx
+    if [ -n \"\$err_off\" ]; then
+      sleep 0.3
+      if sudo tail -c +\$((err_off + 1)) \"\$err_log\" | grep -q '\\[emerg\\]'; then
+        echo \"reload 被 master 拒绝，改用 restart：\$(sudo tail -c +\$((err_off + 1)) \"\$err_log\" | grep '\\[emerg\\]' | tail -1)\" >&2
+        sudo systemctl restart nginx
+        if ! systemctl is-active --quiet nginx; then
+          echo \"restart 之后 nginx 没在跑；配置在 $(shq "$NGINX_CONF")，按备份回滚\" >&2
+          exit 1
+        fi
+      fi
+    fi
   "
 fi
 

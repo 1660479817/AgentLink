@@ -74,16 +74,13 @@ mkdir -p "$OUT"
 
 VERSION="$("$NODE" -p "require('$APP/backend/package.json').version")"
 COMMIT="$(git -C "$APP" rev-parse --short HEAD 2>/dev/null || echo nogit)"
-DIRTY=""
 if [[ "$COMMIT" != "nogit" ]] && [[ -n "$(git -C "$APP" status --porcelain --untracked-files=no 2>/dev/null | head -c 1)" ]]; then
-  DIRTY=1
-  echo "警告：工作区有未提交的改动，发布包会标记为 dirty。"
+  fail "工作区有未提交的改动。先提交或 git stash 再构建：发布包要干净，版本才能对照。"
 fi
 PLATFORM="$("$NODE" "$SCRIPT_DIR/artifact.mjs" platform)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-BUILD_DISPLAY="$VERSION${DIRTY:+（dirty）}"
 
-echo "==> knot $BUILD_DISPLAY  $COMMIT  $PLATFORM"
+echo "==> knot $VERSION  $COMMIT  $PLATFORM"
 
 if [[ "$RUN_INSTALL" == 1 ]]; then
   echo "==> npm ci"
@@ -105,15 +102,7 @@ npm --prefix "$APP" run build:web
 
 # 发布目录名和 BUILD.json 里的 release 字段一致；deploy-site.sh 用它决定装到哪。
 STAGE_ROOT="$OUT/.staging"
-RELEASE_NAME="$("$NODE" -e '
-  const info = { version: process.argv[1], commit: process.argv[2], dirty: process.argv[3] === "1" };
-  // 脏构建必须带时间戳：release 名决定 releases/ 下的目录名与 deployed.json 里的
-  // previous。同一份 version+commit 连续打几次包时，不带戳会让两次发布用同一个目录，
-  // 新包覆盖旧内容，回滚目标指向自己——回滚变成空操作。
-  const stamp = process.argv[4] || "";
-  const dirty = info.dirty ? `-dirty${stamp ? `-${stamp}` : ""}` : "";
-  process.stdout.write(`knot-${info.version}-${info.commit}${dirty}`);
-' "$VERSION" "$COMMIT" "${DIRTY:+1}" "$(date -u +%Y%m%d-%H%M%S)")"
+RELEASE_NAME="knot-$VERSION-$COMMIT"
 STAGE="$STAGE_ROOT/$RELEASE_NAME"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
@@ -153,11 +142,10 @@ fi
 
 "$NODE" -e '
   const fs = require("node:fs");
-  const [file, version, commit, dirty, platform, builtAt, modules, release] = process.argv.slice(1);
+  const [file, version, commit, platform, builtAt, modules, release] = process.argv.slice(1);
   const info = {
     version,
     commit,
-    dirty: dirty === "1",
     platform,
     builtAt,
     node: process.version,
@@ -167,7 +155,7 @@ fi
     release,
   };
   fs.writeFileSync(file, `${JSON.stringify(info, null, 2)}\n`);
-' "$STAGE/BUILD.json" "$VERSION" "$COMMIT" "${DIRTY:+1}" "$PLATFORM" "$BUILT_AT" "$MODULES" "$RELEASE_NAME"
+' "$STAGE/BUILD.json" "$VERSION" "$COMMIT" "$PLATFORM" "$BUILT_AT" "$MODULES" "$RELEASE_NAME"
 
 chmod +x "$STAGE/ops/scripts/"*.sh 2>/dev/null || true
 

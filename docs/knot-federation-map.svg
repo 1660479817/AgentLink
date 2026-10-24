@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1004" height="539" viewBox="0 0 1004 539" role="img" aria-label="XKnot 联邦：各实例汇入 xknot.si 中枢，实例之间另有直连">
-  <title>XKnot 联邦</title>
-  <desc>一张等距圆柱投影的世界地图。每个实例朝上方的 xknot.si 中枢连一条橙色虚线，表示按清单登记、由中枢探测与展示；实例之间的绿色实线表示协议直连、可就地交换数据。点的颜色表示探测到的状态。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1004" height="539" viewBox="0 0 1004 539" role="img" aria-label="XKnot 联邦：各实例汇入 xknot.si 中枢，实例之间另有直连 · XKnot Federation: instances feed into the xknot.si hub, with direct peer links between instances">
+  <title>XKnot 联邦 · XKnot Federation</title>
+  <desc>一张等距圆柱投影的世界地图。每个实例朝上方的 xknot.si 中枢连一条橙色虚线，表示按清单登记、由中枢探测与展示；实例之间的绿色实线表示协议直连、可就地交换数据。点的颜色表示探测到的状态。 · An equirectangular world map. Each instance connects to the xknot.si hub above with an orange dashed line, meaning it is listed, probed and shown by the hub; green solid lines between instances mean protocol-level direct exchange. Dot color shows the probed status.</desc>
   <defs>
     <pattern id="land-dots" width="11" height="11" patternUnits="userSpaceOnUse">
       <circle cx="2.4" cy="2.4" r="1.55" fill="rgba(16,61,122,0.15)"/>
@@ -21,42 +21,45 @@
     </g>
 
     <g class="peers">
-      <path d="M784.5 164.8L767.5 130.0" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M784.5 164.8L760.0 130.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M784.5 164.8L756.8 220.5" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M756.8 220.5L767.5 249.0" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M756.8 220.5L685.3 170.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M756.8 220.5L767.5 130.0" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M760.0 130.8L685.3 170.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M760.0 130.8L848.0 128.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M756.8 220.5L760.0 130.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M520.0 58.7L474.7 80.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M520.0 58.7L466.7 138.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M520.0 58.7L624.0 160.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M520.0 58.7L685.3 170.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M784.5 164.8L848.0 128.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M848.0 128.1L767.5 130.0" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M756.8 220.5L848.0 128.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M474.7 80.1L466.7 138.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M474.7 80.1L624.0 160.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M474.7 80.1L685.3 170.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M624.0 160.1L685.3 170.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M756.8 220.5L624.0 160.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M624.0 160.1L767.5 130.0" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M767.5 130.0L685.3 170.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M760.0 130.8L624.0 160.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M784.5 164.8L767.5 249.0" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M767.5 249.0L685.3 170.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M784.5 164.8L685.3 170.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M474.7 80.1L226.7 64.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M226.7 64.1L466.7 138.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M226.7 64.1L309.3 314.9" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M520.0 58.7L226.7 64.1" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M309.3 314.9L466.7 138.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M226.7 64.1L309.3 314.9" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M474.7 80.1L309.3 314.9" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
+      <path d="M767.5 249.0L944.0 333.6" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M756.8 220.5L944.0 333.6" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M848.0 128.1L944.0 333.6" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
       <path d="M784.5 164.8L944.0 333.6" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M624.0 160.1L466.7 138.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
-      <path d="M685.3 170.8L466.7 138.8" fill="none" stroke="rgba(31,168,110,0.4)" stroke-width="1"/>
     </g>
 
     <g class="links">
     <path d="M784.5 164.8Q654.7 38.8 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
     <path d="M756.8 220.5Q648.1 70.3 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
+    <path d="M760.0 130.8Q638.0 25.0 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
     <path d="M520.0 58.7Q508.7 20.2 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
     <path d="M848.0 128.1Q681.7 12.2 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
     <path d="M474.7 80.1Q465.9 35.3 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
     <path d="M624.0 160.1Q573.9 57.4 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
-    <path d="M767.5 130.0Q641.7 23.6 480 -8" fill="none" stroke="#b42318" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="10 5"/>
+    <path d="M767.5 249.0Q657.2 83.1 480 -8" fill="none" stroke="#b42318" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="10 5"/>
     <path d="M685.3 170.8Q605.9 54.7 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
     <path d="M226.7 64.1Q344.0 -4.9 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
     <path d="M309.3 314.9Q352.7 131.3 480 -8" fill="none" stroke="rgba(232,112,28,0.42)" stroke-opacity="1" stroke-width="1" stroke-dasharray="10 5"/>
@@ -75,6 +78,11 @@
       <circle cx="756.8" cy="220.5" r="7.5" fill="#64748b" fill-opacity="0.14"/>
       <circle cx="756.8" cy="220.5" r="3.6" fill="#64748b"/>
       <text x="746.8" y="224" text-anchor="end" class="pin-name" data-halo="1">cpswang</text>
+    </g>
+    <g class="pin">
+      <circle cx="760" cy="130.8" r="7.5" fill="#64748b" fill-opacity="0.14"/>
+      <circle cx="760" cy="130.8" r="3.6" fill="#64748b"/>
+      <text x="750" y="134.3" text-anchor="end" class="pin-name" data-halo="1">Mark_Zhou</text>
     </g>
     <g class="pin">
       <circle cx="520" cy="58.7" r="7.5" fill="#0b7a54" fill-opacity="0.14"/>
@@ -97,9 +105,9 @@
       <text x="634" y="163.6" text-anchor="start" class="pin-name" data-halo="1">海湾</text>
     </g>
     <g class="pin">
-      <circle cx="767.5" cy="130" r="7.5" fill="#b42318" fill-opacity="0.14"/>
-      <circle cx="767.5" cy="130" r="3.6" fill="#b42318"/>
-      <text x="757.5" y="133.5" text-anchor="end" class="pin-name" data-halo="1">西贡</text>
+      <circle cx="767.5" cy="249" r="7.5" fill="#b42318" fill-opacity="0.14"/>
+      <circle cx="767.5" cy="249" r="3.6" fill="#b42318"/>
+      <text x="757.5" y="252.5" text-anchor="end" class="pin-name" data-halo="1">西贡</text>
     </g>
     <g class="pin">
       <circle cx="685.3" cy="170.8" r="7.5" fill="#0b7a54" fill-opacity="0.14"/>
@@ -138,13 +146,14 @@
 
   <g transform="translate(22 505)">
     <g class="legend">
-      <circle cx="4" cy="-4" r="3.6" fill="#0b7a54"/><text x="14" y="0" class="legend-text">在线 6</text>
-      <circle cx="84" cy="-4" r="3.6" fill="#a16207"/><text x="94" y="0" class="legend-text">延迟 2</text>
-      <circle cx="164" cy="-4" r="3.6" fill="#b42318"/><text x="174" y="0" class="legend-text">不可达 2</text>
-      <line x1="256" y1="-4" x2="282" y2="-4" stroke="rgba(232,112,28,0.42)" stroke-width="1" stroke-dasharray="10 5"/><text x="290" y="0" class="legend-text">登记与探测</text>
-      <line x1="396" y1="-4" x2="422" y2="-4" stroke="rgba(31,168,110,0.4)" stroke-width="1"/><text x="430" y="0" class="legend-text">实例直连</text>
+      <circle cx="4" cy="-4" r="3.6" fill="#0b7a54"/><text x="14" y="0" class="legend-text">在线 Online 6</text>
+      <circle cx="120" cy="-4" r="3.6" fill="#a16207"/><text x="130" y="0" class="legend-text">延迟 Degraded 2</text>
+      <circle cx="240" cy="-4" r="3.6" fill="#b42318"/><text x="250" y="0" class="legend-text">不可达 Down 2</text>
+      <line x1="380" y1="-4" x2="406" y2="-4" stroke="rgba(232,112,28,0.42)" stroke-width="1" stroke-dasharray="10 5"/><text x="414" y="0" class="legend-text">登记与探测 Registry &amp; probe</text>
+      <line x1="590" y1="-4" x2="616" y2="-4" stroke="rgba(31,168,110,0.4)" stroke-width="1"/><text x="624" y="0" class="legend-text">实例直连 Peer link</text>
     </g>
-    <text x="0" y="22" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。12 个实例中，XKnot创世启元、cpswang 为真实实例，其余 10 个来自样例清单。</text>
+    <text x="0" y="14" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。13 个实例中，XKnot创世启元、cpswang、Mark_Zhou 为真实实例，其余 10 个来自样例清单。</text>
+    <text x="0" y="30" class="foot">Note: green peer links are protocol-level direct exchange, not yet enabled (target form). Of 13 instances, XKnot创世启元, cpswang, Mark_Zhou are real; 10 are samples.</text>
   </g>
 
   <style>

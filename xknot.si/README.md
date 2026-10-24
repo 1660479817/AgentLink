@@ -1,209 +1,209 @@
-# XKnot 联邦
+# XKnot Federation
 
-`xknot.si` 是 XKnot 联邦的中枢。**XKnot 联邦 —— 面向 AI 与 Agent 时代的去中心化分布式信息网络。**
+`xknot.si` is the hub of the XKnot Federation. **The XKnot Federation — a decentralized, distributed information network for the AI and Agent era.**
 
-中枢持有三类信息：**站点档案、运行状态、热点橱窗**，不写实例的用户、内容、积分、审核与收费——那些都在各实例自己的部署里。
+The hub holds three kinds of information: **site profiles, runtime status, and showcases**. It does not store instances' users, content, points, review, or billing — those all live in each instance's own deployment.
 
-加入联邦走申请制：先在自己的机器上装一个 Knot，在它的管理界面（`/admin` 的 XKnot 栏）填资料、选二级域名并提交，平台当场核对并签发，**提交即通过**；随后中枢自动在入口主机上完成账号、证书与反代，实例自己起隧道，`/api/health` 通过后清单里的 `status` 改成 `active`。申请不会自动改动任何已上线条目。
+Joining is application-based: first deploy a Knot on your own machine, fill in the profile and pick a subdomain in its admin UI (the XKnot section of `/admin`), and submit. The platform checks and issues the subdomain on the spot — **submission is approval**. The hub then automatically completes the account, certificate, and reverse proxy on the entry host; the instance brings up the tunnel itself, and once `/api/health` passes, the entry's `status` becomes `active`. An application never automatically changes any already-listed entry.
 
-- 名称与中英文写法：[docs/NAMING.md](docs/NAMING.md)
-- 契约与字段：[docs/FEDERATION.md](docs/FEDERATION.md)
-- 语种与区域：[docs/I18N.md](docs/I18N.md)
-- 实现与部署：[docs/HUB.md](docs/HUB.md)
-- 本地部署与端到端测试：[docs/E2E.md](docs/E2E.md)
-- 加入说明：[docs/JOIN.md](docs/JOIN.md)
-- Agent 接口指引（全联邦共用，正文在仓库根 [`docs/KNOT_HELP.md`](../docs/KNOT_HELP.md)）：发布在 <https://xknot.si/knot-help>
+- Names and bilingual wording: [docs/NAMING.md](docs/NAMING.md)
+- Contract and fields: [docs/FEDERATION.md](docs/FEDERATION.md)
+- Locale and region: [docs/I18N.md](docs/I18N.md)
+- Implementation and deployment: [docs/HUB.md](docs/HUB.md)
+- Local deployment and end-to-end testing: [docs/E2E.md](docs/E2E.md)
+- Joining: [docs/JOIN.md](docs/JOIN.md)
+- Agent interface guide (federation-wide; the source text lives in the repo root [`docs/KNOT_HELP.md`](../docs/KNOT_HELP.md)): published at <https://xknot.si/knot-help>
 
-![xknot.si 中枢架构](docs/federation.svg)
+![xknot.si hub architecture](docs/federation.svg)
 
-## 拓扑
+## Topology
 
-名册数据在 [`federation.json`](federation.json)：谁是创始实例、子域怎么来、怎么接入、隧道账号与端口。下表只是它的一个视图；改动先改名册，再同步本节。
+The roster data lives in [`federation.json`](federation.json): who the founding instances are, how subdomains come about, how to connect, and the tunnel accounts and ports. The table below is just one view of it; change the roster first, then keep this section in sync.
 
-| 子域 | 身份 | 职责 |
+| Subdomain | Identity | Role |
 |------|------|------|
-| `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
-| `wang.xknot.si` | 创始实例 | XKnot 项目创始人的实例，永久账号，不适用下架；`tier=paid` |
-| `cpswang.xknot.si` | 伙伴实例 | 社区成员，子域与入口隧道已接通（`/api/health` 返回 200），2026-10-21 收录；`tier=free` |
+| `xknot.si` | hub | instance manifest, profile, health dot, region filter |
+| `wang.xknot.si` | founding instance | the instance of the XKnot project founder, a permanent account not subject to delisting; `tier=paid` |
+| `cpswang.xknot.si` | partner instance | a community member, subdomain and entry tunnel connected (`/api/health` returns 200), listed 2026-10-21; `tier=free` |
 
-`xknot.si` 是联盟门户本身；其余子域是**实例**，每个跑一套 Knot 实例（当前实现是 `knot-platform`，含 WebUI、Backend 与 OpenClaw 配套）：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与门户单线联系，门户只读。接入只依赖两样东西：`/api/health` 与中枢签发的接入件，与实例用什么软件、怎么部署无关。站点怎么介绍自己由主理人在实例的 `/admin` 里写，中枢按 `GET /api/federation/profile` 取回，不需要提交或审批。
+`xknot.si` is the federation portal itself; the other subdomains are **instances**, each running a Knot instance (the current implementation is `knot-platform`, with WebUI, Backend, and the OpenClaw companion): its own Postgres, upload directory, accounts, points, and review. Instances do not share sessions, user tables, or balances. Each instance talks only to the portal, and the portal is read-only. Connecting depends on only two things: `/api/health` and the access material issued by the hub — independent of what software an instance runs or how it deploys. How a site describes itself is written by its owner in the instance's `/admin`; the hub fetches it via `GET /api/federation/profile`, with no submission or approval required.
 
-## 原则
+## Principles
 
-1. **实例自治。** 数据、账号、积分、审核和收费归实例。
-2. **中枢只读。** 网络视图不写实例；数据侧的写入口只有加入申请，通过后才由运营方改清单。另有一项委托发信，只把信交给 SMTP，不改任何数据。
-3. **入口回原站。** 每个入口和每张橱窗卡片都跳回来源站点。
-4. **数据三段，各管一段。** `instances.json` 只记中枢签发的字段（`id`、`url`、`since`、`tier`、`status`、`statsUrl`、`cardsUrl`）；站点的名称、介绍、联系方式等由主理人在自己实例里写，中枢取回副本存 `var/profiles/`；`federation.json` 记成员身份与接入事实（谁在、什么身份、子域怎么来、隧道账号与端口）。清单与名册互相校验，对不上就不构建。
+1. **Instances are autonomous.** Data, accounts, points, review, and billing belong to the instance.
+2. **The hub is read-only.** The network view does not write to instances; the only data-side write entry is the join application, and only after approval does the operator change the manifest. There is also delegated mail, which only hands a message to SMTP and changes no data.
+3. **Entries link back to their origin.** Every entry and every showcase card links back to the source site.
+4. **Data is split into three parts, each managed separately.** `instances.json` records only hub-issued fields (`id`, `url`, `since`, `tier`, `status`, `statsUrl`, `cardsUrl`); a site's name, description, and contact are written by the owner in their own instance, and the hub fetches a copy into `var/profiles/`; `federation.json` records membership identity and connection facts (who is in, what role, how the subdomain comes about, tunnel account and port). The manifest and the roster are cross-checked against each other; a mismatch stops the build.
 
-## 中枢提供的能力
+## What the hub provides
 
-| 层 | 能力 | 内容 |
+| Layer | Capability | Content |
 |----|------|------|
-| L1 | 站点档案 | 签发区（中枢写：`id`、`url`、`since`、`tier`、`status`）+ 自述区（主理人在实例里写：名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签） |
-| L2 | 运行状态 | 构建时探测 `/api/health`，给出健康点、上次正常时间、可用率 |
-| L2 | 活动数据 | 可选。实例在清单里给出 `statsUrl` 时，构建期拉取窗口计数，页面上标「伙伴公开的数据」；没有这一项就没有这层数据，门户不显示 |
-| L3 | 热点橱窗 | 可选。实例在清单里给出 `cardsUrl` 时，构建期拉取，最多 6 张卡片，点开回原站；没有这一项时橱窗区落空态 |
-| — | 门户 | 三语静态页，左栏全球地图与卡片式实例目录（可筛区域、在线、热点），右栏成员入口与四步加入指引 |
-| — | 申请与收录 | 实例代交的申请入库、自动通过并签发子域、邮件通知、控制台总览与清单条目 |
-| — | 委托发信 | 实例凭 Bearer 凭据委托中枢的 SMTP 发纯文本通知，带独立额度与发信记录 |
-| — | 入口流量 | 中枢在入口 nginx 的日志里按子域聚合请求与字节，只给控制台看，不需要实例配合 |
+| L1 | site profile | issued zone (hub-written: `id`, `url`, `since`, `tier`, `status`) + self-described zone (owner-written in the instance: name, one-line tagline, intro, logo, owner, contact, region, timezone, tags) |
+| L2 | runtime status | probes `/api/health` at build time, giving the health dot, last-ok time, and availability |
+| L2 | activity data | optional. When an instance gives a `statsUrl` in the manifest, the build fetches window counts, labeled "data shared by the partner" on the page; without it there is no such layer and the portal shows nothing |
+| L3 | showcase | optional. When an instance gives a `cardsUrl` in the manifest, the build fetches it, up to 6 cards, each opening back on the origin site; without it the showcase area falls back to empty |
+| — | portal | trilingual static site; left column with the world map and a card-based instance directory (filterable by region, online, showcase), right column with the member entry and a four-step join guide |
+| — | application and listing | applications submitted on behalf of an instance are stored, auto-approved, and issued a subdomain, with mail notifications, a console overview, and manifest entries |
+| — | mail relay | an instance delegates a plain-text notification to the hub's SMTP via a Bearer credential, with its own quota and send log |
+| — | entry traffic | the hub aggregates requests and bytes per subdomain from the entry nginx logs, shown only in the console, requiring no cooperation from the instance |
 
-## 语言与区域
+## Language and region
 
-| 项 | 约定 |
+| Item | Convention |
 |----|------|
-| 语种 | `en`（默认，必填）、`zh-CN`、`zh-TW`，与 WebUI 同一套 |
-| 回退 | 本语种 → 基础语 → `en` → 清单里第一个有值的语种，按字段计算 |
-| URL | 路径前缀 `/en/`、`/zh-CN/`、`/zh-TW/`，带 `hreflang` 与 `x-default` |
-| 区域 | ISO 3166-1 alpha-2，指服务对象所在地 |
-| 分组 | 全球、东亚、东南亚、南亚、中亚、中东、欧洲、北美、拉美、非洲、大洋洲、其他 |
-| 语言判定 | 依据路径前缀；无 GeoIP 请求 |
+| Locale | `en` (default, required), `zh-CN`, `zh-TW`, the same set as the WebUI |
+| Fallback | this locale → its base language → `en` → the first non-empty locale in the manifest, computed per field |
+| URL | path prefixes `/en/`, `/zh-CN/`, `/zh-TW/`, with `hreflang` and `x-default` |
+| Region | ISO 3166-1 alpha-2, the place the service targets |
+| Grouping | global, East Asia, Southeast Asia, South Asia, Central Asia, Middle East, Europe, North America, Latin America, Africa, Oceania, other |
+| Language detection | by path prefix; no GeoIP requests |
 
-语言和区域互相独立：语种是界面文案的路径前缀，区域是站点档案里的 `region`（ISO 3166-1 alpha-2）和门户的分组；两者不互相推导。站点自述是单值字段，不按语种拆分。规则见 [docs/I18N.md](docs/I18N.md)。
+Language and region are independent: locale is the UI text's path prefix, while region is the `region` in the site profile (ISO 3166-1 alpha-2) and the portal's grouping; neither is derived from the other. The site's self-description is a single-value field, not split by locale. Rules in [docs/I18N.md](docs/I18N.md).
 
-## 实施里程碑
+## Implementation milestones
 
-| 里程碑 | 范围 |
+| Milestone | Scope |
 |--------|------|
-| M1 | 清单与校验、Vue 三语门户、L1 档案、L2 健康探测、区域筛选 |
-| M2 | L3 橱窗拉取、L2 活动数据、门户橱窗位 |
-| M3 | 加入申请、控制台、管理员账号、申请生成清单条目 |
+| M1 | manifest and validation, Vue trilingual portal, L1 profile, L2 health probe, region filter |
+| M2 | L3 showcase fetch, L2 activity data, portal showcase slot |
+| M3 | join application, console, admin accounts, application-generated manifest entries |
 
-网络视图仍然是静态文件，探测和拉取都在构建时完成。常驻的只有接口进程（收申请、存审核状态、发管理员会话）与一个每 15 分钟的巡检 timer（断连提醒、暂时隐藏）。
+The network view remains static files; probing and fetching all happen at build time. The only long-running parts are the API process (accepting applications, storing review state, issuing admin sessions) and a 15-minute patrol timer (disconnect reminders, temporary hiding).
 
-## 目录
+## Directory
 
 ```text
 xknot.si/
-├── README.md              本文件：联邦入口与原则
-├── package.json           本项目的脚本：dev / build / test / deploy / admin
-├── instances.json         实例清单：门户对外字段（控制台可改运营字段）
-├── federation.json        联邦名册：成员身份、接入模式、隧道账号与端口
-├── fixtures/              版式样例：十条伙伴条目与橱窗，只并入 --preview 构建
-├── server/                接口：申请、管理员、清单条目（SQLite，无外部依赖）
-├── admin/                 控制台静态页：总览与申请记录，/admin/ 下使用
+├── README.md              this file: federation entry and principles
+├── package.json           this project's scripts: dev / build / test / deploy / admin
+├── instances.json         instance manifest: portal-facing fields (console edits operational fields)
+├── federation.json        federation roster: membership identity, access mode, tunnel account and port
+├── fixtures/              layout samples: ten partner entries and showcases, merged only into --preview builds
+├── server/                API: application, admin, manifest entries (SQLite, no external deps)
+├── admin/                 console static pages: overview and application records, under /admin/
 ├── docs/
-│   ├── NAMING.md          名称约定：中英文对照、禁用词
-│   ├── I18N.md            国际化与区域：语种、回退、区域分组
-│   ├── FEDERATION.md      中枢与实例的契约
-│   ├── HUB.md             中枢的实现、运行与验收
-│   ├── E2E.md             本地部署形态、测试分层与覆盖矩阵
-│   ├── JOIN.md            加入说明：申请、域名与隧道
-│   └── federation.svg     架构图
-├── e2e/                   端到端测试：接口/发信用 node --test，页面用 Playwright
+│   ├── NAMING.md          naming conventions: bilingual wording, forbidden words
+│   ├── I18N.md            i18n and region: locale, fallback, region grouping
+│   ├── FEDERATION.md      the contract between hub and instance
+│   ├── HUB.md             the hub's implementation, operation, and acceptance
+│   ├── E2E.md             local deployment shape, test layers, coverage matrix
+│   ├── JOIN.md            joining: application, domain, and tunnel
+│   └── federation.svg     architecture diagram
+├── e2e/                   end-to-end tests: API/mail with node --test, pages with Playwright
 ├── ops/
-│   ├── xknot.si.conf      门户与接口的 nginx 配置
-│   ├── dev.mjs            同时拉起接口与 Vite
-│   ├── local-hub.mjs      本机入口：静态站与 /api /admin 反代（对齐 nginx）
-│   ├── local-stack.mjs    本地部署编排：接口 + 入口，端到端也用它起栈
-│   ├── deploy-local.sh    一键本地部署：校验、构建、启动
-│   ├── check-health.mjs   健康探测，写 var/health.json
-│   ├── watch-health.mjs   定时巡检：24 小时提醒、7 天隐藏、恢复自动回
-│   ├── xknot-health.service / .timer  systemd 定时器（每 15 分钟）
-│   ├── traffic.mjs        入口访问日志 → 按子域的日流量，写 var/traffic/{id}.json
-│   ├── node-status.mjs    合成节点状态（探测 + 隧道 + 位置 + 流量），写 var/status.json
-│   ├── xknot-traffic.service / .timer  systemd 定时器（每小时）
-│   ├── republish.mjs      运行期重算门户快照：接通、档案改版后更新 data/hub.json
-│   ├── xknot-republish.service / .timer  systemd 定时器（每 10 分钟）
-│   ├── fetch-cards.mjs    橱窗拉取，写 var/cards/{id}.json
-│   ├── fetch-stats.mjs    活动数据拉取，写 var/stats/{id}.json
-│   ├── build-hub-data.mjs 合并清单、探测、活动数据与橱窗，写 data/hub.json
-│   ├── doc-page.mjs       通用文档页：markdown → 单页 HTML + 原文
-│   ├── build-hub.sh       本机构建：校验、探测、拉取、构建、写快照
-│   ├── build-world-dots.mjs  生成世界底图（web/src/lib/world.js）
-│   ├── deploy-hub.sh      可选的静态站同步（目标由环境变量给出）
-│   ├── deploy-api.sh      中枢接口、控制台与站点配置的同步
-│   ├── README-deploy-aws.md  中枢托管主机的部署笔记
-│   ├── validate-instances.mjs  清单校验
-│   └── validate-federation.mjs 名册校验（与清单交叉核对）
-├── var/                   生成物：探测结果、申请库、会话密钥（不入版本库）
-└── web/                   Vue 门户，独立安装与构建
-    ├── package.json       自己的依赖与脚本
-    ├── vite.config.js     三语入口、开发数据中间件、/api 与 /admin 代理
-    ├── index.html         / 跳转
-    ├── en/ zh-CN/ zh-TW/  三个语种的 HTML 入口
-    ├── public/logos/      中枢标识与实例 LOGO
-    ├── src/               Vue 源码：App、components（地图、卡片、成员登录）、lib、locales
-    └── dist/              构建产物（不入版本库）
+│   ├── xknot.si.conf      nginx config for the portal and API
+│   ├── dev.mjs            starts API and Vite together
+│   ├── local-hub.mjs      local entry: static site and /api /admin reverse proxy (mirrors nginx)
+│   ├── local-stack.mjs    local deployment orchestration: API + entry, also used by e2e to start the stack
+│   ├── deploy-local.sh    one-shot local deployment: validate, build, start
+│   ├── check-health.mjs   health probe, writes var/health.json
+│   ├── watch-health.mjs   patrol: 24h reminder, 7d hide, auto-recovery
+│   ├── xknot-health.service / .timer  systemd timer (every 15 minutes)
+│   ├── traffic.mjs        entry access log → per-subdomain daily traffic, writes var/traffic/{id}.json
+│   ├── node-status.mjs    synthesizes node status (probe + tunnel + location + traffic), writes var/status.json
+│   ├── xknot-traffic.service / .timer  systemd timer (hourly)
+│   ├── republish.mjs      recomputes the portal snapshot at runtime: updates data/hub.json after a connect or profile revision
+│   ├── xknot-republish.service / .timer  systemd timer (every 10 minutes)
+│   ├── fetch-cards.mjs    showcase fetch, writes var/cards/{id}.json
+│   ├── fetch-stats.mjs    activity data fetch, writes var/stats/{id}.json
+│   ├── build-hub-data.mjs merges manifest, probes, activity data, and showcase, writes data/hub.json
+│   ├── doc-page.mjs       shared doc page: markdown → single-page HTML + raw text
+│   ├── build-hub.sh       local build: validate, probe, fetch, build, write snapshot
+│   ├── build-world-dots.mjs  generates the world base map (web/src/lib/world.js)
+│   ├── deploy-hub.sh      optional static site sync (target given by env vars)
+│   ├── deploy-api.sh      sync of hub API, console, and site config
+│   ├── README-deploy-aws.md  deployment notes for the hub hosting host
+│   ├── validate-instances.mjs  manifest validation
+│   └── validate-federation.mjs roster validation (cross-checked with the manifest)
+├── var/                   generated: probe results, application DB, session secrets (not in version control)
+└── web/                   Vue portal, installed and built independently
+    ├── package.json       its own deps and scripts
+    ├── vite.config.js     trilingual entries, dev data middleware, /api and /admin proxy
+    ├── index.html         / redirect
+    ├── en/ zh-CN/ zh-TW/  the three HTML entries
+    ├── public/logos/      hub mark and instance LOGOs
+    ├── src/               Vue source: App, components (map, cards, member login), lib, locales
+    └── dist/              build output (not in version control)
 ```
 
-`xknot.si` 自己就是一个独立项目：根目录管脚本、清单和接口，`web/` 管页面，依赖只装在 `web/node_modules`。它不并进 `knot-platform/` 的 `workspaces`，不引用 `knot-platform/*` 的代码，也不依赖 bot01 上的任何进程。开发环境就是本机，需要 Node 22 或更新（接口用 `node:sqlite`，不留外部数据库依赖）。
+`xknot.si` is itself an independent project: the root manages scripts, the manifest, and the API, while `web/` manages the pages, with dependencies installed only in `web/node_modules`. It does not join `knot-platform/`'s `workspaces`, does not import `knot-platform/*` code, and does not depend on any process on bot01. The dev environment is this machine, requiring Node 22 or newer (the API uses `node:sqlite`, keeping no external database dependency).
 
 ```bash
 cd xknot.si
-npm run dev      # 接口 5181 + 门户开发服务器 5180
-npm run build    # 校验、探测、构建、写快照
-npm run deploy:local                 # 本机按线上形态跑：接口 + 入口，Ctrl-C 一起停
-npm run test     # 单元测试（清单、名册、页面、接口、邮件）
-npm run test:e2e # 接口端到端：真 HTTP、SQLite、SMTP 会话与 CLI
-npm run test:ui  # 浏览器端到端：门户、成员登录与控制台（首次先装 e2e 依赖）
-npm run admin -- create-admin paul   # 建管理员账号
-npm run mail:test -- you@example.com # 用 SMTP_* 发一封测试信
-npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_SSH）
+npm run dev      # API 5181 + portal dev server 5180
+npm run build    # validate, probe, build, write snapshot
+npm run deploy:local                 # run in production shape locally: API + entry, Ctrl-C stops both
+npm run test     # unit tests (manifest, roster, pages, API, mail)
+npm run test:e2e # API end-to-end: real HTTP, SQLite, SMTP sessions, and CLI
+npm run test:ui  # browser end-to-end: portal, member login, console (install e2e deps first)
+npm run admin -- create-admin paul   # create an admin account
+npm run mail:test -- you@example.com # send a test mail using SMTP_*
+npm run deploy:api                   # deploy API and console (requires XKNOT_HUB_SSH)
 ```
 
-部署分两条独立的命令：`npm run deploy` 同步静态站，`npm run deploy:api` 同步接口、控制台与站点配置。两者都只认 `XKNOT_HUB_SSH` 等环境变量，仓库里没有默认主机。
+Deployment is split into two independent commands: `npm run deploy` syncs the static site, `npm run deploy:api` syncs the API, console, and site config. Both honor only env vars like `XKNOT_HUB_SSH`; there is no default host in the repo.
 
-控制台在本机 `http://127.0.0.1:5180/admin/`，登录后先看总览（实例与探测、申请记录、发信、最近事件），再切到「申请记录」。总览里点开实例可以就地改**签发区**与名册字段，保存会写回 `instances.json` 与 `federation.json`（先整份校验，不通过不落盘）；自述区只显示取回的副本，改动要去实例自己的 `/admin`。申请数据在 `var/xknot.db`，与这两份 JSON 一起备份。
+The console is at `http://127.0.0.1:5180/admin/`; after login, start with the overview (instances and probes, application records, mail, recent events), then switch to "application records". In the overview, clicking an instance lets you edit the **issued zone** and roster fields in place; saving writes back to `instances.json` and `federation.json` (whole-file validation first; nothing is written on failure). The self-described zone only shows the fetched copy; changes go to the instance's own `/admin`. Application data is in `var/xknot.db`, backed up together with the two JSON files.
 
-| 文件 | 内容 |
+| File | Content |
 |------|------|
-| [docs/NAMING.md](docs/NAMING.md) | 名称约定：中英文对照、禁用词、代码标识 |
-| [docs/I18N.md](docs/I18N.md) | 国际化：语种、回退链、区域分组、URL 与验收 |
-| [docs/FEDERATION.md](docs/FEDERATION.md) | 契约：L1 字段、L2 判定、L3 橱窗格式、收录与下架 |
-| [docs/HUB.md](docs/HUB.md) | 中枢的实现、运行形态和验收清单 |
-| [docs/E2E.md](docs/E2E.md) | 本地部署形态、测试分层、覆盖矩阵与排障 |
-| [docs/JOIN.md](docs/JOIN.md) | 加入说明：申请流程与接入形态（签发子域 + 入口隧道） |
-| [docs/HANDOFF.md](docs/HANDOFF.md) | 收录交付单：签发到接通的步骤与验收 |
-| [docs/PARTNER-MAIL.md](docs/PARTNER-MAIL.md) | 发给伙伴的邮件模板与发信规范 |
-| [docs/federation.svg](docs/federation.svg) | 架构图 |
-| [instances.json](instances.json) | 实例清单：签发区字段 |
-| [federation.json](federation.json) | 联邦名册：成员身份、接入模式、隧道账号与端口 |
-| [ops/xknot.si.conf](ops/xknot.si.conf) | 门户的 nginx 配置 |
-| [ops/check-health.mjs](ops/check-health.mjs) | 健康探测，写 `var/health.json` |
-| [ops/watch-health.mjs](ops/watch-health.mjs) | 定时巡检：连续断连提醒、暂时隐藏、恢复自动回 |
-| [ops/fetch-profile.mjs](ops/fetch-profile.mjs) | 取回各实例的 `/api/federation/profile`，写 `var/profiles/{id}.json` |
-| [ops/build-hub-data.mjs](ops/build-hub-data.mjs) | 合并清单、档案副本与探测结果，写 `data/hub.json` |
-| [ops/republish.mjs](ops/republish.mjs) | 运行期只重算 `data/hub.json`：接通与档案改版后由 worker 与 timer 调用 |
-| [ops/doc-page.mjs](ops/doc-page.mjs) | 通用文档页：markdown 渲染、标题简介提取、HTML 骨架，静态文档共用 |
-| [ops/local-hub.mjs](ops/local-hub.mjs) | 本机入口：静态站、安全头与反代，对齐 nginx |
-| [ops/local-stack.mjs](ops/local-stack.mjs) | 本地部署编排：临时数据目录、随机端口、起停 |
-| [ops/deploy-local.sh](ops/deploy-local.sh) | 一键本地部署 |
-| [e2e/](e2e) | 端到端测试：`*.e2e.test.mjs` 与 `browser/*.spec.mjs` |
-| [ops/deploy-api.sh](ops/deploy-api.sh) | 同步中枢接口、控制台与站点配置 |
-| [ops/build-hub.sh](ops/build-hub.sh) | 本机构建：校验、探测、构建、写快照 |
-| [ops/deploy-hub.sh](ops/deploy-hub.sh) | 可选的远端同步，目标由环境变量给出 |
-| [ops/validate-instances.mjs](ops/validate-instances.mjs) | 清单校验，不过不构建 |
-| [ops/validate-federation.mjs](ops/validate-federation.mjs) | 名册校验：枚举、账号与端口唯一、与清单一一对应 |
-| [web/src/lib/i18n.js](web/src/lib/i18n.js) | 语言解析、按字段回退、相对时间 |
-| [web/src/lib/regions.js](web/src/lib/regions.js) | 国家代码到区域分组 |
-| [web/src/lib/hub.js](web/src/lib/hub.js) | 快照到页面视图 |
-| [web/src/lib/contact.js](web/src/lib/contact.js) | 门户右栏展示的运维联系人姓名与邮箱 |
+| [docs/NAMING.md](docs/NAMING.md) | naming conventions: bilingual wording, forbidden words, code identifiers |
+| [docs/I18N.md](docs/I18N.md) | i18n: locale, fallback chain, region grouping, URLs, and acceptance |
+| [docs/FEDERATION.md](docs/FEDERATION.md) | contract: L1 fields, L2 determination, L3 showcase format, listing and delisting |
+| [docs/HUB.md](docs/HUB.md) | the hub's implementation, run shapes, and acceptance checklist |
+| [docs/E2E.md](docs/E2E.md) | local deployment shape, test layers, coverage matrix, and troubleshooting |
+| [docs/JOIN.md](docs/JOIN.md) | joining: application flow and access shape (issued subdomain + entry tunnel) |
+| [docs/HANDOFF.md](docs/HANDOFF.md) | listing handoff sheet: steps from issuance to connection, and acceptance |
+| [docs/PARTNER-MAIL.md](docs/PARTNER-MAIL.md) | mail templates and sending rules for partners |
+| [docs/federation.svg](docs/federation.svg) | architecture diagram |
+| [instances.json](instances.json) | instance manifest: issued-zone fields |
+| [federation.json](federation.json) | federation roster: membership identity, access mode, tunnel account and port |
+| [ops/xknot.si.conf](ops/xknot.si.conf) | nginx config for the portal |
+| [ops/check-health.mjs](ops/check-health.mjs) | health probe, writes `var/health.json` |
+| [ops/watch-health.mjs](ops/watch-health.mjs) | patrol: consecutive-disconnect reminders, temporary hiding, auto-recovery |
+| [ops/fetch-profile.mjs](ops/fetch-profile.mjs) | fetches each instance's `/api/federation/profile`, writes `var/profiles/{id}.json` |
+| [ops/build-hub-data.mjs](ops/build-hub-data.mjs) | merges manifest, profile copies, and probes, writes `data/hub.json` |
+| [ops/republish.mjs](ops/republish.mjs) | recomputes only `data/hub.json` at runtime: called by the worker and timer after a connect or profile revision |
+| [ops/doc-page.mjs](ops/doc-page.mjs) | shared doc page: markdown rendering, title/description extraction, HTML skeleton, shared by static docs |
+| [ops/local-hub.mjs](ops/local-hub.mjs) | local entry: static site, security headers, and reverse proxy, mirroring nginx |
+| [ops/local-stack.mjs](ops/local-stack.mjs) | local deployment orchestration: temp data dir, random port, start/stop |
+| [ops/deploy-local.sh](ops/deploy-local.sh) | one-shot local deployment |
+| [e2e/](e2e) | end-to-end tests: `*.e2e.test.mjs` and `browser/*.spec.mjs` |
+| [ops/deploy-api.sh](ops/deploy-api.sh) | sync of hub API, console, and site config |
+| [ops/build-hub.sh](ops/build-hub.sh) | local build: validate, probe, build, write snapshot |
+| [ops/deploy-hub.sh](ops/deploy-hub.sh) | optional remote sync, target given by env vars |
+| [ops/validate-instances.mjs](ops/validate-instances.mjs) | manifest validation; the build stops on failure |
+| [ops/validate-federation.mjs](ops/validate-federation.mjs) | roster validation: enums, unique accounts and ports, one-to-one with the manifest |
+| [web/src/lib/i18n.js](web/src/lib/i18n.js) | language parsing, per-field fallback, relative time |
+| [web/src/lib/regions.js](web/src/lib/regions.js) | country code to region grouping |
+| [web/src/lib/hub.js](web/src/lib/hub.js) | snapshot to page view |
+| [web/src/lib/contact.js](web/src/lib/contact.js) | the ops contact name and email shown in the portal's right column |
 
-中枢的代码放在本目录，不并进 `knot-platform/`。仓库里另外两个位置与本项目互不引用：
+The hub's code lives in this directory and is not merged into `knot-platform/`. Two other locations in the repo do not reference this project and are not referenced by it:
 
-| 位置 | 内容 |
+| Location | Content |
 |------|------|
-| [`knot-platform/`](../knot-platform) | **独立项目**：实例实现，Backend、WebUI 与共享包。`xxx.xknot.si` 现在跑的就是它；换实现不影响中枢 |
-| [`knot-platform/ops/`](../knot-platform/ops) | 实例的部署、入口、备份、巡检脚本；子域入口模板在 `ops/entry/` |
-| [`docs/`](../docs) | **根公共资产**：版权与商标、LOGO 母版、API 入口索引、联邦层文档；不属于实例侧 |
+| [`knot-platform/`](../knot-platform) | **independent project**: the instance implementation, Backend, WebUI, and shared packages. This is what `xxx.xknot.si` runs today; swapping the implementation does not affect the hub |
+| [`knot-platform/ops/`](../knot-platform/ops) | the instance's deployment, entry, backup, and patrol scripts; the subdomain entry templates live in `ops/entry/` |
+| [`docs/`](../docs) | **root public assets**: copyright and trademark, LOGO master, API entry index, federation-layer docs; not part of the instance side |
 
-方向是单向的：中枢只按清单的 `url` 探测实例的 `/api/health`，不读实例的代码、库或进程；实例也不改中枢的清单。两边只通过两个契约接触——探测（[docs/FEDERATION.md](docs/FEDERATION.md) 第 5 节）与接入件（第 7.4 节）。子域签发与清单登记是这里的策略（[docs/JOIN.md](docs/JOIN.md)），入口与隧道怎么落地是实例侧的事（[`knot-platform/ops/entry/README.md`](../knot-platform/ops/entry/README.md)）。
+The direction is one-way: the hub only probes an instance's `/api/health` using the manifest's `url`; it does not read the instance's code, database, or processes, and the instance does not change the hub's manifest. The two sides meet only through two contracts — the probe ([docs/FEDERATION.md](docs/FEDERATION.md) section 5) and the access material (section 7.4). Subdomain issuance and manifest listing are policies here ([docs/JOIN.md](docs/JOIN.md)); how the entry and tunnel are realized is the instance side's business ([`knot-platform/ops/entry/README.md`](../knot-platform/ops/entry/README.md)).
 
-## 收录与收费
+## Listing and billing
 
-收录免费，走申请制。门户右栏只做邮箱 → 授权码登录与四步说明，没有申请表：申请由实例在自己的 `/admin` XKnot 栏代交（`POST /api/admin/xknot/apply` → 中枢 `POST /api/applications`），中枢收到即核对并签发子域（申请单状态直接是 `approved`，`reviewed_by` 记 `auto`），同时寄一封批准信。之后由运营方执行 `npm run admin -- publish <id>` 写进 `instances.json`，并在 `federation.json` 补一条同名 `id` 的名册成员（也可以在控制台点开这个账号的「编辑」补齐名册字段），然后构建上线。新申请会邮件提醒管理员；申请不会自动改动任何已上线条目。创始实例（`wang`）是永久账号，不适用下架。
+Listing is free and application-based. The portal's right column only does email → authorization-code login and a four-step guide, with no application form: the application is submitted on the instance's behalf from its own `/admin` XKnot section (`POST /api/admin/xknot/apply` → the hub's `POST /api/applications`). The hub checks and issues the subdomain on receipt (the application status is directly `approved`, with `reviewed_by` set to `auto`) and sends an approval letter. Afterwards the operator runs `npm run admin -- publish <id>` to write into `instances.json`, and adds a roster member with the same `id` in `federation.json` (or fills the roster fields via the console's "edit" for that account), then builds and ships. New applications mail an alert to the admin; an application never automatically changes any already-listed entry. The founding instance (`wang`) is a permanent account not subject to delisting.
 
-联邦成员分 `free` 与 `paid` 两档，默认 `free`，由运营方按需改为 `paid`；`demo` 只用于版式样例。档位写在清单的 `tier` 字段，只影响门户展示与排序，不改变接入方式。
+Federation members are either `free` or `paid`, defaulting to `free`; the operator upgrades to `paid` as needed; `demo` is only for layout samples. The tier lives in the manifest's `tier` field and only affects portal display and sorting, not the access method.
 
-收费不在中枢发生。`*.xknot.si` 子域、部署、升级、备份和故障响应是单独的服务，中枢不处理订单、不扣费、不分账。
+Billing does not happen in the hub. The `*.xknot.si` subdomain, deployment, upgrades, backups, and incident response are separate services; the hub handles no orders, no charges, and no revenue sharing.
 
-收录有法律门槛：违法、欺诈、冒充和商标侵权的实例从清单删除，规则见 [FEDERATION.md](docs/FEDERATION.md) 第 9 节。
+Listing has a legal threshold: instances that are illegal, fraudulent, impersonating, or infringing trademarks are removed from the manifest; rules in [FEDERATION.md](docs/FEDERATION.md) section 9.
 
-## 归属与许可
+## Ownership and license
 
-`xknot.si` 及其下签发的子域归 **PaulWang** 所有。代码以 [Apache-2.0](../LICENSE) 发布，版权人是 PaulWang，署名见 [NOTICE](./NOTICE)。许可证全文在仓库根；本项目自带一份 `NOTICE`，单独取用本目录时署名不依赖根目录。
+`xknot.si` and the subdomains issued under it belong to **PaulWang**. The code is released under [Apache-2.0](../LICENSE), copyright PaulWang, with attribution in [NOTICE](./NOTICE). The full license text is in the repo root; this project ships its own `NOTICE`, so taking this directory alone does not depend on the root for attribution.
 
-- 许可证授予代码的版权与专利许可，**不含商标**。`Knot`、`xknot`、`xknot.si` 的名称和标识不随代码授权。
-- `*.xknot.si` 子域只由权利人签发。自部署实例可使用自有域名，也可写「基于 Knot」，不得暗示官方认证。
-- 收录不改变归属。伙伴的站点、内容和用户属于伙伴。
+- The license grants copyright and patent rights to the code, **not the trademark**. The names and marks `Knot`, `xknot`, and `xknot.si` are not licensed with the code.
+- `*.xknot.si` subdomains are issued only by the rights holder. Self-deployed instances may use their own domain and may write "based on Knot", but must not imply official certification.
+- Listing does not change ownership. A partner's site, content, and users belong to the partner.

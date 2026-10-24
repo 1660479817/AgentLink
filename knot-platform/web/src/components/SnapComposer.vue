@@ -34,11 +34,11 @@ function openCamera() {
   imageInput.value?.click();
 }
 
-function pickPhoto(event) {
+async function pickPhoto(event) {
   const files = Array.from(event.target.files || []);
   event.target.value = "";
   if (!files.length) return;
-  addImages([files[0]]);
+  await addImages([files[0]]);
   photoIndex.value = Math.max(0, images.value.length - 1);
 }
 

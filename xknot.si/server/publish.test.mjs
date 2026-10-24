@@ -77,6 +77,31 @@ test("publish: writes both files and both pass the build validators", async () =
   });
 });
 
+test("publish: a failed manifest write rolls the roster back", async () => {
+  const { manifestFile, rosterFile } = await fixture();
+  const rosterBefore = await readFile(rosterFile, "utf8");
+
+  // 名册写入成功、清单写入抛错：名册必须回滚到原值，不留下「名册有、清单无」。
+  const write = async (file, value) => {
+    if (file === manifestFile) throw new Error("disk full");
+    await writeFile(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  };
+
+  await assert.rejects(
+    publishInstance({
+      application: APP,
+      tunnelAccount: "knot-tunnel-cpswang",
+      tunnelPort: 18090,
+      manifestFile,
+      rosterFile,
+      write,
+    }),
+    /disk full/
+  );
+
+  assert.equal(await readFile(rosterFile, "utf8"), rosterBefore, "名册回滚到改动前");
+});
+
 test("publish: running it again changes nothing", async () => {
   const { manifestFile, rosterFile } = await fixture();
   const args = {

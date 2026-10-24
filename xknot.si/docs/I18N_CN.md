@@ -1,0 +1,246 @@
+# XKnot 联邦 · 国际化与区域
+
+适用于中枢门户、实例清单和对外文档。
+
+术语见 [NAMING.md](NAMING.md)，字段契约见 [FEDERATION.md](FEDERATION.md) 第 4 节。
+
+## 1. 语言
+
+### 1.1 语种
+
+中枢与 `knot-platform/web` 共用同一套语种标记：
+
+| 标记 | 名称（本地写法） | 中文名 | 角色 |
+|------|------------------|--------|------|
+| `en` | English | 英文 | 默认语种，必填 |
+| `zh-CN` | 简体中文 | 简体中文 | 简体 |
+| `zh-TW` | 繁體中文 | 繁体中文 | 繁体 |
+
+语言标记用 BCP 47。写 `en`，不写 `en-US`；写 `zh-CN` 或 `zh-TW`，不写 `zh`。
+
+新增语种时只加 locale 文件与清单键，代码里的键名不变。
+
+### 1.2 默认与回退
+
+任何取文案的地方都按同一条链：
+
+```
+请求的语言 → 该语言的基础语（zh-CN → zh）→ en → 清单里第一个有值的语种
+```
+
+- 这条链只管**界面文案**（`web/src/locales/*.json`）。站点自述的 `name`、`tagline`、`intro` 从 2.x 起是单值字符串，没有多语种映射，也就不参与回退：主理人写什么，门户显示什么。
+- 缺的语种不渲染空行、不显示键名、不显示占位符。
+- 不使用机器翻译兜底。
+
+### 1.3 URL
+
+静态托管，用路径前缀，每个语种一份页面：
+
+| 路径 | 内容 |
+|------|------|
+| `/` | 302 到 `/en/` |
+| `/en/` | 英文 |
+| `/zh-CN/` | 简体中文 |
+| `/zh-TW/` | 繁体中文 |
+
+- 每个页面带 `hreflang`，`x-default` 指向 `/en/`。
+- 语言切换用普通链接，不用 `?lang=`，不改写历史。
+- 切换语言后回到同一页面。
+- 页面语言由路径决定，不使用 GeoIP，不读取访客 IP。
+
+实例的 WebUI 是另一回事：默认语种由主理人在 `profile.json` 的 `locale` 里定（为第一目标群体），访客自己选过的语种优先；同样不读浏览器语言，也不用 GeoIP。见 `knot-platform/docs/PROFILE.md`。
+
+### 1.4 页面规则
+
+- `document.documentElement.lang` 跟随当前语种：`en`、`zh-CN`、`zh-TW`。
+- 数字、日期、相对时间走 `Intl.DateTimeFormat`、`Intl.RelativeTimeFormat`、`Intl.NumberFormat`，传入当前语种。
+- 相对时间：「3 小时前」「3 小時前」「3 hours ago」。超过 7 天改用绝对日期。
+- 时间按实例自己的 `timezone` 渲染，不按浏览器时区。
+- 版式按英文长度预留：同一句话英文比中文长约 30% 到 50%。按钮、标签、状态点不使用固定宽度。
+- 中文与西文之间留空格：「每 15 分钟」「6 张卡片」。
+
+### 1.5 不翻译的标识
+
+代码标识原样呈现：`id`、`url`、`statsUrl`、`cardsUrl`、`tier`、`status`、`up`/`degraded`/`down`/`unknown`、`formatVersion`。
+
+状态值在 JSON 里永远是英文小写，界面显示本地文案。翻译只发生在渲染层。
+
+品牌名不译：`XKnot`、`Knot`、`XKnot 联邦`、`xknot.si`。`Agent` 不译成「智能体」。
+
+### 1.6 橱窗卡片的语言
+
+L3 卡片是伙伴的内容，中枢不翻译，卡片自带语言标记：
+
+- 每张卡片带 `lang`，BCP 47，如 `zh-CN`、`en`、`ja`。
+- 页面给卡片加 `lang` 属性，浏览器据此选择字体、断词和朗读语音。
+- 卡片不参与界面语种切换：界面是英文、卡片是日文，按原样展示。
+- 中枢只本地化卡片外壳：标题栏、「更新于」、「在原站打开」。
+
+## 2. 区域
+
+### 2.1 一个字段：`region`
+
+| 概念 | 字段 | 含义 |
+|------|------|------|
+| 区域 | `region` | 站点所在的国家或地区（机器在哪） |
+| 时区 | `timezone` | 实例的钟按哪里走 |
+
+`region` 是单个 ISO 3166-1 alpha-2 代码，大写；`GLOBAL` 表示不落在某一个国家。两者互不推导，都显式写。
+
+`region` 指**机器所在地**，不是主理人的国籍，也不是服务对象。服务哪些人由站点自己的内容说明，中枢不记录。
+
+### 2.2 区域值
+
+`region` 是 ISO 3166-1 alpha-2 代码，大写。`GLOBAL` 单独使用，不与其他代码混写。
+
+不使用 `Asia`、`APAC` 这类自造值。
+
+### 2.3 区域分组
+
+页面按分组浏览。分组由中枢从 `region` 推出，不写进清单：
+
+| 分组 | 中文 | English | 包含 |
+|------|------|---------|------|
+| `global` | 全球 | Global | `region` 为 `GLOBAL` |
+| `east-asia` | 东亚 | East Asia | CN, HK, MO, TW, JP, KR, MN |
+| `southeast-asia` | 东南亚 | Southeast Asia | SG, MY, TH, VN, ID, PH, BN, KH, LA, MM, TL |
+| `south-asia` | 南亚 | South Asia | IN, PK, BD, LK, NP, BT, MV, AF |
+| `central-asia` | 中亚 | Central Asia | KZ, UZ, KG, TJ, TM |
+| `middle-east` | 中东 | Middle East | AE, SA, QA, KW, BH, OM, IL, TR, IR, IQ, JO, LB, EG, YE, SY, PS |
+| `europe` | 欧洲 | Europe | 欧盟成员国 + GB, CH, NO, IS, RS, UA, MD, BA, MK, AL, ME, AD, MC, SM, LI, VA |
+| `north-america` | 北美 | North America | US, CA, MX, GL, BM |
+| `latin-america` | 拉美 | Latin America | 中南美与加勒比 |
+| `africa` | 非洲 | Africa | 非洲各国 |
+| `oceania` | 大洋洲 | Oceania | AU, NZ, PG, FJ 等 |
+| `other` | 其他 | Other | 未归入以上分组的代码 |
+
+规则：
+
+- 一个国家只归一个分组。
+- 分组顺序固定为上表顺序，不按实例数量排。
+- 校验拦截未知国家代码；`other` 只作运行时兜底。
+
+### 2.4 显示位置以出口 IP 为准
+
+自述区的 `region` 是入网那天写的，机器换了城市它不会跟着变。门户显示的区域取中枢观测到的出口 IP（隧道对端，GeoIP 到国家码），观测不到时才回落到 `region`。守则与数据来源见 `HUB.md` 第 4 节，这里只强调两点：
+
+- 观测值只到国家，不给城市、不给 IP。
+- 钟点：自述写了 `timezone` 就按它走；没写时才用这个国家码推一个主时区，并在卡片上标出来。推出来的钟宁可粗，也不假装精确。
+
+### 2.5 区域与法律
+
+`.si` 在欧盟境内。区域字段描述实例现在所在的国家或地区：
+
+- 实例所在司法辖区的隐私与数据主体请求由该实例处理，中枢不代答。
+- 中枢不按区域存储访客信息，区域分组不构成访客画像。
+- 区域标签只描述位置，不构成法律意见，也不代表中枢为该实例背书。
+
+## 3. 档案写法
+
+界面文案按语言分键；站点自述不分键——主理人用哪种语言写，就是门户上的那一种。站点的档案分两处：中枢写签发区（`instances.json`），主理人在实例 `/admin` 里写自述区（`sites/<站点>/profile.json`）。下面这份是自述区：
+
+```json
+{
+  "name": "Knot 旅行 新加坡",
+  "tagline": "东南亚的慢旅行。",
+  "intro": "收录旅途笔记、行程和当地指南。",
+  "owner": "Jane Tan",
+  "contact": "ops@example.test",
+  "region": "SG",
+  "timezone": "Asia/Singapore",
+  "tags": ["旅行", "行程"]
+}
+```
+
+签发区的同一条（`instances.json`）：
+
+```json
+{
+  "id": "travel-sg",
+  "url": "https://travel.xknot.si",
+  "since": "2026-10-19",
+  "tier": "free",
+  "status": "active",
+  "statsUrl": null,
+  "cardsUrl": "https://travel.xknot.si/.well-known/knot-cards.json"
+}
+```
+
+硬规则：
+
+| 规则 | 说明 |
+|------|------|
+| `name` 必填 | 唯一的必填项，没有名字门户只能显示 id |
+| 不写空字符串 | 清掉一项就整键省略，不写 `""` |
+| `tags` 自由文本 | 不翻译、不合并同义词；最多 9 个，每个 16 字 |
+| `region` 大写 | ISO 3166-1 alpha-2，或 `GLOBAL` |
+| `timezone` 用 IANA | `Asia/Singapore`，不写 `GMT+8` |
+| `url` 不按语言分地址 | 门户按路径前缀分语种，实例地址只有一个 |
+
+校验脚本：自述区用 `xknot.si/ops/profile-schema.mjs`（写档案时由实例侧同规则拦下），签发区用 `xknot.si/ops/validate-instances.mjs`。清单不过就不发布。
+
+## 4. 校验
+
+发布前执行：
+
+```bash
+node xknot.si/ops/validate-instances.mjs          # 签发区
+node --test xknot.si/ops/*.test.mjs               # 含自述区的规则测试
+```
+
+签发区检查项：
+
+- `id` 唯一、格式合法
+- 不含自述区字段（`name`、`intro` 等）
+- URL 是 https
+- `since` 是 ISO 日期
+- `status`、`tier` 在枚举内
+
+自述区检查项（`ops/profile-schema.mjs`，取回与写入时都过一遍）。自述区是 v2 的十项扁平字段，没有多语种文案映射：主理人填什么，门户就显示什么；唯一的语种字段是 `locale`。
+
+| 字段 | 规则 |
+|------|------|
+| `name` | 必填，≤40 字符；缺了整份档案不算数 |
+| `locale` | 只能是 `zh-CN` / `zh-TW` / `en`，缺省按 `zh-CN`；实例用它定首访语种，门户不据此翻译 |
+| `tagline` | ≤60 字符 |
+| `intro` | ≤800 字符 |
+| `logo` | https 地址，≤300 字符 |
+| `owner` | ≤40 字符 |
+| `contact` | ≤120 字符 |
+| `region` | 两位国家代码或 `GLOBAL`；认不出的归「其他」 |
+| `timezone` | 能被 `Intl` 识别 |
+| `tags` | 字符串数组，每项 ≤16 字符、最多 9 个，忽略大小写去重 |
+
+多写一个不在这十项里的键就记一条问题；除 `name` 外的字段有问题只丢那一项，其余照收。
+
+L3 卡片另有一层校验：`lang` 是合法 BCP 47，`url` 指回该实例自己的主机。
+
+任一项失败时退出码非零，用于提交前和部署前。
+
+## 5. 验收
+
+- [ ] `/en/`、`/zh-CN/`、`/zh-TW/` 三个页面内容一致，只有语言不同
+- [ ] 每个页面有正确的 `lang`、`hreflang`，`x-default` 指向 `/en/`
+- [ ] `/` 返回 302 到 `/en/`
+- [ ] 字段在三种语言都缺时不渲染该块，页面没有空行和键名
+- [ ] 英文文案不溢出按钮和状态点
+- [ ] 相对时间按当前语种渲染；超过 7 天转绝对日期
+- [ ] 时间按实例的 `timezone` 显示
+- [ ] 区域筛选按分组工作，未知国家落「其他」
+- [ ] 页面不发起 GeoIP 请求，不按访客 IP 决定语言
+- [ ] `validate-instances.mjs` 对写错的清单返回非零
+
+## 6. 新增语种
+
+新增 `ja`、`ko`、`es` 时按以下顺序执行：
+
+1. 在 `web/src/locales/` 增加该语种的文件，键与 `en.json` 完全一致。
+2. 在 `web/src/lib/i18n.js` 的 `LOCALES` 中加入标记，并在 `web/src/lib/catalogs.js` 注册。
+3. 在 `web/` 下新建 `<locale>/index.html`，写入该语种的 `lang`、`hreflang`、`canonical`，并加入 `vite.config.js` 的 `input`。
+4. 两个项目各有一份语种白名单，一起加：本项目的 `ops/profile-schema.mjs`（`LOCALES`，校验档案的 `locale`）与 `knot-platform` 的 `packages/knot-locale`（实例侧同一份）。
+5. 各主理人在自己实例的 `/admin` 把 `locale` 改成新语种即可——自述区是一份扁平文本，不按语种分份，没有要补的第二语言。
+6. 在 `web/` 内构建，运行校验与门户测试。
+
+阿拉伯语等 RTL 语言需要单独适配版式，按独立里程碑处理。
+
+繁体按台湾用词维护。香港用词差异在出现明确需求时再拆分为独立语种。
