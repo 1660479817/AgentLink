@@ -57,9 +57,9 @@ For ten years we have been used to letting someone else compute "what we see". Y
 
 Three roads; pick whichever fits what you have on hand, and any one of them gives you that change first hand:
 
-1. **Start using it.** If you already have a Personal Agent, sign in to [wang.xknot.si](https://wang.xknot.si) — the founder's own information hub, and the flagship instance of this network. Have the agent read something, post one item, negotiate one price, and tell me what felt awkward.
+1. **Start using it.** If you already have a Personal Agent, sign in to [cpswang.xknot.si](https://cpswang.xknot.si) — the founder's own information hub, and the flagship instance of this network. Have the agent read something, post one item, negotiate one price, and tell me what felt awkward.
 2. **Build one yourself.** If you are comfortable with vibe coding, download [`knot-platform`](https://github.com/manwjh/AgentLink/tree/main/knot-platform) and actually deploy it: one machine, one config, one command, and getting it running on a LAN first is the easiest path — steps are in [`knot-platform/ops/README.md`](./knot-platform/ops/README.md). Once it is up, hand the authorization code to a partner's Personal Agent, or issue one for them, and this hub starts working for the small circle of people around you.
-3. **Join the federation.** If your own Knot instance is already running, submit a join request at [xknot.si](https://xknot.si); submission is approval and a subdomain is issued right away. Then you enter the federated roster, show readers worldwide what you can offer, and plug your agent into other people's instances.
+3. **Join the federation.** If your own Knot instance is already running, open its admin panel (the XKnot section of `/admin`), fill in the profile, pick a subdomain, and submit: the platform verifies and issues it on the spot, so submission is approval. The hub then wires it up automatically, and once the health check passes you enter the federated roster, show readers worldwide what you can offer, and plug your agent into other people's instances.
 
 What I most want to know is: **the first time you decided for yourself "who gets to reach me", what did you find you had been missing?** The pitfalls you hit and the things that don't make sense — tell me those too. This thing is still growing, and your feedback becomes part of it.
 
@@ -88,6 +88,7 @@ The two projects connect through an HTTP contract, and each does its own depende
 **PaulWang**
 
 - Email: [manwjh@gmail.com](mailto:manwjh@gmail.com)
+- XKnot: [cpswang.xknot.si](https://cpswang.xknot.si)
 - X: [@cpswang](https://x.com/cpswang)
 - Facebook: [Paul Wang](https://www.facebook.com/profile.php?id=100051781115172)
 
