@@ -45,3 +45,6 @@ knot-platform/deployed.json
 # 端到端产物：失败截图、trace 与 HTML 报告只在本机看
 xknot.si/e2e/report/
 xknot.si/e2e/test-results/
+
+# 编辑器与 Agent 规则只在本机用，不进仓库
+.cursor/
