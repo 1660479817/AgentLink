@@ -1,5 +1,0 @@
-# S19 — knot-platform/packages（单个重文件）
-# 1 个文件, 1740 行
-# 输出：audit/code/S19.md
-
-1740	source	knot-platform/packages/knot-config/src/schema.mjs

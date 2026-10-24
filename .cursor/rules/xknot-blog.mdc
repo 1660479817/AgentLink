@@ -5,13 +5,12 @@ alwaysApply: true
 
 # 开发日志
 
-`blog/` 是 **XKnot 开发日志**的本地稿目录。只在开发机上写，发布到 `wang.xknot.si`（主站），也可以发到某个伙伴实例（如 `cpswang.xknot.si`）；**不进 GitHub，也不进任何发布包**（`.gitignore` 已忽略整个 `blog/`）。不要把它挪进 `knot-platform/` 或 `xknot.si/`，也不要给根目录加构建配置。
+`blog/` 是 **XKnot 开发日志**的本地稿目录。只在开发机上写，只发布到 `wang.xknot.si`；**不进 GitHub，也不进任何发布包**（`.gitignore` 已忽略整个 `blog/`）。不要把它挪进 `knot-platform/` 或 `xknot.si/`，也不要给根目录加构建配置。
 
 ## 文件与命名
 
 - 系列稿：`blog/NN-YYYY-MM-DD.md`，`NN` 是两位序号（`01`、`02`…），一篇只对应一段时间的工作。同一天有两篇时加时段后缀，如 `02-2026-10-10-am.md`、`03-2026-10-10-pm.md`。
 - 单篇稿：`blog/YYYY-MM-DD-HHMM.md`，用于不接系列的随笔。
-- 发布稿（为另一个站点写的开站/迁移公告）：`blog/YYYY-MM-DD-<英文短名>.md`，如 `2026-10-22-cpswang-launch.md`、`2026-10-22-wang-launch-zh.md`。不进系列，标题按站点自己那一篇的实际时间写。
 - 标题是 `# XKnot开发日志-YYYY-MM-DD-HH:MM`，时间取发布时刻，不取写作时刻。系列标题里 `XKnot开发日志` 不空格。
 - 标题下一行是摘要，用引用块，一句话说清这篇写了什么：
 
@@ -33,7 +32,7 @@ alwaysApply: true
 - 路径、文件名、接口、变量用反引号；命令用代码块。
 - 涉及数字（轮次、提交数、天数）与仓库对得上再写；对不上就写「大约」或删掉。
 - 不写密钥、Cookie、私钥路径、云凭据和内网地址；这些只说「配置」「凭据」。
-- 一篇不超过约 2.5 KB，四到六节；短的可以只写两三节，不拿水分凑长度。结尾收在下一篇的引子上，不复述全文。
+- 一篇约 1.8–2.3 KB，四到六节。结尾收在下一篇的引子上，不复述全文。
 
 ## 结尾与下一篇
 
@@ -49,7 +48,7 @@ alwaysApply: true
 
 ## 配图
 
-- 图片放 `blog/assets/`，按 `aN-主题.png|jpg` 命名（如 `a8-concepts.png`），同一篇的图共用一个 `aN` 前缀。单篇稿可用日期命名。由 SVG 渲出的图，源文件留在同目录同名 `.svg`（如 `a10-share-network.svg`），`.png` 是上传件。
+- 图片放 `blog/assets/`，按 `aN-主题.png|jpg` 命名（如 `a8-concepts.png`），同一篇的图共用一个 `aN` 前缀。单篇稿可用日期命名。
 - 正文里**不嵌本地图片路径**。图先上传到站点，正文用平台返回的图片地址；本地只留原图备查。
 - 由仓库 `.svg` 生成的图按作图规则先出 SVG，再用 headless Chrome 渲成 PNG 上传，不留 Mermaid。
 - 文末元数据写清发布结果，缺哪项就不写哪项：
@@ -75,13 +74,13 @@ alwaysApply: true
 
 ## 发布
 
-发布账号是每个站点各自的**内部 Agent 账号**，主站是 **PaulWang-AI**（`manwjh@gmail.com`）。它在站上 `accounts.side` 为 `internal`（由父账号触发器写入，不是 `users` 表），记录里 `actor` 为 `personal_agent`，不是 `manwjh@gmail.com` 那个外部真人管理员——两者邮箱相同、显示名不同，别发成后者。二十余篇都发在主站；`cpswang.xknot.si` 上那篇用的是该站新签发的另一个 Internal Personal Agent，账号名同样是 PaulWang-AI、凭据不同。换站点就换该站的 Agent 凭据，不要拿 A 站的授权码去 B 站发。
+发布账号固定为 **PaulWang-AI**（`manwjh@gmail.com`），是 `wang.xknot.si` 上写开发日志的那个人。它是站上的**内部 Agent 账号**（`users.side` 为 `internal`，记录里 `actor` 为 `personal_agent`），不是 `manwjh@gmail.com` 那个外部真人管理员——两者邮箱相同、显示名不同，别发成后者。已发出的十六篇都用它；要换账号，先改这里和 `blog/_index.md` 的「发布」一节，再发。
 
-发帖走 Agent 接口 `POST /api/agent/intel`，`Authorization: Bearer <授权码>`，JSON 里带 `email`。授权码在**该站点所在实例**的 `sites/<站点>/agents/<账号>.local.env` 里（`KNOT_AGENT_TOKEN`），读一次用完就走，不写进任何文件、也不贴进对话。不要用网页会话代发：会话属于真人管理员，发出来作者就不对了。
+发帖走 Agent 接口 `POST /api/agent/intel`，`Authorization: Bearer <授权码>`，JSON 里带 `email`。授权码在实例主机的 `sites/<站点>/agents/PaulWang-AI.local.env` 里（`KNOT_AGENT_TOKEN`），读一次用完就走，不写进任何文件、也不贴进对话。不要用网页会话代发：会话属于真人管理员，发出来作者就不对了。
 
 1. 先在 `blog/` 落定本地稿，标题时间改成实际发布时刻。
 2. 图片上传后拿到地址与上传 id。
-3. 以该站的发布账号在其站点发帖，正文即为本地稿去掉文末元数据后的内容。
+3. 以 PaulWang-AI 在 `wang.xknot.si` 发帖，正文即为本地稿去掉文末元数据后的内容。
 4. 发完把帖子 id、链接、上传 id 回填到文末，再更新 `_index.md`。
 
 不要为了发布去改 `knot-platform` 的代码或配置；发布只是用站点已有能力发一条记录。

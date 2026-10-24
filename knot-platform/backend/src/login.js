@@ -46,72 +46,55 @@ export function hashLoginKey(key) {
 
 // 登录码只有 6 位，一共 10^6 个取值，有效期 10 分钟。不限制试错次数的话，
 // 知道邮箱的人可以在一个有效期内把空格基本走完——这不是猜测，是枚举。
+// 所以按邮箱记失败次数，超过阈值就锁一段时间；成功一次就清零。
 //
-// 计数落库（`login_failures`），按两个维度同时记：
-//   (email, 客户端地址)  同一个地址对同一个邮箱的试错，5 次
-//   (email, '')          这个邮箱被所有地址试错的总量，10 次
-// 只用其中一个都绕得开：只按地址记，换 IP 就清零；只按邮箱记，看不出是谁在试。
-// 任一维度到阈值就锁 15 分钟。
-//
-// 落库的代价是每次登录失败多一条写；换来的是重启不清零、多进程共享同一份计数。
-// 锁触发时同时把该邮箱还没用的登录码作废：锁只挡入口，旧码本身还有效，留着就是
-// 一条绕过锁的路。
+// 为什么不落库：backend/migrations 只有一份基线，加表要整库重建（见 handoff.js）。
+// 代价是重启清空计数。这是刻意的取舍：能重启实例的人已经有更高权限，
+// 而把这张表塞进基线会让每台机器都得走一次结构变更。
+// 单进程内计数在多副本部署下会各算各的；当前部署是单 Backend，先按这个前提。
 export const LOGIN_MAX_FAILURES = 10;
-export const LOGIN_IP_MAX_FAILURES = 5;
 export const LOGIN_LOCK_MS = 15 * 60 * 1000;
-const LOCK_SECONDS = Math.round(LOGIN_LOCK_MS / 1000);
+const MAX_GUARDED_EMAILS = 10_000;
 
-// 「这个邮箱 + 这个地址」和「这个邮箱」是两行，ip = '' 的那行是后者。
-// 拿不到客户端地址时（$2 = ''）按这个邮箱所有行里最晚的那个截止时刻算——宁可多挡。
-const LOCK_SQL = `SELECT max(locked_until) AS until FROM login_failures
-                   WHERE email = $1 AND ($2 = '' OR ip = $2 OR ip = '') AND locked_until > now()`;
+// email -> { count, until }。until 是锁定截止时刻，0 表示没锁。
+const guard = new Map();
 
-// 一次失败一条：到阈值就把 attempts 归零、写下截止时刻，这样锁过期后从头算。
-const NOTE_SQL = `INSERT INTO login_failures (email, ip, attempts, updated_at)
-  VALUES ($1, $2, 1, now())
-  ON CONFLICT (email, ip) DO UPDATE
-     SET attempts = CASE WHEN login_failures.attempts + 1 >= $3 THEN 0
-                         ELSE login_failures.attempts + 1 END,
-         locked_until = CASE WHEN login_failures.attempts + 1 >= $3
-                             THEN now() + make_interval(secs => $4)
-                             ELSE login_failures.locked_until END,
-         updated_at = now()
-  RETURNING locked_until`;
-
-const CLEAR_SQL = `DELETE FROM login_failures WHERE email = $1`;
-// 只挑还没用过的：已经登录过的那把码留着 used_at，是它自己的历史。
-const INVALIDATE_SQL = `UPDATE login_keys SET used_at = now() WHERE email = $1 AND used_at IS NULL`;
-
-export async function loginLockRemaining(pool, email, ip = "") {
-  const result = await pool.query(LOCK_SQL, [String(email || ""), String(ip || "")]);
-  const until = result.rows[0]?.until;
-  if (!until) return 0;
-  return Math.max(0, new Date(until).getTime() - Date.now());
+function lockedUntil(email, now) {
+  const entry = guard.get(email);
+  if (!entry) return 0;
+  if (!entry.until) return 0;
+  if (entry.until > now) return entry.until;
+  // 锁过期：整个条目作废，失败次数一起清掉，不带着旧账继续算。
+  guard.delete(email);
+  return 0;
 }
 
-export async function clearLoginFailures(pool, email) {
-  await pool.query(CLEAR_SQL, [String(email || "")]);
+export function loginLockRemaining(email, now = Date.now()) {
+  const until = lockedUntil(String(email || ""), now);
+  return until ? until - now : 0;
 }
 
-// 记一次「码不对」。返回锁定截止时刻（没锁就是 null）。
-// 两个维度各记一条；地址为空（拿不到 req.ip）时只有邮箱那一行。
-export async function noteLoginFailure(pool, email, ip = "") {
-  const address = String(ip || "").trim();
-  const scopes = address ? ["", address] : [""];
-  let locked = null;
-  for (const scope of scopes) {
-    const threshold = scope ? LOGIN_IP_MAX_FAILURES : LOGIN_MAX_FAILURES;
-    const result = await pool.query(NOTE_SQL, [String(email), scope, threshold, LOCK_SECONDS]);
-    const until = result.rows[0]?.locked_until;
-    if (until && (!locked || new Date(until) > new Date(locked))) locked = until;
+export function clearLoginFailures(email) {
+  guard.delete(String(email || ""));
+}
+
+export function resetLoginGuard() {
+  guard.clear();
+}
+
+function noteLoginFailure(email, now) {
+  const until = lockedUntil(email, now);
+  if (until) return; // 已经在锁里，不重复累计
+  const entry = guard.get(email) || { count: 0, until: 0 };
+  entry.count += 1;
+  if (entry.count >= LOGIN_MAX_FAILURES) {
+    entry.count = 0;
+    entry.until = now + LOGIN_LOCK_MS;
   }
-  if (locked) {
-    await pool.query(INVALIDATE_SQL, [String(email)]);
-    console.warn(
-      `[login] ${email} 试错次数到上限，锁定到 ${new Date(locked).toISOString()}，未使用的登录码已作废`
-    );
-  }
-  return locked;
+  // 重新插入，把最近失败过的邮箱挪到表尾，淘汰时先丢最久没动的。
+  guard.delete(email);
+  guard.set(email, entry);
+  while (guard.size > MAX_GUARDED_EMAILS) guard.delete(guard.keys().next().value);
 }
 
 function smtpSecureEnabled() {
@@ -291,10 +274,10 @@ async function redeemOn(db, email, key) {
   }
 }
 
-export async function redeemLoginKey(pool, email, key, { ip = "" } = {}) {
+export async function redeemLoginKey(pool, email, key) {
   // 锁定期内不连库直接拒。失败计数记在事务外：下面的 ROLLBACK 会把事务里
   // 写下的任何东西一起丢掉，计数落在里面等于永远不涨。
-  const remaining = await loginLockRemaining(pool, email, ip);
+  const remaining = loginLockRemaining(email);
   if (remaining > 0) {
     return { error: "too_many", status: 429, retryAfter: Math.ceil(remaining / 1000) };
   }
@@ -306,8 +289,8 @@ export async function redeemLoginKey(pool, email, key, { ip = "" } = {}) {
     else await client.query("COMMIT");
     // 只把「码不对」算作一次失败：冻结注册、邀请码无效这些不是猜码，
     // 记进去会让正常用户在自己的注册窗口里被锁死。
-    if (result && result.userId) await clearLoginFailures(pool, email);
-    else if (result && result.error === "bad_key") await noteLoginFailure(pool, email, ip);
+    if (result && result.userId) clearLoginFailures(email);
+    else if (result && result.error === "bad_key") noteLoginFailure(email, Date.now());
     return result;
   } catch (error) {
     try {

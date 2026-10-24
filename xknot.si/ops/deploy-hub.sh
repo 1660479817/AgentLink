@@ -38,9 +38,8 @@ TARGET="${XKNOT_TARGET:-/var/www/xknot}"
 KEY="${XKNOT_SSH_KEY:-$HOME/.ssh/id_rsa}"
 
 # rsync 的 -e 是一个字符串，由 rsync 自己再拆一次；路径里有空格时裸拼会把参数拆错。
-# 单引号里放不下单引号，遇到就把那个引号拆成 '\''：先闭合、转义一个引号、再打开。
 shq() {
-  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+  printf "'%s'" "${1//\'/\'\\\'\'}"
 }
 
 # 下面的同步带 --delete，删除范围就是 TARGET 这个目录。TARGET 少写一级（例如写成站点

@@ -16,10 +16,7 @@ const closedMode = computed(() => session.site.registrationMode === "closed");
 
 function showError(err) {
   const key = `error.${err.code}`;
-  // 429 带 Retry-After 时说明「不是这次操作错了，是现在不能做」：把还要等多久
-  // 直接说出来。只说「稍等」会让人继续点，而某些文案（如密钥那一条）还会
-  // 指错方向——被锁时该等，不该再要一把新密钥。
-  const message = err.retryAfter > 0 ? t("error.waitSeconds", { seconds: err.retryAfter }) : t(key);
+  const message = t(key);
   error.value = message === key ? t("error.request_failed") : message;
 }
 

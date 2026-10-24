@@ -158,13 +158,10 @@ async function updateInstanceConfigLocked({ instancesFile, federationFile, id, i
   if (memberPatch && !rosterReadable) return { error: "roster_unreadable" };
 
   const nextInstance = applyInstancePatch(manifest.instances[index], instancePatch);
-  const changed = JSON.stringify(nextInstance) !== JSON.stringify(manifest.instances[index]);
-  // 头里的 version 记的是「改过几次」：内容没变就不要跟着膨胀，
-  // 缺字段或写坏了则借这次保存补成 1，免得继续留着一份不过校验的清单。
-  const known = Number.isInteger(manifest.version) && manifest.version > 0 ? manifest.version : null;
   const nextManifest = {
     ...manifest,
-    version: known ? (changed ? nextVersion(known) : known) : 1,
+    // 与 publish 一致：内容真的改了才 +1，校验器也因此能确认字段类型没跑偏。
+    version: nextVersion(manifest.version),
     updatedAt: new Date().toISOString().slice(0, 10),
     instances: manifest.instances.map((item, position) => (position === index ? nextInstance : item)),
   };

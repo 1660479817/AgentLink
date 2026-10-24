@@ -38,7 +38,6 @@ import { acceptAvatar, ensureUploadDir, newStorageName } from "../uploads.js";
 import { tmpDir } from "../storage.js";
 import { storeUploadedFile } from "../uploadStore.js";
 import { sendUploadError } from "./uploadError.js";
-import { attachmentMaxBytes, audioMaxBytes, imageMaxBytes } from "../uploadLimits.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_WAIT_MS = 60_000;
@@ -178,7 +177,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
   const imageUpload = multer({
     storage,
-    limits: { fileSize: imageMaxBytes(), files: 1, fields: 10, parts: 20 },
+    limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 10, parts: 20 },
     fileFilter: (_req, file, cb) => {
       if (String(file.mimetype || "").startsWith("image/")) cb(null, true);
       else cb(new Error("bad_mime"));
@@ -186,7 +185,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
   const fileUpload = multer({
     storage,
-    limits: { fileSize: attachmentMaxBytes(), files: 1, fields: 10, parts: 20 },
+    limits: { fileSize: 50 * 1024 * 1024, files: 1, fields: 10, parts: 20 },
     fileFilter: (_req, file, cb) => {
       if (isVideoUpload(file)) cb(new Error("bad_video"));
       else if (isAudioUpload(file)) cb(new Error("bad_audio"));
@@ -196,7 +195,7 @@ export function agentRouter({ pool, uploadDir }) {
   });
   const audioUpload = multer({
     storage,
-    limits: { fileSize: audioMaxBytes(), files: 1, fields: 10, parts: 20 },
+    limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 10, parts: 20 },
     fileFilter: (_req, file, cb) => {
       if (isAudioUpload(file)) cb(null, true);
       else cb(new Error("bad_audio"));
@@ -282,7 +281,7 @@ export function agentRouter({ pool, uploadDir }) {
     const key = normalizeLoginKey(req.body?.key);
     if (!email) return res.status(400).json({ error: "bad_email" });
     if (!key) return res.status(400).json({ error: "bad_key" });
-    const redeemed = await redeemLoginKey(pool, email, key, { ip: req.ip });
+    const redeemed = await redeemLoginKey(pool, email, key);
     if (redeemed.error) return res.status(redeemed.status).json({ error: redeemed.error });
     const person = await pool.query(
       `SELECT id, role, display_name, points_balance FROM accounts WHERE id = $1`,

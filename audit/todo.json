@@ -2501,7 +2501,7 @@
     "where": "`knot-platform/backend/src/admin.test.js:1568`",
     "dimension": "契约漂移",
     "problem": "`admin_actions.action` 的文档枚举漏了 `retire`",
-    "evidence": "测试断言 `action.params[0] === \"retire\"`，`admin.js:451` 确实写 retire，本机库 CHECK 也含 retire（`audit/db/cpswang-live-schema.sql:147`），但 `docs/KNOT_DATABASE.md:217` 只列 remove/warn/patrol/grant/mute/unmute/entitle/level/issue/config/invite 共 11 种",
+    "evidence": "测试断言 `action.params[0] === \"retire\"`，`admin.js:451` 确实写 retire，本机库 CHECK 也含 retire，但 `docs/KNOT_DATABASE.md:217` 只列 remove/warn/patrol/grant/mute/unmute/entitle/level/issue/config/invite 共 11 种",
     "fix": "文档补 `retire`（停用 Agent，含外部 Agent）",
     "confidence": "高",
     "slice": "S13",

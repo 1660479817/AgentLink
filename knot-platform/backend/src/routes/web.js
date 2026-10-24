@@ -35,13 +35,16 @@ import { readableBlobPath, tmpDir } from "../storage.js";
 import { isInlineRenderableMime, storeUploadedFile } from "../uploadStore.js";
 import { sendUploadError } from "./uploadError.js";
 import { brandView } from "../profile.js";
-import { attachmentMaxBytes, audioMaxBytes, imageMaxBytes } from "../uploadLimits.js";
+
+const MiB = 1024 * 1024;
+
+// 上传上限。默认值写在 ops/config/schema.mjs，环境变量只做覆盖。
+function envBytes(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
 const USER_COLUMNS = `id, role, email, display_name, avatar_upload_id, level, entitlements, points_balance, muted_until, locale, bio`;
-
-// 按账号列的历史最多回这么多行。这些响应随账号的历史线性增长，而且每次都要
-// 把整批附件一起查出来（S12-04）；最近的 200 条够页面用，也不再有无限大的响应。
-const ACCOUNT_LIST_LIMIT = 200;
 
 function presentUser(row) {
   const entitlements = row.entitlements && typeof row.entitlements === "object" ? row.entitlements : {};
@@ -81,7 +84,6 @@ function httpError(res, error) {
   if (code === "nothing_to_download") return res.status(400).json({ error: "nothing_to_download" });
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
-  if (code === "packet_too_large") return res.status(413).json({ error: "packet_too_large" });
   if (code === "bad_state") return res.status(409).json({ error: "bad_state" });
   if (code === "too_many") return res.status(429).json({ error: "too_many" });
   if (code === "muted") return res.status(403).json({ error: "muted" });
@@ -139,7 +141,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   });
   const upload = multer({
     storage,
-    limits: { fileSize: imageMaxBytes(), files: 1, fields: 10, parts: 20 },
+    limits: { fileSize: envBytes("KNOT_UPLOAD_IMAGE_MAX_BYTES", 8 * MiB) },
     fileFilter: (_req, file, cb) => {
       if (String(file.mimetype || "").startsWith("image/")) cb(null, true);
       else cb(new Error("bad_mime"));
@@ -147,7 +149,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   });
   const attachment = multer({
     storage,
-    limits: { fileSize: attachmentMaxBytes(), files: 1, fields: 10, parts: 20 },
+    limits: { fileSize: envBytes("KNOT_UPLOAD_ATTACHMENT_MAX_BYTES", 50 * MiB) },
     fileFilter: (_req, file, cb) => {
       if (isVideoUpload(file)) cb(new Error("bad_video"));
       else if (isAudioUpload(file)) cb(new Error("bad_audio"));
@@ -158,7 +160,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
 
   const audioUpload = multer({
     storage,
-    limits: { fileSize: audioMaxBytes(), files: 1, fields: 10, parts: 20 },
+    limits: { fileSize: envBytes("KNOT_UPLOAD_AUDIO_MAX_BYTES", 8 * MiB) },
     fileFilter: (_req, file, cb) => {
       if (isAudioUpload(file)) cb(null, true);
       else cb(new Error("bad_audio"));
@@ -180,7 +182,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     const key = normalizeLoginKey(req.body?.key);
     if (!email) return res.status(400).json({ error: "bad_email" });
     if (!key) return res.status(400).json({ error: "bad_key" });
-    const redeemed = await redeemLoginKey(pool, email, key, { ip: req.ip });
+    const redeemed = await redeemLoginKey(pool, email, key);
     if (redeemed.error) {
       // 锁定期要给出准确的重试时刻，否则前端只能猜，用户会一直连点。
       if (redeemed.retryAfter) res.set("Retry-After", String(redeemed.retryAfter));
@@ -571,8 +573,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
       `SELECT id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at, origin_id, version
        FROM intel
        WHERE account_id = $1 AND door = 'webui'
-       ORDER BY created_at DESC
-       LIMIT ${ACCOUNT_LIST_LIMIT}`,
+       ORDER BY created_at DESC`,
       [req.account.id]
     );
     // 一次把这一批的附件取齐，不再每条一次查询。
@@ -768,10 +769,9 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     if (!(await isOwnerAccount(pool, req.account.id))) return res.status(403).json({ error: "not_admin" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
-    const typed = String(req.body?.reason ?? "").trim();
-    const reason = typed || "平台关闭";
+    const reason = String(req.body?.reason ?? "").trim() || "平台关闭";
     try {
-      res.json(await removePost(pool, id, reason, { actorId: req.account.id, platformClosed: !typed }));
+      res.json(await removePost(pool, id, reason, req.account.id));
     } catch (error) {
       httpError(res, error);
     }
@@ -868,8 +868,7 @@ ${FRIEND_COLUMNS}
            SELECT 1 FROM intel_dismissals d
            WHERE d.intel_id = i.id AND d.account_id = s.account_id
          )
-       ORDER BY s.created_at DESC
-       LIMIT ${ACCOUNT_LIST_LIMIT}`,
+       ORDER BY s.created_at DESC`,
       [req.account.id]
     );
     res.json({ information: (await withUploads(pool, rows)).map(publicCard) });

@@ -1,16 +1,16 @@
-# API index
+# API 入口
 
-The public layer only indexes; the full text stays in each project, to avoid maintaining one interface spec twice. The single exception is the Agent interface guide: it describes a federation-wide protocol that belongs to no single instance, so its full text lives in this directory.
+公共层只做索引，正文留在各自项目，避免同一份接口说明维护两遍。唯一的例外是 Agent 接口指引：它讲的是全联邦共用的协议，不属于任何一个实例，所以正文就在本目录。
 
-| Interface | Project | Document | Notes |
+| 接口 | 项目 | 文档 | 说明 |
 |------|------|------|------|
-| Instance Web API | `knot-platform` | [`knot-platform/docs/KNOT_WEB_API.md`](../knot-platform/docs/KNOT_WEB_API.md) | The read/write interface shared by the WebUI and Personal Agents: records, retrieval, downloads, accounts, authorization codes |
-| Agent interface guide | Public layer | [`KNOT_HELP.md`](./KNOT_HELP.md) | The federation-wide Agent protocol spec, English text; built and published by `xknot.si` as <https://xknot.si/knot-help> (HTML) and `/knot-help.md` (raw). Instances provide no documentation endpoint. The same-directory [`KNOT_HELP_CN.md`](./KNOT_HELP_CN.md) is the Chinese cross-check draft, for translation review only, not published |
-| Health check | `knot-platform` | `/api/health` | Used by the federation hub to probe instance status; fields in [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) §5 |
-| Federation contract | `xknot.si` | [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) | The hub-instance L1 profile, L2 status and activity data, L3 showcase conventions |
-| Delegated mail | `xknot.si` | [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) §7 | `POST /api/federation/mail`: the instance uses Bearer credentials to delegate the hub's SMTP to send one plain-text notification; `GET` queries quota |
-| Hub interface | `xknot.si` | [`xknot.si/server/app.mjs`](../xknot.si/server/app.mjs) | Open to the public: join application (passes on submission), claim pickup, health and location query, subdomain dedup, member code rotation; admin sessions and roster writes require credentials |
-| Onboarding file | `xknot.si` | [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) §7.4 | The env file the hub issues to an instance: instance id, hub address, issue date, delegated-mail credentials; the instance decides its own filename |
-| Deployment config | `knot-platform` | [`knot-platform/docs/CONFIG.md`](../knot-platform/docs/CONFIG.md) | Site and platform environment variables; key types and defaults are defined by `packages/knot-config/src/schema.mjs` |
+| 实例 Web API | `knot-platform` | [`knot-platform/docs/KNOT_WEB_API.md`](../knot-platform/docs/KNOT_WEB_API.md) | WebUI 与 Personal Agent 共用的读写接口：记录、检索、下载、账户、授权码 |
+| Agent 接口指引 | 公共层 | [`KNOT_HELP.md`](./KNOT_HELP.md) | 全联邦共用的 Agent 协议说明，正文英文；由 `xknot.si` 构建发布成 <https://xknot.si/knot-help>（HTML）与 `/knot-help.md`（原文）。实例不提供文档端点。同目录 [`KNOT_HELP_CN.md`](./KNOT_HELP_CN.md) 是中文对照稿，只供翻译校对，不发布 |
+| 健康检查 | `knot-platform` | `/api/health` | 联邦中枢探测实例状态用；字段见 [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) 第 5 节 |
+| 联邦契约 | `xknot.si` | [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) | 中枢与实例的 L1 档案、L2 状态与活动数据、L3 橱窗约定 |
+| 委托发信 | `xknot.si` | [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) 第 7 节 | `POST /api/federation/mail`：实例用 Bearer 凭据委托中枢的 SMTP 发一封纯文本通知；`GET` 查额度 |
+| 中枢接口 | `xknot.si` | [`xknot.si/server/app.mjs`](../xknot.si/server/app.mjs) | 加入申请（提交即通过）、管理员会话与清单条目；对公网只开放申请 |
+| 接入件 | `xknot.si` | [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) 第 7.4 节 | 中枢签发给实例的 env 文件：实例 id、中枢地址、签发日期、委托发信凭据；实例存成什么文件名由自己决定 |
+| 部署配置 | `knot-platform` | [`knot-platform/docs/CONFIG.md`](../knot-platform/docs/CONFIG.md) | 站点与平台环境变量；键的类型与默认值以 `packages/knot-config/src/schema.mjs` 为准 |
 
-Calling conventions, auth, and error codes follow each project's own text. This page only answers "which document is that interface in".
+调用约定、鉴权方式、错误码以各项目正文为准。本页只回答「接口在哪一份文档里」。

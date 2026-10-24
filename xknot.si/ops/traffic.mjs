@@ -15,14 +15,12 @@
 //   node ops/traffic.mjs --out ./var/traffic --instances ./instances.json
 
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createGunzip } from "node:zlib";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-
-import { ID_RE } from "./profile-schema.mjs";
 
 export const DEFAULT_DAYS = 30;
 export const DEFAULT_LOG = "/var/log/nginx/knot-access.log";
@@ -34,11 +32,6 @@ const MAX_UNIQUE = 50_000;
 const MAX_PATH = 200;
 const MAX_UA = 200;
 const TOP_PATHS = 10;
-// paths / referers / unknownHosts 的键由访问者决定：扫 /x1、/x2…，或乱发 Host 头。
-// 没有上限时，每小时一轮的聚合进程内存随攻击面线性涨。到顶后新键只计入总量，不再建表。
-export const MAX_KEYS = 5_000;
-// 保留期最多一年：再长也没人看，还会让 --days 打错一位就把文件撑大。
-const MAX_DAYS = 365;
 
 // 只用来把爬虫从「访客」里分出去，不追求精确。空 UA 也算。
 const BOT_RE =
@@ -169,11 +162,7 @@ function bucketOf(agg, id, date) {
 }
 
 function bump(map, key) {
-  const current = map.get(key);
-  if (current != null) map.set(key, current + 1);
-  else if (map.size < MAX_KEYS) map.set(key, 1);
-  // 到顶后不再加新键：这些表只用来出前十条与「清单外的 host」清单，
-  // 长尾本来就不展示，留着只是给扫描器留一块内存。
+  map.set(key, (map.get(key) || 0) + 1);
 }
 
 // 把一条记录并进聚合。只认清单里有的 host；配错的 vhost 不能凭空多一个节点。
@@ -282,11 +271,9 @@ export function mergeTraffic(previous, freshDays, { id, host, days = DEFAULT_DAY
   for (const day of freshDays || []) {
     if (day?.date) map.set(day.date, day);
   }
-  // 不合法就按默认保留期，别让 slice(0, NaN) 返回空数组把历史一次清空。
-  const keep = Number.isInteger(days) && days > 0 ? days : DEFAULT_DAYS;
   const merged = [...map.values()]
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, keep);
+    .slice(0, Math.max(1, days));
   return {
     id,
     host,
@@ -371,48 +358,28 @@ export async function run(options = {}) {
     log = () => {},
   } = options;
 
-  // --days 直接 Number() 得到 NaN 时，Math.max(1, NaN) 仍是 NaN、slice(0, NaN) 返回空数组，
-  // 每个实例的 days 会被写成 []，历史一次清空且无法恢复。入口就拦下来。
-  const keepDays = Number(days);
-  if (!Number.isInteger(keepDays) || keepDays < 1 || keepDays > MAX_DAYS) {
-    throw new Error(`--days 必须是 1..${MAX_DAYS} 的整数，收到 ${JSON.stringify(options.days ?? days)}`);
-  }
-
   const manifest = await readJson(instancesPath, null);
   if (!manifest || !Array.isArray(manifest.instances)) {
     throw new Error(`cannot read instances: ${instancesPath}`);
   }
 
-  // 没有日志不是错误：入口还没装访问日志（knot-log.conf 或自动接通生成的 conf）时，
-// 这份聚合就该安静地跳过。
+  // 没有日志不是错误：入口还没装 knot-log.conf 时，这份聚合就该安静地跳过。
   try {
     await stat(logPath);
   } catch {
-    log(`没有访问日志：${logPath}（入口还没装访问日志格式？）`);
+    log(`没有访问日志：${logPath}（入口还没装 knot-log.conf？）`);
     return { skipped: "no_log", logPath, dataDir, written: [] };
   }
 
   const hostToId = hostMapOf(manifest);
   const agg = emptyAggregate();
   const files = await logFiles(logPath, { now: now() });
-  let readOk = 0;
-  const failures = [];
   for (const file of files) {
     try {
       await readLines(file, (line) => accumulate(agg, parseLine(line), hostToId));
-      readOk += 1;
     } catch (error) {
-      failures.push(`${file}：${error.message}`);
       log(`读取失败，跳过 ${file}：${error.message}`);
     }
-  }
-  // 文件在，但一份都读不开，不是「没流量」，是采集坏了：权限、属主、被截断。
-  // 2026-10-24 就是这种：logrotate 把 knot-access.log 建成 0640 nginx:root，
-  // 聚合以 ec2-user 跑，每小时 EACCES 一次，却都以 0 退出、把昨天的数字重写一遍。
-  // 于是控制台看着一切正常，当天的数据一条都没进。这里必须以失败退出，
-  // 让 systemd 把这次运行标成 failed，而不是安静地维持一个过期快照。
-  if (files.length > 0 && readOk === 0) {
-    throw new Error(`一份访问日志都读不到（${failures.length} 份），保留上一次的聚合：${failures[0]}`);
   }
 
   const byId = finalizeAggregate(agg);
@@ -420,46 +387,14 @@ export async function run(options = {}) {
   await mkdir(outDir, { recursive: true });
 
   const idToHost = new Map([...hostToId.entries()].map(([host, id]) => [id, host]));
-  // 按清单走，不是按「本次日志里出现过谁」：没有新日志的实例也要重写一次，
-  // 保留期裁剪只在写的时候发生，否则断流过的实例会一直留着过期的那一天。
-  // 清单里 id 不合法的条目不落盘（它会拼进文件名）。
-  const manifestIds = new Set();
-  for (const instance of manifest.instances) {
-    if (instance?.id && ID_RE.test(instance.id)) manifestIds.add(instance.id);
-  }
   const written = [];
-  const skipped = [];
-  for (const instance of manifest.instances) {
-    if (!instance?.id) continue;
-    const id = String(instance.id);
-    if (!manifestIds.has(id)) {
-      skipped.push(id);
-      continue;
-    }
+  for (const [id, freshDays] of byId) {
     const file = path.join(outDir, `${id}.json`);
     const previous = await readJson(file, null);
-    const freshDays = byId.get(id) || [];
-    if (!freshDays.length && !previous) continue;
-    const merged = mergeTraffic(previous, freshDays, { id, host: idToHost.get(id) || "", days: keepDays, now: at });
+    const merged = mergeTraffic(previous, freshDays, { id, host: idToHost.get(id) || "", days, now: at });
     await writeJson(file, merged);
     written.push({ id, days: merged.days.length, requests: merged.days[0]?.requests ?? 0 });
   }
-
-  // 已经从清单里删掉的实例：它的聚合没人再读，留着只会让目录堆成历史归档。
-  let pruned = 0;
-  try {
-    for (const name of await readdir(outDir)) {
-      if (!name.endsWith(".json")) continue;
-      const id = name.slice(0, -".json".length);
-      if (manifestIds.has(id)) continue;
-      await rm(path.join(outDir, name), { force: true });
-      pruned += 1;
-    }
-  } catch (error) {
-    log(`清理已下架实例的聚合失败：${error.message}`);
-  }
-  if (skipped.length) log(`清单里 id 不合法的条目已跳过：${skipped.join(", ")}`);
-  if (pruned) log(`清理了 ${pruned} 份不在清单里的聚合`);
 
   const unknown = [...agg.unknownHosts.entries()].sort((a, b) => b[1] - a[1]);
   if (unknown.length) {

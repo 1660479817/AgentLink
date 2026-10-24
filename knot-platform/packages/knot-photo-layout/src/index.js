@@ -115,33 +115,6 @@ function measureRows(breaks, list, prefix, rules, total) {
   return { cost, rows, totalHeight };
 }
 
-// 切分是穷举的：n 张图有 2^(n-1) 种切法。九张以内只有 256 种，随手就算完；
-// 二十张就是 52 万种，纯同步算在渲染路径上要停上百毫秒。上限之内的张数照旧
-// 穷举（九宫格排法最讲究，不能拿贪心凑），超过就按「加到行高够矮就换行」贪心切。
-// 前端接口有 MAX_IMAGES，但这是共享包，不能把正确性押在调用方记得限制上。
-const MAX_ENUMERATED = 12;
-
-function greedyBreaks(list, rules, count) {
-  const target = count >= rules.denseFrom ? rules.targetDense : rules.target;
-  const breaks = [];
-  let start = 0;
-  let sum = 0;
-  for (let index = 0; index < count; index += 1) {
-    const next = sum + list[index];
-    const size = index - start + 1;
-    // 再加一张就让这一行比目标更高（图片偏竖），或者已经顶到一行上限：收尾换行。
-    if (size > 1 && (1 / next < target || size > rules.maxPerRow)) {
-      breaks.push(index);
-      start = index;
-      sum = list[index];
-      continue;
-    }
-    sum = next;
-  }
-  breaks.push(count);
-  return breaks;
-}
-
 // 所有切分方式里挑代价最小的一种。
 export function planPhotoRows(aspects, rules = LAYOUT_RULES) {
   const list = (aspects || []).map(clampAspect);
@@ -155,27 +128,21 @@ export function planPhotoRows(aspects, rules = LAYOUT_RULES) {
   for (const aspect of list) prefix.push(prefix[prefix.length - 1] + aspect);
 
   const gaps = count - 1;
-  let rows;
-  if (count > MAX_ENUMERATED) {
-    rows = measureRows(greedyBreaks(list, rules, count), list, prefix, rules, count).rows;
-  } else {
-    let best = null;
-    for (let mask = 0; mask < 2 ** gaps; mask++) {
-      const breaks = [];
-      for (let i = 0; i < gaps; i++) if (mask & (1 << i)) breaks.push(i + 1);
-      breaks.push(count);
-      const candidate = measureRows(breaks, list, prefix, rules, count);
-      // 代价相同的切分不少（一组等比例图，行序怎么排代价都一样），挑第一行更高的一种：
-      // 大图在上、往下渐小，和常见相册的顺序一致，3 张也就排成 1+2 而不是 2+1。
-      const better = !best
-        || candidate.cost < best.cost - 1e-9
-        || (Math.abs(candidate.cost - best.cost) <= 1e-9 && candidate.rows[0].height > best.rows[0].height + 1e-9);
-      if (better) best = candidate;
-    }
-    rows = best.rows;
+  let best = null;
+  for (let mask = 0; mask < 2 ** gaps; mask++) {
+    const breaks = [];
+    for (let i = 0; i < gaps; i++) if (mask & (1 << i)) breaks.push(i + 1);
+    breaks.push(count);
+    const candidate = measureRows(breaks, list, prefix, rules, count);
+    // 代价相同的切分不少（一组等比例图，行序怎么排代价都一样），挑第一行更高的一种：
+    // 大图在上、往下渐小，和常见相册的顺序一致，3 张也就排成 1+2 而不是 2+1。
+    const better = !best
+      || candidate.cost < best.cost - 1e-9
+      || (Math.abs(candidate.cost - best.cost) <= 1e-9 && candidate.rows[0].height > best.rows[0].height + 1e-9);
+    if (better) best = candidate;
   }
 
-  return rows.map((row) => {
+  return best.rows.map((row) => {
     const cells = [];
     for (let index = row.start; index < row.end; index++) cells.push(index);
     return {
@@ -210,21 +177,14 @@ export function planPhotoLayout(photos, rules = LAYOUT_RULES) {
 // 宽度按份额取整后，最后一格吃掉舍入误差，整行正好铺满 width。
 export function planPhotoBoxes(photos, options = {}) {
   const { width, gap = 2, rules = LAYOUT_RULES, x: originX = 0, y: originY = 0 } = options;
-  // 所有坐标都是「行高 × 宽度」算出来的：宽度缺了或不是正数，Math.round(row.height * undefined)
-  // 得 NaN，Math.max(1, NaN) 仍是 NaN，整张分享图的框会带着 NaN 交给 sharp。
-  // 与其让下游拿到一堆 NaN，不如在这里当场拒绝。
-  const boxWidth = Number(width);
-  if (!Number.isFinite(boxWidth) || boxWidth <= 0) {
-    throw new TypeError("planPhotoBoxes: width must be a positive finite number");
-  }
   const items = (photos || []).map((photo) => photo || {});
   const aspects = items.map(photoAspect);
   const rows = planPhotoRows(aspects, rules);
   const boxes = [];
   let top = originY;
   rows.forEach((row) => {
-    const height = Math.max(1, Math.round(row.height * boxWidth));
-    const usable = Math.max(1, boxWidth - gap * (row.cells.length - 1));
+    const height = Math.max(1, Math.round(row.height * width));
+    const usable = Math.max(1, width - gap * (row.cells.length - 1));
     const shares = rowShares(aspects, row.cells);
     let acc = 0;
     row.cells.forEach((index, position) => {

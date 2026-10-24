@@ -37,9 +37,7 @@ export function bioText(value) {
   if (value == null) return "";
   if (typeof value !== "string") throw fail("bad_bio");
   const text = value.replace(/\r\n?/g, "\n").trim();
-  // 长度按码点算，和 displayNameText、库里 char_length 同口径。
-  // 用 text.length 会把一个 emoji 记成 2：文档说「200 个字符」，11 个 emoji 的特长就会误判超限。
-  if ([...text].length > BIO_MAX) throw fail("bad_bio");
+  if (text.length > BIO_MAX) throw fail("bad_bio");
   return text;
 }
 
@@ -67,8 +65,7 @@ export function specialtyList(value) {
   const names = [];
   for (const item of value) {
     const text = String(item ?? "").replace(/\s+/g, " ").trim();
-    // 与称呼、简介同一口径：按码点计，emoji 算一个字（S04-14）。
-    if (!text || [...text].length > SPECIALTY_LEN || /[、,，]/.test(text)) throw fail("bad_specialty");
+    if (!text || text.length > SPECIALTY_LEN || /[、,，]/.test(text)) throw fail("bad_specialty");
     if (!names.includes(text)) names.push(text);
   }
   if (names.length > SPECIALTY_MAX) throw fail("bad_specialty");

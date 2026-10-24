@@ -288,7 +288,7 @@ export async function startStack(options = {}) {
     entry = await startEntry({ distDir, apiBase: apiUrl, port: entryPort, dataFile });
   } catch (error) {
     api.kill("SIGKILL");
-    await cleanDataDir();
+    if (!keep) await rm(dataDir, { recursive: true, force: true }).catch(() => {});
     throw error;
   }
 
@@ -305,7 +305,7 @@ export async function startStack(options = {}) {
       ]);
       if (!exited) api.kill("SIGKILL");
     }
-    await cleanDataDir();
+    if (!keep) await rm(dataDir, { recursive: true, force: true }).catch(() => {});
   }
 
   async function setManifest(next) {
@@ -425,11 +425,8 @@ async function main(argv) {
   const federationFile = federationIndex >= 0 ? path.resolve(argv[federationIndex + 1]) : null;
 
   let admin = null;
-  // 口令可以从环境变量给：写在命令行里会进 `ps aux` 与日志。测试装置用这个入口，
-  // 参数形式留给手动起栈的人。
-  const adminSpec = adminArg || process.env.XKNOT_E2E_ADMIN || null;
-  if (adminSpec) {
-    const [username, ...rest] = adminSpec.split(":");
+  if (adminArg) {
+    const [username, ...rest] = adminArg.split(":");
     const password = rest.join(":");
     if (!username || !password) throw new Error("--admin 格式：<user>:<password>");
     admin = { username, password };

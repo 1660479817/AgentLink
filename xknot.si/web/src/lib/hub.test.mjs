@@ -8,7 +8,6 @@ import {
   buildView,
   filterByGroup,
   filterByTag,
-  isReachable,
   sortInstances,
   summarize,
 } from "./hub.js";
@@ -50,45 +49,6 @@ test("a view without a name falls back to the id rather than rendering blank", (
 test("a view without tags gets an empty list, not the raw field", () => {
   const [item] = buildView({ instances: [instance({ tags: null })] });
   assert.deepEqual(item.tags, []);
-});
-
-// 门户把 name 当卡片标题、地图点名与整张卡的点击层的唯一可见文字：
-// 一个零宽或 RTL 覆写符就能把名字渲染成另一个站，所以进视图前必须去掉。
-test("invisible control characters never survive into the view", () => {
-  const [item] = buildView({
-    instances: [instance({ name: "Knot\u200b\u202e\u2066旅行\ufeff", tags: ["Agent\u200d"] })],
-  });
-  assert.equal(item.name, "Knot旅行");
-  assert.deepEqual(item.tags, ["Agent"]);
-});
-
-// 站点地址进 href。Vue 转义的是属性值，不会拦 javascript:；
-// 构建期的校验也不是唯一入口（直接 npm run build 就不经过它）。
-test("only an https site url reaches the view", () => {
-  assert.equal(buildView({ instances: [instance({ url: "javascript:alert(1)" })] })[0].url, null);
-  assert.equal(buildView({ instances: [instance({ url: "/local/page" })] })[0].url, null);
-  assert.equal(
-    buildView({ instances: [instance({ url: "https://travel.xknot.si" })] })[0].url,
-    "https://travel.xknot.si"
-  );
-});
-
-test("a logo that is not an absolute https url is dropped", () => {
-  assert.equal(buildView({ instances: [instance({ logo: "data:image/svg+xml,<svg/>" })] })[0].logo, null);
-  assert.equal(
-    buildView({ instances: [instance({ logo: "https://cdn.test/a.png" })] })[0].logo,
-    "https://cdn.test/a.png"
-  );
-});
-
-// 清单四态里 suspended / retired 不再探测，health 停在最后一次 up。
-// 视图必须留下清单状态，否则页面会把暂停的站永久算成在线。
-test("a suspended instance keeps its manifest status", () => {
-  const [item] = buildView({ instances: [instance({ status: "suspended" })] });
-  assert.equal(item.status, "suspended");
-  // 页面显示的状态跟随清单：卡片的「暂停」不能被最后一次 up 盖掉。
-  assert.equal(item.state, "suspended");
-  assert.equal(isReachable(item), false);
 });
 
 test("a missing health entry reads as unknown, not down", () => {

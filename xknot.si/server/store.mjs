@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { normalizePublicKey, subdomainUrl } from "./validate.mjs";
+import { subdomainUrl } from "./validate.mjs";
 
 const SCHEMA = `
 create table if not exists applications (
@@ -122,15 +122,6 @@ create table if not exists relay_tokens (
 
 create index if not exists relay_tokens_instance on relay_tokens(instance_id);
 
--- 每个实例的委托发信开关。可逆：关掉只是暂停受理，凭据与额度都原样留着，
--- 打开就恢复。吊销凭据是不可逆的（实例得换文件），所以临时停一个节点不能靠吊销。
-create table if not exists relay_switches (
-  instance_id text primary key,
-  disabled_at text not null,
-  note        text,
-  by          text
-);
-
 -- 只记域名与结果，不存收件地址和正文；删掉日志不影响任何实例。
 create table if not exists relay_log (
   seq          integer primary key autoincrement,
@@ -184,16 +175,6 @@ create table if not exists provision_runs (
 );
 
 create index if not exists provision_runs_updated on provision_runs(updated_at);
-
--- 中枢自己的一点点运行期开关。放库里而不是配置文件：改完立刻生效，
--- 不用登机器、不用改 env、不用重启；多进程（接口、CLI、worker）读同一份。
--- 没有这一行就是「按环境变量的默认值走」，所以清空等于恢复出厂。
-create table if not exists settings (
-  key   text primary key,
-  value text not null,
-  at    text not null,
-  by    text
-);
 `;
 
 // 依赖迁移补出来的列的索引，必须在 migrate() 之后建：
@@ -202,17 +183,11 @@ const INDEXES = `
 create index if not exists applications_case on applications(case_key);
 `;
 
-// 子域的唯一性要落成数据库约束，不能只靠调用方「先查后插」：接口进程与
-// admin-cli、provision worker 是几个独立进程，查与插之间没有锁。
-// 撤回把标签交回中枢，所以唯一性只落在 approved 上（见 OCCUPIED_STATUS）。
-const UNIQUE_INDEXES = `
-create unique index if not exists applications_subdomain_open
-  on applications(subdomain)
-  where status = 'approved' and subdomain is not null and subdomain <> '';
-`;
+// 申请单一律在提交时通过，只剩「有效」与「已撤回」两种结果。
+// rejected / expired 是自动通过之前留下的历史状态，只读不改。
+export const STATUSES = ["approved", "withdrawn", "rejected", "expired"];
 
 // 申请单的状态机。写入只发生在 createApplication（直接 approved）与撤回。
-// 状态取值就是这张表的键：另抄一份列表出去，改的时候必然漏掉一边。
 const TRANSITIONS = {
   approved: ["withdrawn"],
   withdrawn: [],
@@ -221,11 +196,6 @@ const TRANSITIONS = {
 };
 
 const TERMINAL_STATUSES = new Set(["withdrawn"]);
-
-// 占用子域的状态只有一个：approved。撤回、拒绝、过期都把标签交回中枢。
-// 预检（takenSubdomains）、提交（findOpenBySubdomain）与库里的唯一索引必须
-// 用同一个集合，否则会出现「预检说可用、提交拿 409」——正是要避免的那种反馈。
-const OCCUPIED_STATUS_SQL = "status = 'approved'";
 
 // 允许通过 transition() 一起写回的列。用映射表挡住任意列名拼接。
 const APPLICATION_PATCH_COLUMNS = {
@@ -248,93 +218,41 @@ const APPLICATION_COLUMNS = [
   ["closed_at", "text"],
 ];
 
-// 版本化迁移：每一步带一个 version 与 up()，openStore 只执行 user_version 之后的步骤，
-// 每步一个事务，跑完把 user_version 记成这一版的版本号。加新迁移就往数组尾部 push，
-// 不要改动已经发布的旧步骤——老库已经在它们上面记了版本号，改旧步骤等于让历史分叉。
-const MIGRATIONS = [
-  {
-    version: 1,
-    name: "backfill legacy applications",
-    up(db) {
-      // 老申请没有案例键，补一个；否则案例页与补信都没有入口。
-      const missing = db
-        .prepare("select id from applications where case_key is null or case_key = ''")
-        .all();
-      const fill = db.prepare("update applications set case_key = ? where id = ?");
-      for (const row of missing) fill.run(randomBytes(9).toString("base64url"), row.id);
-      // state_version 在旧行上是 NULL 时也给个 0，幂等键才稳定。
-      db.exec("update applications set state_version = 0 where state_version is null");
-      // 旧库只有 url 与 subdomain 的区分：有标签就是签发子域，否则留空由读时推断。
-      db.exec(`
-        update applications
-           set mode = 'subdomain'
-         where (mode is null or mode = '')
-           and subdomain is not null
-           and subdomain <> ''
-      `);
-      // 自动通过之前留在队列里的申请一起结到 approved：等待过的人不该再等下去。
-      // 老库可能没有 reviewed_at / reviewed_by，先确认列存在再写。
-      const columns = new Set(db.prepare("pragma table_info(applications)").all().map((row) => row.name));
-      if (columns.has("reviewed_at") && columns.has("reviewed_by")) {
-        db.prepare(
-          `update applications
-              set status = 'approved',
-                  reviewed_at = coalesce(reviewed_at, ?),
-                  reviewed_by = coalesce(nullif(reviewed_by, ''), 'auto')
-            where status in ('pending', 'verified', 'hold')`
-        ).run(nowIso());
-      } else {
-        db.exec("update applications set status = 'approved' where status in ('pending', 'verified', 'hold')");
-      }
-    },
-  },
-  {
-    version: 2,
-    name: "drop unused verify_tokens",
-    up(db) {
-      // 2.0 之前归属验证流程留下的表，代码里已无任何引用。迁移只加不删的话，
-      // 这类死表会一直堆在库里，让结构偏离代码全貌。表里只有令牌哈希与申请单 id，
-      // 没有要保留的数据；显式 drop，让库结构回到代码定义的那一份。
-      db.exec("drop table if exists verify_tokens");
-    },
-  },
-];
-
-// 幂等的结构性修补：加列。新老库都要跑，不进迁移版本门控——
-// 老库是 create table if not exists 建出来的，新列不会自己长出来。
-function ensureColumns(db) {
+function migrate(db) {
   const existing = new Set(db.prepare("pragma table_info(applications)").all().map((row) => row.name));
   for (const [name, type] of APPLICATION_COLUMNS) {
     if (existing.has(name)) continue;
     db.exec(`alter table applications add column ${name} ${type}`);
   }
-}
-
-// 按 user_version 顺序执行尚未跑过的迁移。每步一个事务：要么完整执行并记下版本号，
-// 要么整个回滚——进程在中途被杀不会留下「数据修了一半、版本号没记」的半成品。
-// 拿到写锁后重读一次版本号：几个进程同时打开同一个库时，先拿锁的那个跑完迁移，
-// 后拿锁的只可能跳过，不会重复执行。
-function migrate(db) {
-  ensureColumns(db);
-  let current = Number(db.prepare("pragma user_version").get()?.user_version) || 0;
-  for (const step of MIGRATIONS) {
-    if (step.version <= current) continue;
-    db.exec("begin immediate");
-    try {
-      const fresh = Number(db.prepare("pragma user_version").get()?.user_version) || 0;
-      if (step.version <= fresh) {
-        db.exec("commit");
-        current = fresh;
-        continue;
-      }
-      step.up(db);
-      db.exec(`pragma user_version = ${step.version}`);
-      db.exec("commit");
-      current = step.version;
-    } catch (error) {
-      db.exec("rollback");
-      throw error;
-    }
+  // 老申请没有案例键，补一个；否则案例页与补信都没有入口。
+  const missing = db
+    .prepare("select id from applications where case_key is null or case_key = ''")
+    .all();
+  const fill = db.prepare("update applications set case_key = ? where id = ?");
+  for (const row of missing) fill.run(randomBytes(9).toString("base64url"), row.id);
+  // state_version 在旧行上是 NULL 时也给个 0，幂等键才稳定。
+  db.exec("update applications set state_version = 0 where state_version is null");
+  // 旧库只有 url 与 subdomain 的区分：有标签就是签发子域，否则留空由读时推断。
+  db.exec(`
+    update applications
+       set mode = 'subdomain'
+     where (mode is null or mode = '')
+       and subdomain is not null
+       and subdomain <> ''
+  `);
+  // 自动通过之前留在队列里的申请一起结到 approved：等待过的人不该再等下去。
+  // 老库可能没有 reviewed_at / reviewed_by，先确认列存在再写。
+  const columns = new Set(db.prepare("pragma table_info(applications)").all().map((row) => row.name));
+  if (columns.has("reviewed_at") && columns.has("reviewed_by")) {
+    db.prepare(
+      `update applications
+          set status = 'approved',
+              reviewed_at = coalesce(reviewed_at, ?),
+              reviewed_by = coalesce(nullif(reviewed_by, ''), 'auto')
+        where status in ('pending', 'verified', 'hold')`
+    ).run(nowIso());
+  } else {
+    db.exec("update applications set status = 'approved' where status in ('pending', 'verified', 'hold')");
   }
 }
 
@@ -379,35 +297,8 @@ export function verifyPassword(password, stored) {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
-// 来源地址只落哈希。secret 不给默认值：漏传宁可当场报错，也不要静默退化成
-// 一份无盐哈希——IPv4 只有 2³² 个地址，落库的 ip_hash 可以被穷举回原地址。
-export function ipHash(ip, secret) {
-  if (typeof secret !== "string" || !secret) throw new Error("ipHash requires a secret");
+export function ipHash(ip, secret = "xknot") {
   return sha256(`${secret}|${ip}`).slice(0, 16);
-}
-
-// 账号名在两处参与判断：登录限流桶与查库。归一化只留一份，
-// 否则用户名前后加一个空格就换了一个限流桶，而查库仍然命中同一个账号。
-export function normalizeUsername(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-// SQLite 的唯一约束冲突。message 形如
-// `UNIQUE constraint failed: applications.subdomain`。
-function uniqueViolation(error, column = null) {
-  const message = String(error?.message || "");
-  if (!/UNIQUE constraint failed/i.test(message)) return false;
-  return column ? message.includes(column) : true;
-}
-
-function ensureUniqueIndexes(db) {
-  try {
-    db.exec(UNIQUE_INDEXES);
-  } catch (error) {
-    // 建约束之前的老库可能已经有两条同子域的 approved 单。不能为了建索引
-    // 让库打不开：留一条日志，等运营把重复的那张撤回，下次启动再建。
-    console.error("applications_subdomain_open 未建立:", error.message);
-  }
 }
 
 export function openStore(file) {
@@ -427,7 +318,6 @@ export function openStore(file) {
   db.exec(SCHEMA);
   migrate(db);
   db.exec(INDEXES);
-  ensureUniqueIndexes(db);
 
   const get = (sql, ...params) => db.prepare(sql).get(...params);
   const all = (sql, ...params) => db.prepare(sql).all(...params);
@@ -482,7 +372,6 @@ export function openStore(file) {
 
     // 同一个子域只允许一条有效申请。撤回之后可以重新提交，
     // 因为地址已经交回中枢；已通过而没撤回的再交一张会撞上这一条。
-    // 「占用」与 takenSubdomains、唯一索引用同一个状态集合。
     findOpenBySubdomain(subdomain) {
       const label = String(subdomain || "").trim();
       if (!label) return null;
@@ -490,7 +379,7 @@ export function openStore(file) {
         get(
           `select * from applications
             where (subdomain = ? or url = ?)
-              and ${OCCUPIED_STATUS_SQL}
+              and status <> 'withdrawn'
             order by created_at desc limit 1`,
           label,
           subdomainUrl(label)
@@ -518,59 +407,42 @@ export function openStore(file) {
       const createdAt = nowIso();
       const reviewedAt = String(input.reviewedAt || createdAt);
       const reviewedBy = String(input.reviewedBy || "auto");
+      const id = newApplicationId(new Date(createdAt));
       const caseKey = randomBytes(9).toString("base64url");
       // 新单一律是签发子域；domain 只为老单留着，写 NULL。
       const mode = "subdomain";
       const subdomain = String(input.subdomain || "").trim() || null;
       const domain = null;
       const url = subdomain ? subdomainUrl(subdomain) : String(input.url || "").trim();
-
-      // 编号是 6 位 34 进制（约 1.5×10⁹），老库到万条量级就有几个百分点的撞号概率。
-      // 撞上是主键冲突，不该变成 500：换一个号再试一次即可。
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const id = newApplicationId(new Date(createdAt));
-        // 提交即通过：不排队、不等人点。reviewed_by 记 auto，谁都没审过也说得清。
-        // 申请与事件同一事务：进程在两条语句之间被杀时，不会留下一条没有事件可追的单。
-        db.exec("begin immediate");
-        try {
-          db.prepare(
-            `insert into applications
-            (id, name, mode, domain, subdomain, url, operator, email, region, timezone, intro, tags, locale, status, created_at,
-             reviewed_at, reviewed_by, ip_hash, request_services, case_key, state_version)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, 0)`
-          ).run(
-            id,
-            input.name,
-            mode,
-            domain,
-            subdomain,
-            url,
-            input.operator,
-            input.email,
-            input.region,
-            input.timezone,
-            input.intro,
-            JSON.stringify(input.tags || []),
-            input.locale || null,
-            createdAt,
-            reviewedAt,
-            reviewedBy,
-            input.ipHash || null,
-            JSON.stringify(input.requestServices || []),
-            caseKey
-          );
-          event("application.submitted", id, input.locale || null);
-          db.exec("commit");
-          return this.getApplication(id);
-        } catch (error) {
-          db.exec("rollback");
-          // 同子域已有 approved 单：唯一索引挡住的是重复提交，按 409 回，不是 500。
-          if (uniqueViolation(error, "applications.subdomain")) return { error: "duplicate" };
-          if (uniqueViolation(error, "applications.id")) continue;
-          throw error;
-        }
-      }
-      return { error: "id_collision" };
+      // 提交即通过：不排队、不等人点。reviewed_by 记 auto，谁都没审过也说得清。
+      db.prepare(
+        `insert into applications
+          (id, name, mode, domain, subdomain, url, operator, email, region, timezone, intro, tags, locale, status, created_at,
+           reviewed_at, reviewed_by, ip_hash, request_services, case_key, state_version)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, 0)`
+      ).run(
+        id,
+        input.name,
+        mode,
+        domain,
+        subdomain,
+        url,
+        input.operator,
+        input.email,
+        input.region,
+        input.timezone,
+        input.intro,
+        JSON.stringify(input.tags || []),
+        input.locale || null,
+        createdAt,
+        reviewedAt,
+        reviewedBy,
+        input.ipHash || null,
+        JSON.stringify(input.requestServices || []),
+        caseKey
+      );
+      event("application.submitted", id, input.locale || null);
+      return this.getApplication(id);
     },
 
     getApplication(id) {
@@ -657,25 +529,9 @@ export function openStore(file) {
         fields.push("closed_at = ?");
         values.push(nowIso());
       }
-      // 前态写进 where：读与写之间，另一个进程（admin-cli、另一个 worker 轮次）
-      // 可能已经先迁走了。只按 id 更新会让两次迁移都成功，版本号与事件各记一遍。
-      values.push(current.id, current.status);
-      db.exec("begin immediate");
-      try {
-        const result = db
-          .prepare(`update applications set ${fields.join(", ")} where id = ? and status = ?`)
-          .run(...values);
-        if (Number(result.changes) !== 1) {
-          db.exec("rollback");
-          return { error: "invalid_transition", from: current.status, to };
-        }
-        // 事件与状态一起提交：进程被杀时不会留下「状态变了、事件没有」的半成品。
-        event(eventKind || `application.${to}`, current.id, admin || null);
-        db.exec("commit");
-      } catch (error) {
-        db.exec("rollback");
-        throw error;
-      }
+      values.push(current.id);
+      db.prepare(`update applications set ${fields.join(", ")} where id = ?`).run(...values);
+      event(eventKind || `application.${to}`, current.id, admin || null);
       return { application: this.getApplication(current.id) };
     },
 
@@ -691,16 +547,8 @@ export function openStore(file) {
     setPublicKey({ id, publicKey }) {
       const current = this.getApplication(id);
       if (!current) return { error: "not_found" };
-      // 撤回之后的单不再接通，公钥写进去也没有下一手会读它；
-      // 让它写成功只会把版本号推高、给界面一个「存上了」的假象。
-      if (current.status !== "approved") return { error: "not_approved" };
-      // 写入方必须自己也校验：这一列最后会被逐字写进入口主机的 authorized_keys，
-      // 含换行就等于往 root 属主的文件里追加第二行。app.mjs 校验过不代表这里安全——
-      // 其余调用方（接口、脚本、将来的迁移）都从这一层过。
-      const key = normalizePublicKey(publicKey);
-      if (!key) return { error: "bad_public_key" };
       db.prepare("update applications set public_key = ?, state_version = state_version + 1 where id = ?")
-        .run(key, current.id);
+        .run(String(publicKey).slice(0, 1000), current.id);
       event("application.public_key", current.id, null);
       return { application: this.getApplication(current.id) };
     },
@@ -708,14 +556,10 @@ export function openStore(file) {
     // ---- 自动接通 ----
 
     // 同一个申请单只跑一条 run。重试由 worker 在同一行上推进，不新建。
-    // 唯一例外是坏掉的那一行：JSON 解析不出来时它既不推进也不重来，
-    // 只能整行覆盖成一份全新的 run，否则接通永远停在「有行、没人认」。
     createProvisionRun(run) {
       const stamp = nowIso();
       db.prepare(
-        `insert into provision_runs (application_id, run, created_at, updated_at) values (?, ?, ?, ?)
-         on conflict(application_id) do update set run = excluded.run, updated_at = excluded.updated_at
-         where json_valid(provision_runs.run) = 0`
+        "insert or ignore into provision_runs (application_id, run, created_at, updated_at) values (?, ?, ?, ?)"
       ).run(String(run.applicationId), JSON.stringify(run), stamp, stamp);
       return this.getProvisionRun(run.applicationId);
     },
@@ -724,12 +568,9 @@ export function openStore(file) {
       const row = get("select * from provision_runs where application_id = ?", String(applicationId || ""));
       if (!row) return null;
       try {
-        const parsed = JSON.parse(row.run);
-        return parsed && typeof parsed === "object" ? parsed : { applicationId: row.application_id, corrupt: true };
+        return JSON.parse(row.run);
       } catch {
-        // 不吞成 null：null 和「还没有 run」长得一样，案例页会显示 run: null，
-        // 而 applicationsAwaitingProvision 的 left join 又不再选中它——静默停住。
-        return { applicationId: row.application_id, corrupt: true };
+        return null;
       }
     },
 
@@ -742,38 +583,26 @@ export function openStore(file) {
       return this.getProvisionRun(run.applicationId);
     },
 
-    // 坏行不当成不存在：列表里保留一个占位，控制台才看得见「这条接通卡住了」。
     listProvisionRuns(limit = 50) {
-      return all(
-        "select application_id, run, updated_at from provision_runs order by updated_at desc limit ?",
-        Math.min(Number(limit) || 50, 200)
-      ).map((row) => {
-        try {
-          const parsed = JSON.parse(row.run);
-          if (parsed && typeof parsed === "object") return parsed;
-        } catch {
-          // 落到下面的占位。
-        }
-        return {
-          applicationId: row.application_id,
-          state: "failed",
-          lastError: "run_corrupt",
-          steps: [],
-          updatedAt: row.updated_at,
-          corrupt: true,
-        };
-      });
+      return all("select run from provision_runs order by updated_at desc limit ?", Math.min(Number(limit) || 50, 200))
+        .map((row) => {
+          try {
+            return JSON.parse(row.run);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
     },
 
     // 已通过、已交公钥、还没有 run 的单：worker 每一轮都用它来发现新活。
-    // run 那一列的 JSON 坏掉时也重新选中：那一行不推进也不重来，等于永久停住。
     applicationsAwaitingProvision() {
       return all(
         `select a.* from applications a
           left join provision_runs r on r.application_id = a.id
          where a.status = 'approved'
            and a.public_key is not null and a.public_key <> ''
-           and (r.application_id is null or json_valid(r.run) = 0)
+           and r.application_id is null
          order by a.created_at asc
          limit 20`
       ).map(rowToApplication);
@@ -798,23 +627,11 @@ export function openStore(file) {
 
     consumeClaimToken(token) {
       const hash = sha256(String(token || ""));
-      // 连申请单一起读：撤回的申请不该还能换出委托发信凭据与隧道账号端口。
-      const row = get(
-        `select c.id, c.application_id, c.payload, c.expires_at, c.used_at, a.status as application_status
-           from claim_tokens c left join applications a on a.id = c.application_id
-          where c.token_hash = ?`,
-        hash
-      );
+      const row = get("select * from claim_tokens where token_hash = ?", hash);
       if (!row) return { error: "not_found" };
       if (row.used_at) return { error: "already_used" };
       if (Date.parse(row.expires_at) <= Date.now()) return { error: "expired" };
-      if (row.application_status !== "approved") return { error: "application_closed" };
-      // 核销写成带条件的单条 UPDATE：两个请求同时打同一枚令牌时，
-      // 「先查后写」会让两边都拿到 payload，只有 used_at is null 这一条能占住。
-      const result = db
-        .prepare("update claim_tokens set used_at = ? where token_hash = ? and used_at is null")
-        .run(nowIso(), hash);
-      if (Number(result.changes) !== 1) return { error: "already_used" };
+      db.prepare("update claim_tokens set used_at = ? where token_hash = ?").run(nowIso(), hash);
       event("claim.consumed", row.application_id, row.id);
       return { payload: row.payload, applicationId: row.application_id, id: row.id };
     },
@@ -822,17 +639,8 @@ export function openStore(file) {
     // ---- 发信日志 ----
 
     // 先把这条事件占住再发信：状态迁移类事件有唯一索引，重复触发只会返回 duplicate。
-    //
-    // 「已发过」只认成功或还在途。上一次发送失败、或被限流（status 是 failed /
-    // throttled）时，同一幂等键必须能再发一次：SMTP 抖动一次就让这封信永久发不出去，
-    // 比偶尔重复一封更糟。重试复用原来那一行，日志里仍是一条事件。
     beginNotify({ event: name, caseId = null, stateVersion = null, locale = null, toDomain = null, toHash = null, templateVersion = null }) {
       const at = nowIso();
-      const key = [
-        String(name),
-        caseId ? String(caseId) : null,
-        Number.isInteger(stateVersion) ? stateVersion : null,
-      ];
       try {
         const result = db
           .prepare(
@@ -841,9 +649,9 @@ export function openStore(file) {
           )
           .run(
             at,
-            key[0],
-            key[1],
-            key[2],
+            String(name),
+            caseId ? String(caseId) : null,
+            Number.isInteger(stateVersion) ? stateVersion : null,
             locale ? String(locale).slice(0, 12) : null,
             toDomain ? String(toDomain).slice(0, 253) : null,
             toHash ? String(toHash).slice(0, 32) : null,
@@ -851,32 +659,8 @@ export function openStore(file) {
           );
         return { id: Number(result.lastInsertRowid), at };
       } catch (error) {
-        // 这张表只有 notify_once 一条唯一索引，冲突就是「同一事件、同一版本」。
-        if (!uniqueViolation(error)) throw error;
-        const row = get(
-          `select seq, status from notify_log
-            where event = ? and case_id is ? and state_version is ?
-            order by seq desc limit 1`,
-          key[0],
-          key[1],
-          key[2]
-        );
-        if (!row) return { duplicate: true };
-        if (row.status !== "failed" && row.status !== "throttled") return { duplicate: true };
-        db.prepare(
-          `update notify_log
-              set at = ?, locale = ?, to_domain = ?, to_hash = ?, template_version = ?,
-                  status = 'pending', error = null
-            where seq = ?`
-        ).run(
-          at,
-          locale ? String(locale).slice(0, 12) : null,
-          toDomain ? String(toDomain).slice(0, 253) : null,
-          toHash ? String(toHash).slice(0, 32) : null,
-          templateVersion ? String(templateVersion) : null,
-          Number(row.seq)
-        );
-        return { id: Number(row.seq), at, retried: true };
+        if (/UNIQUE|constraint/i.test(String(error?.message || ""))) return { duplicate: true };
+        throw error;
       }
     },
 
@@ -886,6 +670,16 @@ export function openStore(file) {
         .prepare("update notify_log set status = ?, error = ? where seq = ? and status = 'pending'")
         .run(String(status), error ? String(error).slice(0, 120) : null, Number(id));
       return Number(result.changes) || 0;
+    },
+
+    notifySentFor(caseId, name, stateVersion) {
+      const row = get(
+        "select status from notify_log where event = ? and case_id = ? and state_version = ? and status = 'sent'",
+        String(name),
+        String(caseId),
+        Number(stateVersion)
+      );
+      return Boolean(row);
     },
 
     listNotifyLog(limit = 50, caseId = null) {
@@ -920,7 +714,7 @@ export function openStore(file) {
     // ---- 管理员 ----
 
     createAdmin({ username, password }) {
-      const name = normalizeUsername(username);
+      const name = String(username || "").trim().toLowerCase();
       if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(name)) return { error: "invalid_username" };
       if (String(password || "").length < 10) return { error: "weak_password" };
       if (get("select id from admins where username = ?", name)) return { error: "exists" };
@@ -945,32 +739,18 @@ export function openStore(file) {
     },
 
     deleteAdmin(username) {
-      const name = normalizeUsername(username);
-      const row = get("select id from admins where username = ?", name);
+      const row = get("select id from admins where username = ?", String(username || "").toLowerCase());
       if (!row) return { error: "not_found" };
-      db.exec("begin immediate");
-      try {
-        // 「还剩几个」与删除放在同一个写事务里：两个操作员同时删最后两个管理员，
-        // 各自先 count 一次都会看到 2，删完就一个不剩，只能上机器用 CLI 建号。
-        const result = db
-          .prepare("delete from admins where id = ? and (select count(*) from admins) > 1")
-          .run(row.id);
-        if (Number(result.changes) !== 1) {
-          db.exec("rollback");
-          return { error: "last_admin" };
-        }
-        db.prepare("delete from sessions where admin_id = ?").run(row.id);
-        event("admin.deleted", row.id, name);
-        db.exec("commit");
-      } catch (error) {
-        db.exec("rollback");
-        throw error;
-      }
+      const total = get("select count(*) as n from admins").n;
+      if (total <= 1) return { error: "last_admin" };
+      db.prepare("delete from admins where id = ?").run(row.id);
+      db.prepare("delete from sessions where admin_id = ?").run(row.id);
+      event("admin.deleted", row.id, username);
       return { ok: true };
     },
 
     verifyAdmin({ username, password }) {
-      const row = get("select * from admins where username = ?", normalizeUsername(username));
+      const row = get("select * from admins where username = ?", String(username || "").trim().toLowerCase());
       if (!row) return null;
       if (!verifyPassword(password, row.password_hash)) return null;
       db.prepare("update admins set last_login_at = ? where id = ?").run(nowIso(), row.id);
@@ -979,7 +759,7 @@ export function openStore(file) {
 
     // 忘密码时重设：旧会话一并作废，逼所有人重新登录。
     setPassword(username, password) {
-      const row = get("select id, username from admins where username = ?", normalizeUsername(username));
+      const row = get("select id, username from admins where username = ?", String(username || "").trim().toLowerCase());
       if (!row) return { error: "not_found" };
       if (String(password || "").length < 10) return { error: "weak_password" };
       db.prepare("update admins set password_hash = ? where id = ?").run(hashPassword(password), row.id);
@@ -1041,33 +821,6 @@ export function openStore(file) {
       };
     },
 
-    // 重签接入件时用：新件落库与旧件作废在同一个事务里。
-    // 契约要求「重领一份新件时，旧的发信地址与凭据一起作废」——分两次调用的话，
-    // 中间失败会留下「新件已发、旧件还能用」，而重签的理由正是旧件不该再用。
-    rotateRelayToken({ instanceId, label = "", dailyLimit = 50, createdBy = null }) {
-      db.exec("begin immediate");
-      try {
-        const issued = this.createRelayToken({ instanceId, label, dailyLimit, createdBy });
-        if (issued.error) {
-          db.exec("rollback");
-          return issued;
-        }
-        const at = nowIso();
-        const stale = all(
-          "select id from relay_tokens where instance_id = ? and id <> ? and revoked_at is null",
-          issued.record.instanceId,
-          issued.record.id
-        );
-        const revoke = db.prepare("update relay_tokens set revoked_at = ? where id = ?");
-        for (const row of stale) revoke.run(at, row.id);
-        db.exec("commit");
-        return { ...issued, revoked: stale.map((row) => row.id) };
-      } catch (error) {
-        db.exec("rollback");
-        throw error;
-      }
-    },
-
     listRelayTokens() {
       return all(
         `select id, instance_id, label, daily_limit, created_at, created_by, revoked_at, last_used_at
@@ -1117,51 +870,12 @@ export function openStore(file) {
       return { revoked: rows.length, at, instanceId: rows[0].instance_id };
     },
 
-    // ---- 委托发信开关（按实例，可逆） ----
-
-    // 关掉一个实例的委托发信，等于「这个节点现在不许提交」，但凭据、额度、
-    // 记录都不动：打开就恢复，实例侧一个字都不用改。
-    setRelaySwitch(instanceId, { disabled = true, note = "", by = null } = {}) {
-      const id = String(instanceId || "").trim();
-      if (!/^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/.test(id)) return { error: "invalid_instance" };
-      if (!disabled) {
-        db.prepare("delete from relay_switches where instance_id = ?").run(id);
-        event("relay.enabled", id, by || "");
-        return { instanceId: id, disabled: false };
-      }
-      const at = nowIso();
-      db.prepare(
-        `insert into relay_switches (instance_id, disabled_at, note, by) values (?, ?, ?, ?)
-         on conflict(instance_id) do update set disabled_at = excluded.disabled_at,
-           note = excluded.note, by = excluded.by`
-      ).run(id, at, String(note || "").slice(0, 120), by);
-      event("relay.disabled", id, note || "");
-      return { instanceId: id, disabled: true, at };
-    },
-
-    relaySwitch(instanceId) {
-      const id = String(instanceId || "").trim();
-      if (!id) return { disabled: false };
-      const row = get("select * from relay_switches where instance_id = ?", id);
-      return row ? { disabled: true, at: row.disabled_at, note: row.note || "", by: row.by || "" } : { disabled: false };
-    },
-
-    listRelaySwitches() {
-      return all("select * from relay_switches order by disabled_at desc").map((row) => ({
-        instanceId: row.instance_id,
-        at: row.disabled_at,
-        note: row.note || "",
-        by: row.by || "",
-      }));
-    },
-
-    // 24 小时窗口内成功、失败、在途与结果不明都算一次：在途先占住额度，
-    // 避免并发请求同时通过检查后一起发信；unknown 是已发出去但没来得及记结果的，
-    // 不算回来就等于白送一次额度。
+    // 24 小时窗口内成功、失败与在途都算一次：在途先占住额度，避免并发请求
+    // 同时通过检查后一起发信。
     relayUsage(tokenId, sinceIso) {
       const row = get(
         `select count(*) as n from relay_log
-         where token_id = ? and at >= ? and status in ('pending', 'accepted', 'failed', 'unknown')`,
+         where token_id = ? and at >= ? and status in ('pending', 'accepted', 'failed')`,
         String(tokenId),
         String(sinceIso)
       );
@@ -1186,11 +900,9 @@ export function openStore(file) {
       db.exec("begin immediate");
       try {
         if (idemKey) {
-          // unknown 也算占住：那一封信可能已经发出去了，只是没记回结果。
-          // 同键再来一次按重复回，交给实例自己判断要不要换一个键。
           const hit = get(
             `select seq, at, status from relay_log
-             where token_id = ? and idem_key = ? and at >= ? and status in ('pending', 'accepted', 'unknown')
+             where token_id = ? and idem_key = ? and at >= ? and status in ('pending', 'accepted')
              order by seq desc limit 1`,
             String(tokenId),
             String(idemKey),
@@ -1211,7 +923,7 @@ export function openStore(file) {
         const used = Number(
           get(
             `select count(*) as n from relay_log
-             where token_id = ? and at >= ? and status in ('pending', 'accepted', 'failed', 'unknown')`,
+             where token_id = ? and at >= ? and status in ('pending', 'accepted', 'failed')`,
             String(tokenId),
             String(sinceIso)
           )?.n
@@ -1256,6 +968,39 @@ export function openStore(file) {
       return Number(result.changes) || 0;
     },
 
+    findRelayDelivery(tokenId, idemKey, sinceIso) {
+      if (!idemKey) return null;
+      const row = get(
+        `select seq, at from relay_log
+         where token_id = ? and idem_key = ? and status = 'accepted' and at >= ?
+         order by seq desc limit 1`,
+        String(tokenId),
+        String(idemKey),
+        String(sinceIso)
+      );
+      return row ? { id: Number(row.seq), at: row.at } : null;
+    },
+
+    logRelay({ instanceId, tokenId = null, toDomain = null, toHash = null, subjectLength = null, idemKey = null, status, error = null }) {
+      const result = db
+        .prepare(
+          `insert into relay_log (at, instance_id, token_id, to_domain, to_hash, subject_len, idem_key, status, error)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          nowIso(),
+          String(instanceId),
+          tokenId ? String(tokenId) : null,
+          toDomain ? String(toDomain).slice(0, 253) : null,
+          toHash ? String(toHash).slice(0, 32) : null,
+          Number.isInteger(subjectLength) ? subjectLength : null,
+          idemKey ? String(idemKey).slice(0, 64) : null,
+          String(status),
+          error ? String(error).slice(0, 120) : null
+        );
+      return Number(result.lastInsertRowid) || null;
+    },
+
     listRelayLog(limit = 50) {
       return all(
         "select seq, at, instance_id, to_domain, subject_len, status, error from relay_log order by seq desc limit ?",
@@ -1279,17 +1024,10 @@ export function openStore(file) {
 
     // 进程在发信途中退出会留下 pending 占位。SMTP 超时是 45 秒，15 分钟足够；
     // 不清掉的话，这条占位会一直占着 24 小时额度。
-    //
-    // 回收成 unknown，不 delete：SMTP 可能已经收下、只是 finishRelay 没跑完。
-    // 删行等于连幂等键和投递记录一起抹掉，实例用同一个 idempotencyKey 重试
-    // 就会再投一封已经发出去的信。
     pruneStaleRelayPending(minutes = 15) {
       const cutoff = new Date(Date.now() - Math.max(1, Number(minutes) || 15) * 60000).toISOString();
       const result = db
-        .prepare(
-          `update relay_log set status = 'unknown', error = coalesce(error, 'stale_pending')
-            where status = 'pending' and at < ?`
-        )
+        .prepare("delete from relay_log where status = 'pending' and at < ?")
         .run(cutoff);
       return Number(result.changes) || 0;
     },
@@ -1395,13 +1133,12 @@ export function openStore(file) {
       db.prepare("delete from member_codes where expires_at <= ?").run(nowIso());
     },
 
-    // 一个标签只要签发过就算占用；拒绝、过期与撤回都释放它。
-    // 集合与 findOpenBySubdomain、唯一索引保持同一份（OCCUPIED_STATUS_SQL）。
+    // 一个标签只要签发过或还在审核里就算占用；拒绝与撤回会释放它。
     takenSubdomains() {
       return all(
         `select subdomain from applications
           where subdomain is not null and subdomain <> ''
-            and ${OCCUPIED_STATUS_SQL}`
+            and status not in ('rejected', 'withdrawn', 'expired')`
       ).map((row) => row.subdomain);
     },
 
@@ -1411,33 +1148,6 @@ export function openStore(file) {
     },
     events(limit = 50) {
       return all("select * from events order by seq desc limit ?", Math.min(Number(limit) || 50, 200));
-    },
-
-    // ---- 中枢运行期开关 ----
-
-    // 读不到就是 null，调用方自己决定「没有值时按什么算」。
-    getSetting(key) {
-      const row = get("select * from settings where key = ?", String(key || ""));
-      return row ? { value: row.value, at: row.at, by: row.by || "" } : null;
-    },
-
-    // 写一行或删一行。value 传 null 就是删掉，回到环境变量给的默认值。
-    setSetting(key, value, by = null) {
-      const name = String(key || "").trim();
-      if (!/^[a-z][a-z0-9_.-]{0,40}$/.test(name)) return { error: "invalid_key" };
-      if (value === null || value === undefined) {
-        db.prepare("delete from settings where key = ?").run(name);
-        event("setting.cleared", name, by || "");
-        return { key: name, value: null };
-      }
-      const text = String(value);
-      const at = nowIso();
-      db.prepare(
-        `insert into settings (key, value, at, by) values (?, ?, ?, ?)
-         on conflict(key) do update set value = excluded.value, at = excluded.at, by = excluded.by`
-      ).run(name, text, at, by);
-      event("setting.changed", name, text);
-      return { key: name, value: text, at, by: by || "" };
     },
   };
 }

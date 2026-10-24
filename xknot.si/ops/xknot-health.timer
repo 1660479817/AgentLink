@@ -6,8 +6,7 @@ Description=Run xknot.si health watch every 15 minutes
 OnBootSec=2min
 OnUnitActiveSec=15min
 AccuracySec=1min
-# 不要写 Persistent=：它只对 OnCalendar= 生效，这两份用的是 OnBootSec/OnUnitActiveSec，
-# 留着只会让人以为关机期间错过的轮次会补跑。
+Persistent=true
 
 [Install]
 WantedBy=timers.target

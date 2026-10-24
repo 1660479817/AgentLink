@@ -5,46 +5,18 @@
 // 相邻的实例之间连一条弧，读出来才是一张网，而不是一份列表。
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed } from "vue";
 
-import { localTime } from "../lib/clock.js";
-import { enumKey, formatCount, STATUS_KEYS } from "../lib/i18n.js";
 import { centroidOf, LAND_PATH, project, WORLD } from "../lib/world.js";
 import BrandMark from "./BrandMark.vue";
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
   activeId: { type: String, default: null },
-  locale: { type: String, required: true },
   t: { type: Function, required: true },
 });
 
 const emit = defineEmits(["select"]);
-
-// 地图自己走钟：钟点只影响标签文字，不该让父组件重建点集。
-// 父级每 20 秒换一次 now 时，整份 items 会被重新算一遍，
-// 连带坐标、弧线与邻接图一起重排；放在这里只重渲染文字。
-const now = ref(Date.now());
-let ticker = null;
-onMounted(() => {
-  ticker = window.setInterval(() => {
-    now.value = Date.now();
-  }, 20000);
-});
-onBeforeUnmount(() => {
-  window.clearInterval(ticker);
-});
-
-function clockOf(item) {
-  return localTime(item.timezone, props.locale, new Date(now.value)) || "—";
-}
-
-// 状态只认白名单：清单多出一个没见过的取值时宁可写「未探测」，也不上屏键名。
-function statusText(value) {
-  return props.t(enumKey("status", value, STATUS_KEYS, "unknown"));
-}
-
-const count = (value) => formatCount(props.locale, value);
 
 const VIEW = { width: WORLD.width, height: WORLD.height };
 
@@ -203,14 +175,14 @@ const legend = computed(() =>
 
 const ariaLabel = computed(() =>
   props.t("map.label", {
-    total: count(props.items.length),
-    online: count(online.value),
-    peers: count(mesh.value.length),
+    total: props.items.length,
+    online: online.value,
+    peers: mesh.value.length,
   })
 );
 
 function label(item) {
-  return `${item.name} · ${item.groupLabel} · ${statusText(item.status)} · ${clockOf(item)}`;
+  return `${item.name} · ${item.groupLabel} · ${props.t(`status.${item.status}`)} · ${item.localTime}`;
 }
 
 function place(point) {
@@ -243,8 +215,8 @@ function activate(id) {
       <ul class="legend">
         <li v-for="entry in legend" :key="entry.key" :class="entry.key">
           <i class="legend-dot" aria-hidden="true" />
-          <span>{{ statusText(entry.key) }}</span>
-          <span class="legend-count">{{ count(entry.count) }}</span>
+          <span>{{ t(`status.${entry.key}`) }}</span>
+          <span class="legend-count">{{ entry.count }}</span>
         </li>
       </ul>
     </header>
@@ -330,7 +302,7 @@ function activate(id) {
         </span>
         <span class="tip" :class="tipClass(point)" aria-hidden="true">
           <span class="tip-name">{{ point.name }}</span>
-          <span class="tip-meta">{{ point.groupLabel }} · {{ clockOf(point) }}</span>
+          <span class="tip-meta">{{ point.groupLabel }} · {{ point.localTime }}</span>
         </span>
       </button>
     </div>
@@ -405,9 +377,6 @@ function activate(id) {
   aspect-ratio: 960 / 379;
   /* 上方留出联邦中枢悬空的位置，它和地图不是同一层 */
   margin-top: 3.3rem;
-  /* 悬停标签贴边时会探出 6px（.tip.right / .tip.left 的负偏移），
-     靠边的点因此把整页撑出横向滚动条。只裁横向：标签照旧在竖直方向露出来。 */
-  overflow-x: clip;
 }
 
 .world {
@@ -920,16 +889,11 @@ function activate(id) {
   }
 }
 
-/* 手机上点会挨得近：视觉上的点仍然小，命中区撑到 44px，
-   手指按得中，也不用为了好点把地图上的点做大。 */
+/* 手机上点会挨得近：收小命中区，标签留在点上方 */
 @media (max-width: 640px) {
   .pin {
-    width: 44px;
-    height: 44px;
-  }
-
-  .unplaced-chip {
-    min-height: 44px;
+    width: 30px;
+    height: 30px;
   }
 
   .map-head {

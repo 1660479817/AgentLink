@@ -24,7 +24,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createApp } from "./app.mjs";
-import { readInstancesCached } from "./instances.mjs";
 import { createMailer, mailConfigFromEnv } from "./mail.mjs";
 import { openStore } from "./store.mjs";
 
@@ -103,14 +102,24 @@ const instancesFile = process.env.XKNOT_INSTANCES_FILE
 
 let instancesCache = { key: "", list: [] };
 function loadInstances() {
-  // 解析与 fail-closed 逻辑在 server/instances.mjs，那里能注入 file/cache 单独测。
-  const result = readInstancesCached({
-    file: instancesFile,
-    cache: instancesCache,
-    onError: (error) => console.error("instances.json unreadable:", error.message),
-  });
-  instancesCache = result.cache;
-  return result.list;
+  const file = instancesFile;
+  try {
+    const stat = statSync(file);
+    const key = `${stat.mtimeMs}:${stat.size}`;
+    if (key === instancesCache.key) return instancesCache.list;
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    instancesCache = {
+      key,
+      list: Array.isArray(parsed.instances) ? parsed.instances : [],
+    };
+    return instancesCache.list;
+  } catch (error) {
+    console.error("instances.json unreadable:", error.message);
+    // 不能沿用上一份缓存：解析失败时那份名单可能是暂停/下架之前的，
+    // 委托发信与「实例是否在册」的判断会一起 fail-open。清空即一切按不在册处理。
+    instancesCache = { key: "", list: [] };
+    return instancesCache.list;
+  }
 }
 
 // 总览里点开实例要看到账号配置：身份、接入模式、隧道账号与端口。

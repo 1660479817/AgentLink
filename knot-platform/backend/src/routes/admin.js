@@ -7,7 +7,6 @@ import {
   isIntranetAddress,
   grantPoints,
   listPosts,
-  listReviewFailures,
   muteUser,
   patrolQueue,
   recordPatrol,
@@ -510,15 +509,6 @@ export function adminRouter({
   router.post("/posts/:id/remove", async (req, res) => {
     try {
       res.json(await removePost(pool, req.params.id, req.body?.reason));
-    } catch (error) {
-      sendAdminError(res, error);
-    }
-  });
-
-  // 终审失败的记录：作者收不到通知，管理员在「日志」栏统一看。
-  router.get("/review-failures", async (_req, res) => {
-    try {
-      res.json({ failures: await listReviewFailures(pool) });
     } catch (error) {
       sendAdminError(res, error);
     }

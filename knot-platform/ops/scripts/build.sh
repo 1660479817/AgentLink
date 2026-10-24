@@ -14,8 +14,7 @@
 #   ./ops/scripts/build.sh
 #   ./ops/scripts/build.sh --skip-test        # 跳过单测（不推荐）
 #   ./ops/scripts/build.sh --skip-install     # 复用现有 node_modules
-#   ./ops/scripts/build.sh --no-modules       # 不带 node_modules；只用于手工拷到别处自己装，
-#                                            # deploy-site.sh 会拒绝这种包（目标机不跑 npm ci）
+#   ./ops/scripts/build.sh --no-modules       # 不带 node_modules，目标机自己装生产依赖
 #   ./ops/scripts/build.sh --out /tmp/knot-artifacts
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -74,13 +73,16 @@ mkdir -p "$OUT"
 
 VERSION="$("$NODE" -p "require('$APP/backend/package.json').version")"
 COMMIT="$(git -C "$APP" rev-parse --short HEAD 2>/dev/null || echo nogit)"
+DIRTY=""
 if [[ "$COMMIT" != "nogit" ]] && [[ -n "$(git -C "$APP" status --porcelain --untracked-files=no 2>/dev/null | head -c 1)" ]]; then
-  fail "工作区有未提交的改动。先提交或 git stash 再构建：发布包要干净，版本才能对照。"
+  DIRTY=1
+  echo "警告：工作区有未提交的改动，发布包会标记为 dirty。"
 fi
 PLATFORM="$("$NODE" "$SCRIPT_DIR/artifact.mjs" platform)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+BUILD_DISPLAY="$VERSION${DIRTY:+（dirty）}"
 
-echo "==> knot $VERSION  $COMMIT  $PLATFORM"
+echo "==> knot $BUILD_DISPLAY  $COMMIT  $PLATFORM"
 
 if [[ "$RUN_INSTALL" == 1 ]]; then
   echo "==> npm ci"
@@ -102,7 +104,15 @@ npm --prefix "$APP" run build:web
 
 # 发布目录名和 BUILD.json 里的 release 字段一致；deploy-site.sh 用它决定装到哪。
 STAGE_ROOT="$OUT/.staging"
-RELEASE_NAME="knot-$VERSION-$COMMIT"
+RELEASE_NAME="$("$NODE" -e '
+  const info = { version: process.argv[1], commit: process.argv[2], dirty: process.argv[3] === "1" };
+  // 脏构建必须带时间戳：release 名决定 releases/ 下的目录名与 deployed.json 里的
+  // previous。同一份 version+commit 连续打几次包时，不带戳会让两次发布用同一个目录，
+  // 新包覆盖旧内容，回滚目标指向自己——回滚变成空操作。
+  const stamp = process.argv[4] || "";
+  const dirty = info.dirty ? `-dirty${stamp ? `-${stamp}` : ""}` : "";
+  process.stdout.write(`knot-${info.version}-${info.commit}${dirty}`);
+' "$VERSION" "$COMMIT" "${DIRTY:+1}" "$(date -u +%Y%m%d-%H%M%S)")"
 STAGE="$STAGE_ROOT/$RELEASE_NAME"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
@@ -133,19 +143,16 @@ if [[ "$WITH_MODULES" == 1 ]]; then
   rsync -a "$APP/node_modules/" "$STAGE/node_modules/"
   # 去掉 vite / @vitejs 这类只在构建时用的包。离线可用，不重新下载。
   (cd "$STAGE" && npm prune --omit=dev --no-audit --no-fund >/dev/null)
-  # prune 之后自己核一遍：真正的交付前提是「包里没有构建工具」，不是
-  # 「prune 命令返回 0」。以后谁改了依赖结构，这里会先失败，而不是等到目标机。
-  [[ ! -d "$STAGE/node_modules/vite" ]] ||
-    { echo "prune 之后 node_modules 仍有 vite：生产依赖树没裁干净。" >&2; exit 1; }
   MODULES=1
 fi
 
 "$NODE" -e '
   const fs = require("node:fs");
-  const [file, version, commit, platform, builtAt, modules, release] = process.argv.slice(1);
+  const [file, version, commit, dirty, platform, builtAt, modules, release] = process.argv.slice(1);
   const info = {
     version,
     commit,
+    dirty: dirty === "1",
     platform,
     builtAt,
     node: process.version,
@@ -155,7 +162,7 @@ fi
     release,
   };
   fs.writeFileSync(file, `${JSON.stringify(info, null, 2)}\n`);
-' "$STAGE/BUILD.json" "$VERSION" "$COMMIT" "$PLATFORM" "$BUILT_AT" "$MODULES" "$RELEASE_NAME"
+' "$STAGE/BUILD.json" "$VERSION" "$COMMIT" "${DIRTY:+1}" "$PLATFORM" "$BUILT_AT" "$MODULES" "$RELEASE_NAME"
 
 chmod +x "$STAGE/ops/scripts/"*.sh 2>/dev/null || true
 

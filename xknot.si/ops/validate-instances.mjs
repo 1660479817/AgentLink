@@ -17,8 +17,6 @@ import { checkIssued, STATUSES, TIERS } from "./profile-schema.mjs";
 
 export { TIERS, STATUSES };
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 /**
  * 校验登记表里的一条。
  * @param {unknown} instance
@@ -39,18 +37,8 @@ export function validateInstances(manifest) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     return [["manifest", ["manifest: must be a JSON object"]]];
   }
-  // 版本头以前完全不读：字段缺失或写成字符串也照样通过校验与构建，等于纯装饰（S24-16）。
-  // 这里只查类型与格式，不锁具体数值——它记的是这份清单被改过几次，不是格式版本。
-  const header = [];
-  if (!Number.isInteger(manifest.version) || manifest.version < 1) {
-    header.push("version: must be an integer >= 1");
-  }
-  if (typeof manifest.updatedAt !== "string" || !DATE_RE.test(manifest.updatedAt)) {
-    header.push("updatedAt: must be YYYY-MM-DD");
-  }
-  if (header.length) out.push(["manifest", header]);
   if (!Array.isArray(manifest.instances)) {
-    return [...out, ["manifest", ["instances: must be an array"]]];
+    return [["manifest", ["instances: must be an array"]]];
   }
   const seen = new Set();
   for (const [index, instance] of manifest.instances.entries()) {

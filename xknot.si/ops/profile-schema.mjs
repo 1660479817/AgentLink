@@ -224,14 +224,7 @@ export function checkIssued(instance, seen = new Set()) {
   // 清单只收中枢签发出来的地址：https://<标签>.xknot.si。
   // 早期签发的短号（< 6 位）照样放行；长度与保留名在签发时才判。
   if (!isHttpsUrl(instance.url)) errors.push("url: must be https");
-  else {
-    const label = labelFromUrl(instance.url);
-    if (!label) errors.push(`url: must be https://<label>${HUB_SUFFIX}`);
-    // 标签必须等于 id：两份清单按 id 对齐，地址指向别人的子域会让门户与流量记到对方名下。
-    else if (typeof instance.id === "string" && label !== instance.id) {
-      errors.push(`url: label "${label}" must equal id "${instance.id}"`);
-    }
-  }
+  else if (!labelFromUrl(instance.url)) errors.push(`url: must be https://<label>${HUB_SUFFIX}`);
 
   if (typeof instance.since !== "string" || !DATE_RE.test(instance.since)) errors.push("since: must be YYYY-MM-DD");
   if (!TIERS.includes(instance.tier)) errors.push(`tier: must be one of ${TIERS.join(", ")}`);

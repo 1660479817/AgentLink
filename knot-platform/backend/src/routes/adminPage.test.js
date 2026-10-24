@@ -40,7 +40,7 @@ function runGuard(remoteAddress) {
 }
 
 test("the admin page opens to the machine and its intranet, not to the public", () => {
-  for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "192.168.1.10", "::ffff:192.168.1.10", "fd00::7"]) {
+  for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "192.168.3.91", "::ffff:192.168.3.91", "fd00::7"]) {
     const result = runGuard(address);
     assert.equal(result.next, true, address);
     assert.equal(result.headers["Content-Security-Policy"], ADMIN_CSP);
@@ -65,8 +65,7 @@ test("the admin page serves its own files and falls through to 404", async () =>
     assert.equal(page.status, 200);
     assert.match(page.headers.get("content-type") || "", /text\/html/);
     assert.match(page.headers.get("content-security-policy") || "", /script-src 'self'/);
-    // 页面标题与文案由字典在运行时写入，服务端只发骨架：这里核对骨架，不再认某个语种的标题。
-    assert.match(await page.text(), /id="admin-view"/);
+    assert.match(await page.text(), /Knot 管理后台/);
 
     const script = await fetch(`${base}/admin.js`);
     assert.equal(script.status, 200);

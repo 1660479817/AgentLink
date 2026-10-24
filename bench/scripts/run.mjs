@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { probeSite, summaryLines } from "./probe.mjs";
 import { render } from "./report.mjs";
 import { parseSummaryData } from "./summary.mjs";
-import { exitCodeFor, failureRecord, leftoverTotal } from "./failures.mjs";
+import { exitCodeFor, failureRecord } from "./failures.mjs";
 
 // 并发层编排：先黑箱探测这个站点，再按能测的场景一档一档跑 k6。
 //
@@ -15,18 +15,19 @@ import { exitCodeFor, failureRecord, leftoverTotal } from "./failures.mjs";
 // 探测结果（TLS、版本、快照条数、能力位）跟着每份报告一起存，
 // 这样两个月后配置变了，两张表也能对齐着看。
 //
-// 每档之前不重跑 warmup：warmup 只在每个场景开头做一次（1 VU × 5s）。
-// 它热的是服务端（缓存、连接池、隧道）以及入口主机的 TCP/TLS 会话缓存，
-// 不是客户端连接：每档都是一个新起的 k6 进程，它的 keep-alive 连接全部重建，
-// 所以每档开头仍会混进一批冷连接样本。要消掉这部分，只能把各档放进同一个 k6
-// 进程（同一 scenario 的 stages），那会让档间冷却与失败隔离都做不了。
-// 每档之间停 COOLDOWN 秒，让 Postgres 的连接和队列回落到基线，
-// 否则 100 并发会把尾巴带进下一档。
+// 每档之前不重跑 warmup：warmup 只在每个场景开头做一次（1 VU × 5s），
+// 后面各档共用已经热起来的 TLS、隧道和连接池。每档之间停一会儿，
+// 让 Postgres 的连接和队列回落到基线，否则 100 并发会把尾巴带进下一档。
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 const K6 = process.env.K6_BIN || "k6";
 
+function arg(name, fallback) {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+}
+const flag = (name) => process.argv.includes(`--${name}`);
 
 const BASE = String(arg("base", process.env.BENCH_BASE || "")).replace(/\/+$/, "");
 if (!BASE) {
@@ -132,7 +133,13 @@ function resolveCookies() {
 }
 
 function isDirectBase(base) {
-  return isDirectHost(new URL(base).hostname);
+  const host = new URL(base).hostname.toLowerCase();
+  return (
+    /^(127\.|localhost$|\[?::1\]?$)/.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
+  );
 }
 
 function k6Version() {
@@ -154,32 +161,12 @@ function gitRev() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// k6 的 --duration 可以写 30s、5m、1h、1m30s。旧的超时估算把单位剥掉只取数字，
-// "5m" 变成 5 秒，5 分钟那一档会在第 125 秒被 spawnSync 杀掉，然后按「没跑成」消失。
-// 这里按单位换算；认不出的写法宁可给足余量（30 分钟），也不要提前杀人。
-function durationSeconds(text) {
-  const value = String(text ?? "").trim();
-  if (/^\d+(?:\.\d+)?m\d+(?:\.\d+)?s$/.test(value)) {
-    const [, m, s] = /^(\d+(?:\.\d+)?)m(\d+(?:\.\d+)?)s$/.exec(value);
-    return Number(m) * 60 + Number(s);
-  }
-  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)?$/.exec(value);
-  if (!match) return null;
-  const amount = Number(match[1]);
-  const unit = match[2] || "s";
-  if (unit === "ms") return amount / 1000;
-  if (unit === "m") return amount * 60;
-  if (unit === "h") return amount * 3600;
-  return amount;
-}
-
 function runK6({ script, vus, duration, out, token, allowWrites = false }) {
   const started = Date.now();
-  const seconds = durationSeconds(duration);
   const res = spawnSync(K6, ["run", "--quiet", "--summary-export", out, script], {
     cwd: ROOT,
     encoding: "utf8",
-    timeout: (seconds == null ? 30 * 60 : seconds + 120) * 1000,
+    timeout: (Number(String(duration).replace(/[^\d.]/g, "")) + 120) * 1000,
     env: {
       ...process.env,
       BASE,
@@ -221,14 +208,7 @@ function runK6({ script, vus, duration, out, token, allowWrites = false }) {
       reason: "k6 退出码 0 但没有写出 --summary-export 文件",
     };
   }
-  // k6 的 console.warn 走 stderr，退出码 0 时以前整段被丢掉。那些话正是
-  // 「Agent 信息流为空，卡片详情将跳过」这类「某个端点为什么没数据」的唯一线索，
-  // 对应的 ep_* 指标根本不产生，报告里那一行也就凭空消失。至少把它们打出来。
-  const warnings = String(res.stderr || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => /^(WARN|ERRO)/i.test(line));
-  return { ok: true, elapsed, warnings };
+  return { ok: true, elapsed };
 }
 
 function parseSummary(file) {
@@ -312,9 +292,6 @@ async function main() {
     skipped: [],
     // 跑失败或没写出数据的档。报告与退出码都从这里取，不再只是控制台的一行字。
     failed: [],
-    // k6 自己在运行中说过的话（例如「信息流为空，卡片详情跳过」）。以前退出码 0
-    // 就整段丢弃，于是某个端点没有指标，报告里连一行说明都没有。
-    warnings: [],
   };
 
   console.log(`\nk6 ${k6} · 每档 ${DURATION} · 冷却 ${COOLDOWN}s`);
@@ -351,11 +328,6 @@ async function main() {
       // 预热失败不单列成一档（它没有指标），但要说清是退出码还是被杀的。
       const failed = failureRecord({ scenario, vus: 1, elapsedMs: warm.elapsed, ...warm });
       console.warn(`预热失败（不计入判定）：${failed.detail}`);
-    } else {
-      for (const warning of warm.warnings || []) {
-        meta.warnings.push(`${scenario} 预热：${warning}`);
-        console.log(`  k6 提示：${warning}`);
-      }
     }
 
     for (const vus of levels) {
@@ -370,10 +342,6 @@ async function main() {
         // 于是它连表头都不出现，判定段还按剩下的档写「未超过验收线」。
         meta.failed.push(failed);
         continue;
-      }
-      for (const warning of res.warnings || []) {
-        meta.warnings.push(`${scenario} ${vus} 并发：${warning}`);
-        console.log(`  k6 提示：${warning}`);
       }
       let parsed;
       try {
@@ -415,12 +383,8 @@ async function main() {
   if (meta.failed.length) {
     console.error(`有 ${meta.failed.length} 档没有跑成，结论不完整（见 summary.md 的「本轮未测」）。`);
   }
-  const leftover = leftoverTotal(runs);
-  if (leftover) {
-    console.error(`写场景留下 ${leftover} 条记录没有删掉（见 summary.md 的「写场景清理」）。`);
-  }
-  // 有档位失败、或写完没删干净仍退出 0 的话，调用方只会看到「跑完了一轮」。
-  process.exitCode = exitCodeFor(meta, runs);
+  // 有档位失败仍退出 0 的话，调用方只会看到「跑完了一轮」。
+  process.exitCode = exitCodeFor(meta);
 }
 
 await main();

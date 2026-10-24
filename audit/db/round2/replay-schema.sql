@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict CmZGLSri4sGQnZQRiph5k4ZfRJkOQziyuaypzISGcTluDK0z7UbyPtdbpBq6QJh
+\restrict rNTvkhppMspA0huKQOtvhNcZ2aXQ7Rkug22YTFcz5R2zEut7EapZSef7Xbs1mzJ
 
--- Dumped from database version 16.13 (Homebrew)
--- Dumped by pg_dump version 16.13 (Homebrew)
+-- Dumped from database version 14.20 (Homebrew)
+-- Dumped by pg_dump version 14.20 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -17,20 +17,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: public; Type: SCHEMA; Schema: -; Owner: -
---
-
--- *not* creating schema, since initdb creates it
-
-
---
--- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON SCHEMA public IS '';
-
 
 --
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
@@ -125,10 +111,10 @@ CREATE TABLE public.accounts (
     specialties jsonb DEFAULT '[]'::jsonb NOT NULL,
     locale text,
     bio text DEFAULT ''::text NOT NULL,
+    agent_type text,
     retired_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    agent_type text,
     CONSTRAINT accounts_agent_type_check CHECK (((agent_type IS NULL) OR ((role = 'agent'::text) AND ((char_length(agent_type) >= 1) AND (char_length(agent_type) <= 32))))),
     CONSTRAINT accounts_bio_check CHECK ((char_length(bio) <= 200)),
     CONSTRAINT accounts_check CHECK (((side IS NULL) = (role = 'platform'::text))),
@@ -238,10 +224,10 @@ CREATE TABLE public.intel (
     expires_at timestamp with time zone,
     origin_id uuid,
     version integer DEFAULT 1 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
     search_compact text,
     search_bigrams text[],
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT intel_actor_check CHECK ((actor = ANY (ARRAY['person'::text, 'personal_agent'::text, 'platform'::text]))),
     CONSTRAINT intel_door_check CHECK ((door = ANY (ARRAY['webui'::text, 'agent_api'::text, 'platform'::text]))),
     CONSTRAINT intel_kind_check CHECK ((kind = ANY (ARRAY['post'::text, 'fastpost'::text, 'wish'::text, 'wishRespond'::text]))),
@@ -391,7 +377,8 @@ CREATE TABLE public.notifications (
     href text,
     intel_id uuid,
     read_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    data jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 
@@ -483,21 +470,10 @@ CREATE TABLE public.retrieval_jobs (
     status text DEFAULT 'pending'::text NOT NULL,
     error text,
     respond_id uuid,
+    attempts integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    attempts integer DEFAULT 0 NOT NULL,
     CONSTRAINT retrieval_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'done'::text, 'failed'::text])))
-);
-
-
---
--- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.schema_migrations (
-    name text NOT NULL,
-    applied_at timestamp with time zone DEFAULT now() NOT NULL,
-    checksum text
 );
 
 
@@ -789,14 +765,6 @@ ALTER TABLE ONLY public.retrieval_jobs
 
 
 --
--- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.schema_migrations
-    ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (name);
-
-
---
 -- Name: schema_milestone schema_milestone_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -918,7 +886,7 @@ CREATE INDEX admin_actions_patrol_idx ON public.admin_actions USING btree (creat
 -- Name: intel_account_content_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX intel_account_content_idx ON public.intel USING btree (account_id, content_hash);
+CREATE UNIQUE INDEX intel_account_content_idx ON public.intel USING btree (account_id, content_hash) WHERE (verdict = ANY (ARRAY['pending'::text, 'passed'::text]));
 
 
 --
@@ -1483,5 +1451,5 @@ ALTER TABLE ONLY public.uploads
 -- PostgreSQL database dump complete
 --
 
-\unrestrict CmZGLSri4sGQnZQRiph5k4ZfRJkOQziyuaypzISGcTluDK0z7UbyPtdbpBq6QJh
+\unrestrict rNTvkhppMspA0huKQOtvhNcZ2aXQ7Rkug22YTFcz5R2zEut7EapZSef7Xbs1mzJ
 

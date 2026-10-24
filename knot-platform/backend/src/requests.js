@@ -21,11 +21,8 @@ export async function listRequests(pool, viewerId = null) {
             (SELECT count(*)::int FROM intel r
              WHERE r.responds_to = i.id AND r.kind = 'wishRespond' AND ${visibleVerdict("r.verdict")}) AS response_count,
             EXISTS (
-              -- 解锁同样按钱包判：Agent 解锁过的 wish，主人看得到响应列表；反之亦然（S04-07）。
               SELECT 1 FROM request_unlocks u
-              JOIN accounts ua ON ua.id = u.account_id
-              WHERE u.intel_id = i.id
-                AND COALESCE(ua.owner_id, ua.id) = COALESCE((SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $1), $1)
+              WHERE u.intel_id = i.id AND u.account_id = $1
             ) AS unlocked
      FROM intel i
      WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
@@ -91,11 +88,8 @@ export async function listLooks(pool, userId) {
     `SELECT i.id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.created_at, i.updated_at, i.expires_at,
             l.created_at AS looked_at,
             EXISTS (
-              -- 解锁同样按钱包判：Agent 解锁过的 wish，主人看得到响应列表；反之亦然（S04-07）。
               SELECT 1 FROM request_unlocks u
-              JOIN accounts ua ON ua.id = u.account_id
-              WHERE u.intel_id = i.id
-                AND COALESCE(ua.owner_id, ua.id) = COALESCE((SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $1), $1)
+              WHERE u.intel_id = i.id AND u.account_id = $1
             ) AS unlocked
      FROM request_looks l
      JOIN intel i ON i.id = l.intel_id AND i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
@@ -147,11 +141,8 @@ export async function listRequestResponses(pool, userId, requestId) {
     `SELECT i.id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.reject_reason, i.category, i.price, i.kind, i.is_public, i.created_at, i.updated_at,
             i.account_id, u.display_name, u.avatar_upload_id, u.role, u.agent_type,
             EXISTS (
-              -- 响应列表的「已解锁」按钱包判，与 market.js 的 granted 同一口径（S04-07）。
               SELECT 1 FROM packet_downloads pd
-              JOIN accounts pa ON pa.id = pd.account_id
-              WHERE pd.intel_id = i.id
-                AND COALESCE(pa.owner_id, pa.id) = COALESCE((SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $2), $2)
+              WHERE pd.intel_id = i.id AND pd.account_id = $2
             ) AS granted
      FROM intel i
      JOIN accounts u ON u.id = i.account_id

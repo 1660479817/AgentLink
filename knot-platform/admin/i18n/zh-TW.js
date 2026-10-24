@@ -39,7 +39,6 @@ export default {
   "nav.users": "使用者",
   "nav.site": "站點",
   "nav.xknot": "XKnot",
-  "nav.logs": "日誌",
 
   "overview.title": "總覽",
   "overview.lead": "平台發行、流通、留存，以及注意力打點。",
@@ -123,20 +122,6 @@ export default {
   "verdict.rejected": "已撤銷",
   "verdict.removed": "已刪除",
   "verdict.unknown": "未知",
-
-  "logs.title": "日誌",
-  "logs.lead": "終審沒有完成的記錄。作者不再收到這些通知，統一在這裡看。",
-  "logs.queue": "終審失敗",
-  "logs.queueHint": "評審員逾時、報錯或交回壞結果時，記錄停在待終審；重試到上限就不再自動重試。",
-  "logs.empty": "現在沒有終審失敗的記錄。",
-  "logs.count": "{count} 條",
-  "logs.attempts": "已嘗試 {count} 次",
-  "logs.gaveUp": "已停止重試",
-  "logs.review.agent_timeout": "評審員逾時",
-  "logs.review.agent_failed": "評審員沒有完成審核",
-  "logs.review.agent_bad_json": "評審員沒有交回可用結果",
-  "logs.review.agent_empty": "評審員沒有交回內容",
-  "logs.review.other": "審核沒有完成",
 
   "registration.open": "開放",
   "registration.invite": "需要邀請碼",
@@ -604,31 +589,4 @@ export default {
   "error.token_unavailable": "授權檔案裡沒有這個 Agent 的權杖；重新簽發會寫一份新的。",
   "error.request_failed": "請求沒有完成。",
   "error.not_json": "沒有找到；確認這一頁是從實例主機或同一內網開啟的。",
-
-  // 寫入操作前的二次確認：對象、數量與期限都寫進對話框，別讓人一路按 Enter。
-  "users.grantConfirm": "確認給 {name} 發放 {amount} 積分？",
-  "users.muteConfirm": "確認禁言 {name}：{until}？",
-  "users.levelConfirm": "確認把 {name} 的等級改為 {level}？",
-  "users.entitlementConfirm": "確認更新 {name} 的權益：授予 {grant}，收回 {revoke}？",
-  "users.retireConfirm": "確認停用 {name}？它的授權碼會立即作廢，接在 OpenClaw 上的那個 Agent 會當場斷線。",
-
-  // 贊助圖先在瀏覽器裡看一眼大小與類型：伺服器要等整個檔案傳完才回話。
-  "site.sponsorFileType": "只收 JPEG、PNG、GIF、WebP。",
-  "site.sponsorFileTooLarge": "圖片不能超過 8MB。",
-
-  "xknot.subdomainPlaceholder": "your-site",
-
-  // 管理介面會原樣回傳的錯誤碼：缺一個，管理員就會看見「請求沒有完成 (code)」。
-  "error.invalid": "送出的內容不合規則，按提示改完再送。",
-  "error.rate_limited": "送出太頻繁，過一會兒再試。",
-  "error.internal": "Backend 內部出錯了，這次的改動沒有留下。",
-  "error.empty_file": "選中的檔案是空的。",
-  "error.bad_profile": "檔案有幾項不合格，按列出的問題改完再存。",
-  "error.bad_email": "電子郵件格式不對。",
-  "error.empty_body": "內容不能為空。",
-  "error.bad_ticket": "這張換票已經用過或過期了，回 WebUI 重新進入。",
-  "error.incomplete": "檔案還缺必填項，補好再送出。",
-  "error.duplicate": "同一地址已經有一張未結案的申請。",
-  "error.timeout": "管理介面 15 秒沒有回應，稍後再試。",
-  "error.pageMismatch": "這一頁的腳本與頁面結構對不上（可能被改過）。重新整理再試；仍然不行就重新部署管理後台。",
 };

@@ -20,7 +20,6 @@ const VIEW_LOADERS = {
   users: loadAccounts,
   site: loadSite,
   xknot: loadXknot,
-  logs: loadLogs,
 };
 
 // 价格字段名只从表单来：框里有几个，就填几个、交几个。
@@ -40,12 +39,9 @@ const state = {
   quota: null,
   selectedUser: null,
   selectedAgent: null,
-  // 资料表单当前填的是哪个身份：用来判断「重绘要不要覆盖用户的草稿」。
-  identityFormFor: null,
   agentToken: null,
   tokenBusy: false,
   posts: null,
-  reviewFailures: null,
   patrol: [],
   // 本轮巡查实际看到的那一批，最后一条的 id。报告提交时原样回传，
   // 服务端据此推进「看过的边界」，而不是拿提交时刻当水位。
@@ -68,27 +64,6 @@ function byId(id) {
 function setText(id, value) {
   const node = byId(id);
   if (node) node.textContent = value == null ? "" : String(value);
-}
-
-// 列表请求按代次落地：连点刷新、连续改查询条件时只认最后一次发出的响应，
-// 否则先发后到的旧结果会盖掉新结果，屏幕上的名单是上一次查询的。
-const LOAD_SEQ = new Map();
-
-function nextLoad(name) {
-  const seq = (LOAD_SEQ.get(name) || 0) + 1;
-  LOAD_SEQ.set(name, seq);
-  return seq;
-}
-
-function isLatestLoad(name, seq) {
-  return LOAD_SEQ.get(name) === seq;
-}
-
-// 静态页面与脚本可能不同步（改名、裁剪版页面）。绑定时缺一两个节点不该让整页停住。
-function on(id, event, handler) {
-  const node = byId(id);
-  if (node) node.addEventListener(event, handler);
-  return node;
 }
 
 function setAlert(node, message, kind = "error") {
@@ -162,11 +137,6 @@ const GLYPHS = {
     ["rect", { x: 4, y: 4, width: 16, height: 16, rx: 2.5 }],
     ["path", { d: "M8 9h8M8 12.5h8M8 16h5" }],
   ],
-  logs: [
-    ["rect", { x: 3, y: 4, width: 18, height: 16, rx: 2.5 }],
-    ["path", { d: "m7 9 2.5 2.5L7 14" }],
-    ["path", { d: "M12 14h5" }],
-  ],
   users: [
     ["circle", { cx: 10, cy: 8.5, r: 3.2 }],
     ["path", { d: "M4 19c0-3.2 2.7-5.5 6-5.5s6 2.3 6 5.5" }],
@@ -215,30 +185,37 @@ const GLYPHS = {
     ["path", { d: "m8 8 4-4 4 4" }],
     ["path", { d: "M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" }],
   ],
+  link: [
+    ["path", { d: "M10 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7L11.5 6.3" }],
+    ["path", { d: "M14 10.5a4 4 0 0 0-5.7 0L5.5 13.3a4 4 0 0 0 5.7 5.7l1.3-1.3" }],
+  ],
+  image: [
+    ["rect", { x: 4, y: 5, width: 16, height: 14, rx: 2 }],
+    ["circle", { cx: 9, cy: 10, r: 1.6 }],
+    ["path", { d: "m4.5 17 5-4.5 3.5 3 3-2.5 3.5 3" }],
+  ],
   trash: [
     ["path", { d: "M4 7h16" }],
     ["path", { d: "M9.5 7V5h5v2" }],
     ["path", { d: "m6.5 7 .8 12.2h9.4L17.5 7" }],
     ["path", { d: "M10.5 11v5M13.5 11v5" }],
   ],
+  up: [
+    ["path", { d: "M12 19V5" }],
+    ["path", { d: "m6 11 6-6 6 6" }],
+  ],
+  down: [
+    ["path", { d: "M12 5v14" }],
+    ["path", { d: "m6 13 6 6 6-6" }],
+  ],
   alert: [
     ["path", { d: "M12 4.2 20.2 19.2H3.8Z" }],
     ["path", { d: "M12 10v4" }],
     ["circle", { cx: 12, cy: 16.7, r: 0.6, fill: "currentColor", stroke: "none" }],
   ],
-  // 名册徽标：人、Agent 各一枚线条图标，形状与 WebUI 的 UserIcon / AgentIcon 一致，
-  // 让「这一行是人还是机器人」在名字之前就先看出来。
-  person: [
-    ["circle", { cx: 12, cy: 8, r: 3.5 }],
-    ["path", { d: "M5 19c0-3.5 3-6 7-6s7 2.5 7 6" }],
-  ],
-  agent: [
-    ["path", { d: "M12 7.2V4.6" }],
-    ["circle", { cx: 12, cy: 3.8, r: 0.85, fill: "currentColor", stroke: "none" }],
-    ["rect", { x: 5.5, y: 7.2, width: 13, height: 10.2, rx: 2.6 }],
-    ["circle", { cx: 9.6, cy: 11.6, r: 0.85, fill: "currentColor", stroke: "none" }],
-    ["circle", { cx: 14.4, cy: 11.6, r: 0.85, fill: "currentColor", stroke: "none" }],
-    ["path", { d: "M9.5 14.6h5" }],
+  clock: [
+    ["circle", { cx: 12, cy: 12, r: 8 }],
+    ["path", { d: "M12 8v4.5l2.5 1.5" }],
   ],
 };
 
@@ -295,9 +272,6 @@ function splitList(value) {
     .map((item) => item.trim())
     .filter(Boolean);
 }
-
-// 接口给的这两个值会进 class 名：只认白名单，拼不进去就退到中性样式。
-const VERDICT_CLASSES = new Set(["passed", "pending", "rejected", "removed"]);
 
 function verdictLabel(verdict) {
   if (verdict === "passed") return t("verdict.passed");
@@ -442,9 +416,6 @@ async function writeButton(button, run, slotId) {
   }
 }
 
-// 没有上限的请求会把界面吊死：列表的 aria-busy 停在 true，之后再点也没有第二次机会。
-const REQUEST_TIMEOUT_MS = 15000;
-
 async function api(pathname, options = {}) {
   const headers = { Authorization: `Bearer ${state.token}` };
   const init = { method: options.method || "GET", headers };
@@ -454,27 +425,15 @@ async function api(pathname, options = {}) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(options.body);
   }
-  const controller = typeof AbortController === "function" ? new AbortController() : null;
-  if (controller) init.signal = controller.signal;
-  const timer = controller ? window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
   let response;
-  let text;
   try {
     response = await fetch(`/api/admin${pathname}`, init);
-    // 正文也在这段计时里读：挂住的连接通常在读完状态行之后才卡住。
-    text = await response.text();
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      const timeout = new Error("timeout");
-      timeout.code = "timeout";
-      throw timeout;
-    }
-    const unreachable = new Error("unreachable");
-    unreachable.code = "unreachable";
-    throw unreachable;
-  } finally {
-    if (timer) window.clearTimeout(timer);
+  } catch {
+    const error = new Error("unreachable");
+    error.code = "unreachable";
+    throw error;
   }
+  const text = await response.text();
   let data = {};
   if (text) {
     try {
@@ -487,12 +446,6 @@ async function api(pathname, options = {}) {
       error.status = response.status;
       throw error;
     }
-  } else if (response.ok) {
-    // 空体重不算「没有数据」：调用方会把它当成「名册为空」这类结论，把失败说成事实。
-    const error = new Error("bad_response");
-    error.code = "bad_response";
-    error.status = response.status;
-    throw error;
   }
   if (!response.ok) {
     const error = new Error(data.error || response.statusText || "request_failed");
@@ -530,69 +483,46 @@ function showApp() {
 // 存储位置决定「保持多久」：
 // - persist（从站点「我的」换来的凭据）写 localStorage，下次打开 /admin 直接用；
 // - 手动粘的主令牌只写 sessionStorage，关掉标签页就没了，和以前一样。
-//
-// 明文的 HTTP 局域网部署里凭据不该长住在 localStorage：同网段能嗅探到，留下就是长期风险。
-// 只有 https 或本机调试才持久化，其它情况退到 sessionStorage，关掉标签页就失效。
-function canPersistCredential() {
-  const host = window.location.hostname;
-  const loopback = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-  return Boolean(window.isSecureContext) || loopback;
-}
-
 function remember(value, persist) {
-  localStorage.removeItem(CREDENTIAL_KEY);
-  sessionStorage.removeItem(CREDENTIAL_KEY);
-  if (!persist) {
-    sessionStorage.setItem(TOKEN_KEY, value);
+  if (persist) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    localStorage.setItem(CREDENTIAL_KEY, value);
     return;
   }
-  sessionStorage.removeItem(TOKEN_KEY);
-  const jar = canPersistCredential() ? localStorage : sessionStorage;
-  jar.setItem(CREDENTIAL_KEY, value);
+  localStorage.removeItem(CREDENTIAL_KEY);
+  sessionStorage.setItem(TOKEN_KEY, value);
 }
 
 function forget() {
   sessionStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(CREDENTIAL_KEY);
-  sessionStorage.removeItem(CREDENTIAL_KEY);
 }
 
 function savedCredential() {
-  return (
-    localStorage.getItem(CREDENTIAL_KEY) ||
-    sessionStorage.getItem(CREDENTIAL_KEY) ||
-    sessionStorage.getItem(TOKEN_KEY) ||
-    ""
-  );
+  return localStorage.getItem(CREDENTIAL_KEY) || sessionStorage.getItem(TOKEN_KEY) || "";
 }
 
 async function enter(token, { persist = false } = {}) {
   const value = String(token || "").trim();
   if (!value) {
     setAlert(byId("login-error"), t("login.empty"), "error");
-    return false;
+    return;
   }
   state.token = value;
   remember(value, persist);
   const button = byId("login-submit");
-  if (button) button.disabled = true;
+  button.disabled = true;
   setAlert(byId("login-error"), "", "error");
   try {
     const data = await api("/system");
     state.system = data.system;
     showApp();
-    return true;
   } catch (error) {
-    // 隧道 502、断网、坏响应都不该作废 30 天的凭据：只有 401（过期或被换掉）才删。
-    // 留着它，刷新这一页就能用同一枚凭据重试，不用回 WebUI 重新换票。
-    if (error?.status === 401) {
-      state.token = "";
-      forget();
-    }
+    state.token = "";
+    forget();
     showLogin(verifyMessage(error));
-    return false;
   } finally {
-    if (button) button.disabled = false;
+    button.disabled = false;
   }
 }
 
@@ -622,9 +552,9 @@ async function claimTicket() {
       ticketFailed = true;
       return false;
     }
-    const entered = await enter(data.credential, { persist: true });
-    if (entered) toast(t("login.saved"));
-    return entered;
+    await enter(data.credential, { persist: true });
+    if (state.token) toast(t("login.saved"));
+    return Boolean(state.token);
   } catch {
     ticketFailed = true;
     return false;
@@ -725,22 +655,20 @@ function renderOverview() {
 }
 
 async function loadOverview() {
-  // 三个接口各算各的：用 Promise.all 时任一失败都会把已经拿到的数字一起丢掉，
-  // 整页退回「加载中」，而实际上另外两个已经回来了。
-  const [economy, patrol, system] = await Promise.allSettled([
-    api("/economy"),
-    api("/patrol"),
-    state.system ? Promise.resolve({ system: state.system }) : api("/system"),
-  ]);
-  if (economy.status === "fulfilled") state.economy = economy.value;
-  if (patrol.status === "fulfilled") {
-    state.patrol = Array.isArray(patrol.value.posts) ? patrol.value.posts : [];
-    state.patrolThrough = patrol.value.through || null;
+  try {
+    const [economy, patrol, system] = await Promise.all([
+      api("/economy"),
+      api("/patrol"),
+      state.system ? Promise.resolve({ system: state.system }) : api("/system"),
+    ]);
+    state.economy = economy;
+    state.patrol = Array.isArray(patrol.posts) ? patrol.posts : [];
+    state.patrolThrough = patrol.through || null;
+    state.system = system.system;
+    renderOverview();
+  } catch (error) {
+    if (!handleAuth(error)) showBanner(humanError(error));
   }
-  if (system.status === "fulfilled") state.system = system.value.system;
-  renderOverview();
-  const failure = [economy, patrol, system].find((row) => row.status === "rejected");
-  if (failure && !handleAuth(failure.reason)) showBanner(humanError(failure.reason));
 }
 
 /* 内容 */
@@ -750,82 +678,9 @@ function loadContent() {
   void loadPatrol();
 }
 
-/* 日志 */
-
-const REVIEW_ERROR_LABELS = {
-  agent_timeout: "logs.review.agent_timeout",
-  agent_failed: "logs.review.agent_failed",
-  agent_bad_json: "logs.review.agent_bad_json",
-  agent_empty: "logs.review.agent_empty",
-};
-
-function reviewErrorLabel(code) {
-  return t(REVIEW_ERROR_LABELS[code] || "logs.review.other");
-}
-
-function logRow(failure) {
-  const user = failure.user || {};
-  return el(
-    "article",
-    { class: "post-row" },
-    el(
-      "div",
-      { class: "post-main" },
-      el(
-        "div",
-        { class: "post-head" },
-        el("span", { class: "pill is-warn", text: reviewErrorLabel(failure.error) }),
-        el("span", { class: "pill", text: t("logs.attempts", { count: failure.attempts }) }),
-        failure.gaveUp ? el("span", { class: "pill is-warn", text: t("logs.gaveUp") }) : null,
-        el("span", { text: user.displayName || t("content.noName") }),
-        el("span", { text: user.email || "" }),
-        el("span", { class: "post-time", text: fmtDate(failure.createdAt) }),
-        el("code", { class: "post-id", text: failure.id })
-      ),
-      el("p", { class: "post-body", text: utf8(failure.body) || t("content.noBody") })
-    )
-  );
-}
-
-function renderLogs() {
-  const list = byId("logs-list");
-  const tag = byId("logs-count");
-  if (!list) return;
-  const failures = Array.isArray(state.reviewFailures) ? state.reviewFailures : null;
-  if (tag) {
-    if (failures) {
-      tag.textContent = t("logs.count", { count: failures.length });
-      tag.classList.toggle("is-warn", failures.length > 0);
-    } else {
-      tag.textContent = "—";
-      tag.classList.remove("is-warn");
-    }
-  }
-  if (failures == null) {
-    list.replaceChildren();
-    return;
-  }
-  if (!failures.length) {
-    list.replaceChildren(emptyBlock("logs.empty", "logs"));
-    return;
-  }
-  list.replaceChildren(...failures.map(logRow));
-}
-
-async function loadLogs() {
-  try {
-    const data = await api("/review-failures");
-    state.reviewFailures = Array.isArray(data.failures) ? data.failures : [];
-    renderLogs();
-  } catch (error) {
-    if (!handleAuth(error)) showBanner(humanError(error));
-  }
-}
-
 async function loadPosts() {
   const user = byId("posts-user").value.trim();
   if (!user) return;
-  const seq = nextLoad("posts");
   const params = new URLSearchParams({ user });
   const q = byId("posts-q").value.trim();
   const within = byId("posts-within").value.trim();
@@ -839,7 +694,7 @@ async function loadPosts() {
   }
   try {
     const data = await guard(() => api(`/posts?${params.toString()}`));
-    if (!data || !isLatestLoad("posts", seq)) return;
+    if (!data) return;
     state.posts = data;
     renderPosts();
   } finally {
@@ -858,7 +713,7 @@ function postRow(post) {
       class: "button danger compact",
       type: "button",
       "aria-label": t("content.remove"),
-      on: { click: (event) => void removePostFlow(post, { button: event.currentTarget, reload: loadPosts }) },
+      on: { click: () => void removePost(post) },
     },
     iconEl("trash", 14),
     el("span", { text: t("content.remove") })
@@ -872,11 +727,7 @@ function postRow(post) {
       el(
         "div",
         { class: "post-head" },
-        el("span", {
-          // verdict 来自接口：只认四种取值，别的一个 class 也不拼。
-          class: VERDICT_CLASSES.has(post.verdict) ? `pill ${post.verdict}` : "pill",
-          text: verdictLabel(post.verdict),
-        }),
+        el("span", { class: `pill ${post.verdict || ""}`, text: verdictLabel(post.verdict) }),
         el("span", { class: "post-time", text: fmtDate(post.createdAt) }),
         el("span", {
           class: post.public === false ? "pill" : "pill passed",
@@ -933,25 +784,21 @@ function renderPosts() {
   list.replaceChildren(...posts.map(postRow));
 }
 
-async function removePostFlow(post, { button, slotId, reload }) {
+async function removePost(post) {
   const reason = window.prompt(t("content.removeTitle"), "");
   if (reason == null) return;
   const text = reason.trim();
   if (!text) {
-    // 巡查栏有自己的错误位，查帖栏没有，就退回 toast。
-    if (slotId) formError("", t("content.reasonRequired"), slotId);
-    else toast(t("content.reasonRequired"), "error");
+    toast(t("content.reasonRequired"), "error");
     return;
   }
   if (!window.confirm(t("content.removeConfirm", { reason: text }))) return;
-  const result = await writeButton(
-    button,
-    () => api(`/posts/${encodeURIComponent(post.id)}/remove`, { method: "POST", body: { reason: text } }),
-    slotId
+  const result = await guard(() =>
+    api(`/posts/${encodeURIComponent(post.id)}/remove`, { method: "POST", body: { reason: text } })
   );
   if (!result) return;
   toast(result.already ? t("content.alreadyRemoved") : t("content.removed"), "ok");
-  await reload();
+  await loadPosts();
 }
 
 async function loadPatrol() {
@@ -976,7 +823,8 @@ function patrolItem(post) {
     },
     iconEl("trash", 14),
     el("span", { text: t("content.remove") })
-  );  const warn = el(
+  );
+  const warn = el(
     "button",
     {
       class: "button secondary compact",
@@ -1019,9 +867,23 @@ function renderPatrol() {
   list.replaceChildren(...state.patrol.map(patrolItem));
 }
 
-// 巡查里删帖与查帖里删帖是同一条路，只差错误位与删完刷新哪一列。
-function patrolRemove(post, button) {
-  return removePostFlow(post, { button, slotId: "patrol-error", reload: loadPatrol });
+async function patrolRemove(post, button) {
+  const reason = window.prompt(t("content.removeTitle"), "");
+  if (reason == null) return;
+  const text = reason.trim();
+  if (!text) {
+    formError("", t("content.reasonRequired"), "patrol-error");
+    return;
+  }
+  if (!window.confirm(t("content.removeConfirm", { reason: text }))) return;
+  const result = await writeButton(
+    button,
+    () => api(`/posts/${encodeURIComponent(post.id)}/remove`, { method: "POST", body: { reason: text } }),
+    "patrol-error"
+  );
+  if (!result) return;
+  toast(result.already ? t("content.alreadyRemoved") : t("content.removed"), "ok");
+  await loadPatrol();
 }
 
 async function patrolWarn(post, button) {
@@ -1069,8 +931,28 @@ const ROLE_KEYS = {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-// 名册徽标与界面图标共用一张表与一个构建器：平台账号就用「站点」那枚建筑图。
-const MARK_GLYPHS = { person: "person", agent: "agent", platform: "site" };
+// 名册徽标：人、Agent、平台各一枚线条图标，形状与 WebUI 的 UserIcon / AgentIcon 一致，
+// 让「这一行是人还是机器人」在名字之前就先看出来。
+const IDENTITY_ICONS = {
+  person: [
+    ["circle", { cx: 12, cy: 8, r: 3.5 }],
+    ["path", { d: "M5 19c0-3.5 3-6 7-6s7 2.5 7 6" }],
+  ],
+  agent: [
+    ["path", { d: "M12 7.2V4.6" }],
+    ["circle", { cx: 12, cy: 3.8, r: 0.85, fill: "currentColor", stroke: "none" }],
+    ["rect", { x: 5.5, y: 7.2, width: 13, height: 10.2, rx: 2.6 }],
+    ["circle", { cx: 9.6, cy: 11.6, r: 0.85, fill: "currentColor", stroke: "none" }],
+    ["circle", { cx: 14.4, cy: 11.6, r: 0.85, fill: "currentColor", stroke: "none" }],
+    ["path", { d: "M9.5 14.6h5" }],
+  ],
+  platform: [
+    ["path", { d: "M4 20.2h16" }],
+    ["path", { d: "M6.2 20.2V9.4L12 5.2l5.8 4.2v10.8" }],
+    ["path", { d: "M10.2 20.2v-4.4h3.6v4.4" }],
+    ["path", { d: "M9 11.4h1.7M13.3 11.4H15M9 14.6h1.7M13.3 14.6H15" }],
+  ],
+};
 
 function identityKind(record) {
   if (!record) return "person";
@@ -1079,9 +961,28 @@ function identityKind(record) {
   return "person";
 }
 
+function iconNode(kind, size = 16) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of IDENTITY_ICONS[kind] || IDENTITY_ICONS.person) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, String(value));
+    svg.append(node);
+  }
+  return svg;
+}
+
 function badgeNode(kind, size = 18) {
   const badge = el("span", { class: `identity-mark is-${kind}`, "aria-hidden": "true" });
-  badge.append(svgNode(MARK_GLYPHS[kind] || "person", size));
+  badge.append(iconNode(kind, size));
   return badge;
 }
 
@@ -1170,13 +1071,10 @@ function restoreSelection() {
 }
 
 async function loadAccounts() {
-  const seq = nextLoad("accounts");
   const list = byId("users-list");
   if (list) list.setAttribute("aria-busy", "true");
   setText("roster-count", t("users.rosterLoading"));
   const data = await guard(() => api("/accounts"));
-  // 早先发出的那次不再落地：名册可能是改过筛选、连点刷新之前的快照。
-  if (!isLatestLoad("accounts", seq)) return;
   if (list) list.setAttribute("aria-busy", "false");
   if (!data) {
     setText("roster-count", t("users.rosterFailed"));
@@ -1424,27 +1322,15 @@ function identityDraft() {
   };
 }
 
-// 表单里有没有还没保存的改动。后台刷新后按它决定「重填」还是「留着草稿」。
-function identityDirty(record) {
-  const draft = identityDraft();
-  if (draft.name !== String(record.displayName || "")) return true;
-  if (draft.bio !== String(record.bio || "")) return true;
-  if (record.role !== "agent") return false;
-  return draft.specialties.join("\u0000") !== (record.specialties || []).join("\u0000");
-}
-
 // 前端先照 Backend 的规则挡一次，错在字段旁边说清；真边界仍以接口为准。
-// 两个上限按码点算（与 Backend 的 Array.from 口径一致），不看 UTF-16 码元。
-const IDENTITY_LIMITS = { name: 40, bio: 200 };
-
 function identityProblem(record, draft, { checkName }) {
   if (checkName) {
     const name = draft.name.replace(/\s+/g, " ").trim();
     if (!name) return t("users.nameRequired");
-    if (Array.from(name).length > IDENTITY_LIMITS.name) return t("users.nameTooLong");
+    if (Array.from(name).length > 40) return t("users.nameTooLong");
   }
   const bio = draft.bio.replace(/\r\n?/g, "\n").trim();
-  if (Array.from(bio).length > IDENTITY_LIMITS.bio) return t("users.bioTooLong");
+  if (Array.from(bio).length > 200) return t("users.bioTooLong");
   if (record.role === "agent") {
     if (draft.specialties.length > 8) return t("users.specialtiesTooMany");
     if (draft.specialties.some((item) => Array.from(item).length > 20)) return t("users.specialtyTooLong");
@@ -1453,7 +1339,6 @@ function identityProblem(record, draft, { checkName }) {
 }
 
 function fillIdentityForm(record) {
-  state.identityFormFor = record.id;
   const name = byId("identity-name");
   if (name) {
     name.value = record.displayName || "";
@@ -1476,7 +1361,7 @@ function fillIdentityForm(record) {
 
 function updateBioCount() {
   const bio = byId("identity-bio")?.value || "";
-  setText("identity-bio-count", `${Array.from(bio).length} / ${IDENTITY_LIMITS.bio}`);
+  setText("identity-bio-count", `${Array.from(bio).length} / 200`);
 }
 
 function renderUserPanel() {
@@ -1498,7 +1383,7 @@ function renderUserPanel() {
   const mark = byId("user-mark");
   if (mark) {
     mark.className = `identity-mark is-${kind}`;
-    mark.replaceChildren(svgNode(MARK_GLYPHS[kind] || "person", 20));
+    mark.replaceChildren(iconNode(kind, 20));
   }
 
   setText("user-summary", record.displayName || record.email || record.id);
@@ -1524,11 +1409,7 @@ function renderUserPanel() {
           : t("users.readonlyAccount");
   }
   setText("identity-mode", editable ? t("users.editable") : t("users.readonly"));
-  // 后台刷新（发积分、警告、禁言后的 updateUser）不该抹掉正在编辑的草稿：
-  // 只有换了选中对象，或表单本来就与库里的值一致时，才用库里的值重填。
-  if (editable && (state.identityFormFor !== record.id || !identityDirty(record))) {
-    fillIdentityForm(record);
-  }
+  if (editable) fillIdentityForm(record);
 
   const facts = byId("identity-facts");
   if (facts) facts.replaceChildren(...factsRows(identityFacts(record, picked)));
@@ -1551,11 +1432,7 @@ function renderUserPanel() {
   }
   if (manageable) {
     const level = byId("level-value");
-    // 同一行刷新时不要把刚输入的等级改回旧值：只在换选中对象时同步一次。
-    if (level && level.dataset.for !== record.id) {
-      level.value = record.level ?? 1;
-      level.dataset.for = record.id;
-    }
+    if (level) level.value = record.level ?? 1;
   }
 }
 
@@ -1621,27 +1498,6 @@ function updateUser(next) {
   renderUserPanel();
 }
 
-// 写操作前确认用的称呼：没有显示名就退回邮箱或 id，别在对话框里留一个空位。
-function whoLabel(record) {
-  return record?.displayName || record?.email || record?.id || "";
-}
-
-// 一次填表一个幂等键：超时后再点一次用的是同一个键，Backend 认作同一笔；
-// 改了金额或理由就换新的（那已经是另一笔）。成功后清掉，下一次发放重新生成。
-let grantKey = { signature: "", id: "" };
-
-function grantRequestId(userId, amount, body) {
-  const signature = `${userId}|${amount}|${body}`;
-  if (grantKey.signature !== signature || !grantKey.id) {
-    const id =
-      typeof window.crypto?.randomUUID === "function"
-        ? window.crypto.randomUUID()
-        : `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    grantKey = { signature, id };
-  }
-  return grantKey.id;
-}
-
 async function submitGrant(event) {
   event.preventDefault();
   const user = state.selectedUser;
@@ -1656,14 +1512,10 @@ async function submitGrant(event) {
     formError("grant-form", t("users.reasonRequired"));
     return;
   }
-  // 发积分直接落一笔账，收回只能再发一笔反向的；先让人看清给谁、给多少。
-  if (!window.confirm(t("users.grantConfirm", { name: whoLabel(user), amount: fmtInt(amount) }))) return;
-  const requestId = grantRequestId(user.id, amount, body);
   const data = await writeForm("grant-form", () =>
-    api("/points", { method: "POST", body: { user: user.id, amount, body, requestId } })
+    api("/points", { method: "POST", body: { user: user.id, amount, body } })
   );
   if (!data) return;
-  grantKey = { signature: "", id: "" };
   byId("grant-amount").value = "";
   byId("grant-body").value = "";
   updateUser(data.user);
@@ -1697,12 +1549,8 @@ async function submitMute(event) {
     formError("mute-form", t("users.reasonRequired"));
     return;
   }
-  // 「直到平台解除」不会自己到期：确认里把期限原样说出来，别让人凭记忆判断。
-  const until = byId("mute-until");
-  const untilLabel = until.selectedOptions?.[0]?.textContent || until.value;
-  if (!window.confirm(t("users.muteConfirm", { name: whoLabel(user), until: untilLabel }))) return;
   const data = await writeForm("mute-form", () =>
-    api("/mute", { method: "POST", body: { user: user.id, until: until.value, body } })
+    api("/mute", { method: "POST", body: { user: user.id, until: byId("mute-until").value, body } })
   );
   if (!data) return;
   byId("mute-body").value = "";
@@ -1742,7 +1590,6 @@ async function submitLevel(event) {
     formError("level-form", t("users.reasonRequired"));
     return;
   }
-  if (!window.confirm(t("users.levelConfirm", { name: whoLabel(user), level: fmtInt(level) }))) return;
   const data = await writeForm("level-form", () =>
     api("/level", { method: "POST", body: { user: user.id, level, body } })
   );
@@ -1767,13 +1614,6 @@ async function submitEntitlements(event) {
     formError("entitlement-form", t("users.reasonRequired"));
     return;
   }
-  // 收回权益没有撤销键：确认里把「授什么、收什么」都写出来。
-  const confirmText = t("users.entitlementConfirm", {
-    name: whoLabel(user),
-    grant: grant.join("、") || t("common.none"),
-    revoke: revoke.join("、") || t("common.none"),
-  });
-  if (!window.confirm(confirmText)) return;
   const data = await writeForm("entitlement-form", () =>
     api("/entitlements", { method: "POST", body: { user: user.id, grant, revoke, body } })
   );
@@ -1790,16 +1630,11 @@ async function submitIssue(event) {
   const name = byId("issue-name").value.trim();
   const specialties = splitList(byId("issue-specialties").value);
   if (!name) {
-    formError("issue-form", t("users.issueEmpty"), "issue-result");
+    toast(t("users.issueEmpty"), "error");
     return;
   }
   const body = specialties.length ? { name, specialties } : { name };
-  // 签发内部 Agent 会写一份含令牌的 .local.env：双击就是第二次签发，第一次的令牌当场作废。
-  const data = await writeForm(
-    "issue-form",
-    () => api("/internal-agents", { method: "POST", body }),
-    "issue-result"
-  );
+  const data = await guard(() => api("/internal-agents", { method: "POST", body }));
   if (!data) return;
   const result = byId("issue-result");
   let message;
@@ -1847,8 +1682,6 @@ function renderIssueQuota() {
 async function retireAgent(agent) {
   const reason = window.prompt(t("users.retireTitle", { name: agent.displayName }), t("users.retireDefault"));
   if (reason == null) return;
-  // 停用会立刻作废授权码，接在 OpenClaw 上的那个 Agent 当场断线：prompt 之后还要再确认一次。
-  if (!window.confirm(t("users.retireConfirm", { name: agent.displayName }))) return;
   const data = await guard(() =>
     api(`/agents/${encodeURIComponent(agent.id)}/retire`, { method: "POST", body: { body: reason.trim() || t("users.retireDefault") } })
   );
@@ -2022,11 +1855,7 @@ async function saveSystem(event) {
     publicBoard: byId("system-board").checked,
     registrationMode: byId("system-registration").value,
   };
-  const data = await writeForm(
-    "system-form",
-    () => api("/system", { method: "PATCH", body: patch }),
-    "system-error"
-  );
+  const data = await guard(() => api("/system", { method: "PATCH", body: patch }));
   if (!data) return;
   state.system = data.system;
   fillSystem(state.system);
@@ -2179,10 +2008,6 @@ function imageSource(image) {
   return `/api/web/uploads/${encodeURIComponent(value)}`;
 }
 
-// 服务端的 8MB 与类型白名单要等整个文件传完才回话：选中的文件先在本地看一眼。
-const SPONSOR_IMAGE_MAX = 8 * 1024 * 1024;
-const SPONSOR_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-
 async function loadSponsors() {
   try {
     const data = await api("/sponsors");
@@ -2226,15 +2051,6 @@ async function uploadSponsorImage() {
     toast(t("site.sponsorPickFile"), "error");
     return;
   }
-  if (!SPONSOR_IMAGE_TYPES.includes(file.type)) {
-    formError("sponsor-form", t("site.sponsorFileType"));
-    return;
-  }
-  if (file.size > SPONSOR_IMAGE_MAX) {
-    formError("sponsor-form", t("site.sponsorFileTooLarge"));
-    return;
-  }
-  formError("sponsor-form", "");
   const form = new FormData();
   form.append("file", file);
   const data = await guard(() => api("/uploads", { method: "POST", form }));
@@ -2249,7 +2065,7 @@ async function saveSponsor(event) {
   const title = byId("sponsor-title").value.trim();
   const href = byId("sponsor-href").value.trim();
   if (!title || !href) {
-    formError("sponsor-form", t("site.sponsorNeed"), "sponsor-error");
+    toast(t("site.sponsorNeed"), "error");
     return;
   }
   const body = {
@@ -2259,13 +2075,10 @@ async function saveSponsor(event) {
     caption: byId("sponsor-caption").value.trim(),
     source: byId("sponsor-source").value.trim(),
   };
-  const data = await writeForm(
-    "sponsor-form",
-    () =>
-      id
-        ? api(`/sponsors/${encodeURIComponent(id)}`, { method: "POST", body })
-        : api("/sponsors", { method: "POST", body }),
-    "sponsor-error"
+  const data = await guard(() =>
+    id
+      ? api(`/sponsors/${encodeURIComponent(id)}`, { method: "POST", body })
+      : api("/sponsors", { method: "POST", body })
   );
   if (!data) return;
   resetSponsorForm();
@@ -2371,8 +2184,6 @@ async function loadSite() {
 /* XKnot */
 
 const SIGNAL_KEYS = { error: "signalError", warn: "signalWarn", info: "signalInfo", ok: "signalOk" };
-// signal.level 也来自接口、也进 class 名：只认这四种。
-const SIGNAL_LEVELS = new Set(["error", "warn", "info", "ok"]);
 
 function fact(label, value) {
   return el("div", {}, el("dt", { text: label }), el("dd", { text: value == null || value === "" ? "—" : value }));
@@ -2392,12 +2203,11 @@ function loadXknot() {
 }
 
 async function loadFederation() {
-  byId("fed-facts")?.replaceChildren();
-  byId("fed-health-facts")?.replaceChildren();
+  byId("fed-facts").replaceChildren();
+  byId("fed-health-facts").replaceChildren();
   setText("fed-file", "");
-  byId("fed-signals")?.replaceChildren(el("li", { class: "signal", text: t("xknot.reading") }));
-  const driftCard = byId("fed-drift-card");
-  if (driftCard) driftCard.hidden = true;
+  byId("fed-signals").replaceChildren(el("li", { class: "signal", text: t("xknot.reading") }));
+  byId("fed-drift-card").hidden = true;
   try {
     const data = await api("/federation");
     state.federation = data;
@@ -2405,7 +2215,7 @@ async function loadFederation() {
   } catch (error) {
     if (handleAuth(error)) return;
     showBanner(humanError(error));
-    byId("fed-signals")?.replaceChildren(el("li", { class: "signal is-error", text: humanError(error) }));
+    byId("fed-signals").replaceChildren(el("li", { class: "signal is-error", text: humanError(error) }));
   }
 }
 
@@ -2420,7 +2230,7 @@ function renderSignals(signals) {
     ...signals.map((signal) =>
       el(
         "li",
-        { class: `signal is-${SIGNAL_LEVELS.has(signal.level) ? signal.level : "info"}` },
+        { class: `signal is-${signal.level}` },
         el("span", { class: "signal-dot", "aria-hidden": "true" }),
         el(
           "span",
@@ -2460,7 +2270,7 @@ function renderFederation() {
   const relay = running.relayUrl
     ? `${running.relayUrl}${running.relayUrlSource === "derived" ? t("xknot.relayDerived") : ""}`
     : "";
-  byId("fed-facts")?.replaceChildren(
+  byId("fed-facts").replaceChildren(
     fact(t("xknot.instanceId"), running.instanceId),
     fact(t("xknot.hub"), running.hubOrigin),
     fact(t("xknot.relay"), relay),
@@ -2477,7 +2287,7 @@ function renderFederation() {
       : t("xknot.fileNone", { path: data.file?.path ? `：${data.file.path}` : "" })
   );
 
-  byId("fed-health-facts")?.replaceChildren(
+  byId("fed-health-facts").replaceChildren(
     fact(t("xknot.probeUrl"), health.url),
     fact(t("xknot.reported"), health.instance || t("xknot.notSent")),
     fact(t("xknot.protocol"), health.url ? (health.https ? "https" : t("xknot.notHttps")) : "—"),
@@ -2556,21 +2366,6 @@ function renderProfileForm() {
         : profileInput(field)
     )
   );
-}
-
-// 档案表单的标签是 boot 时用 t() 写进 DOM 的一次性节点（没有 data-i18n）：
-// 切语种要重建这一块，否则标签永远停在启动时的语言。重建前收下草稿，建完填回去。
-function relabelProfileForm() {
-  const container = byId("profile-fields");
-  if (!container || !container.childElementCount) return;
-  const draft = collectProfile();
-  renderProfileForm();
-  for (const input of container.querySelectorAll("[data-profile-key]")) {
-    const key = input.dataset.profileKey;
-    if (!Object.prototype.hasOwnProperty.call(draft, key)) continue;
-    const value = draft[key];
-    input.value = Array.isArray(value) ? value.join(", ") : value;
-  }
 }
 
 function collectProfile() {
@@ -2658,15 +2453,7 @@ async function loadJoinApplication() {
     state.joinApplication = data?.application || null;
   } catch (error) {
     if (handleAuth(error)) return;
-    // 读不到不等于没交过：保留手上那份记录，并把这次失败写出来，
-    // 否则卡片会像「从未提交」一样回话，再提交一次又会被中枢判重。
-    const node = byId("join-record");
-    if (node) {
-      node.className = "alert is-error";
-      node.textContent = humanError(error);
-      node.hidden = false;
-    }
-    return;
+    state.joinApplication = null;
   }
   renderJoinRecord();
 }
@@ -2733,7 +2520,6 @@ function renderProgress() {
     if (start) start.hidden = true;
     return;
   }
-  if (!list) return;
 
   const run = data.run || null;
   const steps = Array.isArray(run?.steps) ? run.steps : [];
@@ -2794,7 +2580,7 @@ function renderProgress() {
 
 async function startTunnel() {
   const button = byId("connect-start");
-  if (button) button.disabled = true;
+  button.disabled = true;
   setAlert(byId("connect-note"), t("xknot.writing"), "ok");
   try {
     const data = await api("/xknot/connect", { method: "POST" });
@@ -2822,38 +2608,27 @@ async function startTunnel() {
   }
 }
 
-// 中枢回来的地址只认站内路径或 https：其它 scheme（javascript:、data:）不放进 href。
-function safeHref(url) {
-  const value = String(url || "").trim();
-  if (!value) return "";
-  if (value.startsWith("/") || /^https:\/\//i.test(value)) return value;
-  return "";
-}
-
 function renderJoinRecord() {
   const node = byId("join-record");
   if (!node) return;
-  // 上一次读取失败时这块被临时改成错误条，拿回记录时要还原成原来的说明行。
-  node.className = "muted small";
   const application = state.joinApplication;
   if (!application?.id) {
     node.hidden = true;
     node.replaceChildren();
     return;
   }
-  // 中枢给的是 UTC 的 ISO 串：截前 10 位在东八区会把凌晨的申请显示成前一天。
-  const href = safeHref(application.caseUrl);
+  const submitted = String(application.submittedAt || "").slice(0, 10);
   node.replaceChildren(
     el("span", {
       text: t("xknot.joinRecord", {
         id: application.id,
         status: application.status || "pending",
-        when: application.submittedAt ? fmtDate(application.submittedAt) : "—",
+        when: submitted || "—",
       }),
     }),
-    href
+    application.caseUrl
       ? el("a", {
-          href,
+          href: application.caseUrl,
           target: "_blank",
           rel: "noopener",
           text: t("xknot.viewProgress"),
@@ -2930,7 +2705,7 @@ async function submitJoin(event) {
   }
 
   const button = byId("join-submit");
-  if (button) button.disabled = true;
+  button.disabled = true;
   setAlert(byId("join-result"), t("xknot.submitting"), "ok");
   try {
     const data = await api("/xknot/apply", {
@@ -2953,14 +2728,13 @@ async function submitJoin(event) {
       : null;
     renderJoinRecord();
     const result = byId("join-result");
-    const href = safeHref(application.caseUrl);
     result.replaceChildren(
       el("span", {
         text: t("xknot.submitted", { id: application.id || t("xknot.noId") }),
       }),
-      href
+      application.caseUrl
         ? el("a", {
-            href,
+            href: application.caseUrl,
             target: "_blank",
             rel: "noopener",
             text: ` · ${t("xknot.viewProgress")}`,
@@ -2970,9 +2744,9 @@ async function submitJoin(event) {
     result.classList.remove("is-error");
     result.classList.add("is-ok");
     result.hidden = false;
-    // 成功之后不允许重复点：同一地址再交一张会被中枢判重。
-    // 但按键只是禁用、不隐藏——申请被中枢判拒、或要换名字重交时，重新检查一次就能再提交。
+    // 成功之后不再允许重复点：同一地址再交一张会被中枢判重。
     resetJoinCheck();
+    button.hidden = true;
     // 公钥在服务端已经顺手交上去了，这里直接开始读进度。
     void loadProgress();
   } catch (error) {
@@ -2990,7 +2764,7 @@ async function submitJoin(event) {
 
 function renderIssued(data) {
   const issued = data?.issued || {};
-  byId("profile-issued")?.replaceChildren(
+  byId("profile-issued").replaceChildren(
     fact(t("xknot.instanceId"), issued.id),
     fact(t("xknot.url"), issued.url),
     fact(t("xknot.since"), issued.since),
@@ -3014,7 +2788,7 @@ function renderIssued(data) {
 async function saveProfile(event) {
   event.preventDefault();
   const button = byId("profile-save");
-  if (button) button.disabled = true;
+  button.disabled = true;
   setAlert(byId("profile-problems"), "", "error");
   try {
     const data = await api("/profile", { method: "PUT", body: { site: collectProfile() } });
@@ -3027,7 +2801,7 @@ async function saveProfile(event) {
     if (problems.length) setAlert(byId("profile-problems"), problems.join("；"), "error");
     else toast(humanError(error), "error");
   } finally {
-    if (button) button.disabled = false;
+    button.disabled = false;
   }
 }
 
@@ -3046,12 +2820,6 @@ function paintLocalePicker() {
   }
 }
 
-// 标签页标题不走 data-i18n（<title> 里没有属性可挂），切语种后要单独写一次，
-// 否则英文界面下浏览器标签还停在中文。
-function paintTitle() {
-  document.title = t("topbar.title");
-}
-
 // 切语种只换文案：静态标记重刷一次，当前栏按缓存重画，不整页刷新。
 function switchLocale(id) {
   if (!setLocale(id)) {
@@ -3060,10 +2828,7 @@ function switchLocale(id) {
   }
   paintIcons();
   applyI18n();
-  paintTitle();
   paintLocalePicker();
-  // 档案表单的字段标签不是 data-i18n：单独重建一次，否则它会停在旧语言。
-  relabelProfileForm();
   if (state.token) setView(state.view);
 }
 
@@ -3071,54 +2836,53 @@ function bindEvents() {
   for (const select of document.querySelectorAll("select[data-locale-select]")) {
     select.addEventListener("change", (event) => switchLocale(event.target.value));
   }
-  on("login-form", "submit", (event) => {
+  byId("login-form").addEventListener("submit", (event) => {
     event.preventDefault();
     enter(byId("token-input").value);
   });
-  on("logout-button", "click", () => {
+  byId("logout-button").addEventListener("click", () => {
     if (window.confirm(t("login.confirmClear"))) logout(t("login.cleared"));
   });
-  on("refresh-button", "click", () => setView(state.view));
-  on("site-refresh", "click", () => void loadSite());
-  on("overview-refresh", "click", () => loadOverview());
-  on("patrol-refresh", "click", () => void loadPatrol());
-  on("logs-refresh", "click", () => void loadLogs());
-  on("invites-refresh", "click", () => void loadInvites());
-  on("sponsors-refresh", "click", () => void loadSponsors());
-  on("prices-refresh", "click", () => void loadPrices());
-  on("federation-refresh", "click", () => loadXknot());
-  on("fed-details", "toggle", (event) => {
+  byId("refresh-button").addEventListener("click", () => setView(state.view));
+  byId("site-refresh").addEventListener("click", () => void loadSite());
+  byId("overview-refresh").addEventListener("click", () => loadOverview());
+  byId("patrol-refresh").addEventListener("click", () => loadPatrol());
+  byId("invites-refresh").addEventListener("click", () => loadInvites());
+  byId("sponsors-refresh").addEventListener("click", () => loadSponsors());
+  byId("prices-refresh").addEventListener("click", () => loadPrices());
+  byId("federation-refresh").addEventListener("click", () => loadXknot());
+  byId("fed-details").addEventListener("toggle", (event) => {
     if (event.currentTarget.open) void loadFederation();
   });
-  on("profile-form", "submit", saveProfile);
-  on("profile-reload", "click", () => renderProfile());
-  on("join-check", "click", () => void checkJoinSubdomain());
-  on("join-form", "submit", submitJoin);
-  on("connect-refresh", "click", () => void loadProgress());
-  on("connect-start", "click", () => void startTunnel());
-  on("join-subdomain", "input", () => {
+  byId("profile-form").addEventListener("submit", saveProfile);
+  byId("profile-reload").addEventListener("click", () => renderProfile());
+  byId("join-check").addEventListener("click", () => void checkJoinSubdomain());
+  byId("join-form").addEventListener("submit", submitJoin);
+  byId("connect-refresh").addEventListener("click", () => void loadProgress());
+  byId("connect-start").addEventListener("click", () => void startTunnel());
+  byId("join-subdomain").addEventListener("input", () => {
     // 查过之后又改了名字，之前的「可用」就不再算数。
     resetJoinCheck();
     setAlert(byId("join-result"), "", "error");
   });
-  on("user-clear", "click", () => {
+  byId("user-clear").addEventListener("click", () => {
     state.selectedUser = null;
     state.selectedAgent = null;
     state.agentToken = null;
     renderRoster();
     renderUserPanel();
   });
-  on("token-copy", "click", () => void copyAgentToken());
-  on("token-rotate", "click", () => void rotateAgentToken());
-  on("token-value", "focus", (event) => event.currentTarget.select());
-  on("identity-form", "submit", submitIdentity);
-  on("identity-reset", "click", resetIdentity);
-  on("identity-bio", "input", () => {
+  byId("token-copy").addEventListener("click", () => void copyAgentToken());
+  byId("token-rotate").addEventListener("click", () => void rotateAgentToken());
+  byId("token-value").addEventListener("focus", (event) => event.currentTarget.select());
+  byId("identity-form").addEventListener("submit", submitIdentity);
+  byId("identity-reset").addEventListener("click", resetIdentity);
+  byId("identity-bio").addEventListener("input", () => {
     updateBioCount();
     setAlert(byId("identity-error"), "", "error");
   });
-  on("identity-name", "input", () => setAlert(byId("identity-error"), "", "error"));
-  on("identity-specialties", "input", () => setAlert(byId("identity-error"), "", "error"));
+  byId("identity-name").addEventListener("input", () => setAlert(byId("identity-error"), "", "error"));
+  byId("identity-specialties").addEventListener("input", () => setAlert(byId("identity-error"), "", "error"));
 
   for (const button of document.querySelectorAll(".nav-button")) {
     button.addEventListener("click", () => setView(button.dataset.view));
@@ -3127,46 +2891,38 @@ function bindEvents() {
     button.addEventListener("click", () => setView(button.dataset.go));
   }
 
-  on("posts-form", "submit", (event) => {
+  byId("posts-form").addEventListener("submit", (event) => {
     event.preventDefault();
     loadPosts();
   });
-  on("patrol-form", "submit", recordPatrol);
+  byId("patrol-form").addEventListener("submit", recordPatrol);
 
-  on("users-form", "submit", (event) => {
+  byId("users-form").addEventListener("submit", (event) => {
     event.preventDefault();
     renderRoster();
   });
-  on("users-q", "input", () => renderRoster());
-  on("users-refresh", "click", () => loadAccounts());
-  on("grant-form", "submit", submitGrant);
-  on("warn-form", "submit", submitWarn);
-  on("mute-form", "submit", submitMute);
-  on("unmute-form", "submit", submitUnmute);
-  on("level-form", "submit", submitLevel);
-  on("entitlement-form", "submit", submitEntitlements);
-  on("issue-form", "submit", submitIssue);
+  byId("users-q").addEventListener("input", () => renderRoster());
+  byId("users-refresh").addEventListener("click", () => loadAccounts());
+  byId("grant-form").addEventListener("submit", submitGrant);
+  byId("warn-form").addEventListener("submit", submitWarn);
+  byId("mute-form").addEventListener("submit", submitMute);
+  byId("unmute-form").addEventListener("submit", submitUnmute);
+  byId("level-form").addEventListener("submit", submitLevel);
+  byId("entitlement-form").addEventListener("submit", submitEntitlements);
+  byId("issue-form").addEventListener("submit", submitIssue);
 
-  on("system-form", "submit", saveSystem);
-  on("invite-form", "submit", createInvite);
-  on("sponsor-form", "submit", saveSponsor);
-  on("sponsor-upload", "click", uploadSponsorImage);
-  on("sponsor-cancel", "click", resetSponsorForm);
-  on("price-propose", "click", proposePrices);
-  on("price-apply", "click", applyPrices);
+  byId("system-form").addEventListener("submit", saveSystem);
+  byId("invite-form").addEventListener("submit", createInvite);
+  byId("sponsor-form").addEventListener("submit", saveSponsor);
+  byId("sponsor-upload").addEventListener("click", uploadSponsorImage);
+  byId("sponsor-cancel").addEventListener("click", resetSponsorForm);
+  byId("price-propose").addEventListener("click", proposePrices);
+  byId("price-apply").addEventListener("click", applyPrices);
 }
 
 async function boot() {
-  try {
-    bindEvents();
-  } catch (error) {
-    // 页面标记与脚本不同步时，以前是 boot 抛错、连登录框都不出现，控制台之外没有任何提示。
-    console.error(error);
-    showLogin(t("error.pageMismatch"));
-    return;
-  }
+  bindEvents();
   applyI18n();
-  paintTitle();
   paintIcons();
   paintLocalePicker();
   renderProfileForm();
@@ -3177,11 +2933,7 @@ async function boot() {
   if (!claimed) {
     const saved = savedCredential();
     if (saved) {
-      // 凭据可能落在 localStorage（可持久）或 sessionStorage（明文 HTTP 下的退路）。
-      const persisted = Boolean(
-        localStorage.getItem(CREDENTIAL_KEY) || sessionStorage.getItem(CREDENTIAL_KEY)
-      );
-      enter(saved, { persist: persisted });
+      enter(saved, { persist: Boolean(localStorage.getItem(CREDENTIAL_KEY)) });
     } else {
       showLogin(ticketFailed ? t("login.ticketExpired") : "");
     }

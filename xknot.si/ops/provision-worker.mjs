@@ -20,8 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promises as dns } from "node:dns";
 
-import { markActive, markRosterLive, publishInstance } from "../server/publish.mjs";
-import { notifyLive } from "./notify-live.mjs";
+import { markActive, publishInstance } from "../server/publish.mjs";
 import { openStore } from "../server/store.mjs";
 import { collectPeers } from "./peers.mjs";
 import { resolveLocations } from "./geoip.mjs";
@@ -41,7 +40,6 @@ import {
   tunnelFor,
 } from "../server/provision.mjs";
 import { probe } from "./check-health.mjs";
-import { isTunnelAccount } from "./validate-federation.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -67,33 +65,6 @@ const store = openStore(path.join(dataDir, "xknot.db"));
 
 function log(...args) {
   console.log(new Date().toISOString(), ...args);
-}
-
-// 「入口 conf 由外部管理」每个实例只说一次：这轮核对每 20 秒跑一遍，
-// 每次都打一行会把 journal 刷满，而这件事本身不变化。
-const externalNoted = new Set();
-function noteExternal(instanceId, where) {
-  if (externalNoted.has(instanceId)) return;
-  externalNoted.add(instanceId);
-  log(`${instanceId}: 入口 conf 由伙伴自己管理（${where}），中枢不覆盖；隧道与健康照常采集`);
-}
-
-// 门户是静态快照：把 status 改成 active 只是改了清单，卡片要等 data/hub.json 重算。
-// 不在这里重算，节点就会一直「在线但首页没有它」，直到有人手工构建一次。
-// 用子进程跑，不阻塞轮询；失败只留一行日志，xknot-republish.timer 会补。
-let portalChild = null;
-export function refreshPortal({ execPath = process.execPath, script = path.join(here, "republish.mjs") } = {}) {
-  if (portalChild) return; // 同一轮里接通多个节点时，跑一次就够
-  const child = spawn(execPath, [script, "--quiet"], { cwd: root, stdio: "inherit" });
-  portalChild = child;
-  child.on("close", (code) => {
-    portalChild = null;
-    log(code === 0 ? "门户快照已重算" : `门户快照重算失败（退出码 ${code}），等定时任务补`);
-  });
-  child.on("error", (error) => {
-    portalChild = null;
-    log(`门户快照重算无法启动：${error.message}`);
-  });
 }
 
 // ---- 入口主机：只走参数数组，不经 shell ----
@@ -212,37 +183,11 @@ export async function advance(run) {
   // deploy-api.sh 会把仓库里的 instances.json 同步上来，那里可能还是 pending；
   // 接通是既成事实，以 provision_runs 为准，顺手改回来即可。
   if (run.state === "active") {
-    let again = await markActive({ manifestFile, id: run.instanceId });
-    if (again.changed) {
-      log(`${run.instanceId}: 清单被覆盖回 pending，已改回 active`);
-      // 快照可能已经按 pending 重算过一遍（门户上少了一条），同样要补回来。
-      refreshPortal();
-    }
-    // 覆盖有时是整条消失（仓库那份清单里还没有这个节点）。接通记录还在，
-    // 就按它把清单与名册补回去；否则下一次改清单的动作会把这个节点彻底弄丢。
-    if (again.error === "not_listed") {
-      const application = store.getApplication(run.applicationId);
-      if (application) {
-        const restored = await publishInstance({
-          application,
-          tunnelAccount: run.account,
-          tunnelPort: run.port,
-          manifestFile,
-          rosterFile,
-        });
-        if (restored.error) {
-          log(`${run.instanceId}: 清单条目已丢失，补回失败 ${restored.error}`);
-        } else {
-          again = await markActive({ manifestFile, id: run.instanceId });
-          log(`${run.instanceId}: 清单条目已丢失，按接通记录补回（${again.changed ? "active" : again.error || "未变更"}）`);
-          store.recordEvent("instance.manifest_restored", run.instanceId, null);
-        }
-      }
-    }
+    const again = await markActive({ manifestFile, id: run.instanceId });
+    if (again.changed) log(`${run.instanceId}: 清单被覆盖回 pending，已改回 active`);
     try {
       const conf = await switchEntry({ host, run, entry: true });
       if (conf.changed) log(`${run.instanceId}: 入口已切回整站反代`);
-      else if (conf.external) noteExternal(run.instanceId, "整站反代核对");
     } catch (error) {
       log(`${run.instanceId}: 入口 conf 核对失败 ${error.code || error.message}`);
     }
@@ -320,7 +265,6 @@ export async function advance(run) {
       try {
         const conf = await switchEntry({ host, run, entry: true });
         if (conf.changed) log(`${run.instanceId}: 隧道已通，首页改为整站反代`);
-        else if (conf.external) noteExternal(run.instanceId, "接通时");
       } catch (error) {
         const code = error instanceof ProvisionError ? error.code : "entry_switch_failed";
         log(`${run.instanceId}: 切换整站反代失败 ${code}，下一轮重试`);
@@ -348,29 +292,6 @@ export async function advance(run) {
       store.saveProvisionRun(next);
       store.recordEvent("instance.active", run.instanceId, null);
       log(`${run.instanceId}: /api/health 通过，清单已改为 active`);
-      // 名册里那句「等待接通验收」现在成了假话，顺手换掉；运营手写过的备注不动。
-      try {
-        const roster = await markRosterLive({ rosterFile, id: run.instanceId });
-        if (roster.changed) log(`${run.instanceId}: 名册备注已改为已接通`);
-        else if (roster.error) log(`${run.instanceId}: 名册备注未更新 ${roster.error}`);
-      } catch (error) {
-        log(`${run.instanceId}: 名册备注未更新 ${error.message}`);
-      }
-      // 清单变了，门户快照也得跟着变，否则节点「在线但首页没有卡片」。
-      refreshPortal();
-      // 伙伴等的是「你的站已经通了」。这封信以前只能手打，现在接在验收上。
-      try {
-        const sent = await notifyLive({
-          store,
-          application: store.getApplication(run.applicationId),
-        });
-        if (sent.sent) log(`${run.instanceId}: 已上线通知已发给伙伴`);
-        else if (sent.skipped === "already_sent") log(`${run.instanceId}: 已上线通知此前发过，不重发`);
-        else if (sent.skipped === "no_smtp") log(`${run.instanceId}: 没有 SMTP 配置，已上线通知未发（配置后手工补发）`);
-        else log(`${run.instanceId}: 已上线通知未发 ${sent.skipped || sent.failed}`);
-      } catch (error) {
-        log(`${run.instanceId}: 已上线通知发送异常 ${error.message}`);
-      }
       if (afterActivate) {
         // 值来自 root 的 provision.env；交给 /bin/sh -c 就等于把那个文件的写权限
         // 变成 root 命令执行。只接受一个绝对路径，按参数数组执行，不经 shell 解析。
@@ -406,11 +327,6 @@ async function tick() {
     const instanceId = application.subdomain || "";
     if (!instanceId) continue;
     const tunnel = tunnelFor({ instanceId, members: roster.members || [], reserved });
-    // 名册手写条目的第二道闸：写入时校验过，读出来再用一次，别只信文件内容。
-    if (!isTunnelAccount(tunnel.account)) {
-      log(`${instanceId}: 名册里的隧道账号 ${tunnel.account} 不可用，跳过（只接受 knot-tunnel 命名）`);
-      continue;
-    }
     reserved.push(tunnel.port);
     const run = store.createProvisionRun(createRun({ application, tunnel, entryHost }));
     log(`${instanceId}: 新建接通任务 ${application.id}（${tunnel.account} / ${tunnel.port}）`);

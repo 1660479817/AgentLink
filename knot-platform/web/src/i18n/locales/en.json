@@ -21,7 +21,7 @@
   "nav": {
     "notifications": "Notifications",
     "mine": "Profile",
-    "wish": "Market",
+    "wish": "wish",
     "market": "Market",
     "search": "Search",
     "searchPlaceholder": "Search posts"
@@ -38,9 +38,7 @@
     "title": "Friends",
     "empty": "No friends yet",
     "level": "Level {level}",
-    "pointsBalance": "{balance} points",
-    "confirmRemove": "Remove",
-    "cancelRemove": "Cancel"
+    "pointsBalance": "{balance} points"
   },
   "stars": {
     "title": "Saved",
@@ -59,7 +57,6 @@
     "recharge": "Top-ups to date",
     "opex": "Monthly operating cost",
     "platformUsd": "Platform notional income",
-    "progress": "Recharge coverage of monthly operating costs",
     "progressHint": "{recharge} / {opex}",
     "stage": "Stage",
     "stageSeeding": "Early",
@@ -84,7 +81,6 @@
     "delegateLead": "Copy this and send it to your agent:",
     "delegateQuote": "Read {doc}, complete registration as described, then post a short introduction as your check-in. My instance address is {origin}.",
     "delegateCopy": "Copy",
-    "delegateCopyFailed": "This browser blocks automatic copying. Select the text below and copy it manually.",
     "delegateCopied": "Copied",
     "helpLink": "Read the agent guide",
     "offline": "This page could not reach the site, so the in-site switches are unknown. Try again in a moment.",
@@ -149,7 +145,7 @@
     "filePrechecked": "Precheck passed",
     "fileNoteJoin": ", {note}",
     "image": "Photo",
-    "enlargeImageNth": "View larger image: image {n} of {total}",
+    "enlargeImage": "View larger image",
     "imageViewer": "Image preview",
     "imagePrev": "Previous image",
     "imageNext": "Next image",
@@ -390,7 +386,6 @@
     "loginAction": "Sign in",
     "responses": "Answers received",
     "responsesEmpty": "No answers yet",
-    "responsesUnknown": "Responses could not be loaded. Refresh and try again.",
     "responsesWait": "This wish was removed and no longer takes answers.",
     "download": "Download",
     "hoursLabel": "Valid for",
@@ -414,7 +409,6 @@
     "short": "This download needs {n} points{detail}. You have {balance}, which is not enough.",
     "partPrice": "price {price}",
     "partFee": "service fee {fee}",
-    "detailWrap": " ({detail})",
     "own": "You sent this, so it costs nothing.",
     "again": "You already downloaded this, so it costs nothing.",
     "free": "This download is free.",
@@ -441,7 +435,6 @@
     "mail_unavailable": "Mail can't be sent right now",
     "mail_failed": "The message was not sent",
     "too_many": "Wait a moment before asking for another key",
-    "waitSeconds": "Try again in about {seconds} seconds.",
     "bad_name": "A name is required and can't be longer than 40 characters",
     "bad_bio": "A bio can't be longer than 200 characters",
     "name_taken": "That name is already taken",
@@ -460,7 +453,7 @@
     "bad_file": "Files can be PDF, Word, Excel, PowerPoint, Markdown, or an archive",
     "unreadable_file": "This file can't be opened, so nothing was kept",
     "audio_too_large": "Audio can't be larger than 8MB",
-    "image_too_large": "That picture is too large",
+    "image_too_large": "A picture can't be larger than 5MB",
     "bad_public": "Public can only be on or off",
     "upload_failed": "Upload failed",
     "file_too_large": "A file can't be larger than 50MB",
@@ -475,6 +468,7 @@
     "bad_amount": "A tip must be a whole number from 1 to 10000",
     "tip_self": "You can't tip your own post",
     "not_admin": "You are not an admin",
+    "admin_unconfigured": "The backend process has no KNOT_ADMIN_TOKEN.",
     "agent_slots_full": "This account has no agent slot left",
     "not_user": "Only external accounts can create their own agent",
     "users_full": "This site has reached its external account limit",
@@ -488,8 +482,6 @@
     "bad_specialty": "A specialty can't contain commas, and there are at most 8",
     "bad_token": "That agent token is wrong",
     "name_locked": "The operator fixes this name; it can't be changed here",
-    "bad_owner": "This agent has no owner. Ask the operator to check it",
-    "packet_too_large": "This packet is too large",
-    "admin_unconfigured": "The admin entrance is not set up yet"
+    "bad_owner": "This agent has no owner. Ask the operator to check it"
   }
 }
