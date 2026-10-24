@@ -1,6 +1,6 @@
 # XKnot Federation · Joining
 
-Version 2.0, 2026-10-20. Documentation only; does not change runtime configuration.
+Version 2.1, 2026-10-24. Documentation only; does not change runtime configuration.
 
 Contract in [FEDERATION.md](FEDERATION.md), hub implementation in [HUB.md](HUB.md), terms in [NAMING.md](NAMING.md).
 
@@ -12,7 +12,7 @@ This document answers two questions: **how to apply to enter the manifest**, and
 
 | Question | Conclusion |
 |------|------|
-| How to join | first deploy an instance on your own machine → open `/admin` → fill the self-description, pick a subdomain label and submit → the platform checks and issues the subdomain on the spot, **submission is approval** → the operator writes into `instances.json` → connection acceptance, the portal snapshot recomputes automatically. **Approval is not launch.** |
+| How to join | first deploy an instance on your own machine → open `/admin` → fill the self-description, pick a subdomain label and submit → the platform checks and issues the subdomain on the spot, **submission is approval** → the resident worker connects it automatically (section 1.5), the portal snapshot recomputes on its own. **Approval is not launch.** |
 | Must I provide a domain | no. The address is issued by the hub: `<label>.xknot.si`, label 6–32 chars. Sites that already have their own domain do not need this federation step. |
 | What is my identity | the `url` in the manifest — the one address, unchanged after issuance. Changing machines or IPs only reconnects the tunnel and changes DNS, never the `url`. |
 | Access shape | only one: the hub issues `<label>.xknot.si`; before the tunnel is up the entry serves a placeholder page, and once up the whole site (including `/`) returns through the **SSH reverse tunnel the machine itself initiates** to the instance. The roster's `mode` is always `subdomain`, and `tunnel` is required. |
@@ -87,6 +87,10 @@ the entry appears in the portal map and directory
 
 ### 1.4 Write into the manifest and launch
 
+**Automatic by default.** The resident worker (section 1.5) runs the `publish` step itself: it allocates the tunnel account and port, writes the manifest entry and the roster member together, and continues through the whole pre-staging. On the normal path no one runs `publish` by hand.
+
+The manual command below is only for the exception path — the worker stopped, or redoing one application from scratch, where the account and port are chosen by hand:
+
 ```bash
 cd xknot.si
 npm run admin -- publish XK-2026-XXXXXX \
@@ -108,9 +112,9 @@ npm run build                                    # validate, probe, build
 
 Name, intro, locale, tags are not in the manifest: `publish` only writes the issued zone. After connection, remind the partner to open their own instance's `/admin` → **XKnot** and fill in the site profile; without it the portal uses the issued-zone fields and fallback text.
 
-`publish` writes both `instances.json` and `federation.json`: the membership facts (`mode` always `subdomain`, the `tunnel` account and port) come from `--tunnel-account` / `--tunnel-port`, `host` takes the `url`'s hostname, and both files must pass validation before anything is written. Giving only the manifest and no tunnel params still leaves the roster missing this entry, and the build stops.
+`publish` writes both `instances.json` and `federation.json`: the membership facts (`mode` always `subdomain`, the `tunnel` account and port) come from `--tunnel-account` / `--tunnel-port`, `host` takes the `url`'s hostname, and both files must pass validation before anything is written. On the manual path, giving only the manifest and no tunnel params still leaves the roster missing this entry, and the build stops.
 
-Approval **does not** auto-change DNS or auto-start the tunnel. Staff issue it per the rights-holder flow (section 2).
+DNS and the tunnel are handled by the worker, not by hand: the `dns` step checks that `*.xknot.si` already resolves to the entry host (a wildcard preconfigured once by ops), and the tunnel is started by the instance itself after it reads its progress (section 1.5).
 
 ### 1.5 Pre-staging, exchange, and finish
 
@@ -279,11 +283,11 @@ Billing and subdomain services do not happen in the hub's order flow (see the RE
 | member login (email + auth code) | **implemented**: `/api/member/code`, `/api/member/session`, `/api/member/logout`; the portal right column shows site status, health, activity counts, and showcase count |
 | disconnect reminder and temporary hiding | **implemented**: `ops/watch-health.mjs` + `ops/check-health.mjs` |
 | free / paid tiers | **implemented**: manifest `tier` is `free` / `paid` (`demo` for samples only), default `free`, operator upgrades manually |
-| auto-issue DNS after approval | **not implemented**; issued manually per the rights-holder flow |
+| auto-issue DNS after approval | **not implemented**: the worker only *checks* DNS (step `dns`). The wildcard `*.xknot.si → entry IP` is preconfigured once by ops, not issued per application |
 | traditional DDNS (client changes A to current egress IP) | **not done**; NAT scenarios use entry + SSH reverse tunnel |
 | issued subdomain + DNS to the partner's own fixed IP (no tunnel) | **unsupported**: access has only the "entry host + reverse tunnel" shape; this combination fits neither side, and `validate-federation.mjs` rejects it. For a fixed IP, use an own domain and self-build the site, outside the federation |
 | single-subdomain entry config | **exists** (instance side): the entry and nginx are rendered by the instance implementation itself. Current implementation is `knot-platform`: entry file [`sites/_template/entry.example.env`](../../knot-platform/sites/_template/entry.example.env), template [`knot-platform/ops/entry/site.conf.template`](../../knot-platform/ops/entry/site.conf.template), steps in [`knot-platform/ops/entry/README.md`](../../knot-platform/ops/entry/README.md). The hub only requires "one account and one port per subdomain, `/api` reachable to the instance" |
-| wildcard multi-tenant `*.xknot.si` entry nginx | **not done**; each issued subdomain still gets a manual conf, no auto per-Host tenancy |
+| wildcard multi-tenant `*.xknot.si` entry nginx | **not done**: the worker generates one conf per subdomain automatically (steps `vhost` / `tls`), still no single per-Host tenancy |
 | hub site HTTPS / NS switch details | see `ops/README-deploy-aws.md`; certificate and some DNS steps are marked separate tasks |
 
 ## 7. Mail relay (on by default)

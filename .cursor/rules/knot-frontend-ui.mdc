@@ -5,22 +5,20 @@ alwaysApply: true
 
 # Knot 平台前端 UI 与文案
 
-只适用于 **`knot-platform/web`**。后端/API 不受本规则约束。`xknot.si/web` 是独立的联邦门户，界面与语种按 `xknot.si/docs/HUB.md`、`xknot.si/docs/I18N.md` 执行，不套用本规则。仓库里另有一套 UI 在 `knot-platform/admin`（未打包的静态页，自带 `admin.css` 与 `admin/i18n/`），它的按键与文案按自己那套走，本规则不管它。
+只适用于 **`knot-platform/web`**。后端/API 不受本规则约束。`xknot.si/web` 是独立的联邦门户，界面与语种按 `xknot.si/docs/HUB.md`、`xknot.si/docs/I18N.md` 执行，不套用本规则。
 
 ## SVG 图标
 
 - 导航、主操作、状态、空态等 **能用图标表达的一律用 SVG**，不要仅用文字按钮代替。
-- 使用 **`knot-platform/web/src/icons/`** 内组件：内联 `<svg>`，`viewBox` + `currentColor`，默认 `width/height="1em"`，支持 `class` / `aria-hidden`（组件只传真名 `class`，写 `className` 不会落到 SVG 上，样式静默丢失）。
+- 使用 **`knot-platform/web/src/icons/`** 内组件：内联 `<svg>`，`viewBox` + `currentColor`，默认 `width/height="1em"`，支持 `className` / `aria-hidden`。
 - 图标可点击时必须配 **`aria-label`**（文案走 i18n，见下）；装饰性图标 `aria-hidden="true"`。
 - 不用位图图标替代可矢量表达的场景；不用 emoji 充当 UI 图标。
 
-导航、空态这类非操作元素不受 `AppButton` 约束（见按键规则）：它们是带图标的普通元素，不是提交按键。
-
 ```vue
 <!-- ✅ -->
-<button type="button" class="nav-item" :aria-label="t('nav.search')">
-  <SearchIcon class="nav-icon" aria-hidden="true" />
-  <span>{{ t("nav.search") }}</span>
+<button type="button" :aria-label="t('nav.plaza')">
+  <PlazaIcon class="nav-icon" aria-hidden="true" />
+  <span>{{ t("nav.plaza") }}</span>
 </button>
 ```
 
@@ -28,7 +26,7 @@ alwaysApply: true
 
 - **禁止**在 Vue 模板/脚本中散落面向用户的硬编码中文/英文字符串（`console`、注释除外）。
 - 所有 UI 文案经 **`t("namespace.key")`**，键名用 **英文 dot 路径**；文案存放在 **`knot-platform/web/src/i18n/locales/<locale>.json`**。
-- 当前维护 **`zh-CN`（默认）、`zh-TW`、`en`** 三份；同一键在三份里都要有，新增语言时只加 locale 文件与注册，不改组件键名。`t()` 缺键时回退成键名本身（页面直接显示 `home.publish` 这样的字串），所以键必须先落进三份 locale 再写进模板。
+- 当前维护 **`zh-CN`（默认）、`zh-TW`、`en`** 三份；同一键在三份里都要有，新增语言时只加 locale 文件与注册，不改组件键名。
 - 带插值用 `t("key", { name })`；复数/性别等预留键，Phase 0 可不实现复杂 plural。
 - 平台/API 返回的展示文案（如卡片 title）**不要**进 i18n；仅 **壳层 UI**（导航、按钮、说明、错误提示模板）进 locale。
 
@@ -37,8 +35,7 @@ alwaysApply: true
 界面风格和配色参照 Facebook。
 
 - 页面底 `#F0F2F5`，卡片 `#FFFFFF`，主色 `#0866FF`，正文 `#050505`，次要文字 `#65676B`。
-- 顶栏白底、轻阴影，铺满宽度。标识即回信息流 `/discover`。通知、消息、「我的」靠右，这些按钮是正圆。主列（信息流 `/discover`）上方是供需对话框，紧接着一栏情报缩略，再下面是供需卡片；检索在同一页用 `?q=` 过滤，不设单独广场页。`/` 是访客门页（轮播 + 登录/注册），不承载信息流，别按「首页」去改 `LandingView.vue`。
-- 顶栏目前没有搜索入口，`AppShell.vue` 里的检索弹层与 `?q=` 过滤保留待复用；不要因为「顶栏应该有搜索」去补一个。
+- 顶栏白底、轻阴影，铺满宽度。标识即回首页，旁边是搜索。通知、消息、「我的」靠右，这些按钮是正圆。主列（首页 `/`）上方是供需对话框，紧接着一栏情报缩略，再下面是供需卡片；顶栏搜索在同一页用 `?q=` 过滤，不设单独广场页。
 - 版面宽度等于屏幕宽度。浏览器不把整页缩小或放大去凑一个固定宽度。
 - 操作按键只用 `AppButton`（主 / 次 / 图标）。规格见按键规则。
 - 圆角约 8px，阴影轻。字体用系统无衬线。

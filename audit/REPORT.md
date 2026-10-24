@@ -4,10 +4,6 @@
 审计日期：2026-10-23
 方式：全量切片 + 并行深读 + 主线程逐条复核关键项 + 两套线上库与运行时实测
 
-> **后续进展**：本报告里「可远程触发 / 影响可用性」的 8 条已于同日修复，见 [`fix-log.md`](fix-log.md)。
-> 下面正文保持审计当时的原貌，不做回填——报告记的是「查到了什么」，修复记的是「后来动了什么」。
-> 其余发现（契约漂移、P2/P3）仍未处理。
-
 ---
 
 ## 一、覆盖证明
@@ -22,13 +18,6 @@
 | 切片并集 vs 清单 | `missing=0 extra=0` |
 | 报告「已读清单」覆盖 | **619 / 619 个文件，缺失 0** |
 | 报告份数 | **35 / 35** |
-
-复跑方式：
-
-```bash
-node audit/inventory/build.mjs --verify      # 清单与切片是否闭合
-node audit/inventory/verify-coverage.mjs     # 每个文件是否真进了报告
-```
 
 ## 二、发现总量
 
@@ -201,23 +190,17 @@ export function getPool(databaseUrl) {
 - 工作区在审计期间**继续变动**：开始时 18 个修改文件，审计结束（约 15:05）时 **29 个修改文件 + 7 个未跟踪**，涉及 `routes/web.js`、`routes/agent.js`、`rateLimit.js`、`tunnel.js`、`deploy-site.sh`、`site-config.sh`、`schema.mjs`、`run-entry-tunnel.sh`、locale 三份、`DiscoverView.vue`、`api.js`、`docs/KNOT_HELP.md` 等。
 - 意味着**下次部署的代码不是现在线上跑的代码，也不是本次审计的代码**。这 333+ 行改动未经审计覆盖。
 - 已重新确认：本报告的 P0 在**当前工作区**仍成立（`uploadStore.js:138/150`、`information.js:111`、`routes/web.js:507` 四处逐条复查；`routes/web.js` 的改动是给 `/search` 加 `Retry-After`，与上传路径无关）。
-- 但其余切片报告描述的是 HEAD 版本。若这 29 个文件的改动涉及某条发现的位置，需以当前代码复核后再据此行动。
+- 但其余发现描述的是 HEAD 版本。若这 29 个文件的改动涉及某条发现的位置，需以当前代码复核后再据此行动。
 
 ## 六、产出索引
 
 | 路径 | 内容 |
 |---|---|
 | `audit/REPORT.md` | 本报告 |
-| `audit/RUBRIC.md` | 审计口径（10 个维度、4 级严重度、输出格式） |
-| `audit/PROGRESS.md` | 进度与完成登记 |
-| `audit/inventory/manifest.tsv` | 619 文件清单 |
-| `audit/inventory/slices/S01–S35.tsv` | 35 个切片分配 |
-| `audit/inventory/build.mjs` · `verify-coverage.mjs` | 可复跑的清单生成与覆盖核验 |
-| `audit/code/S01–S35.md` | 35 份逐片报告（469 条发现） |
+| `audit/RUBRIC.md` | 审计口径（10 个维度、4 级严重度） |
+| `audit/TODO.md` | 待修清单（`todo.json` 的核对基准，全部修完的台账） |
+| `audit/FIXLOG.md` | 五批修复日志（合并自原 `fix-log*.md`） |
 | `audit/findings/verification-log.md` | **复核台账**：哪些已证实、哪些修正、哪些推翻 |
-| `audit/findings/db-doc-drift.md` | 数据库层核对结论 |
-| `audit/findings/runtime-baseline.md` | 两站运行时实测基线 |
-| `audit/db/*.sql` | 两套线上库 schema + 迁移重放结果 |
 
 ## 七、诚实说明局限
 
@@ -226,4 +209,4 @@ export function getPool(databaseUrl) {
 3. **部署态不在仓库里**。bot01 与本机的实际 conf、LaunchAgent 状态、证书有效期未逐项核；只验证了隧道通断与接口可达。
 4. **未提交的 333 行改动不在本次范围内**。
 5. **复核不是"全部 P0/P1"**。实际独立核实的是：唯一的 P0、S10/S11/S13/S14/S16/S17/S18/S19/S28/S32 的 P1，以及全部「实测」声称。**S30 的四条 P1 只读了子代理的证据链，未逐条复核**；S11-01/02/04/05 与 S12 的 P2 同样未核。台账里已逐项登记，不再用「全部已核」这种说法。
-6. **P2/P3 共 436 条未逐条复核**。可直接参考各片报告，但要当「待确认线索」而非结论用。
+6. **P2/P3 共 436 条未逐条复核**。可按 `TODO.md` 的逐条记录当「待确认线索」看，而非结论。

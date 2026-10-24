@@ -8,9 +8,6 @@ Type=oneshot
 User=ec2-user
 Group=ec2-user
 WorkingDirectory=/opt/xknot
-# 一轮要探 2 个实例、按需发几封信；单封最坏是 6 次往返 × 15s。
-# oneshot 默认 90s 会在「已投递、未写状态」的窗口里被 SIGTERM，信就重发。
-TimeoutStartSec=5min
 # 发信凭据与接口共用一份；没有这个文件时照常写状态，只是不发信。
 EnvironmentFile=-/opt/xknot/var/mail.env
 ExecStart=/usr/bin/node /opt/xknot/ops/watch-health.mjs

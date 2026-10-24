@@ -4,7 +4,6 @@
 // 这里只做纯计算：不回退到默认语种之外的翻译，不排序之外的猜测。
 
 import { groupsOf, REGION_GROUPS } from "./regions.js";
-import { normalizeAsset, stripInvisible } from "./snapshot.js";
 import { timezoneOf } from "./timezones.js";
 
 // 清单里的档位：示例 > 收费 > 免费。partner / community 是旧词，读到也按新档位排。
@@ -53,23 +52,16 @@ export function buildView(data, options = {}) {
       return {
         id: instance.id,
         // 自述区已经是扁平字符串，门户不再按语种取一次：填什么就显示什么。
-        // 不可见字符在这里再去一次：旧快照或测试夹具不一定清洗过。
-        name: stripInvisible(instance.name) || instance.id,
+        name: instance.name || instance.id,
         tagline: instance.tagline || "",
         intro: instance.intro || "",
-        // 徽记进 img src：只认绝对 https，旧快照里的相对路径或数据协议一律不用。
-        logo: normalizeAsset(instance.logo),
+        logo: instance.logo,
         owner: instance.owner || "",
         contact: instance.contact || "",
-        tags: Array.isArray(instance.tags)
-          ? instance.tags.map((tag) => stripInvisible(tag)).filter((tag) => typeof tag === "string" && tag)
-          : [],
-        // 地址进 href，只放行 https；不合格就不给链接，卡片上仍显示名称。
-        url: typeof instance.url === "string" && /^https:\/\//i.test(instance.url) ? instance.url : null,
+        tags: Array.isArray(instance.tags) ? instance.tags.filter((tag) => typeof tag === "string" && tag) : [],
+        url: instance.url,
         tier: instance.tier,
-        // 清单里的四态：pending 不进快照，剩下的 active / suspended / retired
-        // 要一路带到卡片与地图上，否则暂停的实例会带着最后一次「在线」留在目录里。
-        status: typeof instance.status === "string" ? instance.status : "active",
+        status: instance.status,
         timezone,
         // 钟不是自述区写的：卡片上标一下，免得主理人以为谁改了他的档案。
         timezoneInferred: Boolean(inferred),
@@ -85,11 +77,6 @@ export function buildView(data, options = {}) {
           checkedAt: health?.checkedAt || null,
           version: health?.version || null,
         },
-        // 页面显示的状态：清单的 suspended / retired 压过健康结果。
-        // 这两态不再探测，health 停在最后一次 up，照搬就会把暂停的站画成在线。
-        state: (typeof instance.status === "string" && instance.status !== "active"
-          ? instance.status
-          : health?.status) || "unknown",
       };
     });
 }
@@ -154,24 +141,14 @@ export function availableGroups(view) {
 
 // 顶栏和英雄区用的概览数字。
 // healthy 只算 up；reachable 把 degraded 也算上；未探测两者都不算。
-// 暂停与退役的实例不探测，健康状态停在最后一次记录上，因此必须先看清单状态：
-// 否则一个 suspended 的站会带着 last up 一直计进「在线」。
-export function isActive(item) {
-  return !item?.status || item.status === "active";
-}
-
-export function isReachable(item) {
-  if (!isActive(item)) return false;
-  const status = item?.health?.status;
-  return status === "up" || status === "degraded";
-}
-
 export function summarize(view, generatedAt = null) {
   return {
     nodes: view.length,
     regions: availableGroups(view).length,
-    healthy: view.filter((item) => isActive(item) && item.health.status === "up").length,
-    reachable: view.filter(isReachable).length,
+    healthy: view.filter((item) => item.health.status === "up").length,
+    reachable: view.filter(
+      (item) => item.health.status === "up" || item.health.status === "degraded"
+    ).length,
     generatedAt: generatedAt || null,
   };
 }

@@ -1,12 +1,10 @@
 :root {
   color-scheme: light;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Noto Sans SC", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --bg: #f3f4f6;
   --surface: #ffffff;
   --text: #111827;
-  /* 比 #6b7280 深一档：浅灰底上的 12–14px 正文要过 4.5:1，4.39:1 差一点。 */
-  --muted: #5b6270;
+  --muted: #6b7280;
   --line: #e5e7eb;
   --line-strong: #d1d5db;
   --accent: #1d4ed8;
@@ -18,8 +16,6 @@
   --ok-soft: #ecfdf5;
   --sidebar: #111827;
   --sidebar-muted: #9ca3af;
-  /* 顶栏高度：粘性导航与详情卡片都按它让位，改一处就全生效。 */
-  --topbar-h: 64px;
   --radius: 10px;
   --radius-sm: 6px;
 }
@@ -80,7 +76,7 @@ code {
   padding: 1px 4px;
   border-radius: 4px;
   background: #f3f4f6;
-  font-family: var(--font-mono);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -158,7 +154,7 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: var(--topbar-h);
+  min-height: 64px;
   padding: 10px 20px;
   background: var(--sidebar);
   color: #f9fafb;
@@ -209,8 +205,7 @@ code {
 
 .side-nav {
   position: sticky;
-  /* 顶栏是 sticky 的，粘住的导航要落在它下面；按「没有顶栏」算会被盖掉上半截。 */
-  top: calc(var(--topbar-h) + 16px);
+  top: 24px;
   align-self: start;
   display: flex;
   flex-direction: column;
@@ -334,6 +329,10 @@ code {
   font-variant-numeric: tabular-nums;
 }
 
+.small-value {
+  font-size: 22px;
+}
+
 .stat-note {
   margin-top: 6px;
   color: var(--muted);
@@ -450,13 +449,11 @@ textarea {
   resize: vertical;
 }
 
-/* 焦点环用实色：--accent-soft 在白底上只有约 1.06:1，等于没画，
-   键盘与弱视用户就只剩 1px 边框变色可看。 */
 input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--accent);
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-soft);
   outline-offset: 1px;
 }
 
@@ -472,21 +469,18 @@ textarea:focus {
   flex-direction: column;
   gap: 12px;
   align-items: flex-start;
-  /* 卡片里紧跟标题的段落与表单之间留一口气；只此一处，别再在文件后面补 margin-top。 */
-  margin-top: 12px;
 }
 
-.stack-form .field {
+.stack-form .field,
+.stack-form .check {
   width: 100%;
 }
 
-/* 子域输入：输入框 + 固定后缀 + 检查键，视觉上是一条完整地址。
-   输入框去右边框、后缀去左边框，所以两者之间不能留 gap，否则接缝处是一条无边的空白；
-   只有「检查」键与这条地址分开。 */
+/* 子域输入：输入框 + 固定后缀 + 检查键，视觉上是一条完整地址。 */
 .host-row {
   display: flex;
   align-items: stretch;
-  gap: 0;
+  gap: 8px;
   width: 100%;
 }
 
@@ -508,14 +502,13 @@ textarea:focus {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   background: #f5f6f7;
   color: var(--muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 13px;
   white-space: nowrap;
 }
 
 .host-row .button {
   flex: 0 0 auto;
-  margin-left: 8px;
 }
 
 /* 站点档案：一行三份语种，行标签单独占一格。 */
@@ -534,6 +527,22 @@ textarea:focus {
   color: var(--muted);
   font-size: 12px;
   font-weight: 400;
+}
+
+/* 表单 */
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 16px;
+  min-height: 16px;
+  margin-top: 3px;
+  flex: none;
 }
 
 .button-row {
@@ -656,6 +665,17 @@ textarea:focus {
 .table .cell-body {
   max-width: 460px;
   overflow-wrap: anywhere;
+}
+
+.table .cell-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.table .empty {
+  padding: 18px 10px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .pill {
@@ -1187,7 +1207,7 @@ textarea:focus {
 .token-row .token-value {
   flex: 1 1 auto;
   min-width: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
   letter-spacing: 0.02em;
   background: #f7f8fa;
@@ -1246,11 +1266,11 @@ textarea:focus {
 
   .detail-column {
     position: sticky;
-    top: calc(var(--topbar-h) + 16px);
+    top: 16px;
   }
 
   .detail-card {
-    max-height: calc(100vh - var(--topbar-h) - 32px);
+    max-height: calc(100vh - 48px);
     overflow-y: auto;
   }
 }
@@ -1263,6 +1283,10 @@ textarea:focus {
   margin: 12px 0;
 }
 
+.stack-form {
+  margin-top: 12px;
+}
+
 .patrol-item {
   padding: 12px;
   border: 1px solid var(--line);
@@ -1270,14 +1294,17 @@ textarea:focus {
   background: #fafafa;
 }
 
+.patrol-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .patrol-body {
   margin-top: 6px;
   overflow-wrap: anywhere;
-  /* 巡查列表只看开头四行，全文在查帖里按 id 调出来；两处定义合成一条。 */
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
 }
 
 .patrol-actions {
@@ -1287,13 +1314,27 @@ textarea:focus {
   margin-top: 10px;
 }
 
+.result-summary {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+
+.user-note {
+  margin-top: 4px;
+}
+
 /* 价格 */
 
 .price-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
   margin-top: 12px;
+}
+
+.price-note {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* 提示 */
@@ -1468,6 +1509,15 @@ textarea:focus {
     min-height: 44px;
   }
 
+  .check {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .check input {
+    margin-top: 0;
+  }
+
   .view-head {
     flex-direction: column;
   }
@@ -1591,6 +1641,22 @@ textarea:focus {
 
 /* ---- 界面语种：顶栏右侧一个带图标的下拉，值用各语种自己的写法 ---- */
 
+/* 登录页也放一个：还没进来的人也该能挑语种。卡片是白底，所以另给一套颜色。 */
+.login-locale {
+  margin-top: 14px;
+  justify-content: space-between;
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.login-locale .icon {
+  color: var(--muted);
+}
+
+.login-locale .locale-select {
+  color: var(--text);
+}
+
 .locale-picker {
   display: inline-flex;
   align-items: center;
@@ -1626,29 +1692,6 @@ textarea:focus {
 
 .locale-select option {
   color: var(--text);
-}
-
-/* 登录页也放一个：还没进来的人也该能挑语种。
-   卡片是白底，所以另给一套颜色——这段必须排在 .locale-picker 之后，
-   同权重规则按源顺序胜出，写在前面会被顶栏那套深色取值盖掉。 */
-.login-locale {
-  margin-top: 14px;
-  justify-content: space-between;
-  border-color: var(--line);
-  color: var(--text);
-}
-
-.login-locale .icon {
-  color: var(--muted);
-}
-
-.login-locale .locale-select {
-  color: var(--text);
-}
-
-/* 顶栏那圈白色焦点环在白卡片上同样等于没有，换回主色。 */
-.login-locale .locale-select:focus {
-  outline-color: var(--accent);
 }
 
 /* ---- 概览：先看钱，再看注意力，最后是开关与巡查 ---- */
@@ -1936,6 +1979,19 @@ textarea:focus {
   border-top: 1px solid var(--line);
 }
 
+.patrol-body {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.patrol-meta .identity-mark {
+  width: 20px;
+  height: 20px;
+}
+
 .patrol-head {
   display: flex;
   flex-wrap: wrap;
@@ -2057,7 +2113,7 @@ textarea:focus {
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: #ffffff;
-  font-family: var(--font-mono);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   font-weight: 600;
 }
@@ -2167,6 +2223,10 @@ textarea:focus {
   margin-top: 0;
 }
 
+.price-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
 .invite-form {
   margin-top: 12px;
 }
@@ -2178,7 +2238,7 @@ textarea:focus {
 
   .content-side {
     position: sticky;
-    top: calc(var(--topbar-h) + 16px);
+    top: 80px;
   }
 }
 
@@ -2189,50 +2249,5 @@ textarea:focus {
 
   .overview-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-}
-
-/* ---- 打印 / 另存 PDF ----
-   名册与详情在屏幕上是滚动容器（max-height + overflow），打印时只输出可视区，
-   其余行被裁掉；顶栏与左导航是 sticky，会跟着每一页重复。留档要的是全文。 */
-@media print {
-  .topbar {
-    position: static;
-  }
-
-  .side-nav {
-    display: none;
-  }
-
-  .topbar-actions,
-  .button-row,
-  .icon-button,
-  .toast {
-    display: none;
-  }
-
-  .shell {
-    display: block;
-    max-width: none;
-    padding: 0;
-  }
-
-  .content-side,
-  .detail-column {
-    position: static;
-  }
-
-  .user-list,
-  .detail-card {
-    max-height: none;
-    overflow: visible;
-  }
-
-  .card,
-  .user-row,
-  .post-row,
-  .patrol-item,
-  .stat {
-    break-inside: avoid;
   }
 }

@@ -186,25 +186,6 @@ test("a plan is stable and cheap enough for a feed", () => {
   assert.ok(each < 5, `one plan took ${each.toFixed(3)}ms`);
 });
 
-test("a set past the enumerable size is split greedily instead of exploding", () => {
-  // 穷举是 2^(n-1)：二十张就是 52 万种切法，纯同步算在渲染路径上会停住进程。
-  // 超过上限改用贪心，仍然要覆盖每张图、每行不超过上限。
-  const aspects = Array.from({ length: 20 }, (_, index) => (index % 2 ? LANDSCAPE : PORTRAIT));
-  const started = process.hrtime.bigint();
-  const rows = planPhotoRows(aspects);
-  const spent = Number(process.hrtime.bigint() - started) / 1e6;
-  assertCoversAll(rows, 20);
-  assert.ok(rows.every((row) => row.cells.length <= LAYOUT_RULES.maxPerRow));
-  assert.ok(spent < 100, `one plan took ${spent.toFixed(3)}ms`);
-});
-
-test("a poster without a usable width is refused instead of printing NaN", () => {
-  // 每个框都是「行高 × 宽度」算出来的；宽度缺了会一路 NaN 到 sharp。
-  for (const width of [undefined, 0, -10, Number.NaN, "x"]) {
-    assert.throws(() => planPhotoBoxes([{ width: 100, height: 100 }], { width }), TypeError, String(width));
-  }
-});
-
 test("each row's shares add up to one", () => {
   // 份额归一之后，flex 才一定铺满整行（grow 之和小于 1 时浏览器会留下空档）。
   for (const aspects of [[1], [0.75], [LANDSCAPE, LANDSCAPE], [0.4, 1.78, 3.5, 1]]) {

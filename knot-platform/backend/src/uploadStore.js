@@ -295,36 +295,16 @@ export async function storeUploadedFile({ uploadDir, pool, userId, file, kind, n
   }
 
   let inserted;
-  // 配额判断与写入必须在同一事务里，并且先按钱包取一把咨询锁：
-  // 「先查后写」时同一钱包的 N 个并发上传各自读到同一个 used，全部通过，
-  // 实际用量能超上限 N 倍（S14-04）。锁按钱包归一，Agent 与主人互相排队。
-  const client = await pool.connect();
   try {
-    await client.query("BEGIN");
-    if (!skipQuota) {
-      const limit = uploadQuotaBytes();
-      if (limit > 0) {
-        const wallet = await client.query(`SELECT COALESCE(owner_id, id) AS wallet FROM accounts WHERE id = $1`, [userId]);
-        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-          String(wallet.rows[0]?.wallet || userId),
-        ]);
-        const used = await userUploadBytes(client, userId);
-        if (used + bytes > limit) throw uploadError("quota_exceeded");
-      }
-    }
-    inserted = await client.query(
+    inserted = await pool.query(
       `INSERT INTO uploads (account_id, storage_name, mime, original_name, size, sha256, width, height)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id`,
       [userId, storageName, mime, name || null, bytes, sha256, width, height]
     );
-    await client.query("COMMIT");
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
     removeFile(blob);
     throw error;
-  } finally {
-    client.release();
   }
 
   const id = inserted.rows[0].id;

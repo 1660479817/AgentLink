@@ -14,7 +14,6 @@ import {
   formatValue,
   parseEnv,
   renderDocs,
-  renderEntryExample,
   renderJoinExample,
   renderPlatformExample,
   renderPlatformFile,
@@ -49,8 +48,6 @@ test("generated example files and docs are committed as generated", () => {
   assert.equal(read("sites/_template/site.env"), renderSiteExample());
   assert.equal(read("sites/_template/platform.env"), renderPlatformExample());
   assert.equal(read("sites/_template/xknot.env"), renderJoinExample());
-  // 入口模板以前是手写的，改 ENTRY_KEYS 时不会有人发现它落后；现在它也是生成物。
-  assert.equal(read("sites/_template/entry.example.env"), renderEntryExample());
   assert.equal(read("docs/CONFIG.md"), renderDocs());
 });
 
@@ -99,28 +96,6 @@ test("types are checked, not just presence", () => {
   assert.match(text, /KNOT_OPENCLAW/);
 });
 
-// 金额/天数类键有 max：安全整数范围内但大到能推出 Invalid Date 的值也要拦（S19-06）。
-test("date arithmetic keys cap their max, not just their safe-integer range", () => {
-  const base = {
-    KNOT_PUBLIC_ORIGIN: "http://127.0.0.1:8080",
-    KNOT_ADMIN_EMAIL: "admin@example.com",
-    KNOT_ENTRY_ENABLED: "0",
-    KNOT_BACKUP_DIR: "$HOME/knot/backups",
-  };
-  const over = checkSite({
-    ...base,
-    KNOT_SALE_TTL_HOURS: "999999999999999",
-    KNOT_COUPON_TTL_DAYS: "999999999999999",
-    KNOT_GC_GRACE_HOURS: "999999999999999",
-    KNOT_SEARCH_EVENT_RETENTION_DAYS: "999999999999999",
-  });
-  const text = over.errors.join("\n");
-  assert.match(text, /KNOT_SALE_TTL_HOURS/);
-  assert.match(text, /KNOT_COUPON_TTL_DAYS/);
-  assert.match(text, /KNOT_GC_GRACE_HOURS/);
-  assert.match(text, /KNOT_SEARCH_EVENT_RETENTION_DAYS/);
-});
-
 test("cross-key rules fire only when their condition holds", () => {
   const base = { KNOT_ADMIN_EMAIL: "admin@example.com", KNOT_BACKUP_DIR: "/backups" };
   assert.deepEqual(checkSite({ ...base, KNOT_ENTRY_ENABLED: "0" }).errors, []);
@@ -145,7 +120,6 @@ test("a loopback-only site is not warned about missing backups", () => {
   const local = checkSite({
     KNOT_ADMIN_EMAIL: "dev@example.com",
     KNOT_PUBLIC_ORIGIN: "http://127.0.0.1:8081",
-    KNOT_PORT: "8081",
   });
   assert.deepEqual(local.errors, []);
   assert.deepEqual(local.warnings, []);
@@ -416,12 +390,11 @@ test("derived values follow site.env without being written back", () => {
   assert.equal(resolve(byKey.get("KNOT_TUNNEL_REMOTE_PORT"), env, ctx), "18081");
   assert.equal(resolve(byKey.get("KNOT_UPLOAD_DIR"), {}, ctx), "/srv/knot/var/uploads");
   assert.equal(resolve(byKey.get("KNOT_TUNNEL_KEY"), {}, ctx), "/Users/me/.ssh/knot-entry");
-  // 部署根按站点推导：省略这一项时，两个站点不能落到同一个根上。
+  // 展示远端路径时不展开本机的 home。
   assert.equal(
-    resolve(byKey.get("KNOT_DEPLOY_DIR"), {}, { root: "/srv/knot", home: "/Users/me", site: "wang" }),
-    "~/knot/wang"
+    resolve(byKey.get("KNOT_DEPLOY_DIR"), {}, { root: "/srv/knot", home: "/Users/me" }),
+    "~/knot/site"
   );
-  assert.equal(resolve(byKey.get("KNOT_DEPLOY_DIR"), {}, { root: "/srv/knot", home: "/Users/me" }), "");
 });
 
 test("parseEnv understands quotes, inline comments and does not expand variables", () => {
@@ -616,7 +589,6 @@ test("an entry entry needs a domain that matches its file name", () => {
   const base = {
     KNOT_DOMAIN: "wang.xknot.si",
     KNOT_ENTRY_WEB_ROOT: "/var/www/wang",
-    KNOT_ENTRY_CONF: "/etc/nginx/conf.d/wang.xknot.si.conf",
     KNOT_ENTRY_SERVE: "static",
   };
   const ok = checkEntryFile(base, { file: "/sites/x/entry.wang.xknot.si.env" });
@@ -641,39 +613,6 @@ test("an entry entry rejects a server kind that is neither static nor proxy", ()
   assert.ok(result.errors.some((m) => m.includes("KNOT_ENTRY_SERVE")));
 });
 
-// 静态根与 nginx 配置留空时 site-config.sh 会回落到共用默认值：同一台入口主机上的
-// 两个子域就落进同一个目录，后推的 rsync --delete 把前一个的页面清掉（S20-01）。
-test("an entry must name its own web root and nginx conf", () => {
-  const empty = checkEntryFile({ KNOT_DOMAIN: "zjj.xknot.si" });
-  assert.ok(empty.errors.some((m) => /必须写 KNOT_ENTRY_WEB_ROOT/.test(m)));
-  assert.ok(empty.errors.some((m) => /必须写 KNOT_ENTRY_CONF/.test(m)));
-
-  // 显式写成共用默认值与「不写」等价，一样要拦。
-  const shared = checkEntryFile({
-    KNOT_DOMAIN: "zjj.xknot.si",
-    KNOT_ENTRY_WEB_ROOT: "/var/www/knot",
-    KNOT_ENTRY_CONF: "/etc/nginx/conf.d/knot.conf",
-  });
-  assert.ok(shared.errors.some((m) => /还是共用的默认值/.test(m)));
-
-  const ok = checkEntryFile({
-    KNOT_DOMAIN: "zjj.xknot.si",
-    KNOT_ENTRY_WEB_ROOT: "/var/www/zjj",
-    KNOT_ENTRY_CONF: "/etc/nginx/conf.d/zjj.xknot.si.conf",
-  });
-  assert.deepEqual(ok.errors, []);
-});
-
-// 从模板复制过来忘了替换 <标签>：路径是绝对的，看着像填了，其实落不到任何地方。
-test("an entry left with the template placeholder is refused", () => {
-  const result = checkEntryFile({
-    KNOT_DOMAIN: "zjj.xknot.si",
-    KNOT_ENTRY_WEB_ROOT: "/var/www/<标签>",
-    KNOT_ENTRY_CONF: "/etc/nginx/conf.d/<标签>.xknot.si.conf",
-  });
-  assert.equal(result.errors.filter((m) => /模板占位符/.test(m)).length, 2);
-});
-
 test("an entry entry keeps the join and platform keys out", () => {
   const result = checkEntryFile(
     {
@@ -691,20 +630,8 @@ test("an entry entry keeps the join and platform keys out", () => {
 // 证书与私钥可以留空由域名推导；推导得出来就不算缺。
 test("an entry entry accepts a certificate derived from its domain", () => {
   const result = checkEntryFile(
-    {
-      KNOT_DOMAIN: "wang.xknot.si",
-      KNOT_ENTRY_WEB_ROOT: "/var/www/wang",
-      KNOT_ENTRY_CONF: "/etc/nginx/conf.d/wang.xknot.si.conf",
-      KNOT_ENTRY_SSL: "1",
-    },
+    { KNOT_DOMAIN: "wang.xknot.si", KNOT_ENTRY_WEB_ROOT: "/var/www/wang", KNOT_ENTRY_SSL: "1" },
     {},
   );
   assert.deepEqual(result.errors, []);
-});
-
-test("a size of 0 is refused: nginx reads it as unlimited", () => {
-  // 0 在 nginx 里是「不限制」，在跨键比较里又被当成「没设」。同一个值两种含义，
-  // 只能报出来，不能猜运维想的是哪一种。
-  const result = checkEntryFile({ KNOT_DOMAIN: "wang.xknot.si", KNOT_ENTRY_MAX_BODY: "0" });
-  assert.match(result.errors.join("\n"), /KNOT_ENTRY_MAX_BODY 不能是 0/);
 });

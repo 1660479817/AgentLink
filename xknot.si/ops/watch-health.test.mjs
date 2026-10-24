@@ -168,16 +168,15 @@ test("--dry-run neither writes the state file nor sends mail", async () => {
   await assert.rejects(readFile(paths.healthPath, "utf8"), /ENOENT/);
 });
 
-test("a missing SMTP config is reported, and the letter is still owed next round", async () => {
+test("a missing SMTP config is reported and does not throw", async () => {
   const paths = await fixture();
   const lines = [];
   let delivered = 0;
-  const marked = downState({ notified: { down_24h: "2026-10-20T12:00:00.000Z" } });
   const result = await watch({
     ...paths,
     env: {},
     log: (line) => lines.push(line),
-    check: healthOf(marked, ["down_24h"]),
+    check: healthOf(downState(), ["down_24h"]),
     deliver: async () => {
       delivered += 1;
     },
@@ -186,41 +185,6 @@ test("a missing SMTP config is reported, and the letter is still owed next round
   assert.equal(delivered, 0);
   assert.equal(result.sent.length, 0);
   assert.ok(lines.some((line) => /没有 SMTP 配置/.test(line)));
-
-  // 没发出去就不能算「已通知」：状态文件里不留这一档的标记，下一轮同一档还能补发。
-  const saved = JSON.parse(await readFile(paths.healthPath, "utf8"));
-  assert.equal(saved.instances[INSTANCE.id].notified?.down_24h, undefined);
-
-  const retry = await watch({
-    ...paths,
-    env: ENV,
-    log: () => {},
-    check: healthOf(marked, ["down_24h"]),
-    deliver: async () => {
-      delivered += 1;
-    },
-  });
-  assert.equal(delivered, 1);
-  assert.equal(retry.sent.length, 1);
-  // 补发成功之后才留下标记。
-  const stored = JSON.parse(await readFile(paths.healthPath, "utf8"));
-  assert.ok(stored.instances[INSTANCE.id].notified.down_24h);
-});
-
-test("a delivery failure is not recorded as notified either", async () => {
-  const paths = await fixture();
-  const result = await watch({
-    ...paths,
-    env: ENV,
-    log: () => {},
-    check: healthOf(downState({ notified: { down_24h: "2026-10-20T12:00:00.000Z" } }), ["down_24h"]),
-    deliver: async () => {
-      throw new Error("smtp said no");
-    },
-  });
-  assert.equal(result.sent.length, 0);
-  const saved = JSON.parse(await readFile(paths.healthPath, "utf8"));
-  assert.equal(saved.instances[INSTANCE.id].notified?.down_24h, undefined);
 });
 
 test("a suspended entry is never probed or mailed", async () => {

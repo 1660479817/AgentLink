@@ -62,13 +62,10 @@ if [[ "$BUILD" == 1 ]]; then
 fi
 [[ -f "$KNOT_APP_DIR/web/dist/index.html" ]] || knot_fail "缺少 web/dist/index.html。"
 
-SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+SSH_OPTS=(-o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
 ENTRY_KEY="$(knot_expand_path "$KNOT_ENTRY_SSH_KEY")"
 if [[ -n "$ENTRY_KEY" ]]; then
-  # IdentitiesOnly 只在显式给了 -i 时加：留空交给 ssh-agent 时加上它，agent 里的身份
-  # 一个都不会被提交，认证会直接失败。
-  [[ -f "$ENTRY_KEY" ]] || knot_fail "找不到推入口用的私钥：${ENTRY_KEY}（KNOT_ENTRY_SSH_KEY 可留空，改用 ssh-agent）"
-  SSH_OPTS+=(-i "$ENTRY_KEY" -o IdentitiesOnly=yes)
+  SSH_OPTS+=(-i "$ENTRY_KEY")
 fi
 
 knot_render_entry() {

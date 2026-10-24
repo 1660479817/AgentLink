@@ -5,19 +5,16 @@ alwaysApply: true
 
 # 仓库结构
 
-本仓库是 **XKnot**：面向 AI 与 Agent 时代的去中心化分布式信息交换网络。根目录只做网络总览、公共资产与跨项目的工具，不放任一项目的实现代码。`XKnot` 指网络，`Knot` 指部署一个实例所用的软件（`knot-platform`）。
+本仓库是 **XKnot**：面向 AI 与 Agent 时代的去中心化分布式信息交换网络。根目录只做网络总览和公共资产，不放任一项目的实现代码。`XKnot` 指网络，`Knot` 指部署一个实例所用的软件（`knot-platform`）。
 
 ```text
 XKnot/                     仓库根（本工作区目录 AgentLink）
 ├── README.md              网络总览：两个项目怎么连成一张网
 ├── LICENSE / NOTICE       版权与署名
 ├── docs/                  XKnot 组织的公共文档与品牌资产（跨项目）
-├── bench/                 跨项目测速：k6 脚本，测的是某个子域，不属于任一项目
 ├── knot-platform/         独立项目：一个 Knot 信息枢纽
 └── xknot.si/              独立项目：XKnot 联邦站点
 ```
-
-`bench/` 自带 `package.json` 与 `node_modules`，是唯一允许在根下存在的「项目」，因为它测的是线上子域、两边都要用；它的依赖与命令在 `bench/README.md` 里，不要并进两个项目。
 
 ## 两个独立项目
 
@@ -29,7 +26,7 @@ XKnot/                     仓库根（本工作区目录 AgentLink）
 - 两者**各自独立开发、编译、安装和部署**：依赖、`node_modules`、测试、构建、发布都在各自目录里完成。
 - `xknot.si/` 不并入 `knot-platform/` 的 npm workspaces，不 import `knot-platform/*`，也不依赖 bot01 上的进程。
 - 两边只通过 HTTP 契约相连（`xknot.si/docs/FEDERATION.md`）。要复用代码，先落进对应项目；跨项目的说明和素材才放根 `docs/`。
-- 根目录不设统一 `package.json`，不要在这里 `npm install`，也不要在根目录跑任一项目的构建（`bench/` 除外，它在自己目录里跑）。
+- 根目录不设统一 `package.json`，不要在这里 `npm install`，也不要在根目录跑任一项目的构建。
 - 改动落在哪个项目，就在哪个项目里补 README / docs / 测试；不要把实现文档写进另一个项目。
 
 ## 根目录的公共资产

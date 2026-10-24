@@ -206,8 +206,7 @@ KNOT_SERVICE_USER="${KNOT_SERVICE_USER:-knot}"
 KNOT_DEPLOY_SSH="${KNOT_DEPLOY_SSH:-}"
 # 远端路径：`~/...` 按目标机的 home 展开，不按本机。site.env 里写 `~`
 # 会被 source 成本机 home，push-deploy.sh 会再换回远端 home。
-# 留空按站点名推导：一个部署根只放一个站点，两个站点共用同一个根会互相切走 current。
-KNOT_DEPLOY_DIR="${KNOT_DEPLOY_DIR:-~/knot/$KNOT_SITE}"
+KNOT_DEPLOY_DIR="${KNOT_DEPLOY_DIR:-~/knot/AgentLink/knot-platform}"
 KNOT_DEPLOY_SSH_KEY="${KNOT_DEPLOY_SSH_KEY:-}"
 KNOT_DEPLOY_VERIFY_URL="${KNOT_DEPLOY_VERIFY_URL:-}"
 KNOT_DEPLOY_KEEP="${KNOT_DEPLOY_KEEP:-5}"
@@ -216,10 +215,8 @@ KNOT_ARTIFACT_DIR="${KNOT_ARTIFACT_DIR:-$KNOT_APP_DIR/artifacts}"
 # ---- 公网入口 ----
 KNOT_ENTRY_ENABLED="${KNOT_ENTRY_ENABLED:-0}"
 KNOT_ENTRY_SSH="${KNOT_ENTRY_SSH:-}"
-# 从开发机推页面用的私钥。故意不回落到 id_rsa：入口主机通常不认这把个人主身份钥，
-# 照旧默认值第一次推就会 auth 失败，而且把主钥当部署钥用本来就不该是默认行为。
-# 留空表示交给 ssh 默认身份或 ssh-agent。
-KNOT_ENTRY_SSH_KEY="${KNOT_ENTRY_SSH_KEY:-}"
+# 从开发机推页面用的私钥
+KNOT_ENTRY_SSH_KEY="${KNOT_ENTRY_SSH_KEY:-$HOME/.ssh/id_rsa}"
 # 实例主机上推公开快照用的私钥（和开发机不是同一把）
 KNOT_ENTRY_PUSH_KEY="${KNOT_ENTRY_PUSH_KEY:-$HOME/.ssh/knot-entry-publish}"
 KNOT_ENTRY_WEB_OWNER="${KNOT_ENTRY_WEB_OWNER:-nginx:nginx}"

@@ -1,62 +1,62 @@
-# XKnot concepts and ownership
+# XKnot 的概念与归属
 
-In one sentence: **XKnot is the network, `xknot.si` is the hub, and `knot-platform` is the software used to deploy an instance.**
+一句话：**XKnot 是网络，`xknot.si` 是中枢，`knot-platform` 是部署一套实例所用的软件。**
 
-![XKnot roles and ownership](concepts.svg)
+![XKnot 的角色与归属](concepts.svg)
 
-## Roles and ownership
+## 角色与归属
 
-| Role | What it is | Ownership |
+| 角色 | 是什么 | 归属 |
 |------|--------|------|
-| **Hub** | The hub service on `xknot.si`: receives join applications and writes them to the DB, issues subdomains and onboarding files, maintains the instance roster and portal, health probes, trending showcase, delegated mail. It does not write members' records and accounts, but applications, claims, and read-only queries are open to the public | `xknot.si/` |
-| **Hub host** | The machine running the hub; hostname fixed at `xknot.si` | `xknot.si/ops/` |
-| **Instance** | An independently deployed Knot: its own database, accounts, credits, review, uploads | The partner themselves |
-| **Instance host** | The machine running the instance Backend, Postgres, and upload directory | `knot-platform/sites/<site>/` |
-| **Public entry** | The nginx for the instance domain: certificates, public HTTPS, static WebUI, `/api` reverse proxy | Instance side, `knot-platform/ops/entry/` |
-| **Entry host** | The machine running the public entry | Same as above |
-| **Origin tunnel** | The SSH reverse tunnel the instance dials out, connecting the entry host's loopback port to the instance | `KNOT_TUNNEL_*` in `sites/<site>/site.env` |
+| **中枢** | `xknot.si` 上的只读入口服务：实例清单、门户、健康探测、热点橱窗、委托发信 | `xknot.si/` |
+| **中枢主机** | 跑中枢的那台机器，主机名固定 `xknot.si` | `xknot.si/ops/` |
+| **实例** | 一套独立部署的 Knot：自己的库、账号、积分、审核、上传 | 伙伴自己 |
+| **实例主机** | 跑实例 Backend、Postgres 与上传目录的那台机器 | `knot-platform/sites/<站点>/` |
+| **公网入口** | 给实例域名用的 nginx：证书、对外 HTTPS、静态 WebUI、`/api` 反向代理 | 实例侧，`knot-platform/ops/entry/` |
+| **入口主机** | 跑公网入口的那台机器 | 同上 |
+| **回源隧道** | 实例主动连出的 SSH 反向隧道，把入口主机的回环端口接到实例 | `sites/<站点>/site.env` 的 `KNOT_TUNNEL_*` |
 
-**The entry is stored in two places by scope** — this is not two concepts, but two granularities of the same thing:
+**入口按范围分两处存放**，这不是两个概念，是同一件事的两种粒度：
 
-| Location | What it holds | Reusable by another instance? |
+| 位置 | 放什么 | 换个实例还能用吗 |
 |------|--------|------------------|
-| `knot-platform/ops/entry/` | nginx conf templates, cache snippets, sshd tunnel templates, render and push scripts | Yes → it is software |
-| `xknot.si/ops/entry/` | The specific conf and runbook for an already-issued subdomain (e.g. `<subdomain>.xknot.si.conf`) | No → it is the record of this issuance |
+| `knot-platform/ops/entry/` | nginx conf 模板、缓存片段、sshd 隧道模板、渲染与推送脚本 | 能 → 是软件 |
+| `xknot.si/ops/entry/` | 某个已签发子域的具体 conf 与接通 runbook（如 `<子域>.xknot.si.conf`） | 不能 → 是这次签发的记录 |
 
-## One machine can wear several roles
+## 一台机器可以兼任
 
-Roles are responsibilities, machines are hardware. **The same machine can be both the hub host and the entry host** — the current deployment is exactly this: `xknot.si` and `wang.xknot.si` sit on the same host.
+角色是职责，机器是硬件。**同一台机器可以同时是中枢主机和入口主机**，当前部署就是这样：`xknot.si`、`wang.xknot.si` 落在同一台主机上。
 
-But ownership follows the role, not the machine:
+但归属按角色分，不按机器分：
 
-- Hub config goes only in `xknot.si/ops/`;
-- Entry config: reusable templates go in `knot-platform/ops/entry/`, and the site installed on the entry host is written in `sites/<site>/entry.<domain>.env`; the one the hub installs on a partner's behalf (subdomain hardcoded) goes in `xknot.si/ops/entry/`;
-- The instance's own config goes only in `sites/<site>/site.env` and `platform.env`.
+- 中枢的配置只放 `xknot.si/ops/`；
+- 入口的配置：可复用的模板放 `knot-platform/ops/entry/`，在入口主机上装的站点写 `sites/<站点>/entry.<域名>.env`；中枢替伙伴装的那一份（写死子域）放 `xknot.si/ops/entry/`；
+- 实例自己的配置只放 `sites/<站点>/site.env` 与 `platform.env`。
 
-The two projects never reference each other's files; they connect only through the HTTP contract and onboarding files. So "the hub also runs on this machine" is not a dependency of instance deployment, and vice versa.
+两个项目互不引用对方的文件，只通过 HTTP 契约与接入件相连。所以「这台机器上还跑着中枢」不是实例部署的依赖，反过来也不是。
 
-## When the entry layer does not exist
+## 入口这一层什么时候不存在
 
-**Federation members always go through the entry host + origin tunnel.** The roster `mode` has only one value `subdomain`, and `tunnel` is mandatory; the listing `url` must be the hub-issued `https://<label>.xknot.si`. For the onboarding flow, see [xknot.si/docs/JOIN.md](../xknot.si/docs/JOIN.md) §2.
+**联邦成员一律走入口主机 + 回源隧道。** 名册 `mode` 只有一个取值 `subdomain`，`tunnel` 必填；清单 `url` 必须是中枢签发的 `https://<标签>.xknot.si`。接入方式见 [xknot.si/docs/JOIN.md](../xknot.si/docs/JOIN.md) 第 2 节。
 
-If an instance faces outward **using its own domain**, it does not need the join-federation step: no entry host, no origin tunnel; DNS points directly at the instance host, and the instance runs its own nginx and signs its own certificates. Such sites are not registered in `instances.json` and do not take part in federation probes.
+实例如果**用自己的域名**对外，它就不需要加入联邦这一步：没有入口主机，也没有回源隧道，DNS 直接指向实例主机，实例自己跑 nginx、自己签证书。这类站点不登记 `instances.json`，也不参与联邦探测。
 
-**"Subdomain pointing at the partner's own fixed IP, without a tunnel" is not in the contract**: `validate-federation.mjs` rejects it, and there are no landing steps. For a fixed IP, use your own domain and self-host the site.
+**「子域指到伙伴自己的固定 IP、不走隧道」不在契约里**：`validate-federation.mjs` 会拒绝，也没有落地步骤。要固定 IP 就用自有域名自建站点。
 
-## Words not to use anymore
+## 不要再用这些词
 
-| Don't write | Why |
+| 不写 | 为什么 |
 |------|--------|
-| edge, cloud edge, edge host | Sounds like a CDN edge node, and is often co-located with the hub; readers can't tell whether it means the hub or the entry |
-| node | Implies a peer-to-peer network; use "instance" |
-| sub-site, branch site | Implies a subordinate replica; each instance is sovereign, use "instance" |
-| center, main station, flagship station, aggregation platform | Contradicts member autonomy; use "hub" |
+| 边缘、云端边缘、边缘主机 | 既像 CDN 边缘节点，又常常和中枢同机；读者分不清说的是中枢还是入口 |
+| 节点 | 暗示点对点网络；应用「实例」 |
+| 子站、分站 | 暗示从属副本；每个实例各有主权，应用「实例」 |
+| 中心、总站、主站、聚合平台 | 与成员自治相反；应用「中枢」 |
 
-## Read on
+## 往下读
 
-| Want to know | See |
+| 想知道 | 看 |
 |--------|----|
-| Terms, forbidden words, standard sentences | [xknot.si/docs/NAMING.md](../xknot.si/docs/NAMING.md) |
-| The hub-instance contract | [xknot.si/docs/FEDERATION.md](../xknot.si/docs/FEDERATION.md) |
-| How the hub runs and is verified | [xknot.si/docs/HUB.md](../xknot.si/docs/HUB.md) |
-| How an instance deploys and the entry is configured | [knot-platform/README.md](../knot-platform/README.md), [`knot-platform/ops/README.md`](../knot-platform/ops/README.md), [`knot-platform/ops/entry/README.md`](../knot-platform/ops/entry/README.md) |
+| 术语、禁用词、标准句子 | [xknot.si/docs/NAMING.md](../xknot.si/docs/NAMING.md) |
+| 中枢与实例的契约 | [xknot.si/docs/FEDERATION.md](../xknot.si/docs/FEDERATION.md) |
+| 中枢怎么跑、怎么验收 | [xknot.si/docs/HUB.md](../xknot.si/docs/HUB.md) |
+| 实例怎么部署、入口怎么配 | [knot-platform/README.md](../knot-platform/README.md)、[`knot-platform/ops/README.md`](../knot-platform/ops/README.md)、[`knot-platform/ops/entry/README.md`](../knot-platform/ops/entry/README.md) |

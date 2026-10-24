@@ -47,6 +47,10 @@ export function locale() {
   return current;
 }
 
+export function isLocale(id) {
+  return Boolean(DICTS[id]);
+}
+
 export function t(key, vars) {
   const table = DICTS[current] || DICTS[DEFAULT_LOCALE];
   const text = table[key] ?? DICTS[DEFAULT_LOCALE][key] ?? key;
@@ -91,9 +95,6 @@ export function setLocale(id) {
 }
 
 export function fmtInt(value) {
-  // 空值不是 0：Number(null) 与 Number("") 都能过 isFinite，概览会把「没有这个数」显示成 0。
-  // fmtDate 也是先挡空值，两处口径要一致。
-  if (value == null || value === "") return "—";
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
   return number.toLocaleString(current, { maximumFractionDigits: 0 });
@@ -104,4 +105,8 @@ export function fmtDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString(current, { hour12: false });
+}
+
+export function dictionary(id) {
+  return DICTS[id] || null;
 }

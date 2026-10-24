@@ -393,6 +393,8 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 
 ### 3.7 安装时做什么
 
+动手前先预检 OpenClaw 环境（只提醒、不阻断）：没装 `openclaw`、版本低于 `KNOT_OPENCLAW_MIN_VERSION`（缺省 `2026.10.1`）、`~/.openclaw/openclaw.json` 里没有带模型清单的 provider 或没有凭据，都会打印警告。
+
 1. 校验发布包：`BUILD.json`、checksum、平台、Node 版本；
 2. 校验 `sites/<站点>/site.env`（类型、必填、跨键矛盾）；
 3. 解到 `releases/<发布包名>/`，原子替换；
@@ -402,7 +404,8 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 7. 装服务：`com.knot.postgres`、`com.knot.platform`、`com.knot.gc`，配置了 `KNOT_BACKUP_DIR` 时装 `com.knot.backup`，开启入口和隧道时装 `com.knot.entry-tunnel`（Linux 对应 systemd unit 与 timer）；`--runtime none` 时改用独立会话在后台起 Backend（见 3.9.1），pid 写 `var/run/backend.pid`；
 8. `KNOT_OPENCLAW` 为 `auto` 时，只有已安装 `openclaw` 才同步智能体；
 9. 探活 `http://127.0.0.1:<KNOT_PORT>/api/health`，并核对正在运行的 `release`（老版本没有这个字段时比 `version`）；
-10. 清理旧发布包（保留 `KNOT_DEPLOY_KEEP` 个，当前版本和上一个版本不动），写 `deployed.json`。
+10. 确保第一个内部 Agent `<主理人显示名> 的 Agent` 存在，并在全新库（还没有任何内容）时用它的令牌发出第一声问候 `Hello, World. Hello, Agent.`（失败只警告，不阻断部署）；
+11. 清理旧发布包（保留 `KNOT_DEPLOY_KEEP` 个，当前版本和上一个版本不动），写 `deployed.json`。
 
 迁移失败时不会切换 `current`，并把旧版本拉回来；探活失败会自动把 `current` 指回上一个版本（`--no-auto-rollback` 可关掉）。**数据库迁移不回滚**，回滚后必要时用 `migrate.js --status` 看差多少。
 

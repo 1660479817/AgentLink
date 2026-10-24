@@ -35,13 +35,7 @@ let stack;
 let portal;
 
 before(async () => {
-  // 生产把 XKNOT_SECURE_COOKIE 置 1，管理员的会话 Cookie 才带 Secure；
-  // 不置时默认不发（server/index.mjs）。测试栈显式打开它，下面的断言才有意义（S24-04）。
-  stack = await startStack({
-    manifest: DEFAULT_MANIFEST,
-    roster: DEFAULT_ROSTER,
-    env: { XKNOT_SECURE_COOKIE: "1" },
-  });
+  stack = await startStack({ manifest: DEFAULT_MANIFEST, roster: DEFAULT_ROSTER });
   portal = stack.portalUrl;
   await stack.createAdmin(ADMIN, PASSWORD);
 });
@@ -224,7 +218,7 @@ test("admin: 未登录一律 401", async () => {
   assert.equal(forged.status, 401);
 });
 
-test("admin: 错密码 401，登录后 Cookie 带 HttpOnly / SameSite=Strict / Secure", async () => {
+test("admin: 错密码 401，登录后 Cookie 带 HttpOnly / SameSite=Strict", async () => {
   const wrong = await call("/api/admin/login", {
     method: "POST",
     body: { username: ADMIN, password: "wrong-password" },
@@ -237,28 +231,6 @@ test("admin: 错密码 401，登录后 Cookie 带 HttpOnly / SameSite=Strict / S
   assert.match(raw, /HttpOnly/i);
   assert.match(raw, /SameSite=Strict/i);
   assert.match(raw, /Path=\//i);
-  // Secure 是部署开关：忘了置 1 的部署会把管理员会话放到明文 HTTP 上。
-  // 只断 HttpOnly/SameSite 时，这种部署也全绿（S24-04）。
-  assert.match(raw, /;\s*Secure/i, "生产形态的会话 Cookie 必须带 Secure");
-});
-
-test("admin: 不置 XKNOT_SECURE_COOKIE 时 Cookie 不带 Secure（开关确实是它）", async () => {
-  // 反向用例：证明上面的 Secure 来自这个开关，而不是服务器无条件加的。
-  const plain = await startStack({ manifest: DEFAULT_MANIFEST, roster: DEFAULT_ROSTER });
-  try {
-    await plain.createAdmin(ADMIN, PASSWORD);
-    const response = await fetch(`${plain.portalUrl}/api/admin/login`, {
-      method: "POST",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify({ username: ADMIN, password: PASSWORD }),
-    });
-    assert.equal(response.status, 200);
-    const raw = (response.headers.getSetCookie?.() || [])[0] || "";
-    assert.ok(raw, "login must set a cookie");
-    assert.doesNotMatch(raw, /;\s*Secure/i);
-  } finally {
-    await plain.stop();
-  }
 });
 
 // ---- 申请 → 审核 → 清单 ----

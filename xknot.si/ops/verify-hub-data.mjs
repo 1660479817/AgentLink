@@ -16,18 +16,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// 保留给示例与测试的域名，永远不该出现在对外清单里。
-// RFC 2606 除了 .example/.test/.invalid/.localhost，还保留了 example.com/.net/.org，
-// 而人写样例时最常用的恰恰是这几个。
+// 保留给示例与测试的顶级域，永远不该出现在对外清单里。
 const RESERVED_TLDS = [".example", ".test", ".invalid", ".localhost"];
-const RESERVED_DOMAINS = ["example.com", "example.net", "example.org"];
-
-/** 命中的保留后缀或域名；没命中返回空串。按完整后缀比较，不能只比 .com。 */
-function reservedHost(host) {
-  const tld = RESERVED_TLDS.find((suffix) => host.endsWith(suffix));
-  if (tld) return tld;
-  return RESERVED_DOMAINS.find((domain) => host === domain || host.endsWith(`.${domain}`)) || "";
-}
 
 function isHttps(value) {
   try {
@@ -118,7 +108,7 @@ export function verifyHubData({ data, manifest, fixtures = null, requireProfile 
     }
 
     const host = hostOf(item?.url);
-    const reserved = reservedHost(host);
+    const reserved = RESERVED_TLDS.find((tld) => host.endsWith(tld));
     if (reserved) problems.push(`${id}: url uses reserved host suffix ${reserved}`);
   }
 

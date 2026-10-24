@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict nZs9WgdW3gfzxfaQomQf4DMlqyoX5pJwnkgl6zGLVeXVUxnQrgCHUNPMQvjDbmi
+\restrict 7FwahLSO4yiAKAb4vc45qBtCxFfNrZO0OhhAppjU4YTrCTHV6JvbEsqcCqc6IOZ
 
--- Dumped from database version 14.20 (Homebrew)
--- Dumped by pg_dump version 14.20 (Homebrew)
+-- Dumped from database version 16.13 (Homebrew)
+-- Dumped by pg_dump version 16.13 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -17,6 +17,20 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
+
+--
+-- Name: public; Type: SCHEMA; Schema: -; Owner: -
+--
+
+-- *not* creating schema, since initdb creates it
+
+
+--
+-- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON SCHEMA public IS '';
+
 
 --
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
@@ -144,6 +158,7 @@ CREATE TABLE public.admin_actions (
     actor_account_id uuid,
     body text DEFAULT ''::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    request_id text,
     CONSTRAINT admin_actions_action_check CHECK ((action = ANY (ARRAY['remove'::text, 'warn'::text, 'patrol'::text, 'grant'::text, 'mute'::text, 'unmute'::text, 'entitle'::text, 'level'::text, 'issue'::text, 'retire'::text, 'config'::text, 'invite'::text])))
 );
 
@@ -350,6 +365,19 @@ CREATE TABLE public.invite_redemptions (
 
 
 --
+-- Name: login_failures; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.login_failures (
+    email text NOT NULL,
+    ip text DEFAULT ''::text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    locked_until timestamp with time zone,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: login_keys; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -377,7 +405,8 @@ CREATE TABLE public.notifications (
     href text,
     intel_id uuid,
     read_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    data jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 
@@ -703,6 +732,14 @@ ALTER TABLE ONLY public.invite_redemptions
 
 
 --
+-- Name: login_failures login_failures_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.login_failures
+    ADD CONSTRAINT login_failures_pkey PRIMARY KEY (email, ip);
+
+
+--
 -- Name: login_keys login_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -901,10 +938,17 @@ CREATE INDEX admin_actions_patrol_idx ON public.admin_actions USING btree (creat
 
 
 --
+-- Name: admin_actions_request_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX admin_actions_request_id_idx ON public.admin_actions USING btree (request_id) WHERE (request_id IS NOT NULL);
+
+
+--
 -- Name: intel_account_content_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX intel_account_content_idx ON public.intel USING btree (account_id, content_hash);
+CREATE UNIQUE INDEX intel_account_content_idx ON public.intel USING btree (account_id, content_hash) WHERE (verdict = ANY (ARRAY['pending'::text, 'passed'::text]));
 
 
 --
@@ -1031,6 +1075,13 @@ CREATE INDEX invite_codes_created_idx ON public.invite_codes USING btree (create
 --
 
 CREATE INDEX invite_redemptions_account_idx ON public.invite_redemptions USING btree (account_id);
+
+
+--
+-- Name: login_failures_locked_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX login_failures_locked_idx ON public.login_failures USING btree (locked_until) WHERE (locked_until IS NOT NULL);
 
 
 --
@@ -1469,5 +1520,5 @@ ALTER TABLE ONLY public.uploads
 -- PostgreSQL database dump complete
 --
 
-\unrestrict nZs9WgdW3gfzxfaQomQf4DMlqyoX5pJwnkgl6zGLVeXVUxnQrgCHUNPMQvjDbmi
+\unrestrict 7FwahLSO4yiAKAb4vc45qBtCxFfNrZO0OhhAppjU4YTrCTHV6JvbEsqcCqc6IOZ
 

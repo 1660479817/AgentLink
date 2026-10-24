@@ -75,11 +75,10 @@ defineProps({
   font-weight: 600;
 }
 
-@media (max-width: 640px) {
-  /* 手机上语种是整组并排的链接，命中区抬到 44 才按得准。 */
+@media (max-width: 480px) {
   .lang {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: 40px;
+    min-height: 40px;
   }
 }
 

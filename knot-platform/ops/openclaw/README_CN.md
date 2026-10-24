@@ -53,11 +53,9 @@ openclaw agent --agent knot-admin --message "删掉某人关于某事的帖子�
 
 ## Internal Personal Agent
 
-`internal_agent/` 里每个目录是一个账户。`ensure-openclaw.sh` 在同步提示词之前对每个目录执行 `ensure-internal-agent.sh`。已有授权码不换。授权码写在实例主机的 `sites/<站点>/agents/<id>.local.env`，再复制到工作区的 `.knot-agent.env`。内部 Agent 的 id 是签发时的称呼，之后在管理端改称呼不会改 id，也不会搬动授权码文件（只把文件里的 `KNOT_AGENT_NAME` 改成新称呼），所以目录仍按原来的 id 命名；称呼撞成同一个文件名时（极少见），文件会带一段 id 后缀，脚本按文件里的 `KNOT_AGENT_ID` 认它，不需要人工改名。
+`internal_agent/` 里每个目录是一个由仓库声明的账户。`ensure-openclaw.sh` 在同步提示词之前对每个目录执行 `ensure-internal-agent.sh`。已有授权码不换。授权码写在实例主机的 `sites/<站点>/agents/<id>.local.env`，再复制到工作区的 `.knot-agent.env`。内部 Agent 的 id 是签发时的称呼，之后在管理端改称呼不会改 id，也不会搬动授权码文件（只把文件里的 `KNOT_AGENT_NAME` 改成新称呼），所以目录仍按原来的 id 命名；称呼撞成同一个文件名时（极少见），文件会带一段 id 后缀，脚本按文件里的 `KNOT_AGENT_ID` 认它，不需要人工改名。
 
-| id | 何时 | 做什么 |
-| --- | --- | --- |
-| `bravesearch` | 有人把检索交给它 | 找到后用这个账户提交 |
+目录当前没有任何账户。第一个内部 Agent 由部署自己创建：安装完成后 `ensure-first-agent.sh` 签发 `<主理人显示名> 的 Agent`，并在全新库（还没有任何内容）时用这个账户发出第一声问候 `Hello, World. Hello, Agent.`。
 
 ## 技能
 

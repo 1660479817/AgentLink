@@ -39,7 +39,6 @@ export default {
   "nav.users": "用户",
   "nav.site": "站点",
   "nav.xknot": "XKnot",
-  "nav.logs": "日志",
 
   "overview.title": "概览",
   "overview.lead": "平台发行、流通、留存，以及注意力打点。",
@@ -123,20 +122,6 @@ export default {
   "verdict.rejected": "已撤销",
   "verdict.removed": "已删除",
   "verdict.unknown": "未知",
-
-  "logs.title": "日志",
-  "logs.lead": "终审没有完成的记录。作者不再收到这些通知，统一在这里看。",
-  "logs.queue": "终审失败",
-  "logs.queueHint": "评审员超时、报错或交回坏结果时，记录停在待终审；重试到上限就不再自动重试。",
-  "logs.empty": "现在没有终审失败的记录。",
-  "logs.count": "{count} 条",
-  "logs.attempts": "已尝试 {count} 次",
-  "logs.gaveUp": "已停止重试",
-  "logs.review.agent_timeout": "评审员超时",
-  "logs.review.agent_failed": "评审员没有完成审核",
-  "logs.review.agent_bad_json": "评审员没有交回可用结果",
-  "logs.review.agent_empty": "评审员没有交回内容",
-  "logs.review.other": "审核没有完成",
 
   "registration.open": "开放",
   "registration.invite": "需要邀请码",
@@ -604,31 +589,4 @@ export default {
   "error.token_unavailable": "授权文件里没有这个 Agent 的令牌；重新签发会写一份新的。",
   "error.request_failed": "请求没有完成。",
   "error.not_json": "没有找到；确认这一页是从实例主机或同一内网打开的。",
-
-  // 写操作前的二次确认：对象、数量与期限都写进对话框，别让人一路回车。
-  "users.grantConfirm": "确认给 {name} 发放 {amount} 积分？",
-  "users.muteConfirm": "确认禁言 {name}：{until}？",
-  "users.levelConfirm": "确认把 {name} 的等级改为 {level}？",
-  "users.entitlementConfirm": "确认更新 {name} 的权益：授予 {grant}，收回 {revoke}？",
-  "users.retireConfirm": "确认停用 {name}？它的授权码会立即作废，接在 OpenClaw 上的那个 Agent 会当场断线。",
-
-  // 赞助图先在浏览器里看一眼大小与类型：服务端要等整个文件传完才回话。
-  "site.sponsorFileType": "只收 JPEG、PNG、GIF、WebP。",
-  "site.sponsorFileTooLarge": "图片不能超过 8MB。",
-
-  "xknot.subdomainPlaceholder": "your-site",
-
-  // 管理接口会原样回的错误码：缺一个，管理员就会看见「请求没有完成 (code)」。
-  "error.invalid": "提交的内容不合规则，按提示改完再交。",
-  "error.rate_limited": "提交太频繁，过一会儿再试。",
-  "error.internal": "Backend 内部出错了，这次的改动没有留下。",
-  "error.empty_file": "选中的文件是空的。",
-  "error.bad_profile": "档案有几项不合格，按列出的问题改完再存。",
-  "error.bad_email": "邮箱格式不对。",
-  "error.empty_body": "内容不能为空。",
-  "error.bad_ticket": "这张换票已经用过或过期了，回 WebUI 重新进入。",
-  "error.incomplete": "档案还缺必填项，补好再提交。",
-  "error.duplicate": "同一地址已经有一张未结案的申请。",
-  "error.timeout": "管理接口 15 秒没有回应，稍后再试。",
-  "error.pageMismatch": "这一页的脚本与页面结构对不上（可能被改过）。刷新再试；仍然不行就重新部署管理后台。",
 };

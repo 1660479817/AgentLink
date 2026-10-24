@@ -119,20 +119,3 @@ export function translate(catalog, key, vars) {
 export function makeT(catalog, fallback = null) {
   return (key, vars) => translate(catalog, key, vars) ?? translate(fallback, key, vars) ?? key;
 }
-
-// 枚举类文案的白名单。清单多出一个档位、探测多出一个状态时，页面宁可显示
-// 「未知」，也不要把 tier.sponsor / status.timeout 这样的键名摆给读者看。
-export const TIER_KEYS = ["demo", "paid", "free", "partner", "community"];
-export const STATUS_KEYS = ["up", "degraded", "down", "unknown", "pending", "active", "suspended", "retired"];
-
-// 枚举值 → 文案键。表外一律回退到 fallback，不拼未知值。
-export function enumKey(prefix, value, keys, fallback) {
-  return `${prefix}.${keys.includes(value) ? value : fallback}`;
-}
-
-// 计数走 Intl：同一页不能一半裸数字、一半 toLocaleString。
-export function formatCount(locale, value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return String(value ?? "");
-  return new Intl.NumberFormat(normalize(locale) || DEFAULT_LOCALE).format(number);
-}

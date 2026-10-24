@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="theme-color" content="#111827" />
-    <title>Knot</title>
+    <title>Knot 管理后台</title>
     <link rel="stylesheet" href="./admin.css" />
   </head>
   <body>
     <section id="login-view" class="login" hidden>
       <form id="login-form" class="login-card" autocomplete="off">
         <p class="eyebrow">Knot</p>
-        <h1 data-i18n="login.title"></h1>
+        <h1 data-i18n="login.title">管理后台</h1>
         <p class="login-lead" data-i18n="login.lead"></p>
         <p class="login-hint" data-i18n="login.viaSite"></p>
         <label class="field">
@@ -21,7 +21,7 @@
             id="token-input"
             name="token"
             type="password"
-            autocomplete="off"
+            autocomplete="current-password"
             autocapitalize="off"
             spellcheck="false"
             required
@@ -96,10 +96,6 @@
           <button class="nav-button" type="button" data-view="xknot">
             <span class="icon" data-icon="globe" aria-hidden="true"></span>
             <span data-i18n="nav.xknot"></span>
-          </button>
-          <button class="nav-button" type="button" data-view="logs">
-            <span class="icon" data-icon="logs" aria-hidden="true"></span>
-            <span data-i18n="nav.logs"></span>
           </button>
         </nav>
 
@@ -407,9 +403,7 @@
                     <form id="identity-form" class="stack-form" novalidate hidden>
                       <label class="field">
                         <span data-i18n="users.name"></span>
-                        <!-- 计数按码点走（admin.js 的 IDENTITY_LIMITS），不能用 maxlength：
-                             它按 UTF-16 码元截，emoji 与扩展 B 汉字只让输一半。 -->
-                        <input id="identity-name" type="text" autocomplete="off" spellcheck="false" />
+                        <input id="identity-name" type="text" maxlength="40" autocomplete="off" spellcheck="false" />
                         <span id="identity-name-hint" class="field-hint"></span>
                       </label>
                       <label class="field">
@@ -417,9 +411,10 @@
                         <textarea
                           id="identity-bio"
                           rows="3"
+                          maxlength="200"
                           data-i18n-placeholder="users.bioPlaceholder"
                         ></textarea>
-                        <span id="identity-bio-count" class="field-hint"></span>
+                        <span id="identity-bio-count" class="field-hint">0 / 200</span>
                       </label>
                       <label id="identity-specialty-field" class="field" hidden>
                         <span data-i18n="users.specialties"></span>
@@ -577,7 +572,7 @@
             </div>
 
             <article class="card">
-              <div class="card-head">
+              <div class="card-head issue-head">
                 <div class="head-stack">
                   <h3 data-i18n="users.issue"></h3>
                   <p class="muted small" data-i18n="users.issueHint"></p>
@@ -661,7 +656,6 @@
                       <span data-i18n="site.saveGate"></span>
                     </button>
                   </div>
-                  <p id="system-error" class="alert form-error" role="alert" hidden></p>
                 </form>
               </article>
 
@@ -778,7 +772,6 @@
                     <button class="button primary" type="submit" data-i18n="site.sponsorSave"></button>
                     <button id="sponsor-cancel" class="button ghost" type="button" hidden data-i18n="site.sponsorCancel"></button>
                   </div>
-                  <p id="sponsor-error" class="alert form-error" role="alert" hidden></p>
                 </form>
                 <div id="sponsors-list" class="sponsor-list"></div>
               </article>
@@ -870,11 +863,11 @@
                     <input
                       id="join-subdomain"
                       type="text"
-                      maxlength="32"
+                      maxlength="40"
                       autocomplete="off"
                       autocapitalize="none"
                       spellcheck="false"
-                      data-i18n-placeholder="xknot.subdomainPlaceholder"
+                      placeholder="your-site"
                     />
                     <span class="host-suffix">.xknot.si</span>
                     <button id="join-check" class="button ghost" type="button" data-i18n="xknot.check"></button>
@@ -964,30 +957,6 @@
                 </section>
               </div>
             </details>
-          </section>
-
-          <section class="view" data-view="logs" hidden>
-            <div class="view-head">
-              <div>
-                <h2 data-i18n="logs.title"></h2>
-                <p class="muted" data-i18n="logs.lead"></p>
-              </div>
-              <button id="logs-refresh" class="button ghost" type="button">
-                <span class="icon" data-icon="refresh" aria-hidden="true"></span>
-                <span data-i18n="common.refresh"></span>
-              </button>
-            </div>
-
-            <article class="card">
-              <div class="card-head">
-                <div class="head-stack">
-                  <h3 data-i18n="logs.queue"></h3>
-                  <p class="muted small" data-i18n="logs.queueHint"></p>
-                </div>
-                <span id="logs-count" class="card-tag">—</span>
-              </div>
-              <div id="logs-list" class="post-list"></div>
-            </article>
           </section>
         </main>
       </div>

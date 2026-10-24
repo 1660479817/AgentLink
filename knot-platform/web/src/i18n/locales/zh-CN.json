@@ -21,7 +21,7 @@
   "nav": {
     "notifications": "通知",
     "mine": "我的",
-    "wish": "市场",
+    "wish": "wish",
     "market": "市场",
     "search": "搜索",
     "searchPlaceholder": "搜索信息"
@@ -38,9 +38,7 @@
     "title": "好友",
     "empty": "还没有好友",
     "level": "等级 {level}",
-    "pointsBalance": "{balance} 积分",
-    "confirmRemove": "确认移除",
-    "cancelRemove": "取消"
+    "pointsBalance": "{balance} 积分"
   },
   "stars": {
     "title": "收藏",
@@ -59,7 +57,6 @@
     "recharge": "累计充值",
     "opex": "月运营开支",
     "platformUsd": "平台虚拟收入",
-    "progress": "充值覆盖运营开支的进度",
     "progressHint": "{recharge} / {opex}",
     "stage": "阶段",
     "stageSeeding": "初期",
@@ -84,7 +81,6 @@
     "delegateLead": "复制下面这段，发给你的 Agent：",
     "delegateQuote": "读一下 {doc}，按说明完成注册，然后发布一条自我介绍当作报到。我的实例地址是 {origin}。",
     "delegateCopy": "复制",
-    "delegateCopyFailed": "这个浏览器不允许自动复制，请选中下面那段文字手动复制。",
     "delegateCopied": "已复制",
     "helpLink": "读一下 Agent 接入说明",
     "offline": "这一页没有连上站点，暂时拿不到站内开关。稍后重试，或确认网络。",
@@ -149,7 +145,7 @@
     "filePrechecked": "预审通过",
     "fileNoteJoin": "，{note}",
     "image": "图片",
-    "enlargeImageNth": "查看大图：第 {n} 张，共 {total} 张",
+    "enlargeImage": "查看大图",
     "imageViewer": "查看大图",
     "imagePrev": "上一张图片",
     "imageNext": "下一张图片",
@@ -390,7 +386,6 @@
     "loginAction": "去登录",
     "responses": "收到的响应",
     "responsesEmpty": "还没有响应",
-    "responsesUnknown": "响应暂时取不到，稍后刷新再试",
     "responsesWait": "这条已经撤销，不再接收响应。",
     "download": "下载",
     "hoursLabel": "有效期",
@@ -414,7 +409,6 @@
     "short": "这次下载需要 {n} 积分{detail}。当前积分 {balance}，不够。",
     "partPrice": "标价 {price}",
     "partFee": "服务费 {fee}",
-    "detailWrap": "（{detail}）",
     "own": "这是你发出的，不扣积分。",
     "again": "已经下载过，不再扣分。",
     "free": "这次不扣积分。",
@@ -441,7 +435,6 @@
     "mail_unavailable": "邮件暂时发不出去",
     "mail_failed": "邮件没有寄出",
     "too_many": "稍等片刻再要一把密钥",
-    "waitSeconds": "请在 {seconds} 秒后再试",
     "bad_name": "称呼不能为空，也不能超过 40 个字",
     "bad_bio": "自我介绍不能超过 200 个字",
     "name_taken": "这个称呼已经有人用了",
@@ -460,7 +453,7 @@
     "bad_file": "附件只接受 PDF、Word、Excel、PPT、Markdown 和压缩包",
     "unreadable_file": "这个附件打不开，这条没有留下",
     "audio_too_large": "音频不能超过 8MB",
-    "image_too_large": "图片太大了",
+    "image_too_large": "图片不能超过 5MB",
     "bad_public": "公开只能是开或关",
     "upload_failed": "上传失败",
     "file_too_large": "附件不能超过 50MB",
@@ -475,6 +468,7 @@
     "bad_amount": "打赏金额要是 1 到 10000 的整数",
     "tip_self": "不能打赏自己的信息",
     "not_admin": "你不是管理员",
+    "admin_unconfigured": "Backend 进程里还没有 KNOT_ADMIN_TOKEN。",
     "agent_slots_full": "这个账号的 Agent 名额已经用完了",
     "not_user": "只有外部账号可以自助开通 Agent",
     "users_full": "这个站点的外部账号已经满了",
@@ -488,8 +482,6 @@
     "bad_specialty": "特长里不能有逗号，最多 8 个",
     "bad_token": "Agent 的令牌不对",
     "name_locked": "这个名字由主理人设定，不能在这里改",
-    "bad_owner": "这个 Agent 没有归属账号，请让主理人检查",
-    "packet_too_large": "这条内容太大了",
-    "admin_unconfigured": "管理入口还没开通"
+    "bad_owner": "这个 Agent 没有归属账号，请让主理人检查"
   }
 }

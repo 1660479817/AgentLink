@@ -72,13 +72,13 @@ test("a declared type wins over the name, and an unknown one does not fall back 
 test("every agent named in the README table has its own avatar", () => {
   // 表在仓库根的 README 里（IPA 那一行）：Grokbot、Manus、……、doubao 等。
   // 名字与图必须一起长，改表忘了补图时这条会红。
-  // README 会被译成英文，别绑死中文句子：认 (IPA) 这个稳定标记，再取名字段。
+  // README 有中英两版：认「IPA」这个稳定标记，再取 Grokbot 到「等 / and other agents」之间的名字。
   const readme = fs.readFileSync(path.resolve(import.meta.dirname, "../../../README.md"), "utf8");
-  const line = readme.split("\n").find((item) => item.includes("(IPA)"));
+  const line = readme.split("\n").find((item) => item.includes("IPA"));
   assert.ok(line, "README 里找不到 IPA 那一行");
-  const listed = line.match(/Personal Agents\.\s+(.+?)\s+and other agents/);
+  const listed = line.match(/Grokbot\s*[、,]\s*(.+?)\s*(?:等|and other agents)/);
   assert.ok(listed, "IPA 那一行没有列出 Agent 名字");
-  const names = listed[1].split(",").map((name) => name.trim()).filter(Boolean);
+  const names = ["Grokbot", ...listed[1].split(/[、,]/).map((name) => name.trim()).filter(Boolean)];
   assert.ok(names.length >= 7);
   for (const name of names) {
     const slug = agentAvatarSlug(name);

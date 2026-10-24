@@ -6,11 +6,6 @@
 # 用法：
 #   XKNOT_HUB_SSH=user@host ./ops/deploy-api.sh
 #   XKNOT_HUB_SSH=user@host ./ops/deploy-api.sh --dry-run
-#   XKNOT_HUB_SSH=user@host ./ops/deploy-api.sh --pull-manifest
-#
-# --pull-manifest 把中枢上的 instances.json 与 federation.json 取回仓库。自动接通
-# 会在中枢上追加新节点，仓库那份就会落后；部署前若发现中枢有仓库没有的条目，
-# 本脚本直接拒绝覆盖，先用这个参数把清单取回来、提交，再部署。
 #
 # 可覆盖的变量：
 #   XKNOT_HUB_SSH       必填，如 user@192.0.2.10
@@ -27,11 +22,9 @@ set -euo pipefail
 
 HUB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRY_RUN=0
-PULL_MANIFEST=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
-    --pull-manifest) PULL_MANIFEST=1 ;;
     *) echo "未知参数：$arg" >&2; exit 2 ;;
   esac
 done
@@ -46,10 +39,9 @@ NGINX_CONF="${XKNOT_NGINX_CONF:-/etc/nginx/conf.d/xknot.si.conf}"
 SERVICE="${XKNOT_SERVICE:-xknot-api}"
 
 # 远端 shell 会把这几个路径再解析一遍。直接用单引号包起来，值里只要有一个单引号
-# 就能提前闭合、把后面的内容当命令执行；空格与 ; 同理。所以统一走这层转义。
-# 单引号里放不下单引号，遇到就把那个引号拆成 '\''：先闭合、转义一个引号、再打开。
+# 就能提前闭合、把后面的内容当命令执行；所以统一走 %q 之外的这层转义。
 shq() {
-  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+  printf "'%s'" "${1//\'/\'\\\'\'}"
 }
 
 SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
@@ -104,67 +96,6 @@ if [[ "$DRY_RUN" != 1 && -n "$SSH_KEY" && ! -f "$SSH_KEY" ]]; then
   exit 1
 fi
 
-# ---- 清单与名册：先取回，再部署 ----
-#
-# 自动接通在中枢上直接追加节点（provision 的 publish 步骤），仓库里那两份不会
-# 跟着变。这里若照旧用仓库副本覆盖远端，等于把刚接通的节点从清单里删掉：
-# 门户少一张卡片，worker 下一轮会发现条目整个消失。所以先比一次。
-ids_of() {
-  node -e 'const fs=require("fs");const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));for(const x of (Array.isArray(j.instances)?j.instances:j.members||[]))console.log(x.id)' "$1"
-}
-remote_ids() {
-  ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" \
-    "test -f $(shq "$1") && node -e 'const fs=require(\"fs\");const j=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\"));for(const x of (Array.isArray(j.instances)?j.instances:j.members||[]))console.log(x.id)' $(shq "$1")" 2>/dev/null || true
-}
-
-if [[ "$PULL_MANIFEST" == 1 ]]; then
-  if [[ "$DRY_RUN" == 1 ]]; then
-    echo "(dry-run) rsync $XKNOT_HUB_SSH:$API_ROOT/{instances,federation}.json → 仓库"
-    exit 0
-  fi
-  for f in instances.json federation.json; do
-    # 先备份仓库那份：取回是覆盖写，取回来发现不对还能回到提交里的版本。
-    if [[ -f "$HUB/$f" ]]; then
-      cp -a "$HUB/$f" "$HUB/$f.pull-backup"
-    fi
-    rsync -az -e "$SSH_CMD" "$XKNOT_HUB_SSH:$API_ROOT/$f" "$HUB/$f"
-    echo "pulled: $f"
-  done
-  # 取回来先过校验：对不上就停在这里，别让人拿一份坏清单去部署。
-  node "$HUB/ops/validate-instances.mjs"
-  node "$HUB/ops/validate-federation.mjs"
-  echo "已取回清单与名册；确认差异（git diff）并提交后再部署。"
-  exit 0
-fi
-
-echo "==> check manifests"
-if [[ "$DRY_RUN" == 1 ]]; then
-  echo "(dry-run) 比较 $API_ROOT/{instances,federation}.json 与仓库那份的 id 集合"
-else
-  drift=0
-  for f in instances.json federation.json; do
-    local_list="$(ids_of "$HUB/$f" 2>/dev/null || true)"
-    while IFS= read -r id; do
-      [[ -z "$id" ]] && continue
-      if ! printf '%s\n' "$local_list" | grep -qxF "$id"; then
-        echo "  $f: 中枢有、仓库没有：$id" >&2
-        drift=1
-      fi
-    done <<< "$(remote_ids "$API_ROOT/$f")"
-  done
-  if [[ "$drift" == 1 ]]; then
-    cat >&2 <<'EOF'
-中枢的清单里已经有仓库没有的节点（自动接通写上去的）。
-这一步拒绝覆盖：直接同步会把那些节点从清单里删掉。
-先把中枢那份取回仓库、提交，再部署：
-
-  ./ops/deploy-api.sh --pull-manifest
-EOF
-    exit 1
-  fi
-  echo "清单与名册和仓库一致"
-fi
-
 echo "==> prepare $XKNOT_HUB_SSH:$API_ROOT"
 if [[ "$DRY_RUN" == 1 ]]; then
   echo "(dry-run) mkdir -p $API_ROOT/{server,admin,ops,docs,web/src/lib,var}"
@@ -172,17 +103,12 @@ else
     ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" \
     "mkdir -p $(shq "$API_ROOT/server") $(shq "$API_ROOT/admin") $(shq "$API_ROOT/ops") $(shq "$API_ROOT/docs") \
       $(shq "$API_ROOT/web/src/lib") $(shq "$API_ROOT/var") && chmod 700 $(shq "$API_ROOT/var")"
-  # var/profiles 与 var/traffic 由采集脚本以服务用户身份写。历史上它们曾被 root
-  # 建过一次，之后每一轮取档案都写不进去、还报成「不可达」。部署时把属主拉回来。
-  ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" \
-    "sudo -n chown -R \"\$(id -un):\$(id -gn)\" $(shq "$API_ROOT/var/profiles") $(shq "$API_ROOT/var/traffic") 2>/dev/null || true"
 fi
 
-# 先检查边界：server/ 的 import 只能落在 server/、ops/ 与 web/src/lib/ 之内。
-# 线上一旦出现越界 import，进程起来就 ERR_MODULE_NOT_FOUND、反复重启、门户 502，
-# 在本地把它挡下来，不要等远端日志。
-node "$HUB/ops/check-server-imports.mjs" --root "$HUB" || exit 1
-
+# 接口运行时需要的东西：server/ 本身，以及 manifest.mjs 校验清单时用到的
+# validate-instances.mjs、i18n.js、regions.js。缺一个，生成清单条目就会失败。
+# 控制台的「编辑」还要读 validate-federation.mjs：漏了它，server/edit.mjs 一加载就报
+# ERR_MODULE_NOT_FOUND，整个接口起不来。
 echo "==> sync api"
 rsync_to "$HUB/server/" "$API_ROOT/server/"
 rsync_to "$HUB/admin/" "$API_ROOT/admin/"
@@ -193,10 +119,8 @@ rsync_to "$HUB/docs/" "$API_ROOT/docs/"
 # 定时巡检（每 15 分钟）也直接在远端跑这里的文件，同样是一漏就整轮失败。
 # 单测不进远端：那边没有跑测试的场景，留着只会让 /opt/xknot 越来越像仓库。
 rsync_to "$HUB/ops/" "$API_ROOT/ops/" 1
-# web/src/lib/ 同样整目录同步。以前是逐个 rsync i18n.js、regions.js，
-# 接口再 import 这目录里的第三份文件就会重演上面那次事故；
-# 目录内的 *.test.mjs 由 rsync_to 的排除规则滤掉，不进远端。
-rsync_to "$HUB/web/src/lib/" "$API_ROOT/web/src/lib/"
+rsync_to "$HUB/web/src/lib/i18n.js" "$API_ROOT/web/src/lib/"
+rsync_to "$HUB/web/src/lib/regions.js" "$API_ROOT/web/src/lib/"
 
 # 两份人工维护的配置：清单与名册。仓库是权威副本，同步会用仓库内容覆盖远端，
 # 所以先把远端现存的各存一份到 var/config-backup/，在中枢主机上手改过的内容还能捞回来。
@@ -237,8 +161,6 @@ else
     "$HUB/ops/xknot-health.timer" \
     "$HUB/ops/xknot-traffic.service" \
     "$HUB/ops/xknot-traffic.timer" \
-    "$HUB/ops/xknot-republish.service" \
-    "$HUB/ops/xknot-republish.timer" \
     "$XKNOT_HUB_SSH:/tmp/"
 fi
 
@@ -272,8 +194,6 @@ else
     sudo install -m 644 /tmp/xknot-health.timer /etc/systemd/system/xknot-health.timer
     sudo install -m 644 /tmp/xknot-traffic.service /etc/systemd/system/xknot-traffic.service
     sudo install -m 644 /tmp/xknot-traffic.timer /etc/systemd/system/xknot-traffic.timer
-    sudo install -m 644 /tmp/xknot-republish.service /etc/systemd/system/xknot-republish.service
-    sudo install -m 644 /tmp/xknot-republish.timer /etc/systemd/system/xknot-republish.timer
 
     # nginx 配置：备份 → 落盘 → nginx -t → 不通过就回滚。
     # 先覆盖再校验的话，校验失败时坏文件已经躺在 conf.d 里，脚本就此退出、不回滚；
@@ -313,33 +233,10 @@ else
     # timer 只 enable，不立刻补跑：部署时刚探过，马上再跑一次会把同一状态重复写一遍。
     sudo systemctl enable xknot-health.timer
     sudo systemctl start xknot-health.timer
-    # 流量聚合读入口 nginx 的日志；入口还没装访问日志时它会安静跳过。
+    # 流量聚合读入口 nginx 的日志；入口还没装 knot-log.conf 时它会安静跳过。
     sudo systemctl enable xknot-traffic.timer
     sudo systemctl start xknot-traffic.timer
-    # 门户快照：每 10 分钟重算一次 data/hub.json，节点接通、档案改版都靠它上页面。
-    sudo systemctl enable xknot-republish.timer
-    sudo systemctl start xknot-republish.timer
-
-    # reload 只是给 master 发 SIGHUP：它自己判断不了的改动——共享内存 zone 的 key
-    # 变了，比如 limit_req_zone 的 key 从 \$binary_remote_addr 换成 map 出来的变量——
-    # 会被整份拒绝，旧配置继续跑，而这一行仍然返回 0。失败只在 error.log 里留一行
-    # [emerg]，nginx -t 看不出来（它是另起一个进程解析，那条路径上是合法的）。
-    # 2026-10-23 就是这样：部署全部「成功」，线上跑了三天旧配置。所以 reload 之后
-    # 回头读一次日志，出现新的 [emerg] 就 restart，让 master 重新读盘。
-    err_log=/var/log/nginx/error.log
-    err_off=\$(sudo stat -c %s "\$err_log" 2>/dev/null || echo "")
     sudo systemctl reload nginx
-    if [ -n \"\$err_off\" ]; then
-      sleep 0.3
-      if sudo tail -c +\$((err_off + 1)) \"\$err_log\" | grep -q '\\[emerg\\]'; then
-        echo \"reload 被 master 拒绝，改用 restart：\$(sudo tail -c +\$((err_off + 1)) \"\$err_log\" | grep '\\[emerg\\]' | tail -1)\" >&2
-        sudo systemctl restart nginx
-        if ! systemctl is-active --quiet nginx; then
-          echo \"restart 之后 nginx 没在跑；配置在 $(shq "$NGINX_CONF")，按备份回滚\" >&2
-          exit 1
-        fi
-      fi
-    fi
   "
 fi
 
@@ -358,9 +255,6 @@ else
       ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "systemctl is-enabled xknot-traffic.timer" >/dev/null 2>&1 \
         && echo "OK: xknot-traffic.timer 已启用（每小时）" \
         || echo "WARN: xknot-traffic.timer 未启用，控制台不会出现入口流量。"
-      ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "systemctl is-enabled xknot-republish.timer" >/dev/null 2>&1 \
-        && echo "OK: xknot-republish.timer 已启用（每 10 分钟）" \
-        || echo "WARN: xknot-republish.timer 未启用，节点接通后门户不会自动出现卡片。"
       ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "systemctl is-active --quiet xknot-provision" \
         && echo "OK: xknot-provision 在跑（自动接通）" \
         || echo "WARN: xknot-provision 没起来，签发了也不会自动接通。看 journalctl -u xknot-provision。"

@@ -5,13 +5,13 @@ alwaysApply: true
 
 # Knot 按键
 
-只适用于 **`knot-platform/web`**。页面上的操作按键只用 **`knot-platform/web/src/components/AppButton.vue`**。不要给裸 `<button>` 填主色，不要在页面里另写按钮皮肤。`xknot.si/web` 是独立门户，按键按它自己的样式走，不套用本规则。`knot-platform/admin` 是未打包的静态后台，用 `admin/admin.css` 自己的按键样式，同样不套用本规则。
+只适用于 **`knot-platform/web`**。页面上的操作按键只用 **`knot-platform/web/src/components/AppButton.vue`**。不要给裸 `<button>` 填主色，不要在页面里另写按钮皮肤。`xknot.si/web` 是独立门户，按键按它自己的样式走，不套用本规则。
 
 ## 三种变体
 
 - **`primary`**（默认）：实心 `#0866FF`，白字，字重 600。一组操作里只放一个，例如发布、提交、授权。
 - **`secondary`**：底 `#E4E6EB`，字 `#050505`。关闭、取消、收回。
-- **`icon`**：正圆，尺寸 `--header-control`（44px），灰底，里面只放一个 SVG。必须有 `aria-label`（走 `t()`）。顶栏搜索、消息、账号用它；顶栏里的 `.btn-icon` 被 `.site-header` 覆盖成 2.5rem（40px），与正文里的 44px 不一样，排版按 40px 对。搜索框里的返回再加 `plain`（透明底）。
+- **`icon`**：正圆，尺寸 `--header-control`（44px），灰底，里面只放一个 SVG。必须有 `aria-label`（走 `t()`）。顶栏搜索、消息、账号用它。搜索框里的返回再加 `plain`（透明底）。
 
 ## 尺寸与状态
 
@@ -26,11 +26,9 @@ alwaysApply: true
 导航、角色胶囊、首页输入条、情报横滑卡片与其翻页箭头、搜索历史行、搜索遮罩保持原有结构，不使用 `AppButton`，也不填主色。信息流底部的轻操作用 `.post-action`。
 
 ```vue
-<AppButton type="submit" :disabled="busy">{{ t("home.send") }}</AppButton>
-<AppButton variant="secondary" @click="close">{{ t("home.dismiss") }}</AppButton>
-<AppButton variant="icon" :aria-label="t('nav.notifications')" @click="open">
-  <BellIcon class="nav-icon" aria-hidden="true" />
+<AppButton type="submit" :disabled="busy">{{ t("home.publish") }}</AppButton>
+<AppButton variant="secondary" @click="close">{{ t("home.close") }}</AppButton>
+<AppButton variant="icon" :aria-label="t('nav.search')" @click="openSearch">
+  <SearchIcon class="nav-icon" aria-hidden="true" />
 </AppButton>
 ```
-
-示例里的键都取自现有 locale（`home.send`、`home.dismiss`、`nav.notifications`）。新增文案要先落进 `zh-CN`、`zh-TW`、`en` 三份，再写进模板；`t()` 缺键时会把键名直接渲染出来。

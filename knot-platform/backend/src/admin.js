@@ -15,7 +15,6 @@ import { touchDiscoverBoard } from "./discoverPublish.js";
 import { discardExtract } from "./extracts.js";
 import { recordNotification } from "./notifications.js";
 import { applyPoints, economyConfig } from "./points.js";
-import { REVIEW_MAX_ATTEMPTS } from "./market.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WITHIN = /^(\d+)(h|d|w)$/;
@@ -521,34 +520,28 @@ export async function rotateManagedAgentToken(pool, id, options = {}) {
     }
   };
 
-  // 换库里的哈希与写审计行放进同一个事务：审计写失败时，令牌也一起回滚，
-  // 不会留下「库里已经换码、却查不到这次操作」的半完成状态（S13-04）。
-  // 文件这一步先落盘，事务失败就把它退回旧码，Agent 不会被锁在门外。
-  let rotated;
+  let updated;
   try {
-    rotated = await withClient(pool, async (client) => {
-      const { rows } = await client.query(
-        `UPDATE accounts SET token_hash = $2, updated_at = now()
-          WHERE id = $1 AND role = 'agent' AND retired_at IS NULL
-          RETURNING id`,
-        [agent.id, hashAgentToken(token)]
-      );
-      if (!rows.length) return false;
-      await client.query(`INSERT INTO admin_actions (action, account_id, body) VALUES ('issue', $1, $2)`, [
-        agent.id,
-        `重新签发 ${agent.display_name} 的授权码`,
-      ]);
-      return true;
-    });
+    updated = await pool.query(
+      `UPDATE accounts SET token_hash = $2, updated_at = now()
+        WHERE id = $1 AND role = 'agent' AND retired_at IS NULL
+        RETURNING id`,
+      [agent.id, hashAgentToken(token)]
+    );
   } catch (error) {
     await putBack();
     throw fail("env_failed");
   }
-  if (!rotated) {
+  if (!updated.rows.length) {
     // 写文件这几毫秒里 Agent 被停用了：库里的令牌已经清空，文件也不该留着。
     await removeAgentEnvFile(envDir, agentFile).catch((failure) => console.error(failure));
     throw fail("not_found");
   }
+
+  await pool.query(`INSERT INTO admin_actions (action, account_id, body) VALUES ('issue', $1, $2)`, [
+    agent.id,
+    `重新签发 ${agent.display_name} 的授权码`,
+  ]);
   return { ok: true, id: agent.id, token, file };
 }
 
@@ -1024,37 +1017,6 @@ export async function patrolQueue(pool) {
   }));
   // through 交给页面原样回传：报告提交时用它推进水位。
   return { posts, through: posts.length ? posts[posts.length - 1].id : null };
-}
-
-// 终审失败的记录：评审员超时、报错或交回坏结果时，这条记录停在 pending 并带上
-// detail.reviewError / reviewAttempts。作者不再收到通知，管理端在这里统一看。
-export async function listReviewFailures(pool) {
-  const { rows } = await pool.query(
-    `SELECT i.id, i.body, i.detail, i.created_at, u.id AS account_id, u.email, u.display_name
-       FROM intel i
-       JOIN accounts u ON u.id = i.account_id
-      WHERE i.verdict = 'pending'
-        AND (i.detail->>'reviewError' IS NOT NULL OR COALESCE((i.detail->>'reviewAttempts')::int, 0) > 0)
-      ORDER BY i.created_at DESC
-      LIMIT 200`
-  );
-  return rows.map((row) => {
-    const detail = row.detail && typeof row.detail === "object" ? row.detail : {};
-    const attempts = Number(detail.reviewAttempts) || 0;
-    return {
-      id: row.id,
-      body: clipText(row.body, 400),
-      createdAt: row.created_at,
-      error: typeof detail.reviewError === "string" ? detail.reviewError : "",
-      attempts,
-      gaveUp: attempts >= REVIEW_MAX_ATTEMPTS,
-      user: {
-        id: row.account_id,
-        email: row.email,
-        displayName: row.display_name || "",
-      },
-    };
-  });
 }
 
 export async function recordPatrol(pool, body, through = null) {

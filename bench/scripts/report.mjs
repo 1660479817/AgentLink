@@ -150,15 +150,6 @@ export function render(result) {
   }
 
   const failed = meta.failed || [];
-  // k6 在运行中说过的话：某个端点为什么没有指标（信息流为空、授权码只有一份），
-  // 以前退出码 0 就整段丢弃，读报告的人只能看见「这一行不存在」。
-  if (meta.warnings?.length) {
-    out.push("本轮 k6 提示：");
-    out.push("");
-    for (const line of meta.warnings.slice(0, 20)) out.push(`- ${line}`);
-    if (meta.warnings.length > 20) out.push(`- ……另有 ${meta.warnings.length - 20} 条，见 summary.json`);
-    out.push("");
-  }
   if (meta.skipped?.length || failed.length) {
     out.push("本轮未测：");
     out.push("");
@@ -194,12 +185,6 @@ export function render(result) {
     ms(r.overall.p99),
   ]);
   out.push(table(["并发", "场景", "请求数", "RPS", "错误率", "限流率", "p50", "p95", "p99"], overview));
-  out.push("");
-  // 这张表最容易被引用成「该站能承载 N QPS」。RPS 是这一档实际到达的速率，
-  // 不等于容量：容量要看换更高并发时 RPS 还涨不涨、p95 是否已经抬起来。
-  out.push(
-    "RPS 是这一档**实际到达**的请求速率（请求数 ÷ 时长），不是「系统能承载的容量」。判断是否饱和要看：并发加倍时 RPS 是否还跟着涨，以及同一档的 p95 有没有抬头。两者都不动的档，才是这台机器当前的吞吐上限。"
-  );
   out.push("");
 
   // ---- 端点 × 并发 p95 ----
@@ -268,7 +253,6 @@ export function render(result) {
   // ---- 超阈 ----
   const breaches = [];
   const noData = [];
-  const badBodies = [];
   for (const run of runs) {
     const eps = Object.entries(run.endpoints || {});
     // 整档没有端点指标，和「每个端点都没样本」一样，不能算通过。
@@ -278,11 +262,6 @@ export function render(result) {
     }
     for (const [key, ep] of eps) {
       const write = key.startsWith("write_");
-      if (ep.badBody > 0) {
-        badBodies.push(
-          `${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · ${ep.badBody} 次状态 2xx 但响应体不符预期`
-        );
-      }
       const limit = write ? LIMITS.writeP95 : LIMITS.readP95;
       const errLimit = write ? LIMITS.writeErrorRate : LIMITS.errorRate;
       // 无样本（例如整档 100% 429）时 p95 是 null，而 `null > limit` 为 false，
@@ -293,10 +272,7 @@ export function render(result) {
         );
         continue;
       }
-      // 判定与展示用同一个数。以前判定比未取整的 p95、展示取整，
-      // 产物里会出现「p95 1000ms > 1000ms」这种自相矛盾的一行。
-      const p95 = Math.round(ep.p95);
-      if (p95 > limit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · p95 ${p95}ms > ${limit}ms`);
+      if (ep.p95 > limit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · p95 ${ms(ep.p95)}ms > ${limit}ms`);
       if (ep.errRate > errLimit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · 错误率 ${pct(ep.errRate)} > ${pct(errLimit)}`);
     }
   }
@@ -311,15 +287,6 @@ export function render(result) {
   }
   if (failed.length) {
     out.push(`结论不完整：${failed.length} 档 k6 未跑成（见「本轮未测」），这些并发数没有数据。`);
-    out.push("");
-  }
-  if (badBodies.length) {
-    out.push(
-      `响应体不符预期：${badBodies.length} 项。这些请求状态是 2xx，但响应不是该端点的形状（入口维护页、SPA 兜底、或 \`{"error": …}\`），已计入错误率，单列在 \`ep_<name>_bad_body\`。`
-    );
-    out.push("");
-    for (const b of badBodies.slice(0, 20)) out.push(`- ${b}`);
-    if (badBodies.length > 20) out.push(`- ……另有 ${badBodies.length - 20} 项，见 summary.json`);
     out.push("");
   }
   const hasSamples = runs.some((r) => Object.values(r.endpoints || {}).some((ep) => ep.count > 0));
@@ -373,9 +340,6 @@ export function render(result) {
   out.push("- `/api/*` 经隧道回实例；每个新建 TCP 都多一次跨洋往返，所以 keepalive 命中与否差别很大。");
   out.push(
     "- 429 是限流，不是服务错误：`ep_<name>_throttled` 单列，`ep_<name>_ms` 只统计未被限流的请求。要测容量上限，先让每个 VU 有自己的身份，或在该测试实例把对应配额调高。"
-  );
-  out.push(
-    "- `/api/*` 只认 2xx **且**是 JSON、没有 `error` 字段；2xx 但回的是 HTML 或错误体记进 `ep_<name>_bad_body`，也算错误。静态端点只看状态码。"
   );
   out.push("- 人那一层（`human/`）给的是单用户体感，不和这里的并发数混在一张表里。");
   out.push("");

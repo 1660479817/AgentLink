@@ -1,8 +1,6 @@
 [Unit]
 Description=xknot.si auto-connect (entry host provisioning for approved instances)
-# 门户只同步 web/dist，dist 里没有 docs/：指向 https://xknot.si/docs/... 是 404。
-# deploy-api.sh 会把 docs/ 同步到 /opt/xknot/docs，所以直接给本地路径。
-Documentation=file:///opt/xknot/docs/HANDOFF.md
+Documentation=https://xknot.si/docs/HANDOFF.md
 Wants=network-online.target
 After=network-online.target
 
@@ -17,8 +15,6 @@ EnvironmentFile=-/opt/xknot/var/provision.env
 Environment=XKNOT_DATA_DIR=/opt/xknot/var
 Environment=XKNOT_INSTANCES_FILE=/opt/xknot/instances.json
 Environment=XKNOT_FEDERATION_FILE=/opt/xknot/federation.json
-# 接通之后要立刻重算门户快照（ops/republish.mjs），落在门户静态根这一份上。
-Environment=XKNOT_WEB_ROOT=/var/www/xknot
 ExecStart=/usr/bin/node /opt/xknot/ops/provision-worker.mjs
 Restart=always
 RestartSec=10

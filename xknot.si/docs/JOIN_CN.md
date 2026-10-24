@@ -1,6 +1,6 @@
 # XKnot 联邦 · 加入说明
 
-版本 2.0，2026-10-20。仅文档，不改变运行配置。
+版本 2.1，2026-10-24。仅文档，不改变运行配置。
 
 契约见 [FEDERATION.md](FEDERATION.md)，中枢实现见 [HUB.md](HUB.md)，术语见 [NAMING.md](NAMING.md)。
 
@@ -11,7 +11,7 @@
 
 | 问题 | 结论 |
 |------|------|
-| 怎么加入 | 先在本机部署实例 → 打开 `/admin` → 填自述、选子域标签并提交 → 平台当场核对并签发子域，**提交即通过** → 运营方写进 `instances.json` → 接通验收，门户快照自动重算。**通过不等于上线。** |
+| 怎么加入 | 先在本机部署实例 → 打开 `/admin` → 填自述、选子域标签并提交 → 平台当场核对并签发子域，**提交即通过** → 常驻进程自动接通（见第 1.5 节），门户快照自动重算。**通过不等于上线。** |
 | 要提供域名吗 | 不用。地址由中枢签发：`<标签>.xknot.si`，标签 6–32 位。已经有自有域名的站点不需要走联邦这一步。 |
 | 身份是什么 | 清单里的 `url`，只有这一个地址，签发了就不再变。换机器、换 IP 只重连隧道、改解析，不改 `url`。 |
 | 接入形态 | 只有一种：中枢签发 `<标签>.xknot.si`；隧通之前入口发占位页，通了之后整站（含 `/`）都经**本机主动连出的 SSH 反向隧道**回到实例。名册 `mode` 恒为 `subdomain`，`tunnel` 必填。 |
@@ -86,6 +86,10 @@
 
 ### 1.4 写进清单并上线
 
+**默认自动。** 常驻 worker（第 1.5 节）自己跑 `publish` 这一步：分配隧道账号与端口，把清单条目与名册成员一起写入，然后继续做完整个前置。正常路径下没人手工执行 `publish`。
+
+下面这条手工命令只用于例外场合——worker 停着、要把某一张单重来，账号与端口这时才手工指定：
+
 ```bash
 cd xknot.si
 npm run admin -- publish XK-2026-XXXXXX \
@@ -107,9 +111,9 @@ npm run build                                    # 校验、探测、构建
 
 名称、介绍、语种、标签这些不在清单里：`publish` 只写签发区。伙伴接通后要提醒他打开自己实例的 `/admin` → **XKnot**，把站点档案填好；不填时门户用签发区字段与兜底文案显示。
 
-`publish` 同时写 `instances.json` 与 `federation.json`：成员事实（`mode` 恒为 `subdomain`、`tunnel` 的账号与端口）由 `--tunnel-account` / `--tunnel-port` 给出，`host` 取 `url` 的主机名，两份文件都通过校验才落盘。只给清单不给隧道参数时，名册仍会缺这一条，构建会停下。
+`publish` 同时写 `instances.json` 与 `federation.json`：成员事实（`mode` 恒为 `subdomain`、`tunnel` 的账号与端口）由 `--tunnel-account` / `--tunnel-port` 给出，`host` 取 `url` 的主机名，两份文件都通过校验才落盘。手工路径下，只给清单不给隧道参数时，名册仍会缺这一条，构建会停下。
 
-申请通过**不会**自动改 DNS、不会自动开隧道。工作人员按权利人流程签发（见第 2 节）。
+DNS 与隧道都由 worker 处理，不靠手工：`dns` 这一步校验 `*.xknot.si` 已解析到入口主机（通配符由运维一次性预配），隧道则由实例自己读进度后拉起（第 1.5 节）。
 
 ### 1.5 前置、交换与收尾
 
@@ -278,11 +282,11 @@ IP 变了不需要改任何清单字段：实例重新连出、入口主机的�
 | 成员登录（邮箱 + 授权码） | **已实现**：`/api/member/code`、`/api/member/session`、`/api/member/logout`；门户右栏显示本站状态、健康、活动计数与橱窗条数 |
 | 断连提醒与暂时隐藏 | **已实现**：`ops/watch-health.mjs` + `ops/check-health.mjs` |
 | 免费 / 收费档位 | **已实现**：清单 `tier` 为 `free` / `paid`（`demo` 仅样例），默认 `free`，运营方手动升级 |
-| 申请通过后自动签发 DNS | **未实现**；人工按权利人流程签发 |
+| 申请通过后自动签发 DNS | **未实现**：worker 只做 DNS *校验*（`dns` 步）。`*.xknot.si → 入口 IP` 的通配符由运维一次性预配，不逐申请签发 |
 | 传统 DDNS（客户端改 A 到当前出口 IP） | **不做**；NAT 场景用入口 + SSH 反向隧道 |
 | 签发子域 + DNS 指到伙伴自己的固定 IP（不走隧道） | **不支持**：接入只有「入口主机 + 反向隧道」一种形态，这一组合两头都不算，`validate-federation.mjs` 会拒绝。要固定 IP 就用自有域名自建站点，不走联邦 |
 | 单子域入口配置 | **已有**（实例侧）：入口与 nginx 由实例实现自己渲染。当前实现是 `knot-platform`：入口文件 [`sites/_template/entry.example.env`](../../knot-platform/sites/_template/entry.example.env)，模板 [`knot-platform/ops/entry/site.conf.template`](../../knot-platform/ops/entry/site.conf.template)，步骤见 [`knot-platform/ops/entry/README.md`](../../knot-platform/ops/entry/README.md)。中枢只要求「一个子域一套账号与端口、`/api` 能通到实例」 |
-| 通配多租户 `*.xknot.si` 入口 nginx | **未做**；每签发子域仍手工一份 conf，不能自动按 Host 分租户 |
+| 通配多租户 `*.xknot.si` 入口 nginx | **未做**：worker 自动按子域生成一份 conf（`vhost` / `tls` 步），但仍不是单 conf 多 Host |
 | 中枢站点 HTTPS / NS 切换细节 | 见 `ops/README-deploy-aws.md`；证书与部分 DNS 步骤标为另任务 |
 
 ## 7. 委托发信（默认开通）

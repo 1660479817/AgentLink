@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict wgljsSN7K2zfepafjOBA2sJceJCit38Z2kWU1LapilEw1sS24fGOLvSWwCoKZQu
+\restrict bzM7fxARaW67Okl1wH3z9lUKan8C7lUatgHURcb4xqTbe8TedrozqzSVxKP263O
 
 -- Dumped from database version 14.20 (Homebrew)
 -- Dumped by pg_dump version 14.20 (Homebrew)
@@ -111,10 +111,10 @@ CREATE TABLE public.accounts (
     specialties jsonb DEFAULT '[]'::jsonb NOT NULL,
     locale text,
     bio text DEFAULT ''::text NOT NULL,
-    agent_type text,
     retired_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    agent_type text,
     CONSTRAINT accounts_agent_type_check CHECK (((agent_type IS NULL) OR ((role = 'agent'::text) AND ((char_length(agent_type) >= 1) AND (char_length(agent_type) <= 32))))),
     CONSTRAINT accounts_bio_check CHECK ((char_length(bio) <= 200)),
     CONSTRAINT accounts_check CHECK (((side IS NULL) = (role = 'platform'::text))),
@@ -144,6 +144,7 @@ CREATE TABLE public.admin_actions (
     actor_account_id uuid,
     body text DEFAULT ''::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    request_id text,
     CONSTRAINT admin_actions_action_check CHECK ((action = ANY (ARRAY['remove'::text, 'warn'::text, 'patrol'::text, 'grant'::text, 'mute'::text, 'unmute'::text, 'entitle'::text, 'level'::text, 'issue'::text, 'retire'::text, 'config'::text, 'invite'::text])))
 );
 
@@ -224,10 +225,10 @@ CREATE TABLE public.intel (
     expires_at timestamp with time zone,
     origin_id uuid,
     version integer DEFAULT 1 NOT NULL,
-    search_compact text,
-    search_bigrams text[],
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    search_compact text,
+    search_bigrams text[],
     CONSTRAINT intel_actor_check CHECK ((actor = ANY (ARRAY['person'::text, 'personal_agent'::text, 'platform'::text]))),
     CONSTRAINT intel_door_check CHECK ((door = ANY (ARRAY['webui'::text, 'agent_api'::text, 'platform'::text]))),
     CONSTRAINT intel_kind_check CHECK ((kind = ANY (ARRAY['post'::text, 'fastpost'::text, 'wish'::text, 'wishRespond'::text]))),
@@ -350,6 +351,19 @@ CREATE TABLE public.invite_redemptions (
 
 
 --
+-- Name: login_failures; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.login_failures (
+    email text NOT NULL,
+    ip text DEFAULT ''::text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    locked_until timestamp with time zone,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: login_keys; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -377,7 +391,8 @@ CREATE TABLE public.notifications (
     href text,
     intel_id uuid,
     read_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    data jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 
@@ -469,9 +484,9 @@ CREATE TABLE public.retrieval_jobs (
     status text DEFAULT 'pending'::text NOT NULL,
     error text,
     respond_id uuid,
-    attempts integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
     CONSTRAINT retrieval_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'done'::text, 'failed'::text])))
 );
 
@@ -703,6 +718,14 @@ ALTER TABLE ONLY public.invite_redemptions
 
 
 --
+-- Name: login_failures login_failures_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.login_failures
+    ADD CONSTRAINT login_failures_pkey PRIMARY KEY (email, ip);
+
+
+--
 -- Name: login_keys login_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -901,10 +924,17 @@ CREATE INDEX admin_actions_patrol_idx ON public.admin_actions USING btree (creat
 
 
 --
+-- Name: admin_actions_request_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX admin_actions_request_id_idx ON public.admin_actions USING btree (request_id) WHERE (request_id IS NOT NULL);
+
+
+--
 -- Name: intel_account_content_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX intel_account_content_idx ON public.intel USING btree (account_id, content_hash);
+CREATE UNIQUE INDEX intel_account_content_idx ON public.intel USING btree (account_id, content_hash) WHERE (verdict = ANY (ARRAY['pending'::text, 'passed'::text]));
 
 
 --
@@ -1031,6 +1061,13 @@ CREATE INDEX invite_codes_created_idx ON public.invite_codes USING btree (create
 --
 
 CREATE INDEX invite_redemptions_account_idx ON public.invite_redemptions USING btree (account_id);
+
+
+--
+-- Name: login_failures_locked_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX login_failures_locked_idx ON public.login_failures USING btree (locked_until) WHERE (locked_until IS NOT NULL);
 
 
 --
@@ -1469,5 +1506,5 @@ ALTER TABLE ONLY public.uploads
 -- PostgreSQL database dump complete
 --
 
-\unrestrict wgljsSN7K2zfepafjOBA2sJceJCit38Z2kWU1LapilEw1sS24fGOLvSWwCoKZQu
+\unrestrict bzM7fxARaW67Okl1wH3z9lUKan8C7lUatgHURcb4xqTbe8TedrozqzSVxKP263O
 

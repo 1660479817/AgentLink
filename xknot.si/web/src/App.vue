@@ -11,17 +11,9 @@ import FlameIcon from "./icons/FlameIcon.vue";
 import MoonIcon from "./icons/MoonIcon.vue";
 import SunIcon from "./icons/SunIcon.vue";
 import { cardState } from "./lib/cards.js";
-import { formatCount, formatWhen } from "./lib/i18n.js";
-import {
-  applyProbes,
-  availableGroups,
-  availableTags,
-  buildView,
-  filterByGroup,
-  filterByTag,
-  isReachable,
-  summarize,
-} from "./lib/hub.js";
+import { localTime } from "./lib/clock.js";
+import { formatWhen } from "./lib/i18n.js";
+import { availableGroups, availableTags, applyProbes, buildView, filterByGroup, filterByTag, summarize } from "./lib/hub.js";
 
 const props = defineProps({
   locale: { type: String, required: true },
@@ -31,8 +23,6 @@ const props = defineProps({
 const data = ref(null);
 // 中枢观测到的位置。取不到就是空，页面按自述区的 region 显示，不报错也不空着。
 const locations = ref(null);
-// 运行时探测。快照是构建那一刻的采样，这一份是每 15 分钟一轮的当前值。
-const probes = ref(null);
 const error = ref(false);
 const loading = ref(true);
 const group = ref("all");
@@ -48,9 +38,7 @@ const now = ref(Date.now());
 let ticker = null;
 let flashTimer = null;
 
-const view = computed(() =>
-  data.value ? buildView(applyProbes(data.value, probes.value), { locations: locations.value }) : []
-);
+const view = computed(() => (data.value ? buildView(data.value, { locations: locations.value }) : []));
 const groups = computed(() => availableGroups(view.value));
 const tags = computed(() => availableTags(view.value));
 const filtered = computed(() => filterByTag(filterByGroup(view.value, group.value), tag.value));
@@ -63,8 +51,11 @@ const hotCount = computed(() => filtered.value.filter(hasHot).length);
 
 const visible = computed(() => {
   let rows = filtered.value;
-  // 暂停 / 退役的实例不再探测，健康状态是最后一次的记录：它们不上「只看在线」。
-  if (onlineOnly.value) rows = rows.filter(isReachable);
+  if (onlineOnly.value) {
+    rows = rows.filter(
+      (item) => item.health.status === "up" || item.health.status === "degraded"
+    );
+  }
   if (hotOnly.value) rows = rows.filter(hasHot);
   return rows;
 });
@@ -73,13 +64,10 @@ const summary = computed(() => summarize(view.value, data.value?.generatedAt ?? 
 // 在线 = 探得通（up 与 degraded 都算），与地图、顶栏用同一个口径。
 const online = computed(() => summary.value.reachable);
 
-// “最近同步”用探测时间。生成时间每次请求都会变，用它会把旧数据说成刚刚同步；
-// 没有探测时间就显示「—」，宁可空着也不拿构建时间冒充。
-const syncedAt = computed(() => data.value?.checkedAt ?? null);
-// 日期按读者所在时区显示：门户是跨国目录，用 UTC 或构建机时区可能差一天。
-const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+// “最近同步”用探测时间。生成时间每次请求都会变，用它会把旧数据说成刚刚同步。
+const syncedAt = computed(() => data.value?.checkedAt ?? data.value?.generatedAt ?? null);
 const syncWhen = computed(() =>
-  syncedAt.value ? formatWhen(syncedAt.value, props.locale, { timeZone: viewerZone }) || "—" : "—"
+  syncedAt.value ? formatWhen(syncedAt.value, props.locale) || "—" : "—"
 );
 
 const chips = computed(() => [
@@ -92,37 +80,27 @@ const chips = computed(() => [
 ]);
 
 // 自由文本标签：值原样上屏，不翻译；只在真有站点用标签时出现。
-// key 统一加 tag: 前缀：标签名可能正好是 "all"（或某个分组名），
-// 与上面那组「全部」的 key 撞上时 Vue 会复用错节点。
 const tagChips = computed(() => [
   { key: "", label: props.t("filter.all"), count: view.value.length },
   ...tags.value.map((value) => ({
-    key: `tag:${value}`,
-    value,
+    key: value,
     label: value,
     count: view.value.filter((item) => item.tags.includes(value)).length,
   })),
 ]);
 
 // 地图上的点与目录用同一份数据；被筛掉的点变暗但仍可点。
-// 这里只放地图几何会用到的东西：时钟交给 NetworkMap 自己算。把 localTime 放进来
-// 会让每 20 秒一次的 now 变化重建整份点集，连带坐标、弧线与邻接图全部重算。
-const visibleIds = computed(() => new Set(visible.value.map((row) => row.id)));
 const mapItems = computed(() =>
   view.value.map((item) => ({
     id: item.id,
     name: item.name,
-    // 暂停 / 退役不探测：地图上要显示清单状态，而不是最后一次的健康结果。
-    status: item.state,
+    status: item.health.status,
     regions: item.region ? [item.region] : [],
-    timezone: item.timezone,
     groupLabel: item.groups.length ? props.t(`region.${item.groups[0]}`) : props.t("region.other"),
-    visible: visibleIds.value.has(item.id),
+    localTime: localTime(item.timezone, props.locale, new Date(now.value)) || "—",
+    visible: visible.value.some((row) => row.id === item.id),
   }))
 );
-
-// 计数统一走 Intl，别让同一页一半裸数字、一半本地化。
-const count = (value) => formatCount(props.locale, value);
 
 const themeLabel = computed(() =>
   theme.value === "dark" ? props.t("portal.toLight") : props.t("portal.toDark")
@@ -151,14 +129,7 @@ async function focusNode(id) {
   }
 
   highlight.value = id;
-  const card = document.getElementById(`node-${id}`);
-  if (card) {
-    // 焦点跟着走过去：键盘与读屏用户点地图后，下一个 Tab 不该从顶上重新开始。
-    // 系统要求减少动态时不平滑滚动，直接落位。
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-    card.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
-    card.focus({ preventScroll: true });
-  }
+  document.getElementById(`node-${id}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
 
   window.clearTimeout(flashTimer);
   flashTimer = window.setTimeout(() => {
@@ -166,34 +137,24 @@ async function focusNode(id) {
   }, 2600);
 }
 
-// 补充接口最多等这么久：连着一个不响的连接时，页面不该一直停在骨架屏上。
-const SIDE_TIMEOUT_MS = 8000;
-
-// 取一份补充数据。失败、超时、不是 JSON 都只算「没有」，调用方保持原值。
-function side(path) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), SIDE_TIMEOUT_MS);
-  return fetch(path, { headers: { accept: "application/json" }, signal: controller.signal })
-    .then((response) => (response.ok ? response.json() : null))
-    .catch(() => null)
-    .finally(() => window.clearTimeout(timer));
-}
-
 async function load() {
   loading.value = true;
   error.value = false;
-  // 位置与探测是补充：静态快照里没有 IP，也不该为了位置把构建搬到服务器上。
-  // 两个请求同时发出，但都不挡目录：主数据一到就撤骨架屏，它们到了再自己更新视图。
-  side("/api/locations").then((value) => {
-    if (value) locations.value = value;
-  });
-  side("/api/probes").then((value) => {
-    if (value) probes.value = value;
-  });
+  // 位置走自己的接口：静态快照里没有 IP，也没必要为了它把构建搬到服务器上。
+  // 这一份取不到不影响页面，只是区域退回自述区。
+  const places = fetch("/api/locations", { headers: { accept: "application/json" } })
+    .then((response) => (response.ok ? response.json() : null))
+    .catch(() => null);
+  // 探测同理：快照是构建那一刻的采样，重新构建才会更新；这一份是每 15 分钟一轮的当前值。
+  // 取不到就沿用快照里的 health，页面不至于因为少一个接口而空着。
+  const probes = fetch("/api/probes", { headers: { accept: "application/json" } })
+    .then((response) => (response.ok ? response.json() : null))
+    .catch(() => null);
   try {
     const response = await fetch("/data/hub.json", { headers: { accept: "application/json" } });
     if (!response.ok) throw new Error(String(response.status));
-    data.value = await response.json();
+    data.value = applyProbes(await response.json(), await probes);
+    locations.value = await places;
   } catch {
     error.value = true;
   } finally {
@@ -228,7 +189,7 @@ onBeforeUnmount(() => {
         <div class="net-top-right">
           <span class="pill" :class="{ stable: summary.nodes > 0 && online === summary.nodes }">
             <span class="pulse" aria-hidden="true" />
-            <span>{{ t("status.online", { ok: count(online), total: count(summary.nodes) }) }}</span>
+            <span>{{ t("status.online", { ok: online, total: summary.nodes }) }}</span>
           </span>
 
           <div class="controls controls--mobile">
@@ -271,27 +232,21 @@ onBeforeUnmount(() => {
           </section>
 
           <div class="board">
-            <NetworkMap
-              :items="mapItems"
-              :active-id="highlight"
-              :locale="locale"
-              :t="t"
-              @select="focusNode"
-            />
+            <NetworkMap :items="mapItems" :active-id="highlight" :t="t" @select="focusNode" />
           </div>
 
           <dl class="stats">
             <div class="stat">
               <dt>{{ t("stats.nodes") }}</dt>
-              <dd>{{ count(summary.nodes) }}</dd>
+              <dd>{{ summary.nodes }}</dd>
             </div>
             <div class="stat">
               <dt>{{ t("stats.regions") }}</dt>
-              <dd>{{ count(summary.regions) }}</dd>
+              <dd>{{ summary.regions }}</dd>
             </div>
             <div class="stat">
               <dt>{{ t("stats.online") }}</dt>
-              <dd class="stat-ok">{{ count(online) }}</dd>
+              <dd class="stat-ok">{{ online }}</dd>
             </div>
             <div class="stat stat-wide">
               <dt>{{ t("stats.sync") }}</dt>
@@ -305,7 +260,7 @@ onBeforeUnmount(() => {
                 <h2 id="directory-title" class="dir-title">
                   {{ t("nodes.label") }}
                   <span class="dir-count" aria-live="polite">
-                    {{ t("instance.listed", { count: count(visible.length) }) }}
+                    {{ t("instance.listed", { count: visible.length }) }}
                   </span>
                 </h2>
 
@@ -320,7 +275,7 @@ onBeforeUnmount(() => {
                   >
                     <FlameIcon class="flame" aria-hidden="true" />
                     {{ t("nodes.hotOnly") }}
-                    <span class="switch-count">{{ count(hotCount) }}</span>
+                    <span class="switch-count">{{ hotCount }}</span>
                   </button>
 
                   <button
@@ -347,22 +302,22 @@ onBeforeUnmount(() => {
                   @click="group = chip.key"
                 >
                   <span>{{ chip.label }}</span>
-                  <span class="chip-count">{{ count(chip.count) }}</span>
+                  <span class="chip-count">{{ chip.count }}</span>
                 </button>
               </div>
 
               <div v-if="tagChips.length > 1" class="chips" role="group" :aria-label="t('tag.label')">
                 <button
                   v-for="chip in tagChips"
-                  :key="chip.key || 'tag-all'"
+                  :key="chip.key || 'all'"
                   type="button"
                   class="chip"
-                  :class="{ active: (chip.value || '') === tag }"
-                  :aria-pressed="(chip.value || '') === tag"
-                  @click="tag = chip.value || ''"
+                  :class="{ active: tag === chip.key }"
+                  :aria-pressed="tag === chip.key"
+                  @click="tag = chip.key"
                 >
                   <span>{{ chip.label }}</span>
-                  <span class="chip-count">{{ count(chip.count) }}</span>
+                  <span class="chip-count">{{ chip.count }}</span>
                 </button>
               </div>
             </div>
@@ -1268,17 +1223,6 @@ h1 {
 }
 
 @media (max-width: 640px) {
-  /* 主题与语种旁的图标、重试键：窄屏上都是唯一入口，命中区不小于 44。
-     图标本身不放大，只把按钮撑开，视觉仍然安静。 */
-  .icon-btn {
-    width: 44px;
-    height: 44px;
-  }
-
-  .retry {
-    min-height: 44px;
-  }
-
   .pill {
     display: none;
   }

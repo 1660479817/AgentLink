@@ -11,7 +11,7 @@
 |---|---|---|---|
 | S13-01 | 管理端零 403 断言 | `grep -c '403' admin.test.js` | ✅ **0** |
 | S13-06 | 巡查水位线 `LIMIT 40` 永久漏审 | 读 `admin.js:915` 上下文 | ✅ 存在 |
-| S13-07 | 文档 `admin_actions.action` 漏 `retire` | 文档列 11 种；库 CHECK `audit/db/cpswang-live-schema.sql:147` 列 12 种含 `retire` | ✅ 漂移属实 |
+| S13-07 | 文档 `admin_actions.action` 漏 `retire` | 文档列 11 种；本机库 CHECK 列 12 种含 `retire` | ✅ 漂移属实 |
 | S13-11 | 真实测试员 id 被当假帖子 id 硬编码 | `admin.test.js:38` 的 `POST_ID` 与 `ensure-tester.sh:7` 的 `TESTER_ID` **逐字符相同** | ✅ 属实（是账号 id，非凭据） |
 
 ## S16（ops 部署脚本）
@@ -144,8 +144,8 @@
 
 | 项 | 结果 |
 |---|---|
-| 切片并集 vs 清单 | `missing=0 extra=0`（`build.mjs --verify`） |
-| 报告覆盖 | **619 / 619 文件，缺失 0**；35 / 35 份报告（`verify-coverage.mjs`） |
+| 切片并集 vs 清单 | `missing=0 extra=0` |
+| 报告覆盖 | **619 / 619 文件，缺失 0**；35 / 35 份报告 |
 
 流程缺陷一处，已修：S26 被分配 `admin.css` + `index.html`，报告却通篇引用 `admin.js`（属 S25）。
 已独立派发 S25 完整重审 `admin.js`。
@@ -168,7 +168,7 @@ S13/S14/S16/S17/S18/S19/S28/S32。S10、S11 的 P1 未独立验证，S30 的四�
 | ID | 声称 | 复核方式 | 结论 |
 |---|---|---|---|
 | S10-01 | 六位登录码可在线穷举 | 读 `login.js:33-45,162-171`；核 `routes/web.js:180-186` 有无 `allow()`；核 nginx 有无 `limit_req` | ✅ **成立，且比原描述更严重**，见下 |
-| S10-02 | 删帖后同内容重发返回旧记录 | `audit/db/cpswang-live-schema.sql:907` 的 `intel_account_content_idx` 是**全量**唯一索引，无 `WHERE verdict` 过滤 | ✅ 成立。市场层查重排除了 `pending`，但唯一索引不排除 `removed`，插入冲突即返回旧行 |
+| S10-02 | 删帖后同内容重发返回旧记录 | `intel_account_content_idx` 是**全量**唯一索引，无 `WHERE verdict` 过滤 | ✅ 成立。市场层查重排除了 `pending`，但唯一索引不排除 `removed`，插入冲突即返回旧行 |
 | S11-03 | 连接池无 `error` 监听会整进程退出 | 读 `db.js:5-11`；`grep 'pool.on'` 全仓无命中 | ✅ 成立 |
 
 ### S10-01 补核细节（升级理由）
