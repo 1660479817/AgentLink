@@ -2587,8 +2587,8 @@
     "slice": "S14",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "存储层按 kind 定类型、服务层非媒体强制 attachment；音频仍不校验魔数"
+      "status": "fixed",
+      "note": "音频按文件头魔数复核（ID3/MPEG 帧/OggS/fLaC/RIFF-WAVE/ftyp/ADTS/ASF），非音频字节当场 bad_audio，不再按扩展名归一进库"
     }
   },
   {

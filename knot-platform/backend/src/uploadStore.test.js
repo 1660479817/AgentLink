@@ -254,19 +254,41 @@ test("admin uploads skip the per-user quota", async () => {
   }
 });
 
-test("an audio file never keeps a declared type the browser would execute", async () => {
+test("html bytes are rejected even when the file name claims to be audio", async () => {
   const dir = await uploadDir();
   try {
-    // 文件名说 mp3、内容声称是 text/html。扩展名只该决定「记成哪种音频」，
-    // 不该让 text/html 原样进库——那等于把上传变成同源脚本。
+    // 扩展名 .mp3 + 声明 text/html 曾按扩展名归一成 audio/mpeg 进库（S14-01）。
+    // 现在按文件头魔数复核：<script> 不是任何音频，当场拒。
     const file = tmpPath(dir, `${ID}.mp3`);
     await writeFile(file, Buffer.from("<script>alert(1)</script>"));
+    await assert.rejects(
+      () => storeUploadedFile({
+        uploadDir: dir,
+        pool: fakePool(),
+        userId: "u",
+        file: { path: file, filename: `${ID}.mp3`, mimetype: "text/html", originalname: "evil.mp3" },
+        kind: "audio",
+      }),
+      /bad_audio/
+    );
+    assert.equal(fs.existsSync(file), false, "the rejected file is gone");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a real audio head is stored under its detected type, not the declared one", async () => {
+  const dir = await uploadDir();
+  try {
+    // ID3 头 + 任意后续字节：魔数认成 MP3，声明成 text/html 也盖不掉。
+    const file = tmpPath(dir, `${ID}.mp3`);
+    await writeFile(file, Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00]));
     const pool = fakePool();
     const stored = await storeUploadedFile({
       uploadDir: dir,
       pool,
       userId: "u",
-      file: { path: file, filename: `${ID}.mp3`, mimetype: "text/html", originalname: "evil.mp3" },
+      file: { path: file, filename: `${ID}.mp3`, mimetype: "text/html", originalname: "voice.mp3" },
       kind: "audio",
     });
     assert.equal(stored.mime, "audio/mpeg");
