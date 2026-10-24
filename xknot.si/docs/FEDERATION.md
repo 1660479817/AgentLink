@@ -189,7 +189,7 @@ A site that already has its own domain is not registered here: it is its own ent
 
 A Knot instance provides `GET /api/health`, returning `{ ok: true, service, version }`. The hub uses this endpoint directly; the instance side needs no change. The Knot deployment layer additionally attaches `release`, `commit`, `builtAt` for publish scripts to check versions; the hub does not read these fields.
 
-An instance joining the federation also carries `instance` (the access material's `XKNOT_INSTANCE_ID`), e.g. `{ ok: true, service: "knot-backend", version: "0.6.0", instance: "wang" }`. The hub uses it to verify "is this domain the instance in the manifest"; instances without it are still judged by `ok`.
+An instance joining the federation also carries `instance` (the access material's `XKNOT_INSTANCE_ID`), e.g. `{ ok: true, service: "knot-backend", version: "0.7.0", instance: "wang" }`. The hub uses it to verify "is this domain the instance in the manifest"; instances without it are still judged by `ok`.
 
 ### 5.2 Probe determination
 
@@ -239,7 +239,7 @@ Written to `xknot.si/var/health.json`; the portal reads only this file:
       "status": "up",
       "httpStatus": 200,
       "latencyMs": 137,
-      "version": "0.2.0",
+      "version": "0.7.0",
       "lastOkAt": "2026-10-19T02:30:00.000Z",
       "since": "2026-10-19T02:30:00.000Z",
       "checks": 1,

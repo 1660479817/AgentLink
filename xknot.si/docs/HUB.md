@@ -254,7 +254,7 @@ This override is necessary: the build probes once, and if that one run happens t
       "tags": ["信息交换", "Agent"],
       "tier": "paid",
       "status": "active",
-      "health": { "status": "up", "lastOkAt": "2026-10-19T02:30:00.000Z", "version": "0.2.0" }
+      "health": { "status": "up", "lastOkAt": "2026-10-19T02:30:00.000Z", "version": "0.7.0" }
     }
   ]
 }

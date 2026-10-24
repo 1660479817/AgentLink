@@ -190,7 +190,7 @@ L1 装在两处，按谁有权改划分：
 
 Knot 实例提供 `GET /api/health`，返回 `{ ok: true, service, version }`。中枢直接使用该端点，实例侧无需改动。Knot 部署层还会附上 `release`、`commit`、`builtAt` 供发布脚本核对版本，中枢不读这几个字段。
 
-接入联邦的实例另带 `instance`（接入件里的 `XKNOT_INSTANCE_ID`），例如 `{ ok: true, service: "knot-backend", version: "0.6.0", instance: "wang" }`。中枢用它核对「这个域名后面是不是清单里的那个实例」；不带这一项的实例照常按 `ok` 判活。
+接入联邦的实例另带 `instance`（接入件里的 `XKNOT_INSTANCE_ID`），例如 `{ ok: true, service: "knot-backend", version: "0.7.0", instance: "wang" }`。中枢用它核对「这个域名后面是不是清单里的那个实例」；不带这一项的实例照常按 `ok` 判活。
 
 ### 5.2 探测判定
 
@@ -240,7 +240,7 @@ Knot 实例提供 `GET /api/health`，返回 `{ ok: true, service, version }`。
       "status": "up",
       "httpStatus": 200,
       "latencyMs": 137,
-      "version": "0.2.0",
+      "version": "0.7.0",
       "lastOkAt": "2026-10-19T02:30:00.000Z",
       "since": "2026-10-19T02:30:00.000Z",
       "checks": 1,

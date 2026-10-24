@@ -102,7 +102,7 @@
 伙伴的回执长这样，一行就够：
 
 ```text
-{"ok":true,"service":"knot-platform","version":"0.2.0"}
+{"ok":true,"service":"knot-platform","version":"0.7.0"}
 ```
 
 判读：`ok` 必须是 `true`。不是 `true` 就停在 A，不要起隧道——隧道会把一个不健康的后端原样暴露到公网。

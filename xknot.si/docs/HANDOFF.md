@@ -102,7 +102,7 @@ This is the only place in the whole flow where both sides must be present at onc
 The partner's receipt looks like this — one line is enough:
 
 ```text
-{"ok":true,"service":"knot-platform","version":"0.2.0"}
+{"ok":true,"service":"knot-platform","version":"0.7.0"}
 ```
 
 Reading it: `ok` must be `true`. If it is not `true`, stop at A — do not start the tunnel. The tunnel would expose an unhealthy backend to the public as-is.
