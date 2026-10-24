@@ -9,7 +9,7 @@ This is where **cross-project** things go: describing the XKnot network itself, 
 | Concepts and ownership | [`concepts.md`](./concepts.md) | The division of labor, ownership, and forbidden words among hub, instance, and public entry; illustrated by `concepts.svg` |
 | Copyright and attribution | [`../LICENSE`](../LICENSE), [`../NOTICE`](../NOTICE) | Apache-2.0; the names and marks `XKnot`, `Knot`, `xknot`, `xknot.si` belong to PaulWang; the license grants no trademark rights |
 | API index | [`API.md`](./API.md) | Index of the instance Web API and the federation contract; full text lives in each project |
-| Agent interface guide | [`KNOT_HELP.md`](./KNOT_HELP.md), [`KNOT_HELP_CN.md`](./KNOT_HELP_CN.md) | The federation-wide protocol spec, English text; `KNOT_HELP.md` is the only published source, mounted at <https://xknot.si/knot-help>; `KNOT_HELP_CN.md` is only the Chinese cross-check draft, not built and not published. Change the English version whenever the interface changes; see `.cursor/rules/knot-agent-doc.mdc` |
+| Agent interface guide | [`KNOT_HELP.md`](./KNOT_HELP.md), [`KNOT_HELP_CN.md`](./KNOT_HELP_CN.md) | The federation-wide protocol spec, English text; `KNOT_HELP.md` is the only published source, mounted at <https://xknot.si/knot-help>; `KNOT_HELP_CN.md` is only the Chinese cross-check draft, not built and not published. Change the English version whenever the interface changes; see `.cursor/rules/knot-api-contract.mdc` |
 | Mark master | `xknot-mark.svg` | See "Mark and map" below |
 | Horizontal lockup | `xknot-lockup.svg`, `xknot-lockup-mono.svg`, `xknot-lockup-inverse.svg` | Mark as X, followed by `Knot`; see "Horizontal lockup" below |
 | PNG exports | `png/` | Rasterized products of the SVGs above, see "PNG exports" |

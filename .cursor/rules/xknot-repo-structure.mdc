@@ -1,38 +1,15 @@
 ---
-description: 仓库结构 — XKnot 网络、knot-platform 与 xknot.si 两个独立项目、根公共资产
+description: 仓库边界：根目录、独立项目、文档与生成物归属
 alwaysApply: true
 ---
 
 # 仓库结构
 
-本仓库是 **XKnot**：面向 AI 与 Agent 时代的去中心化分布式信息交换网络。根目录只做网络总览和公共资产，不放任一项目的实现代码。`XKnot` 指网络，`Knot` 指部署一个实例所用的软件（`knot-platform`）。
-
-```text
-XKnot/                     仓库根（本工作区目录 AgentLink）
-├── README.md              网络总览：两个项目怎么连成一张网
-├── LICENSE / NOTICE       版权与署名
-├── docs/                  XKnot 组织的公共文档与品牌资产（跨项目）
-├── knot-platform/         独立项目：一个 Knot 信息枢纽
-└── xknot.si/              独立项目：XKnot 联邦站点
-```
-
-## 两个独立项目
-
-| 项目 | 是什么 | 自己的入口 |
-|------|--------|------------|
-| `knot-platform/` | 一个 Knot 信息枢纽：Backend、WebUI、Agent API、部署脚本 | `knot-platform/README.md`、`knot-platform/ops/README.md` |
-| `xknot.si/` | XKnot 联邦站点：门户、申请与审核接口、实例清单 | `xknot.si/README.md`、`xknot.si/docs/HUB.md` |
-
-- 两者**各自独立开发、编译、安装和部署**：依赖、`node_modules`、测试、构建、发布都在各自目录里完成。
-- `xknot.si/` 不并入 `knot-platform/` 的 npm workspaces，不 import `knot-platform/*`，也不依赖 bot01 上的进程。
-- 两边只通过 HTTP 契约相连（`xknot.si/docs/FEDERATION.md`）。要复用代码，先落进对应项目；跨项目的说明和素材才放根 `docs/`。
-- 根目录不设统一 `package.json`，不要在这里 `npm install`，也不要在根目录跑任一项目的构建。
-- 改动落在哪个项目，就在哪个项目里补 README / docs / 测试；不要把实现文档写进另一个项目。
-
-## 根目录的公共资产
-
-- **版权**：`LICENSE`（Apache-2.0）、`NOTICE`。许可证不授予商标权；`XKnot`、`Knot`、`xknot`、`xknot.si` 的名称与标识归 PaulWang，子域由权利人签发。
-- **LOGO 与品牌母版**：根 `docs/` 下的 `xknot-mark.svg`（唯一母版，透明底正方形几何标）。改标按 `docs/README.md` 的流程重出；PNG 和 `docs/knot-federation-map.svg` 都是生成物，不手改。
-- **联邦层文档**：根 `docs/` 只写网络本身（如 `soul-questions.md`）与全联邦共用的协议说明（`KNOT_HELP.md`，Agent 接口指引，不进任一项目、不写某个实例的实现）。
-- **接口文档**：根 `docs/API.md` 只做索引；联邦契约在 `xknot.si/docs/FEDERATION.md`，Knot 实例的 Web API 在 `knot-platform/docs/KNOT_WEB_API.md`。公共层不复制正文。
-- 根 `README.md` 只做总览与入口；版本、配置、部署步骤归各自项目。
+- `XKnot` 指网络，`Knot` 指实例软件（`knot-platform`）；概念与术语以 `docs/concepts.md`、`xknot.si/docs/NAMING.md` 为准，一个概念只用一个名字。
+- 根目录只放跨项目内容与工具（总览、版权、公共文档、审计记录、`bench/`）；实现代码、构建配置、依赖和测试留在各自项目目录。
+- `knot-platform/` 与 `xknot.si/` 独立开发、构建、测试和部署：不互相 import、不共用依赖，只通过 HTTP 契约连接。
+- `bench/` 只做跨项目黑箱测量：输入站点 URL，不 import 两个项目，不读站点配置。
+- 不在根目录执行 `npm install`、构建或测试。改动落在哪个项目，就在哪个项目补实现、文档和测试。
+- 文档按归属放置：跨项目内容放根 `docs/`，实例实现放 `knot-platform/docs/`，联邦实现放 `xknot.si/docs/`；不把一个项目的文档复制到另一个项目。
+- 架构图、流程图、框图用 SVG，放在对应文档旁边并由 Markdown 引用；跨项目图放根 `docs/`。不交付 Mermaid，不用 PNG/JPG 代替说明图。
+- 品牌资产只改母版 `docs/xknot-mark.svg` 与 `docs/xknot-lockup*.svg`；`docs/png/` 与 `docs/knot-federation-map.svg` 由母版或构建脚本生成，不手改。

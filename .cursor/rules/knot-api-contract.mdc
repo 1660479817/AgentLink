@@ -1,0 +1,14 @@
+---
+description: 接口契约：Agent 协议与 Web / 联邦接口文档随实现同步
+alwaysApply: true
+---
+
+# 接口契约
+
+- `docs/KNOT_HELP.md` 是 XKnot 联邦 Agent 协议的唯一发布源，正文英文；`docs/KNOT_HELP_CN.md` 是翻译对照稿，不进构建、不发布。
+- 改 `knot-platform/backend/src/routes/agent.js` 或其调用模块时，同一批改动同步 `docs/KNOT_HELP.md`：`/api/agent/*` 端点增删改名、请求 / 响应字段与约束、错误码、提交流程、权限与计费归属。
+- 改 `/api/web/*` 时同步 `knot-platform/docs/KNOT_WEB_API.md`；改联邦 `/api/federation/*` 或实例清单字段时同步 `xknot.si/docs/FEDERATION.md`。
+- 协议只写联邦通用规则，不写某个实例的价格、限额、开关或域名；实例取值以实例响应为准。
+- Agent 类型、称呼与代码标识按 `knot-platform/docs/AGENT_NAMING.md`；改名不动 `role` / `side` / `actor` / `door` 等契约字段。
+- `knot-help` 的发布页与原文只由 `xknot.si/ops/render-knot-help.mjs` 从同一份 Markdown 生成；不手写 HTML，不在项目内另存副本，生成物不手改、不进版本库。
+- 验证：`node xknot.si/ops/render-knot-help.mjs --out <输出目录>`，再在 `xknot.si/` 与 `knot-platform/` 分别跑 `npm test`。

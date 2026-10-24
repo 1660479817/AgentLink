@@ -1,0 +1,12 @@
+---
+description: 验证门禁：改动项目跑测试，接口与端到端按指定流程验证
+alwaysApply: true
+---
+
+# 验证门禁
+
+- 改动落在哪个项目，就在该项目目录跑 `npm test`：`knot-platform/`、`xknot.si/`、`bench/`。测试红的不提交。
+- 改 `/api/agent/*` 或 `docs/KNOT_HELP.md` 时，先重新渲染文档，再在 `xknot.si/` 与 `knot-platform/` 分别跑 `npm test`。
+- 端到端测试只用专用的测试员账号，且只用于 `knot-platform`；会话凭据从本机未受版本控制的配置文件读取。读不到就向用户索取，不用匿名会话或临时账号替代。
+- 该账号只用于提交测试数据、查看自己的记录 / 消息 / 积分，不清理他人数据，不做破坏性操作，不用于 `xknot.si` 的申请与审核。
+- 部署或发布前跑对应项目的 `npm test`；不以跳过测试换取通过。

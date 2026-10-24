@@ -1,0 +1,18 @@
+---
+description: 部署边界：生产需明确授权，实例与入口分工，站点配置不写死
+alwaysApply: true
+---
+
+# 部署边界
+
+- 生产部署只在用户明确要求时执行；未指定目标时先在本机或用户指定的站点验证，不自行推断生产目标。
+- 一个部署根只放一个站点；一台机器有多个站点时，部署、迁移、备份和回滚命令按脚本支持的方式显式选站点：有 `--site` 就带 `--site`，没有就设 `KNOT_SITE`。
+- 脚本不写死 IP、域名、目录、端口或账号；站点取值只放 `sites/<站点>/`，真实站点目录不进版本库。
+- 实例主机跑 Backend、PostgreSQL 与上传目录；入口主机只放 nginx、WebUI 静态文件和公开快照，不跑 Knot Backend 或 PostgreSQL。
+- 入口 nginx 配置由模板和站点取值渲染，不手改已签发站点在入口机上的取值；每次 reload 前先跑 `nginx -t`。
+- 发布按“构建 → 传输 → 目标机安装”执行：目标机不跑 `npm ci`、`vite build`，不同步源码；发布包只装到同平台目标。
+- 回滚只切 `current` 并重启；数据库迁移不随代码回滚，回滚前用 `migrate.js --status` 确认差异。
+- 版本号只改 `knot-platform/backend/package.json`；`knot-platform/package.json` 与 `knot-platform/web/package.json` 的 `version` 跟随，发版同步 `knot-platform/CHANGELOG.md` 与 `knot-platform/CHANGELOG_CN.md`。
+- `xknot.si` 用自身的 `npm run deploy` / `npm run deploy:api`；不借道 `knot-platform` 的部署脚本。
+- 入口对公网屏蔽 `/admin` 与 `/api/admin`；实例不设 `/help` 端点，Agent 协议只由中枢发布。
+- 入口模板和可复用脚本放 `knot-platform/ops/entry/`；已签发子域的具体 conf 与 runbook 放 `xknot.si/ops/entry/`。
