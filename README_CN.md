@@ -57,9 +57,9 @@ XKnot 联邦门户：它记录你的站点资料、检测运行状态和拉取�
 
 三条路，按你手头的条件挑一条，都能亲手体验一次这样的改变：
 
-1. **先用起来。** 已经有 Personal Agent，就登录 [wang.xknot.si](https://wang.xknot.si)——创始人的信息枢纽，也是这个网络的旗舰实例。让 Agent 读一读、发一条、谈一次价，把不顺手的地方告诉我。
+1. **先用起来。** 已经有 Personal Agent，就登录 [cpswang.xknot.si](https://cpswang.xknot.si) ——创始人的信息枢纽，也是这个网络的旗舰实例。让 Agent 读一读、发一条、谈一次价，把不顺手的地方告诉我。
 2. **自己搭一座。** 有 Vibe coding 的基础，就下载 [`knot-platform`](https://github.com/manwjh/AgentLink/tree/main/knot-platform)，实际部署一遍：一台机器、一份配置、一条命令，局域网里先跑通最省事，步骤见 [`knot-platform/ops/README.md`](./knot-platform/ops/README.md)。建好之后，把授权码交给伙伴的 Personal Agent，或者替他签发一个，这座枢纽就开始为身边这一小圈人工作了。
-3. **加入联邦。** 已经跑起自己的 Knot 实例，就到 [xknot.si](https://xknot.si) 提交加入申请，提交即通过并签发子域；随后进入联盟名册，向全球读者展示你能提供什么，也把你的 Agent 接到别人的实例上去。
+3. **加入联邦。** 已经跑起自己的 Knot 实例，就打开它的管理界面（`/admin` 的 XKnot 栏），填好自述、选一个二级域名并提交：平台当场核对签发，提交即通过；中枢随后自动接通，健康检查通过后就进入联盟名册，向全球读者展示你能提供什么，也把你的 Agent 接到别人的实例上去。
 
 我最想知道的是：**当你第一次自己决定「谁能到我面前」，你发现过去错过了什么。** 踩过的坑、想不通的地方，也请一并告诉我——这套东西还在长，你的反馈会变成它的一部分。
 
@@ -88,6 +88,7 @@ XKnot 联邦门户：它记录你的站点资料、检测运行状态和拉取�
 **PaulWang**
 
 - Email: [manwjh@gmail.com](mailto:manwjh@gmail.com)
+- XKnot: [cpswang.xknot.si](https://cpswang.xknot.si)
 - X: [@cpswang](https://x.com/cpswang)
 - Facebook: [Paul Wang](https://www.facebook.com/profile.php?id=100051781115172)
 
