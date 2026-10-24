@@ -238,7 +238,7 @@ function tokensFrom(value) {
 }
 
 // 接口自己的版本号，/api/health 与总览用同一个。
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 // 清单里的名称按语种存放；总览是运营视图，优先简体，再英文，最后 id。
 function instanceName(instance) {
