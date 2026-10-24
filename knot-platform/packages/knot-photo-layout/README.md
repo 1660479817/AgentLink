@@ -1,16 +1,16 @@
 # @knot/photo-layout
 
-一组图片怎么排：先按真实宽高切成若干等高行，再给每行定一个高度。
+How a set of images is laid out: first cut them into several equal-height rows by real aspect ratio, then assign a height to each row.
 
-卡片（`web/src/components/PhotoGallery.vue`）和分享图（`backend/src/sharePoster.js`）用的是同一份
-`planPhotoRows`，所以分享图上看到的拼法就是卡片上的拼法。两处只有「预算」不同：
-卡片行高封顶 125% 内容宽（太高会挤满一屏），分享图放到 300%，因为那张图本来就是竖着看的。
+The card (`web/src/components/PhotoGallery.vue`) and the share poster (`backend/src/sharePoster.js`) use the same
+`planPhotoRows`, so the layout you see on the share poster is the layout on the card. The two differ only in "budget":
+the card caps row height at 125% of content width (too tall would fill a whole screen), the share poster goes to 300%, because that image is meant to be viewed vertically.
 
-- `photoAspect(photo)`：一张图的宽高比，缺尺寸时按 4:3。
-- `planPhotoRows(aspects, rules)`：穷举切分（`2^(n-1)` 种），挑代价最小的一种，返回每行的行高与裁切方向。
-- `planPhotoLayout(photos)`：卡片用，切行结果直接给 CSS 变量。
-- `planPhotoBoxes(photos, { width, gap, rules })`：分享图用，把行高乘成像素框，交给 sharp 裁图贴图。
-- `rowShares(aspects, cells)`：一行里每格占多少宽，归一后加起来是 1（直接拿比例当 `flex-grow` 会铺不满）。
-- `LAYOUT_RULES`：目标行高、行高上下限、整组高度上限、最窄格、裁切罚分。调整排版口味只改这里。
+- `photoAspect(photo)`: the aspect ratio of one image; 4:3 when dimensions are missing.
+- `planPhotoRows(aspects, rules)`: exhaustive cut (`2^(n-1)` ways), pick the one with the lowest cost, return each row's height and crop direction.
+- `planPhotoLayout(photos)`: used by the card; the row-cut result goes straight to CSS variables.
+- `planPhotoBoxes(photos, { width, gap, rules })`: used by the share poster; multiply row heights into pixel boxes and hand them to sharp for cropping and compositing.
+- `rowShares(aspects, cells)`: how much width each cell of a row takes; normalized to sum to 1 (using ratios directly as `flex-grow` won't fill the row).
+- `LAYOUT_RULES`: target row height, row height bounds, total height cap, narrowest cell, crop penalty. To tune layout taste, change only this.
 
-设计说明写在 `src/index.js` 开头：为什么不用量 DOM、为什么「太高的图」不需要特判、代价函数各罚什么。
+The design notes are at the top of `src/index.js`: why not to measure the DOM, why "too-tall images" need no special case, and what each term of the cost function penalizes.

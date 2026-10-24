@@ -212,9 +212,9 @@ const pins = placed
 
 const logo = readFileSync(logoPath).toString("base64");
 
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="XKnot 联邦：各实例汇入 xknot.si 中枢，实例之间另有直连">
-  <title>XKnot 联邦</title>
-  <desc>一张等距圆柱投影的世界地图。每个实例朝上方的 xknot.si 中枢连一条橙色虚线，表示按清单登记、由中枢探测与展示；实例之间的绿色实线表示协议直连、可就地交换数据。点的颜色表示探测到的状态。</desc>
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="XKnot 联邦：各实例汇入 xknot.si 中枢，实例之间另有直连 · XKnot Federation: instances feed into the xknot.si hub, with direct peer links between instances">
+  <title>XKnot 联邦 · XKnot Federation</title>
+  <desc>一张等距圆柱投影的世界地图。每个实例朝上方的 xknot.si 中枢连一条橙色虚线，表示按清单登记、由中枢探测与展示；实例之间的绿色实线表示协议直连、可就地交换数据。点的颜色表示探测到的状态。 · An equirectangular world map. Each instance connects to the xknot.si hub above with an orange dashed line, meaning it is listed, probed and shown by the hub; green solid lines between instances mean protocol-level direct exchange. Dot color shows the probed status.</desc>
   <defs>
     <pattern id="land-dots" width="11" height="11" patternUnits="userSpaceOnUse">
       <circle cx="2.4" cy="2.4" r="1.55" fill="${C.land}"/>
@@ -257,13 +257,14 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <g transform="translate(${PAD_X} ${H - 34})">
     <g class="legend">
-      <circle cx="4" cy="-4" r="3.6" fill="${C.ok}"/><text x="14" y="0" class="legend-text">在线 ${placed.filter((p) => p.status === "up").length}</text>
-      <circle cx="84" cy="-4" r="3.6" fill="${C.warn}"/><text x="94" y="0" class="legend-text">延迟 ${placed.filter((p) => p.status === "degraded").length}</text>
-      <circle cx="164" cy="-4" r="3.6" fill="${C.bad}"/><text x="174" y="0" class="legend-text">不可达 ${placed.filter((p) => p.status === "down").length}</text>
-      <line x1="256" y1="-4" x2="282" y2="-4" stroke="${C.link}" stroke-width="1" stroke-dasharray="10 5"/><text x="290" y="0" class="legend-text">登记与探测</text>
-      <line x1="396" y1="-4" x2="422" y2="-4" stroke="${C.peer}" stroke-width="1"/><text x="430" y="0" class="legend-text">实例直连</text>
+      <circle cx="4" cy="-4" r="3.6" fill="${C.ok}"/><text x="14" y="0" class="legend-text">在线 Online ${placed.filter((p) => p.status === "up").length}</text>
+      <circle cx="120" cy="-4" r="3.6" fill="${C.warn}"/><text x="130" y="0" class="legend-text">延迟 Degraded ${placed.filter((p) => p.status === "degraded").length}</text>
+      <circle cx="240" cy="-4" r="3.6" fill="${C.bad}"/><text x="250" y="0" class="legend-text">不可达 Down ${placed.filter((p) => p.status === "down").length}</text>
+      <line x1="380" y1="-4" x2="406" y2="-4" stroke="${C.link}" stroke-width="1" stroke-dasharray="10 5"/><text x="414" y="0" class="legend-text">登记与探测 Registry &amp; probe</text>
+      <line x1="590" y1="-4" x2="616" y2="-4" stroke="${C.peer}" stroke-width="1"/><text x="624" y="0" class="legend-text">实例直连 Peer link</text>
     </g>
-    <text x="0" y="22" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。${esc(placed.length)} 个实例中，${esc(realNames.length ? realNames.join("、") : "暂无")} 为真实实例${sampleCount ? `，其余 ${sampleCount} 个来自样例清单` : ""}。</text>
+    <text x="0" y="14" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。${esc(placed.length)} 个实例中，${esc(realNames.length ? realNames.join("、") : "暂无")} 为真实实例${sampleCount ? `，其余 ${sampleCount} 个来自样例清单` : ""}。</text>
+    <text x="0" y="30" class="foot">Note: green peer links are protocol-level direct exchange, not yet enabled (target form). Of ${esc(placed.length)} instances, ${esc(realNames.length ? realNames.join(", ") : "none yet")} are real${sampleCount ? `; ${sampleCount} are samples` : ""}.</text>
   </g>
 
   <style>

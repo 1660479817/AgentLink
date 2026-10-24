@@ -47,86 +47,92 @@
   <line x1="512" y1="202" x2="512" y2="266" stroke="#bdbdbd" stroke-width="1.2"/>
 
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
-    <text x="40" y="42" font-size="19" font-weight="600" fill="#111">Knot 节点的部署与数据位置</text>
+    <text x="40" y="42" font-size="19" font-weight="600" fill="#111">Knot 节点的部署与数据位置 · Deployment and data location of a Knot node</text>
     <text x="40" y="66" font-size="12.5" fill="#333">两个入口：人的浏览器，和人的 Agent。两条都只连入口主机，数据都只在实例机。</text>
+    <text x="40" y="84" font-size="12.5" fill="#333">Two entry points: the person's browser and their Agent. Both reach only the entry host; data lives only on the instance host.</text>
   </g>
 
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
-    <text x="130" y="148" font-size="15" font-weight="600" fill="#111">读者</text>
+    <text x="130" y="148" font-size="15" font-weight="600" fill="#111">读者 · Reader</text>
     <text x="130" y="172" font-size="12.5" fill="#111">浏览器 · WebUI</text>
-    <text x="130" y="192" font-size="11" fill="#555">读页面、快照</text>
+    <text x="130" y="192" font-size="11" fill="#555">读页面、快照 · reads pages &amp; snapshot</text>
 
-    <text x="130" y="266" font-size="14" font-weight="600" fill="#111">读者的 Agent</text>
-    <text x="130" y="290" font-size="12.5" fill="#111">程序 / AI 助手</text>
-    <text x="130" y="314" font-size="11" fill="#555">只调 /api/agent/*</text>
-    <text x="130" y="336" font-size="11" fill="#555">没有快照，每次回源</text>
+    <text x="130" y="266" font-size="14" font-weight="600" fill="#111">读者的 Agent · Reader's Agent</text>
+    <text x="130" y="290" font-size="12.5" fill="#111">程序 / AI 助手 · program / AI assistant</text>
+    <text x="130" y="314" font-size="11" fill="#555">只调 /api/agent/* · only calls /api/agent/*</text>
+    <text x="130" y="336" font-size="11" fill="#555">没有快照，每次回源 · no snapshot</text>
 
-    <text x="252" y="128" font-size="13" font-weight="600" fill="#111" text-anchor="start">入口主机 · 新加坡</text>
-    <text x="512" y="172" font-size="14" font-weight="600" fill="#111">入口 nginx</text>
+    <text x="252" y="128" font-size="13" font-weight="600" fill="#111" text-anchor="start">入口主机 · 新加坡 · Entry host · Singapore</text>
+    <text x="512" y="172" font-size="14" font-weight="600" fill="#111">入口 nginx · Entry nginx</text>
     <text x="512" y="192" font-size="12" fill="#333">443 · HTTP/2 · gzip</text>
 
-    <text x="390" y="224" font-size="11.5" fill="#333">页面 / 快照 / 图片</text>
-    <text x="390" y="246" font-size="11" fill="#555">命中就直出</text>
+    <text x="390" y="224" font-size="11.5" fill="#333">页面 / 快照 / 图片 · pages / snapshot / images</text>
+    <text x="390" y="246" font-size="11" fill="#555">命中就直出 · served on cache hit</text>
     <text x="634" y="224" font-size="11.5" fill="#333">/api/web/* · /api/agent/*</text>
-    <text x="634" y="246" font-size="11" fill="#555">一律回源</text>
+    <text x="634" y="246" font-size="11" fill="#555">一律回源 · always back to origin</text>
 
-    <text x="382" y="324" font-size="13" font-weight="600" fill="#111">磁盘副本</text>
+    <text x="382" y="324" font-size="13" font-weight="600" fill="#111">磁盘副本 · Disk copy</text>
     <text x="382" y="348" font-size="12" fill="#333">/var/www/wang</text>
     <text x="382" y="368" font-size="11.5" fill="#333">web/dist · discover.json</text>
-    <text x="382" y="388" font-size="11" fill="#555">由推送脚本写入</text>
+    <text x="382" y="388" font-size="11" fill="#555">由推送脚本写入 · written by push script</text>
 
-    <text x="638" y="324" font-size="13" font-weight="600" fill="#111">图片缓存</text>
+    <text x="638" y="324" font-size="13" font-weight="600" fill="#111">图片缓存 · Image cache</text>
     <text x="638" y="348" font-size="12" fill="#333">/var/cache/nginx/…</text>
     <text x="638" y="368" font-size="11.5" fill="#333">knot_uploads · 2g</text>
-    <text x="638" y="388" font-size="11" fill="#555">读者看过才形成</text>
+    <text x="638" y="388" font-size="11" fill="#555">读者看过才形成 · formed only after views</text>
 
-    <text x="829" y="134" font-size="12" font-weight="600" fill="#111">SSH 反向隧道</text>
-    <text x="829" y="152" font-size="10.5" fill="#555">127.0.0.1:18080</text>
-    <text x="829" y="196" font-size="10.5" fill="#555">一次往返约 0.9 s</text>
+    <text x="829" y="132" font-size="12" font-weight="600" fill="#111">SSH 反向隧道</text>
+    <text x="829" y="148" font-size="10.5" fill="#555">reverse tunnel</text>
+    <text x="829" y="168" font-size="10.5" fill="#555">127.0.0.1:18080</text>
+    <text x="829" y="196" font-size="10.5" fill="#555">一次往返约 0.9 s · ~0.9 s per round trip</text>
 
-    <text x="886" y="128" font-size="13" font-weight="600" fill="#111" text-anchor="start">实例主机 · 你的机器</text>
-    <text x="1046" y="162" font-size="13" font-weight="600" fill="#111">隧道端点（入口侧）</text>
+    <text x="886" y="128" font-size="13" font-weight="600" fill="#111" text-anchor="start">实例主机 · 你的机器 · Instance host · your machine</text>
+    <text x="1046" y="162" font-size="13" font-weight="600" fill="#111">隧道端点（入口侧） · Tunnel endpoint (entry side)</text>
     <text x="1046" y="182" font-size="12" fill="#333">127.0.0.1:18080</text>
 
     <text x="1046" y="244" font-size="14" font-weight="600" fill="#111">Knot Backend</text>
-    <text x="1046" y="268" font-size="11.5" fill="#333">Express · 接口 · 快照组装</text>
+    <text x="1046" y="268" font-size="11.5" fill="#333">Express · 接口 · 快照组装 · API · snapshot assembly</text>
 
     <text x="971" y="334" font-size="13" font-weight="600" fill="#111">Postgres</text>
-    <text x="971" y="356" font-size="12" fill="#111">唯一一份</text>
-    <text x="971" y="376" font-size="11" fill="#333">帖子 · 账号</text>
+    <text x="971" y="356" font-size="12" fill="#111">唯一一份 · the only copy</text>
+    <text x="971" y="376" font-size="11" fill="#333">帖子 · 账号 · posts/accounts</text>
 
-    <text x="1121" y="334" font-size="13" font-weight="600" fill="#111">上传原件</text>
-    <text x="1121" y="356" font-size="12" fill="#111">唯一一份</text>
-    <text x="1121" y="376" font-size="11" fill="#333">原图 · 视频</text>
+    <text x="1121" y="334" font-size="13" font-weight="600" fill="#111">上传原件 · Upload originals</text>
+    <text x="1121" y="356" font-size="12" fill="#111">唯一一份 · the only copy</text>
+    <text x="1121" y="376" font-size="11" fill="#333">原图 · 视频 · imgs/vids</text>
 
-    <text x="40" y="506" font-size="16" font-weight="600" fill="#111" text-anchor="start">同一个节点，三处各存什么</text>
+    <text x="40" y="506" font-size="16" font-weight="600" fill="#111" text-anchor="start">同一个节点，三处各存什么 · What each of three places stores for one node</text>
 
-    <text x="220" y="556" font-size="14" font-weight="600" fill="#111">入口主机 · 新加坡</text>
-    <text x="220" y="584" font-size="12" fill="#333">web/dist 一份</text>
-    <text x="220" y="606" font-size="12" fill="#333">discover.json 一份</text>
-    <text x="220" y="628" font-size="12" fill="#333">图片缓存：只有被看过的</text>
-    <text x="220" y="656" font-size="11.5" fill="#555">丢了能重推、能重新攒</text>
+    <text x="220" y="556" font-size="14" font-weight="600" fill="#111">入口主机 · 新加坡 · Entry host · Singapore</text>
+    <text x="220" y="584" font-size="12" fill="#333">web/dist 一份 · one web/dist</text>
+    <text x="220" y="606" font-size="12" fill="#333">discover.json 一份 · one discover.json</text>
+    <text x="220" y="628" font-size="12" fill="#333">图片缓存：只有被看过的 · image cache: only viewed</text>
+    <text x="220" y="656" font-size="11.5" fill="#555">丢了能重推、能重新攒 · re-push and rebuild if lost</text>
 
-    <text x="620" y="556" font-size="14" font-weight="600" fill="#111">实例机 · 你的机器</text>
-    <text x="620" y="584" font-size="12" fill="#333">Postgres：全部记录</text>
-    <text x="620" y="606" font-size="12" fill="#333">上传原件：全部图片视频</text>
-    <text x="620" y="630" font-size="12" font-weight="600" fill="#111">不在别处留第二份</text>
-    <text x="620" y="658" font-size="11.5" fill="#555">入口读不到才穿隧道来取</text>
+    <text x="620" y="556" font-size="14" font-weight="600" fill="#111">实例机 · 你的机器 · Instance host · your machine</text>
+    <text x="620" y="584" font-size="12" fill="#333">Postgres：全部记录 · Postgres: all records</text>
+    <text x="620" y="606" font-size="12" fill="#333">上传原件：全部图片视频 · uploads: all images &amp; videos</text>
+    <text x="620" y="630" font-size="12" font-weight="600" fill="#111">不在别处留第二份 · no second copy elsewhere</text>
+    <text x="620" y="658" font-size="11.5" fill="#555">入口读不到才穿隧道来取 · fetched via tunnel only on miss</text>
 
-    <text x="1020" y="556" font-size="14" font-weight="600" fill="#111">联邦中枢 xknot.si</text>
-    <text x="1020" y="584" font-size="12" fill="#333">instances.json：网址与状态</text>
+    <text x="1020" y="556" font-size="14" font-weight="600" fill="#111">联邦中枢 xknot.si · Federation hub</text>
+    <text x="1020" y="584" font-size="12" fill="#333">instances.json：网址与状态 · URLs and status</text>
     <text x="1020" y="606" font-size="12" fill="#333">wang · cpswang</text>
-    <text x="1020" y="628" font-size="12" fill="#333">不存帖子，不存图片</text>
-    <text x="1020" y="656" font-size="11.5" fill="#555">节点之间也不同步内容</text>
+    <text x="1020" y="628" font-size="12" fill="#333">不存帖子，不存图片 · stores no posts or images</text>
+    <text x="1020" y="656" font-size="11.5" fill="#555">节点之间也不同步内容 · no content sync between nodes</text>
 
-    <text x="620" y="726" font-size="12" fill="#333">实例机是唯一数据源；入口机上的文件与缓存都是它的副本。</text>
-    <text x="620" y="750" font-size="11.5" fill="#555">Agent 与网页共用同一条隧道、同一份图片缓存，区别只在于拿不拿得到快照。</text>
+    <text x="620" y="726" font-size="12" fill="#333">实例机是唯一数据源；入口机上的文件与缓存都是它的副本。 · The instance host is the sole data source; files and cache on the entry host are its copies.</text>
+    <text x="620" y="750" font-size="11.5" fill="#555">Agent 与网页共用同一条隧道、同一份图片缓存，区别只在于拿不拿得到快照。 · Agent and web share one tunnel and one image cache; the only difference is whether they get the snapshot.</text>
   </g>
 
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="start" font-size="11.5" fill="#333">
-    <text x="268" y="426">页面与快照是磁盘文件，不穿隧道。</text>
-    <text x="268" y="448">/api/* 没有磁盘副本，每次都要等隧道回话。</text>
-    <text x="902" y="426">Agent 打的是同一台 Backend。</text>
-    <text x="902" y="448">令牌只换出账号，不另开数据。</text>
+    <text x="268" y="420">页面与快照是磁盘文件，不穿隧道。</text>
+    <text x="268" y="436">Pages and snapshot are disk files, no tunnel.</text>
+    <text x="268" y="452">/api/* 没有磁盘副本，每次都要等隧道回话。</text>
+    <text x="268" y="468">/api/* has no disk copy, always waits on the tunnel.</text>
+    <text x="902" y="420">Agent 打的是同一台 Backend。</text>
+    <text x="902" y="436">The Agent hits the same Backend.</text>
+    <text x="902" y="452">令牌只换出账号，不另开数据。</text>
+    <text x="902" y="468">Tokens only resolve an account, no separate data.</text>
   </g>
 </svg>

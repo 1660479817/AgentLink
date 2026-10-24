@@ -99,7 +99,7 @@ function readBody(req) {
         // 客户端只会看到连接重置。剩下的体继续读进来再丢掉，让响应能发完。
         tooLarge = true;
         chunks.length = 0;
-        resolve({ error: "too_large" });
+        resolve(bodyFailure("too_large"));
         return;
       }
       chunks.push(chunk);
@@ -115,18 +115,47 @@ function readBody(req) {
           for (const [key, value] of params) out[key] = value;
           return resolve(out);
         } catch {
-          return resolve({ error: "bad_json" });
+          return resolve(bodyFailure("bad_json"));
         }
       }
       try {
         const parsed = JSON.parse(raw);
         resolve(parsed && typeof parsed === "object" ? parsed : {});
       } catch {
-        resolve({ error: "bad_json" });
+        resolve(bodyFailure("bad_json"));
       }
     });
-    req.on("error", () => resolve({ error: "bad_json" }));
+    req.on("error", () => resolve(bodyFailure("bad_json")));
   });
+}
+
+// 每个写接口对「体太大」「JSON 坏」这两种失败的回应必须一样。
+// 以前是各写一段：有的回 413，有的落到后面的字段校验变成 400 invalid，
+// 同一个客户端错误在不同端点上拿到不同的码，排查时看不出是哪里坏的。
+//
+// 返回 null 表示已经写过响应，调用方直接 return。
+// 读体失败的标记。不能用 `body.error` 判断：那是一个合法的 JSON 字段名，
+// 客户端发 `{"error":"too_large"}` 时会被当成读体失败、直接回 413，
+// 把一次正常的业务请求变成传输层错误。符号不会出现在 JSON 里，所以只可能由这里设上。
+const BODY_ERROR = Symbol("knot.bodyError");
+function bodyFailure(kind) {
+  const value = { error: kind };
+  Object.defineProperty(value, BODY_ERROR, { value: kind, enumerable: false });
+  return value;
+}
+
+async function readJsonBody(req, res) {
+  const body = await readBody(req);
+  const failure = body[BODY_ERROR];
+  if (failure === "too_large") {
+    send(res, 413, { error: "too_large" });
+    return null;
+  }
+  if (failure === "bad_json") {
+    send(res, 400, { error: "bad_json" });
+    return null;
+  }
+  return body;
 }
 
 // 简单的滑动窗口计数：单进程够用，重启后清零。
@@ -886,9 +915,8 @@ export function createApp({ store, config }) {
       });
     }
 
-    const body = await readBody(req);
-    if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-    if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+    const body = await readJsonBody(req, res);
+    if (!body) return;
 
     const checked = validateRelayRequest(body, { instance, from: relayMailer.from });
     if (!checked.ok) return send(res, 400, { error: "invalid", fields: checked.errors });
@@ -1072,9 +1100,8 @@ export function createApp({ store, config }) {
         );
       }
 
-      const body = await readBody(req);
-      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-      if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
 
       const email = normalizeEmail(body.email);
       if (!email) return send(res, 400, { error: "invalid_email" });
@@ -1125,9 +1152,8 @@ export function createApp({ store, config }) {
         );
       }
 
-      const body = await readBody(req);
-      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-      if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
 
       const email = normalizeEmail(body.email);
       const code = String(body.code || "").replace(/\s+/g, "");
@@ -1216,6 +1242,9 @@ export function createApp({ store, config }) {
       }
 
       if (action === "public-key") {
+        // 这两条路径回的是 HTML 页面，不是 JSON，所以不走 readJsonBody：
+        // 超限与坏 JSON 都落到同一个「这不是一份可用的公钥」结果上（页面上是 key=invalid），
+        // 不为了 413 再多一种页面状态。
         const body = await readBody(req);
         // 校验只在 validate.mjs 一处：这里、store.setPublicKey、provision 写
         // authorized_keys 之前都过同一个函数，不再各写一条正则。
@@ -1289,6 +1318,9 @@ export function createApp({ store, config }) {
       const limited = pageLimit(ipHash(clientIp(req, trustProxy), secret));
       if (!limited.allowed) return sendHtml(res, 429, renderClaimResult("rate_limited", null, "zh-CN"));
       const body = await readBody(req);
+      // 回的是领取结果页，不是 JSON，所以不走 readJsonBody。任何读体的失败
+      // 都按「这个令牌用不了」处理：它是能力凭据，页面不该因为 413 而透露
+      // 「令牌本身可能有效、只是体太大」。
       const result = body.error
         ? { error: "missing" }
         : store.consumeClaimToken(body.token);
@@ -1314,9 +1346,8 @@ export function createApp({ store, config }) {
         });
       }
 
-      const body = await readBody(req);
-      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-      if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
 
       // 表单里藏了一个正常用户看不见的字段，填了就当机器人，直接回成功。
       if (typeof body.website === "string" && body.website.trim() !== "") {
@@ -1368,7 +1399,8 @@ export function createApp({ store, config }) {
         });
       }
 
-      const body = await readBody(req);
+      const body = await readJsonBody(req, res);
+      if (!body) return;
       if (typeof body.username !== "string" || typeof body.password !== "string") {
         return send(res, 400, { error: "invalid" });
       }
@@ -1419,9 +1451,8 @@ export function createApp({ store, config }) {
     // 发信总闸。只有两个取值，落库而不是改配置：改完立刻生效，不用登机器、
     // 不用改 env、不用重启。要回到「按环境变量的默认值」，清掉这一行即可。
     if (route === "/api/admin/mail" && method === "POST") {
-      const body = await readBody(req);
-      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-      if (body.error) return send(res, 400, { error: "bad_json" });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
       if (typeof body.enabled !== "boolean") return send(res, 400, { error: "invalid" });
       const result = store.setSetting("mail", body.enabled ? "on" : "off", admin.username);
       if (result.error) return send(res, 500, { error: result.error });
@@ -1431,9 +1462,8 @@ export function createApp({ store, config }) {
     // 改实例配置：清单字段与名册字段一起提交，先校验整份文件再原子写回。
     const instanceConfig = /^\/api\/admin\/instances\/([a-z0-9][a-z0-9-]{0,30}[a-z0-9])\/config$/.exec(route);
     if (instanceConfig && method === "POST") {
-      const body = await readBody(req);
-      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-      if (body.error) return send(res, 400, { error: "bad_json" });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
 
       const result = await updateInstanceConfig({
         instancesFile: settings.instancesFile,
@@ -1487,7 +1517,8 @@ export function createApp({ store, config }) {
     // 补发/重发伙伴信。运营类事件不传版本号，允许人工补寄。
     const notifyRoute = /^\/api\/admin\/applications\/([A-Za-z0-9-]+)\/notify$/.exec(route);
     if (notifyRoute && method === "POST") {
-      const body = await readBody(req);
+      const body = await readJsonBody(req, res);
+      if (!body) return;
       const application = store.getApplication(notifyRoute[1]);
       if (!application) return send(res, 404, { error: "not_found" });
       const event = String(body.event || "");
@@ -1507,7 +1538,8 @@ export function createApp({ store, config }) {
     // 交付：把接入资料写进一次性领取令牌，再把链接寄给主理人。
     const handoff = /^\/api\/admin\/applications\/([A-Za-z0-9-]+)\/handoff$/.exec(route);
     if (handoff && method === "POST") {
-      const body = await readBody(req);
+      const body = await readJsonBody(req, res);
+      if (!body) return;
       const application = store.getApplication(handoff[1]);
       if (!application) return send(res, 404, { error: "not_found" });
       if (application.status !== "approved") return send(res, 409, { error: "not_approved" });

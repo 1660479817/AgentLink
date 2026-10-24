@@ -248,53 +248,94 @@ const APPLICATION_COLUMNS = [
   ["closed_at", "text"],
 ];
 
-// 数据修正只跑一次。没有版本号时，每次 openStore 都会重跑下面的 UPDATE——
-// 从旧备份恢复、或者有人手工写了一条 pending 待审单，下一次启动就被静默改成通过。
-const SCHEMA_VERSION = 1;
+// 版本化迁移：每一步带一个 version 与 up()，openStore 只执行 user_version 之后的步骤，
+// 每步一个事务，跑完把 user_version 记成这一版的版本号。加新迁移就往数组尾部 push，
+// 不要改动已经发布的旧步骤——老库已经在它们上面记了版本号，改旧步骤等于让历史分叉。
+const MIGRATIONS = [
+  {
+    version: 1,
+    name: "backfill legacy applications",
+    up(db) {
+      // 老申请没有案例键，补一个；否则案例页与补信都没有入口。
+      const missing = db
+        .prepare("select id from applications where case_key is null or case_key = ''")
+        .all();
+      const fill = db.prepare("update applications set case_key = ? where id = ?");
+      for (const row of missing) fill.run(randomBytes(9).toString("base64url"), row.id);
+      // state_version 在旧行上是 NULL 时也给个 0，幂等键才稳定。
+      db.exec("update applications set state_version = 0 where state_version is null");
+      // 旧库只有 url 与 subdomain 的区分：有标签就是签发子域，否则留空由读时推断。
+      db.exec(`
+        update applications
+           set mode = 'subdomain'
+         where (mode is null or mode = '')
+           and subdomain is not null
+           and subdomain <> ''
+      `);
+      // 自动通过之前留在队列里的申请一起结到 approved：等待过的人不该再等下去。
+      // 老库可能没有 reviewed_at / reviewed_by，先确认列存在再写。
+      const columns = new Set(db.prepare("pragma table_info(applications)").all().map((row) => row.name));
+      if (columns.has("reviewed_at") && columns.has("reviewed_by")) {
+        db.prepare(
+          `update applications
+              set status = 'approved',
+                  reviewed_at = coalesce(reviewed_at, ?),
+                  reviewed_by = coalesce(nullif(reviewed_by, ''), 'auto')
+            where status in ('pending', 'verified', 'hold')`
+        ).run(nowIso());
+      } else {
+        db.exec("update applications set status = 'approved' where status in ('pending', 'verified', 'hold')");
+      }
+    },
+  },
+  {
+    version: 2,
+    name: "drop unused verify_tokens",
+    up(db) {
+      // 2.0 之前归属验证流程留下的表，代码里已无任何引用。迁移只加不删的话，
+      // 这类死表会一直堆在库里，让结构偏离代码全貌。表里只有令牌哈希与申请单 id，
+      // 没有要保留的数据；显式 drop，让库结构回到代码定义的那一份。
+      db.exec("drop table if exists verify_tokens");
+    },
+  },
+];
 
-function migrate(db) {
-  // 加列是幂等的，且新老库都要跑：这一段不进门控。
+// 幂等的结构性修补：加列。新老库都要跑，不进迁移版本门控——
+// 老库是 create table if not exists 建出来的，新列不会自己长出来。
+function ensureColumns(db) {
   const existing = new Set(db.prepare("pragma table_info(applications)").all().map((row) => row.name));
   for (const [name, type] of APPLICATION_COLUMNS) {
     if (existing.has(name)) continue;
     db.exec(`alter table applications add column ${name} ${type}`);
   }
+}
 
-  // 老库 pragma user_version 是 0；跑完下面这几条一次性修正后记成 1。
-  const version = Number(db.prepare("pragma user_version").get()?.user_version) || 0;
-  if (version >= SCHEMA_VERSION) return;
-
-  // 老申请没有案例键，补一个；否则案例页与补信都没有入口。
-  const missing = db
-    .prepare("select id from applications where case_key is null or case_key = ''")
-    .all();
-  const fill = db.prepare("update applications set case_key = ? where id = ?");
-  for (const row of missing) fill.run(randomBytes(9).toString("base64url"), row.id);
-  // state_version 在旧行上是 NULL 时也给个 0，幂等键才稳定。
-  db.exec("update applications set state_version = 0 where state_version is null");
-  // 旧库只有 url 与 subdomain 的区分：有标签就是签发子域，否则留空由读时推断。
-  db.exec(`
-    update applications
-       set mode = 'subdomain'
-     where (mode is null or mode = '')
-       and subdomain is not null
-       and subdomain <> ''
-  `);
-  // 自动通过之前留在队列里的申请一起结到 approved：等待过的人不该再等下去。
-  // 老库可能没有 reviewed_at / reviewed_by，先确认列存在再写。
-  const columns = new Set(db.prepare("pragma table_info(applications)").all().map((row) => row.name));
-  if (columns.has("reviewed_at") && columns.has("reviewed_by")) {
-    db.prepare(
-      `update applications
-          set status = 'approved',
-              reviewed_at = coalesce(reviewed_at, ?),
-              reviewed_by = coalesce(nullif(reviewed_by, ''), 'auto')
-        where status in ('pending', 'verified', 'hold')`
-    ).run(nowIso());
-  } else {
-    db.exec("update applications set status = 'approved' where status in ('pending', 'verified', 'hold')");
+// 按 user_version 顺序执行尚未跑过的迁移。每步一个事务：要么完整执行并记下版本号，
+// 要么整个回滚——进程在中途被杀不会留下「数据修了一半、版本号没记」的半成品。
+// 拿到写锁后重读一次版本号：几个进程同时打开同一个库时，先拿锁的那个跑完迁移，
+// 后拿锁的只可能跳过，不会重复执行。
+function migrate(db) {
+  ensureColumns(db);
+  let current = Number(db.prepare("pragma user_version").get()?.user_version) || 0;
+  for (const step of MIGRATIONS) {
+    if (step.version <= current) continue;
+    db.exec("begin immediate");
+    try {
+      const fresh = Number(db.prepare("pragma user_version").get()?.user_version) || 0;
+      if (step.version <= fresh) {
+        db.exec("commit");
+        current = fresh;
+        continue;
+      }
+      step.up(db);
+      db.exec(`pragma user_version = ${step.version}`);
+      db.exec("commit");
+      current = step.version;
+    } catch (error) {
+      db.exec("rollback");
+      throw error;
+    }
   }
-  db.exec(`pragma user_version = ${SCHEMA_VERSION}`);
 }
 
 function nowIso() {

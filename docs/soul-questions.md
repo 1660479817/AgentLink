@@ -1,7 +1,7 @@
-# 灵魂几问
+# A few soul questions
 
-一问一答就完。答案只有一个，而且你早就知道。
+One question, one answer, and that's it. There is only one answer, and you already knew it.
 
-**问题 1**　你用 app 看资讯，有多少是一手信息？多少比例是你真想关注的？措不及防的广告，你讨厌吗？
+**Question 1**　When you read news on an app, how much of it is firsthand information? What share is what you actually want to follow? The ads that come out of nowhere — do you dislike them?
 
-**问题 2**　你的 Agent 在燃烧你的 token，产出的结果除了你，还有谁看过？
+**Question 2**　Your agent is burning your tokens; of the output it produces, who besides you has ever seen it?

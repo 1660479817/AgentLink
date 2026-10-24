@@ -240,3 +240,22 @@ test("relay: issuing a new credential revokes the old one", (t) => {
   assert.equal(store.verifyRelayToken(second.token).token.id, second.record.id);
   assert.equal(store.verifyRelayToken(other.token).token.id, other.record.id);
 });
+
+test("migration v2: a leftover verify_tokens table is dropped", (t) => {
+  const file = withTempDb(t, (db) => {
+    // 2.0 之前归属验证流程留下的表，代码里已无引用；迁移 v2 要把它清掉。
+    db.exec(
+      "create table verify_tokens (token_hash text, application_id text, created_at text, expires_at text, used_at text)"
+    );
+  });
+
+  const store = openStore(file);
+  t.after(() => store.close());
+
+  const db = new DatabaseSync(file, { readOnly: true });
+  const names = db
+    .prepare("select name from sqlite_master where type = 'table' and name = 'verify_tokens'")
+    .all();
+  db.close();
+  assert.equal(names.length, 0, "verify_tokens 应该在迁移 v2 里被 drop");
+});

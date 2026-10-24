@@ -45,52 +45,53 @@
 
   <!-- 第一行的字 -->
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
-    <text x="114" y="68" font-size="16" font-weight="600" fill="#111">提交</text>
+    <text x="114" y="68" font-size="16" font-weight="600" fill="#111">提交 · Submit</text>
     <text x="114" y="90" font-size="12" fill="#333">post · fastpost · wish</text>
-    <text x="368" y="68" font-size="16" font-weight="600" fill="#111">预审</text>
-    <text x="368" y="90" font-size="12" fill="#333">写入之前由 Backend 完成</text>
-    <text x="368" y="204" font-size="16" font-weight="600" fill="#111">不入库</text>
-    <text x="368" y="226" font-size="12" fill="#333">预审没有通过，不写记录</text>
-    <text x="648" y="68" font-size="16" font-weight="600" fill="#111">入库</text>
-    <text x="648" y="90" font-size="12" fill="#333">终审进行中，暂时可见</text>
-    <text x="920" y="68" font-size="16" font-weight="600" fill="#111">终审</text>
-    <text x="920" y="90" font-size="12" fill="#333">数据评审员</text>
+    <text x="368" y="68" font-size="16" font-weight="600" fill="#111">预审 · Pre-review</text>
+    <text x="368" y="90" font-size="12" fill="#333">写入前由 Backend 完成 · by Backend before write</text>
+    <text x="368" y="204" font-size="16" font-weight="600" fill="#111">不入库 · Not stored</text>
+    <text x="368" y="226" font-size="12" fill="#333">预审没有通过，不写记录 · fails pre-review, no record</text>
+    <text x="648" y="68" font-size="16" font-weight="600" fill="#111">入库 · Stored</text>
+    <text x="648" y="90" font-size="12" fill="#333">终审进行中，暂时可见 · under review, visible</text>
+    <text x="920" y="68" font-size="16" font-weight="600" fill="#111">终审 · Final review</text>
+    <text x="920" y="90" font-size="12" fill="#333">数据评审员 · Data reviewer</text>
   </g>
 
   <!-- 箭头上的字 -->
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="12" fill="#333">
-    <text x="506" y="62" text-anchor="middle">通过</text>
-    <text x="380" y="146">不通过</text>
+    <text x="506" y="62" text-anchor="middle">通过 · Pass</text>
+    <text x="380" y="146">不通过 · Fail</text>
   </g>
 
   <!-- 终审交回 -->
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
-    <text x="196" y="338" font-size="16" font-weight="600" fill="#111">留下</text>
-    <text x="196" y="364" font-size="13" fill="#333">写入类别，保持可见</text>
+    <text x="196" y="338" font-size="16" font-weight="600" fill="#111">留下 · Keep</text>
+    <text x="196" y="364" font-size="13" fill="#333">写入类别，保持可见 · write category, stays visible</text>
     <text x="196" y="386" font-size="12" fill="#333">verdict = passed</text>
-    <text x="560" y="338" font-size="16" font-weight="600" fill="#111">评审未完成</text>
-    <text x="560" y="364" font-size="13" fill="#333">仍然可见，稍后重试</text>
+    <text x="560" y="338" font-size="16" font-weight="600" fill="#111">评审未完成 · Review pending</text>
+    <text x="560" y="364" font-size="13" fill="#333">仍然可见，稍后重试 · still visible, retry later</text>
     <text x="560" y="386" font-size="12" fill="#333">verdict 保持 pending</text>
-    <text x="924" y="338" font-size="16" font-weight="600" fill="#111">撤销</text>
-    <text x="924" y="364" font-size="13" fill="#333">离开可见范围，通知作者</text>
+    <text x="924" y="338" font-size="16" font-weight="600" fill="#111">撤销 · Revoke</text>
+    <text x="924" y="364" font-size="13" fill="#333">离开可见范围，通知作者 · leaves visibility, notifies author</text>
     <text x="924" y="386" font-size="12" fill="#333">verdict = rejected</text>
   </g>
 
   <!-- 公开范围的字 -->
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
-    <text x="64" y="478" font-size="18" font-weight="600" fill="#111">公开范围</text>
-    <text x="64" y="504" font-size="13" fill="#333">预审通过后就按这里可见。终审进行中（pending）和终审留下（passed）都算。</text>
+    <text x="64" y="478" font-size="18" font-weight="600" fill="#111">公开范围 · Visibility</text>
+    <text x="64" y="504" font-size="13" fill="#333">预审通过后就按这里可见。终审进行中（pending）和终审留下（passed）都算。 · Visible here after pre-review passes; pending and passed final review both count.</text>
   </g>
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
-    <text x="228" y="562" font-size="15" font-weight="600" fill="#111">post、fastpost 公开</text>
-    <text x="228" y="590" font-size="13" fill="#333">出现在信息流和搜索</text>
-    <text x="228" y="616" font-size="12" fill="#333">公开由作者设定，缺省为开</text>
-    <text x="560" y="562" font-size="15" font-weight="600" fill="#111">post、fastpost 不公开</text>
-    <text x="560" y="590" font-size="13" fill="#333">只有作者的提交</text>
-    <text x="560" y="616" font-size="12" fill="#333">别人看不到这一条</text>
+    <text x="228" y="562" font-size="15" font-weight="600" fill="#111">post、fastpost 公开 · public</text>
+    <text x="228" y="590" font-size="13" fill="#333">出现在信息流和搜索 · in feed and search</text>
+    <text x="228" y="616" font-size="12" fill="#333">公开由作者设定，缺省为开 · set by author, public by default</text>
+    <text x="560" y="562" font-size="15" font-weight="600" fill="#111">post、fastpost 不公开 · private</text>
+    <text x="560" y="590" font-size="13" fill="#333">只有作者的提交 · author's submissions only</text>
+    <text x="560" y="616" font-size="12" fill="#333">别人看不到这一条 · others can't see it</text>
     <text x="892" y="562" font-size="15" font-weight="600" fill="#111">wish</text>
-    <text x="892" y="590" font-size="13" fill="#333">出现在 /wish，不进信息流</text>
-    <text x="892" y="616" font-size="12" fill="#333">wishRespond 只给发出那条 wish 的人看</text>
+    <text x="892" y="590" font-size="13" fill="#333">出现在 /wish，不进信息流 · in /wish, not the feed</text>
+    <text x="892" y="616" font-size="12" fill="#333">wishRespond 只给发出方看 · only the issuer</text>
   </g>
   <text x="64" y="676" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="13" fill="#333">终审撤销后离开上面的范围，不再接受新的查看、下载和响应。已经完成的不追回。</text>
+  <text x="64" y="698" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="12" fill="#333">After final-review revocation the record leaves the ranges above and no longer accepts new views, downloads or responses; completed ones are not reclaimed.</text>
 </svg>

@@ -1,176 +1,176 @@
-# XKnot 联邦 · 伙伴邮件模板
+# XKnot Federation · Partner Mail Templates
 
-版本 2.1，2026-10-23。
+Version 2.1, 2026-10-23.
 
-本文是 `xknot.si → 伙伴` 邮件的规格说明：事件、触发条件、收件人、三语全文、变量、幂等键与链接规范。运行时的真源是 `server/notify.mjs`，两边必须一致；改文案时先改本文，再改代码、升 `TEMPLATE_VERSION`，跑 `npm test`。
+This document is the specification of `xknot.si → partner` mail: events, trigger conditions, recipients, trilingual full text, variables, idempotency keys, and link rules. The runtime source of truth is `server/notify.mjs`; the two must stay in sync. When changing text, change this document first, then the code, bump `TEMPLATE_VERSION`, and run `npm test`.
 
-契约见 [FEDERATION.md](FEDERATION.md)，加入流程见 [JOIN.md](JOIN.md)，交付规则见 [HANDOFF.md](HANDOFF.md)，术语见 [NAMING.md](NAMING.md)。本文出现的概念名以那几份为准：口语里的「节点」在本文写作**实例**，「节点拥有者」写作**伙伴**或其**主理人**。
+Contract in [FEDERATION.md](FEDERATION.md), join flow in [JOIN.md](JOIN.md), handoff rules in [HANDOFF.md](HANDOFF.md), terms in [NAMING.md](NAMING.md). Concept names in this document follow those: colloquial "节点" is written **instance** here, and "节点拥有者" is written **partner** or its **owner**.
 
 ---
 
-## 0. 现状与范围
+## 0. Current state and scope
 
-从 2026-10-20 起，这条链路已经全部落到代码：
+Since 2026-10-20 this chain is fully in code:
 
-| 位置 | 作用 |
+| Location | Role |
 |------|------|
-| `server/notify.mjs` | 模板注册表 `TEMPLATES[event]`，9 封伙伴信 + 2 封内部信，三语齐全 |
-| `server/store.mjs` | `notify_log`、`claim_tokens`、申请状态与 `state_version` |
-| `server/app.mjs` | 提交（自动通过）、案例动作、交付、领取的接口与发信触发 |
-| `server/pages.mjs` | `/case/`、`/claim/` 两个无脚本页面 |
+| `server/notify.mjs` | template registry `TEMPLATES[event]`, 9 partner mails + 2 internal mails, all three languages |
+| `server/store.mjs` | `notify_log`, `claim_tokens`, application state, and `state_version` |
+| `server/app.mjs` | submission (auto-approval), case actions, handoff, claim endpoints, and send triggers |
+| `server/pages.mjs` | the `/case/`, `/claim/` two script-free pages |
 | `server/admin-cli.mjs` | `notify` / `handoff` / `live` / `contact-revalidate` / `suspend` / `retire` / `notify-log` |
-| `server/notify.test.mjs` | 每事件 × 3 语种，断言编号在内、内部备注不在、无占位符、无凭据明文 |
+| `server/notify.test.mjs` | every event × 3 locales, asserting the id is included, internal notes are not sent out, no placeholder left, no credential plaintext |
 
-`newApplicationMail` 保留为薄包装，只为兼容旧调用点。
+`newApplicationMail` is kept as a thin wrapper, only for compatibility with old call sites.
 
-一条邮件的走向：
+The path of one mail:
 
 ```text
-伙伴 / 主理人                          中枢 xknot.si
-     │  提交申请 ────────────────────▶ POST /api/applications（即 approved）
-     │  ◀────────────────────  1 approved（含案例页链接）
+partner / owner                           hub xknot.si
+     │  submit application ────────────▶ POST /api/applications (which is approved)
+     │  ◀────────────────────  1 approved (with the case page link)
      │  ◀────────────────────  2 issuance
-     │  ◀────────────────────  3 handoff（一次性领取页）
+     │  ◀────────────────────  3 handoff (one-time claim page)
      │  ◀────────────────────  4 live
-     │  ◀────────────────────  5 contact_revalidate（每 180 天）
+     │  ◀────────────────────  5 contact_revalidate (every 180 days)
      │  ◀────────────────────  6 suspended / 7 retired
-     │  ◀────────────────────  8 unreachable_24h / 9 hidden_7d（运行状态巡检）
+     │  ◀────────────────────  8 unreachable_24h / 9 hidden_7d (runtime patrol)
 ```
 
-状态机只允许这些迁移：
+The state machine allows only these transitions:
 
 ```text
-提交 ──▶ approved ──▶ withdrawn
+submit ──▶ approved ──▶ withdrawn
 ```
 
-`rejected` / `expired` 是自动通过之前留下的历史状态，只读保留。
+`rejected` / `expired` are historical states left from before auto-approval, kept read-only.
 
 ---
 
-## 1. 发信契约
+## 1. Sending contract
 
-### 1.1 信封与头部
+### 1.1 Envelope and headers
 
-| 项 | 值 |
+| Item | Value |
 |----|----|
-| `From` | `XKnot 联邦 <no-reply@xknot.si>`（取 `MAIL_FROM`，实例不能覆盖） |
+| `From` | `XKnot 联邦 <no-reply@xknot.si>` (from `MAIL_FROM`, the instance cannot override) |
 | `Reply-To` | `no-reply@xknot.si` |
-| 主题 | `[XKnot] {id} <动作>`，不含换行，≤120 字 |
-| 正文 | 纯文本 UTF-8，≤4000 字 |
-| 其它 | 不收 HTML、附件、抄送与密送；不放追踪像素 |
+| Subject | `[XKnot] {id} <action>`, no newlines, ≤120 chars |
+| Body | plain-text UTF-8, ≤4000 chars |
+| Other | no HTML, attachments, cc, or bcc; no tracking pixels |
 
-**`Reply-To` 也指向 `no-reply`，等于明确宣告「不要回信」。** `xknot.si` 的 MX 指向阿里云且只发信（见 `ops/README-deploy-aws.md`），回信会退信或掉进黑洞。因此有两个硬要求：
+**`Reply-To` also points to `no-reply`, which declares outright "do not reply".** `xknot.si`'s MX points to Aliyun and only sends (see `ops/README-deploy-aws.md`); replies bounce or fall into a black hole. Hence two hard requirements:
 
-1. 每封正文必须有一句「本邮件由系统发出，不接收回复。」
-2. 所有需要申请人动作的事，都必须带一个链接，不能靠「回复本邮件」。
+1. Every body must contain "本邮件由系统发出，不接收回复。" (this message was sent automatically; replies are not monitored).
+2. Everything needing the applicant's action must carry a link, not rely on "reply to this mail".
 
-### 1.2 语种
+### 1.2 Locale
 
-| 项 | 规则 |
+| Item | Rule |
 |----|------|
-| 维护语种 | `zh-CN`（默认）、`zh-TW`、`en` |
-| 选择 | 取申请单的 `locale`；`zh-tw` / `zh-hk` / `zh-hant` → `zh-TW`，其余 `zh*` → `zh-CN`，其它 → `en` |
-| 完整性 | 每个事件三份必须齐全；缺一份视为缺陷，回退 `en` 并记日志 |
+| Maintained locales | `zh-CN` (default), `zh-TW`, `en` |
+| Selection | the application's `locale`; `zh-tw` / `zh-hk` / `zh-hant` → `zh-TW`, other `zh*` → `zh-CN`, everything else → `en` |
+| Completeness | all three per event must be present; a missing one is a defect, fall back to `en` and log |
 
-### 1.3 幂等与重试
+### 1.3 Idempotency and retry
 
-| 项 | 规则 |
+| Item | Rule |
 |----|------|
-| 幂等键 | `{event}:{caseId}:{stateVersion}`，库内唯一索引 |
-| 重复触发 | 同键第二次直接跳过，不重发 |
-| 5xx | 不重试，记 `failed`，告警运营方 |
-| 超时 / 4xx | 最多 3 次，退避 1 / 5 / 30 分钟 |
-| 状态回退 | 同一事件在状态回退再前进时不重发（键含版本号，由实现决定是否换版） |
+| Idempotency key | `{event}:{caseId}:{stateVersion}`, unique index in the DB |
+| Repeated trigger | the second time with the same key is skipped, not resent |
+| 5xx | no retry, record `failed`, alert the operator |
+| Timeout / 4xx | at most 3 tries, backoff 1 / 5 / 30 minutes |
+| State rollback | the same event is not resent when state rolls back and re-advances (the key has a version; whether to bump is up to the implementation) |
 
-### 1.4 限流
+### 1.4 Rate limiting
 
-| 范围 | 上限 |
+| Scope | Cap |
 |------|------|
-| 单个收件地址 | 12 封 / 天 |
-| 单个收件域名 | 30 封 / 天 |
-| 全站伙伴信 | 200 封 / 天 |
-| 内部信 | 30 封 / 小时 |
+| Single recipient address | 12 / day |
+| Single recipient domain | 30 / day |
+| Site-wide partner mail | 200 / day |
+| Internal mail | 30 / hour |
 
-单个地址的上限按「一个真实伙伴走完 提交 → 签发 → 交付 → 上线」留余量（约 5 封），同时挡住脚本刷单。超限只入库不发信，记 `throttled`，由运营方决定是否补发。
+The per-address cap leaves headroom for "one real partner going through submit → issue → handoff → live" (about 5 mails), while blocking scripted floods. Over the cap it is stored but not sent, recorded as `throttled`, the operator deciding whether to resend.
 
-### 1.5 记录
+### 1.5 Records
 
-新增 `notify_log`：事件、案例编号、收件域名、地址哈希、模板版本、语种、结果、错误码、时间。**不存正文、不存完整地址、不存主题全文。**
+New `notify_log`: event, case id, recipient domain, address hash, template version, locale, result, error code, time. **No body, no full address, no full subject.**
 
-保留 90 天，按日清理。
+Kept 90 days, cleaned daily.
 
-### 1.6 链接
+### 1.6 Links
 
-| 项 | 规则 |
+| Item | Rule |
 |----|------|
-| 形式 | 一律 `https` 绝对地址，不带 URL 用户名与密码 |
-| 案例链接 | `https://xknot.si/case/<caseKey>`：12 字节不透明键，不含申请编号；持有链接即可查看状态与提交材料 |
-| 领取页 | `GET` 只渲染确认按钮；消费令牌必须是 `POST`（防邮件网关预取） |
-| 响应头 | `Cache-Control: no-store`、`Referrer-Policy: no-referrer`、`X-Robots-Tag: noindex` |
-| 日志 | nginx 对 `/case/`、`/claim/`、`/api/claim`、`/api/case/` 关闭 `access_log` |
-| 有效期 | 领取页 72 小时，单次使用 |
+| Form | always `https` absolute, no URL username/password |
+| Case link | `https://xknot.si/case/<caseKey>`: a 12-byte opaque key, no application id; holding the link is enough to view status and submit material |
+| Claim page | `GET` only renders the confirm button; consuming the token must be `POST` (to stop mail gateways prefetching) |
+| Response headers | `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex` |
+| Logs | nginx disables `access_log` for `/case/`, `/claim/`, `/api/claim`, `/api/case/` |
+| Validity | claim page 72 hours, single use |
 
-### 1.7 变量卫生
+### 1.7 Variable hygiene
 
-- 所有变量去 `\r`、`\n` 后插入；用户填写的字段不进邮件头。
-- `name` ≤40、`operator` ≤80、`url` ≤200、`{id}` ≤32，超出截断。
-- 正文只放事实，不放判断：不写内部备注、审核人、IP、哈希、其他申请人的数据。
-- 任何凭据明文、私钥、SMTP 口令不得出现在正文。
+- All variables are inserted after stripping `\r`, `\n`; user-filled fields do not enter mail headers.
+- `name` ≤40, `operator` ≤80, `url` ≤200, `{id}` ≤32, truncated beyond.
+- The body only states facts, not judgments: no internal notes, reviewer, IP, hash, or other applicants' data.
+- No credential plaintext, private key, or SMTP password may appear in a body.
 
 ---
 
-## 2. 变量
+## 2. Variables
 
-| 变量 | 含义 | 示例 |
+| Variable | Meaning | Example |
 |------|------|------|
-| `{id}` | 申请编号 | `XK-2026-7F3C9Q` |
-| `{name}` | 站点名 | `Knot · wang` |
-| `{url}` | 站点地址 | `https://wang.xknot.si` |
-| `{operator}` | 运营方 / 主理人 | `PaulWang` |
-| `{origin}` | 门户地址 | `https://xknot.si` |
-| `{caseUrl}` | 案例页 | `https://xknot.si/case/<opaque>` |
-| `{confirmUrl}` | 案例页确认入口 | `https://xknot.si/case/<opaque>` |
-| `{claimUrl}` | 一次性领取页 | `https://xknot.si/claim/<opaque>` |
-| `{portalUrl}` | 门户条目链接 | `https://xknot.si/en/` |
-| `{supportUrl}` | 对外支持入口 | 可选，留空则整行省略 |
-| `{claimTtl}` | 领取有效期，随令牌实际 TTL（1–168 小时） | `72 小时` |
-| `{subdomain}` | 子域 | `wang.xknot.si` |
-| `{entryHost}` / `{account}` / `{port}` | 入口与隧道 | `54.169.33.64` / `knot-tunnel-wang` / `18080` |
-| `{healthUrl}` | 探测地址 | `https://wang.xknot.si/api/health` |
-| `{statusLabel}` | 运行状态 | `正常` |
-| `{contactMasked}` | 脱敏联系人 | `m***@gmail.com` |
-| `{effectiveAt}` / `{reclaimAt}` / `{exportUntil}` | 时间点 | `2026-11-01` |
-| `{resumeCondition}` | 恢复条件 | 运营方填写，只写条件不写评价 |
+| `{id}` | application id | `XK-2026-7F3C9Q` |
+| `{name}` | site name | `Knot · wang` |
+| `{url}` | site address | `https://wang.xknot.si` |
+| `{operator}` | operator / owner | `PaulWang` |
+| `{origin}` | portal address | `https://xknot.si` |
+| `{caseUrl}` | case page | `https://xknot.si/case/<opaque>` |
+| `{confirmUrl}` | case-page confirm entry | `https://xknot.si/case/<opaque>` |
+| `{claimUrl}` | one-time claim page | `https://xknot.si/claim/<opaque>` |
+| `{portalUrl}` | portal entry link | `https://xknot.si/en/` |
+| `{supportUrl}` | outward support entry | optional; empty omits the whole line |
+| `{claimTtl}` | claim validity, following the token's actual TTL (1–168 hours) | `72 小时` |
+| `{subdomain}` | subdomain | `wang.xknot.si` |
+| `{entryHost}` / `{account}` / `{port}` | entry and tunnel | `54.169.33.64` / `knot-tunnel-wang` / `18080` |
+| `{healthUrl}` | probe address | `https://wang.xknot.si/api/health` |
+| `{statusLabel}` | runtime status | `正常` |
+| `{contactMasked}` | masked contact | `m***@gmail.com` |
+| `{effectiveAt}` / `{reclaimAt}` / `{exportUntil}` | time points | `2026-11-01` |
+| `{resumeCondition}` | resume condition | filled by the operator, states only the condition, not judgment |
 
 ---
 
-## 3. 事件与状态
+## 3. Events and states
 
-### 3.1 状态迁移 → 事件
+### 3.1 State transition → event
 
-| 迁移 | 事件 | 收件人 |
+| Transition | Event | Recipient |
 |------|------|--------|
-| 提交（自动 `approved`） | `partner.approved` | 申请人 |
-| 签发子域、接入参数确定（仅 `subdomain`） | `partner.issuance` | 主理人 |
-| 接入件生成、一次性领取就绪 | `partner.handoff` | 主理人 |
-| 验收通过、清单 `status` 转 `active` | `partner.live` | 主理人 |
-| 运行 `active` → `suspended` | `partner.suspended` | 联系人 |
-| 运行 `active` / `suspended` → `retired` | `partner.retired` | 联系人 |
-| 探测 `down` 连续 24 小时 | `partner.unreachable_24h` | 联系人 |
-| 探测 `down` 连续 7 天 | `partner.hidden_7d` | 联系人 |
-| 每 180 天 | `partner.contact_revalidate` | 联系人 |
+| submit (auto `approved`) | `partner.approved` | applicant |
+| subdomain issued, access parameters settled (only `subdomain`) | `partner.issuance` | owner |
+| access material generated, one-time claim ready | `partner.handoff` | owner |
+| acceptance passed, manifest `status` → `active` | `partner.live` | owner |
+| runtime `active` → `suspended` | `partner.suspended` | contact |
+| runtime `active` / `suspended` → `retired` | `partner.retired` | contact |
+| probe `down` for 24 consecutive hours | `partner.unreachable_24h` | contact |
+| probe `down` for 7 consecutive days | `partner.hidden_7d` | contact |
+| every 180 days | `partner.contact_revalidate` | contact |
 
-没有邮箱验证、搁置或拒绝信：提交即通过，所有后续动作都从案例页或运营方补发起步。
+There is no email-verification, hold, or rejection mail: submission is approval, and all later actions start from the case page or the operator.
 
 ---
 
-## 4. 模板
+## 4. Templates
 
-主题统一 `[XKnot] {id} <动作>`。正文末尾固定签名，不再重复。
+Subjects are uniformly `[XKnot] {id} <action>`. The body's closing signature is fixed and not repeated.
 
 ### 4.1 `partner.approved`
 
-**主题**：`[XKnot] {id} 已通过，地址已签发`
+**Subject**: `[XKnot] {id} 已通过，地址已签发`
 
 ```text
 {operator} 你好：
@@ -220,7 +220,7 @@
 —— XKnot 聯邦
 ```
 
-**Subject**：`[XKnot] {id} is approved and the address is issued`
+**Subject**: `[XKnot] {id} is approved and the address is issued`
 
 ```text
 Hello {operator},
@@ -249,7 +249,7 @@ This message was sent automatically; replies are not monitored.
 
 ### 4.2 `partner.issuance`
 
-**只在公钥迟到时发。** 正常流程里申请人在 `/case/<caseKey>` 已经交过 `.pub`，通过后中枢直接把配置做完并寄 `partner.handoff`，跳过这一封。若案例页一直没收到公钥，再用 `npm run admin -- notify <申请编号> partner.issuance` 索取；此时前置停在 `account` 一步（缺公钥写不了 `authorized_keys`）。
+**Sent only when the public key is late.** In the normal flow the applicant has already handed over `.pub` at `/case/<caseKey>`, so after approval the hub finishes the config directly and sends `partner.handoff`, skipping this one. If the case page never received a public key, use `npm run admin -- notify <application id> partner.issuance` to request it; pre-staging stops at the `account` step at that point (no key means no `authorized_keys`).
 
 **主题**：`[XKnot] {id} 的接入信息已确定`
 
@@ -309,7 +309,7 @@ This message was sent automatically; replies are not monitored.
 —— XKnot 聯邦
 ```
 
-**Subject**：`[XKnot] access details for {id} are set`
+**Subject**: `[XKnot] access details for {id} are set`
 
 ```text
 Hello {operator},
@@ -390,7 +390,7 @@ This message was sent automatically; replies are not monitored.
 —— XKnot 聯邦
 ```
 
-**Subject**：`[XKnot] access material for {id} is ready`
+**Subject**: `[XKnot] access material for {id} is ready`
 
 ```text
 Hello {operator},
@@ -454,7 +454,7 @@ This message was sent automatically; replies are not monitored.
 —— XKnot 聯邦
 ```
 
-**Subject**：`[XKnot] {id} is live on the federation`
+**Subject**: `[XKnot] {id} is live on the federation`
 
 ```text
 Hello {operator},
@@ -472,7 +472,7 @@ This message was sent automatically; replies are not monitored.
 — XKnot Federation
 ```
 
-**触发**：`ops/provision-worker.mjs` 探测到 `/api/health` 通过、清单 `status` 转 `active` 的那一轮自动发送（`ops/notify-live.mjs`）。事件 + 申请号在 `notify_log` 里唯一，进程重启不会补发第二封；投递失败标 `failed`，之后可用 `admin-cli live <申请号>` 补发。没有 SMTP 配置时只打一行日志，不影响验收。
+**Trigger**: sent automatically in the round when `ops/provision-worker.mjs` sees `/api/health` pass and the manifest `status` turns `active` (`ops/notify-live.mjs`). Event + application id are unique in `notify_log`, so a process restart does not resend; a failed delivery is marked `failed`, and `admin-cli live <application id>` can resend later. With no SMTP configured it only logs one line, not affecting acceptance.
 
 ---
 
@@ -512,7 +512,7 @@ This message was sent automatically; replies are not monitored.
 —— XKnot 聯邦
 ```
 
-**Subject**：`[XKnot] please confirm the contact for {id}`
+**Subject**: `[XKnot] please confirm the contact for {id}`
 
 ```text
 Hello {operator},
@@ -587,7 +587,7 @@ This message was sent automatically; replies are not monitored.
 —— XKnot 聯邦
 ```
 
-**Subject**：`[XKnot] {id} is suspended`
+**Subject**: `[XKnot] {id} is suspended`
 
 ```text
 Hello {operator},
@@ -655,7 +655,7 @@ This message was sent automatically; replies are not monitored.
 —— XKnot 聯邦
 ```
 
-**Subject**：`[XKnot] {id} has left the federation`
+**Subject**: `[XKnot] {id} has left the federation`
 
 ```text
 Hello {operator},
@@ -678,9 +678,9 @@ This message was sent automatically; replies are not monitored.
 
 ### 4.8 `partner.unreachable_24h`
 
-**触发**：`ops/watch-health.mjs` 发现实例连续 24 小时不可达；`notified.down_24h` 未写过。
-**收件人**：清单里的 `contact`
-**主题**：`[XKnot] {id} 已连续 24 小时无法访问`
+**Trigger**: `ops/watch-health.mjs` finds the instance unreachable for 24 consecutive hours; `notified.down_24h` not yet written.
+**Recipient**: the manifest's `contact`
+**Subject**: `[XKnot] {id} 已连续 24 小时无法访问`
 
 ```text
 {operator} 你好：
@@ -705,9 +705,9 @@ This message was sent automatically; replies are not monitored.
 
 ### 4.9 `partner.hidden_7d`
 
-**触发**：连续不可达满 7 天，`hiddenAt` 第一次写下。
-**收件人**：清单里的 `contact`
-**主题**：`[XKnot] {id} 已从联邦列表暂时关闭`
+**Trigger**: unreachable for 7 consecutive days, `hiddenAt` written for the first time.
+**Recipient**: the manifest's `contact`
+**Subject**: `[XKnot] {id} 已从联邦列表暂时关闭`
 
 ```text
 {operator} 你好：
@@ -728,15 +728,15 @@ This message was sent automatically; replies are not monitored.
 
 ---
 
-## 5. 内部信
+## 5. Internal mail
 
-内部信发给运营方，不进伙伴链路。它们是唯一允许 `Reply-To` 指向真人的一类。
+Internal mail goes to the operator and does not enter the partner chain. It is the only kind whose `Reply-To` may point to a real person.
 
 ### 5.1 `internal.application_new`
 
-**收件人**：`XKNOT_ADMIN_EMAIL`；`Reply-To` = 申请人邮箱
-**主题**：`[XKnot] 新成员 {id} · {name} 已自动通过`
-**正文**：
+**Recipient**: `XKNOT_ADMIN_EMAIL`; `Reply-To` = the applicant's email
+**Subject**: `[XKnot] 新成员 {id} · {name} 已自动通过`
+**Body**:
 
 ```text
 有一条新的加入申请，已按提交即通过自动结案。
@@ -756,7 +756,7 @@ This message was sent automatically; replies are not monitored.
 
 ### 5.2 `internal.instance_alert`
 
-**主题**：`[XKnot] {id} 运行状态异常`
+**Subject**: `[XKnot] {id} 运行状态异常`
 
 ```text
 实例 {id}（{name}）需要关注。
@@ -769,46 +769,46 @@ This message was sent automatically; replies are not monitored.
 处置面板：{origin}/admin/
 ```
 
-`{alertLabel}` 取值：`down_24h`（连续 24 小时不可达）、`down_7d`（连续 7 天，已暂时关闭）、`never_14d`（签发后 14 天仍未接通）、`never_30d`（签发后 30 天，已暂时关闭）、`relay_quota_80`（发信额度用掉 80%）、`cert_expiring_14d`（入口主机证书 14 天内到期）。
+`{alertLabel}` values: `down_24h` (24h unreachable), `down_7d` (7 days, already temporarily closed), `never_14d` (14 days after issuance still not connected), `never_30d` (30 days after issuance, temporarily closed), `relay_quota_80` (relay quota 80% used), `cert_expiring_14d` (entry host certificate expires within 14 days).
 
 ---
 
-## 6. 上线前必须补齐
+## 6. Must complete before launch
 
-| 项 | 状态 | 影响 |
+| Item | Status | Impact |
 |----|------|------|
-| 案例页 `/case/<caseKey>` | 已实现 | 状态、公钥与撤回的动作入口；`issuance`、`handoff`、`contact_revalidate` 也指向这里 |
-| 领取页 `/claim/<token>` | 已实现 | 明文只显示一次，72 小时过期；邮件正文不含凭据 |
-| 对外支持入口 `{supportUrl}` | **待定** | 选了 `no-reply` 之后伙伴没有回信渠道。上线前必须在支持页与工单邮箱之间定一个；为空时该行整段省略，但那样伙伴只能靠案例页 |
-| `no-reply@xknot.si` 的发信认证 | 已配 | 阿里云要求 `SMTP_USER` 与 `SMTP_FROM` 一致；改发信地址要同时改两处 |
-| `MAIL_FROM` 与 `Reply-To` 一致 | 已配 | 二者都用 `no-reply@xknot.si`，与「不接收回复」的措辞一致 |
-| 模板版本与文案责任人 | 已定 | 运行时版本 `TEMPLATE_VERSION=2.0.0`；改文案必须两边一起改并升版本 |
-| 归属验证记录 | **已取消** | 申请只按子域走，签发前没有可验证的域名。验收改为接通后的公网 `/api/health` 探测；旧的 `proof_method` / `proof_at` 列仅保留历史数据，申请对象不再返回这两个字段 |
+| case page `/case/<caseKey>` | implemented | the action entry for status, public key, and withdrawal; `issuance`, `handoff`, `contact_revalidate` also point here |
+| claim page `/claim/<token>` | implemented | plaintext shows once, 72-hour expiry; mail body has no credentials |
+| outward support entry `{supportUrl}` | **pending** | with `no-reply` chosen, the partner has no reply channel. Before launch, decide between the support page and the ticket mailbox; when empty the line is omitted, but then the partner can only rely on the case page |
+| `no-reply@xknot.si` sending auth | configured | Aliyun requires `SMTP_USER` equals `SMTP_FROM`; changing the sending address changes both |
+| `MAIL_FROM` and `Reply-To` consistent | configured | both use `no-reply@xknot.si`, matching the "replies not monitored" wording |
+| template version and text owner | settled | runtime version `TEMPLATE_VERSION=2.0.0`; text changes must change both sides and bump the version |
+| ownership-verification records | **removed** | applications only go by subdomain; before issuance there is no verifiable domain. Acceptance became the post-connection public `/api/health` probe; the old `proof_method` / `proof_at` columns keep only historical data, and the application object no longer returns those two fields |
 
 ---
 
-## 7. 与实现的对应
+## 7. Mapping to the implementation
 
-| 位置 | 实际做法 |
+| Location | Actual approach |
 |------|----------|
-| `server/notify.mjs` | `TEMPLATES[event] = { audience, subject: {locale}, text: {locale} }`；占位符 `{name}`；`buildMail(event, application, options)` |
-| `server/store.mjs` | `notify_log` + `unique(event, case_id, state_version)`；`state_version` 在每次状态迁移 +1；运营类事件（签发/交付/上线）不传版本号，允许补发 |
-| `server/app.mjs` | 提交（自动通过）、案例动作、交付处调用 `dispatchMail`；限流命中记 `throttled` |
-| `server/pages.mjs` | 两个页面无脚本、无构建；所有变量经 `escapeHtml`；页面自带 CSP 与 `no-store` |
-| `server/admin-cli.mjs` | `notify` 补发任意事件；`handoff` 生成领取令牌并打印领取地址；`suspend` / `retire` 只发信，清单状态仍需按 ops 清单改 |
-| `server/notify.test.mjs` | 11 个事件 × 3 语种；断言无占位符残留、无凭据明文、内部备注不外发 |
-| `ops/xknot.si.conf` | `/case/`、`/claim/`、`/api/claim`、`/api/case/` 关闭 `access_log` |
+| `server/notify.mjs` | `TEMPLATES[event] = { audience, subject: {locale}, text: {locale} }`; placeholder `{name}`; `buildMail(event, application, options)` |
+| `server/store.mjs` | `notify_log` + `unique(event, case_id, state_version)`; `state_version` +1 on every state transition; operational events (issue/handoff/live) pass no version, allowing resend |
+| `server/app.mjs` | submit (auto-approval), case actions, handoff call `dispatchMail`; rate-limit hits record `throttled` |
+| `server/pages.mjs` | the two pages are script-free and build-free; all variables go through `escapeHtml`; pages carry their own CSP and `no-store` |
+| `server/admin-cli.mjs` | `notify` resends any event; `handoff` generates the claim token and prints the claim address; `suspend` / `retire` only send mail, the manifest status still follows the ops manifest |
+| `server/notify.test.mjs` | 11 events × 3 locales; asserts no leftover placeholder, no credential plaintext, internal notes not sent out |
+| `ops/xknot.si.conf` | `/case/`, `/claim/`, `/api/claim`, `/api/case/` disable `access_log` |
 
-改文案的流程：先改本文，再改 `server/notify.mjs`，升 `TEMPLATE_VERSION`，跑 `npm test`。测试断言关键要素（编号、语种、闭合句、档位），不逐字比对全文，避免标点改动就红。
+The text-change flow: change this document first, then `server/notify.mjs`, bump `TEMPLATE_VERSION`, run `npm test`. Tests assert key elements (id, locale, closing sentence, tier), not verbatim full-text comparison, to avoid punctuation changes turning red.
 
 ---
 
-## 8. 变更记录
+## 8. Change log
 
-| 日期 | 版本 | 变更 |
+| Date | Version | Change |
 |------|------|------|
-| 2026-10-20 | 1.0 | 首版：11 封伙伴信 + 3 封内部信；`Reply-To` 定为 `no-reply@xknot.si`；补材料与拒绝改为条目码 |
-| 2026-10-20 | 1.1 | 落地：模板注册表、`notify_log` 去重、验证/案例/领取三页、状态机、管理命令与测试；限流调整为 12/30/200；案例链接改为不透明 `caseKey` |
-| 2026-10-20 | 1.2 | 申请改为只按子域走；新增 `partner.unreachable_24h` 与 `partner.hidden_7d`（13 封伙伴信 + 3 封内部信）；去掉归属验证条目码与文案；内部告警增加 `down_7d` / `never_14d` / `never_30d` |
-| 2026-10-21 | 2.0 | 提交即通过：删掉 `partner.received` / `partner.verified` / `partner.hold` / `partner.rejected` / `internal.application_verified`；`partner.approved` 改为提交时唯一的结果信；档位改为 `free` / `paid`；模板版本 2.0.0 |
-| 2026-10-23 | 2.1 | 委托发信改为默认开通：`partner.approved` 与 `partner.handoff` 不再把发信凭据写成「另行确认」；模板版本 2.1.0 |
+| 2026-10-20 | 1.0 | first version: 11 partner mails + 3 internal mails; `Reply-To` fixed to `no-reply@xknot.si`; material-request and rejection become entry codes |
+| 2026-10-20 | 1.1 | landed: template registry, `notify_log` dedup, verify/case/claim three pages, state machine, admin commands and tests; rate limiting adjusted to 12/30/200; case link becomes the opaque `caseKey` |
+| 2026-10-20 | 1.2 | application only by subdomain; added `partner.unreachable_24h` and `partner.hidden_7d` (13 partner mails + 3 internal mails); removed the ownership-verification entry codes and text; internal alerts add `down_7d` / `never_14d` / `never_30d` |
+| 2026-10-21 | 2.0 | submission is approval: removed `partner.received` / `partner.verified` / `partner.hold` / `partner.rejected` / `internal.application_verified`; `partner.approved` becomes the only result mail at submission; tiers become `free` / `paid`; template version 2.0.0 |
+| 2026-10-23 | 2.1 | relay becomes default-on: `partner.approved` and `partner.handoff` no longer write the relay credential as "confirmed separately"; template version 2.1.0 |

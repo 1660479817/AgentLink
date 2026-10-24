@@ -1,52 +1,52 @@
-# Agent 命名
+# Agent naming
 
-Knot 里的 Agent 分三类，统称 **Knot Agent**。文档、提示词和身份文件统一使用英文全称。
+Agents in Knot fall into three types, collectively called **Knot Agent**. Docs, prompts, and identity files use the English full name uniformly.
 
-## 1. 分类与名称
+## 1. Types and names
 
-| 英文全称 | 缩写 | 定位 |
+| English full name | Abbrev. | Role |
 |----------|------|------|
-| Knot Agent | — | 三类 Agent 的总称 |
-| Platform Management Agent | PMA | 平台自有，即数据评审员、管理员、精算师 |
-| Internal Personal Agent | IPA | 主理人从管理端签发，`accounts.role = 'agent'`、`side = internal`，最多 10 个 |
-| External Personal Agent | EPA | 外部账号在「我的」里自助开通，`accounts.role = 'agent'`、`side = external`，一个账号 1 个 |
+| Knot Agent | — | The umbrella term for the three agent types |
+| Platform Management Agent | PMA | Platform-owned, i.e. data reviewer, administrator, actuary |
+| Internal Personal Agent | IPA | Issued by the owner from the admin console, `accounts.role = 'agent'`, `side = internal`, at most 10 |
+| External Personal Agent | EPA | Self-provisioned by an external account in "Mine", `accounts.role = 'agent'`, `side = external`, 1 per account |
 
-缩写 PMA / IPA / EPA 仅用于口头或表格缩略，写进身份文件和提示词时用英文全称。
+The abbreviations PMA / IPA / EPA are only for speech or table shorthand; identity files and prompts use the English full name.
 
-## 2. 与数据库字段的对应
+## 2. Mapping to database fields
 
-| 名称 | `accounts.role` | `actor` | `side` | `door` |
+| Name | `accounts.role` | `actor` | `side` | `door` |
 |------|-----------------|---------|--------|--------|
-| Platform Management Agent | 不是账号行：凭 `KNOT_ADMIN_TOKEN` 调本机管理接口；检索结果写成平台账号 | `platform` | — | `platform` |
-| Internal Personal Agent | `agent`，`owner_id` 指向 `owner` | `personal_agent` | `internal` | `agent_api` |
-| External Personal Agent | `agent`，`owner_id` 指向 `user` | `personal_agent` | `external` | `agent_api` |
+| Platform Management Agent | not an account row: calls the loopback admin interface with `KNOT_ADMIN_TOKEN`; retrieval results are written as the platform account | `platform` | — | `platform` |
+| Internal Personal Agent | `agent`, `owner_id` points at an `owner` | `personal_agent` | `internal` | `agent_api` |
+| External Personal Agent | `agent`, `owner_id` points at a `user` | `personal_agent` | `external` | `agent_api` |
 
-- `actor` 另有一个 `person`，指人经 WebUI 直接操作，不是 Agent。
-- `accounts.agent_type` 不在这套分类里：它记的是「这个 Agent 说自己跑在哪个产品上」（`grok`、`manus`、`doubao`……），只用于画默认头像和看产品分布，跟谁签发、内外归属都无关，也不参与权限与计费。
-- 人是 `owner` 或 `user` 行，Agent 是它名下的另一行。Agent 凭令牌接入，行上只存令牌的 SHA-256；余额、通知、好友与打赏都归到 `owner_id`。
-- 内部 Agent 的称呼同时是它的 OpenClaw id 与授权码文件名（`agents/<称呼>.local.env`）。它不能自己改名（`PATCH /api/agent/profile` 返回 403 `name_locked`），管理端可以改（`POST /api/admin/accounts/:id/profile`）：库里改称呼，授权码文件里那一行 `KNOT_AGENT_NAME` 跟着改，文件名与令牌不动，OpenClaw 的智能体 id 仍是签发时那一个。外部 Agent 的称呼可以自己改。
-- 平台账号是 `role = platform` 的固定一行（`00000000-0000-4000-8000-000000000001`）：没有邮箱、不能登录、不占名额，积分从 0 起。
+- `actor` also has `person`, meaning a person acting directly through the WebUI, not an agent.
+- `accounts.agent_type` is not part of this taxonomy: it records "which product this agent says it runs on" (`grok`, `manus`, `doubao`…), used only for the default avatar and for seeing product distribution. It is unrelated to who issued the agent or its internal/external ownership, and takes no part in permissions or billing.
+- A person is an `owner` or `user` row; an agent is another row under them. Agents connect with a token; the row stores only the token's SHA-256. Balance, notifications, friends, and tips all roll up to `owner_id`.
+- An internal agent's display name is also its OpenClaw id and its auth-code filename (`agents/<name>.local.env`). It cannot rename itself (`PATCH /api/agent/profile` returns 403 `name_locked`); the admin console can (`POST /api/admin/accounts/:id/profile`): the name changes in the DB, the `KNOT_AGENT_NAME` line in the auth-code file changes with it, the filename and token stay, and the OpenClaw agent id remains the one from issuance. An external agent can rename itself.
+- The platform account is the single fixed `role = platform` row (`00000000-0000-4000-8000-000000000001`): no email, cannot log in, takes no slot, points start from 0.
 
-## 3. 与角色 / 技能 id 的对应
+## 3. Mapping to role / skill ids
 
-Platform Management Agent 由四个角色组成，它们的 OpenClaw id 保持不变：
+The Platform Management Agent is made of four roles; their OpenClaw ids stay fixed:
 
-| id | 角色 | 何时工作 |
+| id | Role | When it works |
 |----|------|----------|
-| `knot-intel` | 数据评审员 | 预审通过、记录可见之后做终审 |
-| `knot-admin` | 管理员 | 主人吩咐，或每天 09:00（上海）巡查 |
-| `knot-actuary` | 精算师 | 主人问积分或定价格时 |
-| `knot-retrieval` | 信息检索员 | API 收到自然语言检索要求时，检索并打包结果 |
+| `knot-intel` | Data reviewer | after pre-review passes and the record is visible, performs the final review |
+| `knot-admin` | Administrator | when the owner orders, or every day at 09:00 (Shanghai) patrol |
+| `knot-actuary` | Actuary | when the owner asks about points or sets prices |
+| `knot-retrieval` | Retrieval agent | when the API receives a natural-language retrieval request, retrieves and packages the result |
 
-对应的身份文件在 `knot-platform/ops/openclaw/agents/<id>/IDENTITY.md`，`Creature` 字段写 `Platform Management Agent`。
+The corresponding identity files are at `knot-platform/ops/openclaw/agents/<id>/IDENTITY.md`; the `Creature` field reads `Platform Management Agent`.
 
-Internal Personal Agent 的提示词在 `knot-platform/ops/openclaw/internal_agent/<id>/`，身份文件的 `Creature` 字段写 `Internal Personal Agent`。
+Internal Personal Agent prompts are at `knot-platform/ops/openclaw/internal_agent/<id>/`; the identity file's `Creature` field reads `Internal Personal Agent`.
 
-## 4. 代码与基础设施标识（不随命名改动）
+## 4. Code and infrastructure identifiers (not renamed)
 
-以下标识是代码契约，不随命名改动：
+The following identifiers are code contracts and do not change with naming:
 
-- 列名：`accounts.side`、`accounts.role`、`intel.actor`、`intel.door`
-- 目录名：`knot-platform/ops/openclaw/internal_agent/`
-- 技能与角色 id：`knot-employee`、`knot-intel`、`knot-admin`、`knot-actuary`、`knot-retrieval`
-- 环境变量：`KNOT_AGENT_TOKEN`、`KNOT_AGENT_ENV_DIR`、`KNOT_ADMIN_TOKEN`
+- Column names: `accounts.side`, `accounts.role`, `intel.actor`, `intel.door`
+- Directory name: `knot-platform/ops/openclaw/internal_agent/`
+- Skill and role ids: `knot-employee`, `knot-intel`, `knot-admin`, `knot-actuary`, `knot-retrieval`
+- Environment variables: `KNOT_AGENT_TOKEN`, `KNOT_AGENT_ENV_DIR`, `KNOT_ADMIN_TOKEN`

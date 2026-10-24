@@ -16,6 +16,7 @@ import {
   issueInternalAgent,
   listAccountRoster,
   listPosts,
+  listReviewFailures,
   muteUser,
   patrolQueue,
   recordPatrol,
@@ -242,6 +243,46 @@ test("a patrol report cannot point its window at nothing", async () => {
   const pool = poolWithClient(async () => ({ rows: [] }));
   await assert.rejects(() => recordPatrol(pool, "未发现。", "not-a-uuid"), (error) => error.code === "bad_args");
   await assert.rejects(() => recordPatrol(pool, "未发现。", POST_ID), (error) => error.code === "not_found");
+});
+
+test("review failures list pending records with their error code and attempts", async () => {
+  const pool = {
+    async query(sql) {
+      assert.match(sql, /verdict = 'pending'/);
+      assert.match(sql, /reviewError/);
+      return {
+        rows: [
+          {
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            body: "一条卡住的帖子",
+            detail: { reviewError: "agent_timeout", reviewAttempts: 10 },
+            created_at: new Date("2026-10-24T00:00:00Z"),
+            account_id: USER_ID,
+            email: "a@example.com",
+            display_name: "甲",
+          },
+          {
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            body: "另一条还在重试",
+            detail: { reviewError: "agent_bad_json", reviewAttempts: 2 },
+            created_at: new Date("2026-10-23T00:00:00Z"),
+            account_id: USER_ID,
+            email: "a@example.com",
+            display_name: "甲",
+          },
+        ],
+      };
+    },
+  };
+  const failures = await listReviewFailures(pool);
+  assert.equal(failures.length, 2);
+  assert.equal(failures[0].error, "agent_timeout");
+  assert.equal(failures[0].attempts, 10);
+  assert.equal(failures[0].gaveUp, true);
+  assert.equal(failures[1].error, "agent_bad_json");
+  assert.equal(failures[1].attempts, 2);
+  assert.equal(failures[1].gaveUp, false);
+  assert.equal(failures[0].user.displayName, "甲");
 });
 
 test("grant adds the amount once and tells the person", async () => {
@@ -1137,30 +1178,38 @@ test("issuing needs an owner, an unused name, and a directory for the code", asy
 // 授权码的读写只走主理人名下的内部 Agent：行里有 owner_role，便于区分外部 Agent。
 const OLD_TOKEN_HASH = createHash("sha256").update("tok-old").digest("hex");
 
-function tokenPool({ ownerRole = "owner", rows = null, updateFails = false, updateMissing = false, tokenHash } = {}) {
+function tokenPool({ ownerRole = "owner", rows = null, updateFails = false, updateMissing = false, tokenHash, auditFails = false } = {}) {
   const calls = [];
+  const run = (sql, params) => {
+    calls.push({ sql, params });
+    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return Promise.resolve({ rows: [] });
+    if (sql.includes("o.role AS owner_role")) {
+      const found = rows || [
+        {
+          id: USER_ID,
+          display_name: "豆包",
+          owner_id: OWNER_ID,
+          owner_role: ownerRole,
+          token_hash: tokenHash === undefined ? OLD_TOKEN_HASH : tokenHash,
+        },
+      ];
+      return Promise.resolve({ rows: found, rowCount: found.length });
+    }
+    if (sql.includes("UPDATE accounts SET token_hash")) {
+      if (updateFails) return Promise.reject(new Error("db down"));
+      if (updateMissing) return Promise.resolve({ rows: [], rowCount: 0 });
+      return Promise.resolve({ rows: [{ id: USER_ID }], rowCount: 1 });
+    }
+    if (sql.includes("admin_actions")) {
+      if (auditFails) return Promise.reject(new Error("audit down"));
+      return Promise.resolve({ rows: [], rowCount: 1 });
+    }
+    return Promise.reject(new Error(`unexpected ${sql}`));
+  };
   const pool = {
-    async query(sql, params) {
-      calls.push({ sql, params });
-      if (sql.includes("o.role AS owner_role")) {
-        const found = rows || [
-          {
-            id: USER_ID,
-            display_name: "豆包",
-            owner_id: OWNER_ID,
-            owner_role: ownerRole,
-            token_hash: tokenHash === undefined ? OLD_TOKEN_HASH : tokenHash,
-          },
-        ];
-        return { rows: found, rowCount: found.length };
-      }
-      if (sql.includes("UPDATE accounts SET token_hash")) {
-        if (updateFails) throw new Error("db down");
-        if (updateMissing) return { rows: [], rowCount: 0 };
-        return { rows: [{ id: USER_ID }], rowCount: 1 };
-      }
-      if (sql.includes("admin_actions")) return { rows: [], rowCount: 1 };
-      throw new Error(`unexpected ${sql}`);
+    query: run,
+    async connect() {
+      return { query: run, release() {} };
     },
   };
   return { pool, calls };
@@ -1292,6 +1341,16 @@ test("a token written just as the agent is retired is removed again", async () =
     (error) => error.code === "not_found"
   );
   assert.deepEqual(await readdir(dir), []);
+});
+
+test("a failed audit write puts the old code back instead of half-rotating", async () => {
+  const { dir, file } = await authFileDir("tok-old");
+  await assert.rejects(
+    rotateManagedAgentToken(tokenPool({ auditFails: true }).pool, USER_ID, { envDir: dir }),
+    (error) => error.code === "env_failed"
+  );
+  const text = await readFile(file, "utf8");
+  assert.equal(text.includes("KNOT_AGENT_TOKEN=tok-old"), true);
 });
 
 test("the admin token doors read and reissue through the auth file", async () => {
@@ -1796,6 +1855,52 @@ test("the admin door reads the client behind the local proxy, not the proxy itse
   assert.equal(adminDoorAddress({ ip: "127.0.0.1" }), "");
 });
 
+// 内网门要真的长在路由中间件上，而不是只有纯函数层被测过：删掉那两行判断
+// 现有用例仍会全绿。这里把 req.socket 换成可控对象，模拟公网与未配令牌两种路径（S13-02）。
+test("the admin router turns the public away with 404 and unconfigured token with 503", async () => {
+  // 公网地址：即使带着正确令牌，也要被挡在 404，等于这扇门不存在。
+  const publicApp = express();
+  publicApp.use(express.json());
+  publicApp.use((req, _res, next) => {
+    Object.defineProperty(req, "socket", {
+      value: { remoteAddress: "203.0.113.19" },
+      configurable: true,
+    });
+    next();
+  });
+  publicApp.use("/api/admin", adminRouter({ pool: { query: async () => ({ rows: [] }) }, token: "secret" }));
+  const publicServer = await listen(publicApp);
+  try {
+    const denied = await fetch(`http://127.0.0.1:${publicServer.address().port}/api/admin/patrol`, {
+      headers: { Authorization: "Bearer secret" },
+    });
+    assert.equal(denied.status, 404);
+    assert.deepEqual(await denied.json(), { error: "not_found" });
+  } finally {
+    publicServer.close();
+  }
+
+  // 内网地址但没有配令牌：不是 401，而是明确告诉管理员「门还没装」。
+  const bareApp = express();
+  bareApp.use(express.json());
+  bareApp.use((req, _res, next) => {
+    Object.defineProperty(req, "socket", {
+      value: { remoteAddress: "192.168.1.10" },
+      configurable: true,
+    });
+    next();
+  });
+  bareApp.use("/api/admin", adminRouter({ pool: { query: async () => ({ rows: [] }) }, token: "" }));
+  const bareServer = await listen(bareApp);
+  try {
+    const unconfigured = await fetch(`http://127.0.0.1:${bareServer.address().port}/api/admin/patrol`);
+    assert.equal(unconfigured.status, 503);
+    assert.deepEqual(await unconfigured.json(), { error: "admin_unconfigured" });
+  } finally {
+    bareServer.close();
+  }
+});
+
 // 路由接线也要有用例：函数层通过不等于端点接对了（S13-03）。
 test("the mute door records the deadline and the audit row", async () => {
   const { pool, calls } = accountPool(PERSON, (sql) => {
@@ -1860,4 +1965,212 @@ test("the remove door passes the reason through and writes one audit row", async
   } finally {
     server.close();
   }
+});
+
+// 权限最敏感的处置端点（解禁、改权益、改等级、警告）与两个读端点、一个只读身份门，
+// 之前只有函数层用例，路由接线一步从未被验证过（S13-03）。这里统一补上 HTTP 级覆盖。
+async function withAdminRoute(pool, fn) {
+  const app = express();
+  app.use(express.json());
+  app.use("/api/admin", adminRouter({ pool, token: "secret" }));
+  const server = await listen(app);
+  const base = `http://127.0.0.1:${server.address().port}/api/admin`;
+  const post = (path, body) =>
+    fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const get = (path) => fetch(`${base}${path}`, { headers: { Authorization: "Bearer secret" } });
+  try {
+    return await fn({ post, get });
+  } finally {
+    server.close();
+  }
+}
+
+test("the unmute door clears the deadline and records one audit row", async () => {
+  const muted = { ...PERSON, muted_until: new Date("9999-12-31T00:00:00.000Z") };
+  const { pool, calls } = accountPool(muted, (sql) => {
+    if (sql.includes("FOR UPDATE")) return { rows: [muted] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ ...PERSON, muted_until: null }] };
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  await withAdminRoute(pool, async ({ post }) => {
+    const response = await post("/unmute", { user: "a@example.com", body: "可以了。" });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.already, false);
+    assert.equal(body.user.muted, false);
+    assert.ok(calls.find((call) => call.sql.includes("INSERT INTO admin_actions")));
+  });
+});
+
+test("the entitlements door grants by name and rejects an empty change", async () => {
+  const held = { ...PERSON, entitlements: { honors: ["早期用户"] } };
+  const { pool } = accountPool(held, (sql) => {
+    if (sql.includes("FOR UPDATE")) return { rows: [held] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ ...held, entitlements: { honors: ["早期用户", "审稿"] } }] };
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  await withAdminRoute(pool, async ({ post }) => {
+    const ok = await post("/entitlements", { user: "a@example.com", grant: ["审稿"], revoke: [], body: "感谢长期供稿。" });
+    assert.equal(ok.status, 200);
+    assert.deepEqual((await ok.json()).granted, ["审稿"]);
+
+    const empty = await post("/entitlements", { user: "a@example.com", grant: [], revoke: [], body: "空。" });
+    assert.equal(empty.status, 400);
+    assert.deepEqual(await empty.json(), { error: "bad_entitlement" });
+  });
+});
+
+test("the level door changes the level once and rejects an out-of-range level", async () => {
+  const { pool } = accountPool(PERSON, (sql) => {
+    if (sql.includes("FOR UPDATE")) return { rows: [PERSON] };
+    if (sql.includes("UPDATE accounts")) return { rows: [{ ...PERSON, level: 3 }] };
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  await withAdminRoute(pool, async ({ post }) => {
+    const ok = await post("/level", { user: "a@example.com", level: 3, body: "供稿稳定。" });
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).user.level, 3);
+
+    const bad = await post("/level", { user: "a@example.com", level: 101, body: "原因" });
+    assert.equal(bad.status, 400);
+    assert.deepEqual(await bad.json(), { error: "bad_level" });
+  });
+});
+
+test("the warning door records one row and refuses an ambiguous name", async () => {
+  const { pool, calls } = accountPool(PERSON, (sql) => {
+    if (sql.includes("notifications")) return { rows: [{ id: "n1" }] };
+    return { rows: [] };
+  });
+  await withAdminRoute(pool, async ({ post }) => {
+    const ok = await post("/warnings", { user: "a@example.com", body: "请停止骚扰。" });
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).ok, true);
+    assert.ok(calls.find((call) => call.sql.includes("INSERT INTO admin_actions")));
+  });
+
+  const ambiguous = {
+    async query(sql) {
+      if (sql.includes("FROM accounts")) return { rows: [{ id: USER_ID }, { id: POST_ID }] };
+      return { rows: [] };
+    },
+  };
+  await withAdminRoute(ambiguous, async ({ post }) => {
+    const response = await post("/warnings", { user: "甲", body: "请停止骚扰。" });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, "ambiguous");
+  });
+});
+
+test("the users and accounts doors list what they manage", async () => {
+  const rosterPool = {
+    async query(sql) {
+      // searchUsers 用 LIMIT 20，listAccountRoster 用 ORDER BY CASE role：两条 SQL 分开喂。
+      if (sql.includes("LIMIT 20")) return { rows: [PERSON] };
+      if (sql.includes("FROM accounts")) {
+        return { rows: [rosterRow({ id: PLATFORM_ID, role: "platform", display_name: "Knot" })] };
+      }
+      return { rows: [] };
+    },
+  };
+  await withAdminRoute(rosterPool, async ({ get }) => {
+    const users = await get("/users?q=甲");
+    assert.equal(users.status, 200);
+    assert.equal((await users.json()).users.length, 1);
+
+    const accounts = await get("/accounts");
+    assert.equal(accounts.status, 200);
+    assert.equal((await accounts.json()).accounts.length, 1);
+  });
+});
+
+test("the account profile door refuses to write an external account", async () => {
+  const pool = {
+    async query(sql) {
+      if (sql.includes("FROM accounts")) return { rows: [{ role: "user" }] };
+      return { rows: [] };
+    },
+  };
+  await withAdminRoute(pool, async ({ post }) => {
+    const response = await post(`/accounts/${USER_ID}/profile`, { displayName: "冒名" });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: "not_editable" });
+  });
+});
+
+test("the disable door turns an invite off and writes one audit row", async () => {
+  const INVITE_ID = "44444444-3333-4333-8333-333333333333";
+  const inviteRow = {
+    id: INVITE_ID,
+    code: "PARTY2026",
+    note: "首批",
+    max_uses: 2,
+    used_count: 1,
+    expires_at: null,
+    disabled_at: new Date("2026-10-20T00:00:00Z"),
+    created_at: new Date("2026-10-19T00:00:00Z"),
+  };
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
+      if (sql.includes("UPDATE invite_codes")) return { rows: [inviteRow] };
+      if (sql.includes("INSERT INTO admin_actions")) return { rows: [] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const pool = { async connect() { return client; } };
+  await withAdminRoute(pool, async ({ post }) => {
+    const response = await post(`/invites/${INVITE_ID}/disable`, {});
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.invite.usable, false);
+    assert.ok(calls.find((call) => call.sql.includes("INSERT INTO admin_actions")));
+  });
+});
+
+test("the mute, unmute and remove doors refuse a bad deadline, a missing user and a missing post", async () => {
+  // 期限不合法在查库之前就拦下，pool 不会被碰到。
+  const closed = { async query() { throw new Error("should not look up"); } };
+  await withAdminRoute(closed, async ({ post }) => {
+    const badUntil = await post("/mute", { user: "a@example.com", until: "半年", body: "原因" });
+    assert.equal(badUntil.status, 400);
+    assert.deepEqual(await badUntil.json(), { error: "bad_until" });
+  });
+
+  const noUser = { async query(sql) { if (sql.includes("FROM accounts")) return { rows: [] }; return { rows: [] }; } };
+  await withAdminRoute(noUser, async ({ post }) => {
+    const missing = await post("/unmute", { user: "nobody@example.com", body: "可以了。" });
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: "not_found" });
+  });
+
+  const noPost = {
+    async connect() {
+      return {
+        async query(sql) {
+          if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
+          if (sql.includes("UPDATE intel")) return { rows: [] };
+          if (sql.includes("SELECT id FROM intel")) return { rows: [] };
+          return { rows: [] };
+        },
+        release() {},
+      };
+    },
+  };
+  await withAdminRoute(noPost, async ({ post }) => {
+    const missing = await post(`/posts/${POST_ID}/remove`, { reason: "重复发布" });
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: "not_found" });
+  });
 });

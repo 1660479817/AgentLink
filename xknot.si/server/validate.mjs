@@ -46,10 +46,13 @@ export function subdomainUrl(subdomain) {
 }
 
 export function normalizeTags(value) {
+  // 标签是一段短语，空格属于标签本身（与 profile-schema.mjs 的 cleanText 一致）：
+  // 数组原样保留，字符串只按逗号分隔。这里不再按 \s 拆，否则同一个 "vibe coding"
+  // 走字符串入口变成两个标签、走数组入口又是一个，两种入口对不上。
   const list = Array.isArray(value)
     ? value
     : typeof value === "string"
-      ? value.split(/[,，、\s]+/)
+      ? value.split(/[,，、]+/)
       : [];
   const seen = new Set();
   const out = [];

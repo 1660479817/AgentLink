@@ -1,143 +1,129 @@
-# xknot.si 子域入口
+# xknot.si subdomain entry
 
-本目录属于**实例侧**部署，只服务一种公网形态：**xknot.si 签发的二级子域**（`<标签>.xknot.si`）。
+This directory belongs to the **instance side** of deployment and serves one public shape only: the **sub-subdomain issued by xknot.si** (`<label>.xknot.si`).
 
-一份入口 = 一个子域：
+One entry = one subdomain:
 
 ```text
-sites/<站点>/site.env                实例身份、入口主机、隧道
-sites/<站点>/entry.<标签>.xknot.si.env  这个子域的静态根、conf、证书、投放方式
+sites/<site>/site.env                instance identity, entry host, tunnel
+sites/<site>/entry.<label>.xknot.si.env  this subdomain's static root, conf, cert, serve mode
 ```
 
-仓库里不带任何具体域名的 conf：入口由站点配置渲染，域名与证书属于持有那个实例的人。
-自建域名、固定公网 IP 直连、内网直接对外，都不在官方部署范围内；需要时由用户自行改造。
+The repo carries no domain-specific conf: the entry is rendered from site config, and the domain and cert belong to whoever holds that instance.
+Self-built domains, a fixed public IP direct connection, and direct intranet exposure are all outside the official deployment scope; customize yourself when needed.
 
-**这里只放模板，不放某个已签发子域的成品 conf。** 中枢替伙伴装的那一份（写死域名的 conf 与
-接通 runbook）在中枢仓库的 [`xknot.si/ops/entry/`](../../../xknot.si/ops/entry/)。判断方法：换个
-实例还能用 → 本目录；写死了某个子域 → 那边。
+**This directory holds templates only, not the finished conf of an already-issued subdomain.** The one the hub installs for partners (domain-hardcoded conf and the
+join runbook) lives in the hub repo's [`xknot.si/ops/entry/`](../../../xknot.si/ops/entry/). How to judge: reusable on another instance → this directory; hardcoded to a subdomain → over there.
 
-## 三处各存什么
+## What lives in each of the three places
 
-一个节点跨三台逻辑位置：读者的浏览器、新加坡入口主机、实例主机。入口主机上的静态文件与
-图片缓存都是**副本**，Postgres 与上传原件只有实例机那一份；联邦中枢只记网址，不同步内容。
+A node spans three logical locations: the reader's browser, the Singapore entry host, and the instance host. The static files and image cache on the entry host are all **copies**; Postgres and the original uploads exist only on the instance machine; the federation hub records only the URL, not the content.
 
-![节点部署与数据位置](../../docs/knot-node-topology.svg)
+![Node deployment and data locations](../../docs/knot-node-topology.svg)
 
-**两个入口，一条回源。** 人的浏览器取 `/`、`/assets/`、`/discover.json`，这些在入口磁盘上；
-人的 Agent 只调 `/api/agent/*`（`Authorization: Bearer <token>`），入口没有它的副本，每次都是
-一次跨境往返。两者共用同一条隧道、同一台 Backend、同一份图片缓存，区别只在于 Agent 拿不到
-公开快照——它没有「先画一屏」这一步可以省。
+**Two entries, one back-origin.** A person's browser fetches `/`, `/assets/`, `/discover.json`, all on the entry disk; a person's Agent only calls `/api/agent/*` (`Authorization: Bearer <token>`), the entry has no copy of it, every call is a cross-border round trip. Both share the same tunnel, the same Backend, and the same image cache; the only difference is that the Agent can't get the public snapshot — it has no "draw a first screen" step to save.
 
-| 入口 | 拿什么 | 走不走隧道 |
+| Entry | Fetches what | Goes through the tunnel |
 |------|--------|------------|
-| 浏览器 | 页面、`/discover.json`、`/assets/` | 不走，入口磁盘 |
-| 浏览器 | `/api/web/*` | 走（`/api/web/home` 一次带回会话与个人状态） |
-| 浏览器 / Agent | `/api/web/uploads/…` | 第一次走，之后命中缓存 |
-| Agent | `/api/agent/*` | 每次都走 |
+| Browser | pages, `/discover.json`, `/assets/` | no, entry disk |
+| Browser | `/api/web/*` | yes (`/api/web/home` brings back session and personal state at once) |
+| Browser / Agent | `/api/web/uploads/…` | first time yes, then cache hits |
+| Agent | `/api/agent/*` | every time |
 
-`/api/agent` 不在入口的 404 名单里（那是 `/api/admin` 与 `/admin`），可以公开到达；它只认令牌，
-不认网页会话，所以不会因为入口这台机器没有数据库就少一层校验——校验发生在实例机上。
+`/api/agent` is not on the entry's 404 list (that's `/api/admin` and `/admin`), so it's publicly reachable; it only trusts tokens, not web sessions, so the fact that the entry machine has no database doesn't drop a validation layer — validation happens on the instance machine.
 
-同一个子域的目录、回源端口、缓存区互不相干，装第二个节点时不会覆盖第一个。
+Directories, back-origin ports, and cache zones are independent per subdomain; installing a second node doesn't overwrite the first.
 
-## 本目录文件
+## Files in this directory
 
-| 路径 | 用途 |
+| Path | Purpose |
 |------|------|
-| `site.conf.template` | 一个 xknot.si 子域入口的 nginx 配置（由 `site.env` 叠加入口文件渲染） |
-| `log.conf.template` | 入口访问日志格式 `knot_json`，同一台入口主机只声明一次 |
-| `cache.conf.template` | 入口上传缓存区，同一台入口主机只声明一次 |
-| `sshd-tunnel.conf.template` | 入口隧道账号的 sshd Match 块（变量化） |
-| `sshd-knot-tunnel.conf` | 说明文件：为什么不给成品、按子域怎么渲染（不要照抄） |
-| `realip.conf` | 入口在 Cloudflare 后面时还原真实客户端地址（`set_real_ip_from` + `real_ip_header`） |
+| `site.conf.template` | the nginx config for one xknot.si subdomain entry (rendered by overlaying the entry file onto `site.env`) |
+| `log.conf.template` | the entry access-log format `knot_json`, declared once per entry host |
+| `cache.conf.template` | the entry upload cache zone, declared once per entry host |
+| `sshd-tunnel.conf.template` | the sshd Match block for the entry tunnel account (variable-ized) |
+| `sshd-knot-tunnel.conf` | an explainer: why no finished file, how to render per subdomain (don't copy verbatim) |
+| `realip.conf` | restores the real client address when the entry sits behind Cloudflare (`set_real_ip_from` + `real_ip_header`) |
 
-子域的签发、交接与验收属于联邦中枢，不在本目录：[`xknot.si/docs/HANDOFF.md`](../../../xknot.si/docs/HANDOFF.md)。
+Issuing, handing off, and accepting a subdomain belong to the federation hub, not this directory: [`xknot.si/docs/HANDOFF.md`](../../../xknot.si/docs/HANDOFF.md).
 
-## 配置
+## Configuration
 
 ```bash
-# sites/<站点>/site.env —— 实例级
+# sites/<site>/site.env — instance level
 KNOT_ENTRY_ENABLED=1
-KNOT_ENTRY_SSH=ec2-user@<入口主机>
-KNOT_PUBLIC_ORIGIN=https://<标签>.xknot.si
-KNOT_DOMAIN=<标签>.xknot.si
+KNOT_ENTRY_SSH=ec2-user@<entry host>
+KNOT_PUBLIC_ORIGIN=https://<label>.xknot.si
+KNOT_DOMAIN=<label>.xknot.si
 KNOT_TUNNEL=1
-KNOT_TUNNEL_SSH=knot-tunnel-<id>@<入口主机>
+KNOT_TUNNEL_SSH=knot-tunnel-<id>@<entry host>
 KNOT_TUNNEL_KEY=$HOME/.ssh/knot-entry
 KNOT_ENTRY_PROXY_PORT=18080
 ```
 
 ```bash
-# sites/<站点>/entry.<标签>.xknot.si.env —— 这个子域一份
-KNOT_DOMAIN=<标签>.xknot.si
+# sites/<site>/entry.<label>.xknot.si.env — one per subdomain
+KNOT_DOMAIN=<label>.xknot.si
 KNOT_ENTRY_WEB_ROOT=/var/www/<id>
-KNOT_ENTRY_CONF=/etc/nginx/conf.d/<标签>.xknot.si.conf
-KNOT_ENTRY_SERVE=static        # 或 proxy
+KNOT_ENTRY_CONF=/etc/nginx/conf.d/<label>.xknot.si.conf
+KNOT_ENTRY_SERVE=static        # or proxy
 ```
 
-入口文件是**叠加层**：只写与 `site.env` 不同的项，其余沿用。文件名必须等于里面的
-`KNOT_DOMAIN`，域名必须是 `xknot.si` 签发的二级子域；`config.mjs check` 会拦住。
+The entry file is an **overlay**: only write the items that differ from `site.env`, inherit the rest. The filename must equal the `KNOT_DOMAIN` inside, and the domain must be an xknot.si-issued sub-subdomain; `config.mjs check` blocks otherwise.
 
-`KNOT_ENTRY_WEB_ROOT` 与 `KNOT_ENTRY_CONF` 是例外：必须每个入口写开。同一台入口主机
-上的两个子域共用 `/var/www/knot` 或 `conf.d/knot.conf` 时，后推的 `rsync --delete`
-会清掉前一个的静态根、`cp` 会换掉它的配置。`push-entry.sh` 因此拒绝空值、相对路径，
-以及这两个共用缺省值。
+`KNOT_ENTRY_WEB_ROOT` and `KNOT_ENTRY_CONF` are the exception: each entry must write them out. When two subdomains on the same entry host share `/var/www/knot` or `conf.d/knot.conf`, a later `rsync --delete` clears the earlier one's static root and `cp` replaces its config. `push-entry.sh` therefore rejects empty values, relative paths, and sharing those two defaults.
 
-## 投放方式：`static` 还是 `proxy`
+## Serve mode: `static` or `proxy`
 
-两种都由同一个模板渲染，只差 `KNOT_ENTRY_SERVE`：
+Both are rendered by the same template, differing only in `KNOT_ENTRY_SERVE`:
 
-| | 首页与 `/assets/` 从哪来 | 什么时候用 |
+| | Where the home page and `/assets/` come from | When to use |
 |---|---|---|
-| `static` | 入口主机上的磁盘 `KNOT_ENTRY_WEB_ROOT` | 长期。静态直出，首屏不穿隧道 |
-| `proxy` | 隧道回 `127.0.0.1:<回源端口>` 的 Backend | 发布包还没推入口主机时，页面与接口不错版本 |
+| `static` | the entry host's disk `KNOT_ENTRY_WEB_ROOT` | long-term. Static direct-serve, first screen doesn't cross the tunnel |
+| `proxy` | the Backend tunneled back to `127.0.0.1:<back-origin port>` | when the release package hasn't reached the entry host yet, so pages and APIs don't version-drift |
 
-`proxy` 的好处是页面与接口永远来自同一次构建，代价是每个静态文件都要穿一次隧道。
-`/api/admin` 与 `/admin` 的 404、`/api/web/uploads/` 的缓存、ACME 目录在两种投放里一致，
-只有「首页与静态资源从哪来」不同。
+`proxy`'s benefit is pages and APIs always from the same build; its cost is every static file crossing the tunnel. The 404 for `/api/admin` and `/admin`, the `/api/web/uploads/` cache, and the ACME directory are the same in both modes; only "where the home page and static assets come from" differs.
 
-## 访问日志
+## Access log
 
-两种投放都写 `/var/log/nginx/knot-access.log`，格式 `knot_json`（`log.conf.template`）。目的是让中枢能按 `$host` 分出每个子域的流量，见 `xknot.si/docs/HUB.md` 第 11 节。
+Both modes write `/var/log/nginx/knot-access.log`, format `knot_json` (`log.conf.template`). The goal is to let the hub split each subdomain's traffic by `$host`, see `xknot.si/docs/HUB.md` §11.
 
-- `log_format` 只能声明一次，所以单独一份 `knot-log.conf`，由 `push-entry.sh` 装到 conf 同目录；**不要**写进 `site.conf.template`，否则装第二个子域时 `nginx -t` 会因为重复定义失败。
-- 只记 `$uri`，不记查询串：分享令牌与搜索词不该进日志。
-- 文件用默认的 `/etc/logrotate.d/nginx` 轮转（匹配 `*.log`）；名字带 `knot-` 是为了不和别的项目混在一起。
-- 中枢的流量聚合服务要读这份文件；日志是 `0640 root:adm` 时，把该服务用户加进 `adm` 组。
+- `log_format` can only be declared once, so it's a separate `knot-log.conf`, installed by `push-entry.sh` into the conf directory; **do not** write it into `site.conf.template`, or installing a second subdomain fails `nginx -t` on the duplicate definition.
+- Only `$uri`, no query string: share tokens and search terms shouldn't enter the log.
+- The file rotates with the default `/etc/logrotate.d/nginx` (matches `*.log`); the `knot-` prefix keeps it from mixing with other projects.
+- The hub's traffic aggregation service reads this file; when the log is `0640 root:adm`, add that service's user to the `adm` group.
 
-## 真实客户端地址
+## Real client address
 
-入口在 Cloudflare 后面，`$remote_addr` 默认是 CF 边缘地址，直接写进 `X-Real-IP` 与 `X-Forwarded-For` 的话，后端按 IP 的限流、封禁与审计只剩「一个 CF 网段」。
+When the entry sits behind Cloudflare, `$remote_addr` is by default the CF edge address; writing it straight into `X-Real-IP` and `X-Forwarded-For` leaves the backend's per-IP rate limiting, bans, and audit with nothing but "one CF range".
 
-- `realip.conf` 声明 `real_ip_header CF-Connecting-IP` 与 CF 自己的网段，`push-entry.sh` 装成 conf 同目录的 `knot-realip.conf`，和 `site.conf` 一起过 `nginx -t`。
-- 只信任 CF 网段：从别处送来的 `CF-Connecting-IP` 不采信，伪造这个头改不了 `$remote_addr`。
-- 声明在 http 级、一台入口主机一份；**不要**写进 `site.conf.template`，每个子域各写一份只会互相盖掉。
-- 网段抄自 <https://www.cloudflare.com/ips-v4> 与 `/ips-v6`；漏了新段只是新段客户端仍显示边缘地址，不会让配置失效。
+- `realip.conf` declares `real_ip_header CF-Connecting-IP` and CF's own ranges; `push-entry.sh` installs it as `knot-realip.conf` in the conf directory, passing `nginx -t` together with `site.conf`.
+- Trust only CF ranges: `CF-Connecting-IP` sent from elsewhere isn't trusted, forging this header can't change `$remote_addr`.
+- Declared at the http level, one per entry host; **do not** write into `site.conf.template`, each subdomain writing its own would only overwrite each other.
+- The ranges are copied from <https://www.cloudflare.com/ips-v4> and `/ips-v6`; missing a new range only means new-range clients still show the edge address, not that the config breaks.
 
-## 入口首页不是构建产物
+## The entry home page is not a build artifact
 
-`web/dist/index.html` 是 SPA 空壳：`<title>Knot</title>`，`#app` 里什么都没有。直接推上去，
-搜索收录、社交平台预览、不执行 JS 的抓取都拿不到一个字。
+`web/dist/index.html` is an SPA shell: `<title>Knot</title>`, nothing in `#app`. Pushed straight up, search indexing, social-platform previews, and non-JS crawlers get not a word.
 
-`static` 投放时 `push-entry.sh` 会在 rsync 之后调 `ops/scripts/entry-html.mjs`，用
-`sites/<站点>/profile.json` 生成三份文件，再送到入口主机：
+In `static` mode, `push-entry.sh` calls `ops/scripts/entry-html.mjs` after rsync, generating three files from `sites/<site>/profile.json`, then ships them to the entry host:
 
-| 文件 | 内容 |
+| File | Contents |
 |------|------|
-| `index.html` | `title`、`description`、canonical、Open Graph、Twitter Card、JSON-LD、`<noscript>` 简介；`#app` 与构建产物里的资源引用原样保留 |
-| `robots.txt` | 放行页面，挡住 `/api/` 与 `/admin`，指向 sitemap |
-| `sitemap.xml` | 只列 `/` 与 `/discover` 两个真实静态页 |
+| `index.html` | `title`, `description`, canonical, Open Graph, Twitter Card, JSON-LD, `<noscript>` intro; `#app` and the asset references from the build output kept verbatim |
+| `robots.txt` | allows pages, blocks `/api/` and `/admin`, points at the sitemap |
+| `sitemap.xml` | only lists the two real static pages `/` and `/discover` |
 
-- 站点名、介绍、logo 改了以后，重推一次入口即可，不用重新构建。
-- 档案里 `locale` 决定 `lang`；旧档案没有这一项时按文案里有没有中日韩字符推一次（迁移脚本写进去以后就不再推）。
-- `proxy` 投放不做这一步：页面由回源的 Backend 发，改入口磁盘上的文件没有用。
-- 生成的文件和 `web/dist` 一起进 `/var/www/<id>`；`/discover.json` 与 `/media/` 仍由 `push-discover.sh` 单独推，互不覆盖。
+- After the site name, intro, or logo changes, re-push the entry once, no rebuild needed.
+- The profile's `locale` decides `lang`; old profiles without this field infer once by whether the copy contains CJK characters (the migration script writes it in, so no re-inference after).
+- `proxy` mode doesn't do this step: pages come from the origin-fetching Backend, changing files on the entry disk is useless.
+- The generated files go into `/var/www/<id>` together with `web/dist`; `/discover.json` and `/media/` are still pushed separately by `push-discover.sh`, never overwriting each other.
 
-## 落地（入口主机）
+## Landing (entry host)
 
-1. **隧道账号**：建系统用户 `knot-tunnel-<id>`，只允许密钥登录；`authorized_keys` 只放实例侧公钥。私钥不进仓库。一个子域一个账号、一个端口。
+1. **Tunnel account**: create the system user `knot-tunnel-<id>`, key-only login; `authorized_keys` holds only the instance side's public key. The private key stays out of the repo. One account and one port per subdomain.
 
-2. **sshd**：渲染 [`sshd-tunnel.conf.template`](./sshd-tunnel.conf.template) 后放进 `/etc/ssh/sshd_config.d/`（主配置需已有 `Include /etc/ssh/sshd_config.d/*.conf`）：
+2. **sshd**: render [`sshd-tunnel.conf.template`](./sshd-tunnel.conf.template) then drop into `/etc/ssh/sshd_config.d/` (the main config must already have `Include /etc/ssh/sshd_config.d/*.conf`):
 
    ```bash
    KNOT_TUNNEL_USER=knot-tunnel-<id> KNOT_ENTRY_PROXY_PORT=18080 \
@@ -146,120 +132,120 @@ KNOT_ENTRY_SERVE=static        # 或 proxy
    sudo sshd -t && sudo systemctl reload sshd
    ```
 
-   确认 `Match User knot-tunnel-<id>` 生效，且 `PermitListen` 只有 `127.0.0.1:<回源端口>`。
+   Confirm `Match User knot-tunnel-<id>` takes effect and `PermitListen` only has `127.0.0.1:<back-origin port>`.
 
-3. **静态根**：`sudo mkdir -p /var/www/<id>`，可先放占位 `index.html`。
+3. **Static root**: `sudo mkdir -p /var/www/<id>`, optionally place a placeholder `index.html`.
 
-4. **证书**：先只启用 `:80` + `/.well-known/acme-challenge/`（webroot 指向静态根），签完再上 443。
-
-   ```bash
-   sudo certbot certonly --webroot -w /var/www/<id> -d <标签>.xknot.si
-   ```
-
-5. **nginx**：`push-entry.sh` 从模板渲染并装上，不需要手写。手工验证时：
+4. **Certificate**: first enable only `:80` + `/.well-known/acme-challenge/` (webroot pointing at the static root), then bring up 443 after signing.
 
    ```bash
-   ./ops/scripts/push-entry.sh --site <站点> --no-build
+   sudo certbot certonly --webroot -w /var/www/<id> -d <label>.xknot.si
    ```
 
-6. **回归**：入口主机可能同时托管多个项目，`nginx -t` 通过后再 reload，确认同机其它 `server_name` 仍正常。
+5. **nginx**: `push-entry.sh` renders and installs from the template, no handwriting. For manual verification:
 
-## 隧道（实例主机）
+   ```bash
+   ./ops/scripts/push-entry.sh --site <site> --no-build
+   ```
 
-实例主动连出，把入口的回环端口转到本机 Backend：
+6. **Regression**: the entry host may host several projects at once; reload only after `nginx -t` passes, and confirm the other `server_name`s on the same machine still work.
+
+## Tunnel (instance host)
+
+The instance dials out, forwarding the entry's loopback port to the local Backend:
 
 ```bash
 ./ops/scripts/run-entry-tunnel.sh
 ```
 
-也就是一条常驻的：
+That is, one resident:
 
 ```bash
 ssh -N -i ~/.ssh/knot-entry \
   -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-  -R 127.0.0.1:<回源端口>:127.0.0.1:8080 \
-  knot-tunnel-<id>@<入口主机>
+  -R 127.0.0.1:<back-origin port>:127.0.0.1:8080 \
+  knot-tunnel-<id>@<entry host>
 ```
 
-macOS 用 [`../launchd/com.knot.entry-tunnel.plist`](../launchd/com.knot.entry-tunnel.plist) 常驻；其它系统用 systemd 等等价方式。关键是断线自动重连。
+macOS keeps it resident with [`../launchd/com.knot.entry-tunnel.plist`](../launchd/com.knot.entry-tunnel.plist); other systems use systemd or equivalent. The key is auto-reconnect on drop.
 
-### 别让系统级 VPN 接走这条隧道
+### Don't let a system-level VPN take over this tunnel
 
-隧道由实例机主动连出，走实例机自己的出口。实例机上如果开了 Cloudflare WARP（或别的全局 TUN），到入口主机的 TCP 会被它接管：握手从两百毫秒掉到一秒以上，SSH 会话还会被 reset，LaunchAgent 反复重启，表现出来就是 `/api/*` 一会儿两秒、一会儿 502。入口主机 `sshd` 里隧道来源变成 `104.28.x.x` 这类 Cloudflare 出口就是它。
+The tunnel dials out from the instance, over the instance's own egress. If Cloudflare WARP (or another global TUN) is on the instance, TCP to the entry host gets taken over: the handshake drops from two hundred milliseconds to over a second, the SSH session gets reset, the LaunchAgent restarts repeatedly, and it shows as `/api/*` two seconds one moment and 502 the next. On the entry host's `sshd`, the tunnel source becoming a Cloudflare egress like `104.28.x.x` is the tell.
 
-排查：
+Diagnose:
 
 ```bash
-# 实例机：去入口主机应该走物理网卡，不是 utun*
-route get <入口主机 IP>
+# Instance: the path to the entry host should go over the physical NIC, not utun*
+route get <entry host IP>
 
-# 入口主机：来源应是实例机的公网 IP
+# Entry host: the source should be the instance's public IP
 sudo journalctl -u sshd --since "-10 min" | grep "Accepted.*knot-tunnel"
 ```
 
-**正解是把入口主机 IP 排进 WARP 的分流**，让它从一开始就不进隧道：
+**The right fix is to add the entry host IP to WARP's split tunnel**, so it never enters the tunnel in the first place:
 
 ```bash
-warp-cli tunnel ip add <入口主机 IP>      # 写进本机 WARP 配置，重启后仍在
-warp-cli tunnel ip list | grep <入口主机 IP>
+warp-cli tunnel ip add <entry host IP>      # written into the local WARP config, survives restart
+warp-cli tunnel ip list | grep <entry host IP>
 ```
 
-排进分流之后，`~/.ssh/config` **不要再绑 `BindInterface`**。两个一起用会出另一种症状：TCP 连得上、`nc` 也能读到 `SSH-2.0-OpenSSH_…` 的 banner，但密钥交换那几个大包过不去，`ssh` 一直挂着不报错。这时候 launchd 以为隧道还活着，`/api` 不是快速失败重连，而是整段 502：
+After adding it to the split, **don't also bind `BindInterface`** in `~/.ssh/config`. Using both produces another symptom: TCP connects, `nc` can read the `SSH-2.0-OpenSSH_…` banner, but the key-exchange packets can't get through, and `ssh` hangs without error. Then launchd thinks the tunnel is alive, and `/api` doesn't fail-fast-and-reconnect but 502s wholesale:
 
 ```bash
-# 症状：banner 有，ssh 挂着
-nc -w 6 <入口主机 IP> 22 < /dev/null | head -1
-ssh -vv -i <隧道私钥> -o ConnectTimeout=8 <隧道账号>@<入口主机 IP> echo ok
+# Symptom: banner there, ssh hanging
+nc -w 6 <entry host IP> 22 < /dev/null | head -1
+ssh -vv -i <tunnel private key> -o ConnectTimeout=8 <tunnel account>@<entry host IP> echo ok
 
-# 只留超时设置，去掉 BindInterface
-Host <入口主机 IP>
+# Keep only the timeout, drop BindInterface
+Host <entry host IP>
     ServerAliveInterval 30
     ServerAliveCountMax 3
 ```
 
-`run-entry-tunnel.sh` 里带 `-o ConnectTimeout=15`：万一握手又卡住，它会自己退出来让 launchd 重连，不会一直占着不放。
+`run-entry-tunnel.sh` carries `-o ConnectTimeout=15`: should the handshake hang again, it exits on its own and lets launchd reconnect, not holding the slot forever.
 
-### 回源要复用连接
+### Reuse connections on back-origin
 
-`ssh -R` 每新建一条 TCP 都要多一次跨洋往返（开 channel + 连后端），入口 nginx 默认每个请求都新建一条，一个 `/api` 请求就是两次往返。模板里的 `upstream knot_entry_<端口>` 配了 `keepalive`，同一秒内的连续请求走同一条连接，实测 0.8s 降到 0.22s。
+`ssh -R` costs one more cross-ocean round trip per new TCP (open channel + connect backend); the entry nginx by default opens a new one per request, so one `/api` request is two round trips. The template's `upstream knot_entry_<port>` sets `keepalive`, consecutive requests within the same second share one connection, measured from 0.8s down to 0.22s.
 
-`keepalive_timeout` 故意压在 Node 的 `keepAliveTimeout`（默认 5s）之下：空闲超过它就先由 nginx 丢掉连接，不会正好撞上 Backend 关空闲连接的那一刻。所以停一会儿再点，第一个请求会慢一拍（重新建 channel），后面的又快回来。
+`keepalive_timeout` is deliberately pushed under Node's `keepAliveTimeout` (default 5s): idle past it, nginx drops the connection first, never colliding with the exact moment the Backend closes its idle connection. So pausing then clicking makes the first request slow a beat (re-establishing the channel), the rest fast again.
 
-## 验收
+## Acceptance
 
 ```bash
-# 入口主机上应看到回源端口被隧道账号占用
-ss -lntp | grep <回源端口>
+# On the entry host, the back-origin port should be held by the tunnel account
+ss -lntp | grep <back-origin port>
 
-# 公网
-curl -sI https://<标签>.xknot.si/
-curl -s https://<标签>.xknot.si/api/health
+# Public
+curl -sI https://<label>.xknot.si/
+curl -s https://<label>.xknot.si/api/health
 
-# 首页 HTML 里应当有站点名与介绍，不是只有 <title>Knot</title>
-curl -s https://<标签>.xknot.si/ | grep -E '<title>|og:description|<noscript>'
-curl -s https://<标签>.xknot.si/robots.txt
-curl -s https://<标签>.xknot.si/sitemap.xml
+# The home HTML should carry the site name and intro, not just <title>Knot</title>
+curl -s https://<label>.xknot.si/ | grep -E '<title>|og:description|<noscript>'
+curl -s https://<label>.xknot.si/robots.txt
+curl -s https://<label>.xknot.si/sitemap.xml
 
-# 模板已经开了 gzip 与 HTTP/2，这两条要能对上
-curl -s --http2 -o /dev/null -w '%{http_version}\n' https://<标签>.xknot.si/
+# The template already enables gzip and HTTP/2, these two must match
+curl -s --http2 -o /dev/null -w '%{http_version}\n' https://<label>.xknot.si/
 curl -s --http2 -H 'Accept-Encoding: gzip' -o /dev/null -D - \
-  https://<标签>.xknot.si/assets/<首页引用的 js> | grep -i content-encoding
+  https://<label>.xknot.si/assets/<home-referenced js> | grep -i content-encoding
 ```
 
-`/` 在 `static` 投放时应返回静态页；`/api/*` 在隧道未连时返回 502。
+`/` should return the static page in `static` mode; `/api/*` returns 502 when the tunnel is down.
 
-`discover.json` 是 `try_files` 先看磁盘再看隧道，所以入口磁盘上不能留旧快照——留一份就永远不回落。
-`push-discover.sh` 会推这一份。
+`discover.json` is `try_files` disk-first then tunnel, so the entry disk can't keep an old snapshot — keep one and it never falls back.
+`push-discover.sh` pushes this one copy.
 
-**页面与接口来自同一次构建**才算验收通过——只看 `/api/health` 会漏掉「接口新、页面旧」：
+**Pages and APIs from the same build** is what counts as acceptance passing — looking only at `/api/health` misses "API new, pages old":
 
 ```bash
-./ops/scripts/speed-check.sh https://<标签>.xknot.si/ https://<标签>.xknot.si/api/health
-# 再对照首页引用的 assets/index-*.js 与 /api/health 的 release
+./ops/scripts/speed-check.sh https://<label>.xknot.si/ https://<label>.xknot.si/api/health
+# then compare the home-referenced assets/index-*.js against /api/health's release
 ```
 
-## 安全
+## Security
 
-- 入口对 `/api/admin` 和 `/admin` 直接 404，不穿隧道。
-- `PermitOpen none`、`PermitTTY no`、`ForceCommand sleep infinity`：隧道账号不能开 shell，也不能正向转发。
-- 密钥、口令、PEM 只留在各机 `~/.ssh/` 与私有环境，不写进文档与版本库。
+- The entry 404s `/api/admin` and `/admin` directly, not tunneled through.
+- `PermitOpen none`, `PermitTTY no`, `ForceCommand sleep infinity`: the tunnel account can't open a shell or do forward forwarding.
+- Keys, passwords, and PEMs stay only in each machine's `~/.ssh/` and private environments, never in docs or the repo.

@@ -1867,8 +1867,8 @@
     "slice": "S10",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "可见性口径已统一；附件口径（HAS_ATTACHMENT 等）语义不同，未合并"
+      "status": "fixed",
+      "note": "可见性判据已收成 visibleVerdict(SQL)+verdictVisible(JS) 一份，retrieval/preview/discoverBoard/market/facets 都用它；verdict NOT IN 旧写法已清除。附件口径（HAS_ATTACHMENT/isDownloadableFile/kindOf/isAttachmentUpload）语义不同（SQL 过滤 vs 可下载性 vs 压缩包分类 vs 计费），非重复实现，不该合并"
     }
   },
   {
@@ -1899,8 +1899,8 @@
     "slice": "S10",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "补了 points/requests/market 用例；下载打包与计费的端到端用例仍缺"
+      "status": "fixed",
+      "note": "下载计费补了 chargeDownload 用例：买家一次扣款+作者/平台入账按钱包排序、重复下载只记一次账、同钱包自付免费；market.test.js 39 条全绿"
     }
   },
   {
@@ -2427,8 +2427,8 @@
     "slice": "S13",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "路由有内外网门；测试只覆盖纯函数与 127.0.0.1，删掉那两行门判断不会红"
+      "status": "fixed",
+      "note": "补了两条路由级用例：公网地址带对令牌仍 404 not_found，内网地址未配令牌 503 admin_unconfigured（用 Object.defineProperty 覆写 req.socket.remoteAddress）"
     }
   },
   {
@@ -2443,8 +2443,8 @@
     "slice": "S13",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "/api/admin 约三十条端点仍无 HTTP 级覆盖"
+      "status": "fixed",
+      "note": "补齐路由级用例：/unmute、/entitlements（含 bad_entitlement）、/level（含 bad_level）、/warnings（含 ambiguous）、/users、/accounts、/accounts/:id/profile（403 not_editable）、/invites/:id/disable，以及 mute/unmute/remove 三条拒绝路径"
     }
   },
   {
@@ -2459,8 +2459,8 @@
     "slice": "S13",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "删帖与警告已入事务；令牌换发要先落授权码文件，只能是补偿路径"
+      "status": "fixed",
+      "note": "删帖/警告已入事务；重签令牌改为 withClient 内 UPDATE+审计原子，补了审计写失败退回旧码的用例；签发内部 Agent 的授权码文件在库写入与审计之间，只能补偿路径（写文件失败已测：新建删行/复起退回停用）"
     }
   },
   {
@@ -2667,8 +2667,8 @@
     "slice": "S14",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "上传响应的附件 url 已置 null；帖子附件视图仍拼 /api/web/uploads/:id，取回 404"
+      "status": "fixed",
+      "note": "后端附件 url 已置 null（uploadStore.js 返回 attachment ? null : publicUploadUrl），文档 KNOT_WEB_API.md 已写明附件 url 为 null、走 download；前端视图不再拼 /api/web/uploads/:id，下载统一走 POST /api/web/intel/:id/download"
     }
   },
   {
@@ -3883,8 +3883,8 @@
     "slice": "S19",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "超安全整数已挡；TTL、宽限天数类键仍无 max，能推出 Invalid Date"
+      "status": "fixed",
+      "note": "int/port/bytes 校验已加 Number.isSafeInteger；日期运算类键补齐 max：KNOT_SALE_TTL_HOURS 8760、KNOT_COUPON_TTL_DAYS 365、KNOT_GC_GRACE_HOURS 8760、KNOT_SEARCH_EVENT_RETENTION_DAYS 36500。schema.test 增加 max 上限用例"
     }
   },
   {
@@ -4443,8 +4443,8 @@
     "slice": "S22",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "死规则删掉大部分；`.information-preview`、`.demand-reply` 仍有 9 个选择器"
+      "status": "fixed",
+      "note": "styles.css 里 .information-preview（6 处）与 .demand-reply（2 处）、.information-card .information-preview（1 处）共 9 个死选择器全部删除；全仓无 information-preview/demand-reply 残留"
     }
   },
   {
@@ -6459,8 +6459,8 @@
     "slice": "S30",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "写入顺序已统一；第二份写失败时未回滚第一份"
+      "status": "fixed",
+      "note": "admin-cli publish 与 publish.mjs 都在清单写失败时回滚名册（写回原值）；publishInstance 注入 write 便于测试，publish.test.mjs 新增「清单写失败回滚名册」用例"
     }
   },
   {
@@ -6587,8 +6587,8 @@
     "slice": "S30",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "清单解析失败改为 fail-closed，但没有可注入路径，只做静态核对"
+      "status": "fixed",
+      "note": "清单解析失败改为 fail-closed（清空缓存返回空名单）后，把读取逻辑抽成 server/instances.mjs 的 readInstancesCached({file,cache,onError})，可注入 file/cache；新增 instances.test.mjs 三条用例覆盖命中缓存、坏文件清空缓存、无 instances 数组"
     }
   },
   {
@@ -6907,8 +6907,8 @@
     "slice": "S32",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "标签长度已上限；字符串入参按空格拆分、数组入参不拆，两种入口不一致"
+      "status": "fixed",
+      "note": "normalizeTags 字符串入口不再按 \\s 拆分，只按逗号（,，、）分隔，与数组入口一致：空格属于标签本身，与 profile-schema.mjs 的 cleanText 对齐；标签长度超 16 由 validateApplication 报 too_long。app.test.mjs 更新并新增字符串/数组一致性用例"
     }
   },
   {
@@ -7227,8 +7227,8 @@
     "slice": "S33",
     "alsoReported": [],
     "handled": {
-      "status": "partial",
-      "note": "占位符已接 t()；`portal.title` 仍是只被测试引用的死键"
+      "status": "fixed",
+      "note": "JoinPanel.vue 与 join/portal 命名空间已整体移除，写死占位符与 portal.title 死键一并消失；全仓无 portal/codePlaceholder/JoinPanel 残留"
     }
   },
   {

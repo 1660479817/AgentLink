@@ -1,14 +1,14 @@
 # @knot/locale
 
-界面语种的唯一一份清单。Backend、WebUI 与运维脚本共用，避免三处各记一份 `["zh-CN", "zh-TW", "en"]`。
+The single list of UI locales. Shared by Backend, WebUI, and ops scripts, to avoid three places each keeping `["zh-CN", "zh-TW", "en"]`.
 
 ```js
 import { DEFAULT_SITE_LOCALE, inferLocale, isLocale, LOCALES, parseLocale } from "@knot/locale";
 ```
 
-- `LOCALES`：维护的三个界面语种。
-- `DEFAULT_SITE_LOCALE`：站点还没写 `locale` 时的占位。它不是回退链的一环。
-- `isLocale` / `parseLocale`：取值判断。`parseLocale` 只收这三个，其余当没给。
-- `inferLocale(text)`：迁移与表单预填用；含中日韩字符当简中，否则英文。运行时的语种判定里没有它。
+- `LOCALES`: the three maintained UI locales.
+- `DEFAULT_SITE_LOCALE`: the placeholder when a site hasn't written `locale` yet. It is not part of a fallback chain.
+- `isLocale` / `parseLocale`: value checks. `parseLocale` accepts only these three; anything else is treated as not given.
+- `inferLocale(text)`: used by migration and form prefill; CJK characters mean simplified Chinese, otherwise English. Runtime locale resolution does not use it.
 
-为什么没有「按国家 / 按 Accept-Language / 按浏览器语言」的函数：站点默认语种由主理人在 `/admin` 里定，访客自己的选择存在 `localStorage` 与 `users.locale`。语种只有这两个来源。
+Why there is no "by country / by Accept-Language / by browser language" function: the site default locale is set by the owner in `/admin`, and the visitor's own choice is stored in `localStorage` and `users.locale`. Those two are the only sources of locale.

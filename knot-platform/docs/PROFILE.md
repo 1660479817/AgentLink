@@ -1,22 +1,22 @@
-# 站点档案 · 签发区与自述区
+# Site profile · issued zone and self-description zone
 
-一份站点档案分成两块，写在两处，谁也不能替对方写：
+One site profile is split into two zones, written in two places, and neither may write for the other:
 
-| 区 | 写什么 | 存在哪 | 谁写 |
+| Zone | What it holds | Where it lives | Who writes it |
 |----|--------|--------|------|
-| **签发区** | `id`、`url`、`since`、`tier`、`status` | `sites/<站点>/xknot.env`（中枢签发的接入件） | 中枢 |
-| **自述区** | 名称、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签 | `sites/<站点>/profile.json` | 主理人，在 `/admin` 里编辑 |
+| **Issued zone** | `id`, `url`, `since`, `tier`, `status` | `sites/<site>/xknot.env` (the hub-issued onboarding file) | the hub |
+| **Self-description zone** | name, tagline, intro, logo, owner, contact, region, timezone, tags | `sites/<site>/profile.json` | the owner, edited in `/admin` |
 
-合起来就是 `GET /api/federation/profile` 返回的那一份，也是中枢取回去展示的输入。中枢侧怎么取、怎么缓存，见 [联邦契约](../../xknot.si/docs/FEDERATION.md)。
+Together they are what `GET /api/federation/profile` returns, and the input the hub fetches for display. How the hub fetches and caches it is in [the federation contract](../../xknot.si/docs/FEDERATION.md).
 
-![站点档案的两块](profile-sections.svg)
+![The two zones of a site profile](profile-sections.svg)
 
-## 1. 为什么分成两块
+## 1. Why two zones
 
-- **签发区**是中枢对外的承诺：这个 id 归谁、地址是什么、什么时候接入、验收状态。节点改它会和中枢清单对不上，所以只读。
-- **自述区**是主理人的表达：叫什么、怎么介绍自己、怎么联系。改它不需要任何人批准，也不该走邮件审批。名字换了、联系方式换了，主理人自己在 `/admin` 保存一次就生效，中枢下次取回时换掉。
+- The **issued zone** is the hub's commitment to the outside: which id belongs to whom, what the address is, when it joined, its acceptance status. A node changing it would mismatch the hub's roster, so it is read-only.
+- The **self-description zone** is the owner's expression: what it's called, how it introduces itself, how to be reached. Changing it needs no one's approval and should not go through email review. When the name or contact changes, the owner saves once in `/admin` and it takes effect; the hub swaps it in on the next fetch.
 
-## 2. 文件
+## 2. File
 
 ```json
 {
@@ -37,91 +37,91 @@
 }
 ```
 
-- 位置由部署脚本写进 `KNOT_PROFILE_FILE`：`<部署根>/sites/<站点>/profile.json`。没有这个值时不写档案，`/admin` 会说明。
-- 文件不存在不是错误：站点可以一直不填，本站用兜底文案，门户只显示 id。
-- 写入是整份替换：先校验，全过才落盘；任何一项不合格一个字节都不写。
+- The location is written into `KNOT_PROFILE_FILE` by the deploy script: `<deploy root>/sites/<site>/profile.json`. Without this value no profile is written, and `/admin` explains it.
+- A missing file is not an error: a site can stay unfilled forever, using fallback copy locally, while the portal shows only the id.
+- Writes replace the whole file: validate first, write only if everything passes; if any field fails, not a single byte is written.
 
-## 3. 字段
+## 3. Fields
 
-十项，全是扁平值，**没有多语种文案映射**：主理人填什么，本站就显示什么，中枢原样取回。文案用哪个语种由主理人自己决定，系统不折中、不翻译、不回落。唯一的语种字段是 `locale`：它不描述文案，描述**界面**——访客第一次打开时 WebUI 用什么语言。
+Ten fields, all flat values, **no multilingual copy mapping**: whatever the owner writes is what the site displays and what the hub fetches verbatim. The owner decides the language; the system does not compromise, translate, or fall back. The only locale field is `locale`: it describes not the copy but the **interface** — what language the WebUI uses on a visitor's first open.
 
-| 字段 | 类型 | 上限 | 必填 | 说明 |
+| Field | Type | Limit | Required | Notes |
 |------|------|------|------|------|
-| `name` | 字符串 | 40 | 是 | 站点名。顶栏、浏览器标题、门户卡片 |
-| `locale` | `zh-CN` / `zh-TW` / `en` | — | 是（`/admin` 强制） | 站点默认界面语言。访客自己选过语种就按他的选择，没选过时按这一项。也是向中枢申请时通信邮件用的语种 |
-| `tagline` | 字符串 | 60 | 否 | 一句话介绍。未登录首页、门户卡片 |
-| `intro` | 字符串 | 800 | 否 | 详细介绍。点开站点介绍后展开 |
-| `logo` | https 地址 | 300 | 否 | 绝对地址；站内相对路径不接受 |
-| `owner` | 字符串 | 40 | 否 | 主理人的称呼 |
-| `contact` | 字符串 | 120 | 否 | 公开联系方式，邮箱或 https 地址 |
-| `region` | 两位国家码或 `GLOBAL` | 2 | 否 | 门户按它分区域；小写会被转成大写 |
-| `timezone` | IANA 名 | 40 | 否 | 如 `Asia/Shanghai`，认不出就拒 |
-| `tags` | 字符串数组 | 9 个，每个 16 | 否 | 自由文本，不翻译、不排序、忽略大小写去重 |
+| `name` | string | 40 | yes | Site name. Top bar, browser title, portal card |
+| `locale` | `zh-CN` / `zh-TW` / `en` | — | yes (enforced in `/admin`) | The site default UI language. A visitor's own choice wins when they've chosen one; otherwise this. Also the language of communication emails to the hub |
+| `tagline` | string | 60 | no | One-line intro. Logged-out home, portal card |
+| `intro` | string | 800 | no | Full intro, expanded after opening the site intro |
+| `logo` | https URL | 300 | no | Absolute address; in-site relative paths are not accepted |
+| `owner` | string | 40 | no | The owner's name |
+| `contact` | string | 120 | no | Public contact, email or https address |
+| `region` | two-letter country code or `GLOBAL` | 2 | no | The portal groups by it; lowercase is uppercased |
+| `timezone` | IANA name | 40 | no | e.g. `Asia/Shanghai`; unrecognized is rejected |
+| `tags` | string array | 9 items, 16 each | no | Free text, not translated, not sorted, deduped ignoring case |
 
-`region` 与 `timezone` 只在中枢门户上用：本站界面不显示地区，时区只用于门户卡片上的当地钟点。`region` 是**机器所在地**，不决定界面语言，也不决定文案语种。`tags` 同理，只出现在门户卡片与筛选里。
+`region` and `timezone` are used only on the hub portal: the local site does not show the region, and timezone is only for the local clock on the portal card. `region` is **where the machine is**; it does not decide the interface language or the copy language. `tags` likewise appear only on the portal card and in filtering.
 
-`locale` 在接口层是可选：旧档案还没有这一项时要能读、能取回，缺省按 `zh-CN`；`/admin` 每次保存都会带上它，所以新写的档案一定有。写错取值（`ja`、空串以外的东西）会让整份档案被拒。
+`locale` is optional at the interface layer: old profiles without it must still be readable and fetchable, defaulting to `zh-CN`; `/admin` always saves with it, so newly written profiles always have it. A wrong value (`ja`, or anything other than an empty string) rejects the whole profile.
 
-空的字符串不要写：要清掉一项就整键省略。不认识的键会被拒——旧版的 `shortName`、`operator`、`vertical`、`themeColor`、`languages`、`regions`、`social`、`termsUrl`、`privacyUrl`、`moderationUrl` 都已移除。
+Do not write empty strings: to clear a field, omit the whole key. Unknown keys are rejected — the old `shortName`, `operator`, `vertical`, `themeColor`, `languages`, `regions`, `social`, `termsUrl`, `privacyUrl`, `moderationUrl` have all been removed.
 
-## 4. 接口
+## 4. Interfaces
 
-| 方法 | 路径 | 谁用 | 说明 |
+| Method | Path | Who | Notes |
 |------|------|------|------|
-| GET | `/api/federation/profile` | 中枢、任何访客 | 公开、无需会话。返回 `{ formatVersion, issued, site, updatedAt }`；自述区原样在 `site` 里，与 `profile.json` 的 `site` 同构 |
-| GET | `/api/admin/profile` | `/admin` | 同一份数据，另带 `file`（路径）与 `problems`（逐条问题） |
-| PUT | `/api/admin/profile` | `/admin` | `{ site }` 整份替换；成功时回与 GET 相同的一份视图（含 `issued`），校验不过返回 400 `bad_profile` 和 `problems`；没有站点目录时返回 503 `profile_unconfigured` |
-| GET | `/api/admin/xknot/subdomain?label=` | `/admin` | 把标签转发到中枢的 `GET /api/subdomains/check`，返回 `available`、`reason` 与候选建议 |
-| POST | `/api/admin/xknot/apply` | `/admin` | 把自述与联系邮箱交给中枢的 `POST /api/applications`；中枢的状态码与 `fields` 原样带回。成功时另带 `key`：`{ delivered, created, error }`，说明顺手交上去的隧道公钥有没有被中枢收下 |
-| GET | `/api/admin/xknot/application` | `/admin` | 本地底账：已交申请的编号、案例链接、状态与提交时间；没有记录时 `application` 为 `null` |
+| GET | `/api/federation/profile` | hub, any visitor | Public, no session. Returns `{ formatVersion, issued, site, updatedAt }`; the self-description zone is verbatim inside `site`, same shape as `profile.json`'s `site` |
+| GET | `/api/admin/profile` | `/admin` | The same data, plus `file` (path) and `problems` (per-field) |
+| PUT | `/api/admin/profile` | `/admin` | `{ site }` full replace; on success returns the same view as GET (with `issued`); on validation failure returns 400 `bad_profile` and `problems`; with no site directory returns 503 `profile_unconfigured` |
+| GET | `/api/admin/xknot/subdomain?label=` | `/admin` | Forwards the label to the hub's `GET /api/subdomains/check`, returns `available`, `reason`, and suggestions |
+| POST | `/api/admin/xknot/apply` | `/admin` | Hands the self-description and contact email to the hub's `POST /api/applications`; the hub's status codes and `fields` come back verbatim. On success also `key`: `{ delivered, created, error }`, whether the tunnel public key handed over was accepted |
+| GET | `/api/admin/xknot/application` | `/admin` | Local ledger: the submitted application's number, case link, status, and time; `application` is `null` when there is no record |
 
-`POST /api/admin/xknot/apply` 成功后会把这四项写进与 `profile.json` 同级的 `join.json`（权限 `600`）。受理后同一个请求会生成（或复用）隧道密钥并把公钥交到案例页；这一步失败不回滚申请，响应里的 `key.delivered` 为 `false`，`key.error` 说明是生成失败还是中枢拒收。案例链接本身就是能力凭据，不进版本库、不进发布包；邮件只是同步通知，刷新页面后从「接入 XKnot」卡片还能打开进度。
+After `POST /api/admin/xknot/apply` succeeds, these four items are written into `join.json` next to `profile.json` (mode `600`). On acceptance, the same request generates (or reuses) a tunnel key and hands the public key to the case page; if this step fails it does not roll back the application — the response's `key.delivered` is `false` and `key.error` says whether generation failed or the hub rejected it. The case link is itself the capability credential; it never enters version control or the release package. Email is only a sync notification; after refreshing the page you can still open progress from the "Join XKnot" card.
 
-`/api/web/session` 里的 `defaultLocale` 是 `site.locale`，档案里没有这一项时为 `zh-CN`；`brand` 是 `site` 的子集（名称、一句话介绍、长介绍、logo、主理人、联系方式），本站 WebUI 只用这六项。
+`defaultLocale` in `/api/web/session` is `site.locale`, `zh-CN` when the profile lacks it; `brand` is a subset of `site` (name, tagline, intro, logo, owner, contact) — the local WebUI uses only these six.
 
-`/api/federation/profile` 只读，不接受写入：主理人改档案只在本机 `/admin` 里做，中枢没有收件接口。
+`/api/federation/profile` is read-only and accepts no writes: the owner changes the profile only in the local `/admin`; the hub has no intake endpoint.
 
-入口首页的 `title`、`description`、Open Graph 与 `<noscript>` 简介也来自这份档案，但它们是**推入口时生成的静态 HTML**，不是每次请求现算：改完档案要重推一次入口（`push-entry.sh`）才会换掉。生成规则见 [`ops/entry/README.md`](../ops/entry/README.md)。
+The entry home page's `title`, `description`, Open Graph, and `<noscript>` intro also come from this profile, but they are **static HTML generated when the entry is pushed**, not computed per request: after changing the profile, re-push the entry once (`push-entry.sh`) to swap them. Generation rules are in [`ops/entry/README.md`](../ops/entry/README.md).
 
-## 5. 在 /admin 里编辑
+## 5. Editing in /admin
 
-管理后台的 **XKnot** 栏分三块：
+The admin console's **XKnot** tab has three blocks:
 
-- **一 · 本站点怎么介绍自己**（可编辑）：十个字段，名称必填，其余可空；「默认语种」是下拉框，只有简中、繁中、英文三项。改完点「保存档案」。校验不过时逐条显示在表单下面，一个字节都不写。地区、时区、标签下面标了「只在 xknot.si 上显示」。
-- **二 · 接入 XKnot**（首次接入或信息更新时提交一次）：二级域名输入框带 `.xknot.si` 后缀与「检查」按钮，右侧是联系邮箱，最后是「提交申请」。检查不通时按钮不可点，并把原因写回输入框下面——不让人填完一整页才发现签不了。提交的内容就是上面那份自述，所以改完要先保存档案。已接入的站点再看这一块，它换成了「更新信息」。
-- **三 · 中枢签发了什么**（只读）：id、地址、接入日、档位、状态，来自接入件；末尾一行说明这份自述公开在 `/api/federation/profile`。
+- **1 · How this site introduces itself** (editable): ten fields, name required, the rest optional; "default locale" is a dropdown with only simplified Chinese, traditional Chinese, and English. Finish with "Save profile". Validation failures are shown one by one under the form, and not a single byte is written. Region, timezone, and tags are marked "shown only on xknot.si".
+- **2 · Join XKnot** (submitted once at first join, or on update): a subdomain input with the `.xknot.si` suffix and a "Check" button, the contact email on the right, and a "Submit application" button. When the check fails the button is disabled and the reason is written under the input — so no one fills a whole page before discovering the name can't be issued. The submitted content is the self-description above, so save the profile first. For an already-joined site this block becomes "Update info".
+- **3 · What the hub issued** (read-only): id, address, join date, tier, status, from the onboarding file; a final line says this self-description is public at `/api/federation/profile`.
 
-二级域名由本站点代为向中枢问一次，不自己判：`GET /api/admin/xknot/subdomain?label=` 转发到中枢的 `GET /api/subdomains/check`，原样带回 `available`、`reason` 与候选建议。少于 6 位的标签中枢不签——短号留着以后用，第一条规则就写在输入框下面，不让它成为提交后的意外。
+The subdomain is checked once via the hub, not judged locally: `GET /api/admin/xknot/subdomain?label=` forwards to the hub's `GET /api/subdomains/check`, bringing back `available`, `reason`, and suggestions verbatim. Labels under 6 characters are not issued by the hub — short names are reserved; the first rule is written under the input so it never becomes a post-submit surprise.
 
-`POST /api/admin/xknot/apply` 把自述与邮箱交给中枢的 `POST /api/applications`。中枢的 400（带 `fields`）与 409（同址重复）原样回到这一块，不做本地改写。第一次申请由人审核后开通；已是成员的，中枢直接回执成功。
+`POST /api/admin/xknot/apply` hands the self-description and email to the hub's `POST /api/applications`. The hub's 400 (with `fields`) and 409 (duplicate address) come back to this block verbatim, without local rewriting. The first application is opened after human review; for an existing member, the hub returns success immediately.
 
-排障信息（接入件路径与权限、委托发信、探测地址、状态信号、接入件与进程的漂移）收在页面最下面的折叠栏「接入与探测」里，默认收起，展开时才请求 `/api/admin/federation`。
+Troubleshooting info (onboarding file path and permissions, delegated mail, probe address, status signals, drift between the onboarding file and the process) is in a collapsed "Join and probe" section at the bottom of the page, closed by default, which requests `/api/admin/federation` only when expanded.
 
-## 6. 从旧配置迁移
+## 6. Migrating from old config
 
-0.4 之前，名称、标语、logo 和主理人写在 `site.env` 的六项 `KNOT_SITE_*` 里。迁移一次即可：
+Before 0.4, name, tagline, logo, and owner lived in six `KNOT_SITE_*` keys in `site.env`. Migrate once:
 
 ```bash
-node ops/scripts/migrate-profile.mjs --site bot01 --dry-run   # 先看会写什么
+node ops/scripts/migrate-profile.mjs --site bot01 --dry-run   # see what it will write first
 node ops/scripts/migrate-profile.mjs --site bot01
 ```
 
-脚本读旧的 `site.env`，生成 `profile.json`，再把那六项从 `site.env` 删掉。已经存在 v2 的 `profile.json` 时不写档案，但照样把那六项从 `site.env` 删掉。
+The script reads the old `site.env`, generates `profile.json`, then deletes those six keys from `site.env`. If a v2 `profile.json` already exists it does not write the profile, but still deletes those six keys from `site.env`.
 
-**v1 档案会被就地升级**：`profile.json` 还是 `formatVersion: 1` 时，脚本按简中 → 英文 → 繁中的顺序取一份文案，写成 v2 的扁平字段，再覆盖原文件。转不出来的（连名称都没有）才回落到 `site.env` 的旧值。
+**v1 profiles are upgraded in place**: when `profile.json` is still `formatVersion: 1`, the script picks one copy in simplified Chinese → English → traditional Chinese order, writes it into v2 flat fields, and overwrites the file. Only when nothing converts (not even a name) does it fall back to the old `site.env` values.
 
-**`locale` 由脚本补一次**：档案里没有这一项时，脚本按名称与介绍里有没有中日韩字符推断（有则 `zh-CN`，否则 `en`）写进去，`--dry-run` 会先打印要写的内容。推断只是迁移期的一次性动作；写进去以后就以档案为准，主理人随时可以在 `/admin` 改成实际的第一目标群体。已有这一项时脚本一个字节都不动。
+**`locale` is backfilled once by the script**: when the profile lacks it, the script infers from whether the name and intro contain CJK characters (`zh-CN` if yes, else `en`) and writes it; `--dry-run` prints what will be written first. The inference is a one-time migration action; once written, the profile is authoritative, and the owner can change it to the actual first target group in `/admin` anytime. When the field already exists, the script touches not a byte.
 
-部署脚本生成的 `platform.env`、叠加层的 `site.<变体>.env` 里也可能留着这几项，用 `--env` 各给一次：
+The `platform.env` generated by the deploy script and the overlay `site.<variant>.env` may still carry these keys; give each with `--env`:
 
 ```bash
 node ops/scripts/migrate-profile.mjs --site bot01 --env var/bot01/platform.env
 ```
 
-在实例主机上可以直接跑部署包里的那一份，站点目录会从 `KNOT_PROFILE_FILE` 推导出来，不用写绝对路径：
+On the instance host you can run the copy inside the release package directly; the site directory is derived from `KNOT_PROFILE_FILE`, no absolute path needed:
 
 ```bash
 node current/ops/scripts/migrate-profile.mjs --site bot01 --env sites/bot01/platform.env
 ```
 
-迁移后重启 Backend。
+Restart the Backend after migration.

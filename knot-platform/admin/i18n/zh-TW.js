@@ -39,6 +39,7 @@ export default {
   "nav.users": "使用者",
   "nav.site": "站點",
   "nav.xknot": "XKnot",
+  "nav.logs": "日誌",
 
   "overview.title": "總覽",
   "overview.lead": "平台發行、流通、留存，以及注意力打點。",
@@ -122,6 +123,20 @@ export default {
   "verdict.rejected": "已撤銷",
   "verdict.removed": "已刪除",
   "verdict.unknown": "未知",
+
+  "logs.title": "日誌",
+  "logs.lead": "終審沒有完成的記錄。作者不再收到這些通知，統一在這裡看。",
+  "logs.queue": "終審失敗",
+  "logs.queueHint": "評審員逾時、報錯或交回壞結果時，記錄停在待終審；重試到上限就不再自動重試。",
+  "logs.empty": "現在沒有終審失敗的記錄。",
+  "logs.count": "{count} 條",
+  "logs.attempts": "已嘗試 {count} 次",
+  "logs.gaveUp": "已停止重試",
+  "logs.review.agent_timeout": "評審員逾時",
+  "logs.review.agent_failed": "評審員沒有完成審核",
+  "logs.review.agent_bad_json": "評審員沒有交回可用結果",
+  "logs.review.agent_empty": "評審員沒有交回內容",
+  "logs.review.other": "審核沒有完成",
 
   "registration.open": "開放",
   "registration.invite": "需要邀請碼",

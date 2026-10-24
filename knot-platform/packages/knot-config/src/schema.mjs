@@ -39,19 +39,19 @@
 //   5. 跑测试。模板文件、文档、代码默认值任何一处漂移都会直接失败。
 
 export const GROUPS = [
-  { id: "site", label: "站点" },
-  { id: "platform", label: "实例主机" },
-  { id: "publish", label: "从开发机发布" },
-  { id: "entry", label: "公网入口" },
-  { id: "tunnel", label: "回源隧道" },
-  { id: "xknot", label: "XKnot 接入" },
-  { id: "mail", label: "邮件" },
-  { id: "economy", label: "经济" },
-  { id: "coupon", label: "消费券" },
-  { id: "storage", label: "存储" },
-  { id: "search", label: "检索" },
-  { id: "agent", label: "智能体" },
-  { id: "admin", label: "管理令牌" },
+  { id: "site", label: "Site" },
+  { id: "platform", label: "Instance host" },
+  { id: "publish", label: "Publish from the dev machine" },
+  { id: "entry", label: "Public entry" },
+  { id: "tunnel", label: "Back-origin tunnel" },
+  { id: "xknot", label: "XKnot federation" },
+  { id: "mail", label: "Mail" },
+  { id: "economy", label: "Economy" },
+  { id: "coupon", label: "Coupon" },
+  { id: "storage", label: "Storage" },
+  { id: "search", label: "Search" },
+  { id: "agent", label: "Agents" },
+  { id: "admin", label: "Admin token" },
 ];
 
 const MiB = 1024 * 1024;
@@ -113,7 +113,7 @@ const SITE_KEYS = [
     group: "site",
     type: "url",
     default: "http://127.0.0.1:8080",
-    desc: "对外访问地址。只在本机时写 http://127.0.0.1:<KNOT_PORT>；接 xknot.si 子域后写中枢签发的 https://<标签>.xknot.si。",
+    desc: "Public-facing address. Local only: write http://127.0.0.1:<KNOT_PORT>; after taking an xknot.si subdomain, write the hub-issued https://<label>.xknot.si.",
     example: "https://wang.xknot.si",
   },
   {
@@ -122,7 +122,7 @@ const SITE_KEYS = [
     type: "string",
     default: "",
     scope: ["dev", "entry"],
-    desc: "xknot.si 签发的二级子域，形如 <标签>.xknot.si。只在本机访问时留空；接子域时与入口文件名一致。",
+    desc: "The sub-subdomain issued by xknot.si, shaped <label>.xknot.si. Leave empty for local-only access; when taking a subdomain, match the entry filename.",
     example: "wang.xknot.si",
   },
   {
@@ -131,7 +131,7 @@ const SITE_KEYS = [
     group: "site",
     type: "url",
     default: "https://xknot.si",
-    desc: "第一次接入时把申请提交到哪个中枢。默认联邦入口 xknot.si；本机联调可以指向 dev 中枢。",
+    desc: "Which hub the first join submits the application to. Defaults to the federation entry xknot.si; local integration can point at a dev hub.",
     example: "https://xknot.si",
   },
   {
@@ -140,7 +140,7 @@ const SITE_KEYS = [
     group: "site",
     type: "port",
     default: 8080,
-    desc: "实例主机上 Backend 监听的端口。",
+    desc: "The port the Backend listens on, on the instance host.",
   },
   {
     key: "KNOT_BIND_HOST",
@@ -148,7 +148,7 @@ const SITE_KEYS = [
     group: "site",
     type: "string",
     default: "127.0.0.1",
-    desc: "Backend 绑定地址。本机与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。绑回环时「我的」页生成的管理后台链接一定以 127.0.0.1 开头，复制到别的设备上打不开；对外是域名却只绑回环时，部署脚本会提醒一次。",
+    desc: "The address the Backend binds. Local and entry back-origin both go only local, keep 127.0.0.1; to let machines on the same LAN open the admin console /admin, set it to 0.0.0.0. When bound to loopback, the admin console link generated on the \"Mine\" page always starts with 127.0.0.1 and won't open when copied to another device; the deploy script warns once when it's public-facing by domain yet loopback-bound.",
   },
   {
     key: "KNOT_SESSION_COOKIE_NAME",
@@ -156,7 +156,7 @@ const SITE_KEYS = [
     group: "site",
     type: "string",
     default: "knot_sid",
-    desc: "会话 Cookie 名。同一个域名下跑多个站点时要各不相同。",
+    desc: "The session cookie name. Must differ when several sites run under one domain.",
   },
   {
     key: "KNOT_ADMIN_EMAIL",
@@ -165,7 +165,7 @@ const SITE_KEYS = [
     type: "email",
     required: true,
     default: "",
-    desc: "站点管理员邮箱。必填；用这个邮箱登录后拥有平台管理权限，建议与投诉也寄到这里。",
+    desc: "The site admin email. Required; logging in with this email grants platform admin rights; suggestions and complaints also arrive here.",
     example: "admin@example.com",
   },
   {
@@ -176,7 +176,7 @@ const SITE_KEYS = [
     default: 30,
     min: 1,
     max: 365,
-    desc: "登录会话有效期（天）。Cookie 和 sessions.expires_at 用同一个值。",
+    desc: "Login session lifetime (days). The cookie and sessions.expires_at use the same value.",
   },
 
   // ---- 实例主机 ----
@@ -186,7 +186,7 @@ const SITE_KEYS = [
     type: "enum",
     values: ["local", "external"],
     default: "local",
-    desc: "local 用本机 Homebrew Postgres；external 用 KNOT_DATABASE_URL，不启动本机库。",
+    desc: "local uses the machine's Homebrew Postgres; external uses KNOT_DATABASE_URL and doesn't start a local database.",
   },
   {
     key: "KNOT_DATABASE_URL",
@@ -197,36 +197,36 @@ const SITE_KEYS = [
     // 写错协议或漏了主机时，进程照样起得来，第一条 SQL 才失败——那时已经分不清
     // 是库没起还是串写错了。所以连接串在这里就要求长得像个 postgres 地址。
     pattern: /^postgres(?:ql)?:\/\/[^\s]+$/,
-    desc: "KNOT_DB_MODE=external 时的连接串。可能含密码，按密钥对待。",
-    example: "postgres://knot:密码@db.example.com:5432/knot",
+    desc: "The connection string when KNOT_DB_MODE=external. May contain a password; treat as a secret.",
+    example: "postgres://knot:password@db.example.com:5432/knot",
   },
   {
     key: "KNOT_PGPORT",
     group: "platform",
     type: "port",
     default: 5433,
-    desc: "本机 Postgres 端口。和系统默认的 5432 错开。",
+    desc: "The local Postgres port, offset from the system default 5432.",
   },
   {
     key: "KNOT_PGDATA",
     group: "platform",
     type: "path",
     default: "$HOME/knot/pgdata",
-    desc: "本机 Postgres 数据目录。",
+    desc: "The local Postgres data directory.",
   },
   {
     key: "KNOT_PGLOG",
     group: "platform",
     type: "path",
     default: "$HOME/knot/pg.log",
-    desc: "本机 Postgres 日志文件。",
+    desc: "The local Postgres log file.",
   },
   {
     key: "KNOT_PG_BIN",
     group: "platform",
     type: "path",
     default: "/opt/homebrew/opt/postgresql@16/bin",
-    desc: "PostgreSQL 16 的 bin 目录。Apple Silicon Homebrew 是 /opt/homebrew，Intel 改成 /usr/local/opt/postgresql@16/bin。",
+    desc: "The bin directory of PostgreSQL 16. Apple Silicon Homebrew is /opt/homebrew; Intel changes it to /usr/local/opt/postgresql@16/bin.",
   },
   {
     key: "KNOT_UPLOAD_DIR",
@@ -237,7 +237,7 @@ const SITE_KEYS = [
     // 拿不到部署根时返回空，不要拼出一个 /var/uploads：那是个合法但几乎一定错的路径，
     // 调用方看不出它是猜的。
     derive: (env, ctx) => (ctx.deployRoot || ctx.root ? `${ctx.deployRoot || ctx.root}/var/uploads` : ""),
-    desc: "上传目录。留空用 <部署根目录>/var/uploads；放在发布包外，升级和回滚都不动它。",
+    desc: "The upload directory. Empty uses <deploy root>/var/uploads; put it outside the release package so upgrades and rollbacks never touch it.",
   },
   {
     key: "KNOT_BACKUP_DIR",
@@ -245,7 +245,7 @@ const SITE_KEYS = [
     group: "platform",
     type: "path",
     default: "",
-    desc: "备份目录。留空是还没决定（公网站点会提醒）；写 `null` 表示明确不备份，不再提醒；两者都不装备份任务。填目录后 deploy-site.sh 装每天 04:15 的备份任务（launchd 或 systemd timer）。",
+    desc: "The backup directory. Empty means undecided (public sites get reminded); write `null` to mean explicitly no backup, no more reminders; both leave the backup task uninstalled. Filling a directory makes deploy-site.sh install the daily 04:15 backup task (launchd or systemd timer).",
   },
   {
     key: "KNOT_BACKUP_KEEP",
@@ -255,7 +255,7 @@ const SITE_KEYS = [
     default: 7,
     min: 1,
     max: 3650,
-    desc: "保留最近几份备份。",
+    desc: "How many recent backups to keep.",
   },
   {
     key: "KNOT_BACKUP_SITES",
@@ -263,7 +263,7 @@ const SITE_KEYS = [
     group: "platform",
     type: "bool",
     default: 1,
-    desc: "1 表示备份也收 sites/<站点>/：platform.env（SMTP 密码、管理令牌）、agents/（智能体凭据）。只备份数据库的话，换台机器邮件登录和智能体就都没了。",
+    desc: "1 means the backup also collects sites/<site>/: platform.env (SMTP password, admin token), agents/ (agent credentials). Backing up only the database loses email login and agents when switching machines.",
   },
   {
     key: "KNOT_BACKUP_OPENCLAW",
@@ -272,7 +272,7 @@ const SITE_KEYS = [
     type: "enum",
     values: ["auto", "1", "0"],
     default: "auto",
-    desc: "OpenClaw 状态目录的备份。auto 表示 $HOME/.openclaw 存在就收；1 必须收；0 跳过。只收配置、凭据和 agent 工作区，不含 cache/browser/npm。",
+    desc: "Backing up the OpenClaw state directory. auto collects it when $HOME/.openclaw exists; 1 must collect; 0 skip. Only collects config, credentials, and agent workspaces, not cache/browser/npm.",
   },
   {
     key: "KNOT_OPENCLAW",
@@ -280,7 +280,7 @@ const SITE_KEYS = [
     type: "enum",
     values: ["auto", "1", "0"],
     default: "auto",
-    desc: "auto 表示装了 openclaw 才同步；1 必须同步；0 跳过。",
+    desc: "auto syncs only when openclaw is installed; 1 must sync; 0 skip.",
   },
 
   // ---- 从开发机发布 ----
@@ -290,8 +290,8 @@ const SITE_KEYS = [
     type: "string",
     default: "",
     scope: ["dev"],
-    desc: "实例主机的 ssh 目标，形如 user@host。留空表示目标就是这台机器，直接就地跑 deploy-site.sh。",
-    example: "deploy@<实例主机>",
+    desc: "The instance host's ssh target, shaped user@host. Empty means the target is this machine, run deploy-site.sh in place.",
+    example: "deploy@<instance-host>",
   },
   {
     key: "KNOT_DEPLOY_DIR",
@@ -302,7 +302,7 @@ const SITE_KEYS = [
     // 两个站点照模板复制就共用 releases/ current deployed.json，部署与回滚会串站。
     derive: (env, ctx) => (ctx.site ? `~/knot/${ctx.site}` : ""),
     scope: ["dev", "platform"],
-    desc: "实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。留空按站点名推导为 ~/knot/<站点>；一个部署根只放一个站点，不要和源码仓库或用另一站点的目录。",
+    desc: "The deploy root on the instance host. sites/, releases/, current, var/ all live here; code is under releases/<version>. Empty derives ~/knot/<site> from the site name; one deploy root holds only one site, don't share it with the source repo or another site's directory.",
   },
   {
     key: "KNOT_DEPLOY_SSH_KEY",
@@ -310,7 +310,7 @@ const SITE_KEYS = [
     type: "path",
     default: "",
     scope: ["dev"],
-    desc: "发布用的私钥。留空用 ssh 默认身份。",
+    desc: "The private key for publishing. Empty uses the ssh default identity.",
   },
   {
     key: "KNOT_DEPLOY_VERIFY_URL",
@@ -323,7 +323,7 @@ const SITE_KEYS = [
       const port = env.KNOT_PORT || 8080;
       return host ? `http://${host}:${port}/api/health` : "";
     },
-    desc: "部署后探活的地址。留空按 http://<实例主机>:<KNOT_PORT>/api/health 推导。",
+    desc: "The health-check address after deployment. Empty derives from http://<instance host>:<KNOT_PORT>/api/health.",
   },
   {
     key: "KNOT_DEPLOY_KEEP",
@@ -332,7 +332,7 @@ const SITE_KEYS = [
     default: 5,
     min: 1,
     max: 50,
-    desc: "实例主机上保留几个历史发布包。当前版本和回滚目标永远保留，多的按时间清掉。",
+    desc: "How many historical release packages to keep on the instance host. The current version and the rollback target are always kept; the rest are cleared by time.",
   },
   {
     key: "KNOT_ARTIFACT_DIR",
@@ -341,7 +341,7 @@ const SITE_KEYS = [
     default: "",
     scope: ["dev"],
     derive: (env, ctx) => (ctx.root ? `${ctx.root}/artifacts` : ""),
-    desc: "开发机上构建产物（发布包和校验和）的输出目录。留空用 <knot-platform>/artifacts。",
+    desc: "The output directory on the dev machine for build artifacts (release package and checksum). Empty uses <knot-platform>/artifacts.",
   },
   {
     key: "KNOT_SYSTEMD_DIR",
@@ -349,7 +349,7 @@ const SITE_KEYS = [
     type: "path",
     default: "/etc/systemd/system",
     scope: ["platform"],
-    desc: "Linux 实例主机上 systemd unit 的安装目录。",
+    desc: "Where systemd units install on a Linux instance host.",
   },
   {
     key: "KNOT_SERVICE_USER",
@@ -357,7 +357,7 @@ const SITE_KEYS = [
     type: "string",
     default: "knot",
     scope: ["platform"],
-    desc: "Linux 实例主机上跑 Knot Backend 的系统账号。需对该读的目录有权限。",
+    desc: "The system account running the Knot Backend on a Linux instance host. Needs permissions on the directories it reads.",
   },
 
   // ---- 公网入口 ----
@@ -366,7 +366,7 @@ const SITE_KEYS = [
     group: "entry",
     type: "bool",
     default: 0,
-    desc: "1 表示部署时由这台机器把 WebUI 与 nginx 配置推到 KNOT_ENTRY_SSH；0 表示不碰入口主机（只在本机，或入口已由中枢自动接通）。",
+    desc: "1 means this machine pushes the WebUI and nginx config to KNOT_ENTRY_SSH at deploy time; 0 means don't touch the entry host (local only, or the hub has already auto-wired the entry).",
   },
   {
     key: "KNOT_ENTRY_SSH",
@@ -374,8 +374,8 @@ const SITE_KEYS = [
     type: "string",
     default: "",
     scope: ["dev", "platform"],
-    desc: "入口主机的 ssh 目标。",
-    example: "ec2-user@<入口主机>",
+    desc: "The entry host's ssh target.",
+    example: "ec2-user@<entry-host>",
   },
   {
     key: "KNOT_ENTRY_SSH_KEY",
@@ -383,7 +383,7 @@ const SITE_KEYS = [
     type: "path",
     default: "",
     scope: ["dev"],
-    desc: "在开发机上推页面用的私钥。留空用 ssh 默认身份或 ssh-agent；入口主机通常不认 id_rsa，要用专用的部署钥，例如 $HOME/.ssh/<专用部署钥>。",
+    desc: "The private key for pushing pages from the dev machine. Empty uses the ssh default identity or ssh-agent; the entry host usually rejects id_rsa, use a dedicated deploy key, e.g. $HOME/.ssh/<dedicated deploy key>.",
   },
   {
     key: "KNOT_ENTRY_PUSH_KEY",
@@ -392,7 +392,7 @@ const SITE_KEYS = [
     type: "path",
     default: "$HOME/.ssh/knot-entry-publish",
     scope: ["platform"],
-    desc: "在实例主机上推公开快照用的私钥，可以和 KNOT_ENTRY_SSH_KEY 不是同一把。",
+    desc: "The private key for pushing the public snapshot from the instance host; can differ from KNOT_ENTRY_SSH_KEY.",
   },
   {
     key: "KNOT_ENTRY_WEB_ROOT",
@@ -400,7 +400,7 @@ const SITE_KEYS = [
     type: "path",
     default: "/var/www/knot",
     scope: ["entry"],
-    desc: "入口主机上放 WebUI 的目录。必须按子域写清：留空会落回共用的 /var/www/knot，与同机其它子域互相覆盖。",
+    desc: "The directory holding the WebUI on the entry host. Must be written per subdomain: empty falls back to the shared /var/www/knot and overwrites other subdomains on the same machine.",
   },
   {
     key: "KNOT_ENTRY_CONF",
@@ -408,7 +408,7 @@ const SITE_KEYS = [
     type: "path",
     default: "/etc/nginx/conf.d/knot.conf",
     scope: ["entry"],
-    desc: "入口主机上的 nginx 站点配置路径。必须按子域写清：留空会落回共用的 /etc/nginx/conf.d/knot.conf。",
+    desc: "The nginx site config path on the entry host. Must be written per subdomain: empty falls back to the shared /etc/nginx/conf.d/knot.conf.",
   },
   {
     key: "KNOT_ENTRY_WEB_OWNER",
@@ -416,7 +416,7 @@ const SITE_KEYS = [
     type: "string",
     default: "nginx:nginx",
     scope: ["entry"],
-    desc: "WebUI 目录的属主。",
+    desc: "The owner of the WebUI directory.",
   },
   {
     key: "KNOT_ENTRY_CACHE_DIR",
@@ -424,7 +424,7 @@ const SITE_KEYS = [
     type: "path",
     default: "/var/cache/nginx/knot_uploads",
     scope: ["entry"],
-    desc: "上传文件的反向代理缓存目录。",
+    desc: "The reverse-proxy cache directory for uploaded files.",
   },
   {
     key: "KNOT_ENTRY_CACHE_ZONE",
@@ -432,7 +432,7 @@ const SITE_KEYS = [
     type: "string",
     default: "knot_uploads",
     scope: ["entry"],
-    desc: "nginx proxy_cache 区名。",
+    desc: "The nginx proxy_cache zone name.",
   },
   {
     key: "KNOT_ENTRY_CACHE_SIZE",
@@ -440,7 +440,7 @@ const SITE_KEYS = [
     type: "size",
     default: "2g",
     scope: ["entry"],
-    desc: "缓存上限，nginx 写法，如 2g。",
+    desc: "The cache cap, in nginx syntax, e.g. 2g.",
   },
   {
     key: "KNOT_ENTRY_MAX_BODY",
@@ -448,7 +448,7 @@ const SITE_KEYS = [
     type: "size",
     default: "52m",
     scope: ["entry"],
-    desc: "入口主机接受的请求体上限。必须大于后端附件上限，否则大文件在 nginx 就被截断。",
+    desc: "The request-body cap the entry host accepts. Must exceed the backend attachment cap, or large files get truncated at nginx.",
   },
   {
     key: "KNOT_ENTRY_ACCESS_LOG",
@@ -456,7 +456,7 @@ const SITE_KEYS = [
     type: "path",
     default: "/var/log/nginx/knot-access.log",
     scope: ["entry"],
-    desc: "入口访问日志。同一台入口主机上的子域共用一个文件，按 $host 分；中枢的流量聚合读它。",
+    desc: "The entry access log. Subdomains on the same entry host share one file, split by $host; the hub's traffic aggregation reads it.",
   },
   {
     key: "KNOT_ENTRY_PROXY_PORT",
@@ -464,7 +464,7 @@ const SITE_KEYS = [
     type: "port",
     default: 18080,
     scope: ["entry", "platform"],
-    desc: "入口回源端口。nginx 把 /api 转到这里，隧道再转回实例主机。",
+    desc: "The entry back-origin port. nginx forwards /api here, and the tunnel forwards it back to the instance host.",
   },
   {
     key: "KNOT_ENTRY_SSL",
@@ -472,7 +472,7 @@ const SITE_KEYS = [
     type: "bool",
     default: 1,
     scope: ["entry"],
-    desc: "1 监听 443 并配证书；0 只监听 80，证书还没签好时用。",
+    desc: "1 listens on 443 and configures the certificate; 0 listens on 80 only, used when the certificate isn't signed yet.",
   },
   {
     key: "KNOT_ENTRY_CERT",
@@ -485,7 +485,7 @@ const SITE_KEYS = [
       const host = String(env.KNOT_DOMAIN || "").trim() || hostOf(env.KNOT_PUBLIC_ORIGIN);
       return host ? `/etc/letsencrypt/live/${host}/fullchain.pem` : "";
     },
-    desc: "证书链。留空由 KNOT_DOMAIN 推导。",
+    desc: "The certificate chain. Empty derives from KNOT_DOMAIN.",
   },
   {
     key: "KNOT_ENTRY_KEY",
@@ -497,7 +497,7 @@ const SITE_KEYS = [
       const host = String(env.KNOT_DOMAIN || "").trim() || hostOf(env.KNOT_PUBLIC_ORIGIN);
       return host ? `/etc/letsencrypt/live/${host}/privkey.pem` : "";
     },
-    desc: "证书私钥。留空由 KNOT_DOMAIN 推导。",
+    desc: "The certificate private key. Empty derives from KNOT_DOMAIN.",
   },
   {
     key: "KNOT_ENTRY_RELOAD_CMD",
@@ -505,7 +505,7 @@ const SITE_KEYS = [
     type: "string",
     default: "sudo systemctl reload nginx",
     scope: ["entry"],
-    desc: "改完 nginx 配置后的 reload 命令。非 systemd 的机器改成自己的。",
+    desc: "The reload command after changing the nginx config. Non-systemd machines change it to their own.",
   },
 
   // ---- 回源隧道 ----
@@ -515,7 +515,7 @@ const SITE_KEYS = [
     type: "bool",
     default: 0,
     scope: ["platform"],
-    desc: "1 表示实例主机主动连出建隧道，让 xknot.si 子域入口能回源。没有入口时留 0；本机也接了子域时由 sites/<站点>/tunnel.env 写 1。",
+    desc: "1 means the instance host dials out to build the tunnel, so the xknot.si subdomain entry can reach back. Leave 0 with no entry; when local also takes a subdomain, sites/<site>/tunnel.env writes 1.",
   },
   {
     key: "KNOT_TUNNEL_SSH",
@@ -527,7 +527,7 @@ const SITE_KEYS = [
       const host = String(env.KNOT_ENTRY_SSH || "").split("@").pop();
       return host ? `knot-tunnel@${host}` : "";
     },
-    desc: "隧道账号。留空是 knot-tunnel@<KNOT_ENTRY_SSH 的主机>。",
+    desc: "The tunnel account. Empty is knot-tunnel@<KNOT_ENTRY_SSH's host>.",
   },
   {
     key: "KNOT_TUNNEL_KEY",
@@ -535,7 +535,7 @@ const SITE_KEYS = [
     type: "path",
     default: "$HOME/.ssh/knot-entry",
     scope: ["platform"],
-    desc: "实例主机上建隧道用的私钥。相对路径按站点目录（sites/<站点>/）解析；自动接通写的 tunnel.env 用 tunnel_ed25519。",
+    desc: "The private key for building the tunnel on the instance host. Relative paths resolve from the site directory (sites/<site>/); the auto-wired tunnel.env uses tunnel_ed25519.",
   },
   {
     key: "KNOT_TUNNEL_LOCAL_PORT",
@@ -544,7 +544,7 @@ const SITE_KEYS = [
     default: "",
     scope: ["platform"],
     derive: (env) => env.KNOT_PORT || 8080,
-    desc: "隧道落回本机的端口。留空等于 KNOT_PORT。",
+    desc: "The port the tunnel lands on locally. Empty equals KNOT_PORT.",
   },
   {
     key: "KNOT_TUNNEL_REMOTE_PORT",
@@ -553,7 +553,7 @@ const SITE_KEYS = [
     default: "",
     scope: ["platform"],
     derive: (env) => env.KNOT_ENTRY_PROXY_PORT || 18080,
-    desc: "隧道在入口主机上占用的端口。留空等于 KNOT_ENTRY_PROXY_PORT。",
+    desc: "The port the tunnel occupies on the entry host. Empty equals KNOT_ENTRY_PROXY_PORT.",
   },
 ];
 
@@ -566,7 +566,7 @@ const PLATFORM_KEYS = [
     type: "string",
     default: "",
     computed: true,
-    desc: "由部署脚本写入：站点目录名（sites/<站点>）。实例主机上的脚本靠它找到这份配置。",
+    desc: "Written by the deploy script: the site directory name (sites/<site>). Scripts on the instance host find this config by it.",
   },
   {
     key: "DATABASE_URL",
@@ -578,7 +578,7 @@ const PLATFORM_KEYS = [
     // 启动闸口读的是这个运行时名字。外部库连接串写错（缺主机、拼错端口）时
     // 以前一路放行，进程带着错串跑起来，报错落在第一条 SQL 上。
     pattern: /^postgres(?:ql)?:\/\/[^\s]+$/,
-    desc: "由部署脚本写入：local 模式是 postgres://knot@127.0.0.1:<KNOT_PGPORT>/knot，external 模式取 KNOT_DATABASE_URL。",
+    desc: "Written by the deploy script: local mode is postgres://knot@127.0.0.1:<KNOT_PGPORT>/knot, external mode takes KNOT_DATABASE_URL.",
   },
   {
     key: "STATIC_WEB_DIR",
@@ -586,7 +586,7 @@ const PLATFORM_KEYS = [
     type: "path",
     default: "",
     computed: true,
-    desc: "由部署脚本写入：<knot-platform>/web/dist。",
+    desc: "Written by the deploy script: <knot-platform>/web/dist.",
   },
   {
     key: "KNOT_AGENT_ENV_DIR",
@@ -594,7 +594,7 @@ const PLATFORM_KEYS = [
     type: "path",
     default: "",
     computed: true,
-    desc: "由部署脚本写入：<knot-platform>/sites/<站点>/agents。智能体的账号文件放这里。",
+    desc: "Written by the deploy script: <knot-platform>/sites/<site>/agents. Agent account files live here.",
   },
   {
     key: "KNOT_PROFILE_FILE",
@@ -602,7 +602,7 @@ const PLATFORM_KEYS = [
     type: "path",
     default: "",
     computed: true,
-    desc: "由部署脚本写入：<knot-platform>/sites/<站点>/profile.json。站点档案（自述区）在这里，主理人在 /admin 里编辑。",
+    desc: "Written by the deploy script: <knot-platform>/sites/<site>/profile.json. The site profile (self-description zone) is here, edited by the owner in /admin.",
   },
   {
     key: "KNOT_DISCOVER_PUSH_CMD",
@@ -610,7 +610,7 @@ const PLATFORM_KEYS = [
     type: "string",
     default: "",
     computed: true,
-    desc: "由部署脚本写入：开启入口时是 push-discover.sh，关闭时为空。",
+    desc: "Written by the deploy script: push-discover.sh when the entry is on, empty when off.",
   },
 
   // ---- 邮件 ----
@@ -619,33 +619,33 @@ const PLATFORM_KEYS = [
     group: "mail",
     type: "string",
     default: "",
-    desc: "SMTP 主机。未配置时登录接口返回 mail_unavailable，登录密钥寄不出去。",
+    desc: "SMTP host. When unconfigured the login endpoint returns mail_unavailable and the login key can't be mailed out.",
     example: "smtp.example.com",
   },
-  { key: "SMTP_PORT", group: "mail", type: "port", default: 587, desc: "SMTP 端口。" },
+  { key: "SMTP_PORT", group: "mail", type: "port", default: 587, desc: "SMTP port." },
   {
     key: "SMTP_SECURE",
     group: "mail",
     type: "bool",
     default: 0,
-    desc: "465 端口从第一包就要 TLS，写 1；587 用 STARTTLS 时保持 0。",
+    desc: "Port 465 needs TLS from the first packet, write 1; 587 with STARTTLS keeps 0.",
   },
-  { key: "SMTP_USER", group: "mail", type: "string", default: "", desc: "SMTP 用户名。" },
-  { key: "SMTP_PASS", group: "mail", type: "string", default: "", secret: true, desc: "SMTP 密码。" },
-  { key: "SMTP_FROM", group: "mail", type: "string", default: "", desc: "发信地址。" },
-  { key: "MAIL_FROM", group: "mail", type: "string", default: "", desc: "发信地址，优先于 SMTP_FROM。" },
+  { key: "SMTP_USER", group: "mail", type: "string", default: "", desc: "SMTP username." },
+  { key: "SMTP_PASS", group: "mail", type: "string", default: "", secret: true, desc: "SMTP password." },
+  { key: "SMTP_FROM", group: "mail", type: "string", default: "", desc: "Sender address." },
+  { key: "MAIL_FROM", group: "mail", type: "string", default: "", desc: "Sender address, takes priority over SMTP_FROM." },
 
   // ---- 经济 ----
-  { key: "KNOT_DEFAULT_PRICE", group: "economy", type: "int", default: 10, min: 0, desc: "默认标价（积分）。" },
-  { key: "KNOT_PRICE_MIN", group: "economy", type: "int", default: 0, min: 0, desc: "作者可标的最低积分。" },
-  { key: "KNOT_PRICE_MAX", group: "economy", type: "int", default: 100, min: 0, desc: "作者可标的最高积分。" },
+  { key: "KNOT_DEFAULT_PRICE", group: "economy", type: "int", default: 10, min: 0, desc: "Default price (points)." },
+  { key: "KNOT_PRICE_MIN", group: "economy", type: "int", default: 0, min: 0, desc: "The lowest points an author may set." },
+  { key: "KNOT_PRICE_MAX", group: "economy", type: "int", default: 100, min: 0, desc: "The highest points an author may set." },
   {
     key: "KNOT_PUBLISH_SERVICE_FEE_PER_MB",
     group: "economy",
     type: "int",
     default: 1,
     min: 0,
-    desc: "发布服务费：每 MB 附件收多少积分，向上取整。",
+    desc: "Publish service fee: points per MB of attachment, rounded up.",
   },
   {
     key: "KNOT_DOWNLOAD_SERVICE_FEE_PER_MB",
@@ -653,7 +653,7 @@ const PLATFORM_KEYS = [
     type: "int",
     default: 1,
     min: 0,
-    desc: "下载服务费：每 MB 附件收多少积分，加在作者标价之上。",
+    desc: "Download service fee: points per MB of attachment, added on top of the author's price.",
   },
   {
     key: "KNOT_SERVICE_FEE_CAP",
@@ -661,7 +661,7 @@ const PLATFORM_KEYS = [
     type: "int",
     default: 10,
     min: 0,
-    desc: "单次服务费上限。0 表示不封顶。",
+    desc: "Per-charge service fee cap. 0 means no cap.",
   },
   {
     key: "KNOT_SALE_TTL_HOURS",
@@ -669,17 +669,18 @@ const PLATFORM_KEYS = [
     type: "int",
     default: 72,
     min: 1,
-    desc: "出售帖有效期（小时）。出售帖 = 有可下载附件且有标价的 post/fastpost；零价附件帖不算出售帖，不过期。到期自动下架，作者可再次开放。",
+    max: 8760,
+    desc: "Sale-post validity (hours). A sale post = a post/fastpost with a downloadable attachment and a price; zero-price attachment posts don't count as sale posts and don't expire. On expiry it's auto-delisted, the author can reopen it.",
   },
-  { key: "KNOT_SIGNUP_GRANT", group: "economy", type: "int", default: 100, min: 0, desc: "新账户注册赠送积分。" },
-  { key: "KNOT_GRANT_MAX", group: "economy", type: "int", default: 100000, min: 0, desc: "单次赠送上限。" },
+  { key: "KNOT_SIGNUP_GRANT", group: "economy", type: "int", default: 100, min: 0, desc: "Points granted on new-account registration." },
+  { key: "KNOT_GRANT_MAX", group: "economy", type: "int", default: 100000, min: 0, desc: "Single-grant cap." },
   {
     key: "KNOT_POINT_USD_CENTS",
     group: "economy",
     type: "int",
     default: 1,
     min: 0,
-    desc: "每积分的美元价，用美分表示（1 = 0.01 美元）。",
+    desc: "The USD price per point, in cents (1 = $0.01).",
   },
   {
     key: "KNOT_RETRIEVAL_PRICE",
@@ -687,16 +688,16 @@ const PLATFORM_KEYS = [
     type: "int",
     default: 10,
     min: 0,
-    desc: "信息检索价：每次检索的统一定价，下载检索结果时收。",
+    desc: "Retrieval price: the uniform per-retrieval price, charged when downloading a retrieval result.",
   },
-  { key: "KNOT_RECHARGE_USD", group: "economy", type: "int", default: 0, min: 0, desc: "累计充值（美元）。本期占位 0。" },
+  { key: "KNOT_RECHARGE_USD", group: "economy", type: "int", default: 0, min: 0, desc: "Cumulative top-up (USD). Placeholder 0 this phase." },
   {
     key: "KNOT_MONTHLY_OPEX_USD",
     group: "economy",
     type: "int",
     default: 10000,
     min: 0,
-    desc: "月运营开支（美元），用于盈亏平衡测算。",
+    desc: "Monthly operating opex (USD), for break-even calculation.",
   },
 
   // ---- 消费券 ----
@@ -709,11 +710,11 @@ const PLATFORM_KEYS = [
     // 与 backend/src/points.js 的夹取保持同一口径：先夹价目区间，再取默认价。
     // 直接用未夹取的 KNOT_DEFAULT_PRICE 时，schema 算出的券面值和代码发出去的券不一样。
     derive: (env) => clampedDefaultPrice(env),
-    desc: "券面值（积分）。留空等于夹进 [KNOT_PRICE_MIN, KNOT_PRICE_MAX] 之后的 KNOT_DEFAULT_PRICE。",
+    desc: "Coupon face value (points). Empty equals KNOT_DEFAULT_PRICE after clamping into [KNOT_PRICE_MIN, KNOT_PRICE_MAX].",
   },
   // 0 天的券等于「发了就过期」，没人能领到；要关掉发券用 KNOT_COUPON_SIGNUP=0。
-  { key: "KNOT_COUPON_TTL_DAYS", group: "coupon", type: "int", default: 30, min: 1, desc: "券有效期（天）。" },
-  { key: "KNOT_COUPON_MAX", group: "coupon", type: "int", default: 1, min: 0, desc: "每个账户持有的未使用券上限。" },
+  { key: "KNOT_COUPON_TTL_DAYS", group: "coupon", type: "int", default: 30, min: 1, max: 365, desc: "Coupon validity (days)." },
+  { key: "KNOT_COUPON_MAX", group: "coupon", type: "int", default: 1, min: 0, desc: "The cap on unused coupons per account." },
   {
     key: "KNOT_COUPON_SIGNUP",
     group: "coupon",
@@ -721,7 +722,7 @@ const PLATFORM_KEYS = [
     default: 1,
     min: 0,
     max: 1,
-    desc: "新注册自动发一张：1 开，0 关。",
+    desc: "Auto-grant one on new registration: 1 on, 0 off.",
   },
 
   // ---- 存储 ----
@@ -730,36 +731,36 @@ const PLATFORM_KEYS = [
     group: "storage",
     type: "bytes",
     default: 1024 * MiB,
-    desc: "每人上传字节上限。0 表示不限。",
+    desc: "Per-person upload byte cap. 0 means unlimited.",
   },
-  { key: "KNOT_GC_GRACE_HOURS", group: "storage", type: "int", default: 24, min: 0, desc: "回收无引用上传的宽限期（小时）。" },
+  { key: "KNOT_GC_GRACE_HOURS", group: "storage", type: "int", default: 24, min: 0, max: 8760, desc: "The grace period (hours) before unreferenced uploads are collected." },
   {
     key: "KNOT_UPLOAD_IMAGE_MAX_BYTES",
     group: "storage",
     type: "bytes",
     default: 8 * MiB,
-    desc: "单张图片上限。同时要小于 KNOT_ENTRY_MAX_BODY。",
+    desc: "Single-image cap. Must also be under KNOT_ENTRY_MAX_BODY.",
   },
   {
     key: "KNOT_UPLOAD_AUDIO_MAX_BYTES",
     group: "storage",
     type: "bytes",
     default: 8 * MiB,
-    desc: "单条音频上限。",
+    desc: "Single-audio cap.",
   },
   {
     key: "KNOT_UPLOAD_ATTACHMENT_MAX_BYTES",
     group: "storage",
     type: "bytes",
     default: 50 * MiB,
-    desc: "单个附件上限。必须小于 KNOT_ENTRY_MAX_BODY。",
+    desc: "Single-attachment cap. Must be under KNOT_ENTRY_MAX_BODY.",
   },
   {
     key: "DISCOVER_BOARD_DIR",
     group: "storage",
     type: "path",
     default: "",
-    desc: "公开快照目录。留空用 <UPLOAD_DIR>/board。",
+    desc: "The public snapshot directory. Empty uses <UPLOAD_DIR>/board.",
   },
 
   // ---- 检索 ----
@@ -770,7 +771,7 @@ const PLATFORM_KEYS = [
     default: 2000,
     min: 1,
     max: 50000,
-    desc: "一次检索最多收进内存打分的候选行数。索引先挡掉不可能命中的行，这里是内存墙。",
+    desc: "The most candidate rows pulled into memory for scoring per search. The index first blocks rows that can't hit; this is the memory wall.",
   },
   {
     key: "KNOT_SEARCH_RESULTS",
@@ -779,7 +780,7 @@ const PLATFORM_KEYS = [
     default: 30,
     min: 1,
     max: 200,
-    desc: "一次检索最多返回几条。",
+    desc: "The most results returned per search.",
   },
   {
     key: "KNOT_SEARCH_Q_MAX",
@@ -788,7 +789,7 @@ const PLATFORM_KEYS = [
     default: 120,
     min: 1,
     max: 2000,
-    desc: "检索词长度上限（字符）。超出的部分截断，不报错。",
+    desc: "The query length cap (characters). Overflow truncates, no error.",
   },
   {
     key: "KNOT_SEARCH_CACHE_TTL",
@@ -797,7 +798,7 @@ const PLATFORM_KEYS = [
     default: 30,
     min: 0,
     max: 3600,
-    desc: "检索结果缓存时长（秒）。0 表示不缓存。内容有变更时会立即作废。",
+    desc: "Search-result cache lifetime (seconds). 0 means no caching. Invalidate immediately on content change.",
   },
   {
     key: "KNOT_SEARCH_RATE_PER_MIN",
@@ -805,7 +806,7 @@ const PLATFORM_KEYS = [
     type: "int",
     default: 120,
     min: 0,
-    desc: "同一身份每分钟的检索次数上限。0 表示不限。",
+    desc: "Per-identity search cap per minute. 0 means unlimited.",
   },
   {
     key: "KNOT_RETRIEVAL_RATE_PER_HOUR",
@@ -813,7 +814,7 @@ const PLATFORM_KEYS = [
     type: "int",
     default: 10,
     min: 0,
-    desc: "单个账号每小时能提交多少次信息检索。0 表示不限。",
+    desc: "How many retrieval requests a single account may submit per hour. 0 means unlimited.",
   },
   {
     key: "KNOT_RETRIEVAL_CONCURRENCY",
@@ -822,7 +823,7 @@ const PLATFORM_KEYS = [
     default: 2,
     min: 1,
     max: 32,
-    desc: "信息检索员同时处理几个任务。",
+    desc: "How many tasks the retrieval agent processes at once.",
   },
   {
     key: "KNOT_RETRIEVAL_MAX_ATTEMPTS",
@@ -831,7 +832,7 @@ const PLATFORM_KEYS = [
     default: 3,
     min: 1,
     max: 10,
-    desc: "单个检索任务最多尝试几次。次数随任务落库，重启不清零。",
+    desc: "The most attempts per retrieval task. The count persists with the task and isn't reset on restart.",
   },
   {
     key: "KNOT_REVIEW_CONCURRENCY",
@@ -840,7 +841,7 @@ const PLATFORM_KEYS = [
     default: 2,
     min: 1,
     max: 32,
-    desc: "终审队列同时处理几条。检索会同时产生 wish 与 wishRespond 两条待审记录。",
+    desc: "How many items the final-review queue processes at once. A retrieval produces both a wish and a wishRespond pending-review record at once.",
   },
   {
     key: "KNOT_SEARCH_EVENT_RETENTION_DAYS",
@@ -848,22 +849,23 @@ const PLATFORM_KEYS = [
     type: "int",
     default: 90,
     min: 0,
-    desc: "检索打点 search_events 保留天数。0 表示永久保留。",
+    max: 36500,
+    desc: "Retention days for search_events traces. 0 means keep forever.",
   },
 
   // ---- 智能体 ----
-  { key: "OPENCLAW_BIN", group: "agent", type: "string", default: "openclaw", desc: "openclaw 可执行文件。" },
-  { key: "OPENCLAW_PROCESS_TIMEOUT", group: "agent", type: "int", default: 120, min: 1, desc: "单次智能体调用的超时（秒）。" },
+  { key: "OPENCLAW_BIN", group: "agent", type: "string", default: "openclaw", desc: "The openclaw executable." },
+  { key: "OPENCLAW_PROCESS_TIMEOUT", group: "agent", type: "int", default: 120, min: 1, desc: "The timeout (seconds) per agent call." },
   {
     key: "OPENCLAW_RETRIEVAL_TIMEOUT",
     group: "agent",
     type: "int",
     default: 300,
     min: 1,
-    desc: "信息检索调用的超时（秒）。",
+    desc: "The timeout (seconds) for retrieval calls.",
   },
-  { key: "OPENCLAW_INTEL_AGENT", group: "agent", type: "string", default: "knot-intel", desc: "情报智能体名。" },
-  { key: "OPENCLAW_RETRIEVAL_AGENT", group: "agent", type: "string", default: "knot-retrieval", desc: "检索智能体名。" },
+  { key: "OPENCLAW_INTEL_AGENT", group: "agent", type: "string", default: "knot-intel", desc: "The intel agent name." },
+  { key: "OPENCLAW_RETRIEVAL_AGENT", group: "agent", type: "string", default: "knot-retrieval", desc: "The retrieval agent name." },
 
   // ---- 管理令牌 ----
   {
@@ -872,14 +874,14 @@ const PLATFORM_KEYS = [
     type: "string",
     default: "",
     secret: true,
-    desc: "内网管理接口 /api/admin 和管理后台 /admin 的令牌。由 ensure-openclaw.sh 写入，运维不要手改。",
+    desc: "The token for the intranet admin API /api/admin and the admin console /admin. Written by ensure-openclaw.sh; ops shouldn't hand-edit.",
   },
   {
     key: "KNOT_ADMIN_ORIGIN",
     group: "admin",
     type: "url",
     default: "",
-    desc: "管理后台链接里写死的内网地址，例如 http://192.0.2.10:8080。留空时按 KNOT_BIND_HOST 与网卡推断；多网卡或隧道拓扑下可以用它写死，绑回环时也能给出内网链接。",
+    desc: "The intranet address hardcoded in admin console links, e.g. http://192.0.2.10:8080. Empty infers from KNOT_BIND_HOST and the NICs; with multiple NICs or tunnel topologies, hardcode it to still produce an intranet link when loopback-bound.",
     example: "http://192.0.2.10:8080",
   },
 ];
@@ -902,7 +904,7 @@ const XKNOT_KEYS = [
     default: "",
     required: true,
     pattern: /^[a-z0-9][a-z0-9-]{1,31}$/,
-    desc: "中枢清单里的实例 id（小写字母、数字、短横线）。会写进 /api/health 的 instance，供中枢核对身份。",
+    desc: "The instance id in the hub roster (lowercase letters, digits, hyphens). Written into /api/health's instance, for the hub to verify identity.",
     example: "wang",
   },
   {
@@ -910,7 +912,7 @@ const XKNOT_KEYS = [
     group: "xknot",
     type: "url",
     default: "https://xknot.si",
-    desc: "接入的中枢地址。委托发信地址由它推导。",
+    desc: "The hub origin this instance joins. The delegated-mailing address derives from it.",
     example: "https://xknot.si",
   },
   {
@@ -918,7 +920,7 @@ const XKNOT_KEYS = [
     group: "xknot",
     type: "url",
     default: "",
-    desc: "委托发信的完整地址。留空时按 XKNOT_HUB_ORIGIN 推导，只在换入口时手写。",
+    desc: "The full delegated-mailing address. Empty derives from XKNOT_HUB_ORIGIN; only hand-written when switching entries.",
     example: "https://xknot.si/api/federation/mail",
   },
   {
@@ -928,14 +930,14 @@ const XKNOT_KEYS = [
     default: "",
     secret: true,
     pattern: /^xkr_[A-Za-z0-9_-]{8,}$/,
-    desc: "中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。",
+    desc: "The delegated-mailing credential issued by the hub. Exists only in xknot.env; never enters mail, the repo, or the release package.",
   },
   {
     key: "XKNOT_ISSUED_URL",
     group: "xknot",
     type: "url",
     default: "",
-    desc: "中枢签发的对外地址。签发区的一部分，与清单里的 url 一致；节点只读。",
+    desc: "The public address issued by the hub. Part of the issued zone, consistent with the roster's url; the node only reads it.",
     example: "https://wang.xknot.si",
   },
   {
@@ -943,7 +945,7 @@ const XKNOT_KEYS = [
     group: "xknot",
     type: "string",
     default: "",
-    desc: "签发日期（YYYY-MM-DD）。签发区的一部分，对外报作 since。",
+    desc: "The issue date (YYYY-MM-DD). Part of the issued zone, reported outward as since.",
     example: "2026-10-20",
   },
   {
@@ -954,7 +956,7 @@ const XKNOT_KEYS = [
     // 仍认它们，免得老实例把接入件拿过来重启就起不来。
     values: ["free", "paid", "demo", "partner", "community"],
     default: "",
-    desc: "中枢签发的层级：free 或 paid（早期的 demo / partner / community 仍可读）。签发区的一部分；留空时对外不报这一项。",
+    desc: "The tier issued by the hub: free or paid (early demo / partner / community still readable). Part of the issued zone; empty means not reported outward.",
   },
   {
     key: "XKNOT_STATUS",
@@ -962,7 +964,7 @@ const XKNOT_KEYS = [
     type: "enum",
     values: ["pending", "active", "suspended", "retired"],
     default: "",
-    desc: "中枢签发的状态。签发区的一部分；留空时对外不报这一项。",
+    desc: "The status issued by the hub. Part of the issued zone; empty means not reported outward.",
   },
 ];
 
@@ -978,7 +980,7 @@ const ENTRY_KEYS = [
     values: ["static", "proxy"],
     default: "static",
     scope: ["entry"],
-    desc: "static：首页与 /assets 从入口主机上的磁盘出，只有动态走隧道；proxy：连首页也回源到实例。",
+    desc: "static: the home page and /assets are served from disk on the entry host, only dynamic requests go through the tunnel; proxy: even the home page back-origins to the instance.",
   },
 ];
 
@@ -1585,49 +1587,49 @@ export function formatValue(value) {
 
 function commentLines(entry, indent = "") {
   const lines = [`${indent}# ${entry.desc}`];
-  if (entry.example) lines.push(`${indent}# 例：${entry.example}`);
+  if (entry.example) lines.push(`${indent}# Example: ${entry.example}`);
   return lines;
 }
 
-const SITE_HEADER = `# Knot 站点配置。
+const SITE_HEADER = `# Knot site configuration.
 #
-# 用法：
-#   mkdir -p sites/<站点>
-#   cp sites/_template/site.env sites/<站点>/site.env
-#   按自己的站点改 sites/<站点>/site.env
+# Usage:
+#   mkdir -p sites/<site>
+#   cp sites/_template/site.env sites/<site>/site.env
+#   edit sites/<site>/site.env for your site
 #
-# 站点目录不进版本库（sites/_template 除外）。部署脚本只从这里读站点、主机、路径和端口。
-# 这份文件由 packages/knot-config/src/schema.mjs 生成，不要手改；改配置项请改 schema 后跑
+# The site directory does not enter the repo (except sites/_template). The deploy script only reads site, host, path and port from here.
+# This file is generated by packages/knot-config/src/schema.mjs; do not hand-edit. To change a config item, change the schema then run
 #   node ops/scripts/config.mjs template --write
 #
-# 同一个文件既给 local 部署用，也给 xknot.si 子域部署用。
-# 一个站点目录只描述一种部署方式：local 用 KNOT_ENTRY_ENABLED=0，
-# 接入 xknot.si 子域用 KNOT_ENTRY_ENABLED=1。`;
+# The same file serves both local deployment and xknot.si subdomain deployment.
+# One site directory describes exactly one deployment shape: local uses KNOT_ENTRY_ENABLED=0,
+# joining an xknot.si subdomain uses KNOT_ENTRY_ENABLED=1.`;
 
-const PLATFORM_HEADER = `# 实例运行时配置模板。由 packages/knot-config/src/schema.mjs 生成。
+const PLATFORM_HEADER = `# Instance runtime configuration template. Generated by packages/knot-config/src/schema.mjs.
 #
-# 实例主机上的 sites/<站点>/platform.env 由 deploy-site.sh 写入：
-#   * 站点与端口从 sites/<站点>/site.env 来；
-#   * 下面的邮件、价格、存储键只在文件里还没有时写入初值，之后归运维。
+# sites/<site>/platform.env on the instance host is written by deploy-site.sh:
+#   * site and port come from sites/<site>/site.env;
+#   * the mail, price and storage keys below are only written with initial values when the file lacks them, then owned by ops.
 #
-# 这个文件不含站点拓扑；域名、主机、入口、端口写 site.env。
-# 也不含任何 XKnot 接入凭据；委托发信与实例 id 写在 xknot.env。`;
+# This file holds no site topology; domain, host, entry and port go in site.env.
+# Nor any XKnot federation credentials; delegated mailing and the instance id go in xknot.env.`;
 
-const XKNOT_HEADER = `# XKnot 接入配置模板。由 packages/knot-config/src/schema.mjs 生成。
+const XKNOT_HEADER = `# XKnot federation configuration template. Generated by packages/knot-config/src/schema.mjs.
 #
-# 这份文件不属于部署。它只装中枢（xknot.si）签发的东西：
-# 实例 id、中枢地址、签发日期，以及委托发信凭据。键名与语义是联邦契约，
-# 见 xknot.si/docs/FEDERATION.md 第 7.4 节；文件名与位置是本实现的约定。
-# 由 join-xknot.sh 写入，权限 600。
+# This file is not part of deployment. It only holds what the hub (xknot.si) issued:
+# instance id, hub origin, issue date, and delegated-mailing credentials. Key names and semantics
+# are the federation contract, see xknot.si/docs/FEDERATION.md §7.4; filename and location are this implementation's convention.
+# Written by join-xknot.sh, mode 600.
 #
 #   ./ops/scripts/join-xknot.sh --payload ~/xknot-access.env
 #   ./ops/scripts/join-xknot.sh --status
 #
-# 不要手填，也不要把它并进 site.env 或 platform.env：
-# 部署脚本只读那两份，接入换机器重部署也不用重签。
-# 不接入联邦的实例不需要这个文件。
+# Do not hand-fill it, and do not merge it into site.env or platform.env:
+# the deploy script only reads those two, and joining doesn't need re-signing when switching machines for redeploy.
+# An instance that doesn't join the federation doesn't need this file.
 #
-# 下面除了中枢地址，都留空——没有接入件就没有接入。`;
+# Below, everything except the hub origin is left empty — no join payload, no federation.`;
 
 // 生成 sites/_template/entry.example.env。
 //
@@ -1644,18 +1646,18 @@ export const ENTRY_TEMPLATE_KEYS = [
   "KNOT_ENTRY_SERVE",
 ];
 
-const ENTRY_HEADER = `# 一个 xknot.si 子域入口。由 packages/knot-config/src/schema.mjs 生成，不要手改。
+const ENTRY_HEADER = `# One xknot.si subdomain entry. Generated by packages/knot-config/src/schema.mjs; do not hand-edit.
 #
-# 复制成 sites/<站点>/entry.<标签>.xknot.si.env，再把 <标签>.xknot.si 换成下面的 KNOT_DOMAIN。
+# Copy to sites/<site>/entry.<label>.xknot.si.env, then replace <label>.xknot.si with the KNOT_DOMAIN below.
 #
-# 官方只支持一个入口，域名必须是 xknot.si 签发的二级子域（<标签>.xknot.si）。
-# 它是叠加层：site.env 里的键在这里都能覆盖，没写的沿用 site.env。
+# Officially only one entry is supported, and the domain must be an xknot.si-issued sub-subdomain (<label>.xknot.si).
+# It is an overlay: every key in site.env can be overridden here; anything not written falls back to site.env.
 #
-# 只写「这个入口和站点默认值不一样」的项。KNOT_ENTRY_WEB_ROOT 与 KNOT_ENTRY_CONF
-# 必须按这个子域写清，留空等于和别的子域共用同一个静态根与 nginx 配置；
-# config.mjs check 会拦住缺失或写错的域名。
+# Only write the items where this entry differs from the site defaults. KNOT_ENTRY_WEB_ROOT and KNOT_ENTRY_CONF
+# must be written per this subdomain; leaving them empty shares one static root and nginx config with other subdomains;
+# config.mjs check blocks a missing or wrong domain.
 #
-# 改配置项请改 schema 后跑 node ops/scripts/config.mjs entry-template --write。`;
+# To change a config item, change the schema then run node ops/scripts/config.mjs entry-template --write.`;
 
 export function renderEntryExample() {
   const parts = [ENTRY_HEADER];
@@ -1669,8 +1671,8 @@ export function renderEntryExample() {
     // 同一台入口主机上的两个子域会互相覆盖（S20-01）。写占位符而不是空值：
     // 空值看起来像「用默认」，占位符在 config.mjs check 里会当场报出来。
     const placeholder = {
-      KNOT_ENTRY_WEB_ROOT: "/var/www/<标签>",
-      KNOT_ENTRY_CONF: "/etc/nginx/conf.d/<标签>.xknot.si.conf",
+      KNOT_ENTRY_WEB_ROOT: "/var/www/<label>",
+      KNOT_ENTRY_CONF: "/etc/nginx/conf.d/<label>.xknot.si.conf",
     };
     const perSite = ["KNOT_ENTRY_CERT", "KNOT_ENTRY_KEY", "KNOT_ENTRY_WEB_ROOT", "KNOT_ENTRY_CONF"];
     const value = key in placeholder ? placeholder[key] : perSite.includes(key) ? "" : entry.default;    parts.push(`${key}=${formatValue(value)}`);
@@ -1738,9 +1740,9 @@ export function renderJoinExample() {
 // 首次写接入文件。values 来自中枢接入件，未给的键留空并注释掉。
 export function renderJoinFile(values = {}) {
   const parts = [
-    "# XKnot 接入文件。由 ops/scripts/join-xknot.sh 或管理界面的 XKnot 栏写入，权限 600。",
-    "# 键名与语义见联邦契约 xknot.si/docs/FEDERATION.md 第 7.4 节；不要增删键名。",
-    "# 值来自中枢签发，不要手改；换实例请重新领一份。",
+    "# XKnot federation file. Written by ops/scripts/join-xknot.sh or the XKnot section of the admin console, mode 600.",
+    "# Key names and semantics follow the federation contract xknot.si/docs/FEDERATION.md §7.4; don't add or remove key names.",
+    "# Values come from the hub's issuance; don't hand-edit. To switch instances, request a new one.",
   ];
   for (const group of GROUPS) {
     const entries = XKNOT_KEYS.filter((entry) => entry.group === group.id);
@@ -1760,8 +1762,8 @@ export function renderJoinFile(values = {}) {
 // 首次生成实例主机的运行时文件。之后由 updateEnvText 就地改写，保留注释和运维改过的值。
 export function renderPlatformFile(values) {
   const parts = [
-    "# 实例运行时配置。由 ops/scripts/deploy-site.sh 写入，权限 600。",
-    "# 站点拓扑在 site.env；这里只放实例主机自己的值。",
+    "# Instance runtime configuration. Written by ops/scripts/deploy-site.sh, mode 600.",
+    "# Site topology lives in site.env; this holds only the instance host's own values.",
   ];
   for (const group of GROUPS) {
     const mapped = KEYS.filter((entry) => entry.file === "site" && entry.runtime && entry.group === group.id);
@@ -1781,133 +1783,130 @@ export function renderPlatformFile(values) {
   return `${parts.join("\n")}\n`;
 }
 
-function defaultCell(entry) {  if (entry.secret && entry.default !== "") return "（密钥）";
-  if (entry.file === "platform" && entry.computed) return "部署脚本写入";
+function defaultCell(entry) {  if (entry.secret && entry.default !== "") return "secret";
+  if (entry.file === "platform" && entry.computed) return "written by the deploy script";
   const value = entry.default;
-  if (value == null || value === "") return entry.derive ? "见说明" : "（空）";
-  if (entry.type === "bytes") return `${value}（${Math.round(value / MiB)} MiB）`;
+  if (value == null || value === "") return entry.derive ? "see note" : "(empty)";
+  if (entry.type === "bytes") return `${value} (${Math.round(value / MiB)} MiB)`;
   return `\`${String(value)}\``;
 }
 
 // 生成 docs/CONFIG.md。
 export function renderDocs() {
   const lines = [
-    "# Knot 配置项",
+    "# Knot configuration",
     "",
-    "这份文档由 `packages/knot-config/src/schema.mjs` 生成，不要手改。改配置项请改 schema，再跑：",
+    "This document is generated by `packages/knot-config/src/schema.mjs`; do not hand-edit. To change a configuration item, change the schema, then run:",
     "",
     "```bash",
     "node ops/scripts/config.mjs template --write           # sites/_template/site.env",
     "node ops/scripts/config.mjs platform-template --write  # sites/_template/platform.env",
     "node ops/scripts/config.mjs xknot-template --write     # sites/_template/xknot.env",
     "node ops/scripts/config.mjs entry-template --write      # sites/_template/entry.example.env",
-    "node ops/scripts/config.mjs docs --write               # 重新生成本文",
+    "node ops/scripts/config.mjs docs --write               # regenerate this document",
     "```",
     "",
-    "## 官方部署方式",
+    "## Official deployment methods",
     "",
-    "只看对外形态，有两种：**只在本机**（`KNOT_DOMAIN=` 留空、`KNOT_ENTRY_ENABLED=0`、只绑回环地址）和",
-    "**xknot.si 二级子域**（`KNOT_DOMAIN=<标签>.xknot.si`，走回源隧道）。实例主机是本机还是另一台机器，两种都成立：",
-    "开发机接子域时 `KNOT_ENTRY_ENABLED` 可以是 `0`，入口由中枢自动接通写好，本机只跑隧道与内容。",
-    "独立域名、内网公开、固定公网 IP 直连都不在官方范围内，属于用户改造。",
+    "By public-facing shape, there are two: **local only** (leave `KNOT_DOMAIN=` empty, `KNOT_ENTRY_ENABLED=0`, bind loopback only) and",
+    "**xknot.si sub-subdomain** (`KNOT_DOMAIN=<label>.xknot.si`, via the back-origin tunnel). Both hold whether the instance host is this machine or another machine:",
+    "when the dev machine takes a subdomain, `KNOT_ENTRY_ENABLED` can be `0` — the hub wires the entry automatically; this machine only runs the tunnel and the content.",
+    "Standalone domains, intranet exposure, and a fixed public IP direct connection are all outside the official scope and count as user customization.",
     "",
-    "## 三个边界",
+    "## Three boundaries",
     "",
-    "| 边界 | 位置 | 放什么 | 能不能进版本库 |",
+    "| Boundary | Location | Holds what | Can enter the repo |",
     "| --- | --- | --- | --- |",
-    "| 代码 | `backend/` `web/` `packages/` | 真正的默认行为 | 进 |",
-    "| 部署 | `ops/` | 脚本、模板、LaunchAgent、systemd unit。不写站点取值 | 进 |",
-    "| 配置 | `sites/<站点>/` | 站点档案、拓扑、密钥 | 不进（`sites/_template/` 除外） |",
+    "| Code | `backend/` `web/` `packages/` | the real default behavior | yes |",
+    "| Deployment | `ops/` | scripts, templates, LaunchAgent, systemd unit. No site values | yes |",
+    "| Config | `sites/<site>/` | site profile, topology, secrets | no (except `sites/_template/`) |",
     "",
-    "环境变量只覆盖代码里的默认值。一个键要么在 `packages/knot-config/src/schema.mjs` 里登记，要么就别读。",
-    "Backend 启动时按同一份登记表校验环境：值不合法直接退出，必填项缺失时管理功能不可用；文件在部署前严格校验未知键。",
+    "Environment variables only override defaults in code. A key is either registered in `packages/knot-config/src/schema.mjs`, or it isn't read.",
+    "On startup the Backend validates the environment against the same registry: illegal values exit immediately, missing required items disable admin features; files are strictly validated for unknown keys before deployment.",
     "",
-    "一个站点一个目录：",
+    "One directory per site:",
     "",
-    "| 文件 | 放什么 | 谁写 |",
+    "| File | Holds what | Written by |",
     "| --- | --- | --- |",
-    "| `sites/<站点>/site.env` | 域名、主机、端口、路径、入口、隧道。不含密码 | 运维 |",
-    "| `sites/<站点>/profile.json` | 自述区：名称、默认语种、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（十项扁平字段）。不进版本库 | 主理人，在 `/admin` 的 XKnot 栏编辑 |",
-    "| `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。权限 600 | 部署脚本 |",
-    "| `sites/<站点>/xknot.env` | 实例 id、中枢地址、签发日期与委托发信凭据。权限 600 | 中枢签发，`join-xknot.sh` 写入 |",
-    "| `sites/<站点>/tunnel.env` | 回源隧道的账号、私钥文件名与本机/入口端口（`KNOT_TUNNEL` 一组）。权限 600 | `/admin` 的 XKnot 栏自动接通时写入 |",
-    "| `sites/<站点>/entry.<标签>.xknot.si.env` | 接入 xknot.si 子域时的入口：域名、静态根、conf、证书。一个站点一份 | 运维 |",
-    "| `sites/<站点>/agents/` | Internal Personal Agent 的授权码，权限 700 | 脚本 |",
+    "| `sites/<site>/site.env` | domain, host, port, path, entry, tunnel. No passwords | ops |",
+    "| `sites/<site>/profile.json` | self-description zone: name, default locale, one-line intro, long intro, logo, owner, contact, region, timezone, tags (ten flat fields). Not in the repo | the owner, edited in the XKnot section of `/admin` |",
+    "| `sites/<site>/platform.env` | SMTP password, initial prices, admin token. Mode 600 | deploy script |",
+    "| `sites/<site>/xknot.env` | instance id, hub origin, issue date and delegated-mailing credentials. Mode 600 | issued by the hub, written by `join-xknot.sh` |",
+    "| `sites/<site>/tunnel.env` | the back-origin tunnel's account, private-key filename, and local/entry ports (the `KNOT_TUNNEL` group). Mode 600 | written when the XKnot section of `/admin` auto-wires the tunnel |",
+    "| `sites/<site>/entry.<label>.xknot.si.env` | the entry for an xknot.si subdomain: domain, static root, conf, cert. One per site | ops |",
+    "| `sites/<site>/agents/` | Internal Personal Agent auth codes, mode 700 | scripts |",
     "",
-    "**部署与接入是两条独立的线。** `deploy-site.sh` 只读 `site.env` 与 `platform.env`；",
-    "`xknot.env` 只在运行时交给 Backend，缺了它站点照样部署和运行，只是不接联邦。",
-    "反过来，重新部署、换机器、回滚都不会动接入凭据。",
+    "**Deployment and federation are two independent lines.** `deploy-site.sh` only reads `site.env` and `platform.env`;",
+    "`xknot.env` is only handed to the Backend at runtime — without it the site still deploys and runs, just not federated.",
+    "Conversely, redeploying, switching machines, or rolling back never touches the federation credentials.",
     "",
-    "## 站点配置（`sites/<站点>/site.env`）",
+    "## Site configuration (`sites/<site>/site.env`)",
     "",
   ];
   for (const group of GROUPS) {
     const entries = SITE_KEYS.filter((entry) => entry.group === group.id);
     if (!entries.length) continue;
-    lines.push(`### ${group.label}`, "", "| 变量 | 默认 | 必填 | 说明 |", "| --- | --- | --- | --- |");
+    lines.push(`### ${group.label}`, "", "| Variable | Default | Required | Description |", "| --- | --- | --- | --- |");
     for (const entry of entries) {
-      const required = isRequired(entry, {}) ? "是" : entry.required === true ? "是" : "";
+      const required = isRequired(entry, {}) ? "Yes" : entry.required === true ? "Yes" : "";
       lines.push(`| \`${entry.key}\` | ${defaultCell(entry)} | ${required} | ${entry.desc} |`);
     }
     lines.push("");
   }
-  lines.push("## 实例运行时配置（`sites/<站点>/platform.env`）", "");
+  lines.push("## Instance runtime configuration (`sites/<site>/platform.env`)", "");
   for (const group of GROUPS) {
     const entries = PLATFORM_KEYS.filter((entry) => entry.group === group.id);
     if (!entries.length) continue;
-    lines.push(`### ${group.label}`, "", "| 变量 | 默认 | 说明 |", "| --- | --- | --- |");
+    lines.push(`### ${group.label}`, "", "| Variable | Default | Description |", "| --- | --- | --- |");
     for (const entry of entries) {
       lines.push(`| \`${entry.key}\` | ${defaultCell(entry)} | ${entry.desc} |`);
     }
     lines.push("");
   }
   lines.push(
-    "## XKnot 接入配置（`sites/<站点>/xknot.env`）",
+    "## XKnot federation configuration (`sites/<site>/xknot.env`)",
     "",
-    "只放中枢签发的东西，不参与部署推导。文件可以不存在。",
+    "Only holds what the hub issued; it takes no part in deployment derivation. The file may not exist.",
     "",
-    "键名与语义是联邦契约，见 `xknot.si/docs/FEDERATION.md` 第 7.4 节；`xknot.env` 这个文件名与位置",
-    "是本实现的约定，换个实现只要读同样这几个键即可。",
+    "Key names and semantics are the federation contract, see `xknot.si/docs/FEDERATION.md` §7.4; the `xknot.env` filename and location",
+    "are this implementation's convention — another implementation only needs to read these same keys.",
     "",
     "```bash",
-    "./ops/scripts/join-xknot.sh --payload ~/xknot-access.env   # 写入并校验",
-    "./ops/scripts/join-xknot.sh --status                       # 看当前接入状态",
-    "node ops/scripts/config.mjs check --xknot --site <站点>     # 只校验这一个文件",
+    "./ops/scripts/join-xknot.sh --payload ~/xknot-access.env   # write and validate",
+    "./ops/scripts/join-xknot.sh --status                       # view current federation status",
+    "node ops/scripts/config.mjs check --xknot --site <site>    # validate only this file",
     "```",
     "",
-    "| 变量 | 默认 | 必填 | 说明 |",
+    "| Variable | Default | Required | Description |",
     "| --- | --- | --- | --- |"
   );
   for (const entry of XKNOT_KEYS) {
-    lines.push(`| \`${entry.key}\` | ${defaultCell(entry)} | ${entry.required ? "是" : ""} | ${entry.desc} |`);
+    lines.push(`| \`${entry.key}\` | ${defaultCell(entry)} | ${entry.required ? "Yes" : ""} | ${entry.desc} |`);
   }
   lines.push("");
   lines.push(
-    "## 校验",
+    "## Validation",
     "",
-    "部署前会跑 `node ops/scripts/config.mjs check`，发现问题直接停下，不会部署一半。",
-    "手动检查：",
+    "Before deployment it runs `node ops/scripts/config.mjs check`; on any problem it stops immediately, never deploying halfway.",
+    "Manual checks:",
     "",
     "```bash",
-    "node ops/scripts/config.mjs check --site <站点>              # 查 site.env",
-    "node ops/scripts/config.mjs check --platform --site <站点>   # 查实例主机的 platform.env",
-    "node ops/scripts/config.mjs check --xknot --site <站点>      # 查接入用的 xknot.env",
-    "node ops/scripts/config.mjs sites                            # 列出已有站点",
+    "node ops/scripts/config.mjs check --site <site>              # check site.env",
+    "node ops/scripts/config.mjs check --platform --site <site>   # check the instance host's platform.env",
+    "node ops/scripts/config.mjs check --xknot --site <site>      # check the federation xknot.env",
+    "node ops/scripts/config.mjs sites                            # list existing sites",
     "```",
     "",
-    "必填与跨键规则：",
+    "Required and cross-key rules:",
     "",
-    "| 规则 | 条件 |",
+    "| Rule | Condition |",
     "| --- | --- |"
   );
-  for (const rule of RULES) {
-    const condition =
-      rule.id === "entry-ssh" ? "`KNOT_ENTRY_ENABLED=1`" : rule.id === "external-db" ? "`KNOT_DB_MODE=external`" : "—";
-    lines.push(`| ${rule.message} | ${condition} |`);
-  }
-  lines.push("| 接子域时必须写 KNOT_PUBLIC_ORIGIN=https://<标签>.xknot.si，且主机名与 KNOT_DOMAIN 一致。 | `KNOT_DOMAIN` 非空 |");
-  lines.push("| 自己推入口（`KNOT_ENTRY_ENABLED=1`）时必须设 KNOT_TUNNEL=1；入口由中枢自动接通时隧道写在 `tunnel.env`，这里不强制。 | `KNOT_DOMAIN` 非空 |");
-  lines.push("| 不接子域时 KNOT_PUBLIC_ORIGIN 只认回环地址，也不建隧道。 | `KNOT_DOMAIN` 为空 |");
+  lines.push("| KNOT_ENTRY_ENABLED=1 requires KNOT_ENTRY_SSH. When not pushing the entry yourself, write KNOT_ENTRY_ENABLED=0. | `KNOT_ENTRY_ENABLED=1` |");
+  lines.push("| KNOT_DB_MODE=external requires KNOT_DATABASE_URL. | `KNOT_DB_MODE=external` |");
+  lines.push("| When taking a subdomain, write KNOT_PUBLIC_ORIGIN=https://<label>.xknot.si and the hostname must match KNOT_DOMAIN. | `KNOT_DOMAIN` non-empty |");
+  lines.push("| When pushing the entry yourself (`KNOT_ENTRY_ENABLED=1`), set KNOT_TUNNEL=1; when the hub auto-wires the entry, the tunnel is written in `tunnel.env`, not required here. | `KNOT_DOMAIN` non-empty |");
+  lines.push("| Without a subdomain, KNOT_PUBLIC_ORIGIN only accepts a loopback address, and no tunnel is built. | `KNOT_DOMAIN` empty |");
   lines.push("");
   return `${lines.join("\n")}\n`;
 }

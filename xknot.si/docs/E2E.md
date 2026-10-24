@@ -1,60 +1,54 @@
-# 本地部署与端到端测试
+# Local Deployment and End-to-End Testing
 
-这份文档说明怎么在本机把中枢完整跑起来，以及自动化测试覆盖了什么、没覆盖什么。
-验收清单在 [HUB.md](HUB.md) 第 8 节；这里把其中可自动化的部分落成脚本。
+This document explains how to run the full hub on this machine, and what the automated tests cover and do not cover.
+The acceptance checklist is in [HUB.md](HUB.md) section 8; here we turn the automatable part of it into scripts.
 
-## 1. 本地部署形态
+## 1. Local deployment shape
 
-线上是两个进程：`systemd` 的 `xknot-api` 只监听回环，nginx 提供静态站并把
-`/api/`、`/admin/` 反代过去。本地按同样的分工拆成两个进程：
+In production there are two processes: the `systemd` `xknot-api` listening only on the loopback, and nginx serving the static site and reverse-proxying `/api/` and `/admin/` to it. Locally we split into two processes with the same division of labor:
 
 ```text
-浏览器
+browser
   │  http://127.0.0.1:5190
   ▼
-ops/local-hub.mjs        静态站 + 反代 + 安全头（复刻 ops/xknot.si.conf）
+ops/local-hub.mjs        static site + reverse proxy + security headers (replicates ops/xknot.si.conf)
   │  /api/*  /admin/*
   ▼
-server/index.mjs         127.0.0.1:5181，SQLite 在 var/e2e/<run>/data
+server/index.mjs         127.0.0.1:5181, SQLite in var/e2e/<run>/data
 ```
 
-`ops/local-hub.mjs` 不是生产服务器，但它刻意对齐了线上行为：
+`ops/local-hub.mjs` is not a production server, but it deliberately mirrors production behavior:
 
-| 路径 | 行为 |
+| Path | Behavior |
 |------|------|
-| `/` | 302 到 `/en/` |
-| `/en/`、`/zh-CN/`、`/zh-TW/` | 目录索引，`cache-control: no-cache` |
-| `/assets/*` | 长缓存 `max-age=31536000, immutable` |
-| `/data/hub.json` | 构建写出的快照，`no-cache` |
-| `/admin` | 301 到 `/admin/`（对应 nginx 的精确匹配） |
-| `/admin/*` | 反代，只补 HSTS 与 `X-Robots-Tag`，CSP 由接口自己发 |
-| `/case/*`、`/claim/*` | 反代到接口，补 `X-Robots-Tag: noindex`；页面自己发 CSP 与 `no-store` |
-| `/api/*` | 反代，补 server 级安全头与 `X-Forwarded-For`（追加，不覆盖） |
-| 其它 | 404，`..` 与 `%2e%2e` 出不了 `web/dist` |
+| `/` | 302 to `/en/` |
+| `/en/`, `/zh-CN/`, `/zh-TW/` | directory index, `cache-control: no-cache` |
+| `/assets/*` | long cache `max-age=31536000, immutable` |
+| `/data/hub.json` | the snapshot the build writes, `no-cache` |
+| `/admin` | 301 to `/admin/` (matches nginx's exact match) |
+| `/admin/*` | reverse proxy, only adding HSTS and `X-Robots-Tag`; the API sends its own CSP |
+| `/case/*`, `/claim/*` | reverse proxy to the API, adding `X-Robots-Tag: noindex`; the pages send their own CSP and `no-store` |
+| `/api/*` | reverse proxy, adding server-level security headers and `X-Forwarded-For` (appended, not overwritten) |
+| otherwise | 404; `..` and `%2e%2e` cannot escape `web/dist` |
 
-一键启动：
+One-shot start:
 
 ```bash
 cd xknot.si
-npm run deploy:local                 # 校验 → 构建 → 起接口 → 起入口，127.0.0.1:5190
-npm run deploy:local -- --no-build   # 复用 web/dist
-npm run deploy:local -- --preview    # 门户并入 fixtures 样例
+npm run deploy:local                 # validate → build → start API → start entry, 127.0.0.1:5190
+npm run deploy:local -- --no-build   # reuse web/dist
+npm run deploy:local -- --preview    # merge fixtures samples into the portal
 npm run deploy:local -- --admin paul:correct-horse-battery
 npm run deploy:local -- --port 8080 --data-dir /tmp/xknot
 ```
 
-启动后终端会打印门户、控制台、接口与数据目录。`Ctrl-C` 一起收掉两个进程。
-数据落在 `var/local/`（`--data-dir` 可换），**不删**：重启后申请、发信记录、
-委托发信日志都还在。`5180/5181` 留给 `npm run dev`，部署默认占 `5190`。
-端到端测试另起随机端口与临时目录，跑完即删。
+After start, the terminal prints the portal, console, API, and data directories. `Ctrl-C` stops both processes together.
+Data lands in `var/local/` (`--data-dir` can change it), and is **not deleted**: after a restart the applications, send log, and relay log are still there. `5180/5181` are reserved for `npm run dev`; deployment defaults to `5190`.
+End-to-end tests start their own random ports and temp directories, deleted when done.
 
-### 测试清单覆盖
+### Test manifest coverage
 
-接口默认读仓库根目录的 `instances.json`，名册读 `federation.json`。本地联调与端到端可以用
-`XKNOT_INSTANCES_FILE` 与 `XKNOT_FEDERATION_FILE` 指向临时副本，接口与 `admin-cli`（含 `publish`）
-都认这两个变量，仓库里的文件不会被改。控制台的「编辑」会写回接口正在读的那两份文件，
-所以浏览器用例启动时把两份清单各拷一份到临时目录，再通过
-`node ops/local-stack.mjs --instances <file> --federation <file>` 指过去。
+The API reads the repo root's `instances.json` by default, and the roster reads `federation.json`. Local integration and end-to-end can point `XKNOT_INSTANCES_FILE` and `XKNOT_FEDERATION_FILE` at temporary copies; both the API and `admin-cli` (including `publish`) honor these variables, so the repo files are not modified. The console's "edit" writes back to whichever two files the API is reading, so the browser cases copy each manifest to a temp directory at startup and point to it via `node ops/local-stack.mjs --instances <file> --federation <file>`.
 
 ```bash
 XKNOT_DATA_DIR=/tmp/xknot-data \
@@ -63,132 +57,124 @@ XKNOT_FEDERATION_FILE=/tmp/xknot-federation.json \
 npm run api
 ```
 
-## 2. 测试分层
+## 2. Test layers
 
-| 层 | 命令 | 跑什么 | 依赖 |
+| Layer | Command | What it runs | Dependencies |
 |----|------|--------|------|
-| 单元 | `npm test` | 清单与名册校验、页面数据、接口与邮件纯函数 | Node，无网络 |
-| 接口端到端 | `npm run test:e2e` | 真 HTTP、真 SQLite、真 SMTP 会话、真 CLI | Node + `web/dist` |
-| 浏览器端到端 | `npm run test:ui` | 真 Chromium 跑门户、申请表、控制台 | Playwright + Chrome + `web/dist` |
-| 全量 | `npm run test:all` | 上面三项依次跑 | 同上 |
+| Unit | `npm test` | manifest and roster validation, page data, API and mail pure functions | Node, no network |
+| API end-to-end | `npm run test:e2e` | real HTTP, real SQLite, real SMTP sessions, real CLI | Node + `web/dist` |
+| Browser end-to-end | `npm run test:ui` | real Chromium running the portal, application form, console | Playwright + Chrome + `web/dist` |
+| Full | `npm run test:all` | the three above in order | same |
 
-两套端到端都从 `web/dist` 读静态站，干净检出先构建一次：
+Both end-to-end suites read the static site from `web/dist`; a clean checkout builds once first:
 
 ```bash
-npm run build -- --offline   # 跳过伙伴探活，其余与 npm run build 相同
+npm run build -- --offline   # skips partner probes, otherwise same as npm run build
 ```
 
-缺 `web/dist` 时本地栈会直接报「先 npm run build」，不会只在某条断言上失败。
+Without `web/dist`, the local stack reports "run npm run build first" directly, rather than only failing on one assertion.
 
-浏览器测试首次使用需要装依赖：
+Browser tests need dependencies installed on first use:
 
 ```bash
 npm --prefix e2e install
 ```
 
-默认借本机已装的 Chrome，不下载浏览器。要用 Playwright 自带的那份：
+It uses the locally installed Chrome by default, downloading no browser. To use Playwright's own copy:
 
 ```bash
 npm --prefix e2e run install:browser
 E2E_CHANNEL= npm run test:ui
 ```
 
-## 3. 隔离与夹具
+## 3. Isolation and fixtures
 
-每个端到端文件自己起一套部署，互不共享端口、数据库与限流计数：
+Each end-to-end file starts its own deployment, sharing no port, database, or rate-limit counters:
 
-- 端口由内核分配；数据目录是 `var/e2e/<随机>`，退出时删除（`startStack({ keep: true })` 可保留）。
-- 接口环境里的 `SMTP_*`、`XKNOT_*` 会被清空再按用例注入，不受开发机 shell 影响。
-- `DEFAULT_MANIFEST` 提供两个实例：`e2e-node`（active）与 `e2e-paused`（paused），
-  用来验证委托发信的放行与拒绝。
-- 浏览器测试用 `--preview`：`fixtures/` 的样例条目、健康状态、橱窗与活动数据并进
-  当次快照，不依赖外网和伙伴站点。
-- 委托发信不 mock `mailer`：`e2e/smtp-sink.mjs` 起一个最小 SMTP 收信端，
-  `server/mail.mjs` 的完整会话（EHLO → MAIL FROM → RCPT TO → DATA）都会被走到。
-- 限流用例单独一个文件：接口按来源地址计数，同一进程里所有请求共享一个桶。
+- Ports are kernel-assigned; the data directory is `var/e2e/<random>`, deleted on exit (`startStack({ keep: true })` can keep it).
+- The API environment's `SMTP_*` and `XKNOT_*` are cleared and then injected per case, unaffected by the dev machine's shell.
+- `DEFAULT_MANIFEST` provides two instances: `e2e-node` (active) and `e2e-paused` (paused), used to verify relay allow/deny.
+- Browser tests use `--preview`: `fixtures/` sample entries, health status, showcase, and activity data merge into the current snapshot, with no external network or partner sites.
+- Relay mail does not mock `mailer`: `e2e/smtp-sink.mjs` runs a minimal SMTP receiver, so `server/mail.mjs`'s full session (EHLO → MAIL FROM → RCPT TO → DATA) is exercised.
+- Rate-limit cases live in their own file: the API counts by source address, with all requests in one process sharing one bucket.
 
-## 4. 用例清单
+## 4. Case list
 
-### 4.1 静态站与快照（`e2e/api.e2e.test.mjs`）
+### 4.1 Static site and snapshot (`e2e/api.e2e.test.mjs`)
 
-- 根路径 302 到 `/en/`；三个语种入口都能打开，`lang` 与 `hreflang` 一致。
-- HTML 带齐 CSP、`X-Frame-Options: DENY`、`nosniff`、`Referrer-Policy`、HSTS。
-- 带哈希的 `/assets/` 长缓存，HTML 与 `hub.json` 每次回源。
-- `hub.json` 只含清单里的实例；没有探测/橱窗/活动数据时是 `null` 与 `[]`，不写 0。
-- 未知路径、路径穿越、`/admin` 白名单外的文件都是 404。
+- Root path 302s to `/en/`; all three locale entries open, with `lang` and `hreflang` consistent.
+- HTML carries CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, HSTS.
+- Hashed `/assets/` long-cache; HTML and `hub.json` revalidate every time.
+- `hub.json` contains only manifest instances; without probe/showcase/activity data it is `null` and `[]`, not 0.
+- Unknown paths, path traversal, and files outside the `/admin` whitelist are 404.
 
-### 4.2 申请与自动通过（`e2e/api.e2e.test.mjs`）
+### 4.2 Application and auto-approval (`e2e/api.e2e.test.mjs`)
 
-- 缺少字段按字段返回错误码；跨站 POST 403；蜜罐填了回 201 但不落库。
-- 正常提交 201，编号形如 `XK-YYYY-XXXXXX`，状态直接是 `approved`；同一子域再提 409。
-- 提交后收到两封信：申请人拿到批准信（含地址、档位与 `/case/` 链接），运营方拿到新成员提醒；伙伴信 `Reply-To` 是 `XKNOT_MAIL_REPLY_TO`（缺省取 `MAIL_FROM`，即 `no-reply@<中枢域名>`），正文写明不接收回复。
-- 没有 `/verify/` 页面与 `/api/verify` 接口；申请不会停在待确认。
-- `/case/<caseKey>` 可看状态、提交公钥与撤回。
-- 未登录 401，伪造 Cookie 401，错密码 401；登录 Cookie 带 `HttpOnly`、`SameSite=Strict`、`Path=/`。
-- 已通过列表能看到申请，`reviewedBy` 为 `auto`；生成的清单条目过 `checkManifestEntry`，默认 `tier: free`。
-- 审核接口已移除，再调返回 404；退出后会话立刻失效。
-- `handoff` 生成一次性领取链接：`GET /claim/<token>` 不消费，`POST /api/claim` 只返回一次明文，再取 409；邮件正文不含凭据。
+- Missing fields return per-field error codes; cross-site POST is 403; a filled honeypot returns 201 but is not stored.
+- A valid submission is 201, with an id of the form `XK-YYYY-XXXXXX` and status directly `approved`; resubmitting the same subdomain is 409.
+- After submission two mails arrive: the applicant gets the approval letter (address, tier, and the `/case/` link), the operator gets the new-member alert; the partner mail's `Reply-To` is `XKNOT_MAIL_REPLY_TO` (defaults to `MAIL_FROM`, i.e. `no-reply@<hub domain>`), and the body states replies are not monitored.
+- There is no `/verify/` page and no `/api/verify` endpoint; an application never sits waiting for confirmation.
+- `/case/<caseKey>` shows status, public-key submission, and withdrawal.
+- Not logged in is 401, a forged cookie is 401, a wrong password is 401; the login cookie carries `HttpOnly`, `SameSite=Strict`, `Path=/`.
+- The approved list shows the application, `reviewedBy` is `auto`; the generated manifest entry passes `checkManifestEntry`, defaulting to `tier: free`.
+- The review endpoint is removed; calling it returns 404; the session is invalidated immediately after logout.
+- `handoff` generates a one-time claim link: `GET /claim/<token>` does not consume it, `POST /api/claim` returns the plaintext only once, then 409; the mail body contains no credentials.
 
-### 4.3 委托发信（`e2e/relay.e2e.test.mjs`）
+### 4.3 Mail relay (`e2e/relay.e2e.test.mjs`)
 
-- 运维命令 `admin-cli relay-token` 签发的凭据能发信；收件方看到 `From` 是 `MAIL_FROM`，
-  `Reply-To` 默认用实例 `contact`，报文带 `X-XKnot-Instance`。
-- `GET /api/federation/mail` 返回 24 小时额度；同一幂等键重试不重复发信。
-- 字段非法按字段拒绝：`to` 带显示名、`subject` 带换行、`replyTo` 落到外部域名。
-- 缺凭据、伪造凭据 401；实例暂停后立刻 403（改清单不用重启接口）；吊销后 401。
-- 按实例开关：`relay-disable` 后 403 `relay_disabled`，`relay-enable` 后同一个凭据直接能继续发，不需要重签或重启。
-- 中枢总闸：`/admin` 点 OFF（或 `settings.mail=off`）后，代发与额度查询都 503 `relay_unavailable`，伙伴信不发也不写 `notify_log`；点回 ON 后同一个凭据立刻能发。
-- 每日额度用完 429；单凭据每分钟第 7 封 429。
-- SMTP 不可用 502，`relay-log` 记 `failed`，日志里没有正文与完整地址。
+- A credential issued by the `admin-cli relay-token` command can send; the recipient sees `From` as `MAIL_FROM`, `Reply-To` defaults to the instance `contact`, and the message carries `X-XKnot-Instance`.
+- `GET /api/federation/mail` returns the 24-hour quota; retrying the same idempotency key does not resend.
+- Illegal fields are rejected per field: `to` with a display name, `subject` with a newline, `replyTo` falling to an external domain.
+- Missing or forged credentials are 401; a suspended instance is immediately 403 (changing the manifest needs no restart); a revoked credential is 401.
+- Per-instance switch: after `relay-disable` it is 403 `relay_disabled`; after `relay-enable` the same credential works again, no reissue or restart.
+- Hub master switch: after `/admin` switches OFF (or `settings.mail=off`), relay and quota queries are 503 `relay_unavailable`, partner mail is not sent and `notify_log` is not written; switching back ON makes the same credential work immediately.
+- Daily quota exhausted is 429; the 7th mail per minute per credential is 429.
+- SMTP unavailable is 502, `relay-log` records `failed`, and the log contains no body or full address.
 
-### 4.4 限流（`e2e/limits.e2e.test.mjs`）
+### 4.4 Rate limiting (`e2e/limits.e2e.test.mjs`)
 
-- 提交每小时第 9 次起 429，带 `retry-after`。
-- 登录每 15 分钟第 13 次起 429。
+- From the 9th submission per hour it is 429, with `retry-after`.
+- From the 13th login per 15 minutes it is 429.
 
-### 4.5 浏览器（`e2e/browser/*.spec.mjs`）
+### 4.5 Browser (`e2e/browser/*.spec.mjs`)
 
-| 文件 | 覆盖 |
+| File | Coverage |
 |------|------|
-| `portal.spec.mjs` | 按 `hub.json` 渲染全部卡片、地图可见、入口回原站；三语切换与 `aria-current`；深浅色；区域筛选与「只看在线」；「只看热点」；360/390/768/1280 无横向溢出；键盘可达与表单 label；CSP 下无脚本错误 |
-| `member.spec.mjs` | 右栏只有邮箱一格与四步加入指引、没有申请表；邮箱不完整不发请求；从真实邮件取授权码登录后看到本站状态、健康与计数；退出后状态不残留；390px 下两格与登录键不小于 44px、右栏不溢出 |
-| `admin.spec.mjs` | 登录失败提示；登录 → 待审列表 → 详情 → 通过 → 生成清单条目 → 退出；点实例就地展开配置；就地编辑配置、非法值不落盘、草稿不丢；重复点通过状态不变；CSP 下无脚本错误 |
+| `portal.spec.mjs` | renders all cards from `hub.json`, map visible, entries link back to origin; trilingual switching and `aria-current`; light/dark; region filter and "online only"; "showcase only"; no horizontal overflow at 360/390/768/1280; keyboard reachability and form labels; no script errors under CSP |
+| `member.spec.mjs` | right column has only the email field and the four-step join guide, no application form; no request until the email is complete; after logging in with a code from real mail, see the site's status, health, and counts; no state leftover after logout; at 390px the two fields and login button are ≥44px and the right column does not overflow |
+| `admin.spec.mjs` | login failure message; login → pending list → detail → approve → generate manifest entry → logout; clicking an instance expands its config in place; in-place edit, illegal values not written, draft not lost; repeated approve keeps the same state; no script errors under CSP |
 
-浏览器用例还会断言页面**没有** `pageerror`、没有 CSP 违规。这条断言抓到过两类真实问题：
-内联样式被控制台 CSP 拦截、字体被 Vite 内联成 `data:` 后被 `font-src 'self'` 拦截。
+Browser cases also assert the page has **no** `pageerror` and no CSP violation. This assertion has caught two real classes of bug: inline styles blocked by the console CSP, and fonts inlined by Vite as `data:` then blocked by `font-src 'self'`.
 
-## 5. 与 HUB.md 验收清单的对应
+## 5. Mapping to the HUB.md acceptance checklist
 
-| HUB.md 第 8 节 | 自动化 |
+| HUB.md section 8 | Automated |
 |----------------|--------|
-| 清单/名册校验返回码、名册规则 | `npm test`（`ops/*.test.mjs`） |
-| 区域筛选、卡片网格、热点开关、`只看在线` | `portal.spec.mjs` |
-| 360/390/768/1280 可读可点、不横向溢出 | `portal.spec.mjs` |
-| 除申请外不发写请求、只请求同源数据 | `portal.spec.mjs` 的网络与渲染断言、CSP |
-| 申请表逐项报错、编号格式、重复提示 | `join.spec.mjs`、`api.e2e.test.mjs` |
-| 未登录 401、自动通过与清单条目 | `api.e2e.test.mjs`、`admin.spec.mjs` |
-| 跨站 POST 403、连续提交 429 | `api.e2e.test.mjs`、`limits.e2e.test.mjs` |
-| 凭据签发/吊销、额度、幂等、SMTP 故障 | `relay.e2e.test.mjs` |
-| 接口重启后数据仍在 | 由 SQLite 落盘保证；`relay-log` 与申请用例跨 CLI/接口读同一库 |
+| manifest/roster validation exit codes, roster rules | `npm test` (`ops/*.test.mjs`) |
+| region filter, card grid, showcase toggle, `online only` | `portal.spec.mjs` |
+| 360/390/768/1280 readable and clickable, no horizontal overflow | `portal.spec.mjs` |
+| no write requests except the application; only same-origin data | `portal.spec.mjs` network and render assertions, CSP |
+| application form per-field errors, id format, duplicate prompt | `join.spec.mjs`, `api.e2e.test.mjs` |
+| unauthenticated 401, auto-approval and manifest entry | `api.e2e.test.mjs`, `admin.spec.mjs` |
+| cross-site POST 403, consecutive submissions 429 | `api.e2e.test.mjs`, `limits.e2e.test.mjs` |
+| credential issue/revoke, quota, idempotency, SMTP failure | `relay.e2e.test.mjs` |
+| data survives API restart | guaranteed by SQLite persistence; `relay-log` and application cases read the same DB across CLI/API |
 
-## 6. 仍需要人工或上线前的检查
+## 6. Still needs manual or pre-launch checks
 
-自动化不替代这些：
+Automation does not replace these:
 
-- **真实伙伴探测**：`check-health.mjs`、`fetch-cards.mjs`、`fetch-stats.mjs` 对外网的
-  SSRF 守卫与超时，只在真实构建里验证；端到端用的是 `--offline`/`fixtures`。
-- **TLS、DNS、证书**：Cloudflare、Certbot、HSTS 的真实生效。
-- **nginx 与 systemd**：配置语法（`nginx -t`）、开机自启、日志轮转、备份与回滚
-  （`ops/README-deploy-aws.md`）。
-- **真实 SMTP**：服务商的 AUTH、STARTTLS、退信；本地 sink 只验证协议与业务规则。
-- **浏览器矩阵**：自动化只跑 Chromium；Safari/Firefox 的 `Intl.DisplayNames`、
-  `container-type`、`datalist` 表现仍需抽查。
-- **大体量数据**：上千实例时地图与目录的性能。
+- **Real partner probes**: the SSRF guard and timeouts of `check-health.mjs`, `fetch-cards.mjs`, `fetch-stats.mjs` against the public internet are verified only in real builds; end-to-end uses `--offline`/`fixtures`.
+- **TLS, DNS, certificates**: the real effect of Cloudflare, Certbot, HSTS.
+- **nginx and systemd**: config syntax (`nginx -t`), boot autostart, log rotation, backup and rollback (`ops/README-deploy-aws.md`).
+- **Real SMTP**: the provider's AUTH, STARTTLS, bounce handling; the local sink only verifies protocol and business rules.
+- **Browser matrix**: automation runs only Chromium; Safari/Firefox `Intl.DisplayNames`, `container-type`, `datalist` behavior still needs spot checks.
+- **Large data volumes**: map and directory performance at thousands of instances.
 
-## 7. CI 建议
+## 7. CI suggestion
 
 ```bash
-npm ci                 # 或按现有流程
+npm ci                 # or the existing flow
 npm --prefix web ci
 npm --prefix e2e install
 npm run build -- --offline
@@ -197,17 +183,16 @@ npm run test:e2e
 npm run test:ui
 ```
 
-- 浏览器默认用系统 Chrome；runner 没有 Chrome 时先 `npm --prefix e2e run install:browser`
-  并设 `E2E_CHANNEL=`。
-- `e2e/test-results/`、`e2e/report/` 是失败产物与 HTML 报告，不进版本库。
-- 端到端不访问外网；CI 可以断网跑（`--offline` 构建 + `--preview` 数据）。
+- Browsers default to the system Chrome; when the runner has no Chrome, run `npm --prefix e2e run install:browser` first and set `E2E_CHANNEL=`.
+- `e2e/test-results/`, `e2e/report/` are failure artifacts and the HTML report, not in version control.
+- End-to-end does not touch the public internet; CI can run offline (`--offline` build + `--preview` data).
 
-## 8. 排障
+## 8. Troubleshooting
 
-| 现象 | 原因与处理 |
+| Symptom | Cause and handling |
 |------|------------|
-| `web/dist 不存在` | 先 `npm run build`，或去掉 `--no-build` |
-| `listen EADDRINUSE` | 上一次的栈没退干净；`lsof -iTCP:<port> -sTCP:LISTEN` 后结束进程 |
-| 浏览器用例报 “Executable doesn't exist” | 本机没有 Chrome：装 Chrome，或 `install:browser` 后 `E2E_CHANNEL=` |
-| 429 出现在不该出现的用例里 | 同一套栈里的提交/登录共享计数桶；给该用例单独 `startStack()` |
-| 页面字体与设计稿不符 | 检查 CSP 是否为 `font-src 'self'`，以及构建是否又把字体内联成了 `data:` |
+| `web/dist does not exist` | run `npm run build` first, or drop `--no-build` |
+| `listen EADDRINUSE` | the previous stack did not exit cleanly; `lsof -iTCP:<port> -sTCP:LISTEN` then kill the process |
+| browser cases report "Executable doesn't exist" | no Chrome on this machine: install Chrome, or `install:browser` then `E2E_CHANNEL=` |
+| 429 appears in a case it should not | submissions/logins in the same stack share the counter bucket; give that case its own `startStack()` |
+| page fonts differ from the design | check whether CSP is `font-src 'self'`, and whether the build inlined fonts as `data:` again |

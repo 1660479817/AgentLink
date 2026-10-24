@@ -36,6 +36,7 @@ export async function publishInstance({
   tunnelPort,
   manifestFile,
   rosterFile,
+  write = writeJsonAtomic,
 }) {
   const entry = toManifestEntry(application);
   const problems = checkManifestEntry(entry);
@@ -44,11 +45,11 @@ export async function publishInstance({
   // 读与写之间必须有锁：控制台保存、admin-cli publish 也在改同一份清单，
   // 交错时会各自把自己读到的旧副本写回去，前一个刚加的条目就丢了。
   return withFileLock(manifestFile, () =>
-    publishLocked({ entry, tunnelAccount, tunnelPort, manifestFile, rosterFile })
+    publishLocked({ entry, tunnelAccount, tunnelPort, manifestFile, rosterFile, write })
   );
 }
 
-async function publishLocked({ entry, tunnelAccount, tunnelPort, manifestFile, rosterFile }) {
+async function publishLocked({ entry, tunnelAccount, tunnelPort, manifestFile, rosterFile, write }) {
   const manifest = (await readJson(manifestFile, "instances.json")) || { version: 1, instances: [] };
   if (!Array.isArray(manifest.instances)) return { error: "manifest_unreadable" };
 
@@ -88,8 +89,17 @@ async function publishLocked({ entry, tunnelAccount, tunnelPort, manifestFile, r
 
   // 两份都通过校验才落盘；名册先写，清单后写，中途失败最多是多一条待接通的名册条目，
   // 不会出现「清单里有、名册里没有」的悬挂状态（那是校验器直接判错的那一种）。
-  if (!member) await writeJsonAtomic(rosterFile, nextRoster);
-  if (!sameId) await writeJsonAtomic(manifestFile, nextManifest);
+  if (!member) await write(rosterFile, nextRoster);
+  if (!sameId) {
+    try {
+      await write(manifestFile, nextManifest);
+    } catch (error) {
+      // 清单是「对外可见」那一份，写失败时把名册回滚到原值，两边一起回到改动前，
+      // 不留下「名册有、清单无」。回滚失败也只能让它跟着抛，主流程照常报错。
+      if (!member) await write(rosterFile, roster);
+      throw error;
+    }
+  }
 
   return {
     entry: nextManifest.instances.find((item) => item.id === entry.id),

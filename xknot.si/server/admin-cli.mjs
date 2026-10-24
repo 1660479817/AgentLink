@@ -317,7 +317,14 @@ async function main(argv) {
       // 名册先写、清单后写，与 publish.mjs 同一个顺序：中途失败最多多一条
       // 待接通的名册成员，不会留下「清单里有、名册里没有」这种悬挂状态。
       if (nextRoster) await writeJsonAtomic(rosterFile, nextRoster);
-      await writeJsonAtomic(manifestFile, nextManifest);
+      try {
+        await writeJsonAtomic(manifestFile, nextManifest);
+      } catch (error) {
+        // 清单是「对外可见」那一份，写失败时把名册回滚到原值，两边一起回到改动前，
+        // 不留下「名册有、清单无」。回滚本身失败也只能让它跟着抛，主流程照常报错。
+        if (nextRoster) await writeJsonAtomic(rosterFile, roster);
+        throw error;
+      }
       return { ok: true, roster: Boolean(nextRoster) };
     });
 

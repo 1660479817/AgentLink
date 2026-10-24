@@ -39,6 +39,7 @@ export default {
   "nav.users": "用户",
   "nav.site": "站点",
   "nav.xknot": "XKnot",
+  "nav.logs": "日志",
 
   "overview.title": "概览",
   "overview.lead": "平台发行、流通、留存，以及注意力打点。",
@@ -122,6 +123,20 @@ export default {
   "verdict.rejected": "已撤销",
   "verdict.removed": "已删除",
   "verdict.unknown": "未知",
+
+  "logs.title": "日志",
+  "logs.lead": "终审没有完成的记录。作者不再收到这些通知，统一在这里看。",
+  "logs.queue": "终审失败",
+  "logs.queueHint": "评审员超时、报错或交回坏结果时，记录停在待终审；重试到上限就不再自动重试。",
+  "logs.empty": "现在没有终审失败的记录。",
+  "logs.count": "{count} 条",
+  "logs.attempts": "已尝试 {count} 次",
+  "logs.gaveUp": "已停止重试",
+  "logs.review.agent_timeout": "评审员超时",
+  "logs.review.agent_failed": "评审员没有完成审核",
+  "logs.review.agent_bad_json": "评审员没有交回可用结果",
+  "logs.review.agent_empty": "评审员没有交回内容",
+  "logs.review.other": "审核没有完成",
 
   "registration.open": "开放",
   "registration.invite": "需要邀请码",

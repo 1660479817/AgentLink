@@ -20,6 +20,7 @@ const VIEW_LOADERS = {
   users: loadAccounts,
   site: loadSite,
   xknot: loadXknot,
+  logs: loadLogs,
 };
 
 // 价格字段名只从表单来：框里有几个，就填几个、交几个。
@@ -44,6 +45,7 @@ const state = {
   agentToken: null,
   tokenBusy: false,
   posts: null,
+  reviewFailures: null,
   patrol: [],
   // 本轮巡查实际看到的那一批，最后一条的 id。报告提交时原样回传，
   // 服务端据此推进「看过的边界」，而不是拿提交时刻当水位。
@@ -159,6 +161,11 @@ const GLYPHS = {
   content: [
     ["rect", { x: 4, y: 4, width: 16, height: 16, rx: 2.5 }],
     ["path", { d: "M8 9h8M8 12.5h8M8 16h5" }],
+  ],
+  logs: [
+    ["rect", { x: 3, y: 4, width: 18, height: 16, rx: 2.5 }],
+    ["path", { d: "m7 9 2.5 2.5L7 14" }],
+    ["path", { d: "M12 14h5" }],
   ],
   users: [
     ["circle", { cx: 10, cy: 8.5, r: 3.2 }],
@@ -741,6 +748,78 @@ async function loadOverview() {
 function loadContent() {
   renderPosts();
   void loadPatrol();
+}
+
+/* 日志 */
+
+const REVIEW_ERROR_LABELS = {
+  agent_timeout: "logs.review.agent_timeout",
+  agent_failed: "logs.review.agent_failed",
+  agent_bad_json: "logs.review.agent_bad_json",
+  agent_empty: "logs.review.agent_empty",
+};
+
+function reviewErrorLabel(code) {
+  return t(REVIEW_ERROR_LABELS[code] || "logs.review.other");
+}
+
+function logRow(failure) {
+  const user = failure.user || {};
+  return el(
+    "article",
+    { class: "post-row" },
+    el(
+      "div",
+      { class: "post-main" },
+      el(
+        "div",
+        { class: "post-head" },
+        el("span", { class: "pill is-warn", text: reviewErrorLabel(failure.error) }),
+        el("span", { class: "pill", text: t("logs.attempts", { count: failure.attempts }) }),
+        failure.gaveUp ? el("span", { class: "pill is-warn", text: t("logs.gaveUp") }) : null,
+        el("span", { text: user.displayName || t("content.noName") }),
+        el("span", { text: user.email || "" }),
+        el("span", { class: "post-time", text: fmtDate(failure.createdAt) }),
+        el("code", { class: "post-id", text: failure.id })
+      ),
+      el("p", { class: "post-body", text: utf8(failure.body) || t("content.noBody") })
+    )
+  );
+}
+
+function renderLogs() {
+  const list = byId("logs-list");
+  const tag = byId("logs-count");
+  if (!list) return;
+  const failures = Array.isArray(state.reviewFailures) ? state.reviewFailures : null;
+  if (tag) {
+    if (failures) {
+      tag.textContent = t("logs.count", { count: failures.length });
+      tag.classList.toggle("is-warn", failures.length > 0);
+    } else {
+      tag.textContent = "—";
+      tag.classList.remove("is-warn");
+    }
+  }
+  if (failures == null) {
+    list.replaceChildren();
+    return;
+  }
+  if (!failures.length) {
+    list.replaceChildren(emptyBlock("logs.empty", "logs"));
+    return;
+  }
+  list.replaceChildren(...failures.map(logRow));
+}
+
+async function loadLogs() {
+  try {
+    const data = await api("/review-failures");
+    state.reviewFailures = Array.isArray(data.failures) ? data.failures : [];
+    renderLogs();
+  } catch (error) {
+    if (!handleAuth(error)) showBanner(humanError(error));
+  }
 }
 
 async function loadPosts() {
@@ -3003,6 +3082,7 @@ function bindEvents() {
   on("site-refresh", "click", () => void loadSite());
   on("overview-refresh", "click", () => loadOverview());
   on("patrol-refresh", "click", () => void loadPatrol());
+  on("logs-refresh", "click", () => void loadLogs());
   on("invites-refresh", "click", () => void loadInvites());
   on("sponsors-refresh", "click", () => void loadSponsors());
   on("prices-refresh", "click", () => void loadPrices());
