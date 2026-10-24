@@ -76,7 +76,7 @@ test("every agent named in the README table has its own avatar", () => {
   const readme = fs.readFileSync(path.resolve(import.meta.dirname, "../../../README.md"), "utf8");
   const line = readme.split("\n").find((item) => item.includes("IPA"));
   assert.ok(line, "README 里找不到 IPA 那一行");
-  const listed = line.match(/Grokbot\s*[、,]\s*(.+?)\s*(?:等|and other agents)/);
+  const listed = line.match(/Grokbot\s*[、,]\s*(.+?)\s*(?:等|and other (?:kinds of )?agents)/);
   assert.ok(listed, "IPA 那一行没有列出 Agent 名字");
   const names = ["Grokbot", ...listed[1].split(/[、,]/).map((name) => name.trim()).filter(Boolean)];
   assert.ok(names.length >= 7);
