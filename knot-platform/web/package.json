@@ -17,6 +17,7 @@
     "@knot/locale": "0.1.0",
     "@knot/markdown": "0.1.0",
     "@knot/photo-layout": "0.1.0",
+    "heic2any": "^0.0.4",
     "pinia": "^3.0.1",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"
