@@ -476,16 +476,16 @@ function pickReplyAudio(event) {
   if (file) setReplyAudio(file);
 }
 
-function pickPoster(event) {
+async function pickPoster(event) {
   const file = Array.from(event.target.files || [])[0];
   event.target.value = "";
-  if (file) setPosterFile(file);
+  if (file) await setPosterFile(file);
 }
 
-function pickReplyPoster(event) {
+async function pickReplyPoster(event) {
   const file = Array.from(event.target.files || [])[0];
   event.target.value = "";
-  if (file) setReplyPosterFile(file);
+  if (file) await setReplyPosterFile(file);
 }
 
 function submit() {

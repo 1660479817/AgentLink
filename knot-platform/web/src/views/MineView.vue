@@ -6,7 +6,7 @@ import { PencilIcon, RefreshIcon, UserIcon } from "../icons";
 import { t } from "../i18n";
 import { adminEntryState, adminUrl, isIntranetHost } from "../adminEntry";
 import { getAgent, issueAgent, requestAdminHandoff, retireAgent, updateProfile, uploadImage } from "../api";
-import { errorText } from "../composers/packet.js";
+import { errorText, normalizeImageFile } from "../composers/packet.js";
 import { listText } from "../format.js";
 import { useLocaleStore } from "../stores/locale.js";
 import { copyText } from "../share.js";
@@ -256,12 +256,13 @@ async function pickAvatar(event) {
   error.value = "";
   busy.value = true;
   try {
-    const img = await loadImage(file);
+    const normalized = await normalizeImageFile(file);
+    const img = await loadImage(normalized);
     if (img.naturalWidth !== img.naturalHeight || img.naturalWidth < 1) {
       error.value = t("error.bad_avatar_square");
       return;
     }
-    const uploaded = await uploadImage(file);
+    const uploaded = await uploadImage(normalized);
     const data = await updateProfile({ avatarUploadId: uploaded.id });
     session.user = data.user;
   } catch (err) {

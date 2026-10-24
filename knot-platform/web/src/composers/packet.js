@@ -29,40 +29,63 @@ export function isAttachmentFile(file) {
 }
 
 // iOS 的相机/相册可能交出 HEIC/HEIF：后端只收 JPEG、PNG、WebP、GIF、AVIF，而服务端的
-// sharp 没编进 HEVC 解码器（libde265），无法在服务端转码。这里借浏览器的原生解码
-// （iOS/macOS Safari 能解 HEIC）先转成 JPEG 再上传；解不了的浏览器退回原文件，交给
-// 后端按 bad_mime 拒绝，至少不会把一个「看起来传上去了」的坏文件发出去。
+// sharp 没编进 HEVC 解码器（libde265），无法在服务端转码，所以只能在浏览器端转成 JPEG。
+// 两条路：Safari/iOS 原生能解 HEIC，快、无依赖；Chrome/Firefox 解不了，落下 WASM 解码器
+// （heic2any，动态 import，只在这条分支才拉那份 1.3MB 的 chunk）。都失败就退回原文件，
+// 交给后端按 bad_mime 拒绝，至少不会把一个「看起来传上去了」的坏文件发出去。
 const HEIC_TYPE = /^image\/hei[cf](-sequence)?$/i;
+const HEIC_NAME = /\.hei[cf](-sequence)?$/i;
+
+function jpegFileFromBlob(blob, originalName) {
+  const name = String(originalName || "image").replace(HEIC_NAME, "") + ".jpg";
+  return new File([blob], name, { type: "image/jpeg" });
+}
+
+async function decodeHeicNatively(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("heic_decode_failed"));
+      el.src = url;
+    });
+    const width = img.naturalWidth || img.width || 0;
+    const height = img.naturalHeight || img.height || 0;
+    if (!width || !height) throw new Error("heic_decode_failed");
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!blob) throw new Error("heic_encode_failed");
+    return blob;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function decodeHeicWasm(file) {
+  const mod = await import("heic2any");
+  const heic2any = typeof mod.default === "function" ? mod.default : mod.default?.default || mod;
+  const out = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.92 });
+  const blob = Array.isArray(out) ? out[0] : out;
+  if (!blob || !blob.size) throw new Error("heic_decode_failed");
+  return blob;
+}
 
 export async function normalizeImageFile(file) {
   if (!file || typeof file !== "object") return file;
   if (!HEIC_TYPE.test(String(file.type || ""))) return file;
-  try {
-    const url = URL.createObjectURL(file);
+  for (const decode of [decodeHeicNatively, decodeHeicWasm]) {
     try {
-      const img = await new Promise((resolve, reject) => {
-        const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error("heic_decode_failed"));
-        el.src = url;
-      });
-      const width = img.naturalWidth || img.width || 0;
-      const height = img.naturalHeight || img.height || 0;
-      if (!width || !height) throw new Error("heic_decode_failed");
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
-      if (!blob) throw new Error("heic_encode_failed");
-      const name = String(file.name || "image").replace(/\.hei[cf](-sequence)?$/i, "") + ".jpg";
-      return new File([blob], name, { type: "image/jpeg" });
-    } finally {
-      URL.revokeObjectURL(url);
+      const blob = await decode(file);
+      if (blob && blob.size > 0) return jpegFileFromBlob(blob, file.name);
+    } catch {
+      // 换下一种解码方式。
     }
-  } catch {
-    return file;
   }
+  return file;
 }
 
 export function nameMark(user) {
@@ -213,20 +236,21 @@ export function usePacketMedia() {
     audio.value = null;
   }
 
-  function setPosterFile(file) {
+  async function setPosterFile(file) {
     error.value = "";
     if (!file) return;
     if (!String(file.type || "").startsWith("image/")) {
       error.value = t("error.bad_mime");
       return;
     }
-    if (file.size > MAX_BYTES) {
+    const normalized = await normalizeImageFile(file);
+    if (normalized.size > MAX_BYTES) {
       error.value = t("error.image_too_large");
       return;
     }
     removePoster();
-    posterFile.value = file;
-    posterPreview.value = URL.createObjectURL(file);
+    posterFile.value = normalized;
+    posterPreview.value = URL.createObjectURL(normalized);
   }
 
   function removePoster() {

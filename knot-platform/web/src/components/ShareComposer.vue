@@ -150,10 +150,10 @@ function pickAudio(event) {
   if (file) setAudio(file);
 }
 
-function pickPoster(event) {
+async function pickPoster(event) {
   const file = Array.from(event.target.files || [])[0];
   event.target.value = "";
-  if (file) setPosterFile(file);
+  if (file) await setPosterFile(file);
 }
 
 function submit() {
