@@ -129,7 +129,7 @@ export async function retireAgent(pool, agentId) {
   return rows[0];
 }
 
-function personalAgentName(ownerName) {
+export function personalAgentName(ownerName) {
   const suffix = " 的 Agent";
   const base = Array.from(String(ownerName || "").trim() || "用户");
   const room = Math.max(1, 40 - Array.from(suffix).length);

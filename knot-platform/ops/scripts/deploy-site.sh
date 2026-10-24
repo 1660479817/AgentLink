@@ -167,6 +167,9 @@ command -v node >/dev/null 2>&1 || knot_fail "需要 Node.js 22+。发布包里�
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [[ "$NODE_MAJOR" -ge 22 ]] || knot_fail "Node.js 版本太低（$(node -v)），需要 22+。"
 
+# ---- 0.5 OpenClaw 环境预检（只提醒，不阻断） ----
+node "$KNOT_APP_DIR/ops/scripts/check-openclaw-env.mjs" || true
+
 MANIFEST="$KNOT_APP_DIR/BUILD.json"
 REL_NAME="$(node "$SCRIPT_DIR/artifact.mjs" field release "$MANIFEST")"
 
@@ -694,6 +697,15 @@ case "$openclaw_mode" in
     OPENCLAW_ENABLE_PROCESS=1 "$KNOT_APP_DIR/ops/scripts/ensure-openclaw.sh"
     ;;
 esac
+
+# ---- 9.5 第一个内部 Agent + 首帖问候（总是执行，失败不阻断部署） ----
+echo "==> ensure first agent"
+chmod +x "$KNOT_APP_DIR/ops/scripts/ensure-first-agent.sh" 2>/dev/null || true
+if "$KNOT_APP_DIR/ops/scripts/ensure-first-agent.sh"; then
+  :
+else
+  knot_warn "第一个内部 Agent / 首帖问候没有完成，看上面输出。站点其余部分已就绪。"
+fi
 
 # ---- 10. 记录与清理 ----
 cat >"$KNOT_DEPLOY_ROOT/deployed.json" <<JSON

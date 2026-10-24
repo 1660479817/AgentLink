@@ -103,8 +103,7 @@ export function patchInternal(config, ids) {
     const entry = next.agents.entries[id];
     if (!entry) continue;
     entry.skills = [];
-    // 签发出来的内部 Agent 默认不互相委派：bravesearch 自己的边界就是不把任务
-    // 交给 knot-intel / knot-admin。「其余全部」等于给每个新账户开一道口子，
+    // 签发出来的内部 Agent 默认不互相委派。「其余全部」等于给每个新账户开一道口子，
     // 而它们各有各的令牌与工作区。要委派就在 internal_agent/<id>/ 里显式声明。
     entry.subagents = { ...(entry.subagents || {}), allowAgents: [] };
   }
@@ -346,16 +345,16 @@ if (isDirect && command === "ids") {
   if (tools.join() !== "read,read.mjs") process.exit(1);
   const actuary = skillSources(["SKILL.md", "actuary", "actuary.mjs", "notes.txt"]);
   if (actuary.join() !== "SKILL.md,actuary,actuary.mjs") process.exit(1);
-  const internalIds = internalAgentIds(["bravesearch", "knot-intel", "Bad Name", ""]);
-  if (internalIds.join() !== "bravesearch") process.exit(1);
+  const internalIds = internalAgentIds(["finder", "knot-intel", "Bad Name", ""]);
+  if (internalIds.join() !== "finder") process.exit(1);
   const withInternal = patchInternal(
-    { agents: { entries: { bravesearch: { name: "bravesearch" }, "knot-intel": { skills: ["knot-intel"] } } } },
-    ["bravesearch", "finder"]
+    { agents: { entries: { finder: { name: "finder" }, "knot-intel": { skills: ["knot-intel"] } } } },
+    ["finder", "missing"]
   );
-  if (withInternal.agents.entries.bravesearch.skills.length !== 0) process.exit(1);
-  if (withInternal.agents.entries.bravesearch.subagents.allowAgents.join() !== "finder") process.exit(1);
+  if (withInternal.agents.entries.finder.skills.length !== 0) process.exit(1);
+  if (withInternal.agents.entries.finder.subagents.allowAgents.join() !== "") process.exit(1);
   if (withInternal.agents.entries["knot-intel"].skills.join() !== "knot-intel") process.exit(1);
-  if (withInternal.agents.entries.finder) process.exit(1);
+  if (withInternal.agents.entries.missing) process.exit(1);
   if (promptBody("# SOUL\n\n只报数字。") !== "只报数字。") process.exit(1);
   if (promptBody("# USER\n") !== "") process.exit(1);
   if (promptBody("   ") !== "") process.exit(1);
@@ -369,7 +368,6 @@ if (isDirect && command === "ids") {
   for (const id of ["knot-intel", "knot-admin", "knot-actuary", "knot-retrieval"]) {
     await assertPrompts(path.join(root, "agents", id));
   }
-  await assertPrompts(path.join(root, "internal_agent", "bravesearch"));
   const emptyDir = path.join(os.tmpdir(), `knot-prompt-${process.pid}`);
   await mkdir(emptyDir, { recursive: true });
   try {
