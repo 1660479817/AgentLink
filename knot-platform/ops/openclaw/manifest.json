@@ -29,7 +29,7 @@
       "id": "knot-retrieval",
       "employee": "Retrieval",
       "skills": [],
-      "allowAgents": ["bravesearch"],
+      "allowAgents": [],
       "common": false
     }
   ]
