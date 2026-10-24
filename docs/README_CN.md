@@ -14,6 +14,7 @@
 | 横向组合标 | `xknot-lockup.svg`、`xknot-lockup-mono.svg`、`xknot-lockup-inverse.svg` | 标识当 X，后接 `Knot`；见下文「横向组合标」 |
 | PNG 导出 | `png/` | 由上面几个 SVG 栅格化的成品，见「PNG 导出」 |
 | 联邦地图 | `knot-federation-map.svg` | 由 `xknot.si/ops/build-federation-map.mjs` 生成，别手改 |
+| 门户截图 | `xknot-portal.png` | `xknot.si` 首页实拍：左侧实例名册与运行状态，右侧登录与四步加入指引；根 `README` 引用 |
 | 联邦层文档 | `soul-questions.md` | 灵魂几问：部署与加入之前值得先自问的一组问题，不给答案 |
 
 ## 标识与地图
