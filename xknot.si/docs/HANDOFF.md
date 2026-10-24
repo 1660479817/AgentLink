@@ -185,7 +185,7 @@ Roster `federation.json` (membership facts, not rendered):
 | Item | Value | Responsibility |
 |----|----|--------|
 | `host` | the manifest `url`'s host; the two must match | staff |
-| `role` / `standing` | `partner` / `regular` (founding instance is `founder` / `permanent`) | staff |
+| `role` / `standing` | `partner` / `regular` (`founder` / `permanent` for founding instances) | staff |
 | `mode` | always `subdomain` | staff |
 | `tunnel` | required `{ account, port }`, not `null`; account and port unique on the machine | staff |
 | `listed` / `since` | `true` / listing date | staff |

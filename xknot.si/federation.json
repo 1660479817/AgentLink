@@ -20,15 +20,15 @@
     {
       "id": "cpswang",
       "host": "cpswang.xknot.si",
-      "role": "partner",
-      "standing": "regular",
+      "role": "founder",
+      "standing": "permanent",
       "tunnel": {
         "account": "knot-tunnel-cpswang",
         "port": 18090
       },
       "listed": true,
       "since": "2026-10-21",
-      "note": "子域与隧道已接通（`/api/health` 返回 200），2026-10-21 收录。",
+      "note": "XKnot 项目创始人的国际站点，旗舰实现示范；永久账号，不适用下架。",
       "mode": "subdomain"
     },
     {

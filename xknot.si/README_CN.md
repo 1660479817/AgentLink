@@ -26,7 +26,7 @@
 |------|------|------|
 | `xknot.si` | 中枢 | 实例清单、简介、健康点、区域筛选 |
 | `wang.xknot.si` | 创始实例 | XKnot 项目创始人的实例，永久账号，不适用下架；`tier=paid` |
-| `cpswang.xknot.si` | 伙伴实例 | 社区成员，子域与入口隧道已接通（`/api/health` 返回 200），2026-10-21 收录；`tier=free` |
+| `cpswang.xknot.si` | 创始实例 | 创始人的国际站点，旗舰实现示范；永久账号，不适用下架；`tier=paid` |
 
 `xknot.si` 是联盟门户本身；其余子域是**实例**，每个跑一套 Knot 实例（当前实现是 `knot-platform`，含 WebUI、Backend 与 OpenClaw 配套）：自己的 Postgres、上传目录、账号、积分和审核。实例之间不共享会话、用户表和余额。每个实例与门户单线联系，门户只读。接入只依赖两样东西：`/api/health` 与中枢签发的接入件，与实例用什么软件、怎么部署无关。站点怎么介绍自己由主理人在实例的 `/admin` 里写，中枢按 `GET /api/federation/profile` 取回，不需要提交或审批。
 
@@ -194,7 +194,7 @@ npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_
 
 ## 收录与收费
 
-收录免费，走申请制。门户右栏只做邮箱 → 授权码登录与四步说明，没有申请表：申请由实例在自己的 `/admin` XKnot 栏代交（`POST /api/admin/xknot/apply` → 中枢 `POST /api/applications`），中枢收到即核对并签发子域（申请单状态直接是 `approved`，`reviewed_by` 记 `auto`），同时寄一封批准信。之后由常驻 worker 自动写进 `instances.json` 与 `federation.json`，接着自动完成账号、证书与反代；实例自己起隧道，`/api/health` 通过后 `status` 改成 `active`。新申请会邮件提醒管理员；申请不会自动改动任何已上线条目。创始实例（`wang`）是永久账号，不适用下架。
+收录免费，走申请制。门户右栏只做邮箱 → 授权码登录与四步说明，没有申请表：申请由实例在自己的 `/admin` XKnot 栏代交（`POST /api/admin/xknot/apply` → 中枢 `POST /api/applications`），中枢收到即核对并签发子域（申请单状态直接是 `approved`，`reviewed_by` 记 `auto`），同时寄一封批准信。之后由常驻 worker 自动写进 `instances.json` 与 `federation.json`，接着自动完成账号、证书与反代；实例自己起隧道，`/api/health` 通过后 `status` 改成 `active`。新申请会邮件提醒管理员；申请不会自动改动任何已上线条目。创始实例（`wang`、`cpswang`）是永久账号，不适用下架。
 
 联邦成员分 `free` 与 `paid` 两档，默认 `free`，由运营方按需改为 `paid`；`demo` 只用于版式样例。档位写在清单的 `tier` 字段，只影响门户展示与排序，不改变接入方式。
 
