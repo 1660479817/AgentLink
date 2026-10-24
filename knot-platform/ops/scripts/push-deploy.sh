@@ -284,7 +284,9 @@ deploy_dir="$1"
 rel_name="$2"
 artifact="$3"
 site="$4"
-runtime="$5"
+# 没带 --runtime 时 ${RUNTIME_ARG:-} 展开成空串，ssh 拼远程命令时末尾空参数会被丢
+# 掉，$5 直接 unbound。用 ${5:-} 把「没传」和「传了空串」都按空处理。
+runtime="${5:-}"
 
 case "$rel_name" in
   "" | */* | *..*) echo "发布包名不合法：${rel_name}" >&2; exit 2 ;;
