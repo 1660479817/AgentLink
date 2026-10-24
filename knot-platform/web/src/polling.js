@@ -1,4 +1,4 @@
-export const POLL_JITTER_RATIO = 0.2;
+const POLL_JITTER_RATIO = 0.2;
 
 export function jitteredInterval(intervalMs, random = Math.random) {
   const low = intervalMs * (1 - POLL_JITTER_RATIO);
