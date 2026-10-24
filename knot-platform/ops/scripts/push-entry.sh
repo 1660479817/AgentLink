@@ -192,12 +192,22 @@ echo "==> entry ${HOST}（${SERVE}）"
 # 当前运行的 nginx 还是旧配置，但下一次任何 reload（证书续期、别人推入口）
 # 都会失败。这里改成 备份 → 落地 → nginx -t → 通过才 reload，失败就整组还原。
 # site.conf、log、cache 三份一起测，避免 log_format 重复这类错误漏到下一次。
-# reload 命令带空格（如 `sudo systemctl reload nginx`），塞进位置参数会被远端 ssh
-# 重新拆词，后面的参数全部错位；改成主脚本跑完、确认成功后再单独发一条命令。
-ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" bash -s -- \
-  "$SERVE" "$REMOTE_STAGE" "$WEB_ROOT" "$CONF" "$LOG_CONF" "$CACHE_CONF" \
+#
+# ssh 会把命令行参数用空格拼成一行，交给远端 shell 重新拆词。任何一个值带空格
+# （reload 命令必然带），远端就会多拆出几个参数，后面的逐位错开：曾经把
+# knot-realip.conf 写到登录家目录里、名字变成 systemctl，reload 退化成裸 sudo。
+# 所以每个值都自己带引号，让远端拆词时把它们还原成一个参数。
+shq() {
+  printf "'%s'" "${1//\'/\'\\\'\'}"
+}
+REMOTE_ARGS=()
+for value in "$SERVE" "$REMOTE_STAGE" "$WEB_ROOT" "$CONF" "$LOG_CONF" "$CACHE_CONF" \
   "${KNOT_ENTRY_WEB_OWNER:-}" "${KNOT_ENTRY_ACCESS_LOG:-/var/log/nginx/knot-access.log}" \
-  "$REALIP_CONF" <<'REMOTE'
+  "${KNOT_ENTRY_RELOAD_CMD:-sudo systemctl reload nginx}" "$REALIP_CONF"; do
+  REMOTE_ARGS+=("$(shq "$value")")
+done
+
+ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" bash -s -- "${REMOTE_ARGS[@]}" <<'REMOTE'
 set -eu
 serve="$1"
 stage="$2"
@@ -207,7 +217,8 @@ log_conf="$5"
 cache_conf="$6"
 owner="$7"
 access_log="$8"
-realip_conf="$9"
+reload_cmd="$9"
+realip_conf="${10}"
 
 if [ "$serve" = "static" ]; then
   echo "    安装静态根 ${web_root}"
@@ -255,11 +266,8 @@ if ! sudo nginx -t; then
   echo "nginx -t 没通过，已把入口配置还原成推送前的样子。常见原因：证书没签好、端口被占、域名写错。" >&2
   exit 1
 fi
+sh -c "$reload_cmd"
 REMOTE
-
-# 主脚本成功（含 nginx -t 通过）才 reload：把整条命令作为单个参数交给 ssh，
-# 由远端 shell 自己拆词，带空格的自定义命令也能原样执行。
-ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" "${KNOT_ENTRY_RELOAD_CMD:-sudo systemctl reload nginx}"
 
 echo
 echo "OK: xknot.si 子域入口 $HOST 已更新"

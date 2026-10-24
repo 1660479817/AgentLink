@@ -29,8 +29,8 @@ import {
   renderClaimResult,
 } from "./pages.mjs";
 import { RELAY_LIMITS, domainOf, relayMessage, validateRelayRequest } from "./relay.mjs";
-import { ipHash } from "./store.mjs";
-import { LIMITS, validateApplication } from "./validate.mjs";
+import { ipHash, normalizeUsername } from "./store.mjs";
+import { LIMITS, normalizePublicKey, validateApplication } from "./validate.mjs";
 
 const BODY_LIMIT = 16 * 1024;
 const COOKIE = "xknot_admin";
@@ -89,12 +89,17 @@ function parseCookies(header) {
 function readBody(req) {
   return new Promise((resolve) => {
     let size = 0;
+    let tooLarge = false;
     const chunks = [];
     req.on("data", (chunk) => {
+      if (tooLarge) return;
       size += chunk.length;
       if (size > BODY_LIMIT) {
-        req.destroy();
-        resolve({ error: "too_large" });
+        // 这里不能 destroy：socket 一关，调用方那个 413 就写不出去，
+        // 客户端只会看到连接重置。剩下的体继续读进来再丢掉，让响应能发完。
+        tooLarge = true;
+        chunks.length = 0;
+        resolve(bodyFailure("too_large"));
         return;
       }
       chunks.push(chunk);
@@ -110,28 +115,71 @@ function readBody(req) {
           for (const [key, value] of params) out[key] = value;
           return resolve(out);
         } catch {
-          return resolve({ error: "bad_json" });
+          return resolve(bodyFailure("bad_json"));
         }
       }
       try {
         const parsed = JSON.parse(raw);
         resolve(parsed && typeof parsed === "object" ? parsed : {});
       } catch {
-        resolve({ error: "bad_json" });
+        resolve(bodyFailure("bad_json"));
       }
     });
-    req.on("error", () => resolve({ error: "bad_json" }));
+    req.on("error", () => resolve(bodyFailure("bad_json")));
   });
 }
 
+// 每个写接口对「体太大」「JSON 坏」这两种失败的回应必须一样。
+// 以前是各写一段：有的回 413，有的落到后面的字段校验变成 400 invalid，
+// 同一个客户端错误在不同端点上拿到不同的码，排查时看不出是哪里坏的。
+//
+// 返回 null 表示已经写过响应，调用方直接 return。
+// 读体失败的标记。不能用 `body.error` 判断：那是一个合法的 JSON 字段名，
+// 客户端发 `{"error":"too_large"}` 时会被当成读体失败、直接回 413，
+// 把一次正常的业务请求变成传输层错误。符号不会出现在 JSON 里，所以只可能由这里设上。
+const BODY_ERROR = Symbol("knot.bodyError");
+function bodyFailure(kind) {
+  const value = { error: kind };
+  Object.defineProperty(value, BODY_ERROR, { value: kind, enumerable: false });
+  return value;
+}
+
+async function readJsonBody(req, res) {
+  const body = await readBody(req);
+  const failure = body[BODY_ERROR];
+  if (failure === "too_large") {
+    send(res, 413, { error: "too_large" });
+    return null;
+  }
+  if (failure === "bad_json") {
+    send(res, 400, { error: "bad_json" });
+    return null;
+  }
+  return body;
+}
+
 // 简单的滑动窗口计数：单进程够用，重启后清零。
+//
+// Map 里的键来自外部地址（ipHash），不清就会一直涨：过期的时间戳不会自己消失，
+// 只有同一个键再次命中时才被 filter 重写。所以计数清空时把键删掉，并在键数
+// 超过上限时清理一遍已经过期的桶——公开端点不能凭换来源地址把内存撑到无界。
+const LIMITER_MAX_KEYS = 20_000;
+
 function createLimiter({ windowMs, max, store = new Map() }) {
+  const sweep = (now) => {
+    for (const [key, stamps] of store) {
+      const alive = stamps.filter((at) => now - at < windowMs);
+      if (!alive.length) store.delete(key);
+      else store.set(key, alive);
+    }
+  };
   return function hit(key, now = Date.now()) {
     const recent = (store.get(key) || []).filter((at) => now - at < windowMs);
     if (recent.length >= max) {
       store.set(key, recent);
       return { allowed: false, retryAfter: Math.ceil((windowMs - (now - recent[0])) / 1000) };
     }
+    if (store.size >= LIMITER_MAX_KEYS) sweep(now);
     recent.push(now);
     store.set(key, recent);
     return { allowed: true };
@@ -190,7 +238,7 @@ function tokensFrom(value) {
 }
 
 // 接口自己的版本号，/api/health 与总览用同一个。
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 // 清单里的名称按语种存放；总览是运营视图，优先简体，再英文，最后 id。
 function instanceName(instance) {
@@ -245,6 +293,9 @@ export function createApp({ store, config }) {
   const partnerDomainLimit = createLimiter({ windowMs: 86400_000, max: PARTNER_MAIL_LIMITS.domain });
   const partnerGlobalLimit = createLimiter({ windowMs: 86400_000, max: PARTNER_MAIL_LIMITS.global });
   const pageLimit = createLimiter({ windowMs: 900_000, max: 60 });
+  // 案例页与领取页的 GET 每个请求都是一次库查询。不限流就能拿它当探键器，
+  // 按案例键一枚一枚试过去。只读页面放宽到每分钟 60 次，够正常刷新。
+  const pageViewLimit = createLimiter({ windowMs: 60_000, max: 60 });
   // 子域查询是公开接口：给一个按 IP 的宽松上限，够一个人反复敲名字，
   // 又不足以把整个空间枚举一遍。
   const subdomainLimit = createLimiter({ windowMs: 60_000, max: 30 });
@@ -254,6 +305,11 @@ export function createApp({ store, config }) {
   const memberCodeIpLimit = createLimiter({ windowMs: 3600_000, max: 10 });
   const memberLoginLimit = createLimiter({ windowMs: 900_000, max: 12 });
   const mailer = config.mailer || null;
+  // 发信总闸：环境里配好了 SMTP 只是「能发」，控制台那一行才是「现在发不发」。
+  // 读库而不是读一个常量：开关改完立刻对接口、CLI、worker 同时生效，不用重启。
+  // 没有这一行时按「开」算——老部署升级上来行为不变。
+  const mailSwitchOff = () => store.getSetting("mail")?.value === "off";
+  const mailOpen = () => Boolean(mailer) && !mailSwitchOff();
   const adminEmail = String(config.adminEmail || "").trim();
   const origin = String(config.origin || "https://xknot.si").replace(/\/+$/, "");
   const supportUrl = String(config.supportUrl || "").trim();
@@ -272,7 +328,12 @@ export function createApp({ store, config }) {
     return list.find((item) => item?.id === id) || null;
   }
   const relayMailer = mailer;
-  const relayEnabled = Boolean(config.relay?.enabled) && Boolean(relayMailer);
+  // 环境开关是一道闸：配了 SMTP、且没被 XKNOT_RELAY_ENABLED=0 关掉。
+  const relayConfigured = Boolean(config.relay?.enabled) && Boolean(relayMailer);
+  // 「环境变量明确关了」与「压根没配这一项」要分开：只有前者会锁住控制台的开关。
+  const relayEnvOff = config.relay?.enabled === false;
+  // 实际放行还要过控制台那一行：停发信时委托发信一起停，端侧看到 503。
+  const relayOpen = () => relayConfigured && mailOpen();
   const relayDefaultLimit = Math.min(Math.max(Number(config.relay?.dailyLimit) || 50, 1), 5000);
   const relayMinuteLimit = createLimiter({ windowMs: 60_000, max: RELAY_LIMITS.perMinute });
   const relayHourLimit = createLimiter({ windowMs: 3600_000, max: RELAY_LIMITS.perHour });
@@ -300,6 +361,28 @@ export function createApp({ store, config }) {
     } catch {
       return {};
     }
+  }
+
+  // 门户的探测结果：只给状态这一层，不给 checks / notified 这类运营字段。
+  //
+  // `data/hub.json` 是构建那一刻的采样，重新构建才会更新；这个接口读的是
+  // `var/health.json`，每 15 分钟一轮，门户拿它把状态换成当前值。
+  function readProbes() {
+    const health = readHealth();
+    const states = health.instances && typeof health.instances === "object" ? health.instances : {};
+    const probes = {};
+    for (const [id, state] of Object.entries(states)) {
+      if (!state || typeof state !== "object") continue;
+      probes[id] = {
+        status: typeof state.status === "string" ? state.status : "unknown",
+        latencyMs: Number.isFinite(state.latencyMs) ? state.latencyMs : null,
+        version: typeof state.version === "string" ? state.version : null,
+        lastOkAt: state.lastOkAt || null,
+        downSince: state.downSince || null,
+        hidden: Boolean(state.hiddenAt),
+      };
+    }
+    return { checkedAt: health.checkedAt || null, probes };
   }
 
   // 站点位置由 provision worker 按隧道对端写进 var/geoip/locations.json。
@@ -650,69 +733,71 @@ export function createApp({ store, config }) {
         approvedNotListed,
       },
       mail: {
-        enabled: Boolean(mailer),
-        relayEnabled,
+        // enabled 是「现在发不发」，configured 是「有没有配 SMTP」。两者分开报：
+        // 只给一个布尔，控制台分不清「没配 SMTP」与「被总闸关了」。
+        enabled: mailOpen(),
+        configured: Boolean(mailer),
+        switch: mailSwitchOff() ? "off" : "on",
         windowHours: 24,
         ...store.notifyStats(since),
       },
       relay: {
-        enabled: relayEnabled && Boolean(mailer),
+        enabled: relayOpen(),
+        configured: relayConfigured,
+        // 环境变量单独关掉了代发（XKNOT_RELAY_ENABLED=0）：控制台的开关没关，
+        // 但节点侧已经撞墙。面板要把这句说出来，别让人以为代发是好的。
+        envOff: relayEnvOff,
         windowHours: 24,
         tokens: tokens.length,
         activeTokens: tokens.filter((token) => !token.revokedAt).length,
+        // 每实例开关关掉的那些：凭据还在，只是暂停受理。
+        disabled: store.listRelaySwitches().map((row) => row.instanceId),
         ...store.relayStats(since),
       },
       events: store.events(12),
     };
   }
 
-  // 发信是副作用，不能拖住提交和审核。正文组装和发送都放进 Promise，
-  // 任何一步失败只记日志，接口照常返回。
-  function notify(build) {
-    if (!mailer) return;
-    Promise.resolve()
-      .then(() => (typeof build === "function" ? build() : build))
-      .then((message) => {
-        if (!message || !message.to) return;
-        return mailer.send(message);
-      })
-      .catch((error) => {
-        console.error("mail failed:", error.message);
-      });
-  }
-
   // 发一封伙伴信或内部信：去重 → 限流 → 发送 → 记日志。
   // 状态迁移类事件靠 (event, case_id, state_version) 唯一索引去重；
   // 运营类事件（签发、交付、上线）不传版本号，允许补发。
+  //
+  // extra 来自管理员请求（补信的模板变量），必须展开在配置项之前：
+  // 反过来就等于让请求体覆盖 origin / replyTo，一封信里的所有链接
+  // 可以被指到任意域，回信地址也能被换掉。
   function dispatchMail(eventName, application, extra = {}, { dedupeVersion = null } = {}) {
-    if (!mailer) return null;
+    // 总闸关着就不排队、不占去重位：打开之后同一件事还能补发一次。
+    // 这里不写 notify_log，否则「停发期间的那封信」会变成一个永远 sent 不了的占位。
+    if (!mailOpen()) return null;
     let message = null;
+    let reserved = null;
     try {
       message = buildMail(eventName, application, {
+        ...extra,
         origin,
         adminEmail,
         supportUrl,
         replyTo,
-        ...extra,
+      });
+      if (!message || !message.to) return null;
+      reserved = store.beginNotify({
+        event: eventName,
+        caseId: application?.id || null,
+        stateVersion: dedupeVersion,
+        locale: message.locale,
+        toDomain: domainOf(message.to),
+        toHash: createHash("sha256").update(message.to.toLowerCase()).digest("hex").slice(0, 16),
+        templateVersion: message.templateVersion || TEMPLATE_VERSION,
       });
     } catch (error) {
-      console.error("mail build failed:", eventName, error.message);
+      // beginNotify 也会抛（锁、磁盘）。它在申请单落库之后才跑，抛出去就是 500，
+      // 而客户端重试只会拿到 409 duplicate，永远拿不到案例链接。
+      console.error("mail dispatch failed:", eventName, error.message);
       return null;
     }
-    if (!message || !message.to) return null;
-
+    if (reserved.duplicate) return { duplicate: true };
     const recipientDomain = domainOf(message.to);
     const recipientHash = createHash("sha256").update(message.to.toLowerCase()).digest("hex").slice(0, 16);
-    const reserved = store.beginNotify({
-      event: eventName,
-      caseId: application?.id || null,
-      stateVersion: dedupeVersion,
-      locale: message.locale,
-      toDomain: recipientDomain,
-      toHash: recipientHash,
-      templateVersion: message.templateVersion || TEMPLATE_VERSION,
-    });
-    if (reserved.duplicate) return { duplicate: true };
 
     const isPartner = message.audience === "partner";
     if (isPartner) {
@@ -736,12 +821,12 @@ export function createApp({ store, config }) {
     return { id: reserved.id, message };
   }
 
-  // 提交与验证各配一封伙伴信 + 一封内部信；状态迁移由 review 触发。
-  // 案例页的「重新发送」传 dedupe:false：那是显式重发，不该被幂等键挡住。
   // 提交即通过：一封信把回执与结果一起说清，另发一封给运营方。
-  function mailApplicationReceived(application, { dedupe = true } = {}) {
+  // 幂等键取申请单的状态版本；想要「显式重发」时走管理员补信接口，
+  // 那条路径不传版本号（state_version 为 NULL，唯一索引视作互不相等）。
+  function mailApplicationReceived(application) {
     if (!application) return;
-    const version = dedupe ? application.stateVersion : null;
+    const version = application.stateVersion;
     dispatchMail("partner.approved", application, {}, { dedupeVersion: version });
     // 全站每小时最多 30 封内部告警，防止有人靠刷申请把管理员信箱打爆。
     if (noticeLimit("admin").allowed) {
@@ -788,7 +873,7 @@ export function createApp({ store, config }) {
 
   // ---- 委托发信：POST 送一封，GET 查额度 ----
   async function handleRelay(req, res) {
-    if (!relayEnabled) return send(res, 503, { error: "relay_unavailable" });
+    if (!relayOpen()) return send(res, 503, { error: "relay_unavailable" });
 
     const token = bearerToken(req);
     if (!token) return send(res, 401, { error: "missing_token" });
@@ -799,6 +884,10 @@ export function createApp({ store, config }) {
     const listed = findInstance(grant.token.instanceId);
     if (!listed) return send(res, 403, { error: "instance_not_listed" });
     if (listed.status !== "active") return send(res, 403, { error: "instance_inactive" });
+    // 每实例开关：关掉就只是暂停受理，凭据与额度都还在，打开即恢复。
+    // 与 401 token_revoked 分开报，实例侧从状态码就能看出「还该不该等」。
+    const gate = store.relaySwitch(grant.token.instanceId);
+    if (gate.disabled) return send(res, 403, { error: "relay_disabled" });
     const instance = withSite(listed);
 
     const limit = Math.min(grant.token.dailyLimit || relayDefaultLimit, relayDefaultLimit);
@@ -826,9 +915,8 @@ export function createApp({ store, config }) {
       });
     }
 
-    const body = await readBody(req);
-    if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-    if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+    const body = await readJsonBody(req, res);
+    if (!body) return;
 
     const checked = validateRelayRequest(body, { instance, from: relayMailer.from });
     if (!checked.ok) return send(res, 400, { error: "invalid", fields: checked.errors });
@@ -892,9 +980,13 @@ export function createApp({ store, config }) {
 
     const casePage = /^\/case\/([A-Za-z0-9_-]{6,64})$/.exec(route);
     if (casePage && (method === "GET" || method === "HEAD")) {
+      if (!pageViewLimit(ipHash(clientIp(req, trustProxy), secret)).allowed) {
+        return sendHtml(res, 429, renderCasePage(null, { rateLimited: true }));
+      }
       const application = store.findByCaseKey(casePage[1]);
+      const keyState = url.searchParams.get("key");
       const result = {
-        publicKey: url.searchParams.get("key") === "1" ? "saved" : undefined,
+        publicKey: keyState === "1" ? "saved" : keyState || undefined,
         withdrawn: url.searchParams.get("withdrawn") === "1" ? 1 : undefined,
       };
       return sendHtml(res, application ? 200 : 404, renderCasePage(application, result));
@@ -902,6 +994,9 @@ export function createApp({ store, config }) {
 
     const claimPage = /^\/claim\/([A-Za-z0-9_-]{8,128})$/.exec(route);
     if (claimPage && (method === "GET" || method === "HEAD")) {
+      if (!pageViewLimit(ipHash(clientIp(req, trustProxy), secret)).allowed) {
+        return sendHtml(res, 429, renderClaimResult("rate_limited", null, "zh-CN"));
+      }
       return sendHtml(res, 200, renderClaimPage(claimPage[1], null, "zh-CN"));
     }
 
@@ -912,7 +1007,9 @@ export function createApp({ store, config }) {
       return serveAdminFile(req, res, route.slice("/admin".length) || "/");
     }
 
-    if (route === "/api/health") {
+    // 只回 GET/HEAD：/api/ 下其余端点在非 GET/POST 时一律 405，
+    // 健康检查不能因为落在方法检查之前就成了「什么方法都 200」。
+    if (route === "/api/health" && (method === "GET" || method === "HEAD")) {
       return send(res, 200, {
         ok: true,
         service: "xknot-hub",
@@ -920,6 +1017,10 @@ export function createApp({ store, config }) {
         at: new Date().toISOString(),
       });
     }
+
+    // 路径在、方法不对，就是 405。不接这一段的话 POST /api/health 会一路落到
+    // 下面的「要管理员会话」，回 401——把方法错误说成没登录，调用方会去修凭据。
+    if (route === "/api/health") return send(res, 405, { error: "method_not_allowed" });
 
     if (!route.startsWith("/api/")) return send(res, 404, { error: "not_found" });
 
@@ -935,6 +1036,15 @@ export function createApp({ store, config }) {
 
     if (route === "/api/locations" && method === "GET") {
       return send(res, 200, readLocations(), { "cache-control": "no-store" });
+    }
+
+    // ---- 公开：每个实例现在的探测结果 ----
+    //
+    // 快照里的 health 是构建那一刻的采样：一次短暂掉线如果正好碰上部署，
+    // 会一直挂在门户上直到下一次构建。页面另取这一份覆盖状态，位置同理。
+
+    if (route === "/api/probes" && method === "GET") {
+      return send(res, 200, readProbes(), { "cache-control": "no-store" });
     }
 
     // 同源检查放在最前：跨站表单、跨站脚本都进不来。
@@ -977,7 +1087,7 @@ export function createApp({ store, config }) {
 
     if (route === "/api/member/code" && method === "POST") {
       // 没有发信能力时明确说一句：否则用户会一直等一封不会来的信。
-      if (!mailer) return send(res, 503, { error: "mail_unavailable" });
+      if (!mailOpen()) return send(res, 503, { error: "mail_unavailable" });
 
       const ip = clientIp(req, trustProxy);
       const ipHit = memberCodeIpLimit(ipHash(ip, secret));
@@ -990,9 +1100,8 @@ export function createApp({ store, config }) {
         );
       }
 
-      const body = await readBody(req);
-      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-      if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
 
       const email = normalizeEmail(body.email);
       if (!email) return send(res, 400, { error: "invalid_email" });
@@ -1043,9 +1152,8 @@ export function createApp({ store, config }) {
         );
       }
 
-      const body = await readBody(req);
-      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-      if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
 
       const email = normalizeEmail(body.email);
       const code = String(body.code || "").replace(/\s+/g, "");
@@ -1134,14 +1242,22 @@ export function createApp({ store, config }) {
       }
 
       if (action === "public-key") {
+        // 这两条路径回的是 HTML 页面，不是 JSON，所以不走 readJsonBody：
+        // 超限与坏 JSON 都落到同一个「这不是一份可用的公钥」结果上（页面上是 key=invalid），
+        // 不为了 413 再多一种页面状态。
         const body = await readBody(req);
-        const text = String(body.publicKey || "").trim();
-        if (!/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9-]+)\s+[A-Za-z0-9+/=]+(\s+.*)?$/.test(text) || text.length > 1000) {
-          res.writeHead(303, { location: `/case/${key}`, "cache-control": "no-store" });
+        // 校验只在 validate.mjs 一处：这里、store.setPublicKey、provision 写
+        // authorized_keys 之前都过同一个函数，不再各写一条正则。
+        // 失败不能静默 303 回一个「什么都没发生」的页面：改前改后长得一样，
+        // 用户只会以为存上了。三种失败分别带一个标记回案例页。
+        const text = body.error ? "" : normalizePublicKey(body.publicKey);
+        if (!text) {
+          res.writeHead(303, { location: `/case/${key}?key=invalid`, "cache-control": "no-store" });
           return res.end();
         }
-        store.setPublicKey({ id: application.id, publicKey: text });
-        res.writeHead(303, { location: `/case/${key}?key=1`, "cache-control": "no-store" });
+        const saved = store.setPublicKey({ id: application.id, publicKey: text });
+        const state = saved.error ? (saved.error === "not_approved" ? "closed" : "invalid") : "1";
+        res.writeHead(303, { location: `/case/${key}?key=${state}`, "cache-control": "no-store" });
         return res.end();
       }
     }
@@ -1161,7 +1277,9 @@ export function createApp({ store, config }) {
       const run = store.getProvisionRun(application.id);
       const ready = run && (run.state === "awaiting_tunnel" || run.state === "active");
       // 接入件要的三样事实（id、地址、档位）在这里给全，实例就不必自己猜。
-      const listed = findInstance(application.subdomain || "") || null;
+      // 认实例要和别处同一个口径（url 主机优先），不能用子域标签当 id：
+      // 清单的 id 是签发时按主机名推的，edit.mjs 又允许改 url，两者会分叉。
+      const listed = instanceOfApplication(application);
       return send(res, 200, {
         application: {
           id: application.id,
@@ -1195,14 +1313,25 @@ export function createApp({ store, config }) {
     // ---- 伙伴：一次性领取 ----
 
     if (route === "/api/claim" && method === "POST") {
-      const body = await readBody(req);
+      // 限流放在读体之前：先按体大小做一次内存分配再判限流，等于把限流器
+      // 挡不住的那部分成本照单全收。
       const limited = pageLimit(ipHash(clientIp(req, trustProxy), secret));
-      if (!limited.allowed) return sendHtml(res, 429, renderClaimResult("missing", null, "zh-CN"));
-      const result = store.consumeClaimToken(body.token);
+      if (!limited.allowed) return sendHtml(res, 429, renderClaimResult("rate_limited", null, "zh-CN"));
+      const body = await readBody(req);
+      // 回的是领取结果页，不是 JSON，所以不走 readJsonBody。任何读体的失败
+      // 都按「这个令牌用不了」处理：它是能力凭据，页面不该因为 413 而透露
+      // 「令牌本身可能有效、只是体太大」。
+      const result = body.error
+        ? { error: "missing" }
+        : store.consumeClaimToken(body.token);
       if (result.error === "missing") return sendHtml(res, 404, renderClaimResult("missing", null, "zh-CN"));
       if (result.error === "not_found") return sendHtml(res, 404, renderClaimResult("missing", null, "zh-CN"));
       if (result.error === "expired") return sendHtml(res, 410, renderClaimResult("expired", null, "zh-CN"));
       if (result.error === "already_used") return sendHtml(res, 409, renderClaimResult("used", null, "zh-CN"));
+      // 申请撤回后令牌一并失效：这份链接对应的单已经不在办了，按「找不到」回。
+      if (result.error === "application_closed") {
+        return sendHtml(res, 404, renderClaimResult("missing", null, "zh-CN"));
+      }
       return sendHtml(res, 200, renderClaimResult("ok", result.payload, "zh-CN"));
     }
 
@@ -1217,9 +1346,8 @@ export function createApp({ store, config }) {
         });
       }
 
-      const body = await readBody(req);
-      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-      if (body.error === "bad_json") return send(res, 400, { error: "bad_json" });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
 
       // 表单里藏了一个正常用户看不见的字段，填了就当机器人，直接回成功。
       if (typeof body.website === "string" && body.website.trim() !== "") {
@@ -1230,6 +1358,8 @@ export function createApp({ store, config }) {
       if (!checked.ok) return send(res, 400, { error: "invalid", fields: checked.errors });
 
       // 同一个子域只留一条有效申请；撤回之后可以重新提交。
+      // 预检只是提前给个准话，真正的裁决是库里的唯一索引——预检与插入之间
+      // 没有锁，另一个进程（backfill、另一个 worker）可以先插进来。
       const duplicate = store.findOpenBySubdomain(checked.value.subdomain);
       if (duplicate) return send(res, 409, { error: "duplicate" });
 
@@ -1242,6 +1372,8 @@ export function createApp({ store, config }) {
         ipHash: ipHash(ip, secret),
         requestServices: services,
       });
+      if (application.error === "duplicate") return send(res, 409, { error: "duplicate" });
+      if (application.error) return send(res, 500, { error: "apply_failed" });
 
       // 提交即通过；没有 SMTP 时只是入队，申请本身已经结案。
       mailApplicationReceived(application);
@@ -1267,11 +1399,14 @@ export function createApp({ store, config }) {
         });
       }
 
-      const body = await readBody(req);
+      const body = await readJsonBody(req, res);
+      if (!body) return;
       if (typeof body.username !== "string" || typeof body.password !== "string") {
         return send(res, 400, { error: "invalid" });
       }
-      const usernameKey = createHash("sha256").update(body.username.toLowerCase()).digest("hex");
+      // 限流桶的键必须与查库用的账号同一个归一化：用 body.username 原样小写的话，
+      // 「admin 」和「admin」是两个桶，同一个账号的每账号 12 次就形同虚设。
+      const usernameKey = createHash("sha256").update(normalizeUsername(body.username)).digest("hex");
       if (!loginLimit(`user:${usernameKey}`).allowed) {
         return send(res, 429, { error: "rate_limited", retryAfter: 900 });
       }
@@ -1313,12 +1448,22 @@ export function createApp({ store, config }) {
       return send(res, 200, buildOverview());
     }
 
+    // 发信总闸。只有两个取值，落库而不是改配置：改完立刻生效，不用登机器、
+    // 不用改 env、不用重启。要回到「按环境变量的默认值」，清掉这一行即可。
+    if (route === "/api/admin/mail" && method === "POST") {
+      const body = await readJsonBody(req, res);
+      if (!body) return;
+      if (typeof body.enabled !== "boolean") return send(res, 400, { error: "invalid" });
+      const result = store.setSetting("mail", body.enabled ? "on" : "off", admin.username);
+      if (result.error) return send(res, 500, { error: result.error });
+      return send(res, 200, { ok: true, mail: { enabled: mailOpen(), switch: body.enabled ? "on" : "off" } });
+    }
+
     // 改实例配置：清单字段与名册字段一起提交，先校验整份文件再原子写回。
     const instanceConfig = /^\/api\/admin\/instances\/([a-z0-9][a-z0-9-]{0,30}[a-z0-9])\/config$/.exec(route);
     if (instanceConfig && method === "POST") {
-      const body = await readBody(req);
-      if (body.error === "too_large") return send(res, 413, { error: "too_large" });
-      if (body.error) return send(res, 400, { error: "bad_json" });
+      const body = await readJsonBody(req, res);
+      if (!body) return;
 
       const result = await updateInstanceConfig({
         instancesFile: settings.instancesFile,
@@ -1372,7 +1517,8 @@ export function createApp({ store, config }) {
     // 补发/重发伙伴信。运营类事件不传版本号，允许人工补寄。
     const notifyRoute = /^\/api\/admin\/applications\/([A-Za-z0-9-]+)\/notify$/.exec(route);
     if (notifyRoute && method === "POST") {
-      const body = await readBody(req);
+      const body = await readJsonBody(req, res);
+      if (!body) return;
       const application = store.getApplication(notifyRoute[1]);
       if (!application) return send(res, 404, { error: "not_found" });
       const event = String(body.event || "");
@@ -1392,7 +1538,8 @@ export function createApp({ store, config }) {
     // 交付：把接入资料写进一次性领取令牌，再把链接寄给主理人。
     const handoff = /^\/api\/admin\/applications\/([A-Za-z0-9-]+)\/handoff$/.exec(route);
     if (handoff && method === "POST") {
-      const body = await readBody(req);
+      const body = await readJsonBody(req, res);
+      if (!body) return;
       const application = store.getApplication(handoff[1]);
       if (!application) return send(res, 404, { error: "not_found" });
       if (application.status !== "approved") return send(res, 409, { error: "not_approved" });
@@ -1401,16 +1548,22 @@ export function createApp({ store, config }) {
       if (!payload) return send(res, 400, { error: "invalid", fields: { payload: "required" } });
       if (payload.length > 8000) return send(res, 413, { error: "too_large" });
 
+      const ttlHours = Math.min(Math.max(Number(body.ttlHours) || 72, 1), 168);
       const claim = store.createClaimToken({
         applicationId: application.id,
         payload,
-        ttlHours: Math.min(Math.max(Number(body.ttlHours) || 72, 1), 168),
+        ttlHours,
         createdBy: admin.username,
       });
       if (claim.error) return send(res, 400, { error: claim.error });
 
       const links = { claimUrl: `${origin}/claim/${claim.token}` };
-      const result = dispatchMail("partner.handoff", application, { ...body.context, links }, {});
+      const result = dispatchMail(
+        "partner.handoff",
+        application,
+        { ...body.context, links, claimTtlHours: ttlHours },
+        {}
+      );
       if (!result) return send(res, 503, { error: "mail_unavailable" });
       if (result.throttled) return send(res, 429, { error: "throttled" });
 
