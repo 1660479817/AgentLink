@@ -275,7 +275,7 @@ onMounted(async () => {
           inputmode="numeric"
           autocomplete="one-time-code"
           maxlength="6"
-          placeholder="000000"
+          :placeholder="t('join.codePlaceholder')"
           :aria-invalid="codeError"
           :aria-describedby="codeError ? 'member-code-error' : 'member-code-help'"
         />

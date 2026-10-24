@@ -1,4 +1,4 @@
-export function metaOf(item) {
+function metaOf(item) {
   return item?.kMeta || {};
 }
 

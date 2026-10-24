@@ -18,7 +18,7 @@ export function browserStorage() {
   }
 }
 
-export function isBoard(value) {
+function isBoard(value) {
   return Array.isArray(value?.information) && Array.isArray(value?.requests);
 }
 

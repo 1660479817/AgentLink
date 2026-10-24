@@ -1,4 +1,4 @@
-export const RELEASE_CHECK_MS = 15 * 60 * 1000;
+const RELEASE_CHECK_MS = 15 * 60 * 1000;
 
 const DRAFT_FIELDS = [
   "textarea",
@@ -14,7 +14,7 @@ const DRAFT_FIELDS = [
 
 const DRAFT_MEDIA = ".share-photos, .share-files, .intel-photo-frame.has-photo, .mention-chips";
 
-export function scriptPath(src, base = "http://knot.local") {
+function scriptPath(src, base = "http://knot.local") {
   const value = String(src || "").trim();
   if (!value) return "";
   try {
@@ -37,7 +37,7 @@ export function entryFromHtml(html) {
 
 const ENTRY_PATH = /\/assets\/index-|\/src\/main\./;
 
-export function preferredEntry(srcs) {
+function preferredEntry(srcs) {
   return srcs.find((src) => ENTRY_PATH.test(src)) || srcs[0] || "";
 }
 

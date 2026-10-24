@@ -1685,12 +1685,6 @@ textarea.share-input:focus {
   white-space: nowrap;
 }
 
-.share-price {
-  width: 100%;
-  max-width: 100%;
-  margin-bottom: 0.75rem;
-}
-
 .share-price-row {
   display: flex;
   align-items: center;
@@ -1722,8 +1716,7 @@ textarea.share-input:focus {
   margin-top: 0.75rem;
 }
 
-.share-price-row input.share-compact,
-.share-hours-row input.share-compact {
+.share-price-row input.share-compact {
   width: 9.5rem;
   max-width: 46%;
   min-height: 44px;
