@@ -74,7 +74,9 @@ mkdir -p "$OUT"
 VERSION="$("$NODE" -p "require('$APP/backend/package.json').version")"
 COMMIT="$(git -C "$APP" rev-parse --short HEAD 2>/dev/null || echo nogit)"
 DIRTY=""
-if [[ "$COMMIT" != "nogit" ]] && [[ -n "$(git -C "$APP" status --porcelain --untracked-files=no 2>/dev/null | head -c 1)" ]]; then
+# 只看本项目的改动：git status 在子目录里仍会报出整仓的改动，别的项目脏了
+# 也会把 knot-platform 的发布包标成 dirty，真正脏了反而分不出来。
+if [[ "$COMMIT" != "nogit" ]] && [[ -n "$(git -C "$APP" status --porcelain --untracked-files=no -- . 2>/dev/null | head -c 1)" ]]; then
   DIRTY=1
   echo "警告：工作区有未提交的改动，发布包会标记为 dirty。"
 fi
