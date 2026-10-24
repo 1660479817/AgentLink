@@ -142,7 +142,7 @@ Each end-to-end file starts its own deployment, sharing no port, database, or ra
 |------|------|
 | `portal.spec.mjs` | renders all cards from `hub.json`, map visible, entries link back to origin; trilingual switching and `aria-current`; light/dark; region filter and "online only"; "showcase only"; no horizontal overflow at 360/390/768/1280; keyboard reachability and form labels; no script errors under CSP |
 | `member.spec.mjs` | right column has only the email field and the four-step join guide, no application form; no request until the email is complete; after logging in with a code from real mail, see the site's status, health, and counts; no state leftover after logout; at 390px the two fields and login button are ≥44px and the right column does not overflow |
-| `admin.spec.mjs` | login failure message; login → pending list → detail → approve → generate manifest entry → logout; clicking an instance expands its config in place; in-place edit, illegal values not written, draft not lost; repeated approve keeps the same state; no script errors under CSP |
+| `admin.spec.mjs` | login failure message; login → open an approved application → generate manifest entry → logout; clicking an instance expands its config in place; in-place edit, illegal values not written, draft not lost; approved applications no longer offer an approve action and the list doesn't duplicate; no script errors under CSP |
 
 Browser cases also assert the page has **no** `pageerror` and no CSP violation. This assertion has caught two real classes of bug: inline styles blocked by the console CSP, and fonts inlined by Vite as `data:` then blocked by `font-src 'self'`.
 

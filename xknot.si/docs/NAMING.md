@@ -57,7 +57,7 @@ The mnemonic: **profile, status, showcase.** One word per layer; saying "he only
 | 伙伴 | partner | `partner` | an entity that operates an instance | 商户、加盟商、客户 |
 | 运营方 | operator | `operator` | the operating entity that signs outward | 站长、厂商 |
 | 主理人 | owner | `owner` | the person responsible for a specific instance | 管理员、负责人 |
-| 站点档案 | site profile | L1 | the identity information a person writes into the manifest | 资料、简介页、商家信息 |
+| 站点档案 | site profile | L1 | the hub-written issued zone plus the owner-written self-described zone | 资料、简介页、商家信息 |
 | 实例清单 | instance manifest | `instances.json` | the single instance registry file | 注册表、数据库 |
 | 运行状态 | runtime status | L2 | the health and version the hub probes | 监控、埋点 |
 | 健康探测 | health probe | `check-health` | the scheduled GET of an instance's `/api/health` | 心跳、巡检（巡检另有其义） |

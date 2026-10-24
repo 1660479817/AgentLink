@@ -19,9 +19,9 @@
 | 橱窗拉取 | 构建步骤 | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
 | Agent 指引 | 构建步骤 | 仓库根 `docs/KNOT_HELP.md`（英文正文，唯一发布的源文件）渲染成 `dist/knot-help.html`，并原样复制成 `dist/knot-help.md`；同目录 `docs/KNOT_HELP_CN.md` 只作中文对照，不进构建 |
 
-门户本身仍然是静态文件，所有实例数据在构建时写入。数据侧唯一的写入口是加入申请：它不写 `instances.json`，提交即通过并落一条 `approved` 记录；随后由人或命令行把条目写进清单，再重新构建。申请接口不能改变任何已上线的条目。
+门户本身仍然是静态文件，所有实例数据在构建时写入。数据侧唯一的写入口是加入申请：它不写 `instances.json`，提交即通过并落一条 `approved` 记录；随后由常驻 worker 把条目写进清单并接通，快照自动重算。申请接口不能改变任何已上线的条目。
 
-三份数据各管一段：`instances.json` 只放签发区（`id`、`url`、`since`、`tier`、`status`、`statsUrl`、`cardsUrl`），由人提交；`var/profiles/{id}.json` 是各实例自述区的副本，由主理人在自己站点的 `/admin` 里写、中枢按 `url` 取回；`federation.json` 记创始实例、接入形态与隧道账号端口。名册不参与渲染，只在构建前与清单交叉校验。
+三份数据各管一段：`instances.json` 只放签发区（`id`、`url`、`since`、`tier`、`status`、`statsUrl`、`cardsUrl`），由 worker 写入；`var/profiles/{id}.json` 是各实例自述区的副本，由主理人在自己站点的 `/admin` 里写、中枢按 `url` 取回；`federation.json` 记创始实例、接入形态与隧道账号端口。名册不参与渲染，只在构建前与清单交叉校验。
 
 清单头是 `{ "version": <整数 ≥1>, "updatedAt": "YYYY-MM-DD" }`：`version` 记录这份清单被改过几次，`publish`、`markActive` 与控制台的「编辑」每次真写入都 +1，重复发布不动它；`updatedAt` 是最后改动日。两项都由 `ops/validate-instances.mjs` 校验，写错或缺失时 `npm run validate` 就失败。
 
@@ -185,7 +185,7 @@ npm run test          # 单元测试（清单、名册、页面逻辑、接口�
 ```bash
 cd xknot.si
 XKNOT_ADMIN_PASSWORD='...' npm run admin -- create-admin paul
-npm run admin -- list                 # 待审申请
+npm run admin -- list                 # 申请记录
 npm run admin -- show XK-2026-XXXXXX
 npm run admin -- manifest XK-2026-XXXXXX
 npm run admin -- publish XK-2026-XXXXXX --tunnel-account knot-tunnel-<id> --tunnel-port 18090
@@ -667,7 +667,7 @@ M3：加入申请
 
 ## 9. 加入申请与自动通过
 
-申请提交即通过，但不会直接进清单。三个角色各自独立：实例代交、平台自动通过、人执行构建。
+申请提交即通过，但不会直接进清单。三个角色各自独立：实例代交、平台自动通过、worker 执行接通与构建。
 
 ### 9.1 数据
 
@@ -803,7 +803,7 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug \
 | 字段 | 取值 |
 |------|------|
 | `tier` | `free` |
-| `status` | `pending`（验收后人工改 `active`） |
+| `status` | `pending`（验收后由 `xknot-provision` 自动改 `active`） |
 | `since` | 通过当天 |
 | `id` | 由站点域名推出 |
 
@@ -811,7 +811,7 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug \
 
 清单没有探测地址字段：它恒为 `url` + `/api/health`。收录时 `status` 是 `pending`，不探测也不上门户；验收通过后改成 `active`。
 
-申请通过不会自动上线，也不会自动部署。写清单、重新构建、同步 `dist` 仍是三步人工操作。
+申请通过不会自动上线，也不会自动部署。写清单之后的事——等隧道接通、探测通过、改 `active`、把名册那句「等待接通验收」换成「已接通」、重算门户快照——都由 `xknot-provision` 与 `xknot-republish.timer` 接着做，不需要人工构建。唯一要人工补的是把中枢上新增的条目取回仓库（`deploy-api.sh --pull-manifest`）。
 
 ### 9.5 补记缺失的申请单
 
@@ -822,9 +822,9 @@ node server/admin-cli.mjs backfill wang --email owner@example.com --admin paul
 node server/admin-cli.mjs backfill wang --dry-run     # 只看会不会补
 ```
 
-`backfill` 只把清单里已有的事实抄成一条 `approved` 申请：`url`、`since`、`tier`、`status` 取自 `instances.json`；名称、运营者、简介、区域、时区、标签取自 `var/profiles/<id>.json`（没有就用实例 id）。走同一条状态机 `pending → verified → approved`，审阅注记里写明「按 instances.json 补记」与来源。
+`backfill` 只把清单里已有的事实抄成一条 `approved` 申请：`url`、`since`、`tier`、`status` 取自 `instances.json`；名称、运营者、简介、区域、时区、标签取自 `var/profiles/<id>.json`（没有就用实例 id）。直接落成 `approved` 记录，`reviewedBy` 写执行补记的账号（缺省 `backfill`），`reviewedAt` 沿用清单里的签发日，并写明来源。
 
-- 它不签发新地址、不改清单、不发信，也不伪造当时的审核人：`reviewedBy` 只是执行补记的账号。
+- 它不签发新地址、不改清单、不发信。
 - 同一地址已有申请单（任何状态）时直接跳过，重复执行没有副作用。
 - 联系邮箱必须显式给：`--email`，或环境里的 `XKNOT_ADMIN_EMAIL`。没有邮箱的单不成立，脚本不会替你编一个。
 
@@ -838,7 +838,7 @@ node server/admin-cli.mjs access XK-2026-XXXXXX --id wang
 
 `var/xknot.db` 与 `var/session-secret` 要跟 `instances.json` 一起备份。数据库是普通 SQLite 文件，停机复制即可；WAL 模式下同时复制 `-wal` 与 `-shm`，或先执行 `sqlite3 var/xknot.db 'pragma wal_checkpoint(truncate)'`。
 
-`npm run test` 覆盖提交、重复、限流、跨源、登录、审核、清单生成、退出登录与邮件通知；测试用内存库和一个本地假 SMTP，不碰 `var/`，也不发真信。
+`npm run test` 覆盖提交即通过、重复、限流、跨源、登录、清单生成、退出登录与邮件通知；测试用内存库和一个本地假 SMTP，不碰 `var/`，也不发真信。
 
 ### 9.7 成员入口
 
@@ -858,13 +858,13 @@ node server/admin-cli.mjs access XK-2026-XXXXXX --id wang
 - 不是成员时 `/api/member/code` 也回 `202`，不发信。这个接口不能变成「某邮箱是不是成员」的探测器。
 - 站点被移出名册后，旧会话在下一次 `GET /api/member/session` 就会被删掉并返回 401，不显示一份冻结的数据。
 
-授权码信不进 `notify.mjs` 的事件表：那是审核流程可以手动补发的事件，登录码只由登录动作触发，也不该出现在补发列表里。文案见 `server/member-mail.mjs`。
+授权码信不进 `notify.mjs` 的事件表：那是接入流程可以手动补发的事件，登录码只由登录动作触发，也不该出现在补发列表里。文案见 `server/member-mail.mjs`。
 
 ## 10. 运维
 
 | 场景 | 操作 |
 |------|------|
-| 新增实例 | 申请通过 → `npm run admin -- publish <id> --tunnel-account <账号> --tunnel-port <端口>`（`status: pending`，清单与名册一起写）→ 前置（账号、端口、DNS、证书、静态页、conf、公钥、`access` 领取链接）→ 交换点 A → 验收后把 `status` 改 `active` → `npm run build`。顺序见 [HANDOFF.md](HANDOFF.md) |
+| 新增实例 | 申请通过 → 常驻 `xknot-provision` 自动跑 `publish`（`status: pending`，清单与名册一起写）→ 前置（账号、端口、DNS、证书、静态页、conf、公钥、`access` 领取链接）→ 交换点 A → 验收后自动把 `status` 改 `active` → 门户快照自动重算。顺序见 [HANDOFF.md](HANDOFF.md) |
 | 暂停实例 | `status` 改 `suspended`，保留上次健康结果 |
 | 实例失联 | 构建时探测失败即显示 `down`，连续 30 天再决定是否删除 |
 | 橱窗违规 | 删除 `var/cards/{id}.json`，从清单移除 `cardsUrl`，重新构建 |
