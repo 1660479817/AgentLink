@@ -31,7 +31,7 @@
 ## 原则
 
 1. **实例自治。** 数据、账号、积分、审核和收费归实例。
-2. **中枢只读。** 网络视图不写实例；数据侧的写入口只有加入申请，通过后才由运营方改清单。另有一项委托发信，只把信交给 SMTP，不改任何数据。
+2. **中枢只读。** 网络视图不写实例；数据侧的写入口只有加入申请，通过后由常驻 worker 自动写进清单并接通。另有一项委托发信，只把信交给 SMTP，不改任何数据。
 3. **入口回原站。** 每个入口和每张橱窗卡片都跳回来源站点。
 4. **数据三段，各管一段。** `instances.json` 只记中枢签发的字段（`id`、`url`、`since`、`tier`、`status`、`statsUrl`、`cardsUrl`）；站点的名称、介绍、联系方式等由主理人在自己实例里写，中枢取回副本存 `var/profiles/`；`federation.json` 记成员身份与接入事实（谁在、什么身份、子域怎么来、隧道账号与端口）。清单与名册互相校验，对不上就不构建。
 
@@ -69,7 +69,7 @@
 | M2 | L3 橱窗拉取、L2 活动数据、门户橱窗位 |
 | M3 | 加入申请、控制台、管理员账号、申请生成清单条目 |
 
-网络视图仍然是静态文件，探测和拉取都在构建时完成。常驻的只有接口进程（收申请、存审核状态、发管理员会话）与一个每 15 分钟的巡检 timer（断连提醒、暂时隐藏）。
+网络视图仍然是静态文件，探测和拉取都在构建时完成。常驻的只有接口进程（收申请、存申请状态、发管理员会话）与一个每 15 分钟的巡检 timer（断连提醒、暂时隐藏）。
 
 ## 目录
 
@@ -178,7 +178,7 @@ npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_
 | [web/src/lib/i18n.js](web/src/lib/i18n.js) | 语言解析、按字段回退、相对时间 |
 | [web/src/lib/regions.js](web/src/lib/regions.js) | 国家代码到区域分组 |
 | [web/src/lib/hub.js](web/src/lib/hub.js) | 快照到页面视图 |
-| [web/src/lib/contact.js](web/src/lib/contact.js) | 门户右栏展示的运维联系人姓名与邮箱 |
+| [web/src/lib/contact.js](web/src/lib/contact.js) | 门户右栏展示的运营者姓名与邮箱 |
 
 中枢的代码放在本目录，不并进 `knot-platform/`。仓库里另外两个位置与本项目互不引用：
 
@@ -192,7 +192,7 @@ npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_
 
 ## 收录与收费
 
-收录免费，走申请制。门户右栏只做邮箱 → 授权码登录与四步说明，没有申请表：申请由实例在自己的 `/admin` XKnot 栏代交（`POST /api/admin/xknot/apply` → 中枢 `POST /api/applications`），中枢收到即核对并签发子域（申请单状态直接是 `approved`，`reviewed_by` 记 `auto`），同时寄一封批准信。之后由运营方执行 `npm run admin -- publish <id>` 写进 `instances.json`，并在 `federation.json` 补一条同名 `id` 的名册成员（也可以在控制台点开这个账号的「编辑」补齐名册字段），然后构建上线。新申请会邮件提醒管理员；申请不会自动改动任何已上线条目。创始实例（`wang`）是永久账号，不适用下架。
+收录免费，走申请制。门户右栏只做邮箱 → 授权码登录与四步说明，没有申请表：申请由实例在自己的 `/admin` XKnot 栏代交（`POST /api/admin/xknot/apply` → 中枢 `POST /api/applications`），中枢收到即核对并签发子域（申请单状态直接是 `approved`，`reviewed_by` 记 `auto`），同时寄一封批准信。之后由常驻 worker 自动写进 `instances.json` 与 `federation.json`，接着自动完成账号、证书与反代；实例自己起隧道，`/api/health` 通过后 `status` 改成 `active`。新申请会邮件提醒管理员；申请不会自动改动任何已上线条目。创始实例（`wang`）是永久账号，不适用下架。
 
 联邦成员分 `free` 与 `paid` 两档，默认 `free`，由运营方按需改为 `paid`；`demo` 只用于版式样例。档位写在清单的 `tier` 字段，只影响门户展示与排序，不改变接入方式。
 

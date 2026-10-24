@@ -57,7 +57,7 @@
 | 伙伴 | partner | `partner` | 运营一个实例的主体 | 商户、加盟商、客户 |
 | 运营方 | operator | `operator` | 对外署名的运营主体 | 站长、厂商 |
 | 主理人 | owner | `owner` | 具体负责该实例的人 | 管理员、负责人 |
-| 站点档案 | site profile | L1 | 人写在清单里的身份信息 | 资料、简介页、商家信息 |
+| 站点档案 | site profile | L1 | 中枢写的签发区 + 主理人写的自述区 | 资料、简介页、商家信息 |
 | 实例清单 | instance manifest | `instances.json` | 唯一的实例登记文件 | 注册表、数据库 |
 | 运行状态 | runtime status | L2 | 中枢探测到的健康与版本 | 监控、埋点 |
 | 健康探测 | health probe | `check-health` | 定时 GET 实例的 `/api/health` | 心跳、巡检（巡检另有其义） |

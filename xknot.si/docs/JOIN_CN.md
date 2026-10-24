@@ -60,7 +60,7 @@
 - 子域先查一次：`GET /api/subdomains/check?label=` 返回 `available`、`reason`（`too_short` / `too_long` / `format` / `reserved` / `taken` / `ok`）与候选建议。实例的 `/admin` 里就是「检查」按钮。
 - 字段（与 `server/validate.mjs` 一致）：
   - **子域标签** `subdomain`：**6–32 位**小写字母、数字与连字符，首尾不能是连字符。少于 6 位一律不签：短号留给以后，不当第一批发出去。系统保留名（`www`、`api`、`admin`、`mail`、`xknot` 等）不签发。
-  - 站点名称、一句话简介、运营者、联系邮箱、区域、时区、标签、同意勾选。这些只用于审核与联系：**不写进清单**。上线后由主理人在自己实例的 `/admin` 里填进站点档案（自述区），中枢按 `GET /api/federation/profile` 取回。
+  - 站点名称、一句话简介、运营者、联系邮箱、区域、时区、标签、同意勾选。这些只用于校验与联系：**不写进清单**。上线后由主理人在自己实例的 `/admin` 里填进站点档案（自述区），中枢按 `GET /api/federation/profile` 取回。
   - 门户上显示的区域由中枢按你这条隧道的出口 IP 判定，不取申请时填的那个：机器换到另一个城市或机房，页面会跟着变。填错不影响接入，只在隧道没连上时用来兜底。
   - `mode` 与 `domain` 已停用。仍带着 `mode: "own-domain"` 或非空 `domain` 的请求返回 `400`，字段错误码是 `not_supported`，不会悄悄当成签发申请。
   - 校验失败时 `fields` 里的子域错误码与预检一致：`required` / `too_short` / `too_long` / `format` / `reserved`。
@@ -172,7 +172,7 @@ DNS 与隧道都由 worker 处理，不靠手工：`dns` 这一步校验 `*.xkno
 | 密钥 | 只在运行机 `~/.ssh/`，**不进仓库、不写本文** |
 | 名册 | `mode: "subdomain"`，`tunnel: { account, port }` 必填，不允许为空 |
 
-这一段里的 DNS、证书、静态根、`server` 块、隧道账号与端口，**全部是中枢在交换点 A 之前一个人做完的**，不需要伙伴在场或先做点什么。伙伴唯一要在审核前交的是公钥。顺序与十项清单见 [HANDOFF.md](HANDOFF.md) 第 3 节。模板与步骤见 [ops/entry/README.md](../../knot-platform/ops/entry/README.md)；通配多租户自动 server 未做（见第 6 节）。
+这一段里的 DNS、证书、静态根、`server` 块、隧道账号与端口，**全部是中枢在交换点 A 之前一个人做完的**，不需要伙伴在场或先做点什么。伙伴唯一要在申请时交的是公钥。顺序与十项清单见 [HANDOFF.md](HANDOFF.md) 第 3 节。模板与步骤见 [ops/entry/README.md](../../knot-platform/ops/entry/README.md)；通配多租户自动 server 未做（见第 6 节）。
 
 `ops/README-deploy-aws.md` 注明：隧道用户 `knot-tunnel@` 需在入口主机另行开通后再用隧道；入口主机由部署配置给出，仓库里不写默认值。
 
@@ -186,7 +186,7 @@ IP 变了不需要改任何清单字段：实例重新连出、入口主机的�
 
 1. 伙伴发邮件给运营方（`manwjh@gmail.com`），写清实例 id、新标签与原因。
 2. 工作人员按新申请重签，改 `instances.json` 的 `url` 与 `federation.json` 的 `host`，跑 `npm run validate:federation`。
-3. 旧子域按权利人流程回收；门户重新构建后条目指向新地址。
+3. 旧子域按权利人流程回收；门户快照重算后条目指向新地址。
 
 地址一变就不做 301 过渡，旧地址上的链接会断。请尽量在第一次提交时把标签定好。
 
@@ -255,7 +255,7 @@ IP 变了不需要改任何清单字段：实例重新连出、入口主机的�
 | 角色 | 负责 | 不负责 |
 |------|------|--------|
 | **中枢**（`xknot.si`） | `instances.json`、申请记录与控制台、探测与断连通知、门户静态站 | 用户账号、内容、积分、订单；托管伙伴站点；替伙伴部署或维护隧道 |
-| **入口主机**（公网机上的 nginx / sshd） | 证书、对外 HTTPS、静态页、把 `/api` 反代到隧道端口；隧道用户隔离 | 业务库；审核联邦申请；改 `instances.json` |
+| **入口主机**（公网机上的 nginx / sshd） | 证书、对外 HTTPS、静态页、把 `/api` 反代到隧道端口；隧道用户隔离 | 业务库；改 `instances.json` |
 | **实例**（伙伴的 Knot，当前实现是 `knot-platform`） | 自有部署、库、上传、账号、审核、维持隧道、提供 `/api/health` 与可选橱窗 | 改中枢清单；要求中枢代管内容 |
 
 两边的代码与脚本分开存放：中枢的部署文件在本文同级的 `ops/`；实例的部署文件在 [`knot-platform/ops/`](../../knot-platform/ops)。中枢不引用实例的文件，实例也不引用中枢的文件；两边只以 HTTP 契约与接入件相连，本文只做策略说明与跳转。换一个实例实现（Go、Rust、别的语言）不影响中枢的代码、清单和探测。

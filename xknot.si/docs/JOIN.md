@@ -61,7 +61,7 @@ the entry appears in the portal map and directory
 - Check the subdomain first: `GET /api/subdomains/check?label=` returns `available`, `reason` (`too_short` / `too_long` / `format` / `reserved` / `taken` / `ok`) and candidate suggestions. In the instance's `/admin` this is the "check" button.
 - Fields (consistent with `server/validate.mjs`):
   - **subdomain label** `subdomain`: **6–32 chars** of lowercase letters, digits, and hyphens, not starting or ending with a hyphen. Fewer than 6 is never issued: short numbers are reserved for later, not handed out in the first batch. System-reserved names (`www`, `api`, `admin`, `mail`, `xknot`, etc.) are not issued.
-  - site name, one-line tagline, operator, contact email, region, timezone, tags, consent checkbox. These are only for review and contact: **they are not written into the manifest**. After launch the owner fills them into the site profile (self-described zone) in their own instance's `/admin`; the hub fetches it via `GET /api/federation/profile`.
+  - site name, one-line tagline, operator, contact email, region, timezone, tags, consent checkbox. These are only for validation and contact: **they are not written into the manifest**. After launch the owner fills them into the site profile (self-described zone) in their own instance's `/admin`; the hub fetches it via `GET /api/federation/profile`.
   - the region shown on the portal is judged by the hub from this tunnel's egress IP, not the one filled at application: if the machine moves city or data center, the page follows. A wrong value does not block access; it only serves as fallback when the tunnel is down.
   - `mode` and `domain` are retired. Requests still carrying `mode: "own-domain"` or a non-empty `domain` return `400` with field code `not_supported`, not silently treated as an issuance application.
   - on validation failure, the subdomain error codes in `fields` match the precheck: `required` / `too_short` / `too_long` / `format` / `reserved`.
@@ -173,7 +173,7 @@ The hub cares about only three things here:
 | Keys | only on the running machine's `~/.ssh/`, **not in the repo, not in this document** |
 | Roster | `mode: "subdomain"`, `tunnel: { account, port }` required, not allowed to be null |
 
-The DNS, certificate, static root, `server` block, tunnel account, and port in this section are **all finished by the hub alone before exchange point A** — no partner presence or prior work needed. The only thing the partner must hand over before review is the public key. Order and the ten-item checklist are in [HANDOFF.md](HANDOFF.md) section 3. Template and steps in [ops/entry/README.md](../../knot-platform/ops/entry/README.md); wildcard multi-tenant auto-server is not done (section 6).
+The DNS, certificate, static root, `server` block, tunnel account, and port in this section are **all finished by the hub alone before exchange point A** — no partner presence or prior work needed. The only thing the partner must hand over at application time is the public key. Order and the ten-item checklist are in [HANDOFF.md](HANDOFF.md) section 3. Template and steps in [ops/entry/README.md](../../knot-platform/ops/entry/README.md); wildcard multi-tenant auto-server is not done (section 6).
 
 `ops/README-deploy-aws.md` notes: the tunnel user `knot-tunnel@` must be separately provisioned on the entry host before the tunnel is used; the entry host is given by the deployment config, with no default value in the repo.
 
@@ -187,7 +187,7 @@ Changing the **subdomain label** is changing identity, not changing a string:
 
 1. The partner emails the operator (`manwjh@gmail.com`), stating the instance id, the new label, and the reason.
 2. Staff re-issue as a new application, change `instances.json`'s `url` and `federation.json`'s `host`, and run `npm run validate:federation`.
-3. The old subdomain is reclaimed per the rights-holder flow; after the portal rebuilds, the entry points to the new address.
+3. The old subdomain is reclaimed per the rights-holder flow; after the portal snapshot is recomputed, the entry points to the new address.
 
 Once the address changes, there is no 301 transition; links at the old address will break. Try to settle the label on the first submission.
 
@@ -256,7 +256,7 @@ Implementation: `ops/watch-health.mjs` (mail and scheduling), `ops/check-health.
 | Role | Responsible for | Not responsible for |
 |------|------|--------|
 | **hub** (`xknot.si`) | `instances.json`, application records and console, probe and disconnect notices, portal static site | user accounts, content, points, orders; hosting partner sites; deploying or maintaining tunnels for partners |
-| **entry host** (nginx/sshd on the public machine) | certificate, outbound HTTPS, static pages, reverse-proxying `/api` to the tunnel port; tunnel user isolation | business databases; reviewing federation applications; changing `instances.json` |
+| **entry host** (nginx/sshd on the public machine) | certificate, outbound HTTPS, static pages, reverse-proxying `/api` to the tunnel port; tunnel user isolation | business databases; changing `instances.json` |
 | **instance** (the partner's Knot, currently `knot-platform`) | own deployment, database, uploads, accounts, review, maintaining the tunnel, providing `/api/health` and optional showcase | changing the hub manifest; asking the hub to host content |
 
 The two sides' code and scripts are stored separately: the hub's deployment files are in the `ops/` at this document's level; the instance's deployment files are in [`knot-platform/ops/`](../../knot-platform/ops). The hub does not reference the instance's files, and the instance does not reference the hub's; the two meet only through the HTTP contract and the access material, and this document only explains policy and links. Swapping the instance implementation (Go, Rust, another language) does not affect the hub's code, manifest, or probes.

@@ -93,7 +93,7 @@
 
 二级域名由本站点代为向中枢问一次，不自己判：`GET /api/admin/xknot/subdomain?label=` 转发到中枢的 `GET /api/subdomains/check`，原样带回 `available`、`reason` 与候选建议。少于 6 位的标签中枢不签——短号留着以后用，第一条规则就写在输入框下面，不让它成为提交后的意外。
 
-`POST /api/admin/xknot/apply` 把自述与邮箱交给中枢的 `POST /api/applications`。中枢的 400（带 `fields`）与 409（同址重复）原样回到这一块，不做本地改写。第一次申请由人审核后开通；已是成员的，中枢直接回执成功。
+`POST /api/admin/xknot/apply` 把自述与邮箱交给中枢的 `POST /api/applications`。中枢的 400（带 `fields`）与 409（同址重复）原样回到这一块，不做本地改写。提交即通过（`reviewed_by` 记 `auto`），没有人工审核；已是成员的，中枢直接回执成功。
 
 排障信息（接入件路径与权限、委托发信、探测地址、状态信号、接入件与进程的漂移）收在页面最下面的折叠栏「接入与探测」里，默认收起，展开时才请求 `/api/admin/federation`。
 

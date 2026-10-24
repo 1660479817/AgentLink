@@ -114,7 +114,7 @@
 
 - 所有变量去 `\r`、`\n` 后插入；用户填写的字段不进邮件头。
 - `name` ≤40、`operator` ≤80、`url` ≤200、`{id}` ≤32，超出截断。
-- 正文只放事实，不放判断：不写内部备注、审核人、IP、哈希、其他申请人的数据。
+- 正文只放事实，不放判断：不写内部备注、IP、哈希、其他申请人的数据。
 - 任何凭据明文、私钥、SMTP 口令不得出现在正文。
 
 ---
@@ -181,7 +181,7 @@
 地址：{url}
 当前档位：免费
 
-接下来由运营方把实例写进联邦清单并接通入口。收录当天，门户的实例目录里会出现这个条目：状态先是「待验收」，公网 /api/health 通过后转为在线。
+接下来中枢会自动把实例写进联邦清单并接通入口。收录当天，门户的实例目录里会出现这个条目：状态先是「待验收」，公网 /api/health 通过后转为在线。
 
 收录不包含入口主机与 SSH 反向隧道，需要时另行确认。
 
@@ -206,7 +206,7 @@
 位址：{url}
 目前檔位：免費
 
-接下來由營運方把實例寫進聯邦清單並接通入口。收錄當天，入口的實例目錄裡會出現這個條目：狀態先是「待驗收」，公網 /api/health 通過後轉為上線。
+接下來中樞會自動把實例寫進聯邦清單並接通入口。收錄當天，入口的實例目錄裡會出現這個條目：狀態先是「待驗收」，公網 /api/health 通過後轉為上線。
 
 收錄不包含入口主機與 SSH 反向隧道，需要時另行確認。
 
@@ -231,7 +231,7 @@ Site: {name}
 URL: {url}
 Current tier: free
 
-The operator will now add the instance to the federation manifest and connect the entry. The entry appears in the portal's instance directory on the day it is listed: first as pending, then as online once the public /api/health check passes.
+The hub will now add the instance to the federation manifest and connect the entry. The entry appears in the portal's instance directory on the day it is listed: first as pending, then as online once the public /api/health check passes.
 
 Listing does not include the entry host and SSH reverse tunnel, which are confirmed separately.
 
