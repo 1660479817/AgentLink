@@ -26,21 +26,9 @@ const EXT_BY_MIME = Object.freeze({
   "image/avif": ".avif",
 });
 
-// 音频和附件的 MIME 由客户端声明，只能当线索用。声明成 text/html 的文件原样存下来、
-// 再原样回给浏览器，就是一个同源脚本（扩展名 .mp3 只影响文件名，不影响浏览器怎么解释）。
-// 所以非图片的类型在这里收一次：认得的归一到规范值，认不得的按扩展名给，
-// 两者都说不出「这是音频」就不收。存进库的类型永远是服务端选的，不是客户端给的。
-const AUDIO_MIME_BY_EXT = Object.freeze({
-  ".mp3": "audio/mpeg",
-  ".m4a": "audio/mp4",
-  ".wav": "audio/wav",
-  ".aac": "audio/aac",
-  ".ogg": "audio/ogg",
-  ".oga": "audio/ogg",
-  ".flac": "audio/flac",
-  ".opus": "audio/ogg",
-  ".wma": "audio/x-ms-wma",
-});
+// 附件与音频的 MIME 由客户端声明，只能当线索用。声明成 text/html 的文件原样存下来、
+// 再原样回给浏览器，就是一个同源脚本。音频现在按文件头魔数认（见 readAudioMeta），
+// 附件按声明收一次（safeAttachmentMime）。存进库的类型永远是服务端选的，不是客户端给的。
 
 // 浏览器会当成页面/脚本去执行的那几种。附件本来就不内联打开（见 readableUpload），
 // 这里把它们记成二进制，免得哪天多一个渲染入口就把这段历史记录带出来。
@@ -57,15 +45,6 @@ const RENDERABLE_DOWNLOAD_MIME = new Set([
 
 function declaredMime(value) {
   return String(value || "").toLowerCase().split(";")[0].trim();
-}
-
-export function safeAudioMime(declared, originalName) {
-  const fromExt = AUDIO_MIME_BY_EXT[path.extname(String(originalName || "")).toLowerCase()] || "";
-  const raw = declaredMime(declared);
-  if (!raw.startsWith("audio/")) return fromExt;
-  // 声明是 audio/*：扩展名认得出就按扩展名归一，认不出就保留声明值。
-  // 两种结果都是 audio 类型，浏览器不会拿去渲染成页面。
-  return fromExt || raw;
 }
 
 export function safeAttachmentMime(declared) {
@@ -126,6 +105,63 @@ export async function readImageMeta(file) {
   return turned
     ? { mime, width: meta.height, height: meta.width }
     : { mime, width: meta.width, height: meta.height };
+}
+
+// 音频魔数识别：声明与扩展名都只是线索，最终以文件头为准。不是音频字节
+// （HTML、脚本之类）当场拒，不给它一条 audio/* 的库记录再被内联回源。
+// 只读文件头 16 字节，不把整份音频载进内存。
+const AUDIO_SIGNATURES = [
+  [0x49, 0x44, 0x33, "audio/mpeg"], // "ID3"：MP3 元数据头
+  [0x4f, 0x67, 0x67, 0x53, "audio/ogg"], // "OggS"：ogg / opus / oga
+  [0x66, 0x4c, 0x61, 0x43, "audio/flac"], // "fLaC"
+];
+
+function headHas(head, bytes) {
+  if (head.length < bytes.length) return false;
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (head[i] !== bytes[i]) return false;
+  }
+  return true;
+}
+
+export function audioMimeFromHead(head) {
+  if (!head || head.length < 2) return null;
+  for (const sig of AUDIO_SIGNATURES) {
+    const mime = sig[sig.length - 1];
+    if (headHas(head, sig.slice(0, -1))) return mime;
+  }
+  // RIFF....WAVE
+  if (head.length >= 12 && head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46
+    && head[8] === 0x57 && head[9] === 0x41 && head[10] === 0x56 && head[11] === 0x45) return "audio/wav";
+  // ISO BMFF：第 4 字节起是 "ftyp"（m4a 容器）
+  if (head.length >= 8 && head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70) return "audio/mp4";
+  // ASF 头（wma）：30 26 B2 75 8E 66 CF 11 A6 D9 00 AA 00 62 CE 6C
+  if (head.length >= 16 && headHas(head, [0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11, 0xa6, 0xd9, 0x00, 0xaa, 0x00, 0x62, 0xce, 0x6c])) return "audio/x-ms-wma";
+  // ADTS AAC：12 位同步字 0xFFF，比 MP3 的 11 位 0xFFE 更严，先判。
+  if (head.length >= 2 && head[0] === 0xff && (head[1] & 0xf6) === 0xf0) return "audio/aac";
+  // MPEG 音频帧同步：无 ID3 的裸 MP3。
+  if (head.length >= 2 && head[0] === 0xff && (head[1] & 0xe0) === 0xe0) return "audio/mpeg";
+  return null;
+}
+
+export async function readAudioMeta(filePath) {
+  let fd;
+  try {
+    fd = fs.openSync(filePath, "r");
+    const head = Buffer.alloc(16);
+    const n = fs.readSync(fd, head, 0, head.length, 0);
+    return audioMimeFromHead(head.subarray(0, n));
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // 只读打开，关闭失败不影响结论。
+      }
+    }
+  }
 }
 
 // 存储名由客户端文件名生成，扩展名可能和真实格式不符。按内容改回规范扩展名。
@@ -205,11 +241,14 @@ export async function storeUploadedFile({ uploadDir, pool, userId, file, kind, n
     width = meta.width;
     height = meta.height;
   } else if (kind === "audio") {
-    mime = safeAudioMime(mime, file.originalname);
-    if (!mime) {
+    // 扩展名与声明只做了初筛，这里按文件头复核：不是音频字节就拒。
+    // 光认扩展名的话，「.mp3 + HTML 正文」能进来，再按 audio/* 内联回源。
+    const detected = await readAudioMeta(file.path);
+    if (!detected) {
       removeFile(file.path);
       throw uploadError("bad_audio");
     }
+    mime = detected;
   } else {
     mime = safeAttachmentMime(mime);
   }
