@@ -11,6 +11,7 @@
 | 问题 | 谁回答 |
 | --- | --- |
 | 这个站现在是什么状态（版本、快照规模、TLS、压缩、入口是否泄漏管理后台） | `scripts/probe.mjs` |
+| 到它的这条路本身多快（RTT、握手、吞吐），先别怪应用 | `scripts/link.mjs` |
 | 一个人点开每一页要等多久 | `human/visitor.mjs`（真实 Chromium，1 个用户） |
 | 并发上去会怎样，慢在哪一段 | `k6/`（5 / 10 / 20 / 30 / 50 / 100） |
 | 同一条站两周后是变好还是变差 | `results/` 里两份 summary 对照 |
@@ -30,6 +31,7 @@
 ```text
 bench/
 ├── scripts/probe.mjs        黑箱探测：能力、链路、版本、快照规模
+├── scripts/link.mjs         链路测量：RTT、握手、冷热 TTFB、吞吐
 ├── scripts/compare.mjs      几个子域并排比较（只发 GET），或比较两份跑完的结果
 ├── human/visitor.mjs        真实 Chromium 走一遍全部页面
 ├── k6/read.js               未登录访客：外壳 + 快照 + Web API
@@ -43,7 +45,7 @@ bench/
 └── results/<时间>/          probe.json、summary.md/json、raw/、human.*、截图
 ```
 
-`results/latest` 指向最近一次 `run.mjs`，`results/latest-human` 指向最近一次 `human/visitor.mjs`。
+`results/latest` 指向最近一次 `run.mjs`，`results/latest-human` 指向最近一次 `human/visitor.mjs`，`results/latest-link` 指向最近一次 `scripts/link.mjs`。
 
 `lib/` 是 k6 与 node 脚本共用的那份：`assets.js` 从 index.html 抠构建产物地址，`net.mjs` 判「是不是直连源站」，`cli.mjs` 取命令行参数。`--名字` 后面漏写值时这些脚本直接退出码 2，不拿默认值顶替——否则那一轮的数字不是它标称的参数。
 
@@ -59,6 +61,10 @@ npm install && npx playwright install chromium
 ```bash
 # 先看这个站是什么
 npm run probe -- https://wang.xknot.si
+
+# 链路：到一个地址的 RTT、握手、冷热 TTFB 与吞吐
+npm run link -- https://xknot.si
+npm run link -- https://wang.xknot.si --samples 20 --warm 20 --streams 8
 
 # 几个站并排比（只发 GET，几秒）
 npm run compare -- wang.xknot.si cpswang.xknot.si
@@ -141,6 +147,55 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 | 写 | 上面两条都过，再加显式 `--allow-writes` | 跳过写 |
 
 站点不认识的场景不会让整轮失败，只会安静地少一行，并在报告里写清为什么。
+
+## 链路：RTT、握手、吞吐
+
+`scripts/link.mjs` 回答别层回答不了的一件事：**在应用逻辑跑起来之前，这条路本身是不是就慢？** 只给一个 URL，输出三个数，每个都带 p50/p95：
+
+| 数 | 是什么 | 为什么看它 |
+| --- | --- | --- |
+| TCP 建连 | 从发请求到 socket 建好，含 DNS；建连本身约等于 RTT | ICMP 常被安全组挡掉，`ping` 不出数；TCP 握手照样能测 RTT |
+| TLS 握手 | `secureConnect - connect` | 多一个 RTT；TLS 1.3 是 1 个，TLS 1.2 是 2 个 |
+| TTFB，冷 vs 热 | 新建连接 vs 同一条连接上复用 | 冷 ≈ 3×RTT（DNS + TCP + TLS + 请求），热 ≈ 1×RTT；差值就是 keep-alive 买到的 |
+
+吞吐分上下两个方向。下行取站点自己的构建产物（首页引用的 `/assets/*.js`，或用 `--download <路径>` 指定），在 keep-alive 连接上反复取到 `--bytes` 为止；上行把 `--upload-size` 那么大的请求体 POST 到你用 `--upload-path` 指定的端点，同样发满 `--bytes`。
+
+两边都是**下界，不是链路带宽**：每次请求仍要付一个往返，所以聚合速率会随 `--streams` 上升，直到把管道跑满。`--streams 1` 才是一次单独 API 调用看到的速度。要看容量，用 `iperf3` 或长时间大文件交叉验证——SSH `dd` 是单线程加密，会低估上行。
+
+上行必须有一个**真的会读请求体**的端点，脚本不替你挑，因为 POST 是写操作。五种情况都会被点名，而不是糊成一个数：
+
+| 看到什么 | 是什么 | 怎么办 |
+| --- | --- | --- |
+| `413`，大部分字节没发出去 | 端点的 `client_max_body_size` 比 `--upload-size` 小 | 改小请求体（`--upload-size 8k`），或换收得下的端点 |
+| 请求体读完了才回 `401` / `403` | 端点要鉴权 | `--upload-token-file`（Bearer）或 `--upload-cookie-file` |
+| `3xx` | 这条路径在重定向 | 换成重定向后的路径，或直接给完整地址 |
+| 请求体全写完，但每次都被 4xx 回绝 | 端点没有收下请求体的证据：请求体小的时候它可能只是进了本机 socket 缓冲，根本没上路 | 无速率：这时的时间量的是客户端塞自己缓冲的速度。换一个真会读请求体的端点，或发得比它的上限更小 |
+| 有速率，另有一句「每次只发多少」 | 每个请求携带的数据太少，数字跟着往返走 | 这是请求速率，不是带宽；把 `--upload-size` 调到端点上限附近 |
+
+速率的分子只算端点确实收下过的那些请求。写到一半被回绝的，字节根本没发出去；一次都没被接受的，没有任何证据说明服务端读过请求体——这两种情况速率一栏都写「-」，并分别写明是哪一种，而不是拿字节数除以用时、把「被拒收的速度」当结果印出来。
+
+```bash
+npm run link -- https://xknot.si
+npm run link -- https://xknot.si --path /api/health --samples 4 --warm 0   # /api 往往有限流
+npm run link -- https://xknot.si --streams 16 --bytes 8m                  # 更接近容量
+
+# 上下行都测：挑一个收得下 4MB 的实例端点
+npm run link -- https://wang.xknot.si --bytes 16m --upload-path /api/agent/uploads
+
+# 带令牌或会话，从文件读，避免进 ps 和 shell 历史
+npm run link -- https://wang.xknot.si --upload-path /api/agent/uploads --upload-token-file ~/.knot/wang-agent.env
+```
+
+上行端点和凭据也可以从环境变量给，省得进 shell 历史：`BENCH_UPLOAD_PATH`、`BENCH_UPLOAD_TOKEN`（Bearer）、`BENCH_UPLOAD_COOKIE`。
+
+默认冷请求 20 次、热请求 20 次、8 路并发、每个方向 4MB、上行每次 4MB、超时 15s。结果写到 `results/link-<时间>/`（`link.json`、`link.md`），`results/latest-link` 指向最近一次。给了 `--upload-path` 时报告会多一行「下行 ÷ 上行」的比值；没给就写明为什么跳过上行。
+
+四件它故意不做的事：
+
+- **默认不碰 `/api/`。** 限流就在这个前缀上（某个部署是每 IP 每分钟 12 次、突发 5），连发量到的是 429/503，不是速度。真要测 `/api/` 路径，把 `--samples` 压小、拉开间隔；报告会把非 2xx 单独计数，看到 429/503 会提示。
+- **不替你猜上行端点。** POST 是写操作，交给谁由操作者决定。
+- **不走系统代理。** 经本机代理测出来的是代理的数，不是这条路。
+- **不跨机器、跨时段比。** 跨境链路随时间段浮动，只有同机、同目标、同一时间窗的两轮才可比。
 
 ## 场景配比
 
@@ -227,7 +282,7 @@ k6 在某一档打的提示（信息流为空、只有一份授权码被所有 V
 
 ## 与 `ops/scripts/speed-check.sh` 的关系
 
-那个脚本是第 0 层：顺序 curl 几个地址取中位数，回答「部署完通不通、大概多少毫秒」。留着手边用。这里三层回答「并发上去会怎样、慢在哪一段、站点的哪一项配置掉了队」。两者不重复。
+那个脚本是第 0 层：顺序 curl 几个地址取中位数，回答「部署完通不通、大概多少毫秒」。留着手边用。`scripts/link.mjs` 是同一个问题再细一层——冷热拆开、带 p95、量吞吐，并留下可复查的报告。这里三层回答「并发上去会怎样、慢在哪一段、站点的哪一项配置掉了队」。两者不重复。
 
 ## 许可
 
