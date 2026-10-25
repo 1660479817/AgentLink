@@ -144,6 +144,10 @@ export function startXknotPoller({
         );
       } else if (result.skipped === "not_ready") {
         note(result.lastError ? `中枢还在推进（${result.lastError}）` : `等待中枢推进（${result.run || "未知"}）`);
+      } else if (result.skipped === "no_application" || result.skipped === "no_profile") {
+        // 没申请过的站点每一轮都走到这里。它不是「参数已是最新」——这一侧压根
+        // 还没有配置可写；在这里报一句「已是最新」只会让人以为隧道已经接上了。
+        note("");
       } else if (result.changed) {
         note("隧道参数已更新，重启隧道");
         if (typeof restart === "function") {

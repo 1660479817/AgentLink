@@ -137,8 +137,9 @@ test("poller: a changed handoff restarts the tunnel once, and stop() ends the lo
   assert.equal(restarts, 1);
 });
 
-test("poller: a site with no application costs one interval and no restart", async () => {
+test("poller: a site with no application costs one interval, no restart and no log", async () => {
   let restarts = 0;
+  const lines = [];
   const poller = startXknotPoller({
     profileFile: "/tmp/knot-poller-does-not-need-a-real-site/profile.json",
     localPort: 8080,
@@ -148,11 +149,14 @@ test("poller: a site with no application costs one interval and no restart", asy
       restarts += 1;
       return { ok: true };
     },
-    log: () => {},
+    log: (line) => lines.push(line),
   });
   await new Promise((resolve) => setTimeout(resolve, 40));
   poller.stop();
   assert.equal(restarts, 0);
+  // 「隧道参数已是最新」只对写过配置的站点成立：没申请过的站点说这句话，
+  // 会让人以为隧道已经接通。
+  assert.deepEqual(lines, []);
 });
 
 test("poller: 0 seconds means off, so nothing is even scheduled", async () => {
