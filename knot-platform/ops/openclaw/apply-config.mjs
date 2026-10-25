@@ -95,6 +95,18 @@ export function internalAgentIds(names) {
   return names.filter((name) => INTERNAL_ID.test(name) && !name.startsWith("knot-")).sort();
 }
 
+// 平台管理 Agent 一律以 knot- 开头（knot-intel / knot-admin / knot-actuary）。从 manifest
+// 里移除一个之后，已经在跑的那台机器上那条 entry 不会自己消失：它仍留在 openclaw.json、
+// 仍占着工作区与 agent 目录，`patchConfig` 只更新 manifest 里还有的那些。这里把「本机有、
+// manifest 已经没有」的列出来，交给 ensure-openclaw 用 `openclaw agents delete` 连工作区
+// 一起收掉——下线与上线走同一条部署路径，而不是留给人去记得手工清理。
+export function retiredAgentIds(config, manifest) {
+  const live = new Set((manifest?.agents || []).map((agent) => agent.id));
+  return Object.keys(config?.agents?.entries || {})
+    .filter((id) => id.startsWith("knot-") && !live.has(id))
+    .sort();
+}
+
 export function patchInternal(config, ids) {
   const next = structuredClone(config);
   next.agents ??= {};
@@ -318,6 +330,9 @@ if (isDirect && command === "ids") {
     process.exit(2);
   }
   await seedPrompts(id);
+} else if (isDirect && command === "retired-ids") {
+  const ids = retiredAgentIds(await readConfig(), manifest);
+  process.stdout.write(ids.length ? `${ids.join("\n")}\n` : "");
 } else if (isDirect && command === "sync") {
   await sync();
 } else if (isDirect && command === "patch-test") {
@@ -395,6 +410,6 @@ if (isDirect && command === "ids") {
   }
   process.stdout.write("patch ok\n");
 } else if (isDirect) {
-  process.stderr.write("usage: apply-config.mjs ids|internal-ids|seed|snapshot|sync|patch-test\n");
+  process.stderr.write("usage: apply-config.mjs ids|internal-ids|retired-ids|seed|snapshot|sync|patch-test\n");
   process.exit(2);
 }
