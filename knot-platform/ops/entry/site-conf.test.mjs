@@ -54,6 +54,18 @@ test("缓存区单独成一份，同一台入口主机只声明一次", () => {
   assert.doesNotMatch(cache, /server \{/);
 });
 
+test("匿名短缓存的正则带引号：量词花括号不能开一个 nginx 块", () => {
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  // location 里的正则含 {36}；不放进引号，nginx 会把 { 当成块起点，
+  // 整份配置在 pcre2_compile 之前就报 "missing closing parenthesis"。
+  assert.match(text, /location ~ "\^\/api\/web\/\(session\|home\|/);
+  assert.match(text, /\{36\}\)\$" \{/);
+  assert.doesNotMatch(text, /location ~ \^\/api\/web\//);
+  // 缓存只给 static 投放；proxy 投放没有入口磁盘可当缓存层。
+  const proxy = render({ KNOT_ENTRY_STATIC: "" });
+  assert.doesNotMatch(proxy, /proxy_cache_bypass/);
+});
+
 test("static 投放：发现页快照先看磁盘，缺了才回源", () => {
   const text = render({ KNOT_ENTRY_STATIC: "1" });
   assert.match(text, /location = \/discover\.json \{[\s\S]*?try_files \/discover\.json @knot_origin;/);

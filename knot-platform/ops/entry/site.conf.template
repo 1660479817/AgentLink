@@ -123,7 +123,7 @@ server {
     # 只缓存 GET，且只要请求带任何 Cookie 就整条绕过（proxy_cache_bypass / proxy_no_cache）：
     # 登录后的 starred/liked/mine 与未读数逐人不同，不能进共享缓存。
     # 检索不在这里：它会写 search_events，也按人限流，必须逐次回源。
-    location ~ ^/api/web/(session|home|information|facets|people|sponsors|economy|intel/[0-9a-fA-F-]{36})$ {
+    location ~ "^/api/web/(session|home|information|facets|people|sponsors|economy|intel/[0-9a-fA-F-]{36})$" {
         proxy_pass http://knot_entry_{{KNOT_ENTRY_PROXY_PORT}};
         proxy_http_version 1.1;
         proxy_set_header Connection "";
