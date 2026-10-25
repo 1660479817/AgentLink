@@ -267,7 +267,9 @@ function markdown(result) {
   return out.join("\n");
 }
 
-const browser = await chromium.launch();
+// 单个体感测量必须直连：macOS 的系统代理会把跨境往返换成代理链路，
+// 量到的就不是站点本身。Playwright 默认跟随系统代理，这里显式关掉。
+const browser = await chromium.launch({ args: ["--no-proxy-server"] });
 console.log(`探测 ${BASE} ...`);
 const target = await probeSite(BASE, { token: TOKEN });
 const summary = summaryLines(target);

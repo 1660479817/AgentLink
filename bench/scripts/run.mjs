@@ -24,6 +24,16 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 const K6 = process.env.K6_BIN || "k6";
 
+// k6 会读 HTTP_PROXY / HTTPS_PROXY，压测机常为访问外网挂着本地代理。
+// 代理把一次跨境往返换成「本机 → 代理 → 目标」，量到的是代理的排队，不是站点。
+// 默认清空，让 k6 直连；确实要测代理链路时显式 BENCH_USE_PROXY=1。
+const USE_PROXY = String(process.env.BENCH_USE_PROXY || "") === "1";
+const PROXY_VARS = ["http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
+const PROXY_SET = PROXY_VARS.filter((name) => process.env[name]);
+const CLEAN_PROXY_ENV = USE_PROXY
+  ? {}
+  : Object.fromEntries([...PROXY_VARS.map((name) => [name, ""]), ["NO_PROXY", "*"]]);
+
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
@@ -34,6 +44,9 @@ const BASE = String(arg("base", process.env.BENCH_BASE || "")).replace(/\/+$/, "
 if (!BASE) {
   console.error("必须给测点：--base https://<标签>.xknot.si");
   process.exit(2);
+}
+if (PROXY_SET.length && !USE_PROXY) {
+  console.warn(`代理：已忽略 ${PROXY_SET.join(", ")}，k6 直连测点（要测代理链路请设 BENCH_USE_PROXY=1）`);
 }
 const DURATION = String(arg("duration", "30s"));
 const COOLDOWN = Number(arg("cooldown", 15));
@@ -170,6 +183,7 @@ function runK6({ script, vus, duration, out, token, allowWrites = false }) {
     timeout: (Number(String(duration).replace(/[^\d.]/g, "")) + 120) * 1000,
     env: {
       ...process.env,
+      ...CLEAN_PROXY_ENV,
       BASE,
       VUS: String(vus),
       DURATION: String(duration),

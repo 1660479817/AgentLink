@@ -195,6 +195,7 @@ npm run link -- https://wang.xknot.si --upload-path /api/agent/uploads --upload-
 - **默认不碰 `/api/`。** 限流就在这个前缀上（某个部署是每 IP 每分钟 12 次、突发 5），连发量到的是 429/503，不是速度。真要测 `/api/` 路径，把 `--samples` 压小、拉开间隔；报告会把非 2xx 单独计数，看到 429/503 会提示。
 - **不替你猜上行端点。** POST 是写操作，交给谁由操作者决定。
 - **不走系统代理。** 经本机代理测出来的是代理的数，不是这条路。
+- **k6 与 Playwright 也强制直连。** `run.mjs` 在每次 k6 运行前清空 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`（确实要测代理链路上设 `BENCH_USE_PROXY=1`），`human/` 启动 Chromium 时带 `--no-proxy-server`。否则，需要代理才能出网的压测机会把代理的握手和排队算成站点延迟。
 - **不跨机器、跨时段比。** 跨境链路随时间段浮动，只有同机、同目标、同一时间窗的两轮才可比。
 
 ## 场景配比
