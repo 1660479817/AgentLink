@@ -50,6 +50,9 @@ if (PROXY_SET.length && !USE_PROXY) {
 }
 const DURATION = String(arg("duration", "30s"));
 const COOLDOWN = Number(arg("cooldown", 15));
+// 链路健康的参考线：入口首页（静态，不穿隧道）的 TTFB。正常时是一到两个
+// 跨境往返（0.2 秒上下）；超过这条线说明测点这一侧的公网路径已经在排队。
+const PATH_HEALTH_TTFB_MS = 500;
 const LABEL = String(arg("label", ""));
 const ALLOW_WRITES = flag("allow-writes") || String(process.env.ALLOW_WRITES || "") === "1";
 const SCENARIOS = String(arg("scenario", "read,agent"))
@@ -328,6 +331,18 @@ async function main() {
   console.log(
     `身份 ${identityMode}${COOKIES.length ? ` · Cookie ${COOKIES.length} 份` : ""}${TOKENS.length ? ` · 授权码 ${TOKENS.length} 份` : ""}\n`
   );
+
+  // 这条链路本身也会坏：家用宽带上行被占满、跨境线路绕路，首页 TTFB 会从
+  // 0.2 秒跳到 1～3 秒。那时 p95 量的是「我的网络今天怎么样」，不是站点容量，
+  // 和别的时段跑出来的表放在一起只会误导。探测已经量过首页，直接用它判断，
+  // 不额外加一次请求；只提醒不中断，判定留给看数的人。
+  const entryTtfb = Number(target?.entry?.ttfbMs);
+  if (Number.isFinite(entryTtfb) && entryTtfb > PATH_HEALTH_TTFB_MS) {
+    console.warn(
+      `链路：入口首页 TTFB ${Math.round(entryTtfb)}ms，高于 ${PATH_HEALTH_TTFB_MS}ms 的健康线。` +
+        `这一轮 p95 里混着公网路径的排队与重传，不能和链路正常时的数字比较；换一段链路再跑。`
+    );
+  }
 
   const runs = [];
   for (const scenario of SCENARIOS) {
