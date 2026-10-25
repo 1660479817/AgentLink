@@ -910,11 +910,10 @@ const XKNOT_KEYS = [
     key: "XKNOT_TIER",
     group: "xknot",
     type: "enum",
-    // free / paid 是现在中枢签发的两档；demo / partner / community 是早期名单，
-    // 仍认它们，免得老实例把接入件拿过来重启就起不来。
-    values: ["free", "paid", "demo", "partner", "community"],
+    // 中枢签发的三档。
+    values: ["free", "paid", "demo"],
     default: "",
-    desc: "中枢签发的层级：free 或 paid（早期的 demo / partner / community 仍可读）。签发区的一部分；留空时对外不报这一项。",
+    desc: "中枢签发的层级：free / paid / demo。签发区的一部分；留空时对外不报这一项。",
   },
   {
     key: "XKNOT_STATUS",

@@ -32,7 +32,7 @@ if [[ ! -f "$PGD/PG_VERSION" ]]; then
 fi
 
 if [[ ! -f "$PW_FILE" ]]; then
-  # 老库（trust）没有口令文件也能连：留空，DATABASE_URL 照旧不带口令。
+  # 已存在的库（trust）没有口令文件也能连：留空，DATABASE_URL 照旧不带口令。
   PG_PW=""
 else
   PG_PW="$(cat "$PW_FILE")"

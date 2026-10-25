@@ -41,7 +41,7 @@
 提交 ──▶ approved ──▶ withdrawn
 ```
 
-`rejected` / `expired` 是自动通过之前留下的历史状态，只读保留。
+`rejected` / `expired` 是只读状态，不再新增。
 
 ---
 
@@ -781,7 +781,7 @@ This message was sent automatically; replies are not monitored.
 | `no-reply@xknot.si` 的发信认证 | 已配 | 阿里云要求 `SMTP_USER` 与 `SMTP_FROM` 一致；改发信地址要同时改两处 |
 | `MAIL_FROM` 与 `Reply-To` 一致 | 已配 | 二者都用 `no-reply@xknot.si`，与「不接收回复」的措辞一致 |
 | 模板版本与文案责任人 | 已定 | 运行时版本 `TEMPLATE_VERSION=2.0.0`；改文案必须两边一起改并升版本 |
-| 归属验证记录 | **已取消** | 申请只按子域走，签发前没有可验证的域名。验收改为接通后的公网 `/api/health` 探测；旧的 `proof_method` / `proof_at` 列仅保留历史数据，申请对象不再返回这两个字段 |
+| 归属验证记录 | **无** | 申请只按子域走，签发前没有可验证的域名。验收改为接通后的公网 `/api/health` 探测；`proof_method` / `proof_at` 两列已不再写入，申请对象不返回这两个字段 |
 
 ---
 

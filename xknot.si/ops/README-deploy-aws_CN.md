@@ -201,8 +201,6 @@ curl -sI --resolve xknot.si:443:54.169.33.64 https://xknot.si/
 
 新增一条：自动接通会自己写清单与名册（`status` 先 `pending`，验收后改 `active`），不需要手工登记；**要人工做的是把它同步回仓库**——`./ops/deploy-api.sh --pull-manifest`，然后 `npm run validate` 并提交。手工加一条时：先改 `federation.json`（身份、隧道账号与端口），再改 `instances.json`（签发区），然后 `npm run validate`。下架一条：两个文件同时删掉这条，再删入口主机上的 conf 与静态根；`var/health.json` 与 `var/status.json` 下次巡检会自然丢掉它，`var/profiles/` 里的副本要手工删。子域跟着 `*.xknot.si` 的泛解析走，没有单独的 DNS 记录要清。
 
-历史：`zjj`（2026-10-19 签发、未接通）是早期试验，2026-10-22 已下架并删除登记与入口文件。
-
 ## 实例侧
 
 实例怎么部署、入口与隧道怎么配，不在本文范围。当前实例实现是 `knot-platform`：入口与隧道见 `knot-platform/ops/entry/README.md`，主机与密钥由各自的 `sites/<站点>/site.env` 给出。换别的实现，本文不需要改——中枢只认 `/api/health` 与接入件。

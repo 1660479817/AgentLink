@@ -62,8 +62,8 @@ export function checkManifestEntry(entry, seen = new Set()) {
 
 /**
  * 清单头里的 version 记的是「这份清单被改过几次」。
- * 校验器要求它是正整数，所以旧文件缺字段或写坏了都从 1 重新起算，
- * 不让一次历史遗留把后面的写入全卡住。
+ * 校验器要求它是正整数，所以文件缺字段或写坏了都从 1 重新起算，
+ * 不把后面的写入卡住。
  *
  * @param {unknown} current
  */

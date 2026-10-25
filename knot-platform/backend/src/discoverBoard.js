@@ -238,7 +238,7 @@ export function scheduleDiscoverWrite(env, push) {
 export function pushDiscoverBoard(boardDir) {
   const cmd = process.env.KNOT_DISCOVER_PUSH_CMD;
   if (!cmd || !boardDir) return;
-  // 推送失败过去是彻底静默的（stdio: ignore）：入口快照停在上一次成功的样子，
+  // 推送失败若彻底静默（stdio: ignore）：入口快照停在上一次成功的样子，
   // 页面照常打开，只是没有新内容——最容易被忽略的一种故障。
   // 这里只收 stderr 的前一小段，非 0 退出时打一行，别把 rsync 的进度刷进日志。
   const child = spawn(cmd, [boardDir], { stdio: ["ignore", "ignore", "pipe"], detached: true });

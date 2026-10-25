@@ -1,6 +1,6 @@
 // 接口进程（/opt/xknot）只拿到 server/ 与 web/src/lib/ 这两处代码。
-// 部署脚本按目录同步，不按文件逐个列举 —— 曾经逐个列举漏过 subdomain.mjs，
-// 远端 ERR_MODULE_NOT_FOUND，进程反复重启、门户 502。
+// 部署脚本按目录同步，不按文件逐个列举：逐文件列举漏一个就是远端
+// ERR_MODULE_NOT_FOUND，进程反复重启、门户 502。
 //
 // 但「按目录同步」只解决已列目录内的新文件。server/ 里再 import 第三个
 // web/src 之下的地方（或干脆 import 到别处），本地与单测全绿，远端照样起不来。
