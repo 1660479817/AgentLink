@@ -80,6 +80,22 @@ The mnemonic: **profile, status, showcase.** One word per layer; saying "he only
 | 语种 | locale | `locale` | the identifier of the page language, e.g. `zh-CN` | 语言包、语系 |
 | 区域 | region | `region` | the country or region where the instance sits (where the machine is) | 大区、片区、服务对象所在地 |
 
+### Store and showcase are not the same
+
+Two displays in two different places. They must not share a word.
+
+| Chinese | English | Identifier | Where | Do not write |
+|------|------|------|------|--------|
+| 店面 | store | `store` | an instance, at `/store` | 市场、广场、商城 |
+| 商品 | item | `item` | on the shelf, with a price | 帖子、产品（a `post` is never an item） |
+| 求购 | wish | `wish` | on the shelf, no price | 需求、询价 |
+| 应征 | response | `wishRespond` | an offer against one wish | 报价单、投标 |
+| 订单 | order | `order` | one completed sale | 流水（the ledger is separate） |
+| 上架 | listed | `listed` | on the shelf | 发布、收录 |
+| 撤下 | withdrawn | `withdrawn` | taken off the shelf by the owner | 下架（hub only） |
+
+The test: the showcase is six cards the hub displays from what a partner published; the store is what an owner sells inside one instance. A post is content, not goods.
+
 ### Two pairs of easily confused words
 
 - **Delist** (hub) vs **remove** (instance). When an admin removes a piece of content inside an instance, that is "remove"; when the hub removes a whole instance from the manifest, that is "delist".
