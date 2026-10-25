@@ -513,6 +513,8 @@ node ops/scripts/config.mjs sites             # 列出站点与 platform.env 状
 
 `/discover.json` 在 `KNOT_ENTRY_WEB_ROOT`。入口有就先给这一份，缺失时 `try_files` 回落到隧道，所以隧道断开时 `/discover` 仍可读。图片地址指向实例主机上的展示图。
 
+入口是整站反代（`KNOT_ENTRY_SERVE=proxy`）时不走上面这条推送：中枢按 `XKNOT_SNAPSHOT_INTERVAL_MS` 经隧道取 `GET /api/web/board`，变了才落在同一个目录（见 [`xknot.si/docs/HUB.md` 第 11.4 节](../../xknot.si/docs/HUB.md)），实例这边不用做任何事。
+
 `/api/web/uploads/` 在入口按 `$uri` 缓存 1 天。能不能进这份共享缓存，由后端的 `Cache-Control` 决定：未登录也能读的公开图片给 `public`，只有当事人能读的给 `private`（nginx 不缓存），生成失败回退原件给 `no-store`。下架后最迟 1 天生效；要立刻生效，在入口清 `KNOT_ENTRY_CACHE_DIR` 并 reload nginx。
 
 ### 4.1 管理后台（内网）

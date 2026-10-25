@@ -29,7 +29,7 @@ import { loadTipSummary, tipIntel, TIP_TOTAL_SQL } from "../tips.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
 import { DEFAULT_SITE_LOCALE, parseLocale } from "@knot/locale";
-import { guestBrowsing, siteConfig } from "../system.js";
+import { guestBrowsing, publicBoardEnabled, siteConfig } from "../system.js";
 import { acceptAvatar, ensureCardImage, ensureUploadDir, newStorageName } from "../uploads.js";
 import { readableBlobPath, tmpDir } from "../storage.js";
 import { isInlineRenderableMime, storeUploadedFile } from "../uploadStore.js";
@@ -200,6 +200,18 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     res.json({ user: await loadUser(pool, userId) });
   });
 
+  // 入口磁盘上的公开快照由中枢按间隔取回，可能比实例自己这份晚一个间隔。
+  // 会话响应每次都要穿一趟隧道，顺手把实例侧的版本带回去：页面据此判断屏幕上
+  // 那一份是不是已经落后，落后才回源取一次（见下面的 /board）。
+  const readBoardVersion = async () => {
+    if (typeof board !== "function") return null;
+    try {
+      return (await board())?.version || null;
+    } catch {
+      return null;
+    }
+  };
+
   router.get("/session", async (req, res) => {
     // 带会话身份，任何一层共享缓存都不要留。
     res.set("Cache-Control", "no-store");
@@ -210,11 +222,55 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     const site = siteConfig();
     const identity = brandView(profile?.view().site);
     if (!req.account) {
-      return res.json({ user: null, policy, defaultLocale, site, brand: identity, agentDoc: doc, agentDelegated: false });
+      return res.json({
+        user: null,
+        policy,
+        defaultLocale,
+        site,
+        brand: identity,
+        agentDoc: doc,
+        agentDelegated: false,
+        boardVersion: await readBoardVersion(),
+      });
     }
     // Agent 是否已开通和会话一起回：顶栏不必再为这一项单独穿一次隧道。
-    const [user, agents] = await Promise.all([loadUser(pool, req.account.id), findAgentsOf(pool, req.account.id)]);
-    res.json({ user, policy, defaultLocale, site, brand: identity, agentDoc: doc, agentDelegated: agents.length > 0 });
+    const [user, agents, boardVersion] = await Promise.all([
+      loadUser(pool, req.account.id),
+      findAgentsOf(pool, req.account.id),
+      readBoardVersion(),
+    ]);
+    res.json({
+      user,
+      policy,
+      defaultLocale,
+      site,
+      brand: identity,
+      agentDoc: doc,
+      agentDelegated: agents.length > 0,
+      boardVersion,
+    });
+  });
+
+  // 公开快照的权威副本。入口那一份是磁盘上的、可能落后；这一条永远反映实例此刻的内容，
+  // 所以既不给浏览器缓存，也不许任何一层共享缓存留下它。
+  // 中枢按间隔来取这一条（xknot.si/ops/snapshots.mjs）；ETag 让「没变」只花一次往返。
+  router.get("/board", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    // 没有快照（公开快照关着，或文件还没写下）用 410，不用 404：
+    // 取回方要能分清「实例明确说没有公开快照」与「这个地址不存在」。
+    // 前者要撤下入口磁盘上的旧副本，后者只是版本还没跟上，撤了就白丢一份好数据。
+    const snapshot = publicBoardEnabled() && typeof board === "function" ? await board().catch(() => null) : null;
+    if (!snapshot) return res.status(410).json({ error: "board_unavailable" });
+    // 版本就是写下这份快照的时刻，内容变它必变，可以直接当 ETag 用。
+    const etag = `"${snapshot.version || "unknown"}"`;
+    res.set("ETag", etag);
+    // 按 RFC 9110 逐个比对：取回方可能发 W/"…" 或多枚 ETag，等值比较会漏。
+    const offered = String(req.headers["if-none-match"] || "")
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    if (offered.some((tag) => tag === etag || tag === `W/${etag}`)) return res.status(304).end();
+    res.json(snapshot);
   });
 
   // 管理后台的一次性入口。登录在站点域名上，/admin 在实例的内网地址上，

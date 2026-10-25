@@ -309,6 +309,8 @@ function proxyDirectives(indent, upstream) {
  *
  * 同一条腿只认一个事实：隧道没通就发占位页，通了就整站过隧道。不做「/ 看静态、
  * 其他看隧道」那种混合，否则首页永远停在占位页（0.1 的真实事故就是这一条）。
+ * 唯一的例外是 `/discover.json`：它是公开快照，中枢会取回到入口磁盘上，有就用磁盘
+ * 那份、没有就回落到隧道。它不是页面，所以不存在「两个来源看到两个站」的问题。
  *
  * 整站反代也要拿到和 static 投放同档的传输层：HTTP/2、gzip、隧道连接复用。
  * 这三项与「页面从磁盘出还是从隧道回」无关；少了它们，每个静态文件都要多穿一次
@@ -356,8 +358,10 @@ log_format ${formatName} escape=json
   const cacheName = `knot_cache_${String(domain).replace(/[^a-zA-Z0-9]/g, "_")}`;
   const cacheBlock = proxied
     ? `# 入口缓存：/assets/ 按哈希名长期留，页面骨架只留 10 秒。目录与 zone 名按子域唯一。
+# 512m 是给上传图留的：个人站一天 20–100 条、每条几张图，图片在缓存里转一天约 90MB，
+# 留一倍余量。资产按需才进缓存，旧构建的分片没人请求就不占地方。
 proxy_cache_path /var/cache/nginx/${cacheName} levels=1:2 keys_zone=${cacheName}:10m
-  max_size=256m inactive=30d use_temp_path=off;
+  max_size=512m inactive=30d use_temp_path=off;
 
 `
     : "";
@@ -387,6 +391,24 @@ ${proxyDirectives(8, upstream)}
         # 上游对 /assets/ 发的是 no-cache 语义（资源要能立刻换），入口按哈希名缓存。
         proxy_ignore_headers Cache-Control Expires Set-Cookie;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    # 公开快照放在入口磁盘上：首屏数据不必由每个访客穿一次隧道去确认有没有新内容。
+    # 文件由中枢按固定间隔从实例取回（ops/snapshots.mjs），内容没变就不动它。
+    # 磁盘上没有文件时回落到隧道，因此这层缓存不会制造「文件没了就白屏」。
+    # 缓存头与实例自己的 /discover.json 一致：浏览器 30 秒内直接用，不必回来校验。
+    # 从磁盘出这一条没有 Backend 参与，安全头只能在这里发；回落到隧道时由 Backend 发，
+    # 这两行安全头不生效（内部跳转后按目标 location 的配置走），不会出现重复头。
+    location = /discover.json {
+        root ${root};
+        try_files /discover.json @knot_origin;
+        add_header Cache-Control "public, max-age=30, stale-while-revalidate=300" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+    }
+
+    location @knot_origin {
+${proxyDirectives(8, upstream)}
     }
 
     location / {

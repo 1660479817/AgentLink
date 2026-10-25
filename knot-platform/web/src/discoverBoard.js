@@ -144,9 +144,8 @@ export function cardGranted(item, user) {
   return item?.granted === true || item?.unlocked === true;
 }
 
-export async function fetchDiscoverBoard() {
-  // 入口把这一份设成 30 秒内可直接用，交给浏览器缓存判断，不再每次强制校验。
-  const res = await fetch("/discover.json", { credentials: "same-origin" });
+async function readBoardPayload(url, init) {
+  const res = await fetch(url, { credentials: "same-origin", ...init });
   const type = res.headers.get("content-type") || "";
   if (!res.ok || !type.includes("json")) {
     const error = new Error("no_board");
@@ -160,8 +159,39 @@ export async function fetchDiscoverBoard() {
     throw error;
   }
   if (!Array.isArray(data.people)) data.people = [];
+  return data;
+}
+
+/** 入口磁盘上那一份。浏览器 30 秒内可以直接用它。 */
+export async function fetchDiscoverBoard() {
+  const data = await readBoardPayload("/discover.json");
   rememberDiscover(data);
   // 留下这一份，下一次打开先画它。
   writeBoardCache(browserStorage(), data);
   return data;
+}
+
+/**
+ * 实例自己那一份（`/api/web/board`）。入口磁盘上的副本由中枢按间隔取回，可能落后
+ * 一个间隔；只有比出屏幕上这份旧了才走这里，所以它不会变成每次打开都多一次的往返。
+ */
+export async function fetchAuthoritativeBoard() {
+  const data = await readBoardPayload("/api/web/board", { cache: "no-store" });
+  rememberDiscover(data);
+  writeBoardCache(browserStorage(), data);
+  return data;
+}
+
+/**
+ * 屏幕上这一份是不是比实例自己那份旧。
+ *
+ * 入口磁盘上的快照由中枢按间隔从实例取回，所以它可能晚一个间隔；实例在会话响应里
+ * 带回自己的版本。版本是写下快照的时刻，同一个格式，比大小就是比新旧。
+ * 任一边没有版本（快照关掉、接口没回话）时一律当「不旧」：没有依据就不要回源。
+ */
+export function boardIsBehind(painted, version) {
+  const paintedAt = Date.parse(painted?.version || "");
+  const latestAt = Date.parse(version || "");
+  if (!Number.isFinite(paintedAt) || !Number.isFinite(latestAt)) return false;
+  return latestAt > paintedAt;
 }

@@ -8,7 +8,8 @@ import express from "express";
 import { installSystemPolicy } from "../system.js";
 import { webRouter } from "./web.js";
 
-// 这个文件只测首页的会话层：公开信息流不在响应里，快照来自参数里的 board()。
+// 这个文件只测会话层与公开快照的关系：信息流不在响应里，快照来自参数里的 board()。
+// `/home` 用它算个人状态，`/session` 用它给出实例侧版本，`/board` 把同一份原样发出。
 installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: true });
 
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -78,7 +79,7 @@ async function withHome(fn, { signedIn = false, fake = pool(), board = null, age
   const server = await listen(app);
   const base = `http://127.0.0.1:${server.address().port}/api/web`;
   try {
-    return await fn({ call: (pathname) => fetch(`${base}${pathname}`), fake });
+    return await fn({ call: (pathname, init) => fetch(`${base}${pathname}`, init), fake });
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await rm(dir, { recursive: true, force: true });
@@ -166,6 +167,104 @@ test("不传 board 时不报错，个人状态留空", async () => {
       assert.deepEqual(data.self.dismissed, []);
     },
     { signedIn: true }
+  );
+});
+
+// ---- 入口磁盘上的快照可能落后：实例给出它自己那份 ----
+
+test("会话响应带回实例侧的快照版本，访客与登录的人都一样", async () => {
+  // 页面靠它判断屏幕上那份（入口磁盘）要不要回源校正。它是每次打开都要走的一趟，
+  // 顺手带回即可，不为这一项多一次请求。
+  const board = async () => ({ version: "2026-10-25T01:02:03.000Z", information: [], requests: [] });
+  for (const signedIn of [false, true]) {
+    await withHome(
+      async ({ call }) => {
+        const data = await (await call("/session")).json();
+        assert.equal(data.boardVersion, "2026-10-25T01:02:03.000Z");
+      },
+      { signedIn, board }
+    );
+  }
+});
+
+test("没有快照或没传 board 时，版本为 null", async () => {
+  await withHome(
+    async ({ call }) => {
+      assert.equal((await (await call("/session")).json()).boardVersion, null);
+    },
+    { signedIn: true, board: async () => null }
+  );
+  await withHome(async ({ call }) => {
+    assert.equal((await (await call("/session")).json()).boardVersion, null);
+  });
+});
+
+test("/board 原样给出快照，且不许任何一层缓存留", async () => {
+  const board = async () => ({ version: "2026-10-25T00:00:00.000Z", information: [{ id: POST }], requests: [] });
+  await withHome(
+    async ({ call }) => {
+      const response = await call("/board");
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      const data = await response.json();
+      assert.deepEqual(data.information, [{ id: POST }]);
+    },
+    { board }
+  );
+});
+
+test("/board 的 ETag 就是快照版本：没变只花一次往返，不传正文", async () => {
+  // 中枢按间隔来取这一条，一天几百次；每次都发几十 KB 会把实例的上行占满。
+  const board = async () => ({ version: "2026-10-25T00:00:00.000Z", information: [], requests: [] });
+  await withHome(
+    async ({ call }) => {
+      const first = await call("/board");
+      const etag = first.headers.get("etag");
+      assert.equal(etag, '"2026-10-25T00:00:00.000Z"');
+      await first.arrayBuffer();
+
+      const again = await call("/board", { headers: { "if-none-match": etag } });
+      assert.equal(again.status, 304);
+      assert.equal((await again.arrayBuffer()).byteLength, 0);
+    },
+    { board }
+  );
+});
+
+test("/board 在快照关掉时回 410，让取回方把入口那份撤下", async () => {
+  // 用 410 而不是 404，取回方才能分清「实例说没有快照」与「这条地址不存在」：
+  // 弄反了会在实例还没升级时撤掉一份还能用的快照。
+  const board = async () => ({ version: "2026-10-25T00:00:00.000Z", information: [{ id: POST }], requests: [] });
+  installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: false });
+  try {
+    await withHome(
+      async ({ call }) => {
+        const response = await call("/board");
+        assert.equal(response.status, 410);
+        assert.equal((await response.json()).error, "board_unavailable");
+      },
+      { board }
+    );
+  } finally {
+    installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: true });
+  }
+});
+
+test("/board 没有快照时也回 410，不把空内容当成一份快照", async () => {
+  await withHome(async ({ call }) => {
+    assert.equal((await call("/board")).status, 410);
+  });
+});
+
+test("/board 认 W/ 前缀的 ETag", async () => {
+  // 取回方与中间的代理都可能给 ETag 加弱校验前缀，等值比较会漏掉这种校验。
+  const board = async () => ({ version: "2026-10-25T00:00:00.000Z", information: [], requests: [] });
+  await withHome(
+    async ({ call }) => {
+      const response = await call("/board", { headers: { "if-none-match": 'W/"2026-10-25T00:00:00.000Z"' } });
+      assert.equal(response.status, 304);
+    },
+    { board }
   );
 });
 

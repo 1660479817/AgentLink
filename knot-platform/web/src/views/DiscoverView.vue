@@ -10,7 +10,7 @@ import { addCardFriend, closeInformation, discoverSelf, dismissInformation, down
 import FilterBar from "../components/FilterBar.vue";
 import { browserStorage, readBoardCache } from "../boardCache.js";
 import { cardProps } from "../cardProps.js";
-import { applyDiscoverSelf, cardGranted, cardIsMine, coveredBy, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
+import { applyDiscoverSelf, boardIsBehind, cardGranted, cardIsMine, coveredBy, fetchAuthoritativeBoard, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
 import { errorText, nameMark } from "../composers/packet.js";
 import { acceptDownload } from "../download/consent.js";
 import { feeOf, priceOf } from "../record.js";
@@ -242,7 +242,36 @@ async function loadBoard(token = loadToken) {
   if (readAhead()) rememberAhead(null);
   // 先画公开快照，不等任何一次跨境往返。
   showPainted(paintDiscover(board, session.user?.id));
-  void personalise();
+  // 版本是会话层带回来的，所以要等它到齐再比；首帧不等它。
+  // 直接读 session.boardVersion 会漏掉最常见的一条路：路由器在只有快照、
+  // 还没问过会话时会先放行到本页，那时这个字段还是空的。
+  const showedCursor = cursor.value;
+  void personalise().then(() => catchUpBoard(board, token, showedCursor));
+}
+
+// 入口磁盘上的快照由中枢按间隔从实例取回，最多晚一个间隔。会话响应带回实例侧的
+// 版本，比屏幕上这份新就回源取一次权威副本。它是后台动作：首屏已经画好，
+// 这一条只负责把晚到的那几条换上去。
+async function catchUpBoard(painted, token, showedCursor) {
+  if (!boardIsBehind(painted, session.boardVersion)) return;
+  // 刚发布过的那一屏由 ahead 提供，比任何快照都新，不要用快照覆盖掉。
+  if (readAhead()) return;
+  // 读者已经往后翻过页了：换上去会把翻到的位置退回首屏。下一次进页面再校正。
+  // 比长度不可靠——个人状态里被隐掉的卡会让列表变短，那不是读者动过。
+  if (cursor.value !== showedCursor) return;
+  // 翻页的请求还在路上：这时候重画，回来的那一页会并进新列表，同一条会画两次。
+  if (loadingMore.value) return;
+  try {
+    const latest = await fetchAuthoritativeBoard();
+    if (token !== loadToken) return;
+    facetsFromBoard = Boolean(latest.facets);
+    showPainted(paintDiscover(latest, session.user?.id));
+    // 重画之后个人状态要重新叠一次，否则星标和「已下载」会掉。没有条目就不发这一条。
+    const ids = items.value.map((item) => item.id);
+    if (session.user && ids.length) applySelf(await discoverSelf(ids));
+  } catch {
+    /* 取不到就保留屏幕上这一屏：校正失败不该把已经画好的内容撤掉 */
+  }
 }
 
 // 快照里带了 facets 就直接用。只有走实时接口、或快照没带这一项时，才回源取一次。

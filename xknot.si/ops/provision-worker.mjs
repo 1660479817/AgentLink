@@ -5,11 +5,16 @@
 // 账号、公钥、sshd、静态页、DNS 检查、nginx、证书。做完之后等对方把隧道起来，
 // 探测 https://<子域>/api/health 通过，再把清单里的 status 从 pending 改成 active。
 //
+// 两件事顺带做在这里，因为它们都要求「中枢与入口同机」且都要常驻节拍：
+// 隧道对端的出口 IP 采集（ops/peers.mjs），以及把各实例的公开快照取回落到入口磁盘
+// （ops/snapshots.mjs）——读者远多于作者，首屏数据不该由访客去触发回源。
+//
 // 每一步都幂等，失败只记错误码并留在原地，下一轮重试。
 // 配置（不写死在仓库里）：
 //   XKNOT_ENTRY_HOST   入口主机的公网地址，写在 var/provision.env
 //   XKNOT_ADMIN_EMAIL  证书登记邮箱，读 mail.env
 //   XKNOT_PROVISION_INTERVAL_MS  轮询间隔，默认 20000
+//   XKNOT_SNAPSHOT_INTERVAL_MS   公开快照取回间隔，默认 20000
 //   XKNOT_AFTER_ACTIVATE  可选：改为 active 之后执行的脚本绝对路径（例如重建门户）
 //
 // 运行方式见 ops/xknot-provision.service。
@@ -25,6 +30,8 @@ import { openStore } from "../server/store.mjs";
 import { collectPeers } from "./peers.mjs";
 import { resolveLocations } from "./geoip.mjs";
 import { refreshStatus } from "./node-status.mjs";
+import { SNAPSHOT_STORE, collectSnapshots } from "./snapshots.mjs";
+import { warmEntry } from "./warm-entry.mjs";
 import {
   ProvisionError,
   createRun,
@@ -60,6 +67,10 @@ const afterActivate = String(process.env.XKNOT_AFTER_ACTIVATE || "").trim();
 const peerIntervalMs = Math.max(Number(process.env.XKNOT_PEER_INTERVAL_MS) || 60_000, 10_000);
 const peersFile = path.join(dataDir, "peers.json");
 const geoDir = path.join(dataDir, "geoip");
+// 快照按间隔取回：内容一天只变 20–100 次，而访客几乎每时每刻都在。取回这一层
+// 把「谁来看一眼就穿一次隧道」换成「中枢定时问一次」，间隔可以比访客间隔长得多。
+const snapshotIntervalMs = Math.max(Number(process.env.XKNOT_SNAPSHOT_INTERVAL_MS) || 20_000, 5_000);
+const snapshotsFile = path.join(dataDir, SNAPSHOT_STORE);
 
 const store = openStore(path.join(dataDir, "xknot.db"));
 
@@ -104,6 +115,21 @@ const host = {
     if (written.code !== 0) throw new ProvisionError("write_failed", written.stderr);
     if (owner) await sudo(["chown", owner, file]);
     await sudo(["chmod", mode, file]);
+  },
+  // 公开文件：先写同目录的临时文件，再 rename 到位。nginx 随时可能在读这个路径，
+  // 原地截断写会让它读到半份 JSON——一个访客的空白首屏，只在写入的那一瞬发生。
+  async writeEntryFile(file, text) {
+    const written = await sudo(
+      ["sh", "-c", 'tmp="$1.tmp.$$"; umask 022; cat > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$1"', "sh", file],
+      { input: text }
+    );
+    if (written.code !== 0) throw new Error(written.stderr.trim() || "write_failed");
+  },
+  // 实例不再提供快照时把磁盘上那份删掉，让 nginx 的 try_files 回落到隧道：
+  // 留在那里的旧快照会一直发一份实例已经不再承认的内容。
+  async removeEntryFile(file) {
+    const removed = await sudo(["rm", "-f", file]);
+    if (removed.code !== 0) throw new Error(removed.stderr.trim() || "remove_failed");
   },
   async resolve4(hostname) {
     try {
@@ -178,6 +204,59 @@ async function refreshPeers() {
   }
 }
 
+// ---- 公开快照：把读者要的首屏数据放到入口磁盘 ----
+//
+// 见 ops/snapshots.mjs。这里只负责节拍与落盘：一个间隔问一遍名册里每个实例，
+// 内容没变就什么都不做；失败保留上一份，下一轮接着比。
+// 让一个实例挂住时只拖住它自己：8 秒超时 × 名册人数串起来会比轮询间隔还长，
+// 那段时间里开通一步都推不动。同一时刻只跑一轮，避免两级写入交叉。
+let snapshotBusy = false;
+let snapshotAt = 0;
+let snapshotError = "";
+async function refreshSnapshots() {
+  const now = Date.now();
+  if (snapshotBusy || now - snapshotAt < snapshotIntervalMs) return;
+  snapshotAt = now;
+  snapshotBusy = true;
+  try {
+    const roster = await readJson(rosterFile, { members: [] });
+    const store = await readJson(snapshotsFile, { entries: {} });
+    const result = await collectSnapshots({ members: roster.members || [], host, store });
+
+    // 同一类失败只喊一次，别每个间隔刷一行。
+    const signature = result.errors.map((item) => `${item.id}:${item.error}`).join(",");
+    if (signature !== snapshotError) {
+      snapshotError = signature;
+      if (signature) {
+        log(`快照取回有失败：${result.errors.map((item) => `${item.id} ${item.error}`).join("，")}`);
+      }
+    }
+    if (result.written.length) log(`快照已更新：${result.written.join("，")}`);
+    if (result.removed.length) log(`快照已撤下：${result.removed.join("，")}`);
+    if (result.dirty) await writeJson(snapshotsFile, result.store);
+  } finally {
+    snapshotBusy = false;
+  }
+}
+
+// ---- 入口预热：接通那一刻先把首页与资产取一遍 ----
+//
+// 缓存是冷的时只有第一个访客在等，而个人站没有「很多人分摊第一次」。
+// 按站点去重：同一个站不叠两次，不同站点各热各的（多个节点同时接通时都要热）。
+const warming = new Set();
+function warmEntryCache(run) {
+  const origin = `https://${run.host}`;
+  if (!run.host || warming.has(origin)) return;
+  warming.add(origin);
+  warmEntry({ origin })
+    .then((result) => {
+      if (result.error) log(`${run.instanceId}: 入口预热跳过（${result.error}）`);
+      else log(`${run.instanceId}: 入口预热 ${result.warmed}/${result.assets} 个资产`);
+    })
+    .catch((error) => log(`${run.instanceId}: 入口预热失败 ${error.message}`))
+    .finally(() => warming.delete(origin));
+}
+
 export async function advance(run) {
   // 已经验收的：确认清单仍是 active，并核对入口 conf 还在「整站反代」状态。
   // deploy-api.sh 会把仓库里的 instances.json 同步上来，那里可能还是 pending；
@@ -187,7 +266,10 @@ export async function advance(run) {
     if (again.changed) log(`${run.instanceId}: 清单被覆盖回 pending，已改回 active`);
     try {
       const conf = await switchEntry({ host, run, entry: true });
-      if (conf.changed) log(`${run.instanceId}: 入口已切回整站反代`);
+      if (conf.changed) {
+        log(`${run.instanceId}: 入口已切回整站反代`);
+        void warmEntryCache(run);
+      }
     } catch (error) {
       log(`${run.instanceId}: 入口 conf 核对失败 ${error.code || error.message}`);
     }
@@ -264,7 +346,11 @@ export async function advance(run) {
       // 顺序反过来会出现「清单是 active、打开还是占位页」。
       try {
         const conf = await switchEntry({ host, run, entry: true });
-        if (conf.changed) log(`${run.instanceId}: 隧道已通，首页改为整站反代`);
+        if (conf.changed) {
+          log(`${run.instanceId}: 隧道已通，首页改为整站反代`);
+          // 缓存此刻是空的：先替第一个访客把首页和它的资产取一遍。
+          void warmEntryCache(run);
+        }
       } catch (error) {
         const code = error instanceof ProvisionError ? error.code : "entry_switch_failed";
         log(`${run.instanceId}: 切换整站反代失败 ${code}，下一轮重试`);
@@ -313,6 +399,9 @@ export async function advance(run) {
 async function tick() {
   // 位置采集与接通互不依赖：入口主机配置缺失时也要更新页面上的区域。
   await refreshPeers();
+  // 快照取回不阻塞开通：某个实例挂住时，等它的 8 秒超时不该让别的单停在那儿。
+  // 晚一轮取回没有任何后果——磁盘上那份旧快照仍然在发。
+  refreshSnapshots().catch((error) => log(`快照取回失败：${error.message}`));
 
   if (!entryHost || !adminEmail) {
     log("缺少 XKNOT_ENTRY_HOST / XKNOT_ADMIN_EMAIL，自动接通不启动");
