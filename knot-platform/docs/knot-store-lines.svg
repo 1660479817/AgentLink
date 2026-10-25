@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="500" viewBox="0 0 1120 500">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 1.2 L 10 5 L 0 8.8 Z" fill="#222"/>
+    </marker>
+  </defs>
+  <rect width="1120" height="500" fill="#ffffff"/>
+
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="24" y="42" font-size="20" font-weight="700" fill="#111">Knot · 三条线各走各的</text>
+    <text x="24" y="66" font-size="13" fill="#333">内容不是商品，店面不做结算。两处交叉：发布扣积分、打赏、成交。</text>
+    <text x="24" y="86" font-size="12" fill="#555">Content is not goods, the store does not settle. Two crossings only: publish fee, tip, sale.</text>
+  </g>
+
+  <!-- 内容线 -->
+  <rect x="24" y="110" width="320" height="80" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="44" y="142" font-size="16" font-weight="600" fill="#111">内容 · Content</text>
+    <text x="44" y="166" font-size="12" fill="#333">post · fastpost</text>
+  </g>
+  <g fill="none" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)">
+    <line x1="344" y1="150" x2="380" y2="150"/>
+  </g>
+  <rect x="384" y="110" width="320" height="80" rx="8" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="404" y="142" font-size="15" font-weight="600" fill="#111">信息流 · 搜索 · 快照</text>
+    <text x="404" y="166" font-size="12" fill="#333">feed · search · discover.json</text>
+  </g>
+
+  <!-- 店面线 -->
+  <rect x="24" y="210" width="320" height="92" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="44" y="242" font-size="16" font-weight="600" fill="#111">店面 · Store</text>
+    <text x="44" y="266" font-size="12" fill="#333">item · wish · response · order</text>
+    <text x="44" y="288" font-size="12" fill="#333">标价 · 上架 · 成交 · 订单</text>
+  </g>
+  <g fill="none" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)">
+    <line x1="344" y1="256" x2="380" y2="256"/>
+  </g>
+  <rect x="384" y="210" width="320" height="92" rx="8" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="404" y="242" font-size="15" font-weight="600" fill="#111">货架 · /store</text>
+    <text x="404" y="266" font-size="12" fill="#333">商品 · 求购 · 应征</text>
+    <text x="404" y="288" font-size="12" fill="#333">items · wishes · responses</text>
+  </g>
+
+  <!-- 结算线 -->
+  <rect x="384" y="340" width="712" height="96" rx="8" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="404" y="372" font-size="16" font-weight="600" fill="#111">结算 · Settlement</text>
+    <text x="404" y="396" font-size="12" fill="#333">积分余额 · 流水 · 服务费 · 消费券</text>
+    <text x="404" y="418" font-size="12" fill="#333">balance · ledger · service fees · coupons</text>
+  </g>
+
+  <!-- 两处交叉 -->
+  <g fill="none" stroke="#222" stroke-width="1.6" marker-end="url(#arrow)">
+    <polyline points="704,150 760,150 760,336"/>
+    <polyline points="704,256 880,256 880,336"/>
+  </g>
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="12" fill="#333">
+    <text x="770" y="192">发布费 · 打赏</text>
+    <text x="770" y="208" fill="#555">publish fee · tip</text>
+    <text x="890" y="296">成交</text>
+    <text x="890" y="312" fill="#555">sale</text>
+  </g>
+
+  <!-- 底部说明 -->
+  <g font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+    <text x="24" y="462" font-size="13" fill="#333">帖子不带标价、不设交易期、不下载收作者的钱；店面记录不进信息流，也不进搜索。</text>
+    <text x="24" y="482" font-size="12" fill="#555">A post carries no price, has no sale window, and pays no author on download; a store record never enters the feed or search.</text>
+  </g>
+</svg>
