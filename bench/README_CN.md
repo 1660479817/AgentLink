@@ -226,3 +226,9 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 ## 与 `ops/scripts/speed-check.sh` 的关系
 
 那个脚本是第 0 层：顺序 curl 几个地址取中位数，回答「部署完通不通、大概多少毫秒」。留着手边用。这里三层回答「并发上去会怎样、慢在哪一段、站点的哪一项配置掉了队」。两者不重复。
+
+## 许可
+
+代码以 [Apache License 2.0](./LICENSE) 发布，版权人 PaulWang，署名见 [NOTICE](./NOTICE)。许可证不授予商标使用权；`XKnot`、`Knot`、`xknot`、`xknot.si` 的名称和标识归 PaulWang 所有。`xknot.si` 下的子域由权利人签发，不随代码授权。
+
+[English version](./README.md)

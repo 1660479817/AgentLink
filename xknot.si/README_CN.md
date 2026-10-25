@@ -204,7 +204,7 @@ npm run deploy:api                   # 部署接口与控制台（需 XKNOT_HUB_
 
 ## 归属与许可
 
-`xknot.si` 及其下签发的子域归 **PaulWang** 所有。代码以 [Apache-2.0](../LICENSE) 发布，版权人是 PaulWang，署名见 [NOTICE](./NOTICE)。许可证全文在仓库根；本项目自带一份 `NOTICE`，单独取用本目录时署名不依赖根目录。
+`xknot.si` 及其下签发的子域归 **PaulWang** 所有。代码以 [Apache-2.0](./LICENSE) 发布，版权人是 PaulWang，署名见 [NOTICE](./NOTICE)。本目录自带 `LICENSE` 与 `NOTICE`，单独取用本目录时许可全文与署名都不依赖仓库根。
 
 - 许可证授予代码的版权与专利许可，**不含商标**。`Knot`、`xknot`、`xknot.si` 的名称和标识不随代码授权。
 - `*.xknot.si` 子域只由权利人签发。自部署实例可使用自有域名，也可写「基于 Knot」，不得暗示官方认证。

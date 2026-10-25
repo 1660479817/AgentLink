@@ -2,6 +2,7 @@
   "name": "knot-bench",
   "version": "0.2.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "description": "*.xknot.si 个人站的访问速度测量：黑箱，只给一个 URL",
   "scripts": {

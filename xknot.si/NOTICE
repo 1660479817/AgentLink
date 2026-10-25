@@ -1,4 +1,4 @@
-xknot.si — XKnot 联邦中枢
+xknot.si — the XKnot federation hub
 Copyright 2026 PaulWang
 
 This product includes software developed by PaulWang.
@@ -15,7 +15,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-The full license text for this repository is in ../LICENSE.
+The full license text is in `LICENSE` in this directory.
 
 The Apache License, Version 2.0 grants copyright and patent permissions for
 the source code. It does not grant permission to use the trade names,
