@@ -70,7 +70,7 @@ The mnemonic: **profile, status, showcase.** One word per layer; saying "he only
 | 发信凭据 | relay token | `relayToken` | the token the hub issues to an instance, revocable on its own | API Key、密钥 |
 | 发信额度 | relay quota | `dailyLimit` | a credential's 24-hour sending cap | 限额、配额 |
 | 发信记录 | relay log | `relay_log` | records only the recipient domain and result, no body | 邮件日志、发信历史 |
-| 收录 | listing | `listed` | writing an instance into the manifest | 入驻、上架、签约 |
+| 收录 | listing | `listed` | writing an instance into the manifest | 入驻、签约（上架 belongs to the store） |
 | 下架 | delist | `delisted` | removing it from the manifest; the hub stops showing it | 封禁、关闭、撤下 |
 | 接入形态 | access mode | `mode` | only `subdomain`: hub-issued subdomain + entry tunnel (`own-domain` is retired) | 类型、方案 |
 | 待验收 | pending | `status: pending` | already in the manifest, `/api/health` not yet passing | 未上线 |
@@ -91,8 +91,8 @@ Two displays in two different places. They must not share a word.
 | 求购 | wish | `wish` | on the shelf, no price | 需求、询价 |
 | 应征 | response | `wishRespond` | an offer against one wish | 报价单、投标 |
 | 订单 | order | `order` | one completed sale | 流水（the ledger is separate） |
-| 上架 | listed | `listed` | on the shelf | 发布、收录 |
-| 撤下 | withdrawn | `withdrawn` | taken off the shelf by the owner | 下架（hub only） |
+| 在售 | on sale | `on_sale` | a store record shown on the shelf | 收录（that is the hub） |
+| 撤下 | withdrawn | `withdrawn` | the owner took it off the shelf | 下架（hub only） |
 
 The test: the showcase is six cards the hub displays from what a partner published; the store is what an owner sells inside one instance. A post is content, not goods.
 
@@ -180,7 +180,8 @@ English concept-name casing: lowercase in prose (`the hub`, `an instance`); titl
 | 平台 | the hub is an entry | 中枢; "实例" when referring to Knot itself |
 | 信息流、推荐流 | L3 is a showcase | 橱窗 |
 | 聚合平台 | the hub does not aggregate content | 中枢 |
-| 入驻、上架 | implies review and a shelf | 收录 |
+| 入驻 | implies review | 收录 |
+| 市场、广场、商城、出售区 | a marketplace with many sellers; a Knot instance is one shop with one owner | 店面 store; 商品 item |
 | 同步、上报 | implies the partner writes to the hub | 拉取 |
 
 ## 7. Locale and region
