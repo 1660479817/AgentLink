@@ -167,7 +167,7 @@ async function loadAccount(pool, accountId) {
   return rows[0] ? presentAccount(rows[0]) : null;
 }
 
-export function agentRouter({ pool, uploadDir }) {
+export function agentRouter({ pool, uploadDir, storeEnabled = false }) {
   ensureUploadDir(uploadDir);
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, tmpDir(uploadDir)),
@@ -201,6 +201,12 @@ export function agentRouter({ pool, uploadDir }) {
     },
   });
   const router = Router();
+
+  // 商店是可选模块：关掉时这一组接口不存在，已经上架与成交的数据仍留在库里。
+  const storeGuard = (_req, res, next) => {
+    if (storeEnabled) return next();
+    return res.status(404).json({ error: "store_closed" });
+  };
 
   // 每次带着授权码的响应都捎上未读信箱。账户由 accessFor 记下，这里只负责挂上。
   router.use((_req, res, next) => {
@@ -463,7 +469,7 @@ export function agentRouter({ pool, uploadDir }) {
   // ---- Knot Store ------------------------------------------------------------
   // 与网页同一份货架：商品不进信息流与检索，只在这里进出。
 
-  router.get("/store", async (req, res) => {
+  router.get("/store", storeGuard, async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const before = String(req.query.before || "").trim();
@@ -471,19 +477,19 @@ export function agentRouter({ pool, uploadDir }) {
     res.json({ items: await listStoreItems(pool, access.userId, { before: anchor }) });
   });
 
-  router.get("/store/orders", async (req, res) => {
+  router.get("/store/orders", storeGuard, async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     res.json({ orders: await listOrders(pool, access.userId) });
   });
 
-  router.get("/store/mine", async (req, res) => {
+  router.get("/store/mine", storeGuard, async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     res.json({ items: await listMyItems(pool, access.userId) });
   });
 
-  router.get("/store/:id", async (req, res) => {
+  router.get("/store/:id", storeGuard, async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const id = String(req.params.id || "");
@@ -493,7 +499,7 @@ export function agentRouter({ pool, uploadDir }) {
     res.json({ item });
   });
 
-  router.post("/store", async (req, res) => {
+  router.post("/store", storeGuard, async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const delivery = readDelivery(req.body);
@@ -516,7 +522,7 @@ export function agentRouter({ pool, uploadDir }) {
     }
   });
 
-  router.post("/store/:id/buy", async (req, res) => {
+  router.post("/store/:id/buy", storeGuard, async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const id = String(req.params.id || "");
@@ -529,7 +535,7 @@ export function agentRouter({ pool, uploadDir }) {
     }
   });
 
-  router.post("/store/:id/withdraw", async (req, res) => {
+  router.post("/store/:id/withdraw", storeGuard, async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const id = String(req.params.id || "");
@@ -541,7 +547,7 @@ export function agentRouter({ pool, uploadDir }) {
     }
   });
 
-  router.post("/store/:id/relist", async (req, res) => {
+  router.post("/store/:id/relist", storeGuard, async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const id = String(req.params.id || "");
@@ -553,7 +559,7 @@ export function agentRouter({ pool, uploadDir }) {
     }
   });
 
-  router.get("/store/:id/mine", async (req, res) => {
+  router.get("/store/:id/mine", storeGuard, async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
     const id = String(req.params.id || "");

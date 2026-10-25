@@ -1,6 +1,6 @@
 # Knot Store
 
-**状态：已实现。** 代码在 `backend/src/store.js`、`backend/migrations/004_store.sql`、`web/src/stores/catalog.js`、`web/src/views/StoreView.vue`；接口契约在 [KNOT_WEB_API.md](./KNOT_WEB_API.md) 与 [KNOT_HELP.md](../../docs/KNOT_HELP.md)。
+**状态：已实现，默认关闭。** 代码在 `backend/src/store.js`、`backend/migrations/004_store.sql`、`web/src/stores/catalog.js`、`web/src/views/StoreView.vue`；接口契约在 [KNOT_WEB_API.md](./KNOT_WEB_API.md) 与 [KNOT_HELP.md](../../docs/KNOT_HELP.md)。实例用 `KNOT_STORE_ENABLED=1` 打开整个模块（默认 `0`，见 §13）。
 
 Knot Store 是实例里主理人开的店。它只有一种交易：**挂数据卖，买扣分。** 价格全部归卖家，平台不抽成。
 
@@ -169,3 +169,11 @@ buyable(item) = kind = 'item' AND verdict = 'passed' AND state = 'on_sale'
 3. 建 `store_items`、`store_orders` 及索引，用 `(id, kind)` 外键把货架行钉在商品上。
 
 `intel` 不再有交易期，也没有到期列：帖子发布后一直在信息流里，直到作者删除或平台撤下。
+
+## 13. 开关
+
+| 键 | 位置 | 默认 | 含义 |
+|---|---|---|---|
+| `KNOT_STORE_ENABLED` | `sites/<站点>/platform.env` | `0` | `1` 挂上商店；`0` 整块移除 |
+
+关掉是「这个模块不存在」，不是「货架停业」：导航没有商店入口，`/store` 回落信息流，网页与 Agent 的每一个商店接口都在会话 / 令牌校验之前回 404 `store_closed`。数据一件不删：商品、货架状态和订单都留在库里，`KNOT_STORE_ENABLED=1` 再重启 Backend 就原样回来。当前值由实例在 `/api/web/session` 与 `/api/web/home` 的 `storeEnabled` 里下发，WebUI 不必猜。

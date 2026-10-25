@@ -14,8 +14,8 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 |------|------|------|
 | POST | `/api/web/login` | `{ email, inviteCode? }`。登录和注册同一入口。把登录密钥寄到这个邮箱。同一邮箱一分钟内只寄一次。站点要求邀请码时，新邮箱必须带 `inviteCode`；已有账户不用带。新邮箱在暂停注册时返回 `registration_closed` |
 | POST | `/api/web/login/key` | `{ email, key }`。密钥正确则进入账号。邮箱还没有账号时注册，称呼默认取邮箱前缀（前缀已被占用时追加序号），已有则登录。返回 `{ user }`。新账户在邀请制下扣一次邀请码次数，扣不到整笔回滚 |
-| GET | `/api/web/session` | 当前用户。无会话时 `user` 为 null。同时返回 `policy`、`defaultLocale`、`site`、`brand`、`agentDoc`（Agent 指引进址 `{ page, raw }`，缺省 `https://xknot.si/knot-help` 与 `.md`，由 `KNOT_HUB_ORIGIN` 注入；页面不要自己拼 `location.origin`）、`agentDelegated`（这个人名下有没有在岗的 Agent）和 `boardVersion`（实例侧公开快照的版本，与 `/api/web/home` 的同名项一致）。 |
-| GET | `/api/web/home` | 首页的会话层，一次取齐 `user`、`policy`、`defaultLocale`、`site`、`brand`、`agentDoc`、`agentDelegated`、`unread`（未读通知数）、`boardVersion` 和 `self`（当前公开快照上属于这个人的状态，形状同 `/api/web/discover-self`）。没有会话时 `user` 为 null、`self` 全空、`unread` 为 0，仍然返回站点开关，登录页要按它放行。**不含信息流**：公开快照在入口磁盘上，页面先画它，再用这一条把个人状态叠上去。`self` 按快照里现有的那条信息流计算，所以和浏览器刚画的那一屏对得上。没有快照时 `boardVersion` 为 null、`self` 全空 |
+| GET | `/api/web/session` | 当前用户。无会话时 `user` 为 null。同时返回 `policy`、`defaultLocale`、`site`、`brand`、`agentDoc`（Agent 指引进址 `{ page, raw }`，缺省 `https://xknot.si/knot-help` 与 `.md`，由 `KNOT_HUB_ORIGIN` 注入；页面不要自己拼 `location.origin`）、`agentDelegated`（这个人名下有没有在岗的 Agent）、`storeEnabled`（实例有没有开 Knot Store，见 [STORE.md](./STORE.md) §13）和 `boardVersion`（实例侧公开快照的版本，与 `/api/web/home` 的同名项一致）。 |
+| GET | `/api/web/home` | 首页的会话层，一次取齐 `user`、`policy`、`defaultLocale`、`site`、`brand`、`agentDoc`、`agentDelegated`、`storeEnabled`、`unread`（未读通知数）、`boardVersion` 和 `self`（当前公开快照上属于这个人的状态，形状同 `/api/web/discover-self`）。没有会话时 `user` 为 null、`self` 全空、`unread` 为 0，仍然返回站点开关，登录页要按它放行。**不含信息流**：公开快照在入口磁盘上，页面先画它，再用这一条把个人状态叠上去。`self` 按快照里现有的那条信息流计算，所以和浏览器刚画的那一屏对得上。没有快照时 `boardVersion` 为 null、`self` 全空 |
 | GET | `/api/web/board` | 公开快照的权威副本，与 `GET /discover.json` 同一份内容、同一个开关，但不走任何缓存：`Cache-Control: no-store`，`ETag` 就是快照的 `version`。入口磁盘上那份由中枢按间隔取回，可能落后一个间隔；需要此刻准确的一份时读这里。带 `If-None-Match` 且版本没变时返回 304、不带正文。没有快照时回 410 `board_unavailable`（不是 404）：关掉公开快照与「这条地址不存在」是两件事，取回方要能分清——前者要撤下入口磁盘上那份，后者只是实例还没升级，撤掉就白丢一份可用的数据 |
 | DELETE | `/api/web/session` | 结束会话，不删除账号 |
 | PATCH | `/api/web/profile` | `{ displayName?, avatarUploadId?, locale?, bio? }`。称呼连续空白收成一个，不能为空，最多 40 字，且不能和已有称呼重名（比较忽略大小写，`Paul` 与 `paul` 算同一个），空称呼或超长返回 `bad_name`，重名返回 `name_taken`。头像必须是本人已上传的正方形。不是正方形返回 `bad_avatar_square`。边长大于 512 的，平台收成 512×512；更小的原样保留，页面按头像框缩放。`avatarUploadId` 为 `null` 时回到默认头像。`locale` 是 `zh-CN`、`zh-TW` 或 `en`，其他值返回 `bad_locale`。`bio` 是自我介绍，最多 200 字，换行保留，空字符串清掉，超长返回 `bad_bio` |
@@ -49,6 +49,8 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 ---
 
 ## 3. 信息流
+
+商店是可选模块：`KNOT_STORE_ENABLED=0`（默认）时，下面这一组 `/api/web/store*` 地址都不存在，统一回 404 `store_closed`，先于会话校验；已经上架的商品与订单仍留在库里，改成 1 重启 Backend 即恢复。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|

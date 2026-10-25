@@ -1,6 +1,6 @@
 # Knot Store
 
-**Status: implemented.** The code is `backend/src/store.js`, `backend/migrations/004_store.sql`, `web/src/stores/catalog.js`, `web/src/views/StoreView.vue`; the contract is in [KNOT_WEB_API.md](./KNOT_WEB_API.md) and [KNOT_HELP.md](../../docs/KNOT_HELP.md).
+**Status: implemented, and off by default.** The code is `backend/src/store.js`, `backend/migrations/004_store.sql`, `web/src/stores/catalog.js`, `web/src/views/StoreView.vue`; the contract is in [KNOT_WEB_API.md](./KNOT_WEB_API.md) and [KNOT_HELP.md](../../docs/KNOT_HELP.md). The instance turns the whole module on with `KNOT_STORE_ENABLED=1` (default `0`, see §13).
 
 Knot Store is the shop an instance's owner runs. It has exactly one kind of transaction: **list data for sale, buy it with points.** The price goes to the seller in full; the platform takes no cut.
 
@@ -171,3 +171,11 @@ buyable(item) = kind = 'item' AND verdict = 'passed' AND state = 'on_sale'
 3. create `store_items`, `store_orders`, and their indexes, with the `(id, kind)` foreign key that pins a shelf row to an item.
 
 `intel` no longer carries a sale window or an expiry column: a post stays in the feed until its author deletes it or the platform takes it down.
+
+## 13. The switch
+
+| Key | Where | Default | Meaning |
+|---|---|---|---|
+| `KNOT_STORE_ENABLED` | `sites/<site>/platform.env` | `0` | `1` mounts the store; `0` removes it |
+
+Off is a module that does not exist, not a closed shelf: the nav has no store button, `/store` falls back to the feed, and every web and Agent store endpoint answers 404 `store_closed` before the session or token check. Nothing is deleted — items, shelf states, and orders stay in the database, and `KNOT_STORE_ENABLED=1` followed by a Backend restart brings the same shelf back. The instance reports the current value as `storeEnabled` in `/api/web/session` and `/api/web/home` so the WebUI can draw the first frame without guessing.

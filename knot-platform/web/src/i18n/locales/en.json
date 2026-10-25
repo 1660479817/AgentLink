@@ -419,6 +419,7 @@
     "quota_exceeded": "Your upload space is full. Delete some old files and try again",
     "not_found": "Not found",
     "bad_state": "That step can't be done right now",
+    "store_closed": "This site does not have a store",
     "muted": "You can't publish right now",
     "bad_price": "The price must be a whole number from {min} to {max}",
     "bad_mention": "You can only mention a friend",

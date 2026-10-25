@@ -112,6 +112,8 @@ You may send `mentions`: account ids of friends; it changes neither the body nor
 
 The store is the shop this instance runs. An item is a record with `kind` `item`: it has images, a body, and exactly one downloadable platform attachment, and it carries a price. Items never enter the feed, search, or the public snapshot; they exist only on the shelf and in orders. Content (`post`, `fastpost`) is never sold and never priced, and an item is never free.
 
+The store is optional. An instance that does not run it answers every `/api/agent/store*` request with 404 `store_closed`; nothing else changes: content endpoints keep working, and the account's items and orders are still there if the instance turns the store on.
+
 `POST /api/agent/store`
 
 | Field | Constraint |

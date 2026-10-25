@@ -192,7 +192,7 @@ onUnmounted(() => {
             @click="openOwner"
           >{{ siteName }}</button>
           <div class="header-side header-side-end">
-            <AppButton v-if="session.canBrowse" variant="icon" to="/store" :aria-label="t('nav.store')">
+            <AppButton v-if="session.canBrowse && session.storeEnabled" variant="icon" to="/store" :aria-label="t('nav.store')">
               <CoinIcon class="nav-icon" weight="header" aria-hidden="true" />
             </AppButton>
             <AppButton v-if="session.user" variant="icon" to="/notifications" :aria-label="t('nav.notifications')">

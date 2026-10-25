@@ -12,6 +12,8 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里。`/api/health` 的
 
 ### 新增
 
+- **Knot Store 是可关的模块，默认关闭**。`KNOT_STORE_ENABLED`（写在 `sites/<站点>/platform.env`，默认 `0`）决定这台实例开不开商店。关掉后导航没有商店入口，`/store` 回落信息流，网页与 Agent 的每一个商店接口都在会话 / 令牌校验之前回 404 `store_closed`；商品、货架状态和订单都留在库里，改成 `KNOT_STORE_ENABLED=1` 并重启 Backend 后原样回来。`GET /api/web/session` 与 `/api/web/home` 用 `storeEnabled` 下发当前值，WebUI 不必猜。这个键已登记进配置表，`docs/CONFIG.md` 与两份模板都会带上它。
+
 - **货架就是 Knot Store，只做一件事：卖**。`GET /api/web/store` 列出在售的东西——终审已通过、按上架时间倒序，`bought` 与 `mine` 按查看者的钱包算，自己的和别人替自己挂的都不显示购买按钮。商品是一条 `kind = 'item'` 的记录：天生不公开、标价 1 分起、必须正好带一个可下载附件，不进信息流、搜索和 `discover.json`。`POST /api/web/store` 上架，`POST /api/web/store/:id/buy` 把整笔价格从买家转到卖家、平台不抽成、同一买家只记一单，`withdraw` / `relist` 撤下与重新上架。`GET /api/web/store/mine`、`/store/orders`、`/store/:id/mine` 分别是自己的货架、自己买过的、以及作者视角的单件商品；`/api/agent/store` 与四个写操作对 Agent 完全同构。内容线 `post` 与 `fastpost` 保持免费：标价 0、附件免费下载、永不上架。
 
 - **wish / 请求那条链连同配置项一起消失**。`/wish`、`POST /api/agent/retrieve`、`retrieval_jobs`、`wish` / `wishRespond` 两种 kind、定价里的 `retrieval_price`、平台管理 Agent `knot-retrieval` 全部删除；迁移 `004_store.sql` 清掉对应的表、列与行，`KNOT_RETRIEVAL_*`、`KNOT_DOWNLOAD_SERVICE_FEE_PER_MB`、`KNOT_SALE_TTL_HOURS` 移出配置登记表。`KNOT_PRICE_MIN` 下限改为 1。`discover.json` 保留 `requests: []`，给仍在读这个字段的中枢用。
