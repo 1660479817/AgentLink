@@ -212,6 +212,18 @@ test("过程里的本地步骤反映盘上的事实：隧道段与接入件", ()
   assert.equal(steps.find((step) => step.id === "join").state, "todo");
 });
 
+test("已上线的站点过程收尾，不再留下「隧道待开始」", () => {
+  // 接入件生效之后，join.json 与中枢的 run 都可能已经不在了：只按这两份数据推，
+  // 一张已上线的卡会同时写着「已上线」和「本机隧道：待开始」，还会把中枢那八步
+  // 列成待办。这一侧只写能作证的：接入件已生效，说明整条链确实走完过。
+  const view = accessState({ site: SITE, issued: { id: "wang", url: "https://wang.xknot.si" } });
+  assert.equal(view.state, "active");
+  assert.deepEqual(
+    view.steps.map((step) => `${step.id}:${step.state}`),
+    ["profile:done", "apply:done", "tunnel:done", "probe:done", "join:done"]
+  );
+});
+
 test("档案缺项时第一步是待办，且带上字段名", () => {
   const { steps, missing } = accessSteps({ site: { name: "北港" } });
   assert.equal(steps[0].id, "profile");

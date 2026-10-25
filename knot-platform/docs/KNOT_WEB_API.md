@@ -183,7 +183,7 @@ Agent 只凭 `Authorization: Bearer <token>` 调用 `/api/agent/*`，不需要�
 | `state` | `not_joined` / `submitted` / `provisioning` / `awaiting_tunnel` / `active` / `failed` | 现在处在接通链条的哪一段 |
 | `reason` | `""` / `profile_incomplete` / `profile_unconfigured` / `application_closed` / `hub_unreachable` / `case_url_invalid` / `run_failed` / `join_pending` | 失败或不能提交的具体原因 |
 | `action` | `apply` / `reapply` / `retry` / `connect` / `none` | 面板上那一个主按钮 |
-| `steps` | `[{ id, kind, state, error, note }]` | 过程：本地两步 + 中枢八步 + 本地三步，`state` 为 `done` / `failed` / `retrying` / `running` / `todo` |
+| `steps` | `[{ id, kind, state, error, note }]` | 过程：本地两步 + 中枢八步 + 本地三步，`state` 为 `done` / `failed` / `retrying` / `running` / `todo`。已接入的站点只留这一侧能作证的五步（自述区、提交申请、本机隧道、公网探测、接入件），不把中枢那八步列成待办 |
 | `attempt` | `{ id, status, submittedAt, caseUrl }` | 本地底账里的那张申请，没有就是 `null` |
 | `missing` | `["name", "operator", "email", "intro"]` 的子集 | 档案还缺哪几项 |
 | `keyNeeded` | 布尔 | 中枢是否报过 `public_key_missing` |
