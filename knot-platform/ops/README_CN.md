@@ -202,7 +202,7 @@ XKNOT_ISSUED_STATUS=active
 - 写了文件就要有 `XKNOT_INSTANCE_ID`，否则不知道这份接入属于谁。
 - 四行 `XKNOT_ISSUED_*` 是中枢签发区的镜像：照抄清单，缺项就留空。这一侧不校验取值，也不补默认值——档位与状态的词表属于中枢，抄一份到这里，中枢改词表时就会把自己挡在启动之外。
 - 委托发信只要有 `XKNOT_HUB_RELAY_TOKEN` 就能用：发信地址按 `XKNOT_HUB_ORIGIN` 推导。写了 `XKNOT_HUB_RELAY_URL` 却没有凭据会被拒绝，也不会拿旧文件里的凭据来凑。
-- 部署键、实例运行时键混进来直接报错，不会悄悄写到别处。
+- 部署键、实例运行时键混进来直接报错，不会悄悄写到别处。当前契约之外的键（改名前或已废弃的）也整份拒绝、原文件不动：写进去没有任何一方会读，要新键就让中枢用当前版本重签，这一侧不做键名转换。
 - 写入后重启 Backend 才生效：launchd 用 `launchctl kickstart -k gui/$(id -u)/com.knot.platform`，systemd 用 `sudo systemctl restart knot-backend`。
 - `0.3` 之前委托发信凭据写在 `platform.env`。`deploy-site.sh` 下次生成时会把它迁到 `xknot.env` 再从 `platform.env` 删掉，并打一行警告。
 

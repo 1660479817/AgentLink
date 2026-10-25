@@ -104,26 +104,31 @@ test("重领一份新凭据会清掉旧的地址覆盖，不带凭据则保留�
   assert.match(afterKeep, /^XKNOT_ISSUED_AT=2026-10-21$/m);
 });
 
-test("接入件的旧键名按新键写入，废弃键不落进 xknot.env", async () => {
-  // 旧件仍要能用，但写出来的是当前标准里的键名：改一次名就留下一份永不生效的
-  // 配置，下一台机器上还会继续误导人。
+test("接入件里出现契约之外的键就整份拒绝，旧文件不动", async () => {
+  // 改名或废弃的键不转换、不落盘：写进去也不会被读，等于把问题留到门户上少一行时
+  // 才发现。要新键就让中枢用当前版本重签，接收方不替它猜。
   const root = await deployRoot();
-  const payload = await writePayload(root, "legacy.env", [
+  const file = path.join(root, "sites", "demo", "xknot.env");
+  const first = await writePayload(root, "first.env", [
     "XKNOT_INSTANCE_ID=wang",
-    "XKNOT_HUB_RELAY_TOKEN=xkr_wang_0123456789abcdef",
+    "XKNOT_ISSUED_TIER=paid",
+    "XKNOT_ISSUED_STATUS=active",
+  ]);
+  assert.equal(join(root, first).status, 0);
+  const before = await readFile(file, "utf8");
+
+  const legacy = await writePayload(root, "legacy.env", [
+    "XKNOT_INSTANCE_ID=wang",
     "XKNOT_TIER=paid",
     "XKNOT_STATUS=active",
     "XKNOT_HUB_ISSUED_AT=2026-10-20",
   ]);
 
-  const result = join(root, payload);
-  assert.equal(result.status, 0, result.stderr);
-
-  const text = await readFile(path.join(root, "sites", "demo", "xknot.env"), "utf8");
-  assert.match(text, /^XKNOT_ISSUED_TIER=paid$/m);
-  assert.match(text, /^XKNOT_ISSUED_STATUS=active$/m);
-  assert.match(text, /^XKNOT_ISSUED_AT=2026-10-20$/m);
-  assert.doesNotMatch(text, /^XKNOT_TIER=/m);
-  assert.doesNotMatch(text, /^XKNOT_STATUS=/m);
-  assert.doesNotMatch(text, /^XKNOT_HUB_ISSUED_AT=/m);
+  const result = join(root, legacy);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /XKNOT_TIER/);
+  assert.match(result.stderr, /XKNOT_STATUS/);
+  assert.match(result.stderr, /XKNOT_HUB_ISSUED_AT/);
+  assert.match(result.stderr, /重(新)?签/);
+  assert.equal(await readFile(file, "utf8"), before);
 });

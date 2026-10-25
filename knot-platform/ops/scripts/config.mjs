@@ -234,23 +234,14 @@ function cmdXknotTemplate(argv) {
 // 只碰这一个文件。接入件里给了的键覆盖旧值，没给的沿用——重领一次不会把中枢地址抹掉。
 // 唯一例外是委托发信凭据：它是一次签发一份，不能拿旧文件的一半去配新件的一半。
 
-// 不属于当前键名的三个键。接入件里出现时按新键写入，不把废弃键带进 xknot.env：
-// 一份几年前发的件在新机器上写出一行永远不会被读的配置，比直接报错更难查。
-const RETIRED_JOIN_KEYS = {
-  XKNOT_TIER: "XKNOT_ISSUED_TIER",
-  XKNOT_STATUS: "XKNOT_ISSUED_STATUS",
-  XKNOT_HUB_ISSUED_AT: "XKNOT_ISSUED_AT",
-};
-
-function dropRetiredJoinKeys(given, warn = (line) => console.error(line)) {
-  for (const [oldKey, newKey] of Object.entries(RETIRED_JOIN_KEYS)) {
-    if (!Object.hasOwn(given, oldKey)) continue;
-    const value = given[oldKey];
-    delete given[oldKey];
-    if (!Object.hasOwn(given, newKey)) given[newKey] = value;
-    warn(`接入件里的 ${oldKey} 已改名为 ${newKey}，按新键写入。`);
-  }
-  return given;
+// 接入件只认当前契约里的键，别的键一律拒绝落盘。
+//
+// 改名或废弃的键不做转换，也不当普通未知项放过去：写进 xknot.env 也不会被任何一方读取，
+// 等到门户上少一行档位才发现，比当场拒绝难查得多。旧件换新件的办法只有一个——中枢用
+// 当前版本重签一份。接在旧版中枢上的实例先升级中枢，再重领，而不是让接收方替它猜。
+function unknownJoinKeys(given) {
+  const known = new Set(KEYS.filter((entry) => entry.file === "xknot").map((entry) => entry.key));
+  return Object.keys(given).filter((key) => !known.has(key));
 }
 
 function cmdJoin(argv) {
@@ -268,7 +259,13 @@ function cmdJoin(argv) {
       if (!isBlank(value)) given[key] = String(value).trim();
     }
   }
-  dropRetiredJoinKeys(given);
+  const unknown = unknownJoinKeys(given);
+  if (unknown.length) {
+    console.error(
+      `接入件里有当前接入契约之外的键：${unknown.join("、")}。让中枢用当前版本重新签发一份接入件，不要手改。`
+    );
+    return 1;
+  }
   if (!Object.keys(given).length) {
     console.error("接入件里没有可用的键。至少要 XKNOT_INSTANCE_ID；要委托发信再加 XKNOT_HUB_RELAY_TOKEN。");
     return 1;
