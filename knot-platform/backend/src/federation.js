@@ -16,8 +16,8 @@ const KEYS = [
   { key: "XKNOT_INSTANCE_ID", label: "实例 id" },
   { key: "XKNOT_ISSUED_URL", label: "签发地址" },
   { key: "XKNOT_ISSUED_AT", label: "签发日" },
-  { key: "XKNOT_TIER", label: "层级" },
-  { key: "XKNOT_STATUS", label: "状态" },
+  { key: "XKNOT_ISSUED_TIER", label: "档位" },
+  { key: "XKNOT_ISSUED_STATUS", label: "状态" },
   { key: "XKNOT_HUB_ORIGIN", label: "中枢地址" },
   { key: "XKNOT_HUB_RELAY_URL", label: "委托发信地址" },
   { key: "XKNOT_HUB_RELAY_TOKEN", label: "委托发信凭据" },
@@ -76,8 +76,8 @@ function configView(source) {
     relayUrl: relayUrl(source),
     relayUrlSource: explicitRelay ? "explicit" : hubOrigin ? "derived" : "none",
     issuedAt: text(source.XKNOT_ISSUED_AT),
-    tier: text(source.XKNOT_TIER),
-    status: text(source.XKNOT_STATUS),
+    tier: text(source.XKNOT_ISSUED_TIER),
+    status: text(source.XKNOT_ISSUED_STATUS),
 
     relayToken: {
       present: Boolean(token),

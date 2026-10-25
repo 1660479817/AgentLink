@@ -313,13 +313,14 @@ phase 2   write into the instance config (with knot-platform: ./ops/scripts/join
 ```bash
 XKNOT_INSTANCE_ID=wang
 XKNOT_HUB_ORIGIN=https://xknot.si
-XKNOT_HUB_ISSUED_AT=2026-10-20
 XKNOT_ISSUED_URL=https://wang.xknot.si
 XKNOT_ISSUED_AT=2026-10-20
-XKNOT_TIER=paid
-XKNOT_STATUS=active
+XKNOT_ISSUED_TIER=paid
+XKNOT_ISSUED_STATUS=active
 XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
 ```
+
+One fact, one key: the four `XKNOT_ISSUED_*` lines are a verbatim mirror of the manifest's issued zone. The instance stores and repeats them; it does not interpret the values, does not fill in a default when one is missing, and does not refuse to start over a value it does not recognise. An empty value means the hub has not said, and the instance shows it as unstated.
 
 The send address is derived from the hub address, not written into the access material. It **does not** contain deployment topology: domain, port, entry host, and tunnel account are written by staff in the handoff sheet for people to read, and land in the partner's own deployment config (section 5). Thus the access material can go through mail claim, and the deployment config stays on the partner's own machine.
 

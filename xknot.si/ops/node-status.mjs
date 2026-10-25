@@ -84,8 +84,10 @@ export function composeNode({ instance, member, health, peers, locations, traffi
     host: hostOfUrl(instance?.url),
     url: instance?.url || "",
     manifest: {
-      status: instance?.status || "active",
-      tier: instance?.tier || "free",
+      // 照抄清单，缺项就是 null。这里不替中枢补档位或状态：node-status 是回读，
+      // 不是决策点。
+      status: instance?.status ?? null,
+      tier: instance?.tier ?? null,
       since: instance?.since || null,
     },
     probe,

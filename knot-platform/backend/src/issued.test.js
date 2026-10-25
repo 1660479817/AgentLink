@@ -41,7 +41,8 @@ test("join values: keys come from the hub, host is the case origin", () => {
   assert.equal(values.XKNOT_INSTANCE_ID, "cpswang");
   assert.equal(values.XKNOT_ISSUED_URL, "https://cpswang.xknot.si");
   assert.equal(values.XKNOT_ISSUED_AT, "2026-10-21");
-  assert.equal(values.XKNOT_TIER, "free");
+  assert.equal(values.XKNOT_ISSUED_TIER, "free");
+  assert.equal(values.XKNOT_ISSUED_STATUS, "active");
   assert.equal(values.XKNOT_HUB_ORIGIN, "https://xknot.si");
   assert.equal(values.XKNOT_HUB_RELAY_TOKEN, "");
 });
@@ -86,7 +87,25 @@ test("write: a changed tier rewrites the file", async () => {
     values: joinValues({ issued: { ...ISSUED, tier: "paid" }, hubOrigin: "https://xknot.si" }),
   });
   assert.equal(paid.changed, true);
-  assert.match(await readFile(file, "utf8"), /^XKNOT_TIER=paid$/m);
+  assert.match(await readFile(file, "utf8"), /^XKNOT_ISSUED_TIER=paid$/m);
+});
+
+test("join values: an unstated tier stays empty instead of being invented", () => {
+  // 中枢没说档位时，这一侧不能替它填 free：那会由 /api/federation/profile
+  // 报回中枢，中枢读到的就是自己没说过的话。
+  const values = joinValues({ issued: { ...ISSUED, tier: "", status: "" }, hubOrigin: "https://xknot.si" });
+  assert.equal(values.XKNOT_ISSUED_TIER, "");
+  assert.equal(values.XKNOT_ISSUED_STATUS, "");
+});
+
+test("join values: a tier this build does not know is carried through unchanged", () => {
+  // 词表属于中枢。这一侧认不认识这个值，都不该改写它、也不该拒绝写文件。
+  const values = joinValues({
+    issued: { ...ISSUED, tier: "premium", status: "frozen" },
+    hubOrigin: "https://xknot.si",
+  });
+  assert.equal(values.XKNOT_ISSUED_TIER, "premium");
+  assert.equal(values.XKNOT_ISSUED_STATUS, "frozen");
 });
 
 test("relay: the automatic path keeps a token the hub did not re-issue", async () => {

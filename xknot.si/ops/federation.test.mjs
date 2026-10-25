@@ -119,12 +119,13 @@ test("a listed member needs since, and reserved hosts stay out of the manifest",
   assert.ok(validateRoster(roster, leaked).some(([id, errors]) => id === "travel" && errors[0].includes("not registered in federation.json")));
 });
 
-test("every founder stays in the paid tier", async () => {
+test("tier is the manifest's call, the roster does not constrain it", async () => {
+  // 档位是清单里逐实例的展示分级，名册只管角色与席位。名册去管清单的档位，
+  // 两份文件就互为前提，改一边必须先改另一边。
   const { roster, manifest } = await load();
-  const broken = clone(manifest);
-  broken.instances.find((instance) => instance.id === "cpswang").tier = "free";
-  const problems = validateRoster(roster, broken);
-  assert.ok(problems.some(([id, errors]) => id === "cpswang" && errors.some((e) => e.startsWith("tier:"))));
+  const changed = clone(manifest);
+  changed.instances.find((instance) => instance.id === "cpswang").tier = "free";
+  assert.deepEqual(validateRoster(roster, changed), []);
 });
 
 test("unknown enum values are rejected", async () => {

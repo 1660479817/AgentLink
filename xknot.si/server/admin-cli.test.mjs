@@ -112,10 +112,16 @@ test("access: the file is 600 even when it already existed as 644", async (t) =>
   assert.equal(mode, 0o600);
 
   const text = await readFile(out, "utf8");
-  // 消费方（knot-platform 的 join-xknot.sh）按 7.4 的键名读这一个。
-  assert.match(text, /^XKNOT_HUB_ISSUED_AT=2026-10-19$/m);
+  // 签发区一项一个键，与清单字段同名：档位就是清单里的档位，状态就是清单里的状态。
+  assert.match(text, /^XKNOT_ISSUED_AT=2026-10-19$/m);
+  assert.match(text, /^XKNOT_ISSUED_TIER=free$/m);
+  assert.match(text, /^XKNOT_ISSUED_STATUS=pending$/m);
   assert.match(text, /^XKNOT_INSTANCE_ID=cpswang$/m);
   assert.match(text, /^XKNOT_HUB_ORIGIN=https:\/\/xknot\.si$/m);
+  // 同义键不再签发：一份文件里同一个事实只能有一个键名。
+  assert.doesNotMatch(text, /^XKNOT_HUB_ISSUED_AT=/m);
+  assert.doesNotMatch(text, /^XKNOT_TIER=/m);
+  assert.doesNotMatch(text, /^XKNOT_STATUS=/m);
 });
 
 test("access: issuing again replaces the previous credential", async (t) => {

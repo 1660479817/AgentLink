@@ -233,6 +233,26 @@ function cmdXknotTemplate(argv) {
 //
 // 只碰这一个文件。接入件里给了的键覆盖旧值，没给的沿用——重领一次不会把中枢地址抹掉。
 // 唯一例外是委托发信凭据：它是一次签发一份，不能拿旧文件的一半去配新件的一半。
+
+// 不属于当前键名的三个键。接入件里出现时按新键写入，不把废弃键带进 xknot.env：
+// 一份几年前发的件在新机器上写出一行永远不会被读的配置，比直接报错更难查。
+const RETIRED_JOIN_KEYS = {
+  XKNOT_TIER: "XKNOT_ISSUED_TIER",
+  XKNOT_STATUS: "XKNOT_ISSUED_STATUS",
+  XKNOT_HUB_ISSUED_AT: "XKNOT_ISSUED_AT",
+};
+
+function dropRetiredJoinKeys(given, warn = (line) => console.error(line)) {
+  for (const [oldKey, newKey] of Object.entries(RETIRED_JOIN_KEYS)) {
+    if (!Object.hasOwn(given, oldKey)) continue;
+    const value = given[oldKey];
+    delete given[oldKey];
+    if (!Object.hasOwn(given, newKey)) given[newKey] = value;
+    warn(`接入件里的 ${oldKey} 已改名为 ${newKey}，按新键写入。`);
+  }
+  return given;
+}
+
 function cmdJoin(argv) {
   const paths = selectedSite(argv);
   const outPath = path.resolve(optionalArgValue(argv, "--out", paths.joinEnv));
@@ -248,6 +268,7 @@ function cmdJoin(argv) {
       if (!isBlank(value)) given[key] = String(value).trim();
     }
   }
+  dropRetiredJoinKeys(given);
   if (!Object.keys(given).length) {
     console.error("接入件里没有可用的键。至少要 XKNOT_INSTANCE_ID；要委托发信再加 XKNOT_HUB_RELAY_TOKEN。");
     return 1;
@@ -276,8 +297,8 @@ function cmdJoin(argv) {
     "XKNOT_INSTANCE_ID",
     "XKNOT_ISSUED_URL",
     "XKNOT_ISSUED_AT",
-    "XKNOT_TIER",
-    "XKNOT_STATUS",
+    "XKNOT_ISSUED_TIER",
+    "XKNOT_ISSUED_STATUS",
     "XKNOT_HUB_ORIGIN",
   ]) {
     if (Object.hasOwn(merged, key)) continue;

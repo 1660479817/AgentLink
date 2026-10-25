@@ -264,11 +264,12 @@ function trafficNote(row) {
 }
 
 // 名册字段的中文说法。缺一个说法时直接显示原值，不吞掉。
+//
+// role 只有两个取值（founder / partner），与结算档位无关：partner 是「伙伴」
+// 这个身份，不是某一档。档位在清单里，叫 demo / free / paid。
 const ROLE_LABEL = {
   founder: "创始",
   partner: "伙伴",
-  community: "社区",
-  demo: "示例",
 };
 
 const STANDING_LABEL = {
@@ -415,8 +416,9 @@ function draftFrom(row, config) {
   return {
     instance: {
       url: row.url || "",
-      tier: row.tier || "free",
-      status: row.status || "active",
+      // 照抄清单。缺项留空，表单显示「—」：中枢还没决定，不要替它选一档。
+      tier: row.tier || "",
+      status: row.status || "",
       since: config.since || "",
       cardsUrl: config.cardsUrl || "",
       statsUrl: config.statsUrl || "",
