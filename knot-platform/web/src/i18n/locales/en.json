@@ -342,7 +342,7 @@
   },
   "store": {
     "title": "Knot Store",
-    "lead": "The shop this site runs: every item has a price, and buying it is the only way in to that file. The price goes entirely to the seller; the platform takes no cut.",
+    "lead": "I keep a small shop on this site: every item carries a price, and buying one hands you the whole thing. The money goes to the seller — I take no cut.",
     "lanes": "Shelf, bought and listed",
     "shelf": "Shelf",
     "bought": "Bought",
