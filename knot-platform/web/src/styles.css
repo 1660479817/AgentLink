@@ -4267,6 +4267,52 @@ button {
   cursor: not-allowed;
 }
 
+/* AppButton 把变体拼成 btn-<variant>，标记里搜不到 btn-primary / btn-secondary /
+   btn-icon 这三个字符串，按“没有对应标记”删规则会连外壳一起删掉。三个变体各自
+   的底色和尺码都靠下面这几条，删了按键就退回 .btn 的裸样式。 */
+.btn-primary {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  color: #ffffff;
+}
+
+.btn-secondary {
+  background: var(--color-border-dim);
+  color: var(--color-text);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #d8dadf;
+  color: var(--color-text);
+}
+
+/* icon 变体的底座：正方形、圆底、无内边距。AppButton 的 variant="icon"
+   与页面上直接写 class="btn-icon" 的按键都靠这一条定尺寸；缺了它，按键会
+   退回 .btn 的左右 1rem 内边距，图标被挤窄、头像被压成竖条。 */
+.btn-icon {
+  position: relative;
+  width: var(--header-control);
+  height: var(--header-control);
+  min-width: var(--header-control);
+  min-height: var(--header-control);
+  max-height: var(--header-control);
+  aspect-ratio: 1;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--color-border-dim);
+  color: var(--color-text);
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: #d8dadf;
+  color: var(--color-text);
+}
+
 .btn-icon.is-plain {
   background: transparent;
 }
@@ -4818,6 +4864,18 @@ body.is-lightbox {
   line-height: 1.4;
 }
 
+/* LandingView 的截图说明用 <Transition name="gate-fade"> 切换，缺了这几条就
+   没有淡入淡出，只剩文字瞬间替换。 */
+.gate-fade-enter-active,
+.gate-fade-leave-active {
+  transition: opacity 160ms ease;
+}
+
+.gate-fade-enter-from,
+.gate-fade-leave-to {
+  opacity: 0;
+}
+
 .carousel-dots {
   display: flex;
   justify-content: center;
@@ -5152,6 +5210,24 @@ body.is-lightbox {
 }
 
 .breakeven-state.is-balanced {
+  color: #18794e;
+}
+
+/* 阶段色：EconomyView 用 :class="`stage-${report.stage}`" 拼类名，三种取值由
+   backend 的 actuary 给出（seeding / growing / breakeven）。同样是标记里搜不到的
+   类名，别按“无对应标记”删。 */
+.stage-seeding {
+  background: #f0f2f5;
+  color: var(--color-muted);
+}
+
+.stage-growing {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.stage-breakeven {
+  background: #e6f4ea;
   color: #18794e;
 }
 
