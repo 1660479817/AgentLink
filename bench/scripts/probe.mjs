@@ -145,7 +145,7 @@ export async function probeSite(base, { token = "", routes = ROUTES } = {}) {
   out.transport = await tlsInfo(host);
 
   // 首页、健康、快照、会话、两扇管理门一起发。都是 GET，都不改数据。
-  const [index, health, boardRes, sessionRes, adminPage, adminApi] = await Promise.all([
+  let [index, health, boardRes, sessionRes, adminPage, adminApi] = await Promise.all([
     timedRequest(`${base}/`),
     timedRequest(`${base}/api/health`),
     timedRequest(`${base}/discover.json`),
@@ -153,6 +153,13 @@ export async function probeSite(base, { token = "", routes = ROUTES } = {}) {
     timedRequest(`${base}/admin`),
     timedRequest(`${base}/api/admin/posts`),
   ]);
+
+  // 能力探测决定后面跑哪些场景，不能因为一次跨洋抖动就把整组场景判成「不可用」。
+  // 只对会话与健康这两条重试；管理门与快照保持一次性，重试只会掩盖真实的 404。
+  for (let attempt = 0; attempt < 2 && sessionRes.status !== 200; attempt++) {
+    sessionRes = await timedRequest(`${base}/api/web/session`);
+  }
+  if (health.status !== 200) health = await timedRequest(`${base}/api/health`);
 
   // 实例身份：/api/health 是唯一不用登录就能读出部署版本的端点。
   const healthData = parseJson(health.body);

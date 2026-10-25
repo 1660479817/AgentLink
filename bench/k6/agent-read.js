@@ -53,7 +53,12 @@ export function setup() {
   if (!ids.length) {
     console.warn(`setup: Agent 信息流为空（status=${board.status}），卡片详情将跳过`);
   }
-  return { ids, query: QUERY };
+  // Knot Store 是可选的：关掉时 /api/agent/store 回 404。不能把「这个模块没开」
+  // 记成服务错误，否则整轮报告的错误率都被它拉高。
+  const store = http.get(`${BASE}/api/agent/store`, { headers: headersFor(1) });
+  const storeOpen = store.status === 200;
+  if (!storeOpen) console.log(`setup: Knot Store 未开启（status=${store.status}），store 端点本轮跳过`);
+  return { ids, query: QUERY, storeOpen };
 }
 
 export default function (data) {
@@ -86,7 +91,7 @@ export default function (data) {
     });
   }
 
-  if (Math.random() < 0.15) {
+  if (data.storeOpen && Math.random() < 0.15) {
     group("store", () => {
       p.store.record(
         http.get(`${BASE}/api/agent/store`, { headers, tags: { name: "GET /api/agent/store" } })

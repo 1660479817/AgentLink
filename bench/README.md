@@ -195,6 +195,7 @@ Three things this script deliberately does not do:
 - **It does not hit `/api/` by default.** Rate limits live on that prefix (one deployment allows 12 requests/minute per IP with a burst of 5); hammering it measures 429/503, not speed. When you do measure an `/api/` path, keep `--samples` low and space the calls out; the report counts non-2xx separately and warns when it sees 429/503.
 - **It does not guess an upload endpoint.** A POST is a write; naming the endpoint is the operator's decision.
 - **It does not use the system proxy.** Numbers taken through a local proxy are the proxy's, not the path's.
+- **k6 and Playwright are forced direct too.** `run.mjs` clears `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` before every k6 run (set `BENCH_USE_PROXY=1` to measure a proxy path on purpose), and `human/` launches Chromium with `--no-proxy-server`. A machine that needs a proxy to reach the site will otherwise report the proxy's handshake and queueing as site latency.
 - **It does not compare across machines or hours.** A cross-border link moves by time of day; only same machine, same target, same window are comparable.
 
 ## Scenario mix
