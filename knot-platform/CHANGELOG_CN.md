@@ -28,6 +28,12 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里。`/api/health` 的
 
 - **签发区一个字段一个键，只有一个主人**。接入件改为存 `XKNOT_ISSUED_URL`、`XKNOT_ISSUED_AT`、`XKNOT_ISSUED_TIER`、`XKNOT_ISSUED_STATUS`：键名与 `instances.json` 的字段一一对应，重复的日期键没了。档位与状态按普通字符串接收，不设枚举也不设格式——词表属于中枢，这一侧抄一份并在不认识的值上拒绝启动，等于把中枢的一次改档变成一次启不来；而启动正是它去取正确值的唯一途径。中枢没说的项留空，不再补成 `free` / `active`，公开档案报 `null` 而不是编一个档位。`config.mjs join` 遇到当前契约之外的键直接整份拒绝、原文件不动，不再替三个改名前的键做转换：转换出来的那一行没有任何一方会读，等于把问题留到以后。
 
+### 修复
+
+- **形状不对的 id 回 404，不再把后端带走**。`/api/web/uploads/:id` 把参数直接交给 uuid 列，Postgres 抛出 `22P02`，而 async handler 里的拒绝没人接管，进程随之退出——一条写错的地址就足以让整站 502，直到服务管理器把它拉起来。现在 `readableUpload` 在查库前先看形状。另外两个由人填的 id 一并收口：不是 uuid 的头像上传件回 `bad_avatar`，不是 uuid 的 `revises` / `respondsTo` 回 `bad_state`。
+
+- **从 WebUI 经公网入口传图恢复正常**。入口的代理 location 写成 `location ^~ /api/web/uploads/`，nginx 因此把这条路径当成目录，对 `POST /api/web/uploads` 回 `301`；浏览器跟随时改发不带请求体的 `GET`，上传于是 404。static 与 proxy 两种投放都不再带尾斜杠，`/api/web/uploads/<id>` 的读取照旧，写请求能抵达后端。`ops/entry/site-conf.test.mjs` 渲染真模板，尾斜杠再回来就会失败。
+
 ## [0.7.0] — 2026-10-24
 
 加固与双语化版本。这一版把审计波次收口成稳定基线：管理端多了「终审失败日志」栏，授权码轮换改成原子操作，可见性谓词收拢到一处，下载计费与管理路由补上测试覆盖，配置文档与模板改为英文生成，iOS HEIC 照片在上传前由浏览器转成 JPEG。

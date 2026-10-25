@@ -11,6 +11,26 @@ import { imageUploadLimit, itemPrice, serviceFee, policyConfig } from "./points.
 
 const AUTHOR = "33333333-3333-4333-8333-333333333333";
 
+test("a revise target that is not a uuid is rejected before the query", async () => {
+  // revises / respondsTo 直接进 uuid 列；形状不对时 pg 会抛 22P02，
+  // Express 4 不接管 async handler 的拒绝，一条错输入就能把进程带走。
+  const calls = [];
+  const pool = {
+    async query(...args) {
+      calls.push(args);
+      throw new Error("22P02 invalid input syntax for type uuid");
+    },
+  };
+  for (const bad of [{ revises: "not-a-uuid" }, { respondsTo: "3333" }]) {
+    await assert.rejects(
+      createIntel(pool, { userId: AUTHOR, actor: "human", door: "web", body: "改一条", ...bad }),
+      (error) => error.code === "bad_state",
+      JSON.stringify(bad)
+    );
+  }
+  assert.equal(calls.length, 0);
+});
+
 test("a public card keeps the author account id", () => {
   const card = presentIntel({
     id: "post",

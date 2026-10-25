@@ -18,6 +18,9 @@ import { refreshSearchIndex, searchIndexOf, searchTextOf } from "./searchIndex.j
 import { touchDiscoverBoard } from "./discoverPublish.js";
 import { attachmentOpens } from "./readable.js";
 import { avatarUrlFor } from "./avatars.js";
+
+// 用户填的 id 会直接进 uuid 列；形状不对时在查库前挡掉。
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 import { cardImageUrl } from "./uploads.js";
 import { TIP_TOTAL_SQL } from "./tips.js";
 import { readableBlobPath } from "./storage.js";
@@ -454,6 +457,16 @@ async function assertRevision(pool, userId, revises, kind) {
 // 商品的货架行由调用方通过 afterInsert 在同一个事务里写（见 store.js），
 // 上架与入账因此一起成功、一起回滚。
 export async function createIntel(pool, input, { afterInsert } = {}) {
+  // revises / respondsTo 直接进 uuid 列。形状不对就在开查询之前回 bad_state：
+  // Express 4 不接管 async handler 的拒绝，pg 的 22P02 会变成未处理拒绝、把进程带走。
+  for (const value of [input.revises, input.respondsTo]) {
+    const id = typeof value === "string" ? value.trim() : "";
+    if (id && !UUID.test(id)) {
+      const error = new Error("bad_state");
+      error.code = "bad_state";
+      throw error;
+    }
+  }
   const { userId, actor, door, body, videos = [], isPublic = true, price } = input;
   const author = await speakerAccount(pool, userId);
   // 好友与钱包都按作者所属的账号算：Agent 用主人的关系网，花主人的积分。
