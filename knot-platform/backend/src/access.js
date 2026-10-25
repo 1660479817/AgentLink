@@ -48,37 +48,48 @@ function hubStep(step) {
  * 顺序就是事实发生的顺序。中枢的步骤来自它自己的 run；还没建 run 时按计划
  * 展开成待办，这样「提交之后还剩几件事」一开始就看得见。
  */
-export function accessSteps({ site = null, application = null, progress = null, local = null } = {}) {
+export function accessSteps({ site = null, application = null, progress = null, local = null, joined = false } = {}) {
   const missing = missingFields(applicationPayload(site || {}, { email: "" }));
   const run = progress?.run || null;
+  // `joined` 是接入件已生效。整条链走完时底账与中枢进度都可能已经不在了：
+  // join.json 是申请时写的一次性记录，中枢那边的 run 也不会为已上线的站点保留。
+  // 没有它，已上线的站点会显示成「本机隧道：待开始」——一个不可能同时成立的结论。
   const steps = [
     { id: "profile", kind: "local", state: missing.length ? "todo" : "done", error: "", note: missing.join(",") },
-    { id: "apply", kind: "local", state: application ? "done" : "todo", error: "", note: String(application?.id || "") },
+    {
+      id: "apply",
+      kind: "local",
+      state: application || joined ? "done" : "todo",
+      error: "",
+      note: String(application?.id || ""),
+    },
   ];
 
   const reported = Array.isArray(run?.steps) ? run.steps.filter((step) => step && typeof step.id === "string") : [];
   if (reported.length) steps.push(...reported.map(hubStep));
-  else steps.push(...HUB_STEPS.map((id) => ({ id, kind: "hub", state: "todo", error: "", note: "" })));
+  // 已经上线的站点：中枢那边的 run 不在了，按计划展开八个「待办」只会让一张
+  // 在线卡片显示成八步都没做。这一侧只能为「接入件已生效」作证，就只写能作证的。
+  else if (!joined) steps.push(...HUB_STEPS.map((id) => ({ id, kind: "hub", state: "todo", error: "", note: "" })));
 
   // 隧道配置写进 tunnel.env 只是一半，通不通要看中枢的探测：那就是下面的 probe。
   steps.push({
     id: "tunnel",
     kind: "local",
-    state: local?.tunnelConfigured ? "done" : progress?.handoff ? "running" : "todo",
+    state: local?.tunnelConfigured || joined ? "done" : progress?.handoff ? "running" : "todo",
     error: String(local?.error || ""),
     note: "",
   });
   steps.push({
     id: "probe",
     kind: "local",
-    state: run?.state === "active" ? "done" : run?.state === "awaiting_tunnel" ? "running" : "todo",
-    error: run?.state === "active" ? "" : String(run?.lastError || ""),
+    state: run?.state === "active" || joined ? "done" : run?.state === "awaiting_tunnel" ? "running" : "todo",
+    error: run?.state === "active" || joined ? "" : String(run?.lastError || ""),
     note: "",
   });
   steps.push({
     id: "join",
     kind: "local",
-    state: local?.joined || local?.joinWritten ? "done" : "todo",
+    state: local?.joined || local?.joinWritten || joined ? "done" : "todo",
     error: String(local?.joinError || ""),
     note: "",
   });
@@ -107,7 +118,7 @@ export function accessState({
   local = null,
   hasSiteDir = true,
 } = {}) {
-  const { steps, missing } = accessSteps({ site, application, progress, local });
+  const { steps, missing } = accessSteps({ site, application, progress, local, joined: Boolean(issued?.id) });
   const issuedView = {
     id: String(issued?.id || ""),
     url: String(issued?.url || ""),
