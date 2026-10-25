@@ -110,6 +110,31 @@ test("站内浏览关掉后，内容媒体没有会话就 404，头像那类不�
   }
 });
 
+test("形状不对的上传 id 在查库前就回 404，不让一条错地址打挂进程", async () => {
+  // 模拟 pg 的 22P02：uuid 列收到非 uuid 就抛。守卫没生效时这个拒绝会从 async
+  // handler 漏出去，Express 4 不接管，进程随之退出。
+  const queries = [];
+  const exploding = {
+    async query(sql, params = []) {
+      queries.push({ sql, params });
+      throw new Error("22P02 invalid input syntax for type uuid");
+    },
+  };
+  await withWeb(
+    async ({ call }) => {
+      for (const id of ["not-a-uuid", "3333", "1 OR 1=1"]) {
+        const response = await call(`/uploads/${encodeURIComponent(id)}`);
+        assert.equal(response.status, 404, id);
+      }
+      const display = await call("/uploads/not-a-uuid/display");
+      assert.equal(display.status, 404);
+    },
+    { pool: exploding }
+  );
+  // 一次查询都没发出去：形状检查在 readableUpload 的前两行。
+  assert.equal(queries.length, 0);
+});
+
 test("管理入口：无会话 401，非主理人 403，没配令牌 503", async () => {
   await withWeb(async ({ call }) => {
     const anonymous = await call("/admin-handoff", { method: "POST" });

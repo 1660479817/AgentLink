@@ -61,6 +61,18 @@ test("static 投放：发现页快照先看磁盘，缺了才回源", () => {
   assert.match(text, /Cache-Control "public, max-age=30, stale-while-revalidate=300"/);
 });
 
+test("入口的上传代理 location 不带尾斜杠：POST 不能被 301 改写成 GET", () => {
+  for (const flag of ["1", ""]) {
+    const text = render({ KNOT_ENTRY_STATIC: flag });
+    // 带尾斜杠时 nginx 把 /api/web/uploads 当成目录，对 POST 回 301 补斜杠；
+    // 浏览器跟随时改发 GET、请求体丢掉，WebUI 选好的图传上去就是 404。
+    assert.match(text, /location \^~ \/api\/web\/uploads \{/);
+    assert.doesNotMatch(text, /location \^~ \/api\/web\/uploads\/\s*\{/);
+    // 读取路径不变：带 id 的 /api/web/uploads/<uuid> 仍由这条前缀回源。
+    assert.match(text, /location \^~ \/api\/web\/uploads \{[\s\S]*?proxy_pass http:\/\/knot_entry_18080;/);
+  }
+});
+
 test("两种投放都保留管理接口、管理后台 404 与 ACME 目录", () => {
   for (const flag of ["1", ""]) {
     const text = render({ KNOT_ENTRY_STATIC: flag });

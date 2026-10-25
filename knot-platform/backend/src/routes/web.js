@@ -95,7 +95,9 @@ function httpError(res, error) {
   return res.status(503).json({ error: "process_unavailable" });
 }
 
-const INTEL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// 记录 id 与上传件 id 是同一种形状，分开命名只为读起来清楚。
+const INTEL_ID = UUID;
 
 // 站内浏览开关关掉时，没有会话就拿不到内容。信息流、搜索、深链、分享图都一样。
 function contentGate(req, res, next) {
@@ -508,13 +510,17 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   }
 
   async function readableUpload(req) {
+    // id 直接进 uuid 列：形状不对就不查库。pg 的 22P02 在 Express 4 的
+    // async handler 里没人接管，会以未处理拒绝把进程带走，一条错地址就够打挂站点。
+    const id = String(req.params.id || "");
+    if (!UUID.test(id)) return null;
     const { rows } = await pool.query(
       `SELECT u.storage_name, u.mime, u.original_name, u.account_id,
               EXISTS (SELECT 1 FROM accounts p WHERE p.avatar_upload_id = u.id) AS avatar,
               EXISTS (SELECT 1 FROM sponsors s WHERE s.image_upload_id = u.id) AS sponsor
        FROM uploads u
        WHERE u.id = $1`,
-      [req.params.id]
+      [id]
     );
     if (!rows.length) return null;
     const row = rows[0];
@@ -529,7 +535,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     const audience = row.avatar || row.sponsor
       ? MEDIA_PUBLIC
       : image || audio
-        ? await mediaAudience(pool, req.params.id, req.account?.id || null)
+        ? await mediaAudience(pool, id, req.account?.id || null)
         : null;
     if (audience === null) return null;
     const filePath = readableBlobPath(uploadDir, row.storage_name);

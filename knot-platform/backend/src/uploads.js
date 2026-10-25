@@ -157,10 +157,16 @@ export async function fitAvatar(buffer) {
     .toBuffer();
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function acceptAvatar(pool, uploadDir, userId, uploadId) {
+  // 头像 id 也是用户填的，直接进 uuid 列；形状不对就先回去，
+  // 别让 pg 的 22P02 变成一条能打挂进程的未处理拒绝。
+  const id = String(uploadId || "").trim();
+  if (!UUID.test(id)) return { error: "bad_avatar" };
   const { rows } = await pool.query(
     `SELECT id, storage_name, mime, original_name FROM uploads WHERE id = $1 AND account_id = $2 AND mime LIKE 'image/%'`,
-    [uploadId, userId]
+    [id, userId]
   );
   if (!rows.length) return { error: "bad_avatar" };
   const row = rows[0];

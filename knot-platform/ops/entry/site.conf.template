@@ -6,7 +6,7 @@
 # 入口只做三件事：
 #   1. 提供 WebUI 静态文件（KNOT_ENTRY_SERVE=static），或整站回源（=proxy）；
 #   2. 把 /api 反代到回源端口（隧道或同机 Backend）；
-#   3. 给 /discover.json 和 /api/web/uploads/ 加缓存（仅 static 投放）。
+#   3. 给 /discover.json 和 /api/web/uploads 加缓存（仅 static 投放）。
 # 入口不发文档：Agent 指引在 xknot.si/knot-help，实例没有 /help 页，
 # 它和任何不存在的路径一样落到 SPA 兜底，入口不为它单独回源。
 #
@@ -74,7 +74,10 @@ server {
     #   - 只有当事人能读的内容（自己的私帖、买到的商品）→ private，nginx 不缓存；
     #   - 生成失败回退原件 → no-store，不缓存。
     # 下架不会让缓存立刻失效：条目到期前仍按旧响应分发，所以 max-age 设为 1 天而不是 7 天。
-    location ^~ /api/web/uploads/ {
+    #
+    # location 不带尾斜杠：带上之后 nginx 会把 /api/web/uploads 当成目录，
+    # 对 POST 回 301 补斜杠；浏览器跟随时按 GET 重发、请求体丢掉，WebUI 传图就 404。
+    location ^~ /api/web/uploads {
         proxy_pass http://knot_entry_{{KNOT_ENTRY_PROXY_PORT}};
         proxy_http_version 1.1;
         proxy_set_header Connection "";
@@ -96,7 +99,8 @@ server {
 {{^KNOT_ENTRY_STATIC}}
     # proxy 投放不在这里另开缓存区：同一台 nginx 上同名 zone 不能声明两次，
     # 而上传文件本来就该由持有数据的实例回，缓存留给 static 入口去做。
-    location ^~ /api/web/uploads/ {
+    # 同样不带尾斜杠，否则 POST /api/web/uploads 会被 301 补斜杠、传图失败。
+    location ^~ /api/web/uploads {
         proxy_pass http://knot_entry_{{KNOT_ENTRY_PROXY_PORT}};
         proxy_http_version 1.1;
         proxy_set_header Connection "";

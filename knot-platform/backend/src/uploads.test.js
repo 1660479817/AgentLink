@@ -128,6 +128,22 @@ test("a card image is a jpeg that fits the column", async () => {
   }
 });
 
+test("an avatar id that is not a uuid is rejected before the query", async () => {
+  const calls = [];
+  const pool = {
+    async query(...args) {
+      calls.push(args);
+      return { rows: [] };
+    },
+  };
+  const owner = "22222222-2222-4222-8222-222222222222";
+  for (const id of ["not-a-uuid", "3333", ""]) {
+    assert.deepEqual(await acceptAvatar(pool, "/tmp", owner, id), { error: "bad_avatar" }, id);
+  }
+  // 一次查询都没有：形状不对的 id 不进 uuid 列，pg 的 22P02 无从发生。
+  assert.equal(calls.length, 0);
+});
+
 test("shrinking an avatar writes a new row and leaves the original bytes alone", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "knot-avatar-"));
   try {
