@@ -41,7 +41,7 @@ The state machine allows only these transitions:
 submit ──▶ approved ──▶ withdrawn
 ```
 
-`rejected` / `expired` are historical states left from before auto-approval, kept read-only.
+`rejected` / `expired` are read-only states and are no longer produced.
 
 ---
 
@@ -781,7 +781,7 @@ Internal mail goes to the operator and does not enter the partner chain. It is t
 | `no-reply@xknot.si` sending auth | configured | Aliyun requires `SMTP_USER` equals `SMTP_FROM`; changing the sending address changes both |
 | `MAIL_FROM` and `Reply-To` consistent | configured | both use `no-reply@xknot.si`, matching the "replies not monitored" wording |
 | template version and text owner | settled | runtime version `TEMPLATE_VERSION=2.0.0`; text changes must change both sides and bump the version |
-| ownership-verification records | **removed** | applications only go by subdomain; before issuance there is no verifiable domain. Acceptance became the post-connection public `/api/health` probe; the old `proof_method` / `proof_at` columns keep only historical data, and the application object no longer returns those two fields |
+| ownership-verification records | **none** | applications only go by subdomain; before issuance there is no verifiable domain. Acceptance became the post-connection public `/api/health` probe; the `proof_method` / `proof_at` columns are no longer written, and the application object does not return those two fields |
 
 ---
 

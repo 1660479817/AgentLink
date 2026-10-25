@@ -112,7 +112,7 @@ Always English lowercase in JSON; the UI shows local text.
 | `suspended` | 暂停 | instance status; entry kept but not probed |
 | `retired` | 已退役 | instance status; awaiting removal |
 
-`demo`, `free`, `paid` are tier values, also lowercase and not translated; the old `partner` / `community` are kept only for compatibility with historical entries.
+`demo`, `free`, `paid` are tier values, also lowercase and not translated.
 
 ## 5. Code identifiers
 

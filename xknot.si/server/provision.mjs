@@ -720,9 +720,8 @@ export async function runStep({
  * 换成 map 出来的变量——会被它整份拒掉，旧配置继续跑，而命令仍然返回 0。
  * 这种失败只在 error.log 里留一行 [emerg]，退出码看不出来。
  *
- * 2026-10-23 就是这么过去的：门户的限流修复写进了磁盘，线上跑了三天旧配置，
- * 每次部署都「成功」，每次 reload 都被拒。所以 reload 之后要回头读一次日志：
- * 出现新的 [emerg] 就 restart，让 master 重新读盘。
+ * 所以 reload 之后要回头读一次日志：出现新的 [emerg] 就 restart，
+ * 让 master 重新读盘。
  *
  * 日志读不到（没有权限、文件不在）时不猜：按 nginx -t 的结果放行，
  * 返回 confirmed:false 让调用方知道这一步没有证据。

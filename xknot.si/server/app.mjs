@@ -1359,7 +1359,7 @@ export function createApp({ store, config }) {
 
       // 同一个子域只留一条有效申请；撤回之后可以重新提交。
       // 预检只是提前给个准话，真正的裁决是库里的唯一索引——预检与插入之间
-      // 没有锁，另一个进程（backfill、另一个 worker）可以先插进来。
+      // 没有锁，另一个进程可以先插进来。
       const duplicate = store.findOpenBySubdomain(checked.value.subdomain);
       if (duplicate) return send(res, 409, { error: "duplicate" });
 

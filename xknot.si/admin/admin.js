@@ -9,12 +9,12 @@ const app = document.getElementById("app");
 const STATUS_LABEL = {
   approved: "已通过",
   withdrawn: "已撤回",
-  // 自动通过之前的历史状态。
-  pending: "待确认（历史）",
-  verified: "待审核（历史）",
-  hold: "搁置（历史）",
-  rejected: "已拒绝（历史）",
-  expired: "已过期（历史）",
+  // 只读状态，不再新增。
+  pending: "待确认",
+  verified: "待审核",
+  hold: "搁置",
+  rejected: "已拒绝",
+  expired: "已过期",
 };
 
 // 总览里的实例状态。pending 是已收录、未通过 /api/health 验收；paused 是暂停或退役。
@@ -393,9 +393,6 @@ const LABELS = {
   demo: TIER_LABEL.demo,
   free: TIER_LABEL.free,
   paid: TIER_LABEL.paid,
-  // 自动通过之前登记的旧档位，读到就按新档位显示。
-  partner: TIER_LABEL.paid,
-  community: TIER_LABEL.free,
   pending: "待验收",
   active: "在用",
   suspended: "暂停",

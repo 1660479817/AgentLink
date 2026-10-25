@@ -412,7 +412,7 @@ function cmdEnv(argv) {
 
   let base = existsSync(outPath) ? readText(outPath) : renderPlatformFile({ ...always, ...seeds });
   if (existsSync(outPath)) {
-    // 旧版本把开发机的键写进来了；生成时顺手清掉，避免密钥路径跟着跑错机器。
+    // 生成时顺手清掉不该进站点配置的键，避免密钥路径跟着跑错机器。
     const cleaned = removeEnvKeys(base, FORBIDDEN_PLATFORM_KEYS);
     base = cleaned.text;
     if (cleaned.removed.length) {

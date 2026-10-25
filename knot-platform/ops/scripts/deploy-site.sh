@@ -430,7 +430,7 @@ else
   fi
   # 端口上已经有库时也要确保 knot 这个库存在；已存在就忽略。
   # 新建的库是 scram 认证，口令在站点目录的 pg-knot-password（0600）；
-  # 老库是 trust，没有这个文件，照旧不带口令。
+  # 已存在的库可能是 trust，没有这个文件，照旧不带口令。
   PG_PW_FILE="$KNOT_SITE_DIR/pg-knot-password"
   PG_PW=""
   if [[ -f "$PG_PW_FILE" ]]; then PG_PW="$(cat "$PG_PW_FILE" 2>/dev/null || true)"; fi
