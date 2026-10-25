@@ -149,7 +149,7 @@ WebUI 顶栏左上角是固定的 `XKnot` 标识（`web/public/logos/xknot-mark.
 
 隧道单独放 `tunnel.env` 而不是并进 `site.env`：`site.env` 归 `deploy-site.sh`（入口开关、公开地址、站点身份），`tunnel.env` 归界面。两份各改各的，重新部署也不会把接通配置冲掉；要改回手工配置，删掉 `tunnel.env` 再在 `site.env` 里写那一组键即可。`run-entry-tunnel.sh` 先读 `site.env`、再用 `tunnel.env` 覆盖，只要求 `KNOT_TUNNEL=1`（入口 conf 由中枢生成时不必开 `KNOT_ENTRY_ENABLED`）。密钥丢了不要重用旧名：换一个 `KNOT_TUNNEL_KEY` 让实例重新生成并提交，中枢会从建账号那一步重跑。
 
-中枢验收通过（`run.state` 变 `active`）后，实例还会把签发区写成 `sites/<站点>/xknot.env`（`XKNOT_INSTANCE_ID`、`XKNOT_ISSUED_URL`、`XKNOT_ISSUED_AT`、`XKNOT_TIER`、`XKNOT_HUB_ORIGIN`，`600`），并重启 Backend 让它生效——这一份就是 `/api/federation/profile` 与门户上那条档案的来源。内容一致时不重写、不重启。
+中枢验收通过（`run.state` 变 `active`）后，实例还会把签发区写成 `sites/<站点>/xknot.env`（`XKNOT_INSTANCE_ID`、`XKNOT_ISSUED_URL`、`XKNOT_ISSUED_AT`、`XKNOT_ISSUED_TIER`、`XKNOT_ISSUED_STATUS`、`XKNOT_HUB_ORIGIN`，`600`），并重启 Backend 让它生效——这一份就是 `/api/federation/profile` 与门户上那条档案的来源。内容一致时不重写、不重启。
 
 ### 1.2 实例主机的运行时参数
 
@@ -191,12 +191,16 @@ cat ~/xknot-access.env | ./ops/scripts/join-xknot.sh --site <站点> --payload -
 XKNOT_INSTANCE_ID=wang
 XKNOT_HUB_ORIGIN=https://xknot.si
 XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
-XKNOT_HUB_ISSUED_AT=2026-10-20
+XKNOT_ISSUED_URL=https://wang.xknot.si
+XKNOT_ISSUED_AT=2026-10-20
+XKNOT_ISSUED_TIER=paid
+XKNOT_ISSUED_STATUS=active
 ```
 
 规则：
 
 - 写了文件就要有 `XKNOT_INSTANCE_ID`，否则不知道这份接入属于谁。
+- 四行 `XKNOT_ISSUED_*` 是中枢签发区的镜像：照抄清单，缺项就留空。这一侧不校验取值，也不补默认值——档位与状态的词表属于中枢，抄一份到这里，中枢改词表时就会把自己挡在启动之外。
 - 委托发信只要有 `XKNOT_HUB_RELAY_TOKEN` 就能用：发信地址按 `XKNOT_HUB_ORIGIN` 推导。写了 `XKNOT_HUB_RELAY_URL` 却没有凭据会被拒绝，也不会拿旧文件里的凭据来凑。
 - 部署键、实例运行时键混进来直接报错，不会悄悄写到别处。
 - 写入后重启 Backend 才生效：launchd 用 `launchctl kickstart -k gui/$(id -u)/com.knot.platform`，systemd 用 `sudo systemctl restart knot-backend`。

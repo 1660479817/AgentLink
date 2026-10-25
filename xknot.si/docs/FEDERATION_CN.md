@@ -108,10 +108,12 @@ L1 装在两处，按谁有权改划分：
 | `id` | 小写字母、数字、连字符，2–32 位，清单内唯一，不可改 |
 | `url` | 身份地址，各语种共用。恒为中枢签发的 `https://<标签>.xknot.si`；落在其它域名下会被校验拒绝 |
 | `since` | ISO 日期，收录日 |
-| `tier` | `demo`、`free`、`paid`。清单只收这三个值 |
-| `status` | `pending`、`active`、`suspended`、`retired`。`pending` 只表示已收录、未验收 |
+| `tier` | `demo`、`free`、`paid`。展示名次；缺项校验不过，读取方不补默认值 |
+| `status` | `pending`、`active`、`suspended`、`retired`。运营决定；缺项校验不过，读取方不补默认值 |
 | `statsUrl` | 可空。有值时拉取 L2 活动数据 |
 | `cardsUrl` | 可空。有值时拉取 L3 橱窗 |
+
+五项都由中枢写定。实例侧的 `xknot.env` 里那几项是**回执**：只保存与转述，不解释取值、不补默认值、不因取值不认识而拒绝启动。中枢自己也不从回执取值——`fetch-profile` 只把回执与清单比对，不一致记一条问题，仍以清单为准。
 
 条目里出现自述区字段（`name`、`logo`、`intro` 等）会被 `ops/validate-instances.mjs` 拒绝：那些属于主理人，不能从中枢这边改。
 
@@ -159,11 +161,14 @@ L1 装在两处，按谁有权改划分：
 
 ### 4.4 规则
 
+- **一个字段只有一个主人。** 签发区五项由中枢在 `instances.json` 里写定；实例只保存与转述，不解释、不补默认值。
+- 五项都必填，`ops/validate-instances.mjs` 会拦住缺项。**因此读的地方不写默认值**：清单缺一项就是数据错误，不是「免费」或「在线」。门槛在构建前，不在每次读取时。
 - 探测地址由 `url` 推出，不单独登记；`statsUrl`、`cardsUrl` 决定中枢还拉什么数据，字段为空即跳过，不报错。
-- `tier` 只影响展示徽章，不影响排序，不参与评级或分成。
+- `tier` 是展示名次：决定门户里同一批条目的先后（`demo` > `paid` > `free`，同级按 `since`，再按 `id`），不影响功能、额度或分成，也不由 `role` 推出。
+- `status` 是运营决定：`pending` 不探不列，`active` 才探测与上门户，`suspended` / `retired` 保留条目但不服务。它是中枢对实例的唯一裁定，`health` 的观测结果不能写回它。
 - 示范条目可以标 `tier: demo`，不计入实例统计。
-- 页面按 `tier`、再按 `since` 排序，顺序稳定。
 - 区域只用于分组浏览，不参与排序，不影响收录。
+- 名册的 `role` 与清单的 `tier` 互不约束：角色是联邦里的身份，分级是档案的名次。
 - 清单必须通过 `ops/validate-instances.mjs` 才发布。
 
 ### 4.5 接入形态
@@ -561,24 +566,24 @@ node server/admin-cli.mjs access <申请编号> --id wang --out /tmp/wang-access
 | 键 | 必填 | 语义 |
 |----|------|------|
 | `XKNOT_INSTANCE_ID` | 是 | 清单里的实例 id，小写字母/数字/短横线 |
+| `XKNOT_ISSUED_URL` | 是 | 清单里的 `url` |
+| `XKNOT_ISSUED_AT` | 是 | 清单里的 `since`，`YYYY-MM-DD` |
+| `XKNOT_ISSUED_TIER` | 是 | 清单里的 `tier`，照抄不改写 |
+| `XKNOT_ISSUED_STATUS` | 是 | 清单里的 `status`，照抄不改写 |
 | `XKNOT_HUB_ORIGIN` | 是 | 中枢地址，如 `https://xknot.si` |
-| `XKNOT_HUB_ISSUED_AT` | 是 | 签发日期 `YYYY-MM-DD`，取签发时清单里的 `since`，只作记录 |
-| `XKNOT_ISSUED_URL` | 是 | 签发时清单里的站点地址，只作记录 |
-| `XKNOT_ISSUED_AT` | 是 | 与 `XKNOT_HUB_ISSUED_AT` 同值 |
-| `XKNOT_TIER` | 是 | 签发时的档位（`free` / `paid` / `demo`），只作记录 |
-| `XKNOT_STATUS` | 是 | 签发时的状态（`pending` / `active`），只作记录 |
 | `XKNOT_HUB_RELAY_TOKEN` | 否 | 委托发信凭据；默认签发，用 `--no-relay` 生成时没有这一项 |
 | `XKNOT_HUB_RELAY_URL` | 否 | 委托发信地址，中枢不签发：缺省由 `XKNOT_HUB_ORIGIN` 推导，只有换入口时实例自己加 |
 
-`XKNOT_ISSUED_URL`、`XKNOT_ISSUED_AT`、`XKNOT_TIER`、`XKNOT_STATUS` 是签发时的快照，便于实例侧核对；
-清单之后怎么变，这份文件都不跟着改，也不拿来判在线。
-
 规则：
 
+- **一个事实一个键。** 签发区五项与清单字段一一对应，没有同义键，没有第二个日期键。
+- **只读。** 实例侧保存并转述这五项；不解释取值，不补默认值。档位与状态的词表属于中枢，实例侧不持有副本——一份不属于自己的词表，无论加宽还是收窄都会在下次中枢调整时把实例挡在启动之外。取到不认识的取值时照原样保存、照原样报回。
+- **空值有意义。** 键在而值为空，表示中枢尚未告知这一项，实例按「未告知」显示，不填一个看起来合理的默认值。
+- **是镜像，不是快照。** 它不是「签发那一刻拍下来就不再变」的东西：实例在下一次接通检查（`/admin` 的同步）或重跑 `join` 时，按清单当前的签发区改写这几项。它仍是中枢的记录，不是实例的。
 - 生成：`node server/admin-cli.mjs access <申请编号> --id <instance> [--no-relay] --out <文件>`，
   只发给已通过的申请；默认带一份委托发信凭据。
-- 写入：实例用既有的接入件写入路径落盘（`knot-platform` 是 `join-xknot.sh --payload`），
-  然后重启 Backend 让它生效。**节点侧不需要为此改任何代码或脚本**——它本来就从环境里读这两项。
+- 写入：实例用既有的接入件写入路径落盘（`knot-platform` 是 `./ops/scripts/join-xknot.sh --payload <文件>`），
+  然后重启 Backend 让它生效。
 - 传输：一次性领取，`0600`，不进聊天、不进邮件正文、不进版本库。
 - 存放：实例自己保存；不接入联邦的实例不需要这份文件，功能照常。
 - 范围：**只含接入**。域名、端口、入口主机、隧道账号、静态文件归属属于部署拓扑，

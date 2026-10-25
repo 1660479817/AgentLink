@@ -302,6 +302,31 @@ test("profile: a wrong formatVersion or a missing site is rejected", () => {
   assert.equal(cleanProfilePayload(profilePayload({ site: {} }), { instance: profileInstance }).ok, false);
 });
 
+test("profile: the manifest keeps the decision when the instance echoes another tier", () => {
+  // 实例报回来的是回执。它没跟上时记一条问题、照旧用清单，
+  // 不把中枢自己的记录改成实例说的那个值。
+  const checked = cleanProfilePayload(
+    profilePayload({ issued: { ...profilePayload().issued, tier: "free", status: "suspended" } }),
+    { instance: profileInstance }
+  );
+  assert.equal(checked.ok, true, checked.problems.join("; "));
+  assert.equal(checked.payload.issued.tier, "paid");
+  assert.equal(checked.payload.issued.status, "active");
+  assert.ok(checked.problems.some((problem) => problem.includes("issued.tier")));
+  assert.ok(checked.problems.some((problem) => problem.includes("issued.status")));
+});
+
+test("profile: an instance that reports no issued tier is not treated as drift", () => {
+  // 接入件里没有档位时，实例本来就没东西可报；那不是不一致。
+  const checked = cleanProfilePayload(
+    profilePayload({ issued: { id: "nordhavn", url: "https://nordhavn.example", since: "2026-10-19" } }),
+    { instance: profileInstance }
+  );
+  assert.equal(checked.ok, true, checked.problems.join("; "));
+  assert.equal(checked.payload.issued.tier, "paid");
+  assert.deepEqual(checked.problems, []);
+});
+
 test("run: the profile is fetched into var/profiles and 304 keeps it", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "xknot-profiles-"));
   const instancesPath = path.join(dir, "instances.json");

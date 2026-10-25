@@ -61,6 +61,17 @@ export function cleanProfilePayload(payload, { instance } = {}) {
     problems.push(...cleaned.problems);
   }
 
+  // 签发区一律取清单：那是中枢自己的记录。实例那侧报回来的是回执，
+  // 只用来核对它有没有跟上，不能反过来当中枢的决定——否则中枢读到的
+  // 是自己没说过的话，再传下去就再也分不清谁定的。
+  for (const key of ["tier", "status"]) {
+    const echoed = typeof issued[key] === "string" ? issued[key].trim() : "";
+    const decided = typeof instance?.[key] === "string" ? instance[key] : "";
+    if (echoed && decided && echoed !== decided) {
+      problems.push(`issued.${key}: instance reports "${echoed}", manifest says "${decided}" — keeping the manifest`);
+    }
+  }
+
   return {
     ok: true,
     problems,
@@ -68,10 +79,10 @@ export function cleanProfilePayload(payload, { instance } = {}) {
       formatVersion: FORMAT_VERSION,
       issued: {
         id: instance.id,
-        url: String(issued.url).trim(),
-        since: typeof issued.since === "string" ? issued.since : instance.since,
-        tier: typeof issued.tier === "string" ? issued.tier : instance.tier,
-        status: typeof issued.status === "string" ? issued.status : instance.status,
+        url: instance.url,
+        since: instance.since,
+        tier: instance.tier,
+        status: instance.status,
       },
       site: cleaned.site,
     },

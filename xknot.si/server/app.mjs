@@ -502,14 +502,15 @@ export function createApp({ store, config }) {
       health?.instances && typeof health.instances[instance.id] === "object" ? health.instances[instance.id] : null;
     const stats = readCachedJson(settings.statsDir, instance.id);
     const cards = readCachedJson(settings.cardsDir, instance.id);
-    const status = instance.status || "active";
+    // 中枢的运营决定：清单里有就有，没有就是没有。这里不补一个默认状态。
+    const status = instance.status ?? "";
 
     return {
       member: {
         email,
         instanceId: instance.id,
         since: instance.since || null,
-        tier: instance.tier || "free",
+        tier: instance.tier ?? null,
         status,
       },
       site: {
@@ -523,12 +524,13 @@ export function createApp({ store, config }) {
         tags: Array.isArray(site.tags) ? site.tags : [],
       },
       // pending 还没验收，没有任何探测结果可看；suspended / retired 由运营方决定，不展示在线态。
+      // 清单缺这一项时按「未知」显示，不要留一个空白徽章。
       health: {
         status:
           status === "pending"
             ? "pending"
             : status !== "active"
-              ? status
+              ? status || "unknown"
               : probe?.status || "unknown",
         latencyMs: status === "active" ? probe?.latencyMs ?? null : null,
         lastOkAt: status === "active" ? probe?.lastOkAt ?? null : null,
@@ -554,8 +556,10 @@ export function createApp({ store, config }) {
     const cached = readCachedProfile(instance.id);
     return {
       name: cachedText(cached?.site?.name) || instance.id || "",
-      tier: instance.tier || "free",
-      status: instance.status || "active",
+      // 签发区照抄清单。清单缺项时留空，控制台显示「—」：那表示中枢还没决定，
+      // 不是「免费」或「在线」。
+      tier: instance.tier ?? "",
+      status: instance.status ?? "",
       host: member?.host || hostOf(instance.url) || "",
       account: member?.id || instance.id || "",
       role: member?.role || null,
@@ -608,6 +612,9 @@ export function createApp({ store, config }) {
       // 清单里还是 pending 就是「已收录、未验收」，不拿探测结果说话。
       // 名册里没有这个账号（校验本应拦住）也按未接通展示，避免把脱钩当成在线。
       const probed = Boolean(member) && probeEnabled(instance);
+      // 控制台徽章：把「中枢的决定」（status）与「中枢的观测」（探测结果）压成一个
+      // 可直接显示的标签，省掉每处界面各判一次。原始两轴仍是 row.status 与
+      // row.health，接口不拿这个标签当契约。
       const probeStatus = pending
         ? "pending"
         : paused
@@ -622,8 +629,8 @@ export function createApp({ store, config }) {
         // 名字来自实例自述的副本；还没取回时显示 id。
         name: cachedText(cached?.site?.name) || instanceName(instance),
         url: instance.url || "",
-        tier: instance.tier || "free",
-        status: instance.status || "active",
+        tier: instance.tier ?? "",
+        status: instance.status ?? "",
         regions: cachedText(cached?.site?.region) ? [cachedText(cached.site.region)] : [],
         // 中枢看到的位置：与门户用的是同一份判定（隧道对端 → 出口 IP → 国家）。
         // 控制台把它和自述的 region 并排放，方便看出「档案写的」和「实际在」差在哪。
@@ -1291,9 +1298,11 @@ export function createApp({ store, config }) {
         issued: {
           id: application.subdomain || "",
           url: application.url || "",
-          tier: listed?.tier || "free",
-          since: listed?.since || (run?.createdAt || application.createdAt || "").slice(0, 10),
-          status: run?.state === "active" ? "active" : listed?.status || "pending",
+          // 签发区只从清单取。清单里还没有这一条时就留空：这一份是回执，
+          // 不是中枢重新做一次决定的地方。
+          tier: listed?.tier ?? "",
+          since: listed?.since ?? "",
+          status: listed?.status ?? "",
         },
         run: run
           ? {

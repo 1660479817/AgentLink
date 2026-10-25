@@ -102,17 +102,39 @@ The test: if another instance could reuse it → instance side; if it hardcodes 
 
 Always English lowercase in JSON; the UI shows local text.
 
+**Two axes, two names. They are never merged and never share a value.**
+
+*Decision* — `status`: the hub's ruling on whether this instance is in service. It is what makes the entry probe, list, and proxy. Written only in `instances.json`.
+
+| JSON | Chinese | Meaning |
+|------|------|------|
+| `pending` | 待验收 | recorded, not yet verified: not probed, not on the portal |
+| `active` | 运营中 | verified and in service |
+| `suspended` | 暂停 | entry kept, not probed, not on the portal |
+| `retired` | 已退役 | awaiting removal from the manifest |
+
+*Observation* — `health`: what the hub last saw when it knocked. Never written into `status`, never a decision.
+
 | JSON | Chinese | Meaning |
 |------|------|------|
 | `up` | 正常 | probe succeeded, returned within 2 seconds |
 | `degraded` | 迟缓 | probe succeeded but took over 2 seconds |
 | `down` | 中断 | probe failed |
-| `unknown` | 未知 | never probed, or the manifest `status` is still `pending` |
-| `active` | 运营中 | instance status |
-| `suspended` | 暂停 | instance status; entry kept but not probed |
-| `retired` | 已退役 | instance status; awaiting removal |
+| `unknown` | 未知 | no observation yet |
 
-`demo`, `free`, `paid` are tier values, also lowercase and not translated.
+A console badge that reads "待验收" or "未探测" is a **projection** of the two axes for display. It is not a third vocabulary and is not part of any contract.
+
+## 4a. Tier values
+
+`demo`, `free`, `paid` are tier values, also lowercase and not translated. A tier is a **display rank**: it orders the portal, and nothing else. It does not gate a feature, a quota, or a price, and it is not derived from `role`.
+
+| JSON | Chinese | Meaning |
+|------|------|------|
+| `demo` | 示例 | an official sample entry, not a partner site |
+| `free` | 免费 | free tier |
+| `paid` | 收费 | paid tier |
+
+`founder` and `partner` are **roles** (`federation.json`), never tiers. A role is who someone is in the federation; a tier is how their entry is ranked. The two files do not constrain each other.
 
 ## 5. Code identifiers
 

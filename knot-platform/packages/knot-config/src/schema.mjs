@@ -919,21 +919,25 @@ const XKNOT_KEYS = [
     example: "2026-10-20",
   },
   {
-    key: "XKNOT_TIER",
+    key: "XKNOT_ISSUED_TIER",
     group: "xknot",
-    type: "enum",
-    // 中枢签发的三档。
-    values: ["free", "paid", "demo"],
+    type: "string",
+    // 不设 pattern，也不设取值枚举。
+    //
+    // 档位的词表属于中枢。这一侧照抄一份词表，就等于拥有了一份自己无权修改的
+    // 清单：中枢换词表而这里没跟上时，Backend 会拒绝启动——而启动正是这一侧
+    // 去拉中枢正确值的唯一途径，于是它再也修不好自己。
+    // 所以这里连形状都不判：中枢给什么就存什么、转述什么。写文件时只去掉换行。
     default: "",
-    desc: "中枢签发的层级：free / paid / demo。签发区的一部分；留空时对外不报这一项。",
+    desc: "中枢签发的档位，当前取值 demo / free / paid。签发区的一部分，只保存与转述，取值由中枢决定；这一侧不解释、不校验取值，留空表示中枢尚未告知。",
   },
   {
-    key: "XKNOT_STATUS",
+    key: "XKNOT_ISSUED_STATUS",
     group: "xknot",
-    type: "enum",
-    values: ["pending", "active", "suspended", "retired"],
+    type: "string",
+    // 与档位同理：状态是中枢的运营决定，这一侧只转述。
     default: "",
-    desc: "中枢签发的状态。签发区的一部分；留空时对外不报这一项。",
+    desc: "中枢签发的状态，当前取值 pending / active / suspended / retired。签发区的一部分，只保存与转述；这一侧不解释、不校验取值。",
   },
 ];
 

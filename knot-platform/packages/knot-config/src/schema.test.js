@@ -465,6 +465,20 @@ test("runtime validation rejects bad values and never guesses", () => {
   assert.match(bad.errors.join("\n"), /KNOT_COUPON_SIGNUP/);
 });
 
+test("runtime validation treats an unrecognised issued tier or status as data, not an error", () => {
+  // 这一条锁的是一类事故：中枢换了档位词表，实例侧却没跟上，Backend 拒绝启动，
+  // 而启动正是它去拉中枢正确值的唯一途径——于是它永远起不来。
+  // 签发区的取值由中枢决定，这一侧不认识也要照常启动。
+  const result = checkRuntime({
+    PORT: "8080",
+    KNOT_ADMIN_EMAIL: "admin@example.com",
+    XKNOT_INSTANCE_ID: "wang",
+    XKNOT_ISSUED_TIER: "premium",
+    XKNOT_ISSUED_STATUS: "frozen",
+  });
+  assert.deepEqual(result.errors, []);
+});
+
 test("runtime validation warns on a missing admin email", () => {
   const result = checkRuntime({});
   assert.deepEqual(result.errors, []);

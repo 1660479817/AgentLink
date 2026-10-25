@@ -39,7 +39,7 @@ test("接入件写进 xknot.env，权限 600，发信地址留空由中枢地址
     "XKNOT_INSTANCE_ID=wang",
     "XKNOT_HUB_ORIGIN=https://xknot.si",
     "XKNOT_HUB_RELAY_TOKEN=xkr_wang_0123456789abcdef",
-    "XKNOT_HUB_ISSUED_AT=2026-10-20",
+    "XKNOT_ISSUED_AT=2026-10-20",
   ]);
 
   const result = join(root, payload);
@@ -97,9 +97,33 @@ test("重领一份新凭据会清掉旧的地址覆盖，不带凭据则保留�
   assert.match(afterToken, /^XKNOT_HUB_RELAY_URL=$/m);
 
   // 第三份不含凭据：沿用新凭据，不清空。
-  const third = await writePayload(root, "third.env", ["XKNOT_INSTANCE_ID=wang", "XKNOT_HUB_ISSUED_AT=2026-10-21"]);
+  const third = await writePayload(root, "third.env", ["XKNOT_INSTANCE_ID=wang", "XKNOT_ISSUED_AT=2026-10-21"]);
   assert.equal(join(root, third).status, 0);
   const afterKeep = await readFile(file, "utf8");
   assert.match(afterKeep, /^XKNOT_HUB_RELAY_TOKEN=xkr_wang_new000000000000$/m);
-  assert.match(afterKeep, /^XKNOT_HUB_ISSUED_AT=2026-10-21$/m);
+  assert.match(afterKeep, /^XKNOT_ISSUED_AT=2026-10-21$/m);
+});
+
+test("接入件的旧键名按新键写入，废弃键不落进 xknot.env", async () => {
+  // 旧件仍要能用，但写出来的是当前标准里的键名：改一次名就留下一份永不生效的
+  // 配置，下一台机器上还会继续误导人。
+  const root = await deployRoot();
+  const payload = await writePayload(root, "legacy.env", [
+    "XKNOT_INSTANCE_ID=wang",
+    "XKNOT_HUB_RELAY_TOKEN=xkr_wang_0123456789abcdef",
+    "XKNOT_TIER=paid",
+    "XKNOT_STATUS=active",
+    "XKNOT_HUB_ISSUED_AT=2026-10-20",
+  ]);
+
+  const result = join(root, payload);
+  assert.equal(result.status, 0, result.stderr);
+
+  const text = await readFile(path.join(root, "sites", "demo", "xknot.env"), "utf8");
+  assert.match(text, /^XKNOT_ISSUED_TIER=paid$/m);
+  assert.match(text, /^XKNOT_ISSUED_STATUS=active$/m);
+  assert.match(text, /^XKNOT_ISSUED_AT=2026-10-20$/m);
+  assert.doesNotMatch(text, /^XKNOT_TIER=/m);
+  assert.doesNotMatch(text, /^XKNOT_STATUS=/m);
+  assert.doesNotMatch(text, /^XKNOT_HUB_ISSUED_AT=/m);
 });

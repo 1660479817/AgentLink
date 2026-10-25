@@ -11,6 +11,7 @@
 // url 只有一种来源：中枢签发的 https://<标签>.xknot.si。
 
 import { validateInstance } from "../ops/validate-instances.mjs";
+import { DEFAULT_TIER } from "../ops/profile-schema.mjs";
 import { subdomainUrl } from "./validate.mjs";
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/;
@@ -48,7 +49,8 @@ export function toManifestEntry(application, options = {}) {
     id: options.id || (ID_RE.test(subdomain) ? subdomain : suggestId(url)),
     url,
     since: options.since || new Date().toISOString().slice(0, 10),
-    tier: options.tier || "free",
+    // 收录这一下就定了档位；不传按免费收录，之后在清单里改。
+    tier: options.tier || DEFAULT_TIER,
     // 写进清单只是“已收录”。探测通过前保持 pending：不探、不上门户，
     // 验收后再把 status 改成 active。见 docs/HANDOFF.md。
     status: "pending",

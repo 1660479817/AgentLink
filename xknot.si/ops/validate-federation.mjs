@@ -125,7 +125,11 @@ export function validateRoster(roster, manifest) {
     if (errors.length) problems.push([label, errors]);
   }
 
-  // 创始实例：至少一个，每个都是永久账号、必须已收录、留在 paid 档。
+  // 创始实例：至少一个，每个都是永久账号、必须已收录。
+  //
+  // 这里不管档位。名册记的是「谁在这个联邦里、担什么角色」，档位是清单里
+  // 逐实例的展示分级，两件事各有各的真源；名册去约束清单的档位，等于让一份
+  // 文件替另一份做决定，两边一改就要互相对齐。
   const founders = roster.members.filter((member) => member?.role === "founder");
   if (!founders.length) {
     problems.push(["—", ['founder: at least one member must have role "founder"']]);
@@ -168,9 +172,6 @@ export function validateRoster(roster, manifest) {
       if (!underHub) {
         problems.push([id, [`host: must be under ${roster.hub}, got "${instanceHost}"`]]);
       }
-    }
-    if (member.role === "founder" && instance.tier !== "paid") {
-      problems.push([id, [`tier: a founder must be tier "paid", got "${instance.tier}"`]]);
     }
   }
 

@@ -315,13 +315,15 @@ node ops/republish.mjs          # 写 web/dist/data/hub.json；中枢上由 time
 ```bash
 XKNOT_INSTANCE_ID=wang
 XKNOT_HUB_ORIGIN=https://xknot.si
-XKNOT_HUB_ISSUED_AT=2026-10-20
 XKNOT_ISSUED_URL=https://wang.xknot.si
 XKNOT_ISSUED_AT=2026-10-20
-XKNOT_TIER=paid
-XKNOT_STATUS=active
+XKNOT_ISSUED_TIER=paid
+XKNOT_ISSUED_STATUS=active
 XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
 ```
+
+一个事实一个键：四行 `XKNOT_ISSUED_*` 是清单签发区的逐字镜像。实例只保存与转述，不解释取值、
+缺项不补默认值、取到不认识的取值也不拒绝启动；值为空就是中枢还没说，实例按「未告知」显示。
 
 发信地址按中枢地址推导，不写进接入件。它**不含**部署拓扑：域名、端口、入口主机、
 隧道账号由工作人员在交付单里写给人看，落在伙伴自己的部署配置里（第 5 节）。

@@ -43,13 +43,25 @@ export function issuedValid(issued) {
   return parsed.hostname.split(".")[0] === id;
 }
 
+// 中枢签发的取值原样带走，只保证它是一个单行值。
+function singleLine(value) {
+  return String(value ?? "").replace(/[\r\n]+/g, " ").trim();
+}
+
 export function joinValues({ issued, hubOrigin, relayUrl = "", relayToken = "" }) {
   return {
     XKNOT_INSTANCE_ID: issued.id,
     XKNOT_ISSUED_URL: String(issued.url).replace(/\/+$/, ""),
     XKNOT_ISSUED_AT: String(issued.since || "").slice(0, 10),
-    XKNOT_TIER: issued.tier || "free",
-    XKNOT_STATUS: issued.status || "active",
+    // 中枢没给就留空，不替它填一个。
+    //
+    // 这两项是中枢的决定，端侧只是回执：写进 free / active 等于替中枢做出决定，
+    // 再由 /api/federation/profile 报回去，中枢读到的就是自己没说过的话。
+    // 空值的含义是「中枢尚未告知」，面板与公开档案都按「未告知」显示。
+    // 只去掉换行：一个值里带换行就不再是一个值，而且会往 env 文件里注入新键；
+    // 这是写文件的安全处理，不是对取值的判断。
+    XKNOT_ISSUED_TIER: singleLine(issued.tier),
+    XKNOT_ISSUED_STATUS: singleLine(issued.status),
     XKNOT_HUB_ORIGIN: String(hubOrigin || "").replace(/\/+$/, ""),
     XKNOT_HUB_RELAY_URL: relayUrl,
     XKNOT_HUB_RELAY_TOKEN: relayToken,

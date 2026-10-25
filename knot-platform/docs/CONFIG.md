@@ -246,8 +246,8 @@ node ops/scripts/config.mjs check --xknot --site <站点>     # 只校验这一�
 | `XKNOT_HUB_RELAY_TOKEN` | （空） |  | 中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。 |
 | `XKNOT_ISSUED_URL` | （空） |  | 中枢签发的对外地址。签发区的一部分，与清单里的 url 一致；节点只读。 |
 | `XKNOT_ISSUED_AT` | （空） |  | 签发日期（YYYY-MM-DD）。签发区的一部分，对外报作 since。 |
-| `XKNOT_TIER` | （空） |  | 中枢签发的层级：free / paid / demo。签发区的一部分；留空时对外不报这一项。 |
-| `XKNOT_STATUS` | （空） |  | 中枢签发的状态。签发区的一部分；留空时对外不报这一项。 |
+| `XKNOT_ISSUED_TIER` | （空） |  | 中枢签发的档位，当前取值 demo / free / paid。签发区的一部分，只保存与转述，取值由中枢决定；这一侧不解释、不校验取值，留空表示中枢尚未告知。 |
+| `XKNOT_ISSUED_STATUS` | （空） |  | 中枢签发的状态，当前取值 pending / active / suspended / retired。签发区的一部分，只保存与转述；这一侧不解释、不校验取值。 |
 
 ## 校验
 

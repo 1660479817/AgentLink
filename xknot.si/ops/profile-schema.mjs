@@ -36,6 +36,10 @@ export const LIMITS = {
 export const TIERS = ["demo", "free", "paid"];
 export const STATUSES = ["pending", "active", "suspended", "retired"];
 
+// 收录时的默认档位。这是中枢在「创建」这一下的决定，不是读取时的兜底：
+// 读的地方一律照抄清单，缺项就留空，不许再写一份同样的默认。
+export const DEFAULT_TIER = "free";
+
 const ISSUED_FIELDS = ["id", "url", "since", "tier", "status", "cardsUrl", "statsUrl"];
 export const SITE_FIELDS = [
   "name",

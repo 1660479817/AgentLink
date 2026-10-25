@@ -25,6 +25,7 @@ export function federationRouter({ profile, agentEnvDir = null, publicWebOrigin 
         id: running.instanceId,
         url: running.issuedUrl || String(publicWebOrigin || "").replace(/\/+$/, ""),
         since: running.issuedAt || null,
+        // 空值报 null：那是「中枢还没告知」，不是某一档。这里不替中枢选一个默认档。
         tier: running.tier || null,
         status: running.status || null,
       },

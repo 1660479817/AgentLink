@@ -51,6 +51,7 @@ import { withFileLock } from "./file-lock.mjs";
 import { createMailer, mailConfigFromEnv } from "./mail.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry, toRosterMember } from "./manifest.mjs";
 import { validateRoster } from "../ops/validate-federation.mjs";
+import { TIERS } from "../ops/profile-schema.mjs";
 import { ALL_EVENTS, TEMPLATE_VERSION, buildMail } from "./notify.mjs";
 import { reopenRun } from "./provision.mjs";
 import { openStore } from "./store.mjs";
@@ -247,8 +248,14 @@ async function main(argv) {
 
     const idFlag = rest.indexOf("--id");
     const wantedId = idFlag >= 0 ? rest[idFlag + 1] : undefined;
+    // 档位是中枢的决定，这里能直接给，不必写进清单后再手改。
+    // 状态不给旗标：新条目恒为 pending，active 只由验收改。
+    const wantedTier = flag(rest, "tier");
+    if (wantedTier != null && !TIERS.includes(wantedTier)) {
+      return fail(`--tier 只能是 ${TIERS.join(" / ")}，现在是 "${wantedTier}"。`);
+    }
 
-    const entry = toManifestEntry(application, { id: wantedId });
+    const entry = toManifestEntry(application, { id: wantedId, tier: wantedTier || undefined });
     const problems = checkManifestEntry(entry);
     if (problems.length) {
       for (const problem of problems) console.error(`- ${problem}`);
@@ -367,16 +374,16 @@ async function main(argv) {
 
     const origin = String(process.env.XKNOT_PUBLIC_ORIGIN || "https://xknot.si").replace(/\/+$/, "");
     const today = new Date().toISOString().slice(0, 10);
+    // 签发区一项一个键，键名与 instances.json 的字段一一对应，没有第二份同义键。
+    // 值一律照抄清单：清单里没有的就留空，签发件不替中枢补一个档位或状态。
     const lines = [
       "# XKnot 接入件。键名与语义见 FEDERATION.md 第 7.4 节；由实例存进自己的配置。",
       `# 实例 ${instanceId} · 申请 ${application.id} · ${today}`,
       `XKNOT_INSTANCE_ID=${instanceId}`,
       `XKNOT_ISSUED_URL=${instance.url}`,
-      `XKNOT_ISSUED_AT=${instance.since || today}`,
-      `XKNOT_TIER=${instance.tier || "free"}`,
-      `XKNOT_STATUS=${instance.status || "active"}`,
-      // 7.4 键表里的必填键，消费方按这个名字读（knot-platform 的 join-xknot.sh）。
-      `XKNOT_HUB_ISSUED_AT=${instance.since || today}`,
+      `XKNOT_ISSUED_AT=${instance.since || ""}`,
+      `XKNOT_ISSUED_TIER=${instance.tier || ""}`,
+      `XKNOT_ISSUED_STATUS=${instance.status || ""}`,
       `XKNOT_HUB_ORIGIN=${origin}`,
     ];
 

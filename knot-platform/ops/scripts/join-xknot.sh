@@ -20,7 +20,9 @@
 #   XKNOT_INSTANCE_ID=wang
 #   XKNOT_HUB_ORIGIN=https://xknot.si
 #   XKNOT_HUB_RELAY_TOKEN=xkr_wang_...
-#   XKNOT_HUB_ISSUED_AT=2026-10-20
+#   XKNOT_ISSUED_AT=2026-10-20
+#   XKNOT_ISSUED_TIER=paid
+#   XKNOT_ISSUED_STATUS=active
 #
 # 写入后要重启 Backend，服务才会读到新的环境。
 set -euo pipefail
@@ -98,7 +100,7 @@ print_status() {
   origin="$(knot_env_get "$JOIN_ENV" XKNOT_HUB_ORIGIN)"
   relay="$(knot_env_get "$JOIN_ENV" XKNOT_HUB_RELAY_URL)"
   token="$(knot_env_get "$JOIN_ENV" XKNOT_HUB_RELAY_TOKEN)"
-  issued="$(knot_env_get "$JOIN_ENV" XKNOT_HUB_ISSUED_AT)"
+  issued="$(knot_env_get "$JOIN_ENV" XKNOT_ISSUED_AT)"
   if [[ -z "$relay" && -n "$token" && -n "$origin" ]]; then
     relay="${origin%/}/api/federation/mail（按中枢地址推导）"
   fi
