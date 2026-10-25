@@ -204,7 +204,7 @@ Listing has a legal threshold: instances that are illegal, fraudulent, impersona
 
 ## Ownership and license
 
-`xknot.si` and the subdomains issued under it belong to **PaulWang**. The code is released under [Apache-2.0](../LICENSE), copyright PaulWang, with attribution in [NOTICE](./NOTICE). The full license text is in the repo root; this project ships its own `NOTICE`, so taking this directory alone does not depend on the root for attribution.
+`xknot.si` and the subdomains issued under it belong to **PaulWang**. The code is released under [Apache-2.0](./LICENSE), copyright PaulWang, with attribution in [NOTICE](./NOTICE). This directory ships its own `LICENSE` and `NOTICE`, so taking it alone carries both the license text and the attribution.
 
 - The license grants copyright and patent rights to the code, **not the trademark**. The names and marks `Knot`, `xknot`, and `xknot.si` are not licensed with the code.
 - `*.xknot.si` subdomains are issued only by the rights holder. Self-deployed instances may use their own domain and may write "based on Knot", but must not imply official certification.
