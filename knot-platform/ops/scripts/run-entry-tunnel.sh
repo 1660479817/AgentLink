@@ -47,6 +47,12 @@ fi
 # ConnectTimeout 是给系统级 VPN 留的：WARP 一类全局 TUN 接管到入口主机的
 # TCP 时，握手能成但密钥交换的大包过不去，没有超时这个 ssh 会一直挂着，
 # launchd 以为它还活着，/api 就一直是 502 而不是快速失败后重连。
+#
+# 软限必须抬：一条转发连接一个 fd，launchd 给的 256 在两百个读者上下就满了，
+# ssh 会 "socket: Too many open files" 并把新连接 reset 掉。
+# shellcheck source=lib/fd-limit.sh
+source "$SCRIPT_DIR/lib/fd-limit.sh"
+knot_raise_fd_limit
 exec /usr/bin/ssh -N \
   -i "$KEY" \
   -o BatchMode=yes \

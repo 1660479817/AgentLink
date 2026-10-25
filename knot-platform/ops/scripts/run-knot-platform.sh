@@ -22,5 +22,9 @@ set +a
 if [[ -z "${KNOT_AGENT_ENV_DIR:-}" ]]; then
   export KNOT_AGENT_ENV_DIR="$KNOT_SITE_DIR/agents"
 fi
+# launchd 给的软限是 256；每个 HTTP 连接一个 fd，并发一过两百就是 EMFILE。
+# shellcheck source=lib/fd-limit.sh
+source "$SCRIPT_DIR/lib/fd-limit.sh"
+knot_raise_fd_limit
 cd "$KNOT_APP_DIR/backend"
 exec node src/index.js
