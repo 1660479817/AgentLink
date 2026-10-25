@@ -1,5 +1,4 @@
 import { browserStorage, writeBoardCache } from "./boardCache.js";
-import { wishIsLive } from "./record.js";
 
 const hidden = new Set();
 let memory = null;
@@ -20,8 +19,8 @@ export function rememberAhead(board) {
     aheadIds = new Set();
     return;
   }
-  const known = new Set([...(memory?.information || []), ...(memory?.requests || [])].map((item) => item?.id).filter(Boolean));
-  const fresh = [...(board.information || []), ...(board.requests || [])].map((item) => item?.id).filter((id) => id && !known.has(id));
+  const known = new Set((memory?.information || []).map((item) => item?.id).filter(Boolean));
+  const fresh = (board.information || []).map((item) => item?.id).filter((id) => id && !known.has(id));
   if (!fresh.length) {
     aheadFeed = null;
     aheadIds = new Set();
@@ -37,7 +36,7 @@ export function readAhead() {
 
 export function coveredBy(board) {
   if (!aheadIds.size) return true;
-  const ids = new Set([...(board?.information || []), ...(board?.requests || [])].map((item) => item?.id).filter(Boolean));
+  const ids = new Set((board?.information || []).map((item) => item?.id).filter(Boolean));
   return [...aheadIds].every((id) => ids.has(id));
 }
 
@@ -57,14 +56,9 @@ export function showDiscoverItem(id) {
   hidden.delete(id);
 }
 
+// 快照里只剩公开帖子。`requests` 仍是契约里的字段，恒为空数组，这里不读它。
 export function revealDiscover(board) {
-  const now = Date.now();
-  return {
-    information: (Array.isArray(board?.information) ? board.information : []).filter((item) => item?.id && !hidden.has(item.id)),
-    requests: (Array.isArray(board?.requests) ? board.requests : []).filter(
-      (wish) => wish?.id && !hidden.has(wish.id) && wishIsLive(wish, now)
-    ),
-  };
+  return (Array.isArray(board?.information) ? board.information : []).filter((item) => item?.id && !hidden.has(item.id));
 }
 
 export function emptyFacets() {
@@ -80,14 +74,9 @@ export function facetsOf(board) {
   };
 }
 
-export function paintDiscover(board, userId) {
-  const visible = revealDiscover(board);
+export function paintDiscover(board) {
   return {
-    information: visible.information,
-    requests: visible.requests.map((wish) => ({
-      ...wish,
-      mine: Boolean(userId && wish.authorId === userId),
-    })),
+    information: revealDiscover(board),
     people: Array.isArray(board?.people) ? board.people : [],
     facets: facetsOf(board),
   };
@@ -98,7 +87,6 @@ export function applyDiscoverSelf(painted, self) {
   const starred = new Set(self?.starred || []);
   const liked = new Set(self?.liked || []);
   const friends = new Set(self?.friends || []);
-  const granted = new Set(self?.granted || []);
   const mine = new Set(self?.mine || []);
   return {
     information: (painted?.information || [])
@@ -111,17 +99,7 @@ export function applyDiscoverSelf(painted, self) {
         friend: friends.has(item.id),
         mine: mine.has(item.id),
         canFriend: !mine.has(item.id),
-        granted: granted.has(item.id) || mine.has(item.id),
       })),
-    requests: (painted?.requests || [])
-      .filter((wish) => !dismissed.has(wish.id))
-      .map((wish) => {
-        const count = self?.wishes?.[wish.id];
-        return {
-          ...wish,
-          responseCount: count ? Number(count.responseCount) || 0 : wish.responseCount,
-        };
-      }),
     people: painted?.people || [],
     facets: facetsOf(painted),
   };
@@ -135,13 +113,14 @@ export function cardIsMine(item, user) {
 }
 
 /**
- * 这条是不是已经付过、或本来就是自己的（下载不再扣分）。
- * wish 记录里同时有 `granted` 与 `unlocked`（requests.js 自己算的那份），两个都认；
- * 缺字段时按「没付过」处理：顶多多弹一次确认，不会多扣。
+ * 这条的商品是不是已经买过（或本来就是自己的）。
+ * 帖子不带价，取附件不需要凭据，所以这里只给 Store 用。
  */
-export function cardGranted(item, user) {
-  if (cardIsMine(item, user)) return true;
-  return item?.granted === true || item?.unlocked === true;
+export function cardBought(item, user) {
+  // 货架上的自己那一件：`store.mine` 由服务端按账号给出，比反推 canFriend 可靠。
+  if (item?.store?.mine === true) return true;
+  if (item?.store?.bought === true) return true;
+  return cardIsMine(item, user);
 }
 
 async function readBoardPayload(url, init) {
@@ -153,7 +132,8 @@ async function readBoardPayload(url, init) {
     throw error;
   }
   const data = await res.json();
-  if (!Array.isArray(data?.information) || !Array.isArray(data?.requests)) {
+  // 快照里只有公开帖子。`requests` 字段仍在中枢契约里，恒为空数组，这里不读它。
+  if (!Array.isArray(data?.information)) {
     const error = new Error("no_board");
     error.code = "no_board";
     throw error;

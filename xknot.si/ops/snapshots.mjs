@@ -35,7 +35,8 @@ export function boardEndpoint(port) {
   return `http://127.0.0.1:${Number(port)}/api/web/board`;
 }
 
-/** 快照的形状：信息流与 wish 都是数组，缺一项就当它不是一份能用的快照。 */
+/** 快照的形状：`information` 与 `requests` 都是数组，缺一项就当它不是一份能用的快照。
+ * `requests` 为中枢契约保留，实例始终给空数组；商店商品不在快照里。 */
 export function parseBoard(text) {
   try {
     const board = JSON.parse(text);

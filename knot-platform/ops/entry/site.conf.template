@@ -71,7 +71,7 @@ server {
     #
     # 缓存键只有 $uri，不含会话，所以「能不能进共享缓存」完全交给后端的 Cache-Control：
     #   - 头像、赞助图、未登录也能读的公开内容 → public，进缓存；
-    #   - 只有当事人能读的内容（自己的私帖、wish 的回复）→ private，nginx 不缓存；
+    #   - 只有当事人能读的内容（自己的私帖、买到的商品）→ private，nginx 不缓存；
     #   - 生成失败回退原件 → no-store，不缓存。
     # 下架不会让缓存立刻失效：条目到期前仍按旧响应分发，所以 max-age 设为 1 天而不是 7 天。
     location ^~ /api/web/uploads/ {

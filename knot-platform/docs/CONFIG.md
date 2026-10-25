@@ -159,17 +159,14 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `KNOT_DEFAULT_PRICE` | `10` | 默认标价（积分）。 |
-| `KNOT_PRICE_MIN` | `0` | 作者可标的最低积分。 |
-| `KNOT_PRICE_MAX` | `100` | 作者可标的最高积分。 |
+| `KNOT_DEFAULT_PRICE` | `10` | 消费券面值（积分）。 |
+| `KNOT_PRICE_MIN` | `1` | 商品可标的最低积分，至少为 1。 |
+| `KNOT_PRICE_MAX` | `100` | 商品可标的最高积分。 |
 | `KNOT_PUBLISH_SERVICE_FEE_PER_MB` | `1` | 发布服务费：每 MB 附件收多少积分，向上取整。 |
-| `KNOT_DOWNLOAD_SERVICE_FEE_PER_MB` | `1` | 下载服务费：每 MB 附件收多少积分，加在作者标价之上。 |
 | `KNOT_SERVICE_FEE_CAP` | `10` | 单次服务费上限。0 表示不封顶。 |
-| `KNOT_SALE_TTL_HOURS` | `72` | 出售帖有效期（小时）。出售帖 = 有可下载附件且有标价的 post/fastpost；零价附件帖不算出售帖，不过期。到期自动下架，作者可再次开放。 |
 | `KNOT_SIGNUP_GRANT` | `100` | 新账户注册赠送积分。 |
 | `KNOT_GRANT_MAX` | `100000` | 单次赠送上限。 |
 | `KNOT_POINT_USD_CENTS` | `1` | 每积分的美元价，用美分表示（1 = 0.01 美元）。 |
-| `KNOT_RETRIEVAL_PRICE` | `10` | 信息检索价：每次检索的统一定价，下载检索结果时收。 |
 | `KNOT_RECHARGE_USD` | `0` | 累计充值（美元）。本期占位 0。 |
 | `KNOT_MONTHLY_OPEX_USD` | `10000` | 月运营开支（美元），用于盈亏平衡测算。 |
 
@@ -202,10 +199,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_SEARCH_Q_MAX` | `120` | 检索词长度上限（字符）。超出的部分截断，不报错。 |
 | `KNOT_SEARCH_CACHE_TTL` | `30` | 检索结果缓存时长（秒）。0 表示不缓存。内容有变更时会立即作废。 |
 | `KNOT_SEARCH_RATE_PER_MIN` | `120` | 同一身份每分钟的检索次数上限。0 表示不限。 |
-| `KNOT_RETRIEVAL_RATE_PER_HOUR` | `10` | 单个账号每小时能提交多少次信息检索。0 表示不限。 |
-| `KNOT_RETRIEVAL_CONCURRENCY` | `2` | 信息检索员同时处理几个任务。 |
-| `KNOT_RETRIEVAL_MAX_ATTEMPTS` | `3` | 单个检索任务最多尝试几次。次数随任务落库，重启不清零。 |
-| `KNOT_REVIEW_CONCURRENCY` | `2` | 终审队列同时处理几条。检索会同时产生 wish 与 wishRespond 两条待审记录。 |
+| `KNOT_REVIEW_CONCURRENCY` | `2` | 终审队列同时处理几条。 |
 | `KNOT_SEARCH_EVENT_RETENTION_DAYS` | `90` | 检索打点 search_events 保留天数。0 表示永久保留。 |
 
 ### 智能体
@@ -214,9 +208,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | --- | --- | --- |
 | `OPENCLAW_BIN` | `openclaw` | openclaw 可执行文件。 |
 | `OPENCLAW_PROCESS_TIMEOUT` | `120` | 单次智能体调用的超时（秒）。 |
-| `OPENCLAW_RETRIEVAL_TIMEOUT` | `300` | 信息检索调用的超时（秒）。 |
 | `OPENCLAW_INTEL_AGENT` | `knot-intel` | 情报智能体名。 |
-| `OPENCLAW_RETRIEVAL_AGENT` | `knot-retrieval` | 检索智能体名。 |
 
 ### 管理令牌
 

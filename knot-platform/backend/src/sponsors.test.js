@@ -18,7 +18,7 @@ const SECOND = "22222222-2222-4222-8222-222222222222";
 const THIRD = "33333333-3333-4333-8333-333333333333";
 
 test("a sponsor link is a site path or an http address", () => {
-  assert.equal(sponsorHref("/wish"), "/wish");
+  assert.equal(sponsorHref("/store"), "/store");
   assert.equal(sponsorHref("https://example.com/a"), "https://example.com/a");
   assert.throws(() => sponsorHref("//evil.example"), (error) => error.code === "bad_href");
   assert.throws(() => sponsorHref("javascript:alert(1)"), (error) => error.code === "bad_href");
@@ -57,7 +57,7 @@ test("creating a sponsor appends it", async () => {
 
 test("the rail stops at the limit", async () => {
   const pool = transactionalPool(async () => ({ rows: [{ n: SPONSOR_LIMIT, max: SPONSOR_LIMIT }] }));
-  await assert.rejects(createSponsor(pool, { title: "满了", href: "/wish" }), (error) => error.code === "sponsor_full");
+  await assert.rejects(createSponsor(pool, { title: "满了", href: "/store" }), (error) => error.code === "sponsor_full");
   assert.equal(pool.calls.some((call) => call.sql === "ROLLBACK"), true, "拒绝后回滚");
 });
 
@@ -66,7 +66,7 @@ test("an update keeps the fields the caller left out", async () => {
   const pool = {
     async query(sql, params) {
       calls.push({ sql, params });
-      return { rows: [{ id: FIRST, title: "wish", href: params[1], position: 1 }] };
+      return { rows: [{ id: FIRST, title: "store", href: params[1], position: 1 }] };
     },
   };
   const sponsor = await updateSponsor(pool, FIRST, { href: "/stars" });
@@ -99,10 +99,10 @@ test("removing a missing sponsor is not found", async () => {
 test("the public list omits position", async () => {
   const pool = {
     async query() {
-      return { rows: [{ id: FIRST, title: "wish", href: "/wish", position: 1 }] };
+      return { rows: [{ id: FIRST, title: "store", href: "/store", position: 1 }] };
     },
   };
-  assert.deepEqual(await listSponsors(pool), [{ id: FIRST, title: "wish", href: "/wish", image: null, caption: "", source: "" }]);
+  assert.deepEqual(await listSponsors(pool), [{ id: FIRST, title: "store", href: "/store", image: null, caption: "", source: "" }]);
 });
 
 test("a sponsor picture is an http address or a stored image", async () => {
@@ -118,7 +118,7 @@ test("a sponsor picture is an http address or a stored image", async () => {
   });
   assert.deepEqual(await sponsorImage(pool, ""), { imageUrl: null, imageUploadId: null });
   assert.deepEqual(await sponsorImage(pool, `/api/web/uploads/${SECOND}`), { imageUrl: null, imageUploadId: SECOND });
-  await assert.rejects(sponsorImage(pool, "/wish"), (error) => error.code === "bad_image");
+  await assert.rejects(sponsorImage(pool, "/store"), (error) => error.code === "bad_image");
   await assert.rejects(sponsorImage({ async query() { return { rows: [] }; } }, SECOND), (error) => error.code === "bad_image");
 });
 
@@ -130,8 +130,8 @@ test("clearing the picture and writing a caption stay on that card", async () =>
       return {
         rows: [{
           id: FIRST,
-          title: "wish",
-          href: "/wish",
+          title: "store",
+          href: "/store",
           position: 1,
           image_url: null,
           image_upload_id: null,
@@ -166,7 +166,7 @@ test("the admin door rejects a sponsor without a title", async () => {
     const response = await fetch(`http://127.0.0.1:${port}/api/admin/sponsors`, {
       method: "POST",
       headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
-      body: JSON.stringify({ href: "/wish" }),
+      body: JSON.stringify({ href: "/store" }),
     });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error, "bad_body");

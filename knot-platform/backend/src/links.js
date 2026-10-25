@@ -53,7 +53,6 @@ function storedAddress(id) {
 
 export function contentHash({
   kind,
-  respondsTo = null,
   body = "",
   imageIds = [],
   audioIds = [],
@@ -64,7 +63,6 @@ export function contentHash({
 }) {
   const payload = JSON.stringify([
     kind,
-    respondsTo ? String(respondsTo).toLowerCase() : "",
     body || "",
     imageIds.map(storedAddress),
     [...audioIds.map(storedAddress), ...audioUrls],

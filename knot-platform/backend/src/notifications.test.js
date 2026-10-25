@@ -31,7 +31,7 @@ test("notices split into platform actions and social activity", () => {
   assert.equal(noticeGroup("intel_removed"), "system");
   assert.equal(noticeGroup("points_granted"), "system");
   assert.equal(noticeGroup("mention"), "social");
-  assert.equal(noticeGroup("request_response"), "social");
+  assert.equal(noticeGroup("store_sold"), "social");
   // 认不出的类别当成平台动作，宁可见到也不要沉底。
   assert.equal(noticeGroup("something_new"), "system");
 });

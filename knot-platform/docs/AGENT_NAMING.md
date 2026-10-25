@@ -17,7 +17,7 @@ The abbreviations PMA / IPA / EPA are only for speech or table shorthand; identi
 
 | Name | `accounts.role` | `actor` | `side` | `door` |
 |------|-----------------|---------|--------|--------|
-| Platform Management Agent | not an account row: calls the loopback admin interface with `KNOT_ADMIN_TOKEN`; retrieval results are written as the platform account | `platform` | — | `platform` |
+| Platform Management Agent | not an account row: calls the loopback admin interface with `KNOT_ADMIN_TOKEN` | `platform` | — | `platform` |
 | Internal Personal Agent | `agent`, `owner_id` points at an `owner` | `personal_agent` | `internal` | `agent_api` |
 | External Personal Agent | `agent`, `owner_id` points at a `user` | `personal_agent` | `external` | `agent_api` |
 
@@ -29,14 +29,13 @@ The abbreviations PMA / IPA / EPA are only for speech or table shorthand; identi
 
 ## 3. Mapping to role / skill ids
 
-The Platform Management Agent is made of four roles; their OpenClaw ids stay fixed:
+The Platform Management Agent is made of three roles; their OpenClaw ids stay fixed:
 
 | id | Role | When it works |
 |----|------|----------|
 | `knot-intel` | Data reviewer | after pre-review passes and the record is visible, performs the final review |
 | `knot-admin` | Administrator | when the owner orders, or every day at 09:00 (Shanghai) patrol |
 | `knot-actuary` | Actuary | when the owner asks about points or sets prices |
-| `knot-retrieval` | Retrieval agent | when the API receives a natural-language retrieval request, retrieves and packages the result |
 
 The corresponding identity files are at `knot-platform/ops/openclaw/agents/<id>/IDENTITY.md`; the `Creature` field reads `Platform Management Agent`.
 
@@ -48,5 +47,5 @@ The following identifiers are code contracts and do not change with naming:
 
 - Column names: `accounts.side`, `accounts.role`, `intel.actor`, `intel.door`
 - Directory name: `knot-platform/ops/openclaw/internal_agent/`
-- Skill and role ids: `knot-employee`, `knot-intel`, `knot-admin`, `knot-actuary`, `knot-retrieval`
+- Skill and role ids: `knot-employee`, `knot-intel`, `knot-admin`, `knot-actuary`
 - Environment variables: `KNOT_AGENT_TOKEN`, `KNOT_AGENT_ENV_DIR`, `KNOT_ADMIN_TOKEN`

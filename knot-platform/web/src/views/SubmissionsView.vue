@@ -6,28 +6,20 @@ import AppButton from "../components/AppButton.vue";
 import RecordMedia from "../components/RecordMedia.vue";
 import StatusIcon from "../components/StatusIcon.vue";
 import VideoFrame from "../components/VideoFrame.vue";
-import { listSubmissions, reopenInformation } from "../api.js";
-import { errorText } from "../composers/packet.js";
-import { hoursLeftOf, statusKey } from "../record.js";
+import { listSubmissions } from "../api.js";
+import { kindKey, priceOf, statusKey } from "../record.js";
 import { t } from "../i18n/index.js";
 import { PaperclipIcon } from "../icons/index.js";
 import { packetFile, packetVideos } from "../packet.js";
 import { altLabel } from "../mediaLabel.js";
-import { useSessionStore } from "../stores/session";
 
-const session = useSessionStore();
 const items = ref([]);
 const loaded = ref(false);
-
-// 时效在取回时算一次，挂在条目上：列表渲染不再重复算，也不发额外请求。
-function withExpiry(item) {
-  return { ...item, expiryLeft: hoursLeftOf(item) };
-}
 
 onMounted(async () => {
   try {
     const data = await listSubmissions();
-    items.value = (data.submissions || []).map(withExpiry);
+    items.value = data.submissions || [];
   } catch {
     items.value = [];
   } finally {
@@ -41,37 +33,6 @@ function fileNote(item) {
   if ((item.kMeta?.verdict || "pending") === "pending") return t("home.filePrechecked");
   return "";
 }
-
-// 出售帖 = post/fastpost、有存储的下载附件、且标价大于 0。与后端 SALE_POST 同口径：
-// item.attachments 已是「非图片、非音频」的分类（card.toRecord），stored=true 表示上传的。
-function isSale(item) {
-  const kind = item.kMeta?.kind;
-  if (kind !== "post" && kind !== "fastpost") return false;
-  if (!(Number(item.kMeta?.commerce?.price) > 0)) return false;
-  return (item.attachments || []).some((file) => file?.stored);
-}
-
-function saleExpired(item) {
-  return item.expiryLeft === 0;
-}
-
-async function reopen(item) {
-  if (item.reopening) return;
-  item.reopening = true;
-  item.reopenError = "";
-  try {
-    const data = await reopenInformation(item.id);
-    if (data?.intel?.kMeta) item.kMeta = { ...(item.kMeta || {}), ...data.intel.kMeta };
-    // 再次开放之后有效期重置，按新时间重算这一行的剩余小时。
-    item.expiryLeft = hoursLeftOf(item);
-  } catch (error) {
-    // 带上错误码：bad_state 与 not_found 要读得出区别，不要一律说「请求失败」。
-    item.reopenError = errorText(error.code, session.policy);
-  } finally {
-    item.reopening = false;
-  }
-}
-
 </script>
 
 <template>
@@ -84,11 +45,11 @@ async function reopen(item) {
       {{ t(statusKey(item.kMeta?.verdict)) }}
     </p>
     <p class="information-time">
-      <span v-if="item.kMeta?.category">{{ item.kMeta.category }} · </span>
-      <span v-if="item.kMeta?.language">{{ item.kMeta.language }} · </span>
-      <span>{{ t("submissions.usePrice", { n: item.kMeta?.commerce?.price || 0 }) }}</span>
-      <span v-if="item.kMeta?.kind === 'wishRespond'"> · {{ t("submissions.requestReply") }}</span>
-      <span v-else-if="item.kMeta?.kind === 'wish'"> · {{ t("submissions.request") }}</span>
+      <span>{{ t(kindKey(item.kMeta?.kind)) }}</span>
+      <span v-if="item.kMeta?.category"> · {{ item.kMeta.category }}</span>
+      <span v-if="item.kMeta?.language"> · {{ item.kMeta.language }}</span>
+      <!-- 内容不带价；只有货架上的商品有价格。 -->
+      <span v-if="priceOf(item) > 0"> · {{ t("submissions.usePrice", { n: priceOf(item) }) }}</span>
       <span v-else-if="item.kMeta?.public === false && item.kMeta?.verdict !== 'removed'"> · {{ t("submissions.private") }}</span>
     </p>
     <p v-if="item.body" class="information-body">{{ toPlain(item.body) }}</p>
@@ -111,15 +72,6 @@ async function reopen(item) {
       </li>
     </ul>
     <p v-if="item.kMeta?.rejectReason" class="error card-notice" role="alert">{{ item.kMeta.rejectReason }}</p>
-    <p v-if="item.expiryLeft !== null" class="muted submission-expiry" :class="{ 'is-expired': item.expiryLeft === 0 }">
-      <span>
-        {{ item.expiryLeft === 0 ? t("home.expiryExpired") : t("home.expiryLeft", { n: item.expiryLeft }) }}
-      </span>
-      <AppButton v-if="saleExpired(item) && isSale(item)" variant="secondary" type="button" :disabled="item.reopening" @click="reopen(item)">
-        {{ t("submissions.reopen") }}
-      </AppButton>
-    </p>
-    <p v-if="item.reopenError" class="error card-notice" role="alert">{{ item.reopenError }}</p>
   </article>
   <div class="form-actions">
     <AppButton variant="secondary" to="/mine">{{ t("submissions.back") }}</AppButton>

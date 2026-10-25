@@ -1,9 +1,3 @@
-import { serviceFee, economyConfig } from "./points.js";
-
-export function payeeFor(kind) {
-  return kind === "wish" ? "platform" : "author";
-}
-
 function recordText(detail, key) {
   if (!detail || typeof detail !== "object") return "";
   return typeof detail[key] === "string" ? detail[key].trim() : "";
@@ -51,12 +45,6 @@ function storedOf(file) {
   return link;
 }
 
-function attachmentBytes(files) {
-  return files
-    .filter((file) => !file.image && !(file.audio && !file.image))
-    .reduce((sum, file) => sum + (Number(file.size) || 0), 0);
-}
-
 function namedAttachment(item) {
   const link = externalOf(item);
   if (!link) return null;
@@ -80,11 +68,10 @@ function when(value) {
 
 const ACTORS = new Set(["person", "personal_agent", "platform"]);
 
-export function toRecord(row, { files = [], granted = false, author, starred = false, liked = false, tipTotal = 0 } = {}) {
+export function toRecord(row, { files = [], author, starred = false, liked = false, tipTotal = 0 } = {}) {
   if (!row) return null;
   const links = bag(row.links);
   const kind = row.kind || "post";
-  const visible = Boolean(granted);
   const images = files.filter((file) => file.image).map((file) => storedOf(file));
   const audio = [
     ...files.filter((file) => file.audio && !file.image).map((file) => storedOf(file)),
@@ -97,26 +84,21 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
   const videos = (Array.isArray(row.videos) ? row.videos : []).map(videoOf).filter(Boolean);
   const createdAt = when(row.created_at);
   const updatedAt = when(row.updated_at) || createdAt;
-  // 下载服务费：按附件字节计价，平台收，加在作者标价之上。
-  const fee = serviceFee(
-    attachmentBytes(files),
-    economyConfig().downloadServiceFeePerMb,
-    economyConfig().serviceFeeCap
-  );
+  // 价格只在 Store 里出现：内容恒为 0，卖家就是作者，平台不抽成。
+  // 上传附件的存储/传输成本在发布时按字节收过，下载不再收费。
+  const price = Number(row.price) || 0;
   const record = {
     id: row.id,
     kMeta: {
       id: row.id,
       hash: row.content_hash || "",
       kind,
-      respondsTo: row.responds_to || null,
       version: Number(row.version) || 1,
       originId: row.origin_id || null,
       public: row.is_public !== false,
       commerce: {
-        price: Number(row.price) || 0,
-        fee,
-        payee: payeeFor(kind),
+        price,
+        payee: price > 0 ? "author" : null,
       },
       category: row.category || "",
       topics: recordTopics(row.detail),
@@ -124,7 +106,6 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
       language: recordText(row.detail, "language"),
       verdict: row.verdict || "pending",
       rejectReason: row.reject_reason || null,
-      expiresAt: when(row.expires_at),
       weight: Number(row.weight) || 0,
       createdAt,
       updatedAt,
@@ -134,7 +115,6 @@ export function toRecord(row, { files = [], granted = false, author, starred = f
     audio,
     videos,
     attachments,
-    granted: visible,
     starred: Boolean(starred),
     liked: Boolean(liked),
     // 累计打赏：卡片在硬币图标旁边画这个数，0 就不画。

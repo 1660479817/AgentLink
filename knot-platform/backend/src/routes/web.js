@@ -9,11 +9,11 @@ import { readImageMedia, readMedia } from "../links.js";
 import { FRIEND_COLUMNS, listFriends, removeFriend, setCardFriend } from "../friends.js";
 import { loadDiscoverSelf, emptyDiscoverSelf, listActivePeople } from "../discoverBoard.js";
 import { listFacets } from "../facets.js";
-import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, reopenSale, searchPublicIntel, setIntelLike, setIntelStar } from "../market.js";
+import { createIntel, downloadPacket, listPublicIntel, presentIntel, publicAuthor, searchPublicIntel, setIntelLike, setIntelStar } from "../intel.js";
 import { listNotifications, markNotificationsRead, unreadCount } from "../notifications.js";
 import { allow, retryAfterSeconds } from "../rateLimit.js";
 import { searchConfig } from "../searchConfig.js";
-import { listLooks, listMyResponses, listRequestResponses, listRequests, lookRequest } from "../requests.js";
+import { buyItem, createItem, listMyItems, listOrders, listStoreItems, loadOwnItem, loadStoreItem, relistItem, withdrawItem } from "../store.js";
 import { attachmentDisposition } from "../packetZip.js";
 import { isOwnerAccount, normalizeEmail, normalizeLoginKey, redeemLoginKey, requestLoginKey } from "../login.js";
 import { removePost } from "../admin.js";
@@ -79,7 +79,6 @@ function httpError(res, error) {
   if (code === "bad_url") return res.status(400).json({ error: "bad_url" });
   if (code === "bad_price") return res.status(400).json({ error: "bad_price" });
   if (code === "bad_body") return res.status(400).json({ error: "bad_body" });
-  if (code === "bad_duration") return res.status(400).json({ error: "bad_duration" });
   if (code === "bad_public") return res.status(400).json({ error: "bad_public" });
   if (code === "nothing_to_download") return res.status(400).json({ error: "nothing_to_download" });
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
@@ -110,7 +109,6 @@ function publicCard(row) {
     ...presentIntel({
       ...row,
       files: row.attachments || [],
-      granted: Boolean(row.granted),
     }),
     friend: Boolean(row.friend),
     canFriend: Boolean(row.can_friend),
@@ -611,10 +609,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
         fileUrls: attachments.urls,
         videos,
         isPublic: req.body?.public,
-        price: req.body?.price,
-        hours: req.body?.hours,
-        kind: typeof req.body?.kind === "string" ? req.body.kind : "",
-        respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
+        kind: req.body?.kind === "fastpost" ? "fastpost" : "post",
         revises: typeof req.body?.revises === "string" ? req.body.revises : null,
         mentions: req.body?.mentions,
       });
@@ -627,7 +622,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   router.get("/submissions", async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at, origin_id, version
+      `SELECT id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, weight, created_at, updated_at, origin_id, version
        FROM intel
        WHERE account_id = $1 AND door = 'webui'
        ORDER BY created_at DESC`,
@@ -660,45 +655,109 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     res.json(await listFacets(pool));
   });
 
-  router.get("/requests", contentGate, async (req, res) => {
-    res.json({ requests: await listRequests(pool, req.account?.id || null) });
-  });
-
   router.get("/people", contentGate, async (_req, res) => {
     res.json({ people: await listActivePeople(pool) });
   });
 
-  router.get("/responses", async (req, res) => {
-    if (!req.account) return res.status(401).json({ error: "no_session" });
-    res.json({ responses: await listMyResponses(pool, req.account.id) });
+  // ---- Knot Store ------------------------------------------------------------
+  // 货架只在实例上，不进信息流、搜索与公开快照。交易只有一笔：买家付出，卖家全额收到。
+
+  router.get("/store", contentGate, async (req, res) => {
+    const before = String(req.query.before || "").trim();
+    const anchor = before && INTEL_ID.test(before) ? before : null;
+    const items = await listStoreItems(pool, req.account?.id || null, { before: anchor });
+    res.json({ items });
   });
 
-  router.get("/looks", async (req, res) => {
+  router.get("/store/mine", async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
-    res.json({ looks: await listLooks(pool, req.account.id) });
+    res.json({ items: await listMyItems(pool, req.account.id) });
   });
 
-  router.post("/requests/:id/look", async (req, res) => {
+  router.get("/store/orders", async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
+    res.json({ orders: await listOrders(pool, req.account.id) });
+  });
+
+  router.get("/store/:id", contentGate, async (req, res) => {
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    const item = await loadStoreItem(pool, req.account?.id || null, id);
+    if (!item) return res.status(404).json({ error: "not_found" });
+    res.json({ item });
+  });
+
+  router.post("/store", async (req, res) => {
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+    let images = [];
+    let attachments;
     try {
-      const look = await lookRequest(pool, req.account.id, id);
-      res.json({ look });
+      images = readImageMedia([...(Array.isArray(req.body?.images) ? req.body.images : []), ...(Array.isArray(req.body?.imageIds) ? req.body.imageIds : [])], MAX_IMAGES);
+      attachments = readMedia([...(Array.isArray(req.body?.attachments) ? req.body.attachments : []), ...(Array.isArray(req.body?.fileIds) ? req.body.fileIds : [])], MAX_FILES);
+    } catch (error) {
+      if (error.code === "bad_url" || error.code === "bad_image") return res.status(400).json({ error: error.code });
+      throw error;
+    }
+    if (!attachments.ids.length) return res.status(400).json({ error: "bad_state" });
+    try {
+      const item = await createItem(pool, {
+        userId: req.account.id,
+        actor: "person",
+        door: "webui",
+        body,
+        imageIds: images,
+        fileIds: attachments.ids,
+        price: req.body?.price,
+      });
+      res.status(201).json({ item });
     } catch (error) {
       httpError(res, error);
     }
   });
 
-  router.get("/requests/:id/responses", async (req, res) => {
+  router.post("/store/:id/buy", async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-      return res.status(404).json({ error: "not_found" });
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      const bought = await buyItem(pool, req.account.id, id);
+      res.json({ ...bought, item: await loadStoreItem(pool, req.account.id, id) });
+    } catch (error) {
+      httpError(res, error);
     }
-    const result = await listRequestResponses(pool, req.account.id, id);
-    if (result.error) return res.status(result.status).json({ error: result.error });
-    res.json(result);
+  });
+
+  router.post("/store/:id/withdraw", async (req, res) => {
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json({ item: await withdrawItem(pool, req.account.id, id) });
+    } catch (error) {
+      httpError(res, error);
+    }
+  });
+
+  router.post("/store/:id/relist", async (req, res) => {
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json({ item: await relistItem(pool, req.account.id, id) });
+    } catch (error) {
+      httpError(res, error);
+    }
+  });
+
+  // 作者看自己的一件东西：审核中与已撤下都要能打开，否则撤下之后就再也点不回去。
+  router.get("/store/:id/mine", async (req, res) => {
+    if (!req.account) return res.status(401).json({ error: "no_session" });
+    const id = String(req.params.id || "");
+    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
+    const item = await loadOwnItem(pool, req.account.id, id);
+    if (!item) return res.status(404).json({ error: "not_found" });
+    res.json({ item });
   });
 
   router.post("/intel/:id/download", async (req, res) => {
@@ -708,7 +767,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
       return res.status(404).json({ error: "not_found" });
     }
     try {
-      const result = await downloadPacket(pool, req.account.id, id, uploadDir, { zip: true });
+      const result = await downloadPacket(pool, req.account.id, id, uploadDir);
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Disposition", attachmentDisposition(result.downloadName));
       res.setHeader("Content-Length", fs.statSync(result.zipPath).size);
@@ -768,7 +827,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     if (author && !INTEL_ID.test(author)) return res.json({ information: [], author: null });
     const before = String(req.query.before || "").trim();
     const anchor = before && INTEL_ID.test(before) ? before : null;
-    const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since, sales: req.query.sales === "1" };
+    const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
     const rows = await listPublicIntel(pool, 30, req.account?.id || null, author || null, anchor, filters);
     const information = (await withUploads(pool, rows)).map(publicCard);
     if (!author) return res.json({ information });
@@ -781,7 +840,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.origin_id, i.version,
               u.display_name, u.avatar_upload_id, u.role, u.agent_type,
               ${TIP_TOTAL_SQL}
        FROM intel i
@@ -794,7 +853,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     );
     if (!rows.length) return res.status(404).json({ error: "not_found" });
     const [withFiles] = await withUploads(pool, rows);
-    res.json(publicCard({ ...withFiles, granted: false }));
+    res.json(publicCard(withFiles));
   });
 
   router.post("/discover-self", contentGate, async (req, res) => {
@@ -829,18 +888,6 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     const reason = String(req.body?.reason ?? "").trim() || "平台关闭";
     try {
       res.json(await removePost(pool, id, reason, req.account.id));
-    } catch (error) {
-      httpError(res, error);
-    }
-  });
-
-  // 再次开放到期的出售帖：仅作者，免费，把有效期重置为平台时长。
-  router.post("/intel/:id/reopen", async (req, res) => {
-    if (!req.account) return res.status(401).json({ error: "no_session" });
-    const id = String(req.params.id || "");
-    if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
-    try {
-      res.json({ intel: await reopenSale(pool, req.account.id, id) });
     } catch (error) {
       httpError(res, error);
     }
@@ -907,20 +954,18 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   router.get("/stars", async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     const { rows } = await pool.query(
-      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, u.display_name, u.avatar_upload_id, u.role, u.agent_type,
+      `SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.kind, i.verdict, i.reject_reason, i.weight, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, u.display_name, u.avatar_upload_id, u.role, u.agent_type,
         TRUE AS starred,
         EXISTS (
           SELECT 1 FROM intel_likes l WHERE l.intel_id = i.id AND l.account_id = $1
         ) AS liked,
-        (i.account_id = $1 OR EXISTS (
-          SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.account_id = $1
-        )) AS granted,
         ${TIP_TOTAL_SQL},
 ${FRIEND_COLUMNS}
        FROM intel_stars s
        JOIN intel i ON i.id = s.intel_id
        JOIN accounts u ON u.id = i.account_id
        WHERE s.account_id = $1 AND ${visibleVerdict("i.verdict")} AND i.is_public
+         AND i.kind IN ('post', 'fastpost')
          AND NOT EXISTS (
            SELECT 1 FROM intel_dismissals d
            WHERE d.intel_id = i.id AND d.account_id = s.account_id

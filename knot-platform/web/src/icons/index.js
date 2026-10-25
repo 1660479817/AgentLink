@@ -115,10 +115,6 @@ export const AudioIcon = knotIcon([
 export const SendIcon = knotIcon([
   h("path", { d: "M5 12h12M12 6l6 6-6 6" }),
 ]);
-export const RespondIcon = knotIcon([
-  h("path", { d: "M19 15.75A6.75 6.75 0 0 0 12.25 9H7.5" }),
-  h("path", { d: "M11 5.25 7 9l4 3.75" }),
-]);
 export const CloseIcon = knotIcon([
   h("path", { d: "M7 7 17 17M17 7 7 17" }),
 ]);

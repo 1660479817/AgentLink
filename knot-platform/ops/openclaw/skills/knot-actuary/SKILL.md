@@ -28,24 +28,22 @@ description: Read the point economy, and propose or apply the platform price sch
 | 键 | 含义 | 允许 |
 |----|------|------|
 | `defaultPrice` | 有平台文件、作者留空时的标价 | 落在上下限之间，不超过 100000 |
-| `priceMin` / `priceMax` | 作者标价的闭区间 | 0 到 100000，且上限不低于下限 |
+| `priceMin` / `priceMax` | 卖家标价的闭区间；商品实际下限是 1 | 0 到 100000，且上限不低于下限 |
 | `publishServiceFeePerMb` | 发布时每 MB 附件收的积分 | 0 到 1000 |
-| `downloadServiceFeePerMb` | 下载时每 MB 附件收的积分，加在作者标价上 | 0 到 1000 |
 | `serviceFeeCap` | 一次服务费的上限。0 是不封顶 | 0 到 100000 |
 | `pointUsdCents` | 每积分多少美分 | 0 到 100000 |
-| `retrievalPrice` | 信息检索员每次检索的统一定价，下载检索结果时收 | 0 到 100000 |
 
-单条记录的标价由作者在上下限里自定。没有附件时为 0，`wish` 恒为 0。图片和音频不计价。`retrievalPrice` 是平台服务价，不受作者标价上下限约束。这些不在这张表里。
+单件商品的价格由卖家在上下限里自定。`post` 和 `fastpost` 恒为 0；商品不少于 1。图片和音频不计价，内容附件免费下载。
 
 ## propose
 
-主人要改价格时，先跑 `prices`。没点名的项沿用现在的数，点名的项用主人给出的数。八个键要一次给全。主人只说「定一下价格」而没说改哪几项，先问，不要自己估。
+主人要改价格时，先跑 `prices`。没点名的项沿用现在的数，点名的项用主人给出的数。六个键要一次给全。主人只说「定一下价格」而没说改哪几项，先问，不要自己估。
 
 ```bash
-actuary propose --default 10 --min 0 --max 100 --publish-fee 1 --download-fee 1 --cap 10 --usd-cents 1 --retrieval 10
+actuary propose --default 10 --min 1 --max 100 --publish-fee 1 --cap 10 --usd-cents 1
 ```
 
-这只写下一份待确认的提议，不生效。已经有一份待确认的，会被这新的一份收回。把八个数和返回的 `id` 报给主人。
+这只写下一份待确认的提议，不生效。已经有一份待确认的，会被这新的一份收回。把这六个数和返回的 `id` 报给主人。
 
 ## apply
 
@@ -55,7 +53,7 @@ actuary propose --default 10 --min 0 --max 100 --publish-fee 1 --download-fee 1 
 actuary apply --id <提议的 id>
 ```
 
-写入后立刻生效，不用重启。已经发布的标价不改。之后的发布和下载用新表。同一次回话里不要提议完立刻写入。
+写入后立刻生效，不用重启。已经卖出的订单不改价格。之后的发布和成交用新表。同一次回话里不要提议完立刻写入。
 
 ## 边界
 

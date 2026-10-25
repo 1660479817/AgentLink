@@ -44,8 +44,8 @@ test("commands map onto the admin API", () => {
       { method: "POST", path: "/api/admin/sponsors/s1", json: { image: "" } },
     ],
     [
-      ["sponsor-add", "--title", "一则标题", "--href", "/wish"],
-      { method: "POST", path: "/api/admin/sponsors", json: { title: "一则标题", href: "/wish" } },
+      ["sponsor-add", "--title", "一则标题", "--href", "/store"],
+      { method: "POST", path: "/api/admin/sponsors", json: { title: "一则标题", href: "/store" } },
     ],
     [["patrol-record", "--body", "无"], { method: "POST", path: "/api/admin/patrol", json: { body: "无" } }],
     [["system"], { method: "GET", path: "/api/admin/system" }],

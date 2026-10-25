@@ -13,8 +13,8 @@ import { deletePassed, intelIdFrom } from "./lib/cleanup.js";
 // 一次发帖在源站会扣积分、进审核队列、触发快照推送；在别人的站上压写入
 // 等于往人家库里灌数据，所以「能不能写」只能由站点主人决定，脚本不替人做主。
 //
-// 为什么是 post 而不是 wish：DELETE /intel/:id 只接受 post / fastpost，
-// wish 删不掉，压一轮会留一堆。public: false 让它不进信息流和快照。
+// 为什么是 post 而不是商品：DELETE /intel/:id 只接受 post / fastpost，
+// 商品删不掉，压一轮会留一堆。public: false 让它不进信息流和快照。
 // 为什么读回不走 GET /intel/:id：那条只解公开的 post / fastpost，不公开的按 id 读是 404。
 //
 // 若删除失败，留下的是「不公开」记录：不在信息流、不进快照，只在作者的记录里。

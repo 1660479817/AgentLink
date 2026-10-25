@@ -1,7 +1,6 @@
 <script setup>
 import { onBeforeUnmount, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
-import DownloadConsent from "./components/DownloadConsent.vue";
 import XknotMark from "./components/XknotMark.vue";
 import AppShell from "./layouts/AppShell.vue";
 import { updateProfile } from "./api.js";
@@ -53,7 +52,6 @@ watch(
 </script>
 
 <template>
-  <DownloadConsent />
   <AppShell v-if="session.ready">
     <RouterView />
   </AppShell>

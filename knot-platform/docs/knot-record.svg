@@ -6,7 +6,7 @@
     <rect x="64" y="96" width="200" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="164" y="124" text-anchor="middle" font-size="15">kind</text>
     <rect x="284" y="96" width="220" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
-    <text x="394" y="124" text-anchor="middle" font-size="15">respondsTo</text>
+    <text x="394" y="124" text-anchor="middle" font-size="15">topics</text>
     <rect x="524" y="96" width="220" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="634" y="124" text-anchor="middle" font-size="15">public</text>
     <rect x="764" y="96" width="236" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
@@ -17,7 +17,7 @@
     <text x="524" y="188" text-anchor="middle" font-size="15">version = 1</text>
     <rect x="684" y="160" width="316" height="44" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="842" y="188" text-anchor="middle" font-size="15">createdAt · updatedAt</text>
-    <text x="64" y="244" font-size="14" fill="#333">post · fastpost · wish · wishRespond</text>
+    <text x="64" y="244" font-size="14" fill="#333">post · fastpost · item</text>
     <text x="430" y="244" font-size="14" fill="#333">price · fee · payee</text>
     <rect x="40" y="320" width="1000" height="250" rx="14" fill="#ffffff" stroke="#222" stroke-width="1.6"/>
     <text x="64" y="356" font-size="18" font-weight="600">内容 · Content</text>
@@ -25,7 +25,7 @@
     <text x="154" y="422" text-anchor="middle" font-size="15">body</text>
     <rect x="264" y="384" width="180" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="354" y="414" text-anchor="middle" font-size="15">images</text>
-    <text x="354" y="434" text-anchor="middle" font-size="12" fill="#333">最多 4 · up to 4</text>
+    <text x="354" y="434" text-anchor="middle" font-size="12" fill="#333">最多 9 · up to 9</text>
     <rect x="464" y="384" width="160" height="64" rx="8" fill="#f4f4f4" stroke="#222" stroke-width="1.6"/>
     <text x="544" y="414" text-anchor="middle" font-size="15">audio</text>
     <text x="544" y="434" text-anchor="middle" font-size="12" fill="#333">最多 1 · up to 1</text>

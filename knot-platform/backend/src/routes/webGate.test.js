@@ -69,7 +69,7 @@ test("站内浏览关掉后，没有会话的内容接口统一回 401", async (
       const paths = [
         `/search?q=住房`,
         "/facets",
-        "/requests",
+        "/store",
         "/people",
         "/information",
         `/intel/${INTEL}`,

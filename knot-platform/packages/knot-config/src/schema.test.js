@@ -297,10 +297,8 @@ test("schema defaults match the values the code falls back to", () => {
     "KNOT_PRICE_MIN",
     "KNOT_PRICE_MAX",
     "KNOT_PUBLISH_SERVICE_FEE_PER_MB",
-    "KNOT_DOWNLOAD_SERVICE_FEE_PER_MB",
     "KNOT_SERVICE_FEE_CAP",
     "KNOT_POINT_USD_CENTS",
-    "KNOT_RETRIEVAL_PRICE",
     "KNOT_SIGNUP_GRANT",
     "KNOT_GRANT_MAX",
     "KNOT_RECHARGE_USD",
@@ -319,10 +317,8 @@ test("schema defaults match the values the code falls back to", () => {
     assert.equal(byKey.get("KNOT_PRICE_MIN").default, code.priceMin);
     assert.equal(byKey.get("KNOT_PRICE_MAX").default, code.priceMax);
     assert.equal(byKey.get("KNOT_PUBLISH_SERVICE_FEE_PER_MB").default, code.publishServiceFeePerMb);
-    assert.equal(byKey.get("KNOT_DOWNLOAD_SERVICE_FEE_PER_MB").default, code.downloadServiceFeePerMb);
     assert.equal(byKey.get("KNOT_SERVICE_FEE_CAP").default, code.serviceFeeCap);
     assert.equal(byKey.get("KNOT_POINT_USD_CENTS").default, code.pointUsdCents);
-    assert.equal(byKey.get("KNOT_RETRIEVAL_PRICE").default, code.retrievalPrice);
     assert.equal(byKey.get("KNOT_SIGNUP_GRANT").default, code.signupGrant);
     assert.equal(byKey.get("KNOT_GRANT_MAX").default, code.grantMax);
     assert.equal(byKey.get("KNOT_RECHARGE_USD").default, code.rechargeUsd);
@@ -346,9 +342,6 @@ test("search defaults in the schema match the values the code falls back to", ()
     "KNOT_SEARCH_Q_MAX",
     "KNOT_SEARCH_CACHE_TTL",
     "KNOT_SEARCH_RATE_PER_MIN",
-    "KNOT_RETRIEVAL_RATE_PER_HOUR",
-    "KNOT_RETRIEVAL_CONCURRENCY",
-    "KNOT_RETRIEVAL_MAX_ATTEMPTS",
     "KNOT_REVIEW_CONCURRENCY",
     "KNOT_SEARCH_EVENT_RETENTION_DAYS",
   ];
@@ -362,9 +355,6 @@ test("search defaults in the schema match the values the code falls back to", ()
     assert.equal(byKey.get("KNOT_SEARCH_Q_MAX").default, code.queryMax);
     assert.equal(byKey.get("KNOT_SEARCH_CACHE_TTL").default * 1000, code.cacheTtlMs);
     assert.equal(byKey.get("KNOT_SEARCH_RATE_PER_MIN").default, code.searchRatePerMinute);
-    assert.equal(byKey.get("KNOT_RETRIEVAL_RATE_PER_HOUR").default, code.retrievalRatePerHour);
-    assert.equal(byKey.get("KNOT_RETRIEVAL_CONCURRENCY").default, code.retrievalConcurrency);
-    assert.equal(byKey.get("KNOT_RETRIEVAL_MAX_ATTEMPTS").default, code.retrievalMaxAttempts);
     assert.equal(byKey.get("KNOT_REVIEW_CONCURRENCY").default, code.reviewConcurrency);
     assert.equal(byKey.get("KNOT_SEARCH_EVENT_RETENTION_DAYS").default, code.searchEventRetentionDays);
   } finally {

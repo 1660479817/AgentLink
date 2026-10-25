@@ -609,9 +609,9 @@ const PLATFORM_KEYS = [
   { key: "MAIL_FROM", group: "mail", type: "string", default: "", desc: "发信地址，优先于 SMTP_FROM。" },
 
   // ---- 经济 ----
-  { key: "KNOT_DEFAULT_PRICE", group: "economy", type: "int", default: 10, min: 0, desc: "默认标价（积分）。" },
-  { key: "KNOT_PRICE_MIN", group: "economy", type: "int", default: 0, min: 0, desc: "作者可标的最低积分。" },
-  { key: "KNOT_PRICE_MAX", group: "economy", type: "int", default: 100, min: 0, desc: "作者可标的最高积分。" },
+  { key: "KNOT_DEFAULT_PRICE", group: "economy", type: "int", default: 10, min: 0, desc: "消费券面值（积分）。" },
+  { key: "KNOT_PRICE_MIN", group: "economy", type: "int", default: 1, min: 1, desc: "商品可标的最低积分，至少为 1。" },
+  { key: "KNOT_PRICE_MAX", group: "economy", type: "int", default: 100, min: 1, desc: "商品可标的最高积分。" },
   {
     key: "KNOT_PUBLISH_SERVICE_FEE_PER_MB",
     group: "economy",
@@ -621,28 +621,12 @@ const PLATFORM_KEYS = [
     desc: "发布服务费：每 MB 附件收多少积分，向上取整。",
   },
   {
-    key: "KNOT_DOWNLOAD_SERVICE_FEE_PER_MB",
-    group: "economy",
-    type: "int",
-    default: 1,
-    min: 0,
-    desc: "下载服务费：每 MB 附件收多少积分，加在作者标价之上。",
-  },
-  {
     key: "KNOT_SERVICE_FEE_CAP",
     group: "economy",
     type: "int",
     default: 10,
     min: 0,
     desc: "单次服务费上限。0 表示不封顶。",
-  },
-  {
-    key: "KNOT_SALE_TTL_HOURS",
-    group: "economy",
-    type: "int",
-    default: 72,
-    min: 1,
-    desc: "出售帖有效期（小时）。出售帖 = 有可下载附件且有标价的 post/fastpost；零价附件帖不算出售帖，不过期。到期自动下架，作者可再次开放。",
   },
   { key: "KNOT_SIGNUP_GRANT", group: "economy", type: "int", default: 100, min: 0, desc: "新账户注册赠送积分。" },
   { key: "KNOT_GRANT_MAX", group: "economy", type: "int", default: 100000, min: 0, desc: "单次赠送上限。" },
@@ -653,14 +637,6 @@ const PLATFORM_KEYS = [
     default: 1,
     min: 0,
     desc: "每积分的美元价，用美分表示（1 = 0.01 美元）。",
-  },
-  {
-    key: "KNOT_RETRIEVAL_PRICE",
-    group: "economy",
-    type: "int",
-    default: 10,
-    min: 0,
-    desc: "信息检索价：每次检索的统一定价，下载检索结果时收。",
   },
   { key: "KNOT_RECHARGE_USD", group: "economy", type: "int", default: 0, min: 0, desc: "累计充值（美元）。本期占位 0。" },
   {
@@ -780,39 +756,13 @@ const PLATFORM_KEYS = [
     desc: "同一身份每分钟的检索次数上限。0 表示不限。",
   },
   {
-    key: "KNOT_RETRIEVAL_RATE_PER_HOUR",
-    group: "search",
-    type: "int",
-    default: 10,
-    min: 0,
-    desc: "单个账号每小时能提交多少次信息检索。0 表示不限。",
-  },
-  {
-    key: "KNOT_RETRIEVAL_CONCURRENCY",
-    group: "search",
-    type: "int",
-    default: 2,
-    min: 1,
-    max: 32,
-    desc: "信息检索员同时处理几个任务。",
-  },
-  {
-    key: "KNOT_RETRIEVAL_MAX_ATTEMPTS",
-    group: "search",
-    type: "int",
-    default: 3,
-    min: 1,
-    max: 10,
-    desc: "单个检索任务最多尝试几次。次数随任务落库，重启不清零。",
-  },
-  {
     key: "KNOT_REVIEW_CONCURRENCY",
     group: "search",
     type: "int",
     default: 2,
     min: 1,
     max: 32,
-    desc: "终审队列同时处理几条。检索会同时产生 wish 与 wishRespond 两条待审记录。",
+    desc: "终审队列同时处理几条。",
   },
   {
     key: "KNOT_SEARCH_EVENT_RETENTION_DAYS",
@@ -826,16 +776,7 @@ const PLATFORM_KEYS = [
   // ---- 智能体 ----
   { key: "OPENCLAW_BIN", group: "agent", type: "string", default: "openclaw", desc: "openclaw 可执行文件。" },
   { key: "OPENCLAW_PROCESS_TIMEOUT", group: "agent", type: "int", default: 120, min: 1, desc: "单次智能体调用的超时（秒）。" },
-  {
-    key: "OPENCLAW_RETRIEVAL_TIMEOUT",
-    group: "agent",
-    type: "int",
-    default: 300,
-    min: 1,
-    desc: "信息检索调用的超时（秒）。",
-  },
   { key: "OPENCLAW_INTEL_AGENT", group: "agent", type: "string", default: "knot-intel", desc: "情报智能体名。" },
-  { key: "OPENCLAW_RETRIEVAL_AGENT", group: "agent", type: "string", default: "knot-retrieval", desc: "检索智能体名。" },
 
   // ---- 管理令牌 ----
   {

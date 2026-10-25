@@ -10,8 +10,8 @@
 // 留着只是占空间、让每条查询多扫一批死行。
 //
 // 有三条安全线：
-//   1. 还有活着的行引用它（修订 lineage 的 origin_id、wish 回应链的 responds_to）就整批不删，
-//      先报告是哪几条。级联删会把别人的修订链扯断。
+//   1. 还有活着的行引用它（修订 lineage 的 origin_id）就整批不删，先报告是哪几条。
+//      级联删会把别人的修订链扯断。
 //   2. admin_actions 只把 intel_id 置空，不删审计行：删帖这件事发生过，得留下。
 //   3. 附件行随 intel 级联删掉，但磁盘上的文件不在这里删——之后跑 gc-uploads.mjs --apply
 //      统一回收，它按引用集合判断，不会误删别人正在用的文件。
@@ -35,10 +35,6 @@ const total = countRows[0]?.n || 0;
 const { rows: blockers } = await client.query(
   `SELECT 'origin_id' AS via, i.id AS alive_id, g.id AS gone_id
      FROM intel i JOIN intel g ON i.origin_id = g.id
-    WHERE g.verdict = $1 AND i.verdict <> $1
-   UNION ALL
-   SELECT 'responds_to', i.id, g.id
-     FROM intel i JOIN intel g ON i.responds_to = g.id
     WHERE g.verdict = $1 AND i.verdict <> $1
    LIMIT 20`,
   [VERSION]
@@ -74,14 +70,15 @@ try {
     `UPDATE admin_actions SET intel_id = NULL WHERE intel_id IN (${ids})`,
     [VERSION]
   );
-  // 检索任务留在队列历史里，但不再指向被删的回应。
-  const jobs = await client.query(
-    `UPDATE retrieval_jobs SET respond_id = NULL WHERE respond_id IN (${ids})`,
+  // 卖出过的商品不删：订单是买家的凭证，删掉商品行会连订单一起级联消失。
+  const gone = await client.query(
+    `DELETE FROM intel i
+      WHERE i.verdict = $1
+        AND NOT EXISTS (SELECT 1 FROM store_orders o WHERE o.item_id = i.id)`,
     [VERSION]
   );
-  const gone = await client.query(`DELETE FROM intel WHERE verdict = $1`, [VERSION]);
   await client.query("COMMIT");
-  console.log(`删除 ${gone.rowCount} 行；断开审计 ${admin.rowCount} 条、检索任务 ${jobs.rowCount} 条。`);
+  console.log(`删除 ${gone.rowCount} 行；断开审计 ${admin.rowCount} 条。卖出过的商品保留。`);
 } catch (error) {
   await client.query("ROLLBACK");
   throw error;

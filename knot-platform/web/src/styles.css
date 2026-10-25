@@ -1389,93 +1389,7 @@ body:has(.release-note) .search-sheet {
   resize: none;
 }
 
-.wish-duration {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-top: 0.7rem;
-  color: var(--color-muted);
-  font-size: 0.9rem;
-}
-
-.wish-duration-label {
-  color: var(--color-text);
-}
-
-.wish-duration-input {
-  width: 4.5rem;
-  min-height: 2.25rem;
-  padding: 0 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-  text-align: center;
-}
-
-.wish-duration-input:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-
-.wish-duration-hint {
-  flex: 1 1 100%;
-  font-size: 0.82rem;
-  line-height: 1.4;
-}
-
-@media (max-width: 640px) {
-  .wish-duration-input {
-    min-height: 2.75rem;
-  }
-}
-
-.wish-submit-row {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  margin-top: 0.75rem;
-}
-
-.wish-send.btn-icon {
-  background: var(--color-accent);
-  color: #ffffff;
-}
-
-.wish-send.btn-icon:hover:not(:disabled) {
-  background: #0056d6;
-  color: #ffffff;
-}
-
-.wish-consent {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 3rem;
-  color: var(--color-muted);
-  font-size: 0.9rem;
-  line-height: 1.5;
-  cursor: pointer;
-}
-
-.wish-consent span {
-  white-space: pre-line;
-}
-
-.wish-consent input {
-  width: 1.25rem;
-  height: 1.25rem;
-  margin: 0.15rem 0 0;
-  flex: 0 0 auto;
-  accent-color: var(--color-accent);
-}
-
-.share-consent,
-.share-coin {
+.share-consent {
   display: grid;
   grid-template-columns: 1.35rem auto;
   column-gap: 0.4rem;
@@ -1500,8 +1414,7 @@ body:has(.release-note) .search-sheet {
   line-height: 1.3;
 }
 
-.share-consent input,
-.share-coin-icon {
+.share-consent input {
   justify-self: center;
 }
 
@@ -1511,6 +1424,17 @@ body:has(.release-note) .search-sheet {
   min-width: 1em;
   min-height: 1em;
   margin: 0;
+}
+
+/* 发布键：主色实心，和顶栏的图标键区分开。 */
+.share-send.btn-icon {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.share-send.btn-icon:hover:not(:disabled) {
+  background: #0056d6;
+  color: #ffffff;
 }
 
 .share-foot {
@@ -1530,43 +1454,6 @@ body:has(.release-note) .search-sheet {
 
 .share-bar.is-open {
   padding-bottom: 0.45rem;
-}
-
-.share-coin {
-  color: #c47b00;
-}
-
-.share-coin-icon {
-  width: 1.35rem;
-  height: 1.35rem;
-  flex: 0 0 auto;
-}
-
-.share-coin input.share-coin-input {
-  width: 5.75rem;
-  height: 1.35rem;
-  min-height: 0;
-  margin: 0;
-  padding: 0 0.55rem;
-  border: 1px solid #e4e6eb;
-  border-radius: 999px;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-size: 0.95rem;
-  line-height: 1;
-  text-align: center;
-  box-shadow: none;
-}
-
-.share-coin input.share-coin-input::placeholder {
-  color: var(--color-muted);
-}
-
-.share-coin input.share-coin-input:focus {
-  border-color: var(--color-accent);
-  background: #ffffff;
-  box-shadow: none;
-  outline: none;
 }
 
 .share-input {
@@ -2067,48 +1954,6 @@ a.intel-person:hover {
   color: var(--color-muted);
   font-size: 0.75rem;
   line-height: 1.2;
-}
-
-/* /wish 顶部：正在征集的 wish */
-.wish-rail-title {
-  margin: 0 0 0.5rem;
-  color: var(--color-text);
-  font-size: 1rem;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-/* /wish 底部：「写一个」打开发布表单 */
-.wish-compose-prompt {
-  width: 100%;
-  border: 0;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-
-.wish-compose-icon {
-  flex: 0 0 auto;
-  width: 1.25rem;
-  height: 1.25rem;
-  color: var(--color-muted);
-}
-
-.wish-tile {
-  position: relative;
-}
-
-.wish-tile-count {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.4rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #ffffff;
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1.4;
 }
 
 .visually-hidden {
@@ -2662,15 +2507,6 @@ a.intel-person:hover {
   }
 }
 
-.wish-respond-hint {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
 .bounty-reply-meta {
   margin: 0;
   color: var(--color-muted);
@@ -2683,271 +2519,10 @@ a.intel-person:hover {
   white-space: pre-wrap;
 }
 
-.wish-lead {
-  margin: -0.35rem 0 0.85rem;
-  color: var(--color-muted);
-  font-size: 0.94rem;
-  line-height: 1.5;
-}
-
-.wish-lanes.card {
-  display: flex;
-  padding: 0;
-  overflow: hidden;
-}
-
 /* 父级裁掉盒子外的 outline，焦点框只剩内侧两条边，改成向内画。 */
-.wish-lane:focus-visible {
-  outline-offset: -2px;
-}
-
-.wish-lane {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1 1 0;
-  min-height: 48px;
-  border-bottom: 3px solid transparent;
-  color: var(--color-muted);
-  font-weight: 600;
-}
-
-.wish-lane-icon {
-  width: 1.5rem;
-  height: 1.5rem;
-}
-
-.wish-lane.is-active {
-  color: var(--color-accent);
-  border-bottom-color: var(--color-accent);
-}
-
-.wish-lane:hover {
-  background: var(--color-bg);
-}
-
-.wish-target {
-  padding: 0.75rem 0.8rem;
-  border-radius: var(--radius);
-  background: var(--color-bg);
-}
-
-.wish-stages {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin: 0.9rem 0 0;
-  padding: 0.85rem 0 0;
-  border-top: 1px solid #e4e6eb;
-  list-style: none;
-}
-
-.wish-stage {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.65rem;
-  min-width: 0;
-}
-
-.wish-stage-index {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 1.5rem;
-  height: 1.5rem;
-  margin-top: 0.1rem;
-  border-radius: 50%;
-  background: #e4e6eb;
-  color: var(--color-text);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.wish-stage.is-done .wish-stage-index {
-  background: var(--color-accent);
-  color: #ffffff;
-}
-
-.wish-stage-body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.wish-stage-label {
-  margin: 0.1rem 0 0.45rem;
-  font-weight: 600;
-}
-
-.wish-stage .wish-response {
-  margin-top: 0;
-}
-
-.wish-stage .share-input {
-  margin-top: 0.15rem;
-}
-
-.share-bar .wish-target {
-  margin-bottom: 0.85rem;
-}
-
-.wish-target > .actor-mark {
-  margin-bottom: 0.35rem;
-}
 
 .bounty-reply-meta .actor-mark {
   margin-right: 0.2rem;
-}
-
-.wish-target .muted {
-  margin: 0;
-}
-
-.wish-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.75rem;
-}
-
-.wish-empty p {
-  margin: 0;
-  color: var(--color-muted);
-  line-height: 1.5;
-}
-
-.wish-card.is-current {
-  box-shadow: 0 0 0 2px var(--color-accent);
-}
-
-.wish-card-head {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.wish-card-head .information-time {
-  margin: 0 0 0 auto;
-}
-
-.wish-card > .wish-copy {
-  margin-top: 0.45rem;
-}
-
-.wish-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-  min-width: 0;
-}
-
-.wish-copy-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.28rem;
-  min-width: 0;
-}
-
-.wish-copy-line,
-.wish-copy-item {
-  margin: 0;
-  font-size: 0.95rem;
-  line-height: 1.65;
-  line-break: strict;
-  overflow-wrap: break-word;
-}
-
-.wish-copy-block.is-title .wish-copy-line {
-  font-size: 1.05rem;
-  font-weight: 700;
-  line-height: 1.45;
-}
-
-.wish-copy-item {
-  padding-left: 1.75em;
-  text-indent: -1.75em;
-}
-
-.wish-files {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin: 0.7rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.wish-file {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-width: 0;
-  color: var(--color-muted);
-  font-size: 0.9rem;
-}
-
-.wish-file .information-file-copy {
-  min-width: 0;
-  line-height: 1.35;
-  word-break: break-all;
-}
-
-.wish-file-icon {
-  flex: 0 0 auto;
-  width: 1.05rem;
-  height: 1.05rem;
-  color: var(--color-accent);
-}
-
-.wish-reason {
-  margin: 0.35rem 0 0;
-  color: var(--color-muted);
-  font-size: 0.9rem;
-  line-height: 1.45;
-}
-
-.wish-responses {
-  margin-top: 0.9rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid #e4e6eb;
-}
-
-.wish-responses .wish-card-head .information-status {
-  margin-left: auto;
-}
-
-.wish-responses .muted {
-  margin: 0.4rem 0 0;
-}
-
-.wish-response {
-  margin-top: 0.65rem;
-  padding: 0.75rem 0.8rem;
-  border-radius: var(--radius);
-  background: var(--color-bg);
-}
-
-.wish-response .bounty-reply-body {
-  line-height: 1.5;
-}
-
-.wish-response .btn {
-  margin-top: 0.15rem;
-}
-
-@media (max-width: 1023px) {
-  .wish-page > .page-title,
-  .wish-page > .wish-lead {
-    padding-left: max(1rem, env(safe-area-inset-left));
-    padding-right: max(1rem, env(safe-area-inset-right));
-  }
-
-  .stage .layout .wish-page > .card,
-  .stage .layout .wish-page > [role="tabpanel"] > .card {
-    border-left: 0;
-    border-right: 0;
-    border-radius: 0;
-  }
 }
 
 .chat-pending {
@@ -4431,64 +4006,6 @@ p.error {
   align-items: center;
 }
 
-.download-consent {
-  width: min(22rem, calc(100vw - 2rem));
-  margin: auto;
-  padding: 1.25rem 1.25rem 1rem;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  color: var(--color-text);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08);
-}
-
-.download-consent::backdrop {
-  background: rgba(5, 5, 5, 0.45);
-}
-
-.download-consent-title {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin: 0 0 0.5rem;
-  font-size: 1.25rem;
-  font-weight: 700;
-  line-height: 1.3;
-}
-
-.download-consent-title .status-icon {
-  width: 1.35rem;
-  height: 1.35rem;
-}
-
-.download-consent-title .is-coin {
-  color: #c47b00;
-}
-
-.download-consent-title .is-alert {
-  color: var(--color-danger);
-}
-
-.download-consent-body {
-  margin: 0 0 1.1rem;
-  font-size: 0.95rem;
-  line-height: 1.45;
-}
-
-.download-consent-body:last-child {
-  margin-bottom: 0;
-}
-
-.download-consent-body.is-error {
-  color: var(--color-danger);
-}
-
-.download-consent-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
 /* 点顶栏站点名打开：站点身份 + 主理人（owner）资料。 */
 .site-owner {
   box-sizing: border-box;
@@ -5287,7 +4804,6 @@ body.is-lightbox {
   .skip-link,
   .release-note,
   .photo-lightbox,
-  .download-consent,
   .card-tip,
   .card-share,
   .site-owner {
@@ -5307,5 +4823,221 @@ body.is-lightbox {
     content: " (" attr(href) ")";
     color: #65676b;
     font-size: 0.85em;
+  }
+}
+
+/* ---- Knot Store (/store) ---------------------------------------------------
+   货架是实例自己的一栏：一条商品一张卡片，卡片下面一行放价格和成交动作。
+   帖子不进这里，所以这一栏不共用信息流的「点开详情」——卡片本身就是全部内容。 */
+
+.store-lead {
+  margin: 0 0 1rem;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.store-lanes {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.store-lane {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.store-lane:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--color-text);
+}
+
+.store-lane.is-active {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.store-lane:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.store-item {
+  margin-bottom: 1rem;
+}
+
+/* 卡片自带的圆角与阴影已经画出边界；这一行贴在卡片底部，读作同一件商品的一部分。 */
+.store-buy {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: -0.4rem 0 0;
+  padding: 0.65rem 1rem 0.85rem;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--color-surface);
+}
+
+.store-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #c47b00;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.store-price svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.store-state {
+  color: var(--color-muted);
+  font-size: 0.86rem;
+}
+
+.store-state.is-done {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.store-state.is-short {
+  color: var(--color-danger);
+}
+
+.store-buy .btn {
+  margin-left: auto;
+}
+
+.store-empty {
+  margin-bottom: 1rem;
+}
+
+.store-empty p {
+  margin: 0 0 0.6rem;
+}
+
+.store-orders {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.store-order {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.store-order + .store-order {
+  border-top: 1px solid var(--color-border);
+}
+
+.store-order-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.store-order-title {
+  margin: 0 0 0.2rem;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.store-order-meta {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.store-subtitle {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.store-compose {
+  margin-top: 1.25rem;
+}
+
+.store-compose .share-prompt {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.store-compose-icon {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--color-muted);
+}
+
+.store-hint {
+  margin: 0.5rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.store-submit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.store-balance {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.store-send.btn-icon {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.store-send.btn-icon:hover:not(:disabled) {
+  background: #0056d6;
+  color: #ffffff;
+}
+
+@media (max-width: 640px) {
+  .stage .layout .store-page > .card,
+  .stage .layout .store-page > [role="tabpanel"] > .card {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    box-shadow: none;
+  }
+
+  .store-buy {
+    border-radius: 0;
+  }
+
+  .store-lane {
+    min-height: 48px;
   }
 }

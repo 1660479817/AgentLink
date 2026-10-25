@@ -2,7 +2,6 @@ import { Router } from "express";
 import { randomBytes } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import multer from "multer";
-import { listRequestResponses, listRequests } from "../requests.js";
 import { hasInformation, isArchiveUpload, isAttachmentUpload, isAudioUpload, isVideoUpload, MAX_AUDIO, MAX_FILES, MAX_IMAGES, uploadName, videoItemsOf } from "../information.js";
 import { readImageMedia, readMedia } from "../links.js";
 import {
@@ -26,12 +25,12 @@ import {
   presentIntelRows,
   publicAuthor,
   searchPublicIntel,
-} from "../market.js";
+} from "../intel.js";
+import { buyItem, createItem, listMyItems, listOrders, listStoreItems, loadOwnItem, loadStoreItem, relistItem, withdrawItem } from "../store.js";
 import { listNotifications, markNotificationsRead, noticeSummary } from "../notifications.js";
 import { allow, retryAfterSeconds } from "../rateLimit.js";
 import { searchConfig } from "../searchConfig.js";
-import { createRetrieval } from "../retrieval.js";
-import { economyConfig, imageUploadLimit } from "../points.js";
+import { imageUploadLimit } from "../points.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
 import { acceptAvatar, ensureUploadDir, newStorageName } from "../uploads.js";
@@ -66,7 +65,6 @@ function agentFail(res, error) {
   if (code === "bad_url") return res.status(400).json({ error: "bad_url" });
   if (code === "nothing_to_download") return res.status(400).json({ error: "nothing_to_download" });
   if (code === "bad_price") return res.status(400).json({ error: "bad_price" });
-  if (code === "bad_duration") return res.status(400).json({ error: "bad_duration" });
   if (code === "bad_public") return res.status(400).json({ error: "bad_public" });
   if (code === "insufficient_points") return res.status(402).json({ error: "insufficient_points" });
   if (code === "packet_unavailable") return res.status(503).json({ error: "packet_unavailable" });
@@ -440,10 +438,7 @@ export function agentRouter({ pool, uploadDir }) {
         fileUrls: delivery.fileUrls,
         videos: delivery.videos,
         isPublic: req.body?.public,
-        price: req.body?.price,
-        hours: req.body?.hours,
-        kind: typeof req.body?.kind === "string" ? req.body.kind : "",
-        respondsTo: typeof req.body?.respondsTo === "string" ? req.body.respondsTo : null,
+        kind: req.body?.kind === "fastpost" ? "fastpost" : "post",
         revises: typeof req.body?.revises === "string" ? req.body.revises : null,
         mentions: req.body?.mentions,
       });
@@ -459,25 +454,113 @@ export function agentRouter({ pool, uploadDir }) {
     if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
     try {
       const result = await downloadPacket(pool, access.userId, req.params.id, uploadDir);
-      res.json({ intel: { ...result.intel, granted: true } });
+      res.json({ intel: result.intel });
     } catch (error) {
       agentFail(res, error);
     }
   });
 
-  router.get("/requests", async (req, res) => {
+  // ---- Knot Store ------------------------------------------------------------
+  // 与网页同一份货架：商品不进信息流与检索，只在这里进出。
+
+  router.get("/store", async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    res.json({ requests: await listRequests(pool, access.userId) });
+    const before = String(req.query.before || "").trim();
+    const anchor = before && UUID.test(before) ? before : null;
+    res.json({ items: await listStoreItems(pool, access.userId, { before: anchor }) });
   });
 
-  router.get("/requests/:id/responses", async (req, res) => {
+  router.get("/store/orders", async (req, res) => {
     const access = await accessFor(req, res);
     if (!access.userId) return res.status(access.status).json({ error: access.error });
-    if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
-    const result = await listRequestResponses(pool, access.userId, req.params.id);
-    if (result.error) return res.status(result.status).json({ error: result.error });
-    res.json(result);
+    res.json({ orders: await listOrders(pool, access.userId) });
+  });
+
+  router.get("/store/mine", async (req, res) => {
+    const access = await accessFor(req, res);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    res.json({ items: await listMyItems(pool, access.userId) });
+  });
+
+  router.get("/store/:id", async (req, res) => {
+    const access = await accessFor(req, res);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const id = String(req.params.id || "");
+    if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
+    const item = await loadStoreItem(pool, access.userId, id);
+    if (!item) return res.status(404).json({ error: "not_found" });
+    res.json({ item });
+  });
+
+  router.post("/store", async (req, res) => {
+    const access = await accessFor(req, res);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const delivery = readDelivery(req.body);
+    if (delivery.error) return res.status(delivery.status).json({ error: delivery.error });
+    // 一件商品必须有一份可下载的附件：没有货的货架没有意义。
+    if (!delivery.fileIds.length) return res.status(400).json({ error: "bad_state" });
+    try {
+      const item = await createItem(pool, {
+        userId: access.userId,
+        actor: "personal_agent",
+        door: "agent_api",
+        body: delivery.body,
+        imageIds: delivery.imageIds,
+        fileIds: delivery.fileIds,
+        price: req.body?.price,
+      });
+      res.status(201).json({ item });
+    } catch (error) {
+      agentFail(res, error);
+    }
+  });
+
+  router.post("/store/:id/buy", async (req, res) => {
+    const access = await accessFor(req, res);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const id = String(req.params.id || "");
+    if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      const bought = await buyItem(pool, access.userId, id);
+      res.json({ ...bought, item: await loadStoreItem(pool, access.userId, id) });
+    } catch (error) {
+      agentFail(res, error);
+    }
+  });
+
+  router.post("/store/:id/withdraw", async (req, res) => {
+    const access = await accessFor(req, res);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const id = String(req.params.id || "");
+    if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json({ item: await withdrawItem(pool, access.userId, id) });
+    } catch (error) {
+      agentFail(res, error);
+    }
+  });
+
+  router.post("/store/:id/relist", async (req, res) => {
+    const access = await accessFor(req, res);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const id = String(req.params.id || "");
+    if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
+    try {
+      res.json({ item: await relistItem(pool, access.userId, id) });
+    } catch (error) {
+      agentFail(res, error);
+    }
+  });
+
+  router.get("/store/:id/mine", async (req, res) => {
+    const access = await accessFor(req, res);
+    if (!access.userId) return res.status(access.status).json({ error: access.error });
+    const id = String(req.params.id || "");
+    if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
+    const item = await loadOwnItem(pool, access.userId, id);
+    if (!item) return res.status(404).json({ error: "not_found" });
+    res.json({ item });
   });
 
   // 读取公开信息流：与网页同一份记录。带授权码，个人态（关掉的、星、赞、已下载、好友）按这个账户算。
@@ -546,35 +629,6 @@ export function agentRouter({ pool, uploadDir }) {
     const found = await loadPublicIntel(pool, access.userId, id);
     if (!found) return res.status(404).json({ error: "not_found" });
     res.json({ ok: true });
-  });
-
-  // 信息检索：自然语言检索要求落成 wish，交给平台「信息检索员」后台执行。
-  // 结果打包成 wishRespond（带报告附件），请求方到 wish 里下载时按平台统一检索价付费。
-  router.post("/retrieve", async (req, res) => {
-    const access = await accessFor(req, res);
-    if (!access.userId) return res.status(access.status).json({ error: access.error });
-    const config = searchConfig();
-    // 检索一次要调一轮检索员，按账号限流；同一句重复提交是幂等的，不占额度之外的时间。
-    const retrieveKey = `retrieve:${access.accountId}`;
-    const retrieveWindow = 60 * 60 * 1000;
-    if (!allow(retrieveKey, config.retrievalRatePerHour, retrieveWindow)) {
-      const wait = retryAfterSeconds(retrieveKey, retrieveWindow);
-      if (wait) res.set("Retry-After", String(wait));
-      return res.status(429).json({ error: "too_many" });
-    }
-    const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
-    if (!query) return res.status(400).json({ error: "bad_body" });
-    try {
-      const { wish, jobId, status } = await createRetrieval(pool, {
-        userId: access.userId,
-        actor: "personal_agent",
-        door: "agent_api",
-        query,
-      });
-      res.status(201).json({ wish, job: { id: jobId, status }, price: economyConfig().retrievalPrice });
-    } catch (error) {
-      agentFail(res, error);
-    }
   });
 
   router.get("/friends", async (req, res) => {

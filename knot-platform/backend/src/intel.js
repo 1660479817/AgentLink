@@ -10,7 +10,7 @@ import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./fr
 import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
 import { speakerAccount } from "./account.js";
-import { applyPointsOrdered, serviceFee, economyConfig, packetPrice, servicePrice, sameWallet, PLATFORM_ACCOUNT_ID } from "./points.js";
+import { applyPointsOrdered, serviceFee, economyConfig, itemPrice, sameWallet, PLATFORM_ACCOUNT_ID } from "./points.js";
 import { compact, scoreCompact, uniqueGrams } from "./search.js";
 import { cacheGet, cacheSet, searchCacheKey } from "./searchCache.js";
 import { searchConfig } from "./searchConfig.js";
@@ -23,7 +23,6 @@ import { TIP_TOTAL_SQL } from "./tips.js";
 import { readableBlobPath } from "./storage.js";
 import { discardExtract, readExtract } from "./extracts.js";
 import { normalizeCategory } from "./categories.js";
-import { wishExpiresAt, wishHours, wishLive } from "./wish.js";
 import { recordIntelRead, recordSearchEvent } from "./attention.js";
 
 async function imageFiles(pool, intelId) {
@@ -57,7 +56,6 @@ export function presentIntel(row) {
     : undefined;
   return toRecord(row, {
     files: row.files || row.attachments || [],
-    granted: row.granted !== false,
     author,
     starred: row.starred,
     liked: row.liked,
@@ -89,7 +87,7 @@ async function attachmentFiles(pool, intelId) {
 
 async function loadIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, account_id, body, videos, links, verdict, kind, responds_to FROM intel WHERE id = $1`,
+    `SELECT id, account_id, body, videos, links, verdict, kind FROM intel WHERE id = $1`,
     [id]
   );
   return rows[0] || null;
@@ -97,7 +95,7 @@ async function loadIntel(pool, id) {
 
 async function loadPresentedIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, account_id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, responds_to, weight, created_at, updated_at, expires_at, origin_id, version FROM intel WHERE id = $1`,
+    `SELECT id, account_id, actor, body, videos, links, content_hash, detail, verdict, reject_reason, category, price, is_public, kind, weight, created_at, updated_at, origin_id, version FROM intel WHERE id = $1`,
     [id]
   );
   if (!rows[0]) return null;
@@ -142,24 +140,6 @@ async function assertAttachmentsOpen(pool, uploadIds) {
     error.code = "unreadable_file";
     throw error;
   }
-}
-
-async function notifyWishResponse(pool, { wishId, ownerId }) {
-  const owner = await pool.query(
-    `SELECT COALESCE(a.owner_id, a.id) AS wallet
-       FROM intel i JOIN accounts a ON a.id = i.account_id
-      WHERE i.id = $1 AND i.kind = 'wish' AND ${visibleVerdict("i.verdict")}`,
-    [wishId]
-  );
-  const authorWallet = owner.rows[0]?.wallet;
-  if (!authorWallet || authorWallet === ownerId) return;
-  await recordNotification(pool, {
-    userId: authorWallet,
-    kind: "request_response",
-    title: "有一条 wish 响应",
-    body: "",
-    href: `/wish?wish=${wishId}`,
-  });
 }
 
 export async function judgeIntel(pool, id) {
@@ -209,7 +189,7 @@ export async function judgeIntel(pool, id) {
     await refreshSearchIndex(pool, id).catch((error) => console.error(error));
   }
   // 终审写了 note、语种与话题标签，这段文字参与检索，索引在上面已经重算过。
-  if (intel.kind === "post" || intel.kind === "fastpost" || intel.kind === "wish") touchDiscoverBoard();
+  if (intel.kind === "post" || intel.kind === "fastpost") touchDiscoverBoard();
   return loadPresentedIntel(pool, id);
 }
 
@@ -239,7 +219,7 @@ export async function retagIntelTopics(pool, id) {
   );
   // 话题标签同样进检索文字（detail 参与索引），重打完要重算索引。
   await refreshSearchIndex(pool, id).catch((error) => console.error(error));
-  if (intel.kind === "post" || intel.kind === "fastpost" || intel.kind === "wish") touchDiscoverBoard();
+  if (intel.kind === "post" || intel.kind === "fastpost") touchDiscoverBoard();
   return { id, language: tagLanguage, before, topics };
 }
 
@@ -385,8 +365,8 @@ async function reviewOne(pool, id) {
   }
 }
 
-// 终审队列：并发数可配（KNOT_REVIEW_CONCURRENCY）。检索请求会同时产生 wish 与
-// wishRespond 两条记录，串行处理时一条卡住的终审会把整条队列堵在它后面。
+// 终审队列：并发数可配（KNOT_REVIEW_CONCURRENCY）。一次发布可能同时产生一条内容
+// 与一条商品，串行处理时一条卡住的终审会把整条队列堵在它后面。
 function pumpReviews(pool) {
   if (reviewPumping) return;
   reviewPumping = true;
@@ -433,36 +413,20 @@ export async function resumePendingReviews(pool) {
   }
 }
 
-async function assertRespondsTo(pool, requestId, ownerId) {
-  if (!requestId) return;
-  const { rows } = await pool.query(
-    `SELECT COALESCE(a.owner_id, a.id) AS wallet
-       FROM intel i JOIN accounts a ON a.id = i.account_id
-      WHERE i.id = $1 AND i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}`,
-    [requestId]
-  );
-  if (!rows.length || rows[0].wallet === ownerId) {
-    const error = new Error("bad_state");
-    error.code = "bad_state";
-    throw error;
-  }
-}
+const KINDS = new Set(["post", "fastpost", "item"]);
 
-const KINDS = new Set(["post", "fastpost", "wish", "wishRespond"]);
-
-function resolveKind({ kind, respondsTo }) {
-  const target = typeof respondsTo === "string" && respondsTo ? respondsTo : null;
+function resolveKind({ kind }) {
   const name = typeof kind === "string" && kind ? kind : "post";
-  if (!KINDS.has(name) || (name === "wishRespond") !== Boolean(target)) {
+  if (!KINDS.has(name)) {
     const error = new Error("bad_state");
     error.code = "bad_state";
     throw error;
   }
-  return { kind: name, respondsTo: name === "wishRespond" ? target : null };
+  return name;
 }
 
-// 修订只对 post / fastpost 开放：wish 有时效、wishRespond 是响应，都不修订。
-// origin 是首版 id，version 是 origin 内的序号。
+// 修订只对 post / fastpost 开放：Store 里的商品是一一对应的实体，撤下再重上，
+// 不做版本链。origin 是首版 id，version 是 origin 内的序号。
 //
 // 这里只校验归属，不取号。取号必须和 INSERT 在同一个事务里，并且先锁住 origin 那一行：
 // 两笔并发修订各自「查 MAX(version) 再 +1」会拿到同一个号，而信息流去重的判据是
@@ -486,7 +450,10 @@ async function assertRevision(pool, userId, revises, kind) {
   return { originId: rows[0].origin_id || rows[0].id };
 }
 
-export async function createIntel(pool, input) {
+// 发布一条记录。三种 kind 共用同一套装配：post / fastpost 是内容，item 是 Store 里的商品。
+// 商品的货架行由调用方通过 afterInsert 在同一个事务里写（见 store.js），
+// 上架与入账因此一起成功、一起回滚。
+export async function createIntel(pool, input, { afterInsert } = {}) {
   const { userId, actor, door, body, videos = [], isPublic = true, price } = input;
   const author = await speakerAccount(pool, userId);
   // 好友与钱包都按作者所属的账号算：Agent 用主人的关系网，花主人的积分。
@@ -496,12 +463,12 @@ export async function createIntel(pool, input) {
   const audioUrls = (input.audioUrls || []).slice(0, Math.max(0, MAX_AUDIO - audioIds.length));
   const fileIds = (input.fileIds || []).slice(0, MAX_FILES);
   const fileUrls = (input.fileUrls || []).slice(0, Math.max(0, MAX_FILES - fileIds.length));
-  const { kind, respondsTo } = resolveKind(input);
+  const kind = resolveKind(input);
+  const item = kind === "item";
   const revision = await assertRevision(pool, userId, typeof input.revises === "string" ? input.revises : null, kind);
-  // wish 时效固定；出售帖的时效取决于 owned 里有没有可下载附件，等 owned 查出后再定。
-  const wishExpiry = kind === "wish" ? wishExpiresAt(wishHours(input.hours)) : null;
   const mentions = mentionList(input.mentions);
-  if (mentions.length && kind !== "post" && kind !== "fastpost" && kind !== "wish") {
+  // 商品不 @ 人：Store 里的一件东西不是一条社交内容，也就没有关系网要维护。
+  if (mentions.length && item) {
     const error = new Error("bad_mention");
     error.code = "bad_mention";
     throw error;
@@ -511,7 +478,6 @@ export async function createIntel(pool, input) {
   const videoItems = videoItemsOf(videos);
   const hash = contentHash({
     kind,
-    respondsTo,
     body,
     imageIds,
     audioIds,
@@ -536,11 +502,6 @@ export async function createIntel(pool, input) {
     return loadPresentedIntel(pool, prior.rows[0].id);
   }
   const uploadIds = [...new Set([...imageIds.slice(0, MAX_IMAGES), ...audioIds.slice(0, MAX_AUDIO), ...fileIds.slice(0, MAX_FILES)])];
-  if (kind !== "wish" && fileIds.length) {
-    // 平台自产（信息检索结果）走服务价，不受作者标价上下限约束。
-    if (actor === "platform") servicePrice(price);
-    else packetPrice(1, price);
-  }
   let owned = [];
   if (uploadIds.length) {
     const { rows } = await pool.query(
@@ -556,16 +517,22 @@ export async function createIntel(pool, input) {
     owned = rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   }
   const billable = owned.filter((row) => isAttachmentUpload({ originalname: row.original_name }));
-  // 价格只按平台上传的附件算（下载包也只能装这些）。帖子里只有外链附件时，
-  // packetPrice(0, price) 会把作者填的价格静默抹成 0：卡片上仍列着附件名，作者以为
-  // 在卖，实际既不进出售区也收不到钱。这里明确拒绝，而不是悄悄改价。
-  const givenPrice = price == null || String(price).trim() === "" ? null : Number(price);
-  if (kind !== "wish" && actor !== "platform" && fileUrls.length && !billable.length && givenPrice > 0) {
-    const error = new Error("bad_price");
-    error.code = "bad_price";
-    throw error;
+  // 内容一律 0 价：附件下载免费，价格只在 Store 里出现。
+  // 商品则相反，必须标价，并且必须有一份可下载的附件——没有货的货架没有意义。
+  let priced = 0;
+  if (item) {
+    if (!billable.length) {
+      const error = new Error("bad_state");
+      error.code = "bad_state";
+      throw error;
+    }
+    if (fileUrls.length) {
+      const error = new Error("bad_url");
+      error.code = "bad_url";
+      throw error;
+    }
+    priced = itemPrice(price);
   }
-  const priced = kind === "wish" ? 0 : actor === "platform" ? servicePrice(price) : packetPrice(billable.length, price);
   const videoLinks = videoItems.map((item) => item.url);
   const posterIds = [...new Set(videoItems.filter((item) => item.poster.id).map((item) => item.poster.id))];
   const posterById = new Map();
@@ -595,16 +562,12 @@ export async function createIntel(pool, input) {
   });
   await assertAttachmentsOpen(pool, fileIds);
   await assertReachable([...audioUrls, ...fileUrls, ...videoLinks]);
-  await assertRespondsTo(pool, respondsTo, ownerId);
   const external = {
     audio: audioUrls.map((url) => ({ url })),
     attachments: fileUrls.map((url) => ({ url })),
   };
-  const listed = kind === "post" || kind === "fastpost" ? publicOf(isPublic) : false;
-  // 出售帖 = post/fastpost 且有可下载附件、且标价大于 0。与 SALE_POST 同口径，平台时长、用户不可填。
-  // 零价附件帖只是「附带全文」，不设有效期。
-  const isSale = (kind === "post" || kind === "fastpost") && priced > 0 && owned.some(isDownloadableFile);
-  const expiresAt = wishExpiry ?? (isSale ? saleExpiresAt() : null);
+  // 商品不进信息流、搜索与公开快照：它只出现在 /store 的货架上。
+  const listed = item ? false : publicOf(isPublic);
   let intelId;
   const client = await pool.connect();
   try {
@@ -621,9 +584,9 @@ export async function createIntel(pool, input) {
       version = (latest[0]?.v || 0) + 1;
     }
     const inserted = await client.query(
-      `INSERT INTO intel (account_id, actor, door, body, videos, links, content_hash, is_public, kind, responds_to, price, expires_at, origin_id, version)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
-      [userId, actor, door, body, JSON.stringify(storedVideos), JSON.stringify(external), hash, listed, kind, respondsTo, priced, expiresAt, revision.originId, version]
+      `INSERT INTO intel (account_id, actor, door, body, videos, links, content_hash, is_public, kind, price, origin_id, version)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12) RETURNING id`,
+      [userId, actor, door, body, JSON.stringify(storedVideos), JSON.stringify(external), hash, listed, kind, priced, revision.originId, version]
     );
     intelId = inserted.rows[0].id;
     for (let i = 0; i < owned.length; i += 1) {
@@ -633,11 +596,13 @@ export async function createIntel(pool, input) {
         i,
       ]);
     }
-    // 四种发布都按附件字节收发布服务费。图片和音频直接显示，不计入。
-    // 平台自产（信息检索结果）不向自己收发布服务费，只在下游下载时收检索价。
+    // 三种发布都按附件字节收发布服务费。图片和音频直接显示，不计入。
+    // 平台自产不向自己收费。
     if (actor !== "platform") {
       await chargePublish(client, { userId, intelId, bytes: billable.reduce((sum, row) => sum + Number(row.size || 0), 0) });
     }
+    // 货架行与上架本身同一个事务：写入失败则整笔发布回滚，不会出现「收了发布费却没有货架行」。
+    if (afterInsert) await afterInsert(client, intelId);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -657,10 +622,10 @@ export async function createIntel(pool, input) {
     client.release();
   }
   await mention(intelId);
-  if (kind === "wishRespond" && respondsTo) await notifyWishResponse(pool, { wishId: respondsTo, ownerId });
   // 先写索引再宣布内容变化：索引失败不该让发布失败，回填脚本与兜底条件都能兜住。
   await refreshSearchIndex(pool, intelId).catch((error) => console.error(error));
-  if (kind === "post" || kind === "fastpost" || kind === "wish") touchDiscoverBoard();
+  // 商品不进公开快照，动它不影响入口磁盘上的那份文件。
+  if (!item) touchDiscoverBoard();
   if (!intelAgentId()) {
     try {
       return await judgeIntel(pool, intelId);
@@ -674,7 +639,7 @@ export async function createIntel(pool, input) {
 }
 
 const PUBLIC_INTEL_COLUMNS = `
-  i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.responds_to, i.verdict, i.reject_reason, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.expires_at, i.origin_id, i.version,
+  i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.weight, i.price, i.category, i.kind, i.verdict, i.reject_reason, i.account_id, i.actor, i.is_public, i.created_at, i.updated_at, i.origin_id, i.version,
     u.display_name, u.avatar_upload_id, u.role, u.agent_type,
     EXISTS (
       SELECT 1 FROM intel_stars s
@@ -684,11 +649,6 @@ const PUBLIC_INTEL_COLUMNS = `
       SELECT 1 FROM intel_likes l
       WHERE l.intel_id = i.id AND l.account_id = $1
     ) AS liked,
-    ($1::uuid IS NOT NULL AND (
-      i.account_id = $1 OR EXISTS (
-        SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.account_id = $1
-      )
-    )) AS granted,
 ${FRIEND_COLUMNS},
     ${TIP_TOTAL_SQL}
 `;
@@ -768,54 +728,9 @@ function filterSql(filters, params) {
   return sql;
 }
 
-// 出售 = 有可下载附件（非图片、非音频）**且标价大于 0** 的 post/fastpost。
-// 有附件但标价 0 的是「附带全文」的普通帖，留在信息流，也不写 expires_at。
-// 出售帖离开信息流，归入市场的出售区。
-//
-// 「可下载附件」是唯一口径，三处必须一致，改一处同步其余：
-//   - HAS_ATTACHMENT（SQL，列表 / reopen 用）
-//   - isDownloadableFile（JS，发布时写 expires_at 用）
-//   - packetZip.kindOf（下载打包）、card.toRecord（展示）同为「非图片、非音频」
-const HAS_ATTACHMENT = `EXISTS (
-  SELECT 1 FROM intel_files f
-  JOIN uploads u ON u.id = f.upload_id
-  WHERE f.intel_id = i.id
-    AND u.mime NOT LIKE 'image/%'
-    AND NOT (u.mime LIKE 'audio/%' OR u.original_name ~* '\\.(mp3|m4a|wav|aac|ogg|oga|flac|opus|wma)$')
-)`;
-
-// 出售帖 = 可下载附件 + 标价。零价帖不卖，留在信息流。
-const SALE_POST = `(${HAS_ATTACHMENT} AND i.price > 0)`;
-
-export function isDownloadableFile(row) {
-  if (String(row.mime || "").startsWith("image/")) return false;
-  return !isAudioUpload({ mime: row.mime, originalname: row.original_name });
-}
-
-// 出售帖有效期（小时）：平台设定，用户不可填。默认 72 小时，可用 KNOT_SALE_TTL_HOURS 覆盖。
-const SALE_DEFAULT_TTL_HOURS = 72;
-
-export function saleTtlHours() {
-  const value = Number(process.env.KNOT_SALE_TTL_HOURS);
-  return Number.isInteger(value) && value > 0 ? value : SALE_DEFAULT_TTL_HOURS;
-}
-
-export function saleExpiresAt(now = Date.now()) {
-  return new Date(now + saleTtlHours() * 60 * 60 * 1000);
-}
-
-// 025 迁移之前的出售帖没有 expires_at，按创建时间加平台时长算（镜像 wish 的 fallback）。
-function saleDeadline(alias = "i") {
-  return `COALESCE(${alias}.expires_at, ${alias}.created_at + interval '${saleTtlHours()} hours')`;
-}
-
-// 只留仍在有效期内的出售帖。
-export function saleLive(alias = "i") {
-  return `${saleDeadline(alias)} > now()`;
-}
-
-// 作者删除自己的帖子：行留在库里，只把 verdict 记为 removed 并取消公开。
+// 作者删除自己的内容：行留在库里，只把 verdict 记为 removed 并取消公开。
 // 修订链上的所有版本一起撤下，免得删掉新版后旧版重新出现在信息流里。
+// Store 里的商品不走这里：商品由作者「撤下」或「重新上架」，见 store.js。
 export async function deleteOwnPost(pool, userId, intelId) {
   const { rows } = await pool.query(
     `SELECT id, account_id, kind, origin_id, verdict FROM intel WHERE id = $1`,
@@ -857,12 +772,6 @@ export async function listPublicIntel(pool, limit = 30, userId = null, authorId 
     sql += ` AND i.account_id = $${params.length}`;
   }
   sql += filterSql(filters, params);
-  // 信息流只放不卖的；出售（有可下载附件且有标价）归市场。sales=true 时反过来只取出售，且只留仍在有效期内的。
-  if (filters.sales === true) {
-    sql += ` AND ${SALE_POST} AND ${saleLive("i")}`;
-  } else {
-    sql += ` AND NOT ${SALE_POST}`;
-  }
   if (before) {
     // 键集分页：只取排在锚点（上一页最后一条）之后的内容，避免偏移翻页的重复与漏条。
     params.push(before);
@@ -1072,47 +981,39 @@ export async function setIntelLike(pool, userId, intelId, liked) {
   }
 }
 
-async function loadDownloadIntel(db, intelId, lock) {
+async function loadDownloadIntel(db, intelId) {
   const { rows } = await db.query(
-    `SELECT i.id, i.account_id, i.body, i.videos, i.links, i.category, i.price, i.is_public, i.kind, i.responds_to, i.created_at, u.display_name
+    `SELECT i.id, i.account_id, i.body, i.videos, i.links, i.category, i.price, i.is_public, i.kind, i.created_at, u.display_name
      FROM intel i
      JOIN accounts u ON u.id = i.account_id
-     WHERE i.id = $1 AND ${visibleVerdict("i.verdict")}
-     ${lock ? "FOR UPDATE OF i" : ""}`,
+     WHERE i.id = $1 AND ${visibleVerdict("i.verdict")}`,
     [intelId]
   );
   return rows[0] || null;
 }
 
+// 谁能取走附件：
+//   - 内容（post / fastpost）：看得到就能下载，免费。附件是「附带全文」，不参与任何结算。
+//   - 商品（item）：作者本人，以及付过钱的人。判据是 store_orders，并且按钱包比，
+//     所以「人买过、它的 Agent 再下」不会被拦，反过来也不会重复放行。
 async function assertCanDownload(db, intel, userId) {
-  // 作者可能是 Agent，下载者可能是它的主人：同一个人不该为同一件东西再付一次钱。
-  if (intel.kind === "wish" || intel.is_public || (await sameWallet(db, intel.account_id, userId))) return;
-  if (intel.kind === "wishRespond" && intel.responds_to) {
-    const parent = await db.query(
-      `SELECT 1 FROM intel WHERE id = $1 AND account_id = $2 AND kind = 'wish'`,
-      [intel.responds_to, userId]
-    );
-    if (parent.rows.length) return;
-  }
+  if (intel.kind !== "item") return;
+  if (await sameWallet(db, intel.account_id, userId)) return;
+  const { rows } = await db.query(
+    `SELECT 1
+       FROM store_orders o
+      WHERE o.item_id = $1
+        AND o.buyer_id = (SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $2)
+      LIMIT 1`,
+    [intel.id, userId]
+  );
+  if (rows.length) return;
   const error = new Error("not_found");
   error.code = "not_found";
   throw error;
 }
 
-async function intelBytes(db, intelId) {
-  const { rows } = await db.query(
-    `SELECT u.size, u.original_name
-     FROM intel_files f
-     JOIN uploads u ON u.id = f.upload_id
-     WHERE f.intel_id = $1`,
-    [intelId]
-  );
-  return rows
-    .filter((row) => isAttachmentUpload({ originalname: row.original_name }))
-    .reduce((sum, row) => sum + Number(row.size || 0), 0);
-}
-
-// 发布服务费：按附件字节收，平台收（存储/传输）。四种发布共用。
+// 发布服务费：按附件字节收，平台收（存储/传输）。三种发布共用，付费下载不再另收一次。
 async function chargePublish(client, { userId, intelId, bytes }) {
   const fee = serviceFee(bytes, economyConfig().publishServiceFeePerMb, economyConfig().serviceFeeCap);
   if (fee <= 0) return;
@@ -1123,51 +1024,8 @@ async function chargePublish(client, { userId, intelId, bytes }) {
   ]);
 }
 
-// wish 下载前先解锁响应列表（免费），服务费由 chargeDownload 收。
-async function unlockRequest(client, intel, userId) {
-  if (await sameWallet(client, intel.account_id, userId)) return;
-  await client.query(
-    `INSERT INTO request_unlocks (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-    [userId, intel.id]
-  );
-}
-
-async function chargeDownload(client, intel, userId) {
-  // 同一个钱包（账号与它名下的 Agent）不付自己的钱。
-  if (await sameWallet(client, intel.account_id, userId)) return;
-  // 判重也按钱包：同一份附件的钱只该付一次，不管这一行是账号还是它的 Agent 记的。
-  // 只比 account_id 时，人下过、Agent 再下会各记一行、各扣一次（S12-03）。
-  const prior = await client.query(
-    `SELECT 1
-       FROM packet_downloads pd
-       JOIN accounts a ON a.id = pd.account_id
-      WHERE pd.intel_id = $2
-        AND COALESCE(a.owner_id, a.id) = COALESCE((SELECT COALESCE(owner_id, id) FROM accounts WHERE id = $1), $1)
-      LIMIT 1`,
-    [userId, intel.id]
-  );
-  if (!prior.rows.length) {
-    const price = Number(intel.price) || 0;
-    const fee = serviceFee(await intelBytes(client, intel.id), economyConfig().downloadServiceFeePerMb, economyConfig().serviceFeeCap);
-    const total = price + fee;
-    if (total > 0) {
-      // 买家付款、作者入账、平台服务费是同一个事务里的三笔动账。两个人互相下载对方的
-      // 出售帖时，这两笔的方向正好相反；按钱包 id 排序后加锁顺序一致，不会被 Postgres 判死锁。
-      const entries = [{ userId, delta: -total, reason: "download", refId: intel.id }];
-      if (price > 0) entries.push({ userId: intel.account_id, delta: price, reason: "download", refId: intel.id });
-      if (fee > 0) entries.push({ userId: PLATFORM_ACCOUNT_ID, delta: fee, reason: "download_fee", refId: intel.id });
-      await applyPointsOrdered(client, entries);
-    }
-  }
-  // 钱包已经付过也照样记一行：这个账号在信息流里要显示「已解锁」。
-  await client.query(
-    `INSERT INTO packet_downloads (account_id, intel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-    [userId, intel.id]
-  );
-}
-
-export async function downloadPacket(pool, userId, intelId, uploadDir, { zip = false } = {}) {
-  const intel = await loadDownloadIntel(pool, intelId, false);
+export async function downloadPacket(pool, userId, intelId, uploadDir) {
+  const intel = await loadDownloadIntel(pool, intelId);
   if (!intel) {
     const error = new Error("not_found");
     error.code = "not_found";
@@ -1188,79 +1046,29 @@ export async function downloadPacket(pool, userId, intelId, uploadDir, { zip = f
     error.code = "nothing_to_download";
     throw error;
   }
-  let zipPath = "";
-  if (sources.length) {
-    if (!uploadDir) {
-      const error = new Error("packet_unavailable");
-      error.code = "packet_unavailable";
-      throw error;
-    }
-    zipPath = await ensurePacketZip(
-      uploadDir,
-      intel.id,
-      packetReadme({
-        category: intel.category,
-        price: intel.price,
-        author: intel.display_name,
-        createdAt: intel.created_at,
-        videos: intel.videos,
-        links: intel.links,
-        body: intel.body,
-        files: sources,
-      }),
-      sources
-    );
-  }
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const locked = await loadDownloadIntel(client, intelId, true);
-    if (!locked) {
-      const error = new Error("not_found");
-      error.code = "not_found";
-      throw error;
-    }
-    await assertCanDownload(client, locked, userId);
-    if (locked.kind === "wish") await unlockRequest(client, locked, userId);
-    // wish 标价恒为 0，这里只收下载服务费；无附件时服务费为 0。
-    await chargeDownload(client, locked, userId);
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    if (error.message === "insufficient_points") error.code = "insufficient_points";
+  if (!uploadDir) {
+    const error = new Error("packet_unavailable");
+    error.code = "packet_unavailable";
     throw error;
-  } finally {
-    client.release();
   }
+  const zipPath = await ensurePacketZip(
+    uploadDir,
+    intel.id,
+    packetReadme({
+      category: intel.category,
+      price: intel.price,
+      author: intel.display_name,
+      createdAt: intel.created_at,
+      videos: intel.videos,
+      links: intel.links,
+      body: intel.body,
+      files: sources,
+    }),
+    sources
+  );
   return {
     intel: await loadPresentedIntel(pool, intelId),
     zipPath,
     downloadName: packetDownloadName(intel.body),
   };
-}
-
-// 再次开放到期的出售帖：仅作者，仅 post/fastpost 且有可下载附件、标价大于 0。免费，只把 expires_at 重置为 now + 平台时长。
-export async function reopenSale(pool, userId, intelId) {
-  const { rows } = await pool.query(
-    `SELECT i.id
-     FROM intel i
-     WHERE i.id = $1
-       AND i.account_id = $2
-       AND i.kind IN ('post', 'fastpost')
-       AND i.is_public
-       AND ${visibleVerdict("i.verdict")}
-       AND ${SALE_POST}`,
-    [intelId, userId]
-  );
-  if (!rows.length) {
-    const error = new Error("not_found");
-    error.code = "not_found";
-    throw error;
-  }
-  const expiresAt = saleExpiresAt();
-  await pool.query(
-    `UPDATE intel SET expires_at = $2, updated_at = now() WHERE id = $1`,
-    [intelId, expiresAt]
-  );
-  return loadPresentedIntel(pool, intelId);
 }

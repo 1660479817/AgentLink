@@ -372,10 +372,8 @@ export default {
   "price.priceMin": "最低标价",
   "price.priceMax": "最高标价",
   "price.publishServiceFeePerMb": "发布服务费 / MB",
-  "price.downloadServiceFeePerMb": "下载服务费 / MB",
   "price.serviceFeeCap": "服务费封顶",
   "price.pointUsdCents": "每积分美分",
-  "price.retrievalPrice": "信息检索价",
 
   "xknot.title": "外网访问",
   "xknot.lead": "第一栏就是结论：接没接上、卡在哪一步、下一步点什么。下面是自述区（你拥有、随时能改）与中枢签发的只读信息；排障收在最后一栏里。",

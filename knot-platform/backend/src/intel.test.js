@@ -5,9 +5,9 @@ import path from "node:path";
 import test from "node:test";
 import { keyEntry } from "@knot/config";
 import { saveReviewExtract } from "./extracts.js";
-import { compareByWeight, createIntel, deleteOwnPost, isDownloadableFile, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
+import { compareByWeight, createIntel, deleteOwnPost, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reviewFailureText, searchPublicIntel } from "./intel.js";
 import { clearSearchCache } from "./searchCache.js";
-import { imageUploadLimit, serviceFee, packetPrice, policyConfig } from "./points.js";
+import { imageUploadLimit, itemPrice, serviceFee, policyConfig } from "./points.js";
 
 const AUTHOR = "33333333-3333-4333-8333-333333333333";
 
@@ -118,40 +118,7 @@ test("a category and a topic narrow the public feed together", async () => {
   assert.deepEqual(calls[0].params, [null, "招聘", "大模型", 30]);
 });
 
-test("the public feed excludes sales and can be flipped to sales only", async () => {
-  const calls = [];
-  const pool = {
-    async query(sql, params) {
-      calls.push({ sql, params });
-      return { rows: [] };
-    },
-  };
-  await listPublicIntel(pool, 30, null);
-  // 零价附件帖留在信息流：只有「有可下载附件且有标价」的才算出售帖被排除。
-  assert.match(calls[0].sql, /AND NOT \(\s*EXISTS \(\s*SELECT 1 FROM intel_files f/);
-  assert.match(calls[0].sql, /i\.price > 0/);
-  await listPublicIntel(pool, 30, null, null, null, { sales: true });
-  assert.match(calls[1].sql, /AND \(\s*EXISTS \(\s*SELECT 1 FROM intel_files f/);
-  assert.match(calls[1].sql, /i\.price > 0/);
-  assert.doesNotMatch(calls[1].sql, /AND NOT \(\s*EXISTS \(\s*SELECT 1 FROM intel_files f/);
-  // 出售栏只留仍在有效期内的记录。
-  assert.match(calls[1].sql, /i\.expires_at/);
-  assert.match(calls[1].sql, /> now\(\)/);
-});
 
-test("the list projection carries expires_at so the reader side can show validity", async () => {
-  const calls = [];
-  const pool = {
-    async query(sql, params) {
-      calls.push({ sql, params });
-      return { rows: [] };
-    },
-  };
-  await listPublicIntel(pool, 30, null);
-  // 投影里必须带出这一列：card.toRecord 读 row.expires_at，缺了就恒为 null。
-  const projection = calls[0].sql.split("FROM intel i")[0];
-  assert.match(projection, /i\.expires_at/);
-});
 
 test("search applies the same category and topic filters", async () => {
   clearSearchCache();
@@ -318,15 +285,14 @@ test("search matches text saved from a picture or a file", async () => {
   }
 });
 
-test("text is free and a blank file price uses the default", () => {
-  assert.equal(packetPrice(0, 25), 0);
-  assert.equal(packetPrice(1, ""), 10);
-  assert.equal(packetPrice(1, null), 10);
-  assert.equal(packetPrice(2, 0), 0);
-  assert.equal(packetPrice(2, 8), 8);
-  assert.equal(packetPrice(1, 100), 100);
-  assert.throws(() => packetPrice(1, 101), (error) => error.code === "bad_price");
-  assert.throws(() => packetPrice(1, 1.5), (error) => error.code === "bad_price");
+test("an item must be priced inside the shelf range and at least one point", () => {
+  assert.equal(itemPrice(10), 10);
+  assert.equal(itemPrice(100), 100);
+  assert.throws(() => itemPrice(0), (error) => error.code === "bad_price");
+  assert.throws(() => itemPrice(""), (error) => error.code === "bad_price");
+  assert.throws(() => itemPrice(null), (error) => error.code === "bad_price");
+  assert.throws(() => itemPrice(101), (error) => error.code === "bad_price");
+  assert.throws(() => itemPrice(1.5), (error) => error.code === "bad_price");
 });
 
 test("a review failure names the exception and says the record stays visible", () => {
@@ -386,18 +352,16 @@ test("a finished record does not get a review-failure notice", async () => {
 });
 
 test("policy limits default to the initial platform values", () => {
-  const keys = ["KNOT_DEFAULT_PRICE", "KNOT_PRICE_MIN", "KNOT_PRICE_MAX", "KNOT_PUBLISH_SERVICE_FEE_PER_MB", "KNOT_DOWNLOAD_SERVICE_FEE_PER_MB", "KNOT_SERVICE_FEE_CAP", "KNOT_RETRIEVAL_PRICE", "KNOT_UPLOAD_IMAGE_MAX_BYTES"];
+  const keys = ["KNOT_DEFAULT_PRICE", "KNOT_PRICE_MIN", "KNOT_PRICE_MAX", "KNOT_PUBLISH_SERVICE_FEE_PER_MB", "KNOT_SERVICE_FEE_CAP", "KNOT_UPLOAD_IMAGE_MAX_BYTES"];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) delete process.env[key];
   try {
     assert.deepEqual(policyConfig(), {
       defaultPrice: 10,
-      priceMin: 0,
+      priceMin: 1,
       priceMax: 100,
       publishServiceFeePerMb: 1,
-      downloadServiceFeePerMb: 1,
       serviceFeeCap: 10,
-      retrievalPrice: 10,
       // WebUI 按这个值决定压到多大，缺省与 KNOT_UPLOAD_IMAGE_MAX_BYTES 的登记值一致。
       imageMaxBytes: Number(keyEntry("KNOT_UPLOAD_IMAGE_MAX_BYTES").default),
     });
@@ -452,74 +416,7 @@ test("a deep link finds the post through its revision chain, not by exact id", a
   assert.deepEqual(calls[0].params, [null, ID]);
 });
 
-test("a sale lasts 72 hours by default, overridable by env", () => {
-  const previous = process.env.KNOT_SALE_TTL_HOURS;
-  delete process.env.KNOT_SALE_TTL_HOURS;
-  try {
-    assert.equal(saleTtlHours(), 72);
-    assert.equal(saleExpiresAt(Date.UTC(2026, 9, 17, 0, 0, 0)).toISOString(), "2026-10-20T00:00:00.000Z");
-  } finally {
-    if (previous == null) delete process.env.KNOT_SALE_TTL_HOURS;
-    else process.env.KNOT_SALE_TTL_HOURS = previous;
-  }
-  process.env.KNOT_SALE_TTL_HOURS = "24";
-  try {
-    assert.equal(saleTtlHours(), 24);
-    assert.equal(saleExpiresAt(Date.UTC(2026, 9, 17, 0, 0, 0)).toISOString(), "2026-10-18T00:00:00.000Z");
-  } finally {
-    if (previous == null) delete process.env.KNOT_SALE_TTL_HOURS;
-    else process.env.KNOT_SALE_TTL_HOURS = previous;
-  }
-});
 
-test("the sale live filter falls back to the platform hours for old rows", () => {
-  const sql = saleLive("i");
-  assert.match(sql, /i\.expires_at/);
-  assert.match(sql, /i\.created_at \+ interval '72 hours'/);
-  assert.match(sql, /> now\(\)/);
-});
-
-test("a downloadable file is anything that is not an image or audio", () => {
-  assert.equal(isDownloadableFile({ mime: "application/pdf", original_name: "report.pdf" }), true);
-  assert.equal(isDownloadableFile({ mime: "application/octet-stream", original_name: "data.zip" }), true);
-  assert.equal(isDownloadableFile({ mime: "image/png", original_name: "pic.png" }), false);
-  assert.equal(isDownloadableFile({ mime: "audio/mpeg", original_name: "song.mp3" }), false);
-  assert.equal(isDownloadableFile({ mime: "application/octet-stream", original_name: "voice.wav" }), false);
-  assert.equal(isDownloadableFile({ mime: "", original_name: "notes.md" }), true);
-});
-
-test("reopening a sale resets its expiry to the platform hours", async () => {
-  const intelId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-  const userId = "11111111-1111-4111-8111-111111111111";
-  const updates = [];
-  const pool = {
-    async query(sql, params) {
-      if (sql.includes("UPDATE intel SET expires_at")) {
-        updates.push(params);
-        return { rows: [] };
-      }
-      if (sql.includes("AND i.account_id = $2")) {
-        return { rows: [{ id: intelId }] };
-      }
-      return { rows: [] };
-    },
-  };
-  await reopenSale(pool, userId, intelId);
-  assert.equal(updates.length, 1);
-  assert.equal(updates[0][0], intelId);
-  const at = new Date(updates[0][1]);
-  const expected = Date.now() + 72 * 60 * 60 * 1000;
-  assert.ok(Math.abs(at.getTime() - expected) < 60 * 1000);
-});
-
-test("reopening is refused for someone else's post or a non-sale", async () => {
-  const pool = {
-    async query() {
-      return { rows: [] };
-    },
-  };
-  await assert.rejects(() => reopenSale(pool, "11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), (error) => error.code === "not_found");
-});
 
 const POST_V1 = "55555555-5555-4555-8555-555555555555";
 const POST_V2 = "66666666-6666-4666-8666-666666666666";
@@ -557,15 +454,16 @@ test("deleting is quiet for someone else's post, another kind, or an already del
   };
   await assert.rejects(deleteOwnPost(other, AUTHOR, POST_V2), (error) => error.code === "not_found");
 
-  const wish = {
+  // 商品不走「删帖子」这条路：下架走撤下，删掉订单里的东西会把买过的人一起坑了。
+  const item = {
     async query(sql) {
       if (sql.includes("SELECT id, account_id, kind, origin_id, verdict")) {
-        return { rows: [{ id: POST_V2, account_id: AUTHOR, kind: "wish", origin_id: null, verdict: "passed" }] };
+        return { rows: [{ id: POST_V2, account_id: AUTHOR, kind: "item", origin_id: null, verdict: "passed" }] };
       }
       throw new Error("should not update");
     },
   };
-  await assert.rejects(deleteOwnPost(wish, AUTHOR, POST_V2), (error) => error.code === "bad_state");
+  await assert.rejects(deleteOwnPost(item, AUTHOR, POST_V2), (error) => error.code === "bad_state");
 
   const gone = {
     async query(sql) {
@@ -751,36 +649,9 @@ test("a revision takes its version under the origin row lock, inside the publish
   // 取号不能留在事务外：连接池上不应再看到这条查询。
   assert.equal(poolSteps.some((step) => step.sql.includes("MAX(version)")), false);
   const insert = clientSteps.find((step) => step.sql.startsWith("INSERT INTO intel"));
-  assert.equal(insert.params[12], origin);
-  assert.equal(insert.params[13], 5);
-});
-
-// 只有外链附件的帖子填了价，价格会被 packetPrice(0, …) 静默抹成 0。宁可直接报错，
-// 也不要给出一张「有附件、标了价、其实不卖」的卡片。
-test("a price on a post with only external attachments is refused, not silently zeroed", async () => {
-  const pool = {
-    async query(sql) {
-      if (/FROM accounts a/.test(sql)) return { rows: [{ id: AUTHOR, owner_id: null, muted_until: null }] };
-      if (sql.startsWith("SELECT id FROM intel")) return { rows: [] };
-      return { rows: [] };
-    },
-    async connect() {
-      throw new Error("价格校验不该走到事务");
-    },
-  };
-  await assert.rejects(
-    createIntel(pool, {
-      userId: AUTHOR,
-      actor: "person",
-      door: "webui",
-      kind: "post",
-      body: "只有外链附件",
-      fileUrls: ["https://example.com/report.pdf"],
-      price: 20,
-      isPublic: true,
-    }),
-    (error) => error.code === "bad_price"
-  );
+  assert.match(insert.sql, /origin_id, version\)/);
+  assert.equal(insert.params[10], origin);
+  assert.equal(insert.params[11], 5);
 });
 
 // 管理端的「重新终审」或并发重入会拿到一条已经终审过的记录。这条路径也要装配附件，
@@ -789,8 +660,8 @@ test("re-judging a settled record returns the same assembled card", async () => 
   const id = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
   const pool = {
     async query(sql) {
-      if (sql.includes("SELECT id, account_id, body, videos, links, verdict, kind, responds_to")) {
-        return { rows: [{ id, account_id: AUTHOR, body: "正文", videos: [], links: {}, verdict: "passed", kind: "post", responds_to: null }] };
+      if (sql.includes("SELECT id, account_id, body, videos, links, verdict, kind FROM intel")) {
+        return { rows: [{ id, account_id: AUTHOR, body: "正文", videos: [], links: {}, verdict: "passed", kind: "post" }] };
       }
       if (sql.includes("FROM intel WHERE id = $1")) {
         return {
@@ -809,11 +680,9 @@ test("re-judging a settled record returns the same assembled card", async () => 
             price: 0,
             is_public: true,
             kind: "post",
-            responds_to: null,
             weight: 0,
             created_at: "2026-10-16T00:00:00.000Z",
             updated_at: "2026-10-16T00:00:00.000Z",
-            expires_at: null,
             origin_id: null,
             version: 1,
           }],

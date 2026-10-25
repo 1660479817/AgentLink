@@ -71,8 +71,12 @@ export function createNoticeText(translate, currentLocale) {
         const lead = translate("notifications.body.reviewError", { label, code: data.code });
         return sentences([lead, data.detail, translate("notifications.body.reviewTail")]);
       }
-      case "retrieval_failed":
-        return data.query ? translate("notifications.body.retrievalFailed", { query: data.query }) : item.body || "";
+      case "store_sold":
+        if (data.price == null || !Number.isFinite(Number(data.price))) return item.body || "";
+        return translate("notifications.body.storeSold", {
+          buyer: data.buyer || translate("notifications.body.storeBuyer"),
+          price: data.price,
+        });
       case "tip":
         if (data.amount == null || !Number.isFinite(Number(data.amount))) return item.body || "";
         return translate("notifications.body.tip", {

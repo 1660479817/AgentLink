@@ -4,7 +4,7 @@ import { recordNotification } from "./notifications.js";
 import { avatarUrlFor } from "./avatars.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MENTION_KINDS = new Set(["post", "fastpost", "wish"]);
+const MENTION_KINDS = new Set(["post", "fastpost"]);
 const MENTION_BODY = 2000;
 
 export const MAX_MENTIONS = 8;
@@ -159,7 +159,7 @@ export async function directMentions(pool, { authorId, intelId, kind, body, ment
   if (!MENTION_KINDS.has(kind)) throw fail("bad_mention");
   await assertFriends(pool, authorId, mentions);
   const text = toPlain(String(body || "")).replace(/\s+/g, " ").trim().slice(0, MENTION_BODY) || "一条信息";
-  const href = kind === "wish" ? "/wish" : "/discover";
+  const href = "/discover";
   for (const friendId of mentions) {
     const inserted = await pool.query(
       `INSERT INTO intel_mentions (intel_id, account_id)

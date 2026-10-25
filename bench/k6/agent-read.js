@@ -35,7 +35,7 @@ const p = {
   feed: probe("agent_feed", { expect: "json" }),
   card: probe("agent_card", { expect: "json" }),
   search: probe("agent_search", { expect: "json" }),
-  requests: probe("agent_requests", { expect: "json" }),
+  store: probe("agent_store", { expect: "json" }),
 };
 
 function headersFor(vu) {
@@ -87,9 +87,9 @@ export default function (data) {
   }
 
   if (Math.random() < 0.15) {
-    group("requests", () => {
-      p.requests.record(
-        http.get(`${BASE}/api/agent/requests`, { headers, tags: { name: "GET /api/agent/requests" } })
+    group("store", () => {
+      p.store.record(
+        http.get(`${BASE}/api/agent/store`, { headers, tags: { name: "GET /api/agent/store" } })
       );
     });
   }

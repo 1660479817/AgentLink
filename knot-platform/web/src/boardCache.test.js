@@ -18,7 +18,6 @@ const board = {
   brand: { name: "王的站点", tagline: "收二手，也收问题。", logo: "", owner: null, intro: null, contact: "" },
   locale: "zh-CN",
   information: [{ id: "p1" }],
-  requests: [{ id: "w1" }],
   people: [{ id: "me" }],
   facets: { categories: [], topics: [] },
 };
@@ -31,7 +30,7 @@ test("写进去的快照原样读回来", () => {
   assert.equal(saved.site.publicBoard, true);
 });
 
-test("超过一天就不再使用：wish 会过期，旧板不能一直画", () => {
+test("超过一天就不再使用：旧板不能一直画", () => {
   const box = storage();
   writeBoardCache(box, board, 1000);
   assert.equal(readBoardCache(box, 1000 + BOARD_CACHE_MAX_AGE_MS + 1), null);

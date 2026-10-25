@@ -165,13 +165,14 @@ export function readVideoLink(raw) {
   }
 }
 
-export function readOptionalPrice(raw, policy = {}) {
+// 商品价：必填、整数，至少 1 积分，落在站点价格区间内。
+// 内容（post / fastpost）不走这里——它们不带价，也没有价格可填。
+export function readItemPrice(raw, policy = {}) {
   const text = String(raw ?? "").trim();
-  if (!text) return { ok: true, price: undefined };
   if (!/^\d+$/.test(text)) return { ok: false };
   const value = Number(text);
-  const min = policy.priceMin ?? 0;
-  const max = policy.priceMax ?? 100;
+  const min = Math.max(1, Number(policy.priceMin) || 0);
+  const max = Number(policy.priceMax) || 100;
   if (value < min || value > max) return { ok: false };
   return { ok: true, price: value };
 }
@@ -207,7 +208,7 @@ export function usePacketMedia(policyOf = () => ({}), options = {}) {
   // 否则发出去的内容里会缺掉正在压的那张。用计数而不是布尔：连续选图会重叠。
   const preparing = ref(0);
   const busyPreparing = computed(() => preparing.value > 0);
-  // 压缩是异步的，回来时这份草稿可能已经被 reset 了：分享条收起、wish 面板切到另一条、
+  // 压缩是异步的，回来时这份草稿可能已经被 reset 了：分享条收起、货架表单切到另一条、
   // 快拍关闭导致组件卸载。那一代的结果必须丢掉——否则图会落进已经清空的（或别人的）
   // 草稿里，而卸载之后新建的预览地址也没人回收。每次 reset/卸载让代数加一。
   let generation = 0;

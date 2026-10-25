@@ -75,13 +75,14 @@ test("a mention notifies a friend once and leaves the message text", async () =>
   await directMentions(pool, {
     ...input,
     intelId: "44444444-4444-4444-8444-444444444444",
-    kind: "wish",
+    kind: "fastpost",
     body: "",
   });
   assert.equal(notes[1][3], "一条信息");
-  assert.equal(notes[1][4], "/wish");
+  assert.equal(notes[1][4], "/discover");
+  // 商品不@人：货架上的东西是卖，不是喊话。
   await assert.rejects(
-    directMentions(pool, { ...input, kind: "wishRespond" }),
+    directMentions(pool, { ...input, kind: "item" }),
     (error) => error.code === "bad_mention"
   );
 });

@@ -24,13 +24,6 @@
       "skills": ["knot-actuary"],
       "allowAgents": [],
       "common": false
-    },
-    {
-      "id": "knot-retrieval",
-      "employee": "Retrieval",
-      "skills": [],
-      "allowAgents": [],
-      "common": false
     }
   ]
 }

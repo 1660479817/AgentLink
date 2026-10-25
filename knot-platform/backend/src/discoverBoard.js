@@ -3,15 +3,13 @@ import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_SITE_LOCALE, parseLocale } from "@knot/locale";
-import { toRecord } from "./card.js";
 import { setDiscoverPublisher } from "./discoverPublish.js";
 import { filesByIntel, visibleVerdict } from "./information.js";
 import { listFacets } from "./facets.js";
-import { listPublicIntel, presentIntel } from "./market.js";
+import { listPublicIntel, presentIntel } from "./intel.js";
 import { avatarUrlFor } from "./avatars.js";
 import { brandView } from "./profile.js";
 import { publicBoardEnabled, siteConfig } from "./system.js";
-import { wishDeadline, wishLive } from "./wish.js";
 
 // 最近发过公开信息的人。Internal Personal Agent 也算；平台自己的系统账号不算。
 // 人（owner / user）与 Agent（agent）是两个账号，卡片靠 role 区分，所以这一列要带出去。
@@ -29,22 +27,10 @@ const PEOPLE_SQL = `
   LIMIT $1
 `;
 
-// 公开快照里的 wish 与 /api/web/requests 同一个上限：快照是首屏文件，
-// 不能随在效 wish 的总数无限长大（S11-08）。
-const WISH_SNAPSHOT_LIMIT = 100;
-
 // 公开快照里的信息公开条目。个人站一天发 20–100 条，读的人比写的人多，
 // 首屏要能一直往下翻而不再回源：60 条差不多覆盖「今天全部 + 昨天一部分」，
 // 文件仍然在几十 KB 量级，入口磁盘与浏览器都能整份留住。
 const INTEL_SNAPSHOT_LIMIT = 60;
-
-const WISH_SQL = `
-  SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.account_id, i.actor, i.created_at, i.updated_at, i.expires_at
-  FROM intel i
-  WHERE i.kind = 'wish' AND ${visibleVerdict("i.verdict")} AND ${wishLive("i")}
-  ORDER BY i.created_at DESC
-  LIMIT ${WISH_SNAPSHOT_LIMIT}
-`;
 
 const SELF_SQL = `
   SELECT i.id, i.kind, i.account_id, i.actor, i.body, i.videos, i.links, i.content_hash, i.detail, i.price, i.category, i.is_public, i.verdict, i.created_at, i.updated_at,
@@ -59,11 +45,6 @@ const SELF_SQL = `
       SELECT 1 FROM intel_likes l WHERE l.account_id = $1 AND l.intel_id = i.id
     ) AS liked,
     (
-      i.account_id = $1 OR EXISTS (
-        SELECT 1 FROM packet_downloads pd WHERE pd.intel_id = i.id AND pd.account_id = $1
-      )
-    ) AS granted,
-    (
       i.account_id <> $1
       AND NOT EXISTS (
         SELECT 1 FROM friend_dismissals fd WHERE fd.account_id = $1 AND fd.friend_id = i.account_id
@@ -74,23 +55,17 @@ const SELF_SQL = `
           SELECT 1 FROM friendships fs WHERE fs.account_id = $1 AND fs.friend_id = i.account_id
         )
       )
-    ) AS friend,
-    CASE WHEN i.kind = 'wish' AND i.account_id = $1 THEN (
-      SELECT count(*)::int FROM intel r
-      WHERE r.responds_to = i.id AND r.kind = 'wishRespond' AND ${visibleVerdict("r.verdict")}
-    ) ELSE NULL END AS response_count
+    ) AS friend
   FROM intel i
   JOIN accounts u ON u.id = i.account_id
   WHERE i.id = ANY($2::uuid[])
     AND ${visibleVerdict("i.verdict")}
-    AND (
-      (i.kind IN ('post', 'fastpost') AND i.is_public)
-      OR i.kind = 'wish'
-    )
+    AND i.kind IN ('post', 'fastpost')
+    AND i.is_public
 `;
 
 export function emptyDiscoverSelf() {
-  return { dismissed: [], starred: [], liked: [], friends: [], granted: [], mine: [], wishes: {} };
+  return { dismissed: [], starred: [], liked: [], friends: [], mine: [] };
 }
 
 function publicPost(row, files) {
@@ -99,23 +74,12 @@ function publicPost(row, files) {
     ...presentIntel({
       ...row,
       attachments: files,
-      granted: false,
       starred: false,
     }),
     friend: false,
     canFriend: false,
     mine: false,
     personal: false,
-  };
-}
-
-function publicWish(row, files) {
-  return {
-    ...toRecord(row, { files, granted: false }),
-    authorId: row.account_id,
-    mine: false,
-    unlocked: false,
-    responseCount: null,
   };
 }
 
@@ -150,14 +114,15 @@ export async function assembleDiscoverBoard(pool, meta = {}) {
     return { ...meta, information: [], requests: [], people: [], facets: { categories: [], topics: [] } };
   }
   const posts = await listPublicIntel(pool, INTEL_SNAPSHOT_LIMIT, null);
-  const { rows: wishes } = await pool.query(WISH_SQL);
   const people = await listActivePeople(pool);
   const facets = await listFacets(pool);
-  const files = await filesByIntel(pool, [...posts.map((row) => row.id), ...wishes.map((row) => row.id)]);
+  const files = await filesByIntel(pool, posts.map((row) => row.id));
   return {
     ...meta,
     information: posts.map((row) => publicPost(row, files.get(row.id) || [])),
-    requests: wishes.map((row) => publicWish(row, files.get(row.id) || [])),
+    // Hub 的 parseBoard 读 requests 这个键，缺了会被当成一份坏快照。
+    // 实例已经不再有求购/应征，这里恒为空数组，契约本身不改。
+    requests: [],
     people,
     facets,
   };
@@ -191,9 +156,7 @@ export function presentDiscoverSelf(rows) {
     if (row.starred) self.starred.push(row.id);
     if (row.liked) self.liked.push(row.id);
     if (row.friend) self.friends.push(row.id);
-    if (row.granted) self.granted.push(row.id);
     if (row.mine) self.mine.push(row.id);
-    if (row.kind === "wish" && row.mine) self.wishes[row.id] = { responseCount: Number(row.response_count) || 0 };
   }
   return self;
 }
@@ -263,35 +226,6 @@ export function pushDiscoverBoard(boardDir) {
   child.unref();
 }
 
-// 到期扫描的那条查询：取刚跨过到期时刻、还没被清掉的 wish。
-// 与 wishLive 共用 wishDeadline，NULL 兜底和边界在两边是同一种说法。
-export function wishSweepSql(alias = "i") {
-  return `SELECT 1 FROM intel ${alias}
-          WHERE ${alias}.kind = 'wish'
-            AND ${wishDeadline(alias)} > $1
-            AND ${wishDeadline(alias)} <= $2
-          LIMIT 1`;
-}
-
-// wish 到期不会触发内容变动，定时把刚过期的那几条从公开快照里清掉。
-// 到期判定与 wishLive 用同一个表达式：没有 expires_at 的旧行按 created_at + 24h 算，
-// 只看 expires_at 非空的行会让这类 wish 到期后留在 discover.json 里（S14-07）。
-function startWishSweep(env) {
-  let sweptAt = new Date();
-  const timer = setInterval(async () => {
-    const since = sweptAt;
-    sweptAt = new Date();
-    try {
-      const { rows } = await env.pool.query(wishSweepSql("i"), [since, sweptAt]);
-      if (rows.length) scheduleDiscoverWrite(env, pushDiscoverBoard);
-    } catch (error) {
-      console.error(error);
-    }
-  }, 60 * 1000);
-  timer.unref?.();
-  return timer;
-}
-
 export function bindDiscoverBoard({ pool, uploadDir, boardDir, profile }) {
   const env = {
     pool,
@@ -301,7 +235,6 @@ export function bindDiscoverBoard({ pool, uploadDir, boardDir, profile }) {
   };
   setDiscoverPublisher(() => scheduleDiscoverWrite(env, pushDiscoverBoard));
   scheduleDiscoverWrite(env, pushDiscoverBoard);
-  startWishSweep(env);
   return {
     dir: env.boardDir,
     // 给 `/api/web/home` 用的只读副本：首屏画的那份快照和这里读到的必须是同一份。

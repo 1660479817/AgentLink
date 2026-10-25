@@ -32,7 +32,7 @@
 
     <text x="458" y="64" font-size="15" font-weight="600" fill="#111">Backend 组装 · builds snapshot</text>
     <text x="458" y="86" font-size="12" fill="#333">公开的 post、fastpost · public posts</text>
-    <text x="458" y="103" font-size="12" fill="#333">以及全部 wish · plus all wishes</text>
+    <text x="458" y="103" font-size="12" fill="#333">商品不进快照 · no store items</text>
 
     <text x="788" y="64" font-size="15" font-weight="600" fill="#111">board 目录 · board directory</text>
     <text x="788" y="86" font-size="12" fill="#333">discover.json</text>
@@ -63,7 +63,7 @@
 
     <text x="860" y="218" font-size="15" font-weight="600" fill="#111">回落：经隧道到 Backend · fallback via tunnel</text>
     <text x="860" y="242" font-size="12" fill="#333">GET /api/web/information</text>
-    <text x="860" y="262" font-size="12" fill="#333">GET /api/web/requests</text>
+    <text x="860" y="262" font-size="12" fill="#333">GET /api/web/store</text>
 
     <text x="304" y="386" font-size="15" font-weight="600" fill="#111">登录后叠加当前账户的状态 · overlay account state after login</text>
     <text x="304" y="408" font-size="12" fill="#333">POST /api/web/discover-self</text>
