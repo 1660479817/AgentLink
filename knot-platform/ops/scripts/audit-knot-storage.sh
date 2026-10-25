@@ -129,12 +129,6 @@ comm -13 "$DB_NAMES" "$DISK_NAMES" | sed 's/^/  /'
 echo "  合计 $(comm -13 "$DB_NAMES" "$DISK_NAMES" | wc -l | tr -d ' ') 个"
 
 echo
-echo "== 历史目录 =="
-for legacy in previews; do
-  if [[ -d "$UPLOAD_DIR/$legacy" ]]; then
-    echo "  ${legacy}：$(find "$UPLOAD_DIR/$legacy" -type f | wc -l | tr -d ' ') 个文件，$(du -sh "$UPLOAD_DIR/$legacy" | cut -f1 | tr -d ' ')（已不再写入，可人工清理）"
-  fi
-done
-echo "  派生件（新位置）：display $(find "$UPLOAD_DIR/derived/display" -type f 2>/dev/null | wc -l | tr -d ' ') / packets $(find "$UPLOAD_DIR/derived/packets" -type f 2>/dev/null | wc -l | tr -d ' ') / shares $(find "$UPLOAD_DIR/derived/shares" -type f 2>/dev/null | wc -l | tr -d ' ') / extracts $(find "$UPLOAD_DIR/derived/extracts" -type f 2>/dev/null | wc -l | tr -d ' ')"
-echo "  派生件（旧位置）：display $(find "$UPLOAD_DIR/display" -type f 2>/dev/null | wc -l | tr -d ' ') / packets $(find "$UPLOAD_DIR/packets" -type f 2>/dev/null | wc -l | tr -d ' ') / shares $(find "$UPLOAD_DIR/shares" -type f 2>/dev/null | wc -l | tr -d ' ') / extracts $(find "$UPLOAD_DIR/extracts" -type f 2>/dev/null | wc -l | tr -d ' ')"
+echo "== 派生件 =="
+echo "  display $(find "$UPLOAD_DIR/derived/display" -type f 2>/dev/null | wc -l | tr -d ' ') / packets $(find "$UPLOAD_DIR/derived/packets" -type f 2>/dev/null | wc -l | tr -d ' ') / shares $(find "$UPLOAD_DIR/derived/shares" -type f 2>/dev/null | wc -l | tr -d ' ') / extracts $(find "$UPLOAD_DIR/derived/extracts" -type f 2>/dev/null | wc -l | tr -d ' ')"
 echo "  tmp：$(find "$UPLOAD_DIR/tmp" -type f 2>/dev/null | wc -l | tr -d ' ') 个文件（入库后应为 0）"

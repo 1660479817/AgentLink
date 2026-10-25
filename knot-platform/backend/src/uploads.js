@@ -12,7 +12,7 @@ export function ensureUploadDir(uploadDir) {
   ensureLayout(uploadDir);
 }
 
-// 原件路径。写入用它；读优先用 readableBlobPath，好在切换当天还能读到旧位置的文件。
+// 原件路径。写入用它；读优先用 readableBlobPath。
 export function storagePath(uploadDir, storageName) {
   return blobPath(uploadDir, storageName);
 }

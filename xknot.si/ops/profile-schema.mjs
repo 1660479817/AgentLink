@@ -222,7 +222,7 @@ export function checkIssued(instance, seen = new Set()) {
   }
 
   // 清单只收中枢签发出来的地址：https://<标签>.xknot.si。
-  // 早期签发的短号（< 6 位）照样放行；长度与保留名在签发时才判。
+  // 短号（< 6 位）照样放行；长度与保留名在签发时才判。
   if (!isHttpsUrl(instance.url)) errors.push("url: must be https");
   else if (!labelFromUrl(instance.url)) errors.push(`url: must be https://<label>${HUB_SUFFIX}`);
 

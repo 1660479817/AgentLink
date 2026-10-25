@@ -1,6 +1,6 @@
 # XKnot Federation · Joining
 
-Version 2.1, 2026-10-24. Documentation only; does not change runtime configuration.
+Version 2.1. Documentation only; does not change runtime configuration.
 
 Contract in [FEDERATION.md](FEDERATION.md), hub implementation in [HUB.md](HUB.md), terms in [NAMING.md](NAMING.md).
 

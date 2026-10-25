@@ -10,8 +10,7 @@ import path from "node:path";
 //     derived/extracts/…              终审转写，重建要再跑一次评审
 //     derived/shares/…                分享图，可重建
 //     tmp/                            刚收到、还没入库的文件
-//     board/                          公开快照（沿用旧位置，由 DISCOVER_BOARD_DIR 覆盖）
-//     previews/                       历史遗留（0.3.0 起不再写入，gc-uploads --previews 可清）
+//     board/                          公开快照（由 DISCOVER_BOARD_DIR 覆盖）
 
 export const LAYOUT = Object.freeze({
   blobs: "blobs",
@@ -41,16 +40,8 @@ export function blobPath(uploadDir, storageName) {
   return path.join(blobsDir(uploadDir), shardOf(name), name);
 }
 
-// 旧布局把原件放在根目录。读的时候回落一次，切换当天不需要卡着迁移完成。
-export function legacyBlobPath(uploadDir, storageName) {
-  return path.join(uploadDir, path.basename(String(storageName || "")));
-}
-
 export function readableBlobPath(uploadDir, storageName) {
-  const current = blobPath(uploadDir, storageName);
-  if (exists(current)) return current;
-  const legacy = legacyBlobPath(uploadDir, storageName);
-  return exists(legacy) ? legacy : current;
+  return blobPath(uploadDir, storageName);
 }
 
 export function tmpDir(uploadDir) {
@@ -65,17 +56,8 @@ export function derivedDir(uploadDir, kind) {
   return path.join(uploadDir, LAYOUT.derived, String(kind));
 }
 
-export function legacyDerivedDir(uploadDir, kind) {
-  return path.join(uploadDir, String(kind));
-}
-
 export function boardDir(uploadDir) {
   return path.join(uploadDir, LAYOUT.board);
-}
-
-// 0.3.0 之前的多图拼图目录。只为清理旧机器上的残留保留，新代码不再写入。
-export function legacyPreviewDir(uploadDir) {
-  return path.join(uploadDir, "previews");
 }
 
 export function ensureLayout(uploadDir) {
@@ -84,14 +66,6 @@ export function ensureLayout(uploadDir) {
   fs.mkdirSync(path.join(blobsDir(root)), { recursive: true });
   fs.mkdirSync(tmpDir(root), { recursive: true });
   for (const kind of DERIVED_KINDS) fs.mkdirSync(derivedDir(root, kind), { recursive: true });
-}
-
-function exists(file) {
-  try {
-    return fs.statSync(file).isFile();
-  } catch {
-    return false;
-  }
 }
 
 // 「这行 upload 还有没有引用」只写一份，审计脚本与 GC 共用：两边各写一条，

@@ -67,13 +67,6 @@ export function normalizeTags(value) {
   return out;
 }
 
-// 补记历史实例（admin-cli backfill）用：那张单的标签可能短于签发下限，
-// 也没有表单里的同意项，所以不能整份过 validateApplication；但落库的文本
-// 要走同一套清洗与上限，否则自述区里的一段换行、一个 300 字的简介就原样进库。
-export function cleanField(value, max) {
-  return cleanText(value, max);
-}
-
 export function validEmail(value) {
   const address = String(value ?? "").trim().toLowerCase();
   if (!address || [...address].length > LIMITS.email) return "";
@@ -106,7 +99,7 @@ export function validateApplication(input) {
   if ([...name].length < 2) errors.name = "too_short";
   else if ([...name].length > LIMITS.name) errors.name = "too_long";
 
-  // 接入只有签发子域一种。旧客户端若还带着旧模式或自有域名，明确退回，
+  // 接入只有签发子域一种。带着别的模式或自有域名，明确退回，
   // 不悄悄忽略：它会以为自己申请了自有域名，实际上什么都没登记。
   if (raw.mode != null && raw.mode !== "" && raw.mode !== "subdomain") errors.mode = "not_supported";
   if (String(raw.domain || "").trim()) errors.domain = "not_supported";

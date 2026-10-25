@@ -1,6 +1,6 @@
 # XKnot 联邦 · 加入说明
 
-版本 2.1，2026-10-24。仅文档，不改变运行配置。
+版本 2.1。仅文档，不改变运行配置。
 
 契约见 [FEDERATION.md](FEDERATION.md)，中枢实现见 [HUB.md](HUB.md)，术语见 [NAMING.md](NAMING.md)。
 
@@ -62,7 +62,7 @@
   - **子域标签** `subdomain`：**6–32 位**小写字母、数字与连字符，首尾不能是连字符。少于 6 位一律不签：短号留给以后，不当第一批发出去。系统保留名（`www`、`api`、`admin`、`mail`、`xknot` 等）不签发。
   - 站点名称、一句话简介、运营者、联系邮箱、区域、时区、标签、同意勾选。这些只用于校验与联系：**不写进清单**。上线后由主理人在自己实例的 `/admin` 里填进站点档案（自述区），中枢按 `GET /api/federation/profile` 取回。
   - 门户上显示的区域由中枢按你这条隧道的出口 IP 判定，不取申请时填的那个：机器换到另一个城市或机房，页面会跟着变。填错不影响接入，只在隧道没连上时用来兜底。
-  - `mode` 与 `domain` 已停用。仍带着 `mode: "own-domain"` 或非空 `domain` 的请求返回 `400`，字段错误码是 `not_supported`，不会悄悄当成签发申请。
+  - `mode` 只接受 `subdomain`、`domain` 必须为空。带着 `mode: "own-domain"` 或非空 `domain` 的请求返回 `400`，字段错误码是 `not_supported`，不会悄悄当成签发申请。
   - 校验失败时 `fields` 里的子域错误码与预检一致：`required` / `too_short` / `too_long` / `format` / `reserved`。
 - 申请阶段中枢**不抓取**任何站点。
 - 同一标签在 `approved` 时再次提交返回 `409 duplicate`；撤回之后可以再交一张单，用于补服务或换标签。
@@ -276,8 +276,8 @@ IP 变了不需要改任何清单字段：实例重新连出、入口主机的�
 
 | 项 | 状态 |
 |----|------|
-| 自动通过 / 案例页 / 一次性领取页 | **已实现**：提交即 `approved`、`/case/<caseKey>`、`/claim/<token>`；邮箱确认关卡已移除 |
-| 地址校验 | **已实现**：`server/validate.mjs`（子域标签 6–32 位、保留名、同标签查重；`mode` / `domain` 已停用） |
+| 自动通过 / 案例页 / 一次性领取页 | **已实现**：提交即 `approved`、`/case/<caseKey>`、`/claim/<token>` |
+| 地址校验 | **已实现**：`server/validate.mjs`（子域标签 6–32 位、保留名、同标签查重；`mode` 只接受 `subdomain`、`domain` 必须为空） |
 | 子域标签预检 | **已实现**：`GET /api/subdomains/check`；`ops/subdomain.mjs` 判长度、保留名、占用，并给候选 |
 | 成员登录（邮箱 + 授权码） | **已实现**：`/api/member/code`、`/api/member/session`、`/api/member/logout`；门户右栏显示本站状态、健康、活动计数与橱窗条数 |
 | 断连提醒与暂时隐藏 | **已实现**：`ops/watch-health.mjs` + `ops/check-health.mjs` |

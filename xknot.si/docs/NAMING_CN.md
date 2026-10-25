@@ -72,7 +72,7 @@
 | 发信记录 | relay log | `relay_log` | 只记收件域名与结果，不存正文 | 邮件日志、发信历史 |
 | 收录 | listing | `listed` | 把实例写进清单 | 入驻、上架、签约 |
 | 下架 | delist | `delisted` | 从清单删除，中枢不再展示 | 封禁、关闭、撤下 |
-| 接入形态 | access mode | `mode` | 只有 `subdomain`：中枢签发子域 + 入口隧道（`own-domain` 已停用） | 类型、方案 |
+| 接入形态 | access mode | `mode` | 只有 `subdomain`：中枢签发子域 + 入口隧道 | 类型、方案 |
 | 待验收 | pending | `status: pending` | 已写进清单，`/api/health` 还没通过 | 未上线 |
 | 示范入口 | demo entry | `tier: demo` | 官方示范条目 | 样板站 |
 | 旗舰 | flagship | — | 自营的主力实例 | 主站、总站 |
@@ -112,7 +112,7 @@ JSON 里永远是英文小写；界面上显示本地文案。
 | `suspended` | 暂停 | 实例状态，保留清单条目不探测 |
 | `retired` | 已退役 | 实例状态，等待移除 |
 
-`demo`、`free`、`paid` 是分级值，同样小写，不翻译；旧的 `partner` / `community` 只用于兼容历史条目。
+`demo`、`free`、`paid` 是分级值，同样小写，不翻译。
 
 ## 5. 代码标识
 

@@ -509,11 +509,6 @@ if [[ "$migrated" != 1 ]]; then
   knot_fail "迁移失败。检查 DATABASE_URL 和数据库是否已启动。"
 fi
 
-echo "==> move uploads into blobs/ and derived/"
-if [[ -f "$KNOT_APP_DIR/backend/scripts/migrate-storage-layout.mjs" ]]; then
-  UPLOAD_DIR="$KNOT_UPLOAD_DIR" node "$KNOT_APP_DIR/backend/scripts/migrate-storage-layout.mjs" --apply
-fi
-
 # ---- 5. 切换版本 ----
 if [[ "$UPGRADE" == 1 ]]; then
   echo "==> current: ${PREV_TARGET:-无} → releases/$REL_NAME"
@@ -557,8 +552,7 @@ case "$RUNTIME" in
     fi
     # 每月 1 日 04:45 只出回收报告，不删。要真删得人工加 --apply。
     knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.gc.plist" com.knot.gc
-    # 0.3.0 之前这个常驻服务叫 com.knot.edge-tunnel。改名后必须把旧 job 和 plist 清掉，
-    # 否则它会反复去执行已不存在的 run-edge-tunnel.sh。
+    # 清掉残留的 com.knot.edge-tunnel job 与 plist，避免它反复去执行不存在的脚本。
     knot_bootout_launchd com.knot.edge-tunnel
     rm -f "$HOME/Library/LaunchAgents/com.knot.edge-tunnel.plist"
     # 隧道单元：手写 site.env 的，或中枢自动接通写的 tunnel.env，任一成立就装。

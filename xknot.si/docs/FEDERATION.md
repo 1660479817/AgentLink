@@ -1,10 +1,10 @@
 # XKnot 联邦 · 中枢契约
 
-版本 2.1，2026-10-21。中枢是轻量入口。
+版本 2.1。中枢是轻量入口。
 
-> 2.1 拆分档案：L1 分成**签发区**（`instances.json`，中枢写）与**自述区**（`sites/<站点>/profile.json`，主理人在实例 `/admin` 里写）。中枢按 `url` 取回 `GET /api/federation/profile`，副本落 `var/profiles/{id}.json`。改名、换联系方式不再需要向中枢提交或审批。
+> L1 分成**签发区**（`instances.json`，中枢写）与**自述区**（`sites/<站点>/profile.json`，主理人在实例 `/admin` 里写）。中枢按 `url` 取回 `GET /api/federation/profile`，副本落 `var/profiles/{id}.json`。改名、换联系方式直接改自述区，不必向中枢提交或审批。
 
-> 2.2 收敛接入：只有一种形态——中枢签发 `<标签>.xknot.si`，入口主机 + SSH 反向隧道；`own-domain` 已停用。名册仍用 `mode` + `tunnel` 记接入，清单用 `url` + `status` 记身份与验收状态。术语「公网入口 / 入口主机」取代「边缘」（见 [NAMING.md](NAMING.md)）。
+> 接入只有一种形态——中枢签发 `<标签>.xknot.si`，入口主机 + SSH 反向隧道。名册用 `mode` + `tunnel` 记接入，清单用 `url` + `status` 记身份与验收状态。术语见 [NAMING.md](NAMING.md)。
 
 术语与中英文写法见 [NAMING.md](NAMING.md)，语种与区域规则见 [I18N.md](I18N.md)。本文出现的概念名以那两份为准。
 
@@ -108,7 +108,7 @@ L1 装在两处，按谁有权改划分：
 | `id` | 小写字母、数字、连字符，2–32 位，清单内唯一，不可改 |
 | `url` | 身份地址，各语种共用。恒为中枢签发的 `https://<标签>.xknot.si`；落在其它域名下会被校验拒绝 |
 | `since` | ISO 日期，收录日 |
-| `tier` | `demo`、`free`、`paid`。清单只收这三个值；早期快照里的 `partner` / `community` 门户按同档排序 |
+| `tier` | `demo`、`free`、`paid`。清单只收这三个值 |
 | `status` | `pending`、`active`、`suspended`、`retired`。`pending` 只表示已收录、未验收 |
 | `statsUrl` | 可空。有值时拉取 L2 活动数据 |
 | `cardsUrl` | 可空。有值时拉取 L3 橱窗 |
@@ -153,7 +153,7 @@ L1 装在两处，按谁有权改划分：
 
 门户只用这份副本：缺字段时用签发区字段与兜底文案补齐，不会因此把条目算成 down（那是 L2 的事）。
 
-**升级顺序：先实例，后门户。** 取回时 `formatVersion` 不是 2 的响应会被整份拒绝、保留上一份副本；旧副本没有 `site`，门户对这条只显示 id。所以 `0.3.0` 之前部署的实例要先把 `knot-platform` 升上去、让 `/api/federation/profile` 吐出 v2，再跑一次 `npm run fetch:profile` 后重建中枢。`deploy-hub.sh` 前的 `ops/verify-hub-data.mjs` 会把「有签发区但没有自述区名称」判成问题并挡住发布，正是为了让这个顺序显式发生。
+**升级顺序：先实例，后门户。** 取回时 `formatVersion` 不是 2 的响应会被整份拒绝、保留上一份副本；没有 `site` 的副本门户对这条只显示 id。`deploy-hub.sh` 前的 `ops/verify-hub-data.mjs` 会把「有签发区但没有自述区名称」判成问题并挡住发布，正是为了让这个顺序显式发生。
 
 **新增自述区字段时反过来：先中枢，后实例。** `cleanSite` 拒绝未知键，整份不合法就保留上一份副本。`locale` 就是这样加进来的：中枢的 `SITE_FIELDS` 先收下它，实例再开始写；顺序反了不会崩，但门户上这个站点的改名、换介绍会静默停在旧副本，只在 `var/` 里留几条问题记录。
 
@@ -580,7 +580,7 @@ node server/admin-cli.mjs access <申请编号> --id wang --with-relay --out /tm
 
 | 阶段 | 发生什么 |
 |------|----------|
-| 提交 | 主理人在实例 `/admin` 的「接入 XKnot」里填子域标签与联系邮箱，由实例代交 `POST /api/applications`，字段为子域标签、名称、简介、运营者、邮箱、区域、时区、标签；也可以直接调中枢接口。`mode` 与 `domain` 已停用，带了就返回 `not_supported` |
+| 提交 | 主理人在实例 `/admin` 的「接入 XKnot」里填子域标签与联系邮箱，由实例代交 `POST /api/applications`，字段为子域标签、名称、简介、运营者、邮箱、区域、时区、标签；也可以直接调中枢接口。`mode` 只接受 `subdomain`、`domain` 必须为空，带了别的值返回 `not_supported` |
 | 查标签 | 提交前先问 `GET /api/subdomains/check?label=`。少于 6 位的标签不签，保留名与已占用的不签；不通过时给出候选 |
 | 自动通过 | 平台校验字段并查重，通过即把申请写成 `approved`（`reviewed_by=auto`），没有待审队列 |
 | 通知 | 立刻寄批准信给申请人，并给运营方寄一封新成员提醒 |

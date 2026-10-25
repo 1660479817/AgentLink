@@ -113,9 +113,7 @@ echo "==> sync api"
 rsync_to "$HUB/server/" "$API_ROOT/server/"
 rsync_to "$HUB/admin/" "$API_ROOT/admin/"
 rsync_to "$HUB/docs/" "$API_ROOT/docs/"
-# 整个 ops/ 一起同步，不再一份份列举。
-# 逐份列举漏过一个模块，接口就起不来：server/app.mjs import 的 subdomain.mjs
-# 曾经不在名单里，部署后 ERR_MODULE_NOT_FOUND，进程一直重启，门户 502。
+# 整个 ops/ 一起同步，不一份份列举：漏过一个模块，接口就起不来。
 # 定时巡检（每 15 分钟）也直接在远端跑这里的文件，同样是一漏就整轮失败。
 # 单测不进远端：那边没有跑测试的场景，留着只会让 /opt/xknot 越来越像仓库。
 rsync_to "$HUB/ops/" "$API_ROOT/ops/" 1

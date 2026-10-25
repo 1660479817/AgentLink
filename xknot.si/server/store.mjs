@@ -14,9 +14,9 @@ const SCHEMA = `
 create table if not exists applications (
   id           text primary key,
   name         text not null,
-  -- 接入模式。现在只有 subdomain 一种；列留着是为了读得懂 2.0 之前的老单。
+  -- 接入模式，只有 subdomain 一种。
   mode         text,
-  -- 2.0 之前的自有域名，保留给老单；新单一律为 NULL。
+  -- 自有域名，恒为 NULL。
   domain       text,
   -- 中枢签发的子域标签，签发后就是实例 id。
   subdomain    text,
@@ -197,7 +197,7 @@ create table if not exists settings (
 `;
 
 // 依赖迁移补出来的列的索引，必须在 migrate() 之后建：
-// 老库先跑这一段会报 no such column: case_key，库就打不开了。
+// 先跑这一段会报 no such column: case_key，库就打不开了。
 const INDEXES = `
 create index if not exists applications_case on applications(case_key);
 `;
@@ -233,7 +233,7 @@ const APPLICATION_PATCH_COLUMNS = {
   reviewedBy: "reviewed_by",
 };
 
-// 老库是 create table if not exists 建出来的，新列不会自己长出来。
+// 表是 create table if not exists 建出来的，后来加的列不会自己长出来。
 // 这里只做加法：加列、补索引，不动已有数据。
 const APPLICATION_COLUMNS = [
   ["mode", "text"],
@@ -250,21 +250,21 @@ const APPLICATION_COLUMNS = [
 
 // 版本化迁移：每一步带一个 version 与 up()，openStore 只执行 user_version 之后的步骤，
 // 每步一个事务，跑完把 user_version 记成这一版的版本号。加新迁移就往数组尾部 push，
-// 不要改动已经发布的旧步骤——老库已经在它们上面记了版本号，改旧步骤等于让历史分叉。
+// 不要改动已经发布的步骤：库已经在它们上面记了版本号，改旧步骤等于让分叉。
 const MIGRATIONS = [
   {
     version: 1,
-    name: "backfill legacy applications",
+    name: "backfill applications missing case keys",
     up(db) {
-      // 老申请没有案例键，补一个；否则案例页与补信都没有入口。
+      // 没有案例键的行补一个；否则案例页与补信都没有入口。
       const missing = db
         .prepare("select id from applications where case_key is null or case_key = ''")
         .all();
       const fill = db.prepare("update applications set case_key = ? where id = ?");
       for (const row of missing) fill.run(randomBytes(9).toString("base64url"), row.id);
-      // state_version 在旧行上是 NULL 时也给个 0，幂等键才稳定。
+      // state_version 是 NULL 时也给个 0，幂等键才稳定。
       db.exec("update applications set state_version = 0 where state_version is null");
-      // 旧库只有 url 与 subdomain 的区分：有标签就是签发子域，否则留空由读时推断。
+      // 补 mode：有标签就是签发子域，否则留空由读时推断。
       db.exec(`
         update applications
            set mode = 'subdomain'
@@ -272,8 +272,8 @@ const MIGRATIONS = [
            and subdomain is not null
            and subdomain <> ''
       `);
-      // 自动通过之前留在队列里的申请一起结到 approved：等待过的人不该再等下去。
-      // 老库可能没有 reviewed_at / reviewed_by，先确认列存在再写。
+      // 留在队列里的申请一起结到 approved：等待过的人不该再等下去。
+      // 可能没有 reviewed_at / reviewed_by，先确认列存在再写。
       const columns = new Set(db.prepare("pragma table_info(applications)").all().map((row) => row.name));
       if (columns.has("reviewed_at") && columns.has("reviewed_by")) {
         db.prepare(
@@ -292,7 +292,7 @@ const MIGRATIONS = [
     version: 2,
     name: "drop unused verify_tokens",
     up(db) {
-      // 2.0 之前归属验证流程留下的表，代码里已无任何引用。迁移只加不删的话，
+      // 归属验证流程留下的表，代码里已无任何引用。迁移只加不删的话，
       // 这类死表会一直堆在库里，让结构偏离代码全貌。表里只有令牌哈希与申请单 id，
       // 没有要保留的数据；显式 drop，让库结构回到代码定义的那一份。
       db.exec("drop table if exists verify_tokens");
@@ -300,8 +300,8 @@ const MIGRATIONS = [
   },
 ];
 
-// 幂等的结构性修补：加列。新老库都要跑，不进迁移版本门控——
-// 老库是 create table if not exists 建出来的，新列不会自己长出来。
+// 幂等的结构性修补：加列。不进迁移版本门控——
+// 表是 create table if not exists 建出来的，后来加的列不会自己长出来。
 function ensureColumns(db) {
   const existing = new Set(db.prepare("pragma table_info(applications)").all().map((row) => row.name));
   for (const [name, type] of APPLICATION_COLUMNS) {
@@ -404,7 +404,7 @@ function ensureUniqueIndexes(db) {
   try {
     db.exec(UNIQUE_INDEXES);
   } catch (error) {
-    // 建约束之前的老库可能已经有两条同子域的 approved 单。不能为了建索引
+    // 建约束之前可能已经有两条同子域的 approved 单。不能为了建索引
     // 让库打不开：留一条日志，等运营把重复的那张撤回，下次启动再建。
     console.error("applications_subdomain_open 未建立:", error.message);
   }
@@ -443,8 +443,7 @@ export function openStore(file) {
 
   function rowToApplication(row) {
     if (!row) return null;
-    // 新单一定有标签，地址由标签重算，和签发时写下的 url 是同一个。
-    // 2.0 之前的老单没有标签，直接用它自己存的 url，只为还能打开案例页。
+    // 有标签时地址由标签重算；没有标签的行直接用它自己存的 url，只为还能打开案例页。
     const subdomain = row.subdomain || null;
     return {
       id: row.id,
@@ -504,29 +503,18 @@ export function openStore(file) {
       return rowToApplication(get("select * from applications where case_key = ?", key));
     },
 
-    // 任意状态的申请都算。补记历史实例时用它判断「这张单是不是已经有了」，
-    // 已结案的也要算：再补一张会让同一个站点有两份申请。
-    findByUrl(url) {
-      const target = String(url || "").trim().replace(/\/+$/, "");
-      if (!target) return null;
-      return rowToApplication(
-        get("select * from applications where url = ? or url = ? order by created_at desc limit 1", target, `${target}/`)
-      );
-    },
-
     createApplication(input) {
       const createdAt = nowIso();
       const reviewedAt = String(input.reviewedAt || createdAt);
       const reviewedBy = String(input.reviewedBy || "auto");
       const caseKey = randomBytes(9).toString("base64url");
-      // 新单一律是签发子域；domain 只为老单留着，写 NULL。
+      // 只签发子域；domain 恒为 NULL。
       const mode = "subdomain";
       const subdomain = String(input.subdomain || "").trim() || null;
       const domain = null;
       const url = subdomain ? subdomainUrl(subdomain) : String(input.url || "").trim();
 
-      // 编号是 6 位 34 进制（约 1.5×10⁹），老库到万条量级就有几个百分点的撞号概率。
-      // 撞上是主键冲突，不该变成 500：换一个号再试一次即可。
+      // 编号有撞号概率；撞上是主键冲突，不该变成 500：换一个号再试一次即可。
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const id = newApplicationId(new Date(createdAt));
         // 提交即通过：不排队、不等人点。reviewed_by 记 auto，谁都没审过也说得清。
@@ -1297,7 +1285,7 @@ export function openStore(file) {
     // ---- 成员入口 ----
     //
     // 只认已通过的申请：那是这个站点对外的正式联系地址。
-    // 一个邮箱可能对应多条历史申请，按时间倒序全部返回，由接口层挑在册的那条。
+    // 一个邮箱可能对应多条申请，按时间倒序全部返回，由接口层挑在册的那条。
     memberApplications(email) {
       const address = String(email || "").trim().toLowerCase();
       if (!address) return [];

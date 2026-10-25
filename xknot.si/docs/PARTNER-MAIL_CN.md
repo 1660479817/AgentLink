@@ -1,6 +1,6 @@
 # XKnot 联邦 · 伙伴邮件模板
 
-版本 2.1，2026-10-23。
+版本 2.1。
 
 本文是 `xknot.si → 伙伴` 邮件的规格说明：事件、触发条件、收件人、三语全文、变量、幂等键与链接规范。运行时的真源是 `server/notify.mjs`，两边必须一致；改文案时先改本文，再改代码、升 `TEMPLATE_VERSION`，跑 `npm test`。
 
@@ -10,7 +10,7 @@
 
 ## 0. 现状与范围
 
-从 2026-10-20 起，这条链路已经全部落到代码：
+这条链路已经全部落到代码：
 
 | 位置 | 作用 |
 |------|------|
@@ -20,8 +20,6 @@
 | `server/pages.mjs` | `/case/`、`/claim/` 两个无脚本页面 |
 | `server/admin-cli.mjs` | `notify` / `handoff` / `live` / `contact-revalidate` / `suspend` / `retire` / `notify-log` |
 | `server/notify.test.mjs` | 每事件 × 3 语种，断言编号在内、内部备注不在、无占位符、无凭据明文 |
-
-`newApplicationMail` 保留为薄包装，只为兼容旧调用点。
 
 一条邮件的走向：
 
@@ -800,15 +798,3 @@ This message was sent automatically; replies are not monitored.
 | `ops/xknot.si.conf` | `/case/`、`/claim/`、`/api/claim`、`/api/case/` 关闭 `access_log` |
 
 改文案的流程：先改本文，再改 `server/notify.mjs`，升 `TEMPLATE_VERSION`，跑 `npm test`。测试断言关键要素（编号、语种、闭合句、档位），不逐字比对全文，避免标点改动就红。
-
----
-
-## 8. 变更记录
-
-| 日期 | 版本 | 变更 |
-|------|------|------|
-| 2026-10-20 | 1.0 | 首版：11 封伙伴信 + 3 封内部信；`Reply-To` 定为 `no-reply@xknot.si`；补材料与拒绝改为条目码 |
-| 2026-10-20 | 1.1 | 落地：模板注册表、`notify_log` 去重、验证/案例/领取三页、状态机、管理命令与测试；限流调整为 12/30/200；案例链接改为不透明 `caseKey` |
-| 2026-10-20 | 1.2 | 申请改为只按子域走；新增 `partner.unreachable_24h` 与 `partner.hidden_7d`（13 封伙伴信 + 3 封内部信）；去掉归属验证条目码与文案；内部告警增加 `down_7d` / `never_14d` / `never_30d` |
-| 2026-10-21 | 2.0 | 提交即通过：删掉 `partner.received` / `partner.verified` / `partner.hold` / `partner.rejected` / `internal.application_verified`；`partner.approved` 改为提交时唯一的结果信；档位改为 `free` / `paid`；模板版本 2.0.0 |
-| 2026-10-23 | 2.1 | 委托发信改为默认开通：`partner.approved` 与 `partner.handoff` 不再把发信凭据写成「另行确认」；模板版本 2.1.0 |

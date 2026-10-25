@@ -6,8 +6,8 @@
 import { groupsOf, REGION_GROUPS } from "./regions.js";
 import { timezoneOf } from "./timezones.js";
 
-// 清单里的档位：示例 > 收费 > 免费。partner / community 是旧词，读到也按新档位排。
-const TIER_ORDER = { demo: 0, paid: 1, partner: 1, free: 2, community: 2 };
+// 清单里的档位：示例 > 收费 > 免费。
+const TIER_ORDER = { demo: 0, paid: 1, free: 2 };
 
 function tierRank(tier) {
   return TIER_ORDER[tier] ?? 99;

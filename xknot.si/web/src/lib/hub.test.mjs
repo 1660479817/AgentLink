@@ -22,7 +22,7 @@ function instance(overrides = {}) {
     contact: "mei@example.test",
     tags: ["旅行", "东南亚"],
     url: "https://travel.xknot.si",
-    tier: "partner",
+    tier: "free",
     status: "active",
     since: "2026-05-01",
     timezone: "Asia/Singapore",
@@ -69,10 +69,10 @@ test("a probe without a latency stays null", () => {
 
 test("order is tier, then since, then id", () => {
   const list = [
-    instance({ id: "b", tier: "community", since: "2026-01-01" }),
-    instance({ id: "a", tier: "partner", since: "2026-02-01" }),
+    instance({ id: "b", tier: "free", since: "2026-01-01" }),
+    instance({ id: "a", tier: "paid", since: "2026-02-01" }),
     instance({ id: "core", tier: "demo", since: "2026-10-19" }),
-    instance({ id: "c", tier: "partner", since: "2026-01-01" }),
+    instance({ id: "c", tier: "paid", since: "2026-01-01" }),
   ];
   assert.deepEqual(
     sortInstances(list).map((item) => item.id),

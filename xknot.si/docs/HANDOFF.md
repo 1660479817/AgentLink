@@ -1,6 +1,6 @@
 # XKnot Federation · Listing Handoff Sheet
 
-Version 3.2, 2026-10-21.
+Version 3.2.
 
 [JOIN.md](JOIN.md) explains policy: how to apply and how to connect after issuance. This document answers a single question — **from application approval to instance connection, what each side does and where they meet**.
 
@@ -341,22 +341,7 @@ The `partner.issuance` mail is used only when the public key is late (its body a
 
 ---
 
-## 11. Change log
-
-| Date | Version | Change |
-|------|------|------|
-| 2026-10-19 | 1.0 | first version: two-phase handoff, checklist |
-| 2026-10-20 | 1.1 | added the handoff diagram `handoff-flow.svg`; phase table adds runtime status; terms unified per NAMING; added the "tunnel-only mode" note and the `nologin` blocker; added definition of done |
-| 2026-10-20 | 1.2 | split access material from deployment: new `admin-cli access` generates the env-format access material, the partner side writes it into instance config; the access material contains no site topology |
-| 2026-10-20 | 1.3 | access material fixed as contract (keys and semantics in FEDERATION.md 7.4): send address derived from the hub address, no longer shipped; `/api/health` may carry `instance` for the hub to verify identity |
-| 2026-10-20 | 2.0 | converged to two access modes `own-domain` and `subdomain`; roster becomes `mode` + `tunnel`; manifest drops `canonical` / `redirect` / `healthUrl`, probe gate becomes `status === "active"` |
-| 2026-10-20 | 3.0 | flow becomes "public key at application → hub one-pass pre-staging → exchange point A → parallel finish": all ten config items that need no partner presence moved earlier; public key requested at application instead of after review; `partner.issuance` demoted to the late-key catch-up mail, the normal flow sends only one `partner.handoff` |
-| 2026-10-21 | 3.1 | retired `own-domain`: access only has issued subdomains, manifest `url` must be `https://<label>.xknot.si`, roster `tunnel` required; deleted section 6.6 and mode selection |
-| 2026-10-22 | 3.2 | deleted the zjj sample: that instance never connected, delisted as an early experiment, its listing and entry files cleared together |
-
----
-
-## 12. Related files
+## 11. Related files
 
 | Path | Use |
 |------|------|

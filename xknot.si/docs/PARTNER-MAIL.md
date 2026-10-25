@@ -1,6 +1,6 @@
 # XKnot Federation · Partner Mail Templates
 
-Version 2.1, 2026-10-23.
+Version 2.1.
 
 This document is the specification of `xknot.si → partner` mail: events, trigger conditions, recipients, trilingual full text, variables, idempotency keys, and link rules. The runtime source of truth is `server/notify.mjs`; the two must stay in sync. When changing text, change this document first, then the code, bump `TEMPLATE_VERSION`, and run `npm test`.
 
@@ -10,7 +10,7 @@ Contract in [FEDERATION.md](FEDERATION.md), join flow in [JOIN.md](JOIN.md), han
 
 ## 0. Current state and scope
 
-Since 2026-10-20 this chain is fully in code:
+This chain is fully in code:
 
 | Location | Role |
 |------|------|
@@ -20,8 +20,6 @@ Since 2026-10-20 this chain is fully in code:
 | `server/pages.mjs` | the `/case/`, `/claim/` two script-free pages |
 | `server/admin-cli.mjs` | `notify` / `handoff` / `live` / `contact-revalidate` / `suspend` / `retire` / `notify-log` |
 | `server/notify.test.mjs` | every event × 3 locales, asserting the id is included, internal notes are not sent out, no placeholder left, no credential plaintext |
-
-`newApplicationMail` is kept as a thin wrapper, only for compatibility with old call sites.
 
 The path of one mail:
 
@@ -800,15 +798,3 @@ Internal mail goes to the operator and does not enter the partner chain. It is t
 | `ops/xknot.si.conf` | `/case/`, `/claim/`, `/api/claim`, `/api/case/` disable `access_log` |
 
 The text-change flow: change this document first, then `server/notify.mjs`, bump `TEMPLATE_VERSION`, run `npm test`. Tests assert key elements (id, locale, closing sentence, tier), not verbatim full-text comparison, to avoid punctuation changes turning red.
-
----
-
-## 8. Change log
-
-| Date | Version | Change |
-|------|------|------|
-| 2026-10-20 | 1.0 | first version: 11 partner mails + 3 internal mails; `Reply-To` fixed to `no-reply@xknot.si`; material-request and rejection become entry codes |
-| 2026-10-20 | 1.1 | landed: template registry, `notify_log` dedup, verify/case/claim three pages, state machine, admin commands and tests; rate limiting adjusted to 12/30/200; case link becomes the opaque `caseKey` |
-| 2026-10-20 | 1.2 | application only by subdomain; added `partner.unreachable_24h` and `partner.hidden_7d` (13 partner mails + 3 internal mails); removed the ownership-verification entry codes and text; internal alerts add `down_7d` / `never_14d` / `never_30d` |
-| 2026-10-21 | 2.0 | submission is approval: removed `partner.received` / `partner.verified` / `partner.hold` / `partner.rejected` / `internal.application_verified`; `partner.approved` becomes the only result mail at submission; tiers become `free` / `paid`; template version 2.0.0 |
-| 2026-10-23 | 2.1 | relay becomes default-on: `partner.approved` and `partner.handoff` no longer write the relay credential as "confirmed separately"; template version 2.1.0 |

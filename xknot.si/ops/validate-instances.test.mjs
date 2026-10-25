@@ -57,7 +57,7 @@ test("urls must be https", () => {
 test("the listed url must be a hub-issued subdomain", () => {
   assert.ok(validateInstance(base({ url: "https://knot.example.com" })).includes("url: must be https://<label>.xknot.si"));
   assert.ok(validateInstance(base({ url: "https://a.b.xknot.si" })).includes("url: must be https://<label>.xknot.si"));
-  // 早期签发的短号照样通过；长度与保留名只在签发时判。
+  // 短号照样通过；长度与保留名只在签发时判。
   assert.deepEqual(validateInstance(base({ id: "wang", url: "https://wang.xknot.si" })), []);
 });
 

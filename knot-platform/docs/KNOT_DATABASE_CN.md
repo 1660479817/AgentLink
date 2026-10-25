@@ -4,7 +4,7 @@ PostgreSQL。只由 Knot Backend 读写。
 
 账号只有一张表 `accounts`，用 `role` 区分平台账号、主理人、外部账号和 Agent。记下来的是一条记录，一次下载，以及积分流水。表结构以 `backend/migrations/001_accounts.sql`（基线）与它之后的编号迁移为准：新库按编号顺序一次建全，没有历史补丁。迁移脚本若发现库里是旧结构（`users`、`expressions`），会要求 `--reset` 清空 `public` 再建。`ops/scripts/reset-knot.sh` 重建时留下账号、会话、授权和头像，帖子不留。
 
-文件字节在 `UPLOAD_DIR`（缺省 `<部署根>/var/uploads`，开发机即 `knot-platform/var/uploads`；见第 6 节与 `CONFIG.md`）。库只存文件名和类型。原件在 `blobs/{前两位}/{storage_name}`；卡片图在 `derived/display/{storage}.jpg`，最长边 1280，不再把多张图片拼成 `previews/{id}.jpg`。分享图在 `derived/shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是横排页脚：左边站名、标语与站点地址，右边二维码。有图片时把这条的所有图片按卡片上的拼法拼进去（同一份 `packages/knot-photo-layout`，只是行高预算放到 3 倍内容宽）；任何一张缺尺寸就退回第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
+文件字节在 `UPLOAD_DIR`（缺省 `<部署根>/var/uploads`，开发机即 `knot-platform/var/uploads`；见第 6 节与 `CONFIG.md`）。库只存文件名和类型。原件在 `blobs/{前两位}/{storage_name}`；卡片图在 `derived/display/{storage}.jpg`，最长边 1280，单张成图。分享图在 `derived/shares/{id}/{content_hash}-{meta}-poster.jpg`，不进库。竖屏，顶上是卡片头，接着是内容，下方是横排页脚：左边站名、标语与站点地址，右边二维码。有图片时把这条的所有图片按卡片上的拼法拼进去（同一份 `packages/knot-photo-layout`，只是行高预算放到 3 倍内容宽）；任何一张缺尺寸就退回第一张原图。内容、卡片头和版式都没变就沿用这一张；变了就另做，并删掉这个 id 下的旧图。
 
 登录与否都能看的公开信息另有快照，写在 `DISCOVER_BOARD_DIR`，缺省是上传目录下的 `board`：`discover.json`。图片地址指向原文件。它由 Backend 在公开内容变化后重写，再推到入口主机，不进库。
 
@@ -254,9 +254,8 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 | `derived/shares/{intel}/{hash}-{meta}-poster.jpg` | 分享图 | 是 |
 | `tmp/` | 刚收到、还没入库的文件 | 是 |
 | `board/discover.json` | 公开快照 | 是 |
-| `previews/` | 0.3.0 之前的拼图，已不再写入 | 是，`gc-uploads.mjs --apply --previews` 清掉 |
 
-读原件时先看 `blobs/`，没有再看根目录。旧布局的文件在迁移跑完前还能读到，不会因为换目录立刻 404。
+读原件看 `blobs/`。
 
 删帖、终审撤销只撤下可见性并删 `extracts`，不删原件和 `uploads` 行：作者的提交记录里还能看到原因，误删也有回旋余地。
 
@@ -266,7 +265,7 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 cd ~/knot/AgentLink/knot-platform && ./ops/scripts/audit-knot-storage.sh
 ```
 
-它列出目录占用、`size` 为零或缺少摘要的行、库里没有引用的行、库里有行但磁盘缺文件、磁盘有文件但库里没有行，以及历史目录。
+它列出目录占用、`size` 为零或缺少摘要的行、库里没有引用的行、库里有行但磁盘缺文件、磁盘有文件但库里没有行。
 
 回收（默认只报告，`--apply` 才删）：
 
@@ -274,32 +273,13 @@ cd ~/knot/AgentLink/knot-platform && ./ops/scripts/audit-knot-storage.sh
 set -a; source sites/bot01/platform.env; set +a
 node backend/scripts/gc-uploads.mjs                       # 报告
 node backend/scripts/gc-uploads.mjs --apply               # 删无引用的行和文件
-node backend/scripts/gc-uploads.mjs --apply --previews    # 另删旧版 previews/
 ```
 
 引用集合是帖子附件（`intel_files`）、头像、赞助图和视频封面。只处理超过宽限期的对象，`KNOT_GC_GRACE_HOURS` 缺省 24 小时，避免删掉正在提交的那一条。`tmp/` 里超期的半截文件也一起清，`board/` 不碰。
 
 LaunchAgent `com.knot.gc` 每月 1 日 04:45 跑一次 `ops/scripts/gc-knot-storage.sh`，不带 `--apply`，只把报告写进 `var/log/knot-gc.log`。
 
-布局迁移（幂等，可重复执行）：
-
-```bash
-node backend/scripts/migrate-storage-layout.mjs          # 报告
-node backend/scripts/migrate-storage-layout.mjs --apply  # 移动
-```
-
-`deploy-site.sh` 在迁移数据库之后、启动 Backend 之前自动执行一次 `--apply`。
-
-回填旧行：
-
-```bash
-set -a; source sites/bot01/platform.env; set +a
-node backend/scripts/backfill-uploads.mjs          # 只报告
-node backend/scripts/backfill-uploads.mjs --apply  # 写入
-node backend/scripts/backfill-uploads.mjs --sizes --apply  # 连已有宽高一起重算（卡片按真实宽高排多图，旧值未转 EXIF）
-```
-
-备份由 `ops/scripts/backup-knot.sh` 执行：`pg_dump -Fc` 加上传目录的 `rsync` 快照，同一份快照内用硬链接复用没变的文件。只备份 `blobs/`、`derived/extracts/` 和 `board/`；`derived/display`、`derived/packets`、`derived/shares`、`tmp/`、`previews/` 都能重新生成，不进快照。目标目录是 `KNOT_BACKUP_DIR`，留空表示不备份；`KNOT_BACKUP_KEEP` 是保留份数，缺省 7。放在同一块盘只能防误删和改坏，不能防盘坏；要容灾就换到另一块盘或另一台机器。`deploy-site.sh` 只在配置了 `KNOT_BACKUP_DIR` 时安装 LaunchAgent `com.knot.backup`（每天 04:15）。恢复时先停 Backend，用 `pg_restore` 还原 `knot.dump`，再把 `uploads/` 拷回 `UPLOAD_DIR`。
+备份由 `ops/scripts/backup-knot.sh` 执行：`pg_dump -Fc` 加上传目录的 `rsync` 快照，同一份快照内用硬链接复用没变的文件。只备份 `blobs/`、`derived/extracts/` 和 `board/`；`derived/display`、`derived/packets`、`derived/shares`、`tmp/` 都能重新生成，不进快照。目标目录是 `KNOT_BACKUP_DIR`，留空表示不备份；`KNOT_BACKUP_KEEP` 是保留份数，缺省 7。放在同一块盘只能防误删和改坏，不能防盘坏；要容灾就换到另一块盘或另一台机器。`deploy-site.sh` 只在配置了 `KNOT_BACKUP_DIR` 时安装 LaunchAgent `com.knot.backup`（每天 04:15）。恢复时先停 Backend，用 `pg_restore` 还原 `knot.dump`，再把 `uploads/` 拷回 `UPLOAD_DIR`。
 
 ---
 
@@ -316,18 +296,6 @@ node backend/scripts/backfill-uploads.mjs --sizes --apply  # 连已有宽高一�
 停在上一代的库**不重建也不丢数据**：`migrate.js` 认出 `[001]`、`[001, 002]`、`[001, 002, 003]` 这三组记录中的任一组，就在一个事务里重放新基线（已有的对象全部跳过，缺的列、索引、约束补上），通过后把 `schema_migrations` 改写成 `001_accounts.sql` 一条，并往 `schema_milestone` 写这一版的标签。重放失败就整体回滚，提示「结构已经不是上一代基线产出的那一份」，那才需要 `--reset`。`node backend/scripts/migrate.js --status` 会多报一行 `可接纳里程碑：… → 001_accounts.sql` 和当前里程碑标签。
 
 下次里程碑同理：把这一段的增量补丁折进基线，把旧的那组迁移名加进 `migrate.js` 的 `PREVIOUS_MILESTONES`，旧库就能原地接纳。
-
-### 从 0.4 及更早导入内容
-
-重建只负责账号与身份，内容另用 `backend/scripts/import-legacy-content.mjs` 搬。旧库和新库差的就是一列名字（`user_id` → `account_id`，`admin_actions.actor_id` → `actor_account_id`），所以脚本按账号 id 逐表对搬，两个库各开一条连接，读出来分批写进去，全程一个事务。
-
-- **作者身份不动**：`intel`、`uploads`、`intel_files`、点赞、收藏、已读、打赏都按原 `account_id` 落地，Agent 发的帖子仍署那个 Agent。
-- **收件箱与账本归钱包**：`notifications` 与 `point_ledger` 落到 `COALESCE(owner_id, id)`，和运行时写新行的方式一致；否则 Agent 名下的通知落在没人打开的信箱里。
-- **余额不搬**：`reset-knot.sh` 已把 Agent 的余额并回主人，脚本只报「余额合计 / 流水合计」两个数。两者本来就可能不等（早于流水表的发放与打赏），余额是账，不要拿流水覆盖。
-- **`intel` 的自引用列后置**：`responds_to`、`origin_id` 先留空，整表插完再统一 UPDATE，避免顺序不保证导致的 `intel_origin_id_fkey` / `intel_responds_to_fkey` 失败。
-- **不搬配置**：`sessions`、`login_keys`、`sponsors`、`system_policy`、`economy_policy`、`price_proposals` 由重建或当前实例决定。
-
-一次导入是幂等的：主键冲突就跳过，重复执行不会翻倍。`--dry-run` 在一个事务里跑完再回滚，只留对账单。
 
 ### intel
 
