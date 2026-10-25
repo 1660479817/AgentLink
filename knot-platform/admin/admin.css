@@ -379,6 +379,19 @@ code {
   white-space: nowrap;
 }
 
+/* 外网访问的结论徽标：只有「已上线」和「需处理」两种状态值得上色。 */
+.card-tag.is-ok {
+  border-color: #bbf7d0;
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.card-tag.is-error {
+  border-color: #fecaca;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .fold > summary {
   display: flex;
   align-items: baseline;

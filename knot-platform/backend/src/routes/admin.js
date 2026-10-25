@@ -27,6 +27,7 @@ import {
   writeAction,
 } from "../admin.js";
 import { parseLocale } from "@knot/locale";
+import { accessState } from "../access.js";
 import { createSponsor, listSponsors, placeSponsor, removeSponsor, storeSponsorImage, updateSponsor } from "../sponsors.js";
 import { federationStatus } from "../federation.js";
 import { joinStatePath, readJoinState, saveJoinState } from "../joinState.js";
@@ -36,17 +37,20 @@ import {
   ensureTunnelKey,
   fetchProgress,
   handoffValid,
+  managedBlockPresent,
   renderManagedBlock,
   scheduleTunnelRestart,
   submitPublicKey,
   tunnelEnvPath,
   tunnelKeyPath,
+  tunnelKeyPresent,
   tunnelUnitInstalled,
 } from "../tunnel.js";
 import {
   backendUnit,
   issuedValid,
   joinEnvPath,
+  joinEnvPresent,
   joinValues,
   readRelayValues,
   scheduleRestart,
@@ -324,73 +328,156 @@ export function adminRouter({
     }
   });
 
-  router.get("/xknot/progress", async (_req, res) => {
-    try {
-      const state = await readJoinState(joinStatePath(profile?.file));
-      if (!state?.application?.caseUrl) {
-        return res.json({ application: null, run: null, handoff: null });
-      }
-      // 只向配置的中枢读进度：join.json 里的 caseUrl 可能是被改过的（S12-02）。
-      const hubOrigin = hubOriginOf({ status: federationStatus({ agentEnvDir, publicWebOrigin }) });
-      const result = await fetchProgress({ caseUrl: state.application.caseUrl, hubOrigin });
-      if (result.error) {
-        return res.status(502).json({ error: result.error, application: state.application });
-      }
+  // ---- 外网访问总览（联邦这一半） ----
 
-      const local = {
-        tunnelEnv: profile?.file ? tunnelEnvPath(path.dirname(profile.file)) : null,
-        keyFile: profile?.file ? tunnelKeyPath(path.dirname(profile.file)) : null,
-        changed: false,
-        restart: null,
-        error: null,
-      };
+  // 读一次中枢进度，顺手把这一侧能自动做的部分做掉，再压成一份可判定的状态。
+  //
+  // 只写一处的原因：面板、轮询、「重试」按钮必须看到同一个判定。分成三套逻辑，
+  // 「卡片说没接通、按钮却不给」这种自相矛盾迟早会出现。
+  //
+  // deliverKey 只在人点了「重试」时为真。轮询每几秒一次，每次都去推一遍公钥
+  // 只会白白抬高中枢那边的状态版本；而补交公钥恰恰是失败后最常缺的那一步。
+  async function syncAccess({ deliverKey = false } = {}) {
+    const siteDir = profile?.file ? path.dirname(profile.file) : null;
+    const state = await readJoinState(joinStatePath(profile?.file));
+    const application = state?.application || null;
+    const status = federationStatus({ agentEnvDir, publicWebOrigin });
+    const hubOrigin = hubOriginOf({ status });
 
-      // 中枢把账号、端口、入口主机给出来之后，不必等人再点一次：
-      // 这一步是幂等的，写进去的内容一样时 changed 为 false，不会反复重启隧道。
-      const handoff = result.data?.handoff;
-      if (handoffValid(handoff) && local.tunnelEnv) {
-        const block = renderManagedBlock({
-          account: handoff.account,
-          host: handoff.host,
-          port: Number(handoff.port),
-          localPort,
+    const local = {
+      tunnelEnv: siteDir ? tunnelEnvPath(siteDir) : null,
+      keyFile: siteDir ? tunnelKeyPath(siteDir) : null,
+      joinEnv: siteDir ? joinEnvPath(siteDir) : null,
+      tunnelConfigured: false,
+      joinWritten: false,
+      changed: false,
+      joined: false,
+      restart: null,
+      error: null,
+      joinError: null,
+    };
+
+    let progress = null;
+    let progressError = "";
+    let progressStatus = 0;
+    let key = null;
+
+    if (application?.caseUrl && siteDir) {
+      if (deliverKey) {
+        const delivered = await deliverPublicKey({ profile, application, hubOrigin }).catch((error) => {
+          console.error("tunnel key:", error.message);
+          return { error: "keygen_failed" };
         });
-        const applied = await applyManagedBlock({ file: local.tunnelEnv, block });
-        if (applied.error) local.error = applied.error;
-        else {
-          local.changed = applied.changed;
-          if (applied.changed) {
-            // 这一页很可能就是经隧道打开的：在这里重启等于把回包一起掐掉。
-            scheduleTunnelRestart();
-            const installed = await tunnelUnitInstalled();
-            local.restart = { ok: installed, deferred: true, command: TUNNEL_MANUAL_COMMAND };
+        key = keyStatus(delivered);
+      }
+
+      // 只向配置的中枢读进度：join.json 里的 caseUrl 可能是被改过的（S12-02）。
+      const result = await fetchProgress({ caseUrl: application.caseUrl, hubOrigin });
+      if (result.error) {
+        // 读不到进度不是「没申请」：把失败码交回面板，让它给出「重试」而不是「申请」。
+        progressError = result.error;
+        progressStatus = Number(result.status) || 0;
+      } else {
+        progress = result.data;
+
+        // 中枢把账号、端口、入口主机给出来之后，不必等人再点一次：
+        // 这一步是幂等的，写进去的内容一样时 changed 为 false，不会反复重启隧道。
+        const handoff = progress?.handoff;
+        if (handoffValid(handoff) && local.tunnelEnv) {
+          if (!tunnelKeyPresent(siteDir)) {
+            // 私钥是申请时那把公钥的配对件：缺了或换了一把，写进去也只换来一条
+            // 永远连不上的隧道。报出来，让人点一次「重试」重新交公钥。
+            local.error = "tunnel_key_missing";
+          } else {
+            const block = renderManagedBlock({
+              account: handoff.account,
+              host: handoff.host,
+              port: Number(handoff.port),
+              localPort,
+            });
+            const applied = await applyManagedBlock({ file: local.tunnelEnv, block });
+            if (applied.error) local.error = applied.error;
+            else {
+              local.changed = applied.changed;
+              if (applied.changed) {
+                // 这一页很可能就是经隧道打开的：在这里重启等于把回包一起掐掉。
+                scheduleTunnelRestart();
+                const installed = await tunnelUnitInstalled();
+                local.restart = { ok: installed, deferred: true, command: TUNNEL_MANUAL_COMMAND };
+              }
+            }
+          }
+        }
+
+        // 验收通过之后，把接入件写到站点目录：/api/federation/profile 与门户上的档案
+        // 都靠它。写进去还要重启 Backend 才生效，所以只在内容真的变了时重启一次。
+        if (progress?.run?.state === "active" && issuedValid(progress.issued) && siteDir) {
+          // 接入件里的中枢地址用校验过的那个，不从 caseUrl 现算：它可能是被改过的数据。
+          // 自动接通不签发委托发信凭据：文件里已有的那两项原样带过去，别抹掉。
+          const relay = await readRelayValues(local.joinEnv);
+          const written = await writeJoinEnv({
+            file: local.joinEnv,
+            values: joinValues({ issued: progress.issued, hubOrigin, ...relay }),
+          });
+          if (written.error) local.joinError = written.detail || written.error;
+          else if (written.changed) {
+            local.joined = true;
+            // 进程里的值是启动时读的，接入件要生效必须重启。
+            // 但别在这里等它：重启会掐断这次响应，面板只会看到断线。
+            const unit = await backendUnit();
+            local.restart = { ok: unit.installed, command: unit.command, deferred: true };
+            if (unit.installed) scheduleRestart();
           }
         }
       }
+    }
 
-      // 验收通过之后，把接入件写到站点目录：/api/federation/profile 与门户上的档案
-      // 都靠它。写进去还要重启 Backend 才生效，所以只在内容真的变了时重启一次。
-      if (result.data?.run?.state === "active" && issuedValid(result.data.issued) && profile?.file) {
-        const siteDir = path.dirname(profile.file);
-        // 接入件里的中枢地址用校验过的那个，不从 caseUrl 现算：它可能是被改过的数据。
-        // 自动接通不签发委托发信凭据：文件里已有的那两项原样带过去，别抹掉。
-        const relay = await readRelayValues(joinEnvPath(siteDir));
-        const written = await writeJoinEnv({
-          file: joinEnvPath(siteDir),
-          values: joinValues({ issued: result.data.issued, hubOrigin, ...relay }),
-        });
-        if (written.error) local.joinError = written.detail || written.error;
-        else if (written.changed) {
-          local.joined = true;
-          // 进程里的值是启动时读的，接入件要生效必须重启。
-          // 但别在这里等它：重启会掐断这次响应，面板只会看到断线。
-          const unit = await backendUnit();
-          local.restart = { ok: unit.installed, command: unit.command, deferred: true };
-          if (unit.installed) scheduleRestart();
-        }
-      }
+    // 这两个不是「这一次写了什么」，是「现在盘上有什么」：刷新页面后也要对。
+    local.tunnelConfigured = await managedBlockPresent({ file: local.tunnelEnv });
+    local.joinWritten = await joinEnvPresent(local.joinEnv);
 
-      res.json({ ...result.data, local });
+    const access = accessState({
+      site: profile?.view()?.site || null,
+      issued: {
+        id: status.running.instanceId,
+        url: status.running.issuedUrl,
+        since: status.running.issuedAt,
+        tier: status.running.tier,
+        status: status.running.status,
+      },
+      application,
+      progress,
+      progressError,
+      progressStatus,
+      local,
+      hasSiteDir: Boolean(siteDir),
+    });
+
+    return {
+      application: progress?.application || null,
+      issued: progress?.issued || null,
+      run: progress?.run || null,
+      handoff: progress?.handoff || null,
+      key,
+      local,
+      access,
+    };
+  }
+
+  // 面板的读入口。会顺带应用中枢已经给出的参数（与原先的 /xknot/progress 同一件事），
+  // 所以它不只是「读」：接通本来就是两边各推进一段，没有纯读的版本。
+  router.post("/access/sync", async (req, res) => {
+    try {
+      res.json(await syncAccess({ deliverKey: req.body?.deliverKey === true }));
+    } catch (error) {
+      sendAdminError(res, error);
+    }
+  });
+
+  // 旧路径保留：轮询、脚本和别处的书签都还认它。
+  router.get("/xknot/progress", async (_req, res) => {
+    try {
+      res.json(await syncAccess());
     } catch (error) {
       sendAdminError(res, error);
     }

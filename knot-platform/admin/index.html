@@ -826,11 +826,67 @@
                 <h2 data-i18n="xknot.title"></h2>
                 <p class="muted" data-i18n="xknot.lead"></p>
               </div>
-              <button id="federation-refresh" class="button ghost" type="button">
-                <span class="icon" data-icon="refresh" aria-hidden="true"></span>
-                <span data-i18n="common.refresh"></span>
-              </button>
             </div>
+
+            <article id="access-card" class="card">
+              <div class="card-head">
+                <h3 data-i18n="xknot.access"></h3>
+                <span id="access-badge" class="card-tag"></span>
+              </div>
+              <p id="access-summary" class="muted small" data-i18n="xknot.reading"></p>
+              <dl id="access-facts" class="facts"></dl>
+              <p id="access-reason" class="muted small" hidden></p>
+              <div class="button-row">
+                <button id="access-primary" class="button primary" type="button" hidden></button>
+                <button id="access-refresh" class="button ghost" type="button" data-i18n="xknot.connectRefresh"></button>
+              </div>
+              <p id="access-note" class="muted small"></p>
+
+              <section id="access-apply-card" class="fold-block" hidden>
+                <h4 data-i18n="xknot.join"></h4>
+                <form id="access-apply" class="stack-form" novalidate>
+                  <p class="muted small" data-i18n="xknot.joinHint"></p>
+                  <p id="join-record" class="muted small" hidden></p>
+                  <div class="field">
+                    <span data-i18n="xknot.subdomain"></span>
+                    <div class="host-row">
+                      <input
+                        id="join-subdomain"
+                        type="text"
+                        maxlength="40"
+                        autocomplete="off"
+                        autocapitalize="none"
+                        spellcheck="false"
+                        placeholder="your-site"
+                      />
+                      <span class="host-suffix">.xknot.si</span>
+                      <button id="join-check" class="button ghost" type="button" data-i18n="xknot.check"></button>
+                    </div>
+                    <p id="join-subdomain-note" class="muted small"></p>
+                  </div>
+                  <label class="field">
+                    <span data-i18n="xknot.email"></span>
+                    <input
+                      id="join-email"
+                      type="email"
+                      maxlength="120"
+                      autocomplete="email"
+                      data-i18n-placeholder="xknot.emailPlaceholder"
+                    />
+                  </label>
+                  <p id="join-result" class="muted small"></p>
+                  <div class="button-row">
+                    <button id="join-submit" class="button primary" type="submit" disabled data-i18n="xknot.submit"></button>
+                  </div>
+                </form>
+              </section>
+
+              <section class="fold-block">
+                <h4 data-i18n="xknot.connect"></h4>
+                <p class="muted small" data-i18n="xknot.connectHint"></p>
+                <ol id="access-steps" class="steps"></ol>
+              </section>
+            </article>
 
             <article class="card">
               <div class="card-head">
@@ -849,63 +905,7 @@
               </form>
             </article>
 
-            <article id="join-card" class="card" hidden>
-              <div class="card-head">
-                <h3 data-i18n="xknot.join"></h3>
-                <span class="card-tag" data-i18n="xknot.joinTag"></span>
-              </div>
-              <p class="muted small" data-i18n="xknot.joinHint"></p>
-              <p id="join-record" class="muted small" hidden></p>
-              <form id="join-form" class="stack-form" novalidate>
-                <div class="field">
-                  <span data-i18n="xknot.subdomain"></span>
-                  <div class="host-row">
-                    <input
-                      id="join-subdomain"
-                      type="text"
-                      maxlength="40"
-                      autocomplete="off"
-                      autocapitalize="none"
-                      spellcheck="false"
-                      placeholder="your-site"
-                    />
-                    <span class="host-suffix">.xknot.si</span>
-                    <button id="join-check" class="button ghost" type="button" data-i18n="xknot.check"></button>
-                  </div>
-                  <p id="join-subdomain-note" class="muted small"></p>
-                </div>
-                <label class="field">
-                  <span data-i18n="xknot.email"></span>
-                  <input
-                    id="join-email"
-                    type="email"
-                    maxlength="120"
-                    autocomplete="email"
-                    data-i18n-placeholder="xknot.emailPlaceholder"
-                  />
-                </label>
-                <p id="join-result" class="muted small"></p>
-                <div class="button-row">
-                  <button id="join-submit" class="button primary" type="submit" disabled data-i18n="xknot.submit"></button>
-                </div>
-              </form>
-            </article>
-
-            <article id="connect-card" class="card" hidden>
-              <div class="card-head">
-                <h3 data-i18n="xknot.connect"></h3>
-                <span class="card-tag" data-i18n="xknot.connectTag"></span>
-              </div>
-              <p class="muted small" data-i18n="xknot.connectHint"></p>
-              <ol id="connect-steps" class="steps"></ol>
-              <p id="connect-note" class="muted small"></p>
-              <div class="button-row">
-                <button id="connect-refresh" class="button ghost" type="button" data-i18n="xknot.connectRefresh"></button>
-                <button id="connect-start" class="button primary" type="button" hidden data-i18n="xknot.connectStart"></button>
-              </div>
-            </article>
-
-            <article id="issued-card" class="card">
+            <article id="issued-card" class="card" hidden>
               <div class="card-head">
                 <h3 data-i18n="xknot.issued"></h3>
                 <span class="card-tag" data-i18n="xknot.issuedTag"></span>

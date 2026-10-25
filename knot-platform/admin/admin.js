@@ -52,8 +52,7 @@ const state = {
   editingSponsor: null,
   federation: null,
   profile: null,
-  joinApplication: null,
-  progress: null,
+  accessData: null,
   toastTimer: null,
 };
 
@@ -2198,7 +2197,7 @@ function mailLabel(mail) {
 
 function loadXknot() {
   void loadProfile();
-  void loadProgress();
+  void loadAccess();
   if (byId("fed-details")?.open) void loadFederation();
 }
 
@@ -2397,7 +2396,6 @@ async function loadProfile() {
     const data = await api("/profile");
     state.profile = data;
     renderProfile();
-    await loadJoinApplication();
   } catch (error) {
     if (handleAuth(error)) return;
     showBanner(humanError(error));
@@ -2409,7 +2407,7 @@ function renderProfile() {
   const data = state.profile;
   if (!data) return;
   renderIssued(data);
-  renderJoin(data);
+  renderApplyPrefill();
   fillProfileForm(data.site);
 
   const problems = Array.isArray(data.problems) ? data.problems : [];
@@ -2444,23 +2442,67 @@ function joinHint(min = 6) {
   setText("join-subdomain-note", t("xknot.subdomainNote", { min }));
 }
 
-// 已接入就把「提交」收起来，没接入就只显示提交那一张。
-// 自述区与提交是两条线：改了档案不会自动重交，避免每存一次就发一张单。
-// 已交的申请记在站点目录里：刷新、换浏览器之后仍能从卡片上打开案例页。
-async function loadJoinApplication() {
-  try {
-    const data = await api("/xknot/application");
-    state.joinApplication = data?.application || null;
-  } catch (error) {
-    if (handleAuth(error)) return;
-    state.joinApplication = null;
-  }
-  renderJoinRecord();
+/* 外网访问：一处给结论、一处给动作、一处给过程。
+ *
+ * 判定不在这一层做：接口回什么状态，就画哪个按钮。页面自己再推一遍「该给哪个
+ * 按钮」，迟早会和 Backend 的判定分叉——那时人点下去只会拿到一个失败。
+ */
+
+// 徽标只有四种，结论按六个状态各写一句。
+const ACCESS_BADGE_KEYS = {
+  not_joined: "accessBadgeNone",
+  submitted: "accessBadgeBusy",
+  provisioning: "accessBadgeBusy",
+  awaiting_tunnel: "accessBadgeBusy",
+  active: "accessBadgeUp",
+  failed: "accessBadgeDown",
+};
+
+const ACCESS_STATE_KEYS = {
+  not_joined: "accessNotJoined",
+  submitted: "accessSubmitted",
+  provisioning: "accessProvisioning",
+  awaiting_tunnel: "accessAwaitingTunnel",
+  active: "accessActive",
+  failed: "accessFailed",
+};
+
+// 按钮只有四个：申请与重新申请都展开下面那张表，区别只在文案。
+const ACCESS_ACTION_KEYS = {
+  apply: "accessActApply",
+  reapply: "accessActReapply",
+  retry: "accessActRetry",
+  connect: "accessActConnect",
+};
+
+const ACCESS_REASON_KEYS = {
+  profile_incomplete: "accessReasonProfile",
+  profile_unconfigured: "accessReasonNoDir",
+  application_closed: "accessReasonClosed",
+  hub_unreachable: "accessReasonHub",
+  case_url_invalid: "accessReasonCaseUrl",
+  run_failed: "accessReasonRun",
+  join_pending: "accessReasonRestart",
+};
+
+// 档案缺项用的是申请表里的字段名，界面上要换成档案字段的叫法。
+const MISSING_KEYS = {
+  name: "profile.name",
+  operator: "profile.owner",
+  email: "profile.contact",
+  intro: "profile.intro",
+};
+
+function missingLabels(fields) {
+  return (Array.isArray(fields) ? fields : [])
+    .map((field) => (MISSING_KEYS[field] ? t(MISSING_KEYS[field]) : field))
+    .join("、");
 }
 
-/* 自动接通：进度按步骤显示，卡住的那一步带原因。 */
-
-const CONNECT_STEPS = {
+// 步骤名：本地五步与中枢八步共用一个前缀，认不出来的退回原 id，不吞掉。
+const STEP_KEYS = {
+  profile: "stepProfile",
+  apply: "stepApply",
   allocate: "stepAllocate",
   publish: "stepPublish",
   account: "stepAccount",
@@ -2469,8 +2511,13 @@ const CONNECT_STEPS = {
   dns: "stepDns",
   vhost: "stepVhost",
   tls: "stepTls",
+  activate: "stepActivate",
+  tunnel: "stepTunnel",
+  probe: "stepProbe",
+  join: "stepJoin",
 };
 
+// 中枢的失败码 → 说明。认不出来的就把错误码原样写出来，别把它藏掉。
 const CONNECT_ERRORS = {
   dns_missing: "errorDns",
   tls_failed: "errorTls",
@@ -2484,134 +2531,201 @@ const CONNECT_ERRORS = {
   id_taken: "errorIdTaken",
   write_failed: "errorWrite",
   application_closed: "errorClosed",
+  tunnel_key_missing: "errorKey",
 };
 
-const PROGRESS_STATES = {
-  provisioning: "stateProvisioning",
-  awaiting_tunnel: "stateAwaitingTunnel",
-  active: "stateActive",
-  failed: "stateFailed",
-};
+// 轮询与手动点按可能同时到达：上一次没回来之前不再发第二次，省得排成一队。
+let accessBusy = false;
 
-async function loadProgress({ quiet = false } = {}) {
-  const card = byId("connect-card");
+async function loadAccess({ quiet = false, deliverKey = false } = {}) {
+  if (accessBusy) return;
+  accessBusy = true;
   try {
-    const data = await api("/xknot/progress");
-    state.progress = data;
-    renderProgress();
+    const data = await api("/access/sync", { method: "POST", body: { deliverKey } });
+    state.accessData = data;
+    renderAccess();
   } catch (error) {
     if (handleAuth(error)) return;
     // 轮询时不报错：写接入件之后 Backend 会自己重启一下，那几秒的断线不用吓人。
-    if (!quiet && card && !card.hidden) setAlert(byId("connect-note"), humanError(error), "error");
+    if (!quiet) setAlert(byId("access-note"), humanError(error), "error");
+  } finally {
+    accessBusy = false;
   }
 }
 
-function renderProgress() {
-  const card = byId("connect-card");
-  if (!card) return;
-  const data = state.progress;
-  const application = data?.application || null;
-  const start = byId("connect-start");
-  const note = byId("connect-note");
-  const list = byId("connect-steps");
+function renderAccess() {
+  const data = state.accessData;
+  const access = data?.access;
+  if (!access) return;
 
-  card.hidden = !application;
-  if (!application) {
-    if (start) start.hidden = true;
-    return;
+  const badge = byId("access-badge");
+  if (badge) {
+    badge.textContent = t(`xknot.${ACCESS_BADGE_KEYS[access.state] || "accessBadgeNone"}`);
+    badge.classList.toggle("is-ok", access.state === "active" && !access.reason);
+    badge.classList.toggle("is-error", access.state === "failed");
+  }
+  setText("access-summary", t(`xknot.${ACCESS_STATE_KEYS[access.state] || "accessNotJoined"}`));
+
+  // 要核对的三样：签发的地址、这张单的编号、入口账号与端口。
+  const facts = byId("access-facts");
+  if (facts) {
+    const rows = [];
+    if (access.issued?.url) rows.push(fact(t("xknot.url"), access.issued.url));
+    if (access.attempt?.id) rows.push(fact(t("xknot.application"), access.attempt.id));
+    const handoff = data.handoff;
+    if (handoff) rows.push(fact(t("xknot.entry"), `${handoff.account}@${handoff.host}:${handoff.port}`));
+    facts.replaceChildren(...rows);
+    facts.hidden = rows.length === 0;
   }
 
-  const run = data.run || null;
-  const steps = Array.isArray(run?.steps) ? run.steps : [];
-  if (!steps.length) {
-    list.replaceChildren(
-      el(
-        "li",
-        { class: "is-running" },
-        el("span", { class: "step-mark", text: "…" }),
-        el("span", { class: "step-name", text: t("xknot.waitingHub") }),
-        el("span", { class: "step-note", text: `id ${application.id}` })
-      )
-    );
-  } else {
-    list.replaceChildren(
-      ...steps.map((step) => {
-        const failed = step.state === "failed" || (step.state !== "done" && Boolean(step.error));
-        const done = step.state === "done";
-        const name = CONNECT_STEPS[step.id] ? t(`xknot.${CONNECT_STEPS[step.id]}`) : step.id;
-        const text = failed
-          ? CONNECT_ERRORS[step.error]
-            ? t(`xknot.${CONNECT_ERRORS[step.error]}`)
-            : step.error || t("xknot.stepFailed")
-          : step.note || (done ? t("xknot.stepDone") : t("xknot.stepTodo"));
-        return el(
-          "li",
-          { class: failed ? "is-failed" : done ? "is-done" : "is-running" },
-          el("span", { class: "step-mark", text: failed ? "!" : done ? "✓" : "…" }),
-          el("span", { class: "step-name", text: name }),
-          el("span", { class: "step-note", text })
-        );
-      })
-    );
+  renderAccessReason(access);
+  renderAccessSteps(access);
+
+  const primary = byId("access-primary");
+  if (primary) {
+    const actionKey = ACCESS_ACTION_KEYS[access.action];
+    primary.hidden = !actionKey;
+    primary.disabled = false;
+    primary.dataset.action = actionKey ? access.action : "";
+    primary.textContent = actionKey ? t(`xknot.${actionKey}`) : "";
   }
 
-  const summary = run
-    ? PROGRESS_STATES[run.state]
-      ? t(`xknot.${PROGRESS_STATES[run.state]}`)
-      : run.state
-    : t("xknot.pendingReview");
-  const handoff = data.handoff;
+  const form = byId("access-apply-card");
+  if (form) form.hidden = !(access.action === "apply" || access.action === "reapply");
+  renderJoinRecord();
+  renderApplyPrefill();
+
+  // 本地写入的结果写在按钮下面：「重启要等一会儿」这类话只有这里说得清。
   const local = data.local || {};
-  let text = handoff
-    ? `${summary}${t("xknot.handoff", { account: handoff.account, host: handoff.host, port: handoff.port })}`
-    : summary;
-  if (run?.state === "active" && data.issued?.url) text += t("xknot.accepted", { url: data.issued.url });
-  if (local.error) text += t("xknot.localError", { error: local.error });
-  else if (local.joinError) text += t("xknot.joinError", { error: local.joinError });
-  if (local.changed) text += t("xknot.tunnelRestarted");
+  let note = "";
+  if (local.error) {
+    const known = CONNECT_ERRORS[local.error];
+    note += t("xknot.localError", { error: known ? t(`xknot.${known}`) : local.error });
+  } else if (local.joinError) note += t("xknot.joinError", { error: local.joinError });
+  if (local.changed) note += t("xknot.tunnelRestarted");
   if (local.restart && local.restart.deferred && !local.restart.ok) {
-    text += t("xknot.restartManual", { command: local.restart.command });
+    note += t("xknot.restartManual", { command: local.restart.command });
   }
-  if (local.joined) text += t("xknot.joined");
+  if (local.joined) note += t("xknot.joined");
+  setAlert(byId("access-note"), note.trim(), local.error || local.joinError ? "error" : "ok");
+}
 
-  setAlert(note, text, run?.state === "active" ? "ok" : run?.lastError || local.error || local.joinError ? "error" : "ok");
-  if (start) start.hidden = !handoff || run?.state === "active";
+// 失败要解释到「下一步做什么」，所以原因单独一行，不塞进结论句里。
+function renderAccessReason(access) {
+  const node = byId("access-reason");
+  if (!node) return;
+  const key = ACCESS_REASON_KEYS[access.reason];
+  let text = key ? t(`xknot.${key}`) : "";
+  if (access.reason === "profile_incomplete" && access.missing?.length) {
+    text += t("xknot.accessMissing", { list: missingLabels(access.missing) });
+  }
+  if (access.reason === "run_failed" && access.hubError) {
+    const known = CONNECT_ERRORS[access.hubError];
+    text += t("xknot.accessRunError", { reason: known ? t(`xknot.${known}`) : access.hubError });
+  }
+  setAlert(node, text, access.state === "failed" ? "error" : "ok");
+}
+
+function renderAccessSteps(access) {
+  const list = byId("access-steps");
+  if (!list) return;
+  const steps = Array.isArray(access.steps) ? access.steps : [];
+  list.replaceChildren(
+    ...steps.map((step) => {
+      // retrying 是「中枢还在按退避自动重试」，照样标红：人要知道卡在哪一步。
+      const failed = step.state === "failed" || step.state === "retrying";
+      const done = step.state === "done";
+      const name = STEP_KEYS[step.id] ? t(`xknot.${STEP_KEYS[step.id]}`) : step.id;
+      const known = CONNECT_ERRORS[step.error];
+      const error = step.error ? (known ? t(`xknot.${known}`) : step.error) : "";
+      const todo = done ? t("xknot.stepDone") : t("xknot.stepTodo");
+      // 第一步的备注是缺哪几个字段，换成档案里的叫法。
+      const note = step.id === "profile" && step.note ? missingLabels(step.note.split(",")) : step.note || todo;
+      return el(
+        "li",
+        { class: failed ? "is-failed" : done ? "is-done" : "is-running" },
+        el("span", { class: "step-mark", text: failed ? "!" : done ? "✓" : "…" }),
+        el("span", { class: "step-name", text: name }),
+        el("span", { class: "step-note", text: error || note })
+      );
+    })
+  );
+}
+
+function renderApplyPrefill() {
+  const email = byId("join-email");
+  if (!email || email.value) return;
+  const contact = String(state.profile?.site?.contact || "").trim();
+  if (/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(contact)) email.value = contact;
 }
 
 async function startTunnel() {
-  const button = byId("connect-start");
-  button.disabled = true;
-  setAlert(byId("connect-note"), t("xknot.writing"), "ok");
+  const button = byId("access-primary");
+  if (button) button.disabled = true;
+  setAlert(byId("access-note"), t("xknot.writing"), "ok");
   try {
     const data = await api("/xknot/connect", { method: "POST" });
     const restart = data.restart || {};
     if (data.changed === false) {
-      setAlert(byId("connect-note"), t("xknot.unchanged"), "ok");
-      await loadProgress();
-      return;
+      setAlert(byId("access-note"), t("xknot.unchanged"), "ok");
+    } else {
+      setAlert(
+        byId("access-note"),
+        restart.ok
+          ? t("xknot.tunnelWritten")
+          : t("xknot.tunnelManual", {
+              command: restart.command || "bash ops/scripts/run-entry-tunnel.sh",
+            }),
+        "ok"
+      );
     }
-    setAlert(
-      byId("connect-note"),
-      restart.ok
-        ? t("xknot.tunnelWritten")
-        : t("xknot.tunnelManual", {
-            command: restart.command || "bash ops/scripts/run-entry-tunnel.sh",
-          }),
-      "ok"
-    );
-    // 隧道正在重启：这时经隧道读进度只会拿到 502，别立刻读。
+    // 隧道正在重启：这时经隧道读进度只会拿到 502，隔几秒再读。
+    window.setTimeout(() => void loadAccess({ quiet: true }), 4000);
   } catch (error) {
     if (handleAuth(error)) return;
-    setAlert(byId("connect-note"), humanError(error), "error");
-  } finally {
-    button.disabled = false;
+    setAlert(byId("access-note"), humanError(error), "error");
   }
 }
 
+async function retryAccess() {
+  const button = byId("access-primary");
+  if (button) button.disabled = true;
+  setAlert(byId("access-note"), t("xknot.checking"), "ok");
+  try {
+    // 失败里最常见的一种是中枢还没收到这一侧的公钥，所以「重试」顺带补交一次。
+    const data = await api("/access/sync", { method: "POST", body: { deliverKey: true } });
+    state.accessData = data;
+    renderAccess();
+    if (data.key && data.key.delivered === false) {
+      setAlert(byId("access-note"), t("xknot.accessKeyFailed", { error: data.key.error || "—" }), "error");
+    } else if (data.access?.reason === "hub_unreachable") {
+      setAlert(byId("access-note"), t("xknot.accessReasonHub"), "error");
+    } else {
+      toast(t("xknot.accessRetried"), "ok");
+    }
+  } catch (error) {
+    if (handleAuth(error)) return;
+    setAlert(byId("access-note"), humanError(error), "error");
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function onAccessPrimary() {
+  const action = byId("access-primary")?.dataset.action || "";
+  if (action === "apply" || action === "reapply") {
+    byId("join-subdomain")?.focus();
+    return;
+  }
+  if (action === "connect") return startTunnel();
+  if (action === "retry") return retryAccess();
+}
+
+// 已交的那张申请：编号、状态、案例页。案例链接是能力凭据，只给本人看。
 function renderJoinRecord() {
   const node = byId("join-record");
   if (!node) return;
-  const application = state.joinApplication;
+  const application = state.accessData?.access?.attempt;
   if (!application?.id) {
     node.hidden = true;
     node.replaceChildren();
@@ -2636,22 +2750,6 @@ function renderJoinRecord() {
       : null
   );
   node.hidden = false;
-}
-
-function renderJoin(data) {
-  const card = byId("join-card");
-  const issuedCard = byId("issued-card");
-  if (!card) return;
-  const joined = Boolean(data?.issued?.id);
-  card.hidden = joined;
-  if (issuedCard) issuedCard.hidden = !joined;
-  if (joined) return;
-
-  const email = byId("join-email");
-  const contact = String(data?.site?.contact || "").trim();
-  if (email && !email.value && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(contact)) {
-    email.value = contact;
-  }
 }
 
 function resetJoinCheck() {
@@ -2718,15 +2816,6 @@ async function submitJoin(event) {
       },
     });
     const application = data.application || {};
-    state.joinApplication = application.id
-      ? {
-          id: application.id,
-          caseUrl: application.caseUrl || "",
-          status: application.status || "pending",
-          submittedAt: application.createdAt || new Date().toISOString(),
-        }
-      : null;
-    renderJoinRecord();
     const result = byId("join-result");
     result.replaceChildren(
       el("span", {
@@ -2746,9 +2835,8 @@ async function submitJoin(event) {
     result.hidden = false;
     // 成功之后不再允许重复点：同一地址再交一张会被中枢判重。
     resetJoinCheck();
-    button.hidden = true;
-    // 公钥在服务端已经顺手交上去了，这里直接开始读进度。
-    void loadProgress();
+    // 公钥在服务端已经顺手交上去了，这里直接同步一次，过程与按钮就会有内容。
+    await loadAccess({ quiet: true });
   } catch (error) {
     if (handleAuth(error)) return;
     const message =
@@ -2764,6 +2852,9 @@ async function submitJoin(event) {
 
 function renderIssued(data) {
   const issued = data?.issued || {};
+  // 签发区为空就整张收起来：没接入的站点看到一行「—」只会更困惑。
+  const card = byId("issued-card");
+  if (card) card.hidden = !issued.id;
   byId("profile-issued").replaceChildren(
     fact(t("xknot.instanceId"), issued.id),
     fact(t("xknot.url"), issued.url),
@@ -2850,16 +2941,15 @@ function bindEvents() {
   byId("invites-refresh").addEventListener("click", () => loadInvites());
   byId("sponsors-refresh").addEventListener("click", () => loadSponsors());
   byId("prices-refresh").addEventListener("click", () => loadPrices());
-  byId("federation-refresh").addEventListener("click", () => loadXknot());
   byId("fed-details").addEventListener("toggle", (event) => {
     if (event.currentTarget.open) void loadFederation();
   });
   byId("profile-form").addEventListener("submit", saveProfile);
   byId("profile-reload").addEventListener("click", () => renderProfile());
   byId("join-check").addEventListener("click", () => void checkJoinSubdomain());
-  byId("join-form").addEventListener("submit", submitJoin);
-  byId("connect-refresh").addEventListener("click", () => void loadProgress());
-  byId("connect-start").addEventListener("click", () => void startTunnel());
+  byId("access-apply").addEventListener("submit", submitJoin);
+  byId("access-primary").addEventListener("click", () => void onAccessPrimary());
+  byId("access-refresh").addEventListener("click", () => void loadAccess());
   byId("join-subdomain").addEventListener("input", () => {
     // 查过之后又改了名字，之前的「可用」就不再算数。
     resetJoinCheck();
@@ -2943,9 +3033,10 @@ async function boot() {
   // 只在 XKnot 栏打开、且这张单还没上线时轻量轮询，别让它变成一个常驻请求。
   window.setInterval(() => {
     if (!state.token || document.hidden || state.view !== "xknot") return;
-    const progress = state.progress;
-    if (!progress?.application || progress.run?.state === "active") return;
-    void loadProgress({ quiet: true });
+    const access = state.accessData?.access;
+    // 已经不再需要推进（上线了、或压根没法自动推进）就停手，别让它变成常驻请求。
+    if (!access || access.action === "none") return;
+    void loadAccess({ quiet: true });
   }, 8000);
 }
 

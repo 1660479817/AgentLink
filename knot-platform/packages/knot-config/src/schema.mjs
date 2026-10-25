@@ -109,6 +109,16 @@ const SITE_KEYS = [
     example: "https://xknot.si",
   },
   {
+    key: "KNOT_XKNOT_POLL_SECONDS",
+    runtime: "KNOT_XKNOT_POLL_SECONDS",
+    group: "site",
+    type: "int",
+    default: 60,
+    min: 0,
+    max: 3600,
+    desc: "接入之后 Backend 主动向中枢拉接通进度的间隔（秒）。中枢在实例在 NAT 后拨不进来，所以由这一侧连出去；拿到账号与端口后自己写 tunnel.env 并重启隧道，不必等人打开管理页。0 表示关闭，只在管理页里手动拉。",
+  },
+  {
     key: "KNOT_PORT",
     runtime: "PORT",
     group: "site",

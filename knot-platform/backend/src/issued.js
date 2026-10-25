@@ -9,6 +9,7 @@
 
 import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { statSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { checkJoin, parseEnv, renderJoinFile } from "@knot/config";
@@ -72,6 +73,16 @@ export async function readRelayValues(file, { read = readFile, parse = parseEnv 
     };
   } catch {
     return { relayUrl: "", relayToken: "" };
+  }
+}
+
+/** 接入件在不在盘上。写完到重启之间有一段窗口，这期间进程里还没有签发区。 */
+export async function joinEnvPresent(file, { stat = statSync } = {}) {
+  if (!file) return false;
+  try {
+    return stat(file).isFile();
+  } catch {
+    return false;
   }
 }
 
