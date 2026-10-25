@@ -11,6 +11,12 @@ DROP TABLE IF EXISTS request_looks;
 DROP TABLE IF EXISTS request_unlocks;
 DROP TABLE IF EXISTS packet_downloads;
 
+-- 审计行不能跟着内容一起消失：删帖这件事发生过，得留下记录。
+-- admin_actions.intel_id 是 NO ACTION 外键，不先置空会挡住下面那条 DELETE
+-- （与 purge-intel.mjs 的处理一致：只清引用，不删审计行）。
+UPDATE admin_actions SET intel_id = NULL
+ WHERE intel_id IN (SELECT id FROM intel WHERE kind IN ('wish', 'wishRespond'));
+
 DELETE FROM intel WHERE kind IN ('wish', 'wishRespond');
 
 DROP INDEX IF EXISTS intel_wishes_idx;
