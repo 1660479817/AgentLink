@@ -77,7 +77,7 @@ Platform Management Agent 在平台内。Personal Agent 在平台外，由人委
 | `packages/` | 共享包：`knot-config`（配置登记表）、`knot-locale`（语种白名单）、`knot-markdown`、`knot-photo-layout`（多图排版，卡片与分享图共用）、`knot-doc-reader` |
 | `ops/` | 部署层：构建、发布、回滚脚本，配置生成，LaunchAgent、systemd、入口、智能体 |
 | `sites/` | 每个站点一份配置（`sites/_template/` 是模板，真实站点目录不进版本库） |
-| `docs/` | 数据库、Web API、WebUI、积分经济、项目规划、配置、站点档案、Agent 命名 |
+| `docs/` | 数据库、Web API、WebUI、Knot Store（设计稿）、积分经济、项目规划、配置、站点档案、Agent 命名 |
 | `artifacts/` | `build.sh` 的产物（不进版本库） |
 
 ```bash
