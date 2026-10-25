@@ -7,6 +7,7 @@
   "description": "*.xknot.si 个人站的访问速度测量：黑箱，只给一个 URL",
   "scripts": {
     "probe": "node scripts/probe.mjs",
+    "link": "node scripts/link.mjs",
     "image": "node scripts/make-image.mjs",
     "human": "node human/visitor.mjs",
     "load": "node scripts/run.mjs",

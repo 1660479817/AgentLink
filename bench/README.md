@@ -11,6 +11,7 @@ It sits at the repository root because what it measures is "a subdomain", which 
 | Question | Answered by |
 | --- | --- |
 | What state the site is in now (version, snapshot size, TLS, compression, whether the entry leaks the admin surface) | `scripts/probe.mjs` |
+| How fast the path to it is (RTT, handshake, goodput), before blaming the app | `scripts/link.mjs` |
 | How long one person waits for each page to open | `human/visitor.mjs` (real Chromium, 1 user) |
 | What happens under concurrency, and which leg is slow | `k6/` (5 / 10 / 20 / 30 / 50 / 100) |
 | Whether the same site got better or worse two weeks later | two summaries in `results/`, compared |
@@ -30,6 +31,7 @@ Every row in the report carries its measurement point. Numbers from a direct ori
 ```text
 bench/
 ├── scripts/probe.mjs        black-box probe: capabilities, path, version, snapshot size
+├── scripts/link.mjs         link measurement: RTT, handshake, cold/warm TTFB, goodput
 ├── scripts/compare.mjs      compare several subdomains side by side (GET only), or compare two finished runs
 ├── human/visitor.mjs        walk every page with a real Chromium
 ├── k6/read.js               anonymous visitor: shell + snapshot + Web API
@@ -43,7 +45,7 @@ bench/
 └── results/<time>/          probe.json, summary.md/json, raw/, human.*, screenshots
 ```
 
-`results/latest` points at the most recent `run.mjs`; `results/latest-human` points at the most recent `human/visitor.mjs`.
+`results/latest` points at the most recent `run.mjs`; `results/latest-human` points at the most recent `human/visitor.mjs`; `results/latest-link` at the most recent `scripts/link.mjs`.
 
 `lib/` is the copy shared by k6 and the node scripts: `assets.js` pulls built asset paths out of index.html, `net.mjs` decides whether the target is a direct origin, and `cli.mjs` reads command-line arguments. When a `--name` is missing its value these scripts exit with code 2 instead of substituting a default — otherwise the numbers from that run would not match the parameters it claims.
 
@@ -59,6 +61,10 @@ npm install && npx playwright install chromium
 ```bash
 # First, see what the site is
 npm run probe -- https://wang.xknot.si
+
+# Link layer: RTT, handshake, cold/warm TTFB and goodput to one address
+npm run link -- https://xknot.si
+npm run link -- https://wang.xknot.si --samples 20 --warm 20 --streams 8
 
 # Compare several sites side by side (GET only, a few seconds)
 npm run compare -- wang.xknot.si cpswang.xknot.si
@@ -141,6 +147,55 @@ After the probe, `run.mjs` runs only the scenarios the site supports and for whi
 | Write | both of the above pass, plus an explicit `--allow-writes` | skip writes |
 
 A scenario the site does not know never fails the whole run; it quietly omits one row and the report states why.
+
+## Link: RTT, handshake, goodput
+
+`scripts/link.mjs` answers one question the other layers cannot: **is the path itself slow, before any application logic runs?** It takes one URL and reports three numbers, each with p50/p95 over sequential samples:
+
+| Number | What it is | Why it matters |
+| --- | --- | --- |
+| TCP connect | time from request start to socket connected, including DNS; close to the RTT | ICMP is often blocked (security groups), so `ping` proves nothing; a TCP handshake still works |
+| TLS handshake | `secureConnect - connect` | one extra RTT; TLS 1.3 is 1 RTT, TLS 1.2 is 2 |
+| TTFB, cold vs warm | a fresh connection vs a reused one on the same socket | cold ≈ 3×RTT (DNS + TCP + TLS + request), warm ≈ 1×RTT; the gap is what keep-alive buys |
+
+The throughput rows run in both directions. Download fetches the site's own built asset (a `/assets/*.js` referenced by the home page, or `--download <path>`) over keep-alive connections until `--bytes` is reached. Upload POSTs a body of `--upload-size` to an endpoint you name with `--upload-path`, until the same total is sent.
+
+Both are **a lower bound, not link capacity**: every request still pays a round trip, so the aggregate rises with `--streams` until the pipe saturates. `--streams 1` is the single-flow number a lone API call sees. For capacity, cross-check with `iperf3` or a long large-file transfer — SSH `dd` is encrypted single-threaded and understates upload.
+
+Upload needs a target that will actually read the request body; the script never picks one for you, because a POST is a write. Five outcomes are named instead of smoothed into a number:
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| `413 Request Entity Too Large`, most bytes never sent | the endpoint's `client_max_body_size` is smaller than `--upload-size` | send a smaller body (`--upload-size 8k`), or point at an endpoint that accepts the size |
+| `401` / `403` after the body was read | the endpoint wants credentials | `--upload-token-file` (Bearer) or `--upload-cookie-file` |
+| `3xx` | the path redirects | use the final path or a full URL |
+| Body written completely, but every request rejected with 4xx | the endpoint refused without evidence it read the body — a small body can sit in the local socket buffer and never cross the path | no rate: the elapsed time measures how fast the client filled its own buffer. Point at an endpoint that actually consumes the body, or send less than its limit |
+| A rate, plus a note about short bodies | each request carried little data, so the number follows round trips | this is request rate, not bandwidth; raise `--upload-size` toward the endpoint's limit |
+
+A rate needs at least one request the endpoint accepted. Bytes from a request that was cut off mid-body never left, and an all-rejected run has nothing proving the body was read — so in both cases the rate column shows `-` and the report says which of the two happened, instead of dividing bytes by elapsed time and printing the speed of being refused.
+
+```bash
+npm run link -- https://xknot.si
+npm run link -- https://xknot.si --path /api/health --samples 4 --warm 0   # /api is often rate-limited
+npm run link -- https://xknot.si --streams 16 --bytes 8m                  # closer to capacity
+
+# Both directions, against an instance that accepts 4MB bodies
+npm run link -- https://wang.xknot.si --bytes 16m --upload-path /api/agent/uploads
+
+# With a session or token, from files so it stays out of ps and shell history
+npm run link -- https://wang.xknot.si --upload-path /api/agent/uploads --upload-token-file ~/.knot/wang-agent.env
+```
+
+The upload endpoint and its credentials can also come from the environment, which keeps them out of shell history: `BENCH_UPLOAD_PATH`, `BENCH_UPLOAD_TOKEN` (Bearer), `BENCH_UPLOAD_COOKIE`.
+
+Defaults: 20 cold samples, 20 warm, 8 streams, 4MB per direction, a 4MB upload body, a 15s timeout. Results go to `results/link-<time>/` (`link.json`, `link.md`) and `results/latest-link`. With `--upload-path` the report also prints the down/up ratio; if you omit it, the upload row says why it was skipped.
+
+Three things this script deliberately does not do:
+
+- **It does not hit `/api/` by default.** Rate limits live on that prefix (one deployment allows 12 requests/minute per IP with a burst of 5); hammering it measures 429/503, not speed. When you do measure an `/api/` path, keep `--samples` low and space the calls out; the report counts non-2xx separately and warns when it sees 429/503.
+- **It does not guess an upload endpoint.** A POST is a write; naming the endpoint is the operator's decision.
+- **It does not use the system proxy.** Numbers taken through a local proxy are the proxy's, not the path's.
+- **It does not compare across machines or hours.** A cross-border link moves by time of day; only same machine, same target, same window are comparable.
 
 ## Scenario mix
 
@@ -227,7 +282,7 @@ Tokens and session cookies are read only from environment variables or explicit 
 
 ## Relation to `ops/scripts/speed-check.sh`
 
-That script is layer 0: a few sequential curls, medians, answering "does it work right after a deploy, and roughly how many milliseconds". Keep it handy. The three layers here answer "what happens under concurrency, which leg is slow, and which site setting fell behind". The two do not overlap.
+That script is layer 0: a few sequential curls, medians, answering "does it work right after a deploy, and roughly how many milliseconds". Keep it handy. `scripts/link.mjs` is the same question with more detail — cold vs warm split, p95, throughput, and a stored report. The three layers here answer "what happens under concurrency, which leg is slow, and which site setting fell behind". The two do not overlap.
 
 ## License
 
