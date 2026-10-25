@@ -182,6 +182,8 @@ Each endpoint has four independent metrics: `ep_<name>_ms` (Trend, non-throttled
 
 Success is not just a status code: an endpoint declaring `expect: "json"` requires `Content-Type` to contain json, the body to parse as an object, and no `error` field. Entry maintenance pages, the SPA fallback page, and `200 {"error": …}` all count as failures and are listed separately under "body did not match expectations". Static endpoints (`/`, `/assets/*`) still look only at the status code.
 
+Warnings k6 emits while a level runs (empty feed, one Agent token shared by every VU) are collected into `meta.warnings` and listed under "k6 notices this run", so re-reading `summary.json` weeks later does not depend on that day's console.
+
 The acceptance thresholds live in `LIMITS` in `scripts/report.mjs`:
 
 | Item | Threshold |

@@ -182,6 +182,8 @@ npm run compare -- --runs results/2026-10-23T01-36-11,results/2026-11-01T09-00-0
 
 成功不只判状态码：声明了 `expect: "json"` 的端点要求 `Content-Type` 含 json、能解析成对象且没有 `error` 字段。入口维护页、SPA 兜底页、`200 {"error": …}` 都会被记成失败，并在报告里单列「响应体不符预期」。静态端点（`/`、`/assets/*`）仍然只看状态码。
 
+k6 在某一档打的提示（信息流为空、只有一份授权码被所有 VU 共用）收进 `meta.warnings`，报告里单列「本轮 k6 提示」；两周后重读 `summary.json` 不依赖当天的终端。
+
 验收线写在 `scripts/report.mjs` 的 `LIMITS`：
 
 | 项 | 线 |
