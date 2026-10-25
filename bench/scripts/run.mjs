@@ -8,6 +8,7 @@ import { probeSite, summaryLines } from "./probe.mjs";
 import { render } from "./report.mjs";
 import { parseSummaryData } from "./summary.mjs";
 import { exitCodeFor, failureRecord } from "./failures.mjs";
+import { k6Messages } from "../lib/k6log.mjs";
 
 // 并发层编排：先黑箱探测这个站点，再按能测的场景一档一档跑 k6。
 //
@@ -180,10 +181,11 @@ function runK6({ script, vus, duration, out, token, allowWrites = false }) {
     },
   });
   const elapsed = Date.now() - started;
+  const warnings = k6Messages(res.stderr);
   // 退出码 99 是「阈值没过」，不是「没跑成」：summary 已经写出来了，照样收进报告。
   // 写场景用阈值守住删除失败，那一条要显眼，但不能把其余指标一起丢掉。
   if (res.status === 99 && existsSync(out)) {
-    return { ok: true, elapsed, thresholdFailed: true };
+    return { ok: true, elapsed, warnings, thresholdFailed: true };
   }
   if (res.status !== 0) {
     // 超时被 kill 时 status 是 null、signal 有值；区分「自己崩了」和「被杀了」，
@@ -191,6 +193,7 @@ function runK6({ script, vus, duration, out, token, allowWrites = false }) {
     return {
       ok: false,
       elapsed,
+      warnings,
       status: res.status,
       signal: res.signal,
       error: res.error,
@@ -202,13 +205,14 @@ function runK6({ script, vus, duration, out, token, allowWrites = false }) {
     return {
       ok: false,
       elapsed,
+      warnings,
       status: res.status,
       signal: res.signal,
       error: null,
       reason: "k6 退出码 0 但没有写出 --summary-export 文件",
     };
   }
-  return { ok: true, elapsed };
+  return { ok: true, elapsed, warnings };
 }
 
 function parseSummary(file) {
@@ -290,8 +294,20 @@ async function main() {
     levels: LEVELS,
     scenarios: SCENARIOS,
     skipped: [],
+    // k6 在 setup 里给的提示。收进报告，重读 summary 时不依赖当时的终端。
+    warnings: [],
     // 跑失败或没写出数据的档。报告与退出码都从这里取，不再只是控制台的一行字。
     failed: [],
+  };
+
+  const seenWarnings = new Set();
+  const noteWarnings = (res, scenario, vus) => {
+    for (const w of res.warnings || []) {
+      // 同一句提示在每一档都会出现，只留第一次的那条。
+      if (seenWarnings.has(w)) continue;
+      seenWarnings.add(w);
+      meta.warnings.push(`${scenario} ${vus} 并发：${w}`);
+    }
   };
 
   console.log(`\nk6 ${k6} · 每档 ${DURATION} · 冷却 ${COOLDOWN}s`);
@@ -329,11 +345,13 @@ async function main() {
       const failed = failureRecord({ scenario, vus: 1, elapsedMs: warm.elapsed, ...warm });
       console.warn(`预热失败（不计入判定）：${failed.detail}`);
     }
+    noteWarnings(warm, scenario, 1);
 
     for (const vus of levels) {
       const out = path.join(RAW_DIR, `${scenario}-${vus}.json`);
       process.stdout.write(`[${scenario}] ${vus} 并发 ... `);
       const res = runK6({ script, vus, duration: DURATION, out, token, allowWrites: scenario === "write" });
+      noteWarnings(res, scenario, vus);
       if (!res.ok) {
         const failed = failureRecord({ scenario, vus, elapsedMs: res.elapsed, ...res });
         console.log(`失败（${Math.round(res.elapsed / 1000)}s）`);

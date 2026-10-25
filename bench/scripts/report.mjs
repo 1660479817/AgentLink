@@ -166,6 +166,16 @@ export function render(result) {
     out.push("");
   }
 
+  // k6 在 setup 里给的提示（信息流为空、只有一份授权码……）以前只打在终端上，
+  // 报告里看不到；一份两周后重读的 summary 就不该再依赖当时的控制台。
+  const warnings = meta.warnings || [];
+  if (warnings.length) {
+    out.push("本轮 k6 提示：");
+    out.push("");
+    for (const w of warnings) out.push(`- ${w}`);
+    out.push("");
+  }
+
   // ---- 总览 ----
   out.push("## 总览");
   out.push("");
@@ -250,6 +260,29 @@ export function render(result) {
     out.push("");
   }
 
+  // ---- 响应体不符预期 ----
+  // 2xx 不等于成功：入口维护页、SPA 兜底页、`200 {"error": …}` 都会回 200。
+  // 它们的耗时进了 ep_<name>_ms，所以必须单列，否则读的人会把它当成接口延迟。
+  const badBodies = [];
+  for (const run of runs) {
+    for (const [key, ep] of Object.entries(run.endpoints || {})) {
+      if ((ep.badBody || 0) > 0) badBodies.push({ key, run, ep });
+    }
+  }
+  if (badBodies.length) {
+    out.push(`响应体不符预期：${badBodies.length} 项。这些请求回的是 2xx，但响应体不是接口的形状，耗时不能当成接口延迟；它们已计入错误率与 p95。`);
+    out.push("");
+    for (const { key, run, ep } of badBodies.slice(0, 40)) {
+      out.push(
+        `- ${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · ${ep.badBody} 次状态 2xx 但响应体不符预期（${pct(ep.badBodyRate)}）`
+      );
+    }
+    if (badBodies.length > 40) out.push(`- ……另有 ${badBodies.length - 40} 项，见 summary.json`);
+    out.push("");
+    out.push("指标是 `ep_<name>_bad_body`，是 `ep_<name>_err` 的子集；声明了 `expect: \"json\"` 的端点要求 `Content-Type` 含 json、能解析成对象且没有 `error` 字段。");
+    out.push("");
+  }
+
   // ---- 超阈 ----
   const breaches = [];
   const noData = [];
@@ -272,7 +305,8 @@ export function render(result) {
         );
         continue;
       }
-      if (ep.p95 > limit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · p95 ${ms(ep.p95)}ms > ${limit}ms`);
+      const shown = Math.round(ep.p95);
+      if (shown > limit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · p95 ${shown}ms > ${limit}ms`);
       if (ep.errRate > errLimit) breaches.push(`${scenarioOf(run.scenario)} ${run.vus} 并发 · ${ENDPOINT_LABELS[key] || key} · 错误率 ${pct(ep.errRate)} > ${pct(errLimit)}`);
     }
   }
