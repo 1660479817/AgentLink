@@ -419,6 +419,7 @@
     "quota_exceeded": "上传空间已满，删掉一些旧文件后再试",
     "not_found": "没有找到",
     "bad_state": "这一步现在不能做",
+    "store_closed": "这个站点没有开商店",
     "muted": "你暂时不能发布",
     "bad_price": "报价要是 {min} 到 {max} 的整数",
     "bad_mention": "只能@好友",

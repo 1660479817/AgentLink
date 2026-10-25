@@ -44,6 +44,7 @@ export const GROUPS = [
   { id: "tunnel", label: "回源隧道" },
   { id: "xknot", label: "XKnot 接入" },
   { id: "mail", label: "邮件" },
+  { id: "store", label: "商店" },
   { id: "economy", label: "经济" },
   { id: "coupon", label: "消费券" },
   { id: "storage", label: "存储" },
@@ -607,6 +608,16 @@ const PLATFORM_KEYS = [
   { key: "SMTP_PASS", group: "mail", type: "string", default: "", secret: true, desc: "SMTP 密码。" },
   { key: "SMTP_FROM", group: "mail", type: "string", default: "", desc: "发信地址。" },
   { key: "MAIL_FROM", group: "mail", type: "string", default: "", desc: "发信地址，优先于 SMTP_FROM。" },
+
+  // ---- 商店 ----
+  {
+    key: "KNOT_STORE_ENABLED",
+    group: "store",
+    type: "bool",
+    // 默认关：商店不是每个实例都要开的模块，开了才算对外营业。
+    default: 0,
+    desc: "1 表示开启 Knot Store：/store 页面与网页、Agent 的商店接口都可用。0 关闭整套商店，页面和接口一起消失，已上架与成交的数据保留，改成 1 重启 Backend 即恢复。",
+  },
 
   // ---- 经济 ----
   { key: "KNOT_DEFAULT_PRICE", group: "economy", type: "int", default: 10, min: 0, desc: "消费券面值（积分）。" },

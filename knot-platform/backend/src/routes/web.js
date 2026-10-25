@@ -123,7 +123,7 @@ async function withUploads(pool, rows) {
   return rows.map((row) => ({ ...row, attachments: byId.get(row.id) || [] }));
 }
 
-export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, agentDoc, handoff = null, adminHosts = [] }) {
+export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, agentDoc, handoff = null, adminHosts = [], storeEnabled = false }) {
   // 站点身份只用于展示：顶栏名称和分享文案。系统开关仍在 session.site。
   // v2 起是十项扁平字段，填什么就显示什么，不再按语种取；`locale` 是站点默认界面语言。
   ensureUploadDir(uploadDir);
@@ -169,6 +169,13 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   });
 
   const router = Router();
+
+  // Knot Store 是可选模块。关掉时整套商店不存在：页面不挂入口，商店接口回 404，
+  // 但已经上架的商品与订单留在库里，打开开关后原样回来。
+  const storeGuard = (_req, res, next) => {
+    if (storeEnabled) return next();
+    return res.status(404).json({ error: "store_closed" });
+  };
 
   router.post("/login", async (req, res) => {
     const email = normalizeEmail(req.body?.email);
@@ -231,6 +238,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
         brand: identity,
         agentDoc: doc,
         agentDelegated: false,
+        storeEnabled,
         boardVersion: await readBoardVersion(),
       });
     }
@@ -248,6 +256,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
       brand: identity,
       agentDoc: doc,
       agentDelegated: agents.length > 0,
+      storeEnabled,
       boardVersion,
     });
   });
@@ -310,6 +319,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
         brand,
         agentDoc: doc,
         agentDelegated: false,
+        storeEnabled,
         unread: 0,
         boardVersion: null,
         self: emptyDiscoverSelf(),
@@ -336,6 +346,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
       brand,
       agentDoc: doc,
       agentDelegated: agents.length > 0,
+      storeEnabled,
       unread,
       boardVersion: snapshot?.version || null,
       self,
@@ -668,24 +679,24 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   // ---- Knot Store ------------------------------------------------------------
   // 货架只在实例上，不进信息流、搜索与公开快照。交易只有一笔：买家付出，卖家全额收到。
 
-  router.get("/store", contentGate, async (req, res) => {
+  router.get("/store", storeGuard, contentGate, async (req, res) => {
     const before = String(req.query.before || "").trim();
     const anchor = before && INTEL_ID.test(before) ? before : null;
     const items = await listStoreItems(pool, req.account?.id || null, { before: anchor });
     res.json({ items });
   });
 
-  router.get("/store/mine", async (req, res) => {
+  router.get("/store/mine", storeGuard, async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     res.json({ items: await listMyItems(pool, req.account.id) });
   });
 
-  router.get("/store/orders", async (req, res) => {
+  router.get("/store/orders", storeGuard, async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     res.json({ orders: await listOrders(pool, req.account.id) });
   });
 
-  router.get("/store/:id", contentGate, async (req, res) => {
+  router.get("/store/:id", storeGuard, contentGate, async (req, res) => {
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const item = await loadStoreItem(pool, req.account?.id || null, id);
@@ -693,7 +704,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     res.json({ item });
   });
 
-  router.post("/store", async (req, res) => {
+  router.post("/store", storeGuard, async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
     let images = [];
@@ -722,7 +733,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     }
   });
 
-  router.post("/store/:id/buy", async (req, res) => {
+  router.post("/store/:id/buy", storeGuard, async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
@@ -734,7 +745,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     }
   });
 
-  router.post("/store/:id/withdraw", async (req, res) => {
+  router.post("/store/:id/withdraw", storeGuard, async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
@@ -745,7 +756,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
     }
   });
 
-  router.post("/store/:id/relist", async (req, res) => {
+  router.post("/store/:id/relist", storeGuard, async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
@@ -757,7 +768,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   });
 
   // 作者看自己的一件东西：审核中与已撤下都要能打开，否则撤下之后就再也点不回去。
-  router.get("/store/:id/mine", async (req, res) => {
+  router.get("/store/:id/mine", storeGuard, async (req, res) => {
     if (!req.account) return res.status(401).json({ error: "no_session" });
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });

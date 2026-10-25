@@ -129,9 +129,10 @@ app.use(
     agentDoc: { page: `${AGENT_DOC_ORIGIN}/knot-help`, raw: `${AGENT_DOC_ORIGIN}/knot-help.md` },
     handoff,
     adminHosts,
+    storeEnabled: bootstrap.storeEnabled,
   })
 );
-app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir }));
+app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir, storeEnabled: bootstrap.storeEnabled }));
 app.use(
   "/api/federation",
   federationRouter({

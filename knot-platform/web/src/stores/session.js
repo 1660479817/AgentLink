@@ -78,6 +78,8 @@ export const useSessionStore = defineStore("session", {
     // Agent 指引住在联邦中枢，地址由 Backend 给（KNOT_HUB_ORIGIN）。首帧先用联邦入口那份。
     agentDoc: { ...INITIAL_AGENT_DOC },
     agentDelegated: null,
+    // Knot Store 是否开启。实例按 KNOT_STORE_ENABLED 下发；关掉时导航不显示，/store 回信息流。
+    storeEnabled: false,
   }),
   getters: {
     // 未登录能不能进站内。登录的人永远可以；访客看系统开关。
@@ -109,6 +111,7 @@ export const useSessionStore = defineStore("session", {
           if (data.agentDoc && typeof data.agentDoc === "object") this.agentDoc = { ...INITIAL_AGENT_DOC, ...data.agentDoc };
           // Agent 是否开通随会话一起回来，不再为这一项单独发一次请求。
           if (typeof data.agentDelegated === "boolean") this.agentDelegated = data.agentDelegated;
+          if (typeof data.storeEnabled === "boolean") this.storeEnabled = data.storeEnabled;
           if (typeof data.boardVersion === "string") this.boardVersion = data.boardVersion;
           this.failed = false;
         } catch (error) {
@@ -139,6 +142,7 @@ export const useSessionStore = defineStore("session", {
       if (typeof data.defaultLocale === "string" && data.defaultLocale) this.defaultLocale = data.defaultLocale;
       if (data.agentDoc && typeof data.agentDoc === "object") this.agentDoc = { ...INITIAL_AGENT_DOC, ...data.agentDoc };
       if (typeof data.agentDelegated === "boolean") this.agentDelegated = data.agentDelegated;
+      if (typeof data.storeEnabled === "boolean") this.storeEnabled = data.storeEnabled;
       if (typeof data.boardVersion === "string") this.boardVersion = data.boardVersion;
       this.failed = false;
       this.userKnown = true;

@@ -50,6 +50,8 @@ async function withWeb(fn, { signedIn = false, ...options } = {}) {
       profile: null,
       board: null,
       handoff: options.handoff || null,
+      // 门槛用例都在跟「站内浏览关掉」较劲：商店开着，才轮到内容门禁说话。
+      storeEnabled: options.storeEnabled ?? true,
     })
   );
   const server = await listen(app);
@@ -191,3 +193,22 @@ test("改资料与三个上传端点都先要会话", async () => {
     }
   });
 });
+
+test("商店关掉后，商店接口整组回 404 store_closed", async () => {
+  // 关掉是「这个模块不存在」，不是「这个人没权限」：登录与否都该是同一个 404。
+  await withWeb(
+    async ({ call }) => {
+      const paths = ["/store", "/store/orders", "/store/mine"];
+      for (const pathname of paths) {
+        const response = await call(pathname);
+        assert.equal(response.status, 404, pathname);
+        assert.deepEqual(await response.json(), { error: "store_closed" }, pathname);
+      }
+      const listing = await call("/store", { method: "POST" });
+      assert.equal(listing.status, 404);
+      assert.deepEqual(await listing.json(), { error: "store_closed" });
+    },
+    { signedIn: true, storeEnabled: false }
+  );
+});
+

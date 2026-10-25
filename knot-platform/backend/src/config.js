@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { keyEntry, resolve } from "@knot/config";
+import { keyEntry, resolve, truthy } from "@knot/config";
 import { profileFilePath } from "./profile.js";
 
 // 代码目录：源码目录，或发布包里的 <部署根>/releases/<版本>。
@@ -41,5 +41,7 @@ export function loadBootstrapConfig(env = process.env) {
     agentEnvDir,
     // 自述区所在文件；没有部署目录时（单测、本地直跑）为 null，改用内存里的空档案。
     profileFile: profileFilePath(env, agentEnvDir),
+    // Knot Store 是一个可关的模块：关掉时页面与网页、Agent 的商店接口一起消失。
+    storeEnabled: truthy(resolved("KNOT_STORE_ENABLED", {}, ctx)),
   };
 }
