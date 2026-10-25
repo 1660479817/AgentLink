@@ -78,8 +78,6 @@
     "demo": "DEMO",
     "paid": "PAID",
     "free": "FREE",
-    "partner": "PAID",
-    "community": "FREE",
     "unknown": "UNKNOWN"
   },
   "region": {
