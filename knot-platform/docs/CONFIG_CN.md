@@ -189,7 +189,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | --- | --- | --- |
 | `KNOT_UPLOAD_QUOTA_BYTES` | 1073741824（1024 MiB） | 每人上传字节上限。0 表示不限。 |
 | `KNOT_GC_GRACE_HOURS` | `24` | 回收无引用上传的宽限期（小时）。 |
-| `KNOT_UPLOAD_IMAGE_MAX_BYTES` | 8388608（8 MiB） | 单张图片上限。同时要小于 KNOT_ENTRY_MAX_BODY。 |
+| `KNOT_UPLOAD_IMAGE_MAX_BYTES` | 16777216（16 MiB） | 单张图片上限。WebUI 会先在浏览器里压到这个值以内；同时要小于 KNOT_ENTRY_MAX_BODY。 |
 | `KNOT_UPLOAD_AUDIO_MAX_BYTES` | 8388608（8 MiB） | 单条音频上限。 |
 | `KNOT_UPLOAD_ATTACHMENT_MAX_BYTES` | 52428800（50 MiB） | 单个附件上限。必须小于 KNOT_ENTRY_MAX_BODY。 |
 | `DISCOVER_BOARD_DIR` | （空） | 公开快照目录。留空用 <UPLOAD_DIR>/board。 |

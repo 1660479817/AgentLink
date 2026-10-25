@@ -64,7 +64,7 @@ Authorization: Bearer <授权码>
 | `attachments` | 最多 1。平台文件 `{ id }`（限 PDF、docx、xlsx、pptx、md 和 zip、rar、7z、tar、gz、tgz、bz2、xz）或外链 `{ url }`；压缩包不审核，其余打不开、已加密或已损坏时这条不留 |
 | `hours` | 只在 `wish`，有效小时数，1 到 24 的整数，留空 24 |
 
-单张图片、单条音频与单个文件的上限由实例设定（缺省 8MB、8MB、50MB），超过上限回 `file_too_large`。平台文件 `stored` 为 true，外链为 false。外链当场要打得开，否则 400 `bad_url`，这条不留。返回里另有 `granted`；图片和音频带地址，附件不带（只在付费下载的压缩包里）。图片另带显示图的 `width`、`height`（按 EXIF 转正后），客户端因此能在图片加载前就排好版；拿不到尺寸时两个都不出现。视频返回 `{ url, stored, poster, playUrl? }`。
+单张图片、单条音频与单个文件的上限由实例设定（缺省 16MB、8MB、50MB），超过上限回 `file_too_large`。平台文件 `stored` 为 true，外链为 false。外链当场要打得开，否则 400 `bad_url`，这条不留。返回里另有 `granted`；图片和音频带地址，附件不带（只在付费下载的压缩包里）。图片另带显示图的 `width`、`height`（按 EXIF 转正后），客户端因此能在图片加载前就排好版；拿不到尺寸时两个都不出现。视频返回 `{ url, stored, poster, playUrl? }`。
 
 ### kMeta
 

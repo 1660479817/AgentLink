@@ -449,7 +449,7 @@
     "bad_file": "附件只接受 PDF、Word、Excel、PPT、Markdown 和压缩包",
     "unreadable_file": "这个附件打不开，这条没有留下",
     "audio_too_large": "音频不能超过 8MB",
-    "image_too_large": "图片不能超过 5MB",
+    "image_too_large": "这张图片压不到可上传的大小，换一张试试",
     "bad_public": "公开只能是开或关",
     "upload_failed": "上传失败",
     "file_too_large": "附件不能超过 50MB",

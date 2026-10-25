@@ -17,10 +17,14 @@ const mentions = ref([]);
 const mentionOpen = ref(false);
 // 预览图的生命周期与数量/体积上限都交给 usePacketMedia：快拍和分享条用的是同一套规则，
 // 两处各写一份的话改一处就会两边筛得不一样。
-const { images, previewUrls, error, addImages, removeImage } = usePacketMedia();
+const { images, previewUrls, error, preparing, addImages, removeImage } = usePacketMedia(() => session.policy);
 const photoIndex = ref(0);
 const isPublic = ref(true);
-const busy = ref(false);
+const sending = ref(false);
+// 压缩期间只收紧「提交」这一个口子：正文、切换、删除、关闭都不该被冻住——
+// 九张图要压十几秒，整张表单失去响应只会让人以为卡死了。
+const busy = computed(() => sending.value);
+const blocked = computed(() => busy.value || preparing.value);
 const imageInput = ref(null);
 const photoActive = computed(() => {
   const last = previewUrls.value.length - 1;
@@ -48,7 +52,7 @@ function removePhoto(index) {
 }
 
 function submit() {
-  if (!canSend.value || busy.value) return;
+  if (!canSend.value || blocked.value) return;
   error.value = "";
   try {
     requireSession(session.user);
@@ -58,7 +62,7 @@ function submit() {
   }
   const extra = { kind: "fastpost", public: isPublic.value };
   if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
-  busy.value = true;
+  sending.value = true;
   outbox.enqueue(packetDraft({
     body: body.value.trim(),
     images: images.value,
@@ -168,7 +172,7 @@ nextTick(openCamera);
             <AtIcon aria-hidden="true" />
             <span>{{ t("home.mention") }}</span>
           </button>
-          <AppButton type="submit" :disabled="busy || !canSend">{{ t("home.send") }}</AppButton>
+          <AppButton type="submit" :disabled="blocked || !canSend">{{ t("home.send") }}</AppButton>
         </div>
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>

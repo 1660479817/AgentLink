@@ -3,10 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { keyEntry } from "@knot/config";
 import { saveReviewExtract } from "./extracts.js";
 import { compareByWeight, createIntel, deleteOwnPost, isDownloadableFile, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reopenSale, reviewFailureText, saleExpiresAt, saleLive, saleTtlHours, searchPublicIntel } from "./market.js";
 import { clearSearchCache } from "./searchCache.js";
-import { serviceFee, packetPrice, policyConfig } from "./points.js";
+import { imageUploadLimit, serviceFee, packetPrice, policyConfig } from "./points.js";
 
 const AUTHOR = "33333333-3333-4333-8333-333333333333";
 
@@ -385,7 +386,7 @@ test("a finished record does not get a review-failure notice", async () => {
 });
 
 test("policy limits default to the initial platform values", () => {
-  const keys = ["KNOT_DEFAULT_PRICE", "KNOT_PRICE_MIN", "KNOT_PRICE_MAX", "KNOT_PUBLISH_SERVICE_FEE_PER_MB", "KNOT_DOWNLOAD_SERVICE_FEE_PER_MB", "KNOT_SERVICE_FEE_CAP", "KNOT_RETRIEVAL_PRICE"];
+  const keys = ["KNOT_DEFAULT_PRICE", "KNOT_PRICE_MIN", "KNOT_PRICE_MAX", "KNOT_PUBLISH_SERVICE_FEE_PER_MB", "KNOT_DOWNLOAD_SERVICE_FEE_PER_MB", "KNOT_SERVICE_FEE_CAP", "KNOT_RETRIEVAL_PRICE", "KNOT_UPLOAD_IMAGE_MAX_BYTES"];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) delete process.env[key];
   try {
@@ -397,12 +398,30 @@ test("policy limits default to the initial platform values", () => {
       downloadServiceFeePerMb: 1,
       serviceFeeCap: 10,
       retrievalPrice: 10,
+      // WebUI 按这个值决定压到多大，缺省与 KNOT_UPLOAD_IMAGE_MAX_BYTES 的登记值一致。
+      imageMaxBytes: Number(keyEntry("KNOT_UPLOAD_IMAGE_MAX_BYTES").default),
     });
   } finally {
     for (const key of keys) {
       if (previous[key] == null) delete process.env[key];
       else process.env[key] = previous[key];
     }
+  }
+});
+
+test("the image limit follows the instance setting down to the uploader", () => {
+  const previous = process.env.KNOT_UPLOAD_IMAGE_MAX_BYTES;
+  try {
+    process.env.KNOT_UPLOAD_IMAGE_MAX_BYTES = String(4 * 1024 * 1024);
+    assert.equal(imageUploadLimit(), 4 * 1024 * 1024);
+    // multer 与 policy 读同一个值：客户端压到多小、服务端收多大不会各自成一套。
+    assert.equal(policyConfig().imageMaxBytes, 4 * 1024 * 1024);
+    delete process.env.KNOT_UPLOAD_IMAGE_MAX_BYTES;
+    // 没设值时回落到登记表里的缺省值，不在代码里另写一份。
+    assert.equal(imageUploadLimit(), Number(keyEntry("KNOT_UPLOAD_IMAGE_MAX_BYTES").default));
+  } finally {
+    if (previous == null) delete process.env.KNOT_UPLOAD_IMAGE_MAX_BYTES;
+    else process.env.KNOT_UPLOAD_IMAGE_MAX_BYTES = previous;
   }
 });
 
