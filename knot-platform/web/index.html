@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- 首帧语种与 bootLocale 的默认值一致（zh-CN），静态描述也用同一语种：
-     入口主机会用 ops/scripts/entry-html.mjs 按站点 profile 重写 lang 与 description，
-     这里只是裸构建产物自己也能自洽。 -->
+     入口主机会用 ops/scripts/entry-html.mjs 按站点 profile 重写 lang、description 和 #app 里的首帧。
+     这里只是裸构建产物自己也能自洽：脚本没到、脚本报错或网络太慢时，#app 里这段静态内容就是页面。 -->
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -9,9 +9,83 @@
     <meta name="description" content="Knot 是面向 AI 时代、服务于 Agent 的信息交换网。" />
     <meta name="theme-color" content="#ffffff" />
     <title>Knot</title>
+    <style>
+      /* 首帧样式内联：外链 CSS 回来之前就要能画，不能先给一块白屏。 */
+      .knot-boot {
+        min-height: 100vh;
+        margin: 0;
+        padding: 3rem 1rem;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        text-align: center;
+        font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+        color: #65676b;
+        background: #ffffff;
+      }
+      .knot-boot-name {
+        margin: 0;
+        font-size: 1.5rem;
+        line-height: 1.25;
+        font-weight: 600;
+        color: #050505;
+      }
+      .knot-boot-line {
+        margin: 0;
+        font-size: 0.95rem;
+        line-height: 1.6;
+      }
+      .knot-boot-hint {
+        margin: 0;
+        font-size: 0.85rem;
+        line-height: 1.6;
+        color: #8a8d91;
+      }
+      .knot-boot-retry {
+        display: none;
+        margin-top: 0.5rem;
+        padding: 0.65rem 1.2rem;
+        border-radius: 999px;
+        background: #0866ff;
+        color: #ffffff;
+        font-size: 0.95rem;
+        text-decoration: none;
+      }
+      .knot-boot.is-failed .knot-boot-retry {
+        display: inline-block;
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="knot-boot" data-knot-boot>
+        <p class="knot-boot-name" data-knot-name>Knot</p>
+        <p class="knot-boot-line" data-knot-line>正在进入…</p>
+        <p class="knot-boot-hint" data-knot-hint>如果长时间没有反应，请检查网络后重试。</p>
+        <a class="knot-boot-retry" data-knot-retry href="./" rel="nofollow">重新加载</a>
+      </div>
+    </div>
+    <script>
+      // 模块脚本在旧内核里可能整段不执行，Vue 永远不会挂载。#app 里的静态内容因此
+      // 就是兜底页面；这里只负责在超时后把「正在进入」换成能看懂的提示和重试入口。
+      // 这段是普通脚本，不依赖 ES module，脚本本身报错也不影响页面显示。
+      (function () {
+        var timer = setTimeout(function () {
+          var boot = document.querySelector("[data-knot-boot]");
+          if (!boot || document.querySelector(".app-shell, .gate-card")) return;
+          boot.classList.add("is-failed");
+          var line = boot.querySelector("[data-knot-line]");
+          if (line) line.textContent = "页面还没有加载出来，可能是网络太慢。";
+        }, 12000);
+        window.addEventListener("load", function () {
+          // load 之后仍未挂载才等满 12 秒；已经挂载就不用等。
+          if (document.querySelector(".app-shell, .gate-card")) clearTimeout(timer);
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

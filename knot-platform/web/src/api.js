@@ -1,21 +1,55 @@
-async function request(path, options = {}) {
-  const res = await fetch(path, {
+// 跨境链路上，一次请求可能永远不回来：TCP 重传会拖到几分钟，而首屏正等它。
+// 给每条请求一个上限；超时按一次「这次没问到」处理，不让会话停在「正在进入」。
+const REQUEST_TIMEOUT_MS = 15000;
+
+function requestOptions(options) {
+  return {
     // 先摊开 options 再写 headers：反过来的话调用方一旦传 headers，就会把这里合并出的
     // Content-Type 整个顶掉，JSON 请求会缺头。
     ...options,
     credentials: "include",
     headers: { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const error = new Error(data.error || res.statusText);
-    error.code = data.error || "request_failed";
-    error.status = res.status;
-    // 429 告诉你还要等多少秒；其它响应没有这个头，就是 0。
-    error.retryAfter = Number(res.headers.get("Retry-After")) || 0;
+  };
+}
+
+async function send(path, options, timeout) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(path, { ...requestOptions(options), signal: controller.signal });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const error = new Error(data.error || res.statusText);
+      error.code = data.error || "request_failed";
+      error.status = res.status;
+      // 429 告诉你还要等多少秒；其它响应没有这个头，就是 0。
+      error.retryAfter = Number(res.headers.get("Retry-After")) || 0;
+      throw error;
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function request(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const timeout = Number(options.timeout) > 0 ? Number(options.timeout) : REQUEST_TIMEOUT_MS;
+  try {
+    return await send(path, options, timeout);
+  } catch (error) {
+    // 只重试一次读请求：网络抖动、隧道换连接都不该让一次页面打开失败。
+    // 写请求不重试——重发一次可能变成两条记录、两笔扣款。
+    if (method === "GET" && !options.retried && (error.name === "AbortError" || error instanceof TypeError)) {
+      return send(path, { ...options, retried: true }, timeout);
+    }
+    if (error.name === "AbortError") {
+      const timeoutError = new Error("timeout");
+      timeoutError.code = "timeout";
+      throw timeoutError;
+    }
     throw error;
   }
-  return data;
 }
 
 export function getSession() {

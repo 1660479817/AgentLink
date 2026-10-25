@@ -186,7 +186,7 @@ watch(
           :aria-pressed="authorSelected"
           @click="authorId && emit('author')"
         >
-          <img v-if="avatarUrl" :src="avatarUrl" alt="" />
+          <img v-if="avatarUrl" :src="avatarUrl" alt="" loading="lazy" decoding="async" />
           <UserIcon v-else aria-hidden="true" />
         </button>
         <div class="information-who">

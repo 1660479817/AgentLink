@@ -305,7 +305,7 @@ onUnmounted(() => {
             v-bind="linkAttrs(item.href)"
           >
             <span class="sponsor-media" aria-hidden="true">
-              <img v-if="item.image" class="sponsor-photo" :src="item.image" alt="" />
+              <img v-if="item.image" class="sponsor-photo" :src="item.image" alt="" loading="lazy" decoding="async" />
               <span v-else class="brand-mark">{{ sponsorMark(item.title) }}</span>
             </span>
             <span class="sponsor-copy">

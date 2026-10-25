@@ -604,7 +604,7 @@ async function downloadItem(item) {
     <div ref="railViewport" class="intel-rail-viewport" @scroll="updateRail" @pointerdown="onRailPointerDown">
       <button type="button" class="intel-create" :aria-pressed="surface === 'snap'" @click="openSnap">
         <span class="intel-create-photo" aria-hidden="true">
-          <img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="" />
+          <img v-if="session.user?.avatarUrl" :src="session.user.avatarUrl" alt="" loading="lazy" decoding="async" />
           <span v-else-if="createMark">{{ createMark }}</span>
           <UserIcon v-else />
         </span>
@@ -621,7 +621,7 @@ async function downloadItem(item) {
         :aria-label="personLabel(person)"
       >
         <span class="intel-person-avatar" aria-hidden="true">
-          <img v-if="person.avatarUrl" :src="person.avatarUrl" alt="" />
+          <img v-if="person.avatarUrl" :src="person.avatarUrl" alt="" loading="lazy" decoding="async" />
           <UserIcon v-else />
         </span>
         <span class="intel-person-label">

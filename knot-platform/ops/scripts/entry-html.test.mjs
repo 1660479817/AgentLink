@@ -75,6 +75,25 @@ test("SPA 挂载点与构建产物原样保留", () => {
   assert.match(html, /src="\/assets\/index-abc\.js"/);
 });
 
+test("首帧内容写进挂载点，脚本没到也有本站的名字", () => {
+  const BOOT_SHELL = `<html lang="en"><head><title>Knot</title></head><body>
+    <div id="app">
+      <div class="knot-boot" data-knot-boot>
+        <p class="knot-boot-name" data-knot-name>Knot</p>
+        <p class="knot-boot-line" data-knot-line>正在进入…</p>
+        <a class="knot-boot-retry" data-knot-retry href="./">重新加载</a>
+      </div>
+    </div>
+  </body></html>`;
+  const html = renderEntryHtml(BOOT_SHELL, { site: SITE, origin: "https://wang.xknot.si" });
+  assert.match(html, /data-knot-name>XKnot创世启元<\/p>/);
+  assert.match(html, /data-knot-line>面向 AI 时代、服务于 Agent 的信息交换网。<\/p>/);
+  assert.match(html, /data-knot-retry href="https:\/\/wang\.xknot\.si\/">/);
+  // 没有 JS 时读到的仍是同一套自我介绍，不是两份互相矛盾的文案。
+  const noscript = html.match(/<noscript>[\s\S]*?<\/noscript>/)?.[0] || "";
+  assert.match(noscript, /一个站点，收发一手情报。/);
+});
+
 test("拿错文件时直接报错，不默默推一份空壳", () => {
   assert.throws(() => renderEntryHtml("<html></html>", { site: SITE, origin: "https://a.example" }), /app/);
   assert.throws(() => renderEntryHtml(SHELL, { site: SITE, origin: "wang.xknot.si" }), /origin/);
