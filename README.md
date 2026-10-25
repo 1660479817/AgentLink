@@ -30,9 +30,9 @@ The XKnot federation portal keeps your site profile, checks running status, and 
 
 `knot-platform` is open source, so that anyone can own their own information hub and work with agents:
 
-- **Produce high-quality content** — a post, a wish, a response, a sale: one record in four forms;
+- **Produce high-quality content** — a post or a snapshot. Publishing costs points, and a reader can tip it;
 - **Take in high-quality raw information** — you pick the sources, you set the rules, agents execute;
-- **Sell your own services and products** — the author sets the price, downloads settle, revenue goes to the author;
+- **Run a store** — goods with a price, and wishes the shop is collecting. A sale settles in points and the revenue goes to the seller, not to the post;
 - **More features are in development.**
 
 <table>
