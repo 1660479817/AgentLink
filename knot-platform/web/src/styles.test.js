@@ -3,24 +3,15 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-// 模板里拼出来的类名（btn-<variant>、stage-<stage>、gate-fade 这类过渡类）在
-// 标记里查不到字面量，按「没有对应标记」做死代码清理会把规则连根删掉，界面上
-// 只剩裸样式。下面几条把「拼出来的名字」和「样式表里有没有这条」绑在一起。
+// 模板里拼出来的类名（btn-<variant>、stage-<stage>）在标记里查不到字面量，
+// 过渡的 enter/leave 类也只在 <Transition> 的 name 里出现，按「没有对应标记」
+// 做死代码清理会把规则连根删掉，界面上只剩裸样式。下面几条把「拼出来的名字」
+// 和「样式表里有没有这条」绑在一起。
 
-// 首页轮播把左右两张卡片用位移露在容器外，容器本身不裁切时会把文档撑宽：
-// 390px 视口实测 scrollWidth 440，手机上能横向拖动。这里盯住那条裁切规则，
-// 免得以后调轮播样式时又被删掉。
+// 首页演示从三张轮播换成一张图后，不需要再裁掉左右露出的卡片；
+// 这里只盯住它在桌面不超出正文、在手机上按容器收窄。
 
 const css = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
-
-test("首页轮播容器只裁横向溢出", () => {
-  const start = css.indexOf(".gate-carousel {");
-  assert.notEqual(start, -1, "styles.css 里没有 .gate-carousel");
-  const block = css.slice(start, css.indexOf("}", start));
-  assert.match(block, /overflow-x:\s*clip;/);
-  // hidden 会把纵向也变成滚动容器，浮动阴影被切掉。
-  assert.doesNotMatch(block, /overflow(-[xy])?:\s*hidden/);
-});
 
 const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
@@ -30,6 +21,15 @@ function blockOf(selector) {
   }
   return null;
 }
+
+test("首页演示图按容器收窄", () => {
+  const block = blockOf(".gate-shot img");
+  assert.ok(block, "styles.css 里没有 .gate-shot img");
+  assert.match(block, /width:\s*100%;/);
+  assert.match(block, /max-width:\s*680px;/);
+  // 固定高度会把竖屏或窄屏上的图压扁，比例交给浏览器按原图算。
+  assert.match(block, /height:\s*auto;/);
+});
 
 test("AppButton 的每个变体都有自己的底座规则", () => {
   const button = readFileSync(fileURLToPath(new URL("./components/AppButton.vue", import.meta.url)), "utf8");
@@ -75,7 +75,7 @@ test("模板里的过渡名都有过渡规则", () => {
     const src = readFileSync(file, "utf8");
     for (const m of src.matchAll(/<Transition[^>]*\bname="([a-z-]+)"/g)) names.add(m[1]);
   }
-  assert.ok(names.size > 0, "一个过渡都没找到，解析写错了");
+  assert.ok(files.length > 0, "一个 .vue 都没找到，解析写错了");
   for (const name of names) {
     assert.ok(blockOf(`.${name}-enter-active`), `模板用了过渡 ${name}，样式表里没有 .${name}-enter-active`);
     assert.ok(blockOf(`.${name}-enter-from`), `模板用了过渡 ${name}，样式表里没有 .${name}-enter-from`);
