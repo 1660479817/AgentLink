@@ -40,6 +40,11 @@ if [[ ! -f "$BOARD/discover.json" ]]; then
 fi
 
 SSH_OPTS=(-o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
+# 推送期间一直握着锁：上面那次 mkdir 拿到之后，任何一步卡住都会让后续的内容变更
+# 全部报「另一个快照推送正在跑」，直到内核把这条 TCP 判死（可能十几分钟）。
+# ConnectTimeout 管建连，ServerAlive 管建好之后对端不吭声：链路换了路径、
+# 中转机丢包时，45 秒内失败退出、trap 解开锁，下一轮内容变更就能重新推。
+SSH_OPTS+=(-o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
 # 实例主机用 KNOT_ENTRY_PUSH_KEY；旧机器把它写在运行时文件的 KNOT_ENTRY_SSH_KEY 里。
 # KNOT_ENTRY_PUSH_KEY 有默认路径，所以默认路径不存在时再退回旧键。
 ENTRY_KEY="$(knot_expand_path "${KNOT_ENTRY_PUSH_KEY:-}")"
