@@ -20,7 +20,7 @@ import { removePost } from "../admin.js";
 import { agentLimitOf, bioText, displayNameText, muteState } from "../account.js";
 import { agentIssueError, ensurePersonalAgent, findAgentsOf, retireAgent } from "../agentAccount.js";
 import { economyReport } from "../actuary.js";
-import { policyConfig } from "../points.js";
+import { imageUploadLimit, policyConfig } from "../points.js";
 import { clearSessionCookie, setSessionCookie, sessionTtlMs } from "../middleware/session.js";
 import { MEDIA_PUBLIC, mediaAudience } from "../preview.js";
 import { ensureSharePoster } from "../sharePoster.js";
@@ -141,7 +141,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   });
   const upload = multer({
     storage,
-    limits: { fileSize: envBytes("KNOT_UPLOAD_IMAGE_MAX_BYTES", 8 * MiB) },
+    // 与 policy 下发给 WebUI 的是同一个值：客户端压到上限以内，服务端照样按它兜底。
+    limits: { fileSize: imageUploadLimit() },
     fileFilter: (_req, file, cb) => {
       if (String(file.mimetype || "").startsWith("image/")) cb(null, true);
       else cb(new Error("bad_mime"));

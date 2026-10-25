@@ -697,8 +697,10 @@ const PLATFORM_KEYS = [
     key: "KNOT_UPLOAD_IMAGE_MAX_BYTES",
     group: "storage",
     type: "bytes",
-    default: 8 * MiB,
-    desc: "单张图片上限。同时要小于 KNOT_ENTRY_MAX_BODY。",
+    // 16 MiB：手机相册里的 24MP/48MP 原图常在 5–12 MiB，8 MiB 会把它们挡在门外。
+    // WebUI 会先压到上限以内再上传，这里是兜底，不是正常路径。
+    default: 16 * MiB,
+    desc: "单张图片上限。WebUI 会先在浏览器里压到这个值以内；同时要小于 KNOT_ENTRY_MAX_BODY。",
   },
   {
     key: "KNOT_UPLOAD_AUDIO_MAX_BYTES",

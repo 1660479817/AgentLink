@@ -53,9 +53,6 @@ const lane = ref("sales");
 const loaded = ref(false);
 // 我的列表取失败时单独记一笔，界面据此说「没连上」而不是「没有」。
 const listFailed = ref(false);
-// 「提交中」= 出站队列里还有任务。原来这里是 ref(false) 且从未置真，
-// 于是 :disabled="busy" 与轮询的 when 条件全是常量，表单也没有提交互斥。
-const busy = computed(() => outbox.jobs.length > 0);
 const fields = ref(null);
 const imageInput = ref(null);
 const fileInput = ref(null);
@@ -91,6 +88,7 @@ const {
   posterPreview,
   price,
   error,
+  preparing,
   addImages,
   removeImage,
   addFiles,
@@ -100,7 +98,7 @@ const {
   setPosterFile,
   removePoster,
   reset: resetMedia,
-} = usePacketMedia();
+} = usePacketMedia(() => session.policy);
 const {
   images: replyImages,
   previewUrls: replyPreviewUrls,
@@ -111,6 +109,8 @@ const {
   posterFile: replyPosterFile,
   posterPreview: replyPosterPreview,
   price: replyPrice,
+  error: replyMediaError,
+  preparing: replyPreparing,
   addImages: addReplyImages,
   removeImage: removeReplyImage,
   addFiles: addReplyFiles,
@@ -120,7 +120,12 @@ const {
   setPosterFile: setReplyPosterFile,
   removePoster: removeReplyPoster,
   reset: resetReply,
-} = usePacketMedia();
+} = usePacketMedia(() => session.policy);
+
+// 压缩期间只收紧提交与轮询：正文、附件、删除都不该被冻住。出站队列还有任务时，
+// 表单同样保持不可编辑（那时内容已经进队列，改表单没有意义）。
+const busy = computed(() => outbox.jobs.length > 0);
+const blocked = computed(() => busy.value || preparing.value || replyPreparing.value);
 
 const canSend = () =>
   Boolean(body.value.trim() || video.value.trim() || images.value.length || files.value.length || audio.value);
@@ -445,8 +450,10 @@ watch(respondId, async (id, prev) => {
 });
 
 async function pickImages(event) {
-  await addImages(Array.from(event.target.files || []));
+  const files = Array.from(event.target.files || []);
+  // 先清空再等压缩：同一张图压完前又选一次时，input 的值没清就不会触发 change。
   event.target.value = "";
+  await addImages(files);
 }
 
 function pickFiles(event) {
@@ -489,7 +496,7 @@ async function pickReplyPoster(event) {
 }
 
 function submit() {
-  if (!canSend() || busy.value) return;
+  if (!canSend() || blocked.value) return;
   if (composeMode.value === "wish" && !agreed.value) return;
   error.value = "";
   const link = readVideoLink(video.value);
@@ -552,7 +559,7 @@ async function submitReply() {
     replyError.value = t("wish.replyMissing");
     return;
   }
-  if (!canReply() || busy.value) return;
+  if (!canReply() || blocked.value) return;
   replyError.value = "";
   const link = readVideoLink(replyVideo.value);
   if (link === null) {
@@ -1038,12 +1045,12 @@ async function dismissSale(item) {
                     type="submit"
                     form="wish-reply-form"
                     :aria-label="t('wish.respondSend')"
-                    :disabled="busy || !canReply()"
+                    :disabled="blocked || !canReply()"
                   >
                     <SendIcon aria-hidden="true" />
                   </AppButton>
                 </div>
-                <p v-if="replyError" class="error" role="alert">{{ replyError }}</p>
+                <p v-if="replyError || replyMediaError" class="error" role="alert">{{ replyError || replyMediaError }}</p>
               </template>
               <AppButton
                 v-else-if="!item.responses.length && session.user"
@@ -1179,7 +1186,7 @@ async function dismissSale(item) {
             type="submit"
             form="wish-form"
             :aria-label="composeMode === 'sale' ? t('wish.saleSend') : t('wish.send')"
-            :disabled="busy || !canSend() || (composeMode === 'wish' && !agreed)"
+            :disabled="blocked || !canSend() || (composeMode === 'wish' && !agreed)"
           >
             <SendIcon aria-hidden="true" />
           </AppButton>

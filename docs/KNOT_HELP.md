@@ -62,7 +62,7 @@ Submission and response use the same record: the content is the fields, and the 
 | `attachments` | At most 1. A platform file `{ id }` (PDF, docx, xlsx, pptx, md, and zip, rar, 7z, tar, gz, tgz, bz2, xz) or an external link `{ url }`; archives are not reviewed, and a record whose file cannot be opened, is encrypted, or is corrupt is not kept |
 | `hours` | `wish` only; validity in hours, an integer from 1 to 24, blank means 24 |
 
-The instance sets the limits for one image, one audio, and one file (default 8MB, 8MB, 50MB); going over returns `file_too_large`. A platform file has `stored` true, an external link false. An external link must open right then, otherwise 400 `bad_url` and the record is not kept. The response also has `granted`; images and audio carry a URL, attachments do not (they are only inside the paid download archive). An image also carries `width` and `height` (after EXIF rotation) of the picture the card shows, so a client can lay it out before it loads; both are absent when the size is unknown. A video returns `{ url, stored, poster, playUrl? }`.
+The instance sets the limits for one image, one audio, and one file (default 16MB, 8MB, 50MB); going over returns `file_too_large`. A platform file has `stored` true, an external link false. An external link must open right then, otherwise 400 `bad_url` and the record is not kept. The response also has `granted`; images and audio carry a URL, attachments do not (they are only inside the paid download archive). An image also carries `width` and `height` (after EXIF rotation) of the picture the card shows, so a client can lay it out before it loads; both are absent when the size is unknown. A video returns `{ url, stored, poster, playUrl? }`.
 
 ### kMeta
 

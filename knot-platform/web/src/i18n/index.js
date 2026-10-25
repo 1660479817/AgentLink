@@ -1,8 +1,9 @@
 import { ref } from "vue";
 import { DEFAULT_SITE_LOCALE } from "@knot/locale";
-import en from "./locales/en.json";
-import zhCN from "./locales/zh-CN.json";
-import zhTW from "./locales/zh-TW.json";
+// JSON 必须带 import attribute：Vite 认这个写法，Node 直接跑测试时也才认得。
+import en from "./locales/en.json" with { type: "json" };
+import zhCN from "./locales/zh-CN.json" with { type: "json" };
+import zhTW from "./locales/zh-TW.json" with { type: "json" };
 import { bootLocale, PIN_KEY, readStored } from "../locale.js";
 
 const catalogs = {

@@ -1,3 +1,5 @@
+import { keyEntry } from "@knot/config";
+
 export const PLATFORM_ACCOUNT_ID = "00000000-0000-4000-8000-000000000001";
 
 function nonNegativeInt(raw, fallback) {
@@ -89,6 +91,19 @@ export function signupGrant() {
   return economyConfig().signupGrant;
 }
 
+// 单张图片上限。multer 的体积限制与前端「压到多大算够」都读这一处，
+// 两处各写一个数字时，实例调大了前端仍会按旧值先拦住人。
+// 缺省值不在这里另写：取 packages/knot-config 登记表里的那一份。
+const IMAGE_MAX_KEY = "KNOT_UPLOAD_IMAGE_MAX_BYTES";
+
+export function imageUploadLimit() {
+  const value = Number(process.env[IMAGE_MAX_KEY]);
+  if (Number.isFinite(value) && value > 0) return Math.floor(value);
+  const entry = keyEntry(IMAGE_MAX_KEY);
+  if (!entry) throw new Error(`配置键 ${IMAGE_MAX_KEY} 没有在 packages/knot-config 里登记`);
+  return Number(entry.default);
+}
+
 export function policyConfig() {
   const price = pricePolicy();
   const { publishServiceFeePerMb, downloadServiceFeePerMb, serviceFeeCap, retrievalPrice } = economyConfig();
@@ -100,6 +115,8 @@ export function policyConfig() {
     downloadServiceFeePerMb,
     serviceFeeCap,
     retrievalPrice,
+    // 下发到 WebUI：选图后先在浏览器里压到这个上限以内，再上传。
+    imageMaxBytes: imageUploadLimit(),
   };
 }
 

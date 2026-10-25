@@ -23,7 +23,7 @@ const mentions = ref([]);
 const mentionOpen = ref(false);
 const isPublic = ref(false);
 const priceFocused = ref(false);
-const busy = ref(false);
+const sending = ref(false);
 const bodyInput = ref(null);
 const videoInput = ref(null);
 const imageInput = ref(null);
@@ -42,6 +42,7 @@ const {
   price,
   error,
   hasUpload,
+  preparing,
   addImages,
   removeImage,
   addFiles,
@@ -51,7 +52,11 @@ const {
   setPosterFile,
   removePoster,
   reset: resetMedia,
-} = usePacketMedia();
+} = usePacketMedia(() => session.policy);
+// 压缩期间只收紧提交：正文、附件、删除、关闭都不该被冻住，否则一批九张图压十几秒，
+// 表单看起来就是卡死了。提交口子必须在压缩结束前关着，否则会发出缺图的内容。
+const busy = computed(() => sending.value);
+const blocked = computed(() => busy.value || preparing.value);
 const mark = computed(() => nameMark(session.user));
 const priceHint = computed(() =>
   priceFocused.value
@@ -77,7 +82,7 @@ function resetAll() {
   mentions.value = [];
   mentionOpen.value = false;
   isPublic.value = false;
-  busy.value = false;
+  sending.value = false;
   resetMedia();
 }
 
@@ -135,8 +140,10 @@ function onMedia(kind) {
 }
 
 async function pickImages(event) {
-  await addImages(Array.from(event.target.files || []));
+  const files = Array.from(event.target.files || []);
+  // 先清空再等压缩：同一张图压完前又选一次时，input 的值没清就不会触发 change。
   event.target.value = "";
+  await addImages(files);
 }
 
 function pickFiles(event) {
@@ -157,7 +164,7 @@ async function pickPoster(event) {
 }
 
 function submit() {
-  if (!canSend.value || busy.value) return;
+  if (!canSend.value || blocked.value) return;
   error.value = "";
   const link = readVideoLink(video.value);
   if (link === null) {
@@ -186,7 +193,7 @@ function submit() {
   const extra = { kind: "post", public: isPublic.value };
   if (files.value.length && priced.price !== undefined) extra.price = priced.price;
   if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
-  busy.value = true;
+  sending.value = true;
   outbox.enqueue(packetDraft({
     body: body.value.trim(),
     images: images.value,
@@ -342,7 +349,7 @@ function submit() {
             variant="icon"
             type="submit"
             :aria-label="t('home.send')"
-            :disabled="busy || !canSend"
+            :disabled="blocked || !canSend"
           >
             <SendIcon aria-hidden="true" />
           </AppButton>

@@ -31,7 +31,7 @@ import { listNotifications, markNotificationsRead, noticeSummary } from "../noti
 import { allow, retryAfterSeconds } from "../rateLimit.js";
 import { searchConfig } from "../searchConfig.js";
 import { createRetrieval } from "../retrieval.js";
-import { economyConfig } from "../points.js";
+import { economyConfig, imageUploadLimit } from "../points.js";
 import { attachmentOpens } from "../readable.js";
 import { avatarUrlFor } from "../avatars.js";
 import { acceptAvatar, ensureUploadDir, newStorageName } from "../uploads.js";
@@ -177,7 +177,8 @@ export function agentRouter({ pool, uploadDir }) {
   });
   const imageUpload = multer({
     storage,
-    limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 10, parts: 20 },
+    // 与 Web 上传读同一个键：Agent 与 WebUI 对「一张图能有多大」给出同一个答案。
+    limits: { fileSize: imageUploadLimit(), files: 1, fields: 10, parts: 20 },
     fileFilter: (_req, file, cb) => {
       if (String(file.mimetype || "").startsWith("image/")) cb(null, true);
       else cb(new Error("bad_mime"));
