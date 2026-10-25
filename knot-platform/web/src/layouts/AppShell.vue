@@ -9,8 +9,7 @@ import OutboxNotice from "../components/OutboxNotice.vue";
 import RememberLoginCard from "../components/RememberLoginCard.vue";
 import SiteOwnerDialog from "../components/SiteOwnerDialog.vue";
 import XknotMark from "../components/XknotMark.vue";
-import { downloadConsent } from "../download/consent.js";
-import { BackIcon, BellIcon, ChatIcon, ClockIcon, FriendsIcon, HelpIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
+import { BackIcon, BellIcon, ClockIcon, CoinIcon, FriendsIcon, HelpIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
 import { listSponsors } from "../api.js";
 import { hasDraft, runningEntry, startReleaseWatch } from "../release.js";
@@ -105,7 +104,6 @@ function linkAttrs(href) {
 
 function pageBlocked() {
   if (outbox.jobs.length) return true;
-  if (downloadConsent.value) return true;
   return hasDraft(document);
 }
 
@@ -123,7 +121,7 @@ watch(
 );
 
 watch(
-  () => [outbox.jobs.map((job) => `${job.id}:${job.status}`).join(","), downloadConsent.value?.phase || ""],
+  () => outbox.jobs.map((job) => `${job.id}:${job.status}`).join(","),
   () => releaseWatch?.poke()
 );
 
@@ -194,8 +192,8 @@ onUnmounted(() => {
             @click="openOwner"
           >{{ siteName }}</button>
           <div class="header-side header-side-end">
-            <AppButton v-if="session.canBrowse" variant="icon" to="/wish" :aria-label="t('nav.market')">
-              <ChatIcon class="nav-icon" weight="header" aria-hidden="true" />
+            <AppButton v-if="session.canBrowse" variant="icon" to="/store" :aria-label="t('nav.store')">
+              <CoinIcon class="nav-icon" weight="header" aria-hidden="true" />
             </AppButton>
             <AppButton v-if="session.user" variant="icon" to="/notifications" :aria-label="t('nav.notifications')">
               <BellIcon class="nav-icon" weight="header" aria-hidden="true" />

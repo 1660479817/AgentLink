@@ -84,7 +84,9 @@ export const useOutboxStore = defineStore("outbox", {
           extra.videos = [{ url: draft.video.url, poster: { id: posterId } }];
         }
         if (stopped()) return;
-        await createIntel(draft.body, imageIds, fileIds, extra);
+        // 默认发内容；上架商品时草稿自带 send，指向 /store。两条路只差最后这一次调用。
+        const send = typeof draft.send === "function" ? draft.send : createIntel;
+        await send(draft.body, imageIds, fileIds, extra);
         this.jobs = this.jobs.filter((job) => job.id !== id);
         this.revision += 1;
       } catch (err) {

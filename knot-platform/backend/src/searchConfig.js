@@ -33,13 +33,7 @@ export function searchConfig() {
     cacheTtlMs: capped(nonNegativeInt(process.env.KNOT_SEARCH_CACHE_TTL, 30), 3600) * 1000,
     // 单个身份每分钟的检索次数。0 表示不限。
     searchRatePerMinute: nonNegativeInt(process.env.KNOT_SEARCH_RATE_PER_MIN, 120),
-    // 单个账号每小时能提交多少次信息检索。0 表示不限。
-    retrievalRatePerHour: nonNegativeInt(process.env.KNOT_RETRIEVAL_RATE_PER_HOUR, 10),
-    // 信息检索员同时处理几个任务。串行时一个慢任务会占住整条队列。
-    retrievalConcurrency: capped(positiveInt(process.env.KNOT_RETRIEVAL_CONCURRENCY, 2), 32),
-    // 单个检索任务最多尝试几次。
-    retrievalMaxAttempts: capped(positiveInt(process.env.KNOT_RETRIEVAL_MAX_ATTEMPTS, 3), 10),
-    // 终审队列同时处理几条。检索产生的 wish 与 wishRespond 都进这条队列。
+    // 终审队列同时处理几条。
     reviewConcurrency: capped(positiveInt(process.env.KNOT_REVIEW_CONCURRENCY, 2), 32),
     // 检索打点保留天数。0 表示永久保留。
     searchEventRetentionDays: nonNegativeInt(process.env.KNOT_SEARCH_EVENT_RETENTION_DAYS, 90),

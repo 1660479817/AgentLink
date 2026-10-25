@@ -40,7 +40,7 @@ test("propose posts the whole schedule and apply posts only the id", async () =>
     return jsonResponse(201, { proposal: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1" } });
   };
   const proposed = await execute(
-    ["propose", "--default", "0", "--min", "0", "--max", "20", "--publish-fee", "1", "--download-fee", "2", "--cap", "10", "--usd-cents", "1", "--retrieval", "10"],
+    ["propose", "--default", "0", "--min", "1", "--max", "20", "--publish-fee", "1", "--cap", "10", "--usd-cents", "1"],
     { token: TOKEN, fetch }
   );
   assert.equal(proposed.code, 0);
@@ -49,13 +49,11 @@ test("propose posts the whole schedule and apply posts only the id", async () =>
   assert.equal(seen[0].init.headers["Content-Type"], "application/json");
   assert.deepEqual(JSON.parse(seen[0].init.body), {
     defaultPrice: 0,
-    priceMin: 0,
+    priceMin: 1,
     priceMax: 20,
     publishServiceFeePerMb: 1,
-    downloadServiceFeePerMb: 2,
     serviceFeeCap: 10,
     pointUsdCents: 1,
-    retrievalPrice: 10,
   });
   assert.equal(seen[0].init.headers.Authorization, `Bearer ${TOKEN}`);
   assert.equal(seen[0].init.body.includes(TOKEN), false);

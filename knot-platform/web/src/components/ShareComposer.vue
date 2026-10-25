@@ -2,9 +2,9 @@
 import { computed, nextTick, ref, watch } from "vue";
 import AppButton from "./AppButton.vue";
 import MentionPicker from "./MentionPicker.vue";
-import { ATTACHMENT_ACCEPT, errorText, nameMark, readOptionalPrice, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
+import { ATTACHMENT_ACCEPT, errorText, nameMark, readVideoLink, requireSession, usePacketMedia } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
-import { AtIcon, AudioIcon, CloseIcon, CoinIcon, ImageIcon, PaperclipIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
+import { AtIcon, AudioIcon, CloseIcon, ImageIcon, PaperclipIcon, SendIcon, UserIcon, VideoIcon } from "../icons/index.js";
 import { packetDraft, useOutboxStore } from "../stores/outbox";
 import { useSessionStore } from "../stores/session";
 
@@ -22,7 +22,6 @@ const body = ref("");
 const mentions = ref([]);
 const mentionOpen = ref(false);
 const isPublic = ref(false);
-const priceFocused = ref(false);
 const sending = ref(false);
 const bodyInput = ref(null);
 const videoInput = ref(null);
@@ -39,7 +38,6 @@ const {
   videoOpen,
   posterFile,
   posterPreview,
-  price,
   error,
   hasUpload,
   preparing,
@@ -58,14 +56,6 @@ const {
 const busy = computed(() => sending.value);
 const blocked = computed(() => busy.value || preparing.value);
 const mark = computed(() => nameMark(session.user));
-const priceHint = computed(() =>
-  priceFocused.value
-    ? t("home.priceRange", {
-        min: session.policy.priceMin ?? 0,
-        max: session.policy.priceMax ?? 100,
-      })
-    : t("home.priceEmpty")
-);
 const canSend = computed(() =>
   isPublic.value &&
   Boolean(
@@ -179,19 +169,14 @@ function submit() {
     }
     videoPayload = { url: link, posterFile: posterFile.value };
   }
-  const priced = files.value.length ? readOptionalPrice(price.value, session.policy) : { ok: true, price: undefined };
-  if (files.value.length && !priced.ok) {
-    error.value = errorText("bad_price", session.policy);
-    return;
-  }
   try {
     requireSession(session.user);
   } catch (err) {
     error.value = errorText(err.code, session.policy);
     return;
   }
+  // 内容不带价：post / fastpost 永远是 0，附件免费取。
   const extra = { kind: "post", public: isPublic.value };
-  if (files.value.length && priced.price !== undefined) extra.price = priced.price;
   if (mentions.value.length) extra.mentions = mentions.value.map((friend) => friend.id);
   sending.value = true;
   outbox.enqueue(packetDraft({
@@ -324,28 +309,13 @@ function submit() {
         </ul>
         <div class="share-foot">
           <div class="share-foot-fields">
-            <label class="wish-consent share-consent">
+            <label class="share-consent">
               <input v-model="isPublic" type="checkbox" :disabled="busy" />
               <span>{{ t("home.shareConsent") }}</span>
             </label>
-            <label v-if="files.length" class="share-coin">
-              <CoinIcon class="share-coin-icon" aria-hidden="true" />
-              <input
-                id="share-price"
-                v-model="price"
-                type="text"
-                inputmode="numeric"
-                class="share-coin-input"
-                :placeholder="priceHint"
-                :aria-label="t('home.priceField')"
-                :disabled="busy"
-                @focus="priceFocused = true"
-                @blur="priceFocused = false"
-              />
-            </label>
           </div>
           <AppButton
-            class="wish-send"
+            class="share-send"
             variant="icon"
             type="submit"
             :aria-label="t('home.send')"

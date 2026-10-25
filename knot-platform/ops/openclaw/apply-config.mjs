@@ -365,7 +365,7 @@ if (isDirect && command === "ids") {
   if (soulReady("# SOUL\n\n你是智能体。\n")) process.exit(1);
   if (!userReady("<!-- observed: 2026-10-16 | status: active -->\n\n- Always 交回 JSON。\n")) process.exit(1);
   if (userReady("# USER\n\n交回 JSON。\n")) process.exit(1);
-  for (const id of ["knot-intel", "knot-admin", "knot-actuary", "knot-retrieval"]) {
+  for (const id of ["knot-intel", "knot-admin", "knot-actuary"]) {
     await assertPrompts(path.join(root, "agents", id));
   }
   const emptyDir = path.join(os.tmpdir(), `knot-prompt-${process.pid}`);

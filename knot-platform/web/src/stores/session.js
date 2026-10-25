@@ -9,7 +9,6 @@ const INITIAL_POLICY = {
   priceMin: 0,
   priceMax: 100,
   publishServiceFeePerMb: 1,
-  downloadServiceFeePerMb: 1,
   serviceFeeCap: 10,
 };
 

@@ -34,21 +34,19 @@ The platform only supports top-up; points cannot be converted back to money. Dol
 |----|------|------|
 | `KNOT_SIGNUP_GRANT` | signup grant (general points) | 100 |
 | `KNOT_GRANT_MAX` | single-grant cap | 100000 |
-| `KNOT_DEFAULT_PRICE` | price when left blank | 10 |
-| `KNOT_PRICE_MIN` | price floor | 0 |
-| `KNOT_PRICE_MAX` | price ceiling | 100 |
+| `KNOT_DEFAULT_PRICE` | coupon face value | 10 |
+| `KNOT_PRICE_MIN` | item price floor, at least 1 | 1 |
+| `KNOT_PRICE_MAX` | item price ceiling | 100 |
 | `KNOT_PUBLISH_SERVICE_FEE_PER_MB` | publish service fee: points per MB of attachment (platform) | 1 |
-| `KNOT_DOWNLOAD_SERVICE_FEE_PER_MB` | download service fee: points per MB of attachment (platform) | 1 |
 | `KNOT_SERVICE_FEE_CAP` | per-charge service fee cap; 0 means no cap | 10 |
-| `KNOT_RETRIEVAL_PRICE` | retrieval price: uniform per-retrieval price (platform) | 10 |
 
 ### Who changes prices
 
-The platform price is set by the actuary. This one holds the default price, floor and ceiling, publish service fee, download service fee, cap, US cents per point, and the retrieval price. A single record's price is still written by its author within the floor and ceiling. The signup grant, grant cap, cumulative top-up, and monthly opex are not in this table.
+The platform price is set by the actuary. This one holds the default price (which is the coupon face value), the item price floor and ceiling, the publish service fee, the fee cap, and US cents per point. A seller still writes each item's price within the floor and ceiling. The signup grant, grant cap, cumulative top-up, and monthly opex are not in this table.
 
-It first writes a proposal (`price_proposals`, status `pending`). After the owner agrees, this one is written into `economy_policy`, immediately overriding those eight env keys, no restart needed. When a pending proposal already exists, the new one withdraws it (`withdrawn`). Written ones are `applied`. Already-published prices are not changed. Later publishes, downloads, retrievals, and the web `policy` use the new table.
+It first writes a proposal (`price_proposals`, status `pending`). After the owner agrees, this one is written into `economy_policy`, immediately overriding those six env keys, no restart needed. When a pending proposal already exists, the new one withdraws it (`withdrawn`). Written ones are `applied`. Already-published prices are not changed. Later publishes, sales, and the web `policy` use the new table.
 
-Allowed range: default price, floor and ceiling, cap, US cents per point, and retrieval price are integers 0 to 100000; the default price falls within floor and ceiling; the ceiling is not below the floor. The retrieval price is a platform service price, not constrained by the author-price bounds. Per-MB service fees are integers 0 to 1000.
+Allowed range: default price, floor and ceiling, cap, and US cents per point are integers 0 to 100000; the default price falls within the floor and ceiling; the ceiling is not below the floor. Per-MB service fees are integers 0 to 1000. An item's effective floor is `max(1, priceMin)`: a shelf price is never 0.
 
 Loopback interfaces:
 
@@ -64,23 +62,19 @@ The administrator does not touch this table.
 
 ## Price system
 
-The platform needs only two price formulas, both priced by **attachment bytes** (not text, images, or audio), in MB rounded up, capped at `KNOT_SERVICE_FEE_CAP`. Both the publish and download charges are **service fees**, taken by the platform to cover storage and transfer. An attachment is a PDF, Word, Excel, PPT, Markdown, or archive.
+The platform needs two prices, and they never mix: a **publish service fee** priced by attachment bytes (not text, images, or audio), in MB rounded up, capped at `KNOT_SERVICE_FEE_CAP`, taken by the platform to cover storage and transfer; and a **seller price** on a store item, paid in full to the seller. An attachment is a PDF, Word, Excel, PPT, Markdown, or archive.
 
 ### 1. Publish service fee (platform)
 
-For the four publish kinds `post`, `fastpost`, `wish`, `wishRespond`, cost = `ceil(attachment bytes / 1MB) × x`, x = `KNOT_PUBLISH_SERVICE_FEE_PER_MB` (default 1), capped at 10.
+For the three publish kinds `post`, `fastpost`, `item`, cost = `ceil(attachment bytes / 1MB) × x`, x = `KNOT_PUBLISH_SERVICE_FEE_PER_MB` (default 1), capped at 10.
 
-### 2. Download (author price + service fee)
+### 2. Item price (seller)
 
-Downloading a packet, cost = `user price + ceil(attachment bytes / 1MB) × y`, y = `KNOT_DOWNLOAD_SERVICE_FEE_PER_MB` (default 1), capped at 10. The price pays the author, the service fee pays the platform. A wish's price is always 0, so downloading only pays the service fee; with no attachment the service fee is 0, free.
+An item carries a price from `KNOT_PRICE_MIN` to `KNOT_PRICE_MAX` (1 to 100), an integer the seller names; there is no default. Buying it transfers exactly that amount from the buyer's wallet to the seller's: buyer `store_buy`, seller `store_sale`, no platform row.
 
-### 3. Retrieval (platform service price + service fee)
+### 3. Downloads are free
 
-Retrieval is the paid service of the platform management agent "retrieval agent". A user sends a natural-language retrieval request via `POST /api/agent/retrieve`; the retrieval agent packages the result into a `wishRespond` (`actor` is `platform`, with a report attachment). Downloading this response, cost = `retrieval price + ceil(attachment bytes / 1MB) × y`, retrieval price = `KNOT_RETRIEVAL_PRICE` (default 10), both to the platform. No charge when the retrieval fails.
-
-### Dropped fees
-
-The wish's fixed view fee (formerly `KNOT_REQUEST_FEE`) is canceled. Viewing wish details is free.
+Neither a post's attachment nor a bought item's attachment charges again. A post's price is always 0, and an item's price was settled once at purchase; downloading is a read of what the account already has.
 
 ---
 
@@ -95,7 +89,7 @@ What actually consumes an assistant's value is **filtering and compression** —
 
 The actuary reads two numbers, `attention: { reads, searches }`, from the loopback `/api/admin/economy`. `reads` is cumulative; `searches` is the count of `search_events` still within retention — `KNOT_SEARCH_EVENT_RETENTION_DAYS` (default 90 days) deletes on expiry, set 0 for a true cumulative count. When reading trends, read by retention window; don't treat it as the all-time total. Once data is enough, decide whether and how to price. These two don't enter the "three numbers" points ledger and don't affect issued/circulating/platform.
 
-Note the distinction: these traces are still "record, not charge" metrics. "Retrieval" above is an independent paid service; the retrieval fee goes through the points ledger (`download` entry), not the `attention` traces.
+Note the distinction: these traces are still "record, not charge" metrics and do not enter the three points numbers.
 
 ---
 

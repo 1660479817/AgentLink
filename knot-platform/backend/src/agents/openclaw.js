@@ -3,7 +3,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { topicMatchesLanguage } from "@knot/locale";
-import { toPlain } from "@knot/markdown";
 import { attachmentExtract, saveReviewExtract, sectionHeading } from "../extracts.js";
 import { CATEGORIES } from "../categories.js";
 
@@ -14,10 +13,6 @@ function agentId(name) {
 
 export function intelAgentId() {
   return agentId("OPENCLAW_INTEL_AGENT");
-}
-
-export function retrievalAgentId() {
-  return agentId("OPENCLAW_RETRIEVAL_AGENT");
 }
 
 function cleanText(value) {
@@ -315,7 +310,7 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
     "只有违法、欺诈、隐私或骚扰才 revoke。拿不准就 pass。",
     `不要判断链接或附件打不打得开。category 只能从这张类别表里选一个，不要自创新类别，拿不准写「其他」。类别表：${CATEGORIES.join("、")}。`,
     "topics 写 2–4 个短关键词（每条不超过 20 字），概括这条信息讲的是什么。必须与正文同语种：正文是英文就写英文关键词，正文是中文就写中文关键词；AI、API、Agent 这类专有名词保留原文。看不懂正文时给空数组。",
-    "language 用 BCP 47 语言标签，只写一个主语言，例如 zh、en、ja、zh-Hans、zh-Hant。不要写中文或英文。看不准写 und。post、fastpost、wish、wishRespond 都要写。",
+    "language 用 BCP 47 语言标签，只写一个主语言，例如 zh、en、ja、zh-Hans、zh-Hant。不要写中文或英文。看不准写 und。post、fastpost、item 都要写。",
     "note 写卡片上跟在文件名后面的一句事实。有附件时，根据读到的文字写这件东西是什么。去掉电话、微信和发布者。不要编造。",
     "note、reason 里引用文字不要用英文双引号，改用中文引号「」或单引号，避免破坏 JSON。",
     "附件是完整文件的本机路径。对每个路径运行 tools/read --file <路径>。只根据返回 JSON 的 text 判断。ok 为 false、text 为空或读不到时不要编造，也不要因此撤销。",
@@ -332,63 +327,4 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = []) {
   ].join("\n");
   const text = await askEmployee(agent, `intel-${intel.id}`, message, timeoutSec);
   return parseIntelReply(text);
-}
-
-const RETRIEVAL_REPORT_MAX = 20_000;
-
-// 内部检索命中行转成一行可读文字，交给信息检索员整合。
-function internalResultLine(row, index) {
-  const detail = row.detail && typeof row.detail === "object" ? row.detail : {};
-  const note = typeof detail.note === "string" ? detail.note.trim() : "";
-  const body = toPlain(String(row.body || "")).replace(/\s+/g, " ").trim();
-  const category = String(row.category || "").trim();
-  const author = String(row.display_name || "").trim();
-  const when = row.created_at ? new Date(row.created_at).toISOString() : "";
-  const parts = [];
-  if (category) parts.push(`[${category}]`);
-  if (body) parts.push(body);
-  if (note) parts.push(`（${note}）`);
-  if (author) parts.push(`来源：${author}`);
-  if (when) parts.push(`时间：${when}`);
-  return `${index + 1}. ${parts.join(" ")}`;
-}
-
-export function retrievalMessage(query, internalResults = []) {
-  const lines = [
-    "你收到一个自然语言检索要求。优先使用下面「平台内部检索结果」；内部结果不足时，用你的搜索工具补充外部信息，并标明出处。交回一份 Markdown 检索报告，不要 JSON，不要开场白。",
-    "",
-    "检索要求：",
-    String(query || "").trim(),
-    "",
-  ];
-  if (Array.isArray(internalResults) && internalResults.length) {
-    lines.push("平台内部检索结果（按相关度排序）：");
-    for (let i = 0; i < internalResults.length; i += 1) {
-      lines.push(internalResultLine(internalResults[i], i));
-    }
-  } else {
-    lines.push("平台内部检索结果：没有命中。");
-  }
-  lines.push(
-    "",
-    "报告要求：",
-    "1. 开头一行写明检索要求。",
-    "2. 「内部结果」逐条给出标题、摘要、来源、时间，保留可核对的事实。",
-    "3. 「外部补充」在内部结果不足时给出，每条标明出处（站点或链接）。",
-    "4. 结尾给「来源列表」。",
-    "5. 只写 Markdown，不要 JSON，不要用代码块围栏包住整份报告。",
-  );
-  return lines.join("\n");
-}
-
-// 调信息检索员，交回 Markdown 检索报告（纯文本）。sessionKey 区分不同的检索任务。
-export async function runRetrievalAgent(query, internalResults = [], sessionKey = "") {
-  const agent = retrievalAgentId();
-  if (!agent) throw new Error("retrieval_agent_unconfigured");
-  const timeoutSec = Number(process.env.OPENCLAW_RETRIEVAL_TIMEOUT || 300);
-  const message = retrievalMessage(query, internalResults);
-  const text = await askEmployee(agent, sessionKey || `retrieval-${Date.now()}`, message, timeoutSec);
-  const report = clip(text, RETRIEVAL_REPORT_MAX);
-  if (!report) throw new Error("agent_empty");
-  return report;
 }

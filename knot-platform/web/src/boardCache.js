@@ -6,7 +6,7 @@
 
 export const BOARD_CACHE_KEY = "knot.board";
 
-// 超过一天就不再用：快照里的 wish 有有效期，放太久会把已经过期的卡片画出来。
+// 超过一天就不再用：放了太久的快照会把早就不在的信息流上画出来。
 export const BOARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export function browserStorage() {
@@ -19,7 +19,7 @@ export function browserStorage() {
 }
 
 function isBoard(value) {
-  return Array.isArray(value?.information) && Array.isArray(value?.requests);
+  return Array.isArray(value?.information);
 }
 
 export function readBoardCache(storage, now = Date.now()) {

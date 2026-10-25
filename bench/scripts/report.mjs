@@ -17,7 +17,7 @@ export const ENDPOINT_LABELS = {
   agent_feed: "GET /api/agent/information",
   agent_card: "GET /api/agent/intel/:id",
   agent_search: "GET /api/agent/search",
-  agent_requests: "GET /api/agent/requests",
+  agent_store: "GET /api/agent/store",
   write_publish: "POST /api/agent/intel",
   write_look: "POST /api/agent/intel/:id/look",
   write_delete: "DELETE /api/agent/intel/:id",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { applyDiscoverSelf, boardIsBehind, cardIsMine, coveredBy, emptyFacets, facetsOf, hideDiscoverItem, paintDiscover, rememberAhead, rememberDiscover, showDiscoverItem } from "./discoverBoard.js";
+import { applyDiscoverSelf, boardIsBehind, cardBought, cardIsMine, coveredBy, emptyFacets, facetsOf, hideDiscoverItem, paintDiscover, rememberAhead, rememberDiscover, showDiscoverItem } from "./discoverBoard.js";
 
 beforeEach(() => {
   showDiscoverItem("11111111-1111-4111-8111-111111111111");
@@ -11,41 +11,29 @@ beforeEach(() => {
 
 const ME = "33333333-3333-4333-8333-333333333333";
 const POST = "11111111-1111-4111-8111-111111111111";
-const WISH = "22222222-2222-4222-8222-222222222222";
 const FRESH = "55555555-5555-4555-8555-555555555555";
 
-test("a wish is mine when the author is the current user", () => {
-  const painted = paintDiscover(
-    {
-      information: [{ id: POST, personal: false, canFriend: false, mine: false }],
-      requests: [{ id: WISH, authorId: ME, responseCount: null }],
-    },
-    ME
-  );
-  assert.equal(painted.requests[0].mine, true);
-  assert.equal(painted.requests[0].responseCount, null);
+test("the painted board is only the public feed", () => {
+  const painted = paintDiscover({ information: [{ id: POST, canFriend: true }] });
+  assert.deepEqual(painted.information.map((item) => item.id), [POST]);
+  // 快照里仍带着 requests 字段（中枢契约不改），但货架不在信息流里。
+  assert.equal("requests" in painted, false);
   assert.equal(cardIsMine(painted.information[0], { id: ME }), false);
 });
 
 test("the personal patch hides, stars, likes, and friends only after it arrives", () => {
-  const painted = paintDiscover(
-    {
-      information: [
-        { id: POST, personal: false },
-        { id: FRESH, personal: false },
-      ],
-      requests: [{ id: WISH, authorId: ME, mine: true, responseCount: null }],
-    },
-    ME
-  );
+  const painted = paintDiscover({
+    information: [
+      { id: POST, personal: false },
+      { id: FRESH, personal: false },
+    ],
+  });
   const next = applyDiscoverSelf(painted, {
     dismissed: [FRESH],
     starred: [POST],
     liked: [POST],
     friends: [POST],
-    granted: [],
     mine: [],
-    wishes: { [WISH]: { responseCount: 3 } },
   });
   assert.deepEqual(next.information.map((item) => item.id), [POST]);
   assert.equal(next.information[0].personal, true);
@@ -54,7 +42,6 @@ test("the personal patch hides, stars, likes, and friends only after it arrives"
   assert.equal(next.information[0].friend, true);
   assert.equal(next.information[0].canFriend, true);
   assert.equal(cardIsMine(next.information[0], { id: ME }), false);
-  assert.equal(next.requests[0].responseCount, 3);
 });
 
 test("a card is mine only after the personal patch says so", () => {
@@ -63,29 +50,21 @@ test("a card is mine only after the personal patch says so", () => {
   assert.equal(cardIsMine({ canFriend: false }, null), false);
 });
 
-test("an expired wish leaves the board even when the snapshot still lists it", () => {
-  const past = new Date(Date.now() - 1000).toISOString();
-  const later = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  const painted = paintDiscover(
-    {
-      information: [],
-      requests: [
-        { id: WISH, authorId: ME, kMeta: { expiresAt: past } },
-        { id: FRESH, authorId: ME, kMeta: { expiresAt: later } },
-      ],
-    },
-    ME
-  );
-  assert.deepEqual(painted.requests.map((wish) => wish.id), [FRESH]);
+// 帖子附件免费取，所以「买过没有」只对商品有意义。
+test("a bought mark comes from the order, or from being the seller", () => {
+  assert.equal(cardBought({ store: { bought: true } }, { id: ME }), true);
+  assert.equal(cardBought({ store: { bought: false, mine: true } }, { id: ME }), true);
+  assert.equal(cardBought({ store: { bought: false } }, { id: ME }), false);
+  assert.equal(cardBought({}, { id: ME }), false);
 });
 
 test("the people rail rides along with the snapshot", () => {
-  const painted = paintDiscover(
-    { information: [], requests: [], people: [{ id: ME, name: "甲", avatarUrl: "/avatars/01.svg", role: "user" }] },
-    ME
-  );
+  const painted = paintDiscover({
+    information: [],
+    people: [{ id: ME, name: "甲", avatarUrl: "/avatars/01.svg", role: "user" }],
+  });
   assert.equal(painted.people[0].id, ME);
-  const next = applyDiscoverSelf(painted, { wishes: {} });
+  const next = applyDiscoverSelf(painted, {});
   assert.equal(next.people.length, 1);
   assert.equal(next.people[0].name, "甲");
   // role 也要一路带到卡片上：徽标靠它分人与 Agent，别在个人状态那一步丢掉。
@@ -94,9 +73,9 @@ test("the people rail rides along with the snapshot", () => {
 
 test("facets ride along with the snapshot and survive the personal patch", () => {
   const facets = { categories: ["招聘"], topics: ["大模型"] };
-  const painted = paintDiscover({ information: [], requests: [], facets }, ME);
+  const painted = paintDiscover({ information: [], facets });
   assert.deepEqual(painted.facets, facets);
-  const next = applyDiscoverSelf(painted, { wishes: {} });
+  const next = applyDiscoverSelf(painted, {});
   assert.deepEqual(next.facets, facets);
 });
 
@@ -106,14 +85,14 @@ test("a snapshot without facets falls back to empty lists", () => {
 });
 
 test("a locally hidden card stays hidden, and a new post waits for the snapshot", () => {
-  rememberDiscover({ information: [{ id: POST }], requests: [] });
+  rememberDiscover({ information: [{ id: POST }] });
   hideDiscoverItem(POST);
-  const painted = paintDiscover({ information: [{ id: POST }, { id: FRESH }], requests: [] }, ME);
+  const painted = paintDiscover({ information: [{ id: POST }, { id: FRESH }] });
   assert.deepEqual(painted.information.map((item) => item.id), [FRESH]);
   showDiscoverItem(POST);
-  rememberAhead({ information: [{ id: POST }, { id: FRESH }], requests: [] });
-  assert.equal(coveredBy({ information: [{ id: POST }], requests: [] }), false);
-  assert.equal(coveredBy({ information: [{ id: POST }, { id: FRESH }], requests: [] }), true);
+  rememberAhead({ information: [{ id: POST }, { id: FRESH }] });
+  assert.equal(coveredBy({ information: [{ id: POST }] }), false);
+  assert.equal(coveredBy({ information: [{ id: POST }, { id: FRESH }] }), true);
   rememberAhead(null);
   rememberDiscover(null);
 });

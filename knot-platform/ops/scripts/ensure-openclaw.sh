@@ -200,7 +200,6 @@ ensure_line() {
   fi
 }
 ensure_line OPENCLAW_INTEL_AGENT knot-intel
-ensure_line OPENCLAW_RETRIEVAL_AGENT knot-retrieval
 ensure_line OPENCLAW_BIN openclaw
 ensure_line OPENCLAW_PROCESS_TIMEOUT 120
 uid="$(id -u)"

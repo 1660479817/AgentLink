@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from "vue";
-import { AlertIcon, ClockIcon, CoinIcon, PassedIcon, RejectedIcon, RemovedIcon, RespondIcon } from "../icons/index.js";
+import { AlertIcon, ClockIcon, CoinIcon, PassedIcon, RejectedIcon, RemovedIcon } from "../icons/index.js";
 
 const props = defineProps({
   verdict: { type: String, default: "" },
@@ -16,8 +16,8 @@ const marks = {
   intel_rejected: RejectedIcon,
   intel_review_error: AlertIcon,
   intel_removed: RemovedIcon,
-  request_response: RespondIcon,
   tip: CoinIcon,
+  store_sold: CoinIcon,
   warning: AlertIcon,
 };
 

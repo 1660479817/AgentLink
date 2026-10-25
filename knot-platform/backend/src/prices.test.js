@@ -10,10 +10,8 @@ const NEXT = {
   priceMin: 0,
   priceMax: 80,
   publishServiceFeePerMb: 1,
-  downloadServiceFeePerMb: 2,
   serviceFeeCap: 10,
   pointUsdCents: 1,
-  retrievalPrice: 10,
 };
 
 function memoryPool() {
@@ -25,10 +23,8 @@ function memoryPool() {
     "price_min",
     "price_max",
     "publish_service_fee_per_mb",
-    "download_service_fee_per_mb",
     "service_fee_cap",
     "point_usd_cents",
-    "retrieval_price",
   ];
   async function query(sql, params = []) {
     if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
@@ -58,7 +54,7 @@ function memoryPool() {
       return { rows: proposals.filter((item) => item.status === "pending") };
     }
     if (sql.includes("INSERT INTO economy_policy")) {
-      policy = { id: 1, proposal_id: params[8] };
+      policy = { id: 1, proposal_id: params[6] };
       columns.forEach((column, index) => {
         policy[column] = params[index];
       });
@@ -90,7 +86,7 @@ function memoryPool() {
 }
 
 describe("price schedule", { concurrency: false }, () => {
-test("a price schedule is eight whole numbers, with the default inside the range", () => {
+test("a price schedule is six whole numbers, with the default inside the range", () => {
   assert.deepEqual(parsePriceSchedule({ ...NEXT, defaultPrice: 0, priceMax: 0, publishServiceFeePerMb: 0 }), {
     ...NEXT,
     defaultPrice: 0,
@@ -98,7 +94,7 @@ test("a price schedule is eight whole numbers, with the default inside the range
     publishServiceFeePerMb: 0,
   });
   assert.equal(parsePriceSchedule({ ...NEXT, defaultPrice: "12" }).defaultPrice, 12);
-  for (const body of [{}, { ...NEXT, defaultPrice: 81 }, { ...NEXT, priceMax: 1, priceMin: 2 }, { ...NEXT, publishServiceFeePerMb: 1001 }, { ...NEXT, pointUsdCents: -1 }, { ...NEXT, serviceFeeCap: 1.5 }, { ...NEXT, retrievalPrice: -1 }, { ...NEXT, retrievalPrice: 100001 }]) {
+  for (const body of [{}, { ...NEXT, defaultPrice: 81 }, { ...NEXT, priceMax: 1, priceMin: 2 }, { ...NEXT, publishServiceFeePerMb: 1001 }, { ...NEXT, pointUsdCents: -1 }, { ...NEXT, serviceFeeCap: 1.5 }]) {
     assert.throws(() => parsePriceSchedule(body), (error) => error.code === "bad_price");
   }
 });
@@ -110,7 +106,7 @@ test("a written schedule replaces the price keys and leaves the grant alone", ()
     const after = economyConfig();
     assert.equal(after.defaultPrice, 40);
     assert.equal(after.priceMax, 80);
-    assert.equal(after.downloadServiceFeePerMb, 2);
+    assert.equal(after.publishServiceFeePerMb, 1);
     assert.equal(after.signupGrant, before.signupGrant);
     assert.equal(after.grantMax, before.grantMax);
     assert.equal(after.monthlyOpexUsd, before.monthlyOpexUsd);
@@ -193,8 +189,8 @@ test("the admin door accepts a proposal and applies it on the loopback", async (
       headers,
     });
     assert.equal(applied.status, 200);
-    assert.equal((await applied.json()).prices.downloadServiceFeePerMb, 2);
-    assert.equal(economyConfig().downloadServiceFeePerMb, 2);
+    assert.equal((await applied.json()).prices.publishServiceFeePerMb, 1);
+    assert.equal(economyConfig().publishServiceFeePerMb, 1);
     const again = await fetch(`http://127.0.0.1:${port}/api/admin/prices/proposals/${proposal.id}/apply`, {
       method: "POST",
       headers,

@@ -372,10 +372,8 @@ export default {
   "price.priceMin": "Minimum price",
   "price.priceMax": "Maximum price",
   "price.publishServiceFeePerMb": "Publish fee / MB",
-  "price.downloadServiceFeePerMb": "Download fee / MB",
   "price.serviceFeeCap": "Fee cap",
   "price.pointUsdCents": "Cents per point",
-  "price.retrievalPrice": "Retrieval price",
 
   "xknot.title": "Public access",
   "xknot.lead": "The first panel is the verdict: whether the site is connected, where it stopped, and what to do next. Below are the self-description (yours, editable) and what the hub issued (read-only); troubleshooting sits in the last panel.",

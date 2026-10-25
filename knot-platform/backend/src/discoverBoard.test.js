@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assembleDiscoverBoard, discoverBoardMeta, presentDiscoverSelf, publicPerson, readDiscoverBoard, wishSweepSql, writeDiscoverBoard } from "./discoverBoard.js";
+import { assembleDiscoverBoard, discoverBoardMeta, presentDiscoverSelf, publicPerson, readDiscoverBoard, writeDiscoverBoard } from "./discoverBoard.js";
 import { setDiscoverPublisher, touchDiscoverBoard } from "./discoverPublish.js";
 import { installSystemPolicy } from "./system.js";
 
@@ -11,7 +11,7 @@ import { installSystemPolicy } from "./system.js";
 installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: true });
 
 const POST = "11111111-1111-4111-8111-111111111111";
-const WISH = "22222222-2222-4222-8222-222222222222";
+const OTHER = "22222222-2222-4222-8222-222222222222";
 const AUTHOR = "33333333-3333-4333-8333-333333333333";
 const FILE = "44444444-4444-4444-8444-444444444444";
 
@@ -27,7 +27,6 @@ function pool() {
     price: 8,
     category: "价格",
     kind: "post",
-    responds_to: null,
     verdict: "passed",
     reject_reason: null,
     account_id: AUTHOR,
@@ -37,29 +36,11 @@ function pool() {
     display_name: "甲",
     avatar_upload_id: null,
     starred: true,
-    granted: true,
     friend: true,
     can_friend: true,
   };
-  const wish = {
-    id: WISH,
-    body: "想要",
-    videos: [],
-    links: {},
-    content_hash: "def",
-    detail: {},
-    price: 1,
-    category: "",
-    kind: "wish",
-    is_public: false,
-    account_id: AUTHOR,
-    verdict: "pending",
-    created_at: "2026-10-15T01:00:00.000Z",
-    updated_at: "2026-10-15T01:00:00.000Z",
-  };
   return {
     post,
-    wish,
     queries: [],
     async query(sql, params) {
       this.queries.push({ sql, params });
@@ -73,7 +54,6 @@ function pool() {
       if (sql.includes("'category' AS kind")) {
         return { rows: [{ kind: "category", value: "价格", n: 5 }] };
       }
-      if (sql.includes("i.kind = 'wish'")) return { rows: [wish] };
       if (sql.includes("now() - interval '7 days'")) return { rows: [post, post, post, post, post] };
       if (sql.includes("kind IN ('post', 'fastpost')")) return { rows: [post] };
       return { rows: [] };
@@ -81,23 +61,21 @@ function pool() {
   };
 }
 
-test("the public board drops personal fields and keeps the wish author", async () => {
+test("the public board drops personal fields and keeps the author", async () => {
   const board = await assembleDiscoverBoard(pool());
   const card = board.information[0];
   assert.equal(card.personal, false);
   assert.equal(card.starred, false);
   assert.equal(card.friend, false);
   assert.equal(card.canFriend, false);
-  assert.equal(card.granted, false);
   assert.equal(card.mine, false);
   assert.equal(card.author.id, AUTHOR);
   assert.equal(card.author.name, "甲");
   assert.equal(card.account_id, undefined);
   assert.equal(card.images[0].url, `/api/web/uploads/${FILE}/display`);
   assert.equal(card.audio[0].url, "/api/web/uploads/sound");
-  assert.equal(board.requests[0].authorId, AUTHOR);
-  assert.equal(board.requests[0].mine, false);
-  assert.equal(board.requests[0].responseCount, null);
+  // requests 恒为空数组：Hub 的 parseBoard 读这个键，实例已经不再有求购。
+  assert.deepEqual(board.requests, []);
   assert.equal(board.people.length, 1);
   assert.equal(board.people[0].id, AUTHOR);
   assert.equal(board.people[0].name, "甲");
@@ -127,16 +105,15 @@ test("a person row keeps the account role so the card can tell a bot from a pers
 
 test("a personal patch lists dismissals, stars, likes, and friends", () => {
   const self = presentDiscoverSelf([
-    { id: POST, kind: "post", dismissed: true, starred: true, liked: true, friend: false, granted: true, mine: false, links: {}, videos: [] },
-    { id: WISH, kind: "wish", dismissed: false, starred: false, liked: false, friend: true, granted: false, mine: true, response_count: 2, links: {}, videos: [] },
+    { id: POST, kind: "post", dismissed: true, starred: true, liked: true, friend: false, mine: false, links: {}, videos: [] },
+    { id: OTHER, kind: "post", dismissed: false, starred: false, liked: false, friend: true, mine: true, links: {}, videos: [] },
   ]);
   assert.deepEqual(self.dismissed, [POST]);
   assert.deepEqual(self.starred, [POST]);
   assert.deepEqual(self.liked, [POST]);
-  assert.deepEqual(self.friends, [WISH]);
-  assert.deepEqual(self.granted, [POST]);
-  assert.deepEqual(self.mine, [WISH]);
-  assert.equal(self.wishes[WISH].responseCount, 2);
+  assert.deepEqual(self.friends, [OTHER]);
+  assert.deepEqual(self.mine, [OTHER]);
+  assert.equal("granted" in self, false);
 });
 
 test("writing the board keeps image addresses", async () => {
@@ -145,8 +122,7 @@ test("writing the board keeps image addresses", async () => {
     const board = await writeDiscoverBoard({ pool: pool(), uploadDir: dir, boardDir: dir });
     assert.equal(board.information[0].images[0].url, `/api/web/uploads/${FILE}/display`);
     const saved = JSON.parse(await readFile(path.join(dir, "discover.json"), "utf8"));
-    assert.equal(saved.information[0].granted, false);
-    assert.equal(saved.requests[0].authorId, AUTHOR);
+    assert.deepEqual(saved.requests, []);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -204,16 +180,6 @@ test("the board is empty when public browsing is off", async () => {
   } finally {
     installSystemPolicy({ guestBrowsing: true, registrationMode: "open", publicBoard: true });
   }
-});
-
-test("the expiry sweep counts a missing expires_at from created_at, same as the live filter", () => {
-  const sql = wishSweepSql("i");
-  // 两个边界都必须用同一个兜底表达式：只看 expires_at 非空会让旧 wish 到期后
-  // 留在 discover.json 里，直到别的内容变动才被重写（S14-07）。
-  assert.equal(sql.match(/COALESCE\(i\.expires_at, i\.created_at \+ interval '24 hours'\)/g).length, 2);
-  assert.match(sql, /> \$1/);
-  assert.match(sql, /<= \$2/);
-  assert.match(sql, /LIMIT 1/);
 });
 
 test("the snapshot keeps enough posts to fill a low-frequency site's first screen", async () => {

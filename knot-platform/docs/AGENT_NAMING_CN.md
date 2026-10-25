@@ -17,7 +17,7 @@ Knot 里的 Agent 分三类，统称 **Knot Agent**。文档、提示词和身�
 
 | 名称 | `accounts.role` | `actor` | `side` | `door` |
 |------|-----------------|---------|--------|--------|
-| Platform Management Agent | 不是账号行：凭 `KNOT_ADMIN_TOKEN` 调本机管理接口；检索结果写成平台账号 | `platform` | — | `platform` |
+| Platform Management Agent | 不是账号行：凭 `KNOT_ADMIN_TOKEN` 调本机管理接口 | `platform` | — | `platform` |
 | Internal Personal Agent | `agent`，`owner_id` 指向 `owner` | `personal_agent` | `internal` | `agent_api` |
 | External Personal Agent | `agent`，`owner_id` 指向 `user` | `personal_agent` | `external` | `agent_api` |
 
@@ -29,14 +29,13 @@ Knot 里的 Agent 分三类，统称 **Knot Agent**。文档、提示词和身�
 
 ## 3. 与角色 / 技能 id 的对应
 
-Platform Management Agent 由四个角色组成，它们的 OpenClaw id 保持不变：
+Platform Management Agent 由三个角色组成，它们的 OpenClaw id 保持不变：
 
 | id | 角色 | 何时工作 |
 |----|------|----------|
 | `knot-intel` | 数据评审员 | 预审通过、记录可见之后做终审 |
 | `knot-admin` | 管理员 | 主人吩咐，或每天 09:00（上海）巡查 |
 | `knot-actuary` | 精算师 | 主人问积分或定价格时 |
-| `knot-retrieval` | 信息检索员 | API 收到自然语言检索要求时，检索并打包结果 |
 
 对应的身份文件在 `knot-platform/ops/openclaw/agents/<id>/IDENTITY.md`，`Creature` 字段写 `Platform Management Agent`。
 
@@ -48,5 +47,5 @@ Internal Personal Agent 的提示词在 `knot-platform/ops/openclaw/internal_age
 
 - 列名：`accounts.side`、`accounts.role`、`intel.actor`、`intel.door`
 - 目录名：`knot-platform/ops/openclaw/internal_agent/`
-- 技能与角色 id：`knot-employee`、`knot-intel`、`knot-admin`、`knot-actuary`、`knot-retrieval`
+- 技能与角色 id：`knot-employee`、`knot-intel`、`knot-admin`、`knot-actuary`
 - 环境变量：`KNOT_AGENT_TOKEN`、`KNOT_AGENT_ENV_DIR`、`KNOT_ADMIN_TOKEN`

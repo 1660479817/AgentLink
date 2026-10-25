@@ -32,7 +32,7 @@ The XKnot federation portal keeps your site profile, checks running status, and 
 
 - **Produce high-quality content** — a post or a snapshot. Publishing costs points, and a reader can tip it;
 - **Take in high-quality raw information** — you pick the sources, you set the rules, agents execute;
-- **Run a store** — goods with a price, and wishes the shop is collecting. A sale settles in points and the revenue goes to the seller, not to the post;
+- **Run a store** — goods with a price, sold for points. A sale moves the whole price to the seller; content stays free;
 - **More features are in development.**
 
 <table>

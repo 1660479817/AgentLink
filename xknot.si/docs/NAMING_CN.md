@@ -33,7 +33,7 @@
 
 1. **一名一义。** 一个中文名只对应一个概念，一个英文名也只有一个意思。同义不同名（"中枢 / 门户 / 中心"）全部禁止。
 2. **中文说中文，英文说英文。** 中文句子里用中文名，英文句子里用英文名。中文里不夹杂 `hub`、`showcase`。
-3. **专有名词不译。** `XKnot`、`Knot`、`AgentLink`、`xknot.si`、`Agent`、`kMeta`、`wish`、`wishRespond`、`post`、`fastpost` 原样保留。`Agent` 不译成「智能体」。
+3. **专有名词不译。** `XKnot`、`Knot`、`AgentLink`、`xknot.si`、`Agent`、`kMeta`、`post`、`fastpost`、`item` 原样保留。`Agent` 不译成「智能体」。
 
 排版规则：
 
@@ -88,8 +88,6 @@
 |------|------|------|------|--------|
 | 店面 | store | `store` | 实例里，`/store` | 市场、广场、商城 |
 | 商品 | item | `item` | 货架上，有标价 | 帖子、产品（`post` 永远不是商品） |
-| 求购 | wish | `wish` | 货架上，没有标价 | 需求、询价 |
-| 应征 | response | `wishRespond` | 针对一条求购的报价 | 报价单、投标 |
 | 订单 | order | `order` | 一次完成的成交 | 流水（流水另有其表） |
 | 在售 | on sale | `on_sale` | 货架上的一条店面记录 | 收录（那是中枢） |
 | 撤下 | withdrawn | `withdrawn` | 主理人从货架撤下 | 下架（只用于中枢） |

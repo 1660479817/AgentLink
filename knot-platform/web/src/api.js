@@ -104,7 +104,6 @@ export function listInformation(author, before, filters = {}) {
   if (category) query.set("category", category);
   const topic = String(filters.topic || "").trim();
   if (topic) query.set("topic", topic);
-  if (filters.sales) query.set("sales", "1");
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return request(`/api/web/information${suffix}`);
 }
@@ -183,28 +182,47 @@ export function removeCardFriend(id) {
   return request(intelPath(id, "/friend"), { method: "DELETE" });
 }
 
-export function listRequests() {
-  return request("/api/web/requests");
-}
-
 export function listPeople() {
   return request("/api/web/people");
 }
 
-export function listRequestResponses(id) {
-  return request(`/api/web/requests/${encodeURIComponent(String(id ?? "").trim())}/responses`);
+// ---- Knot Store ------------------------------------------------------------
+// 货架只在实例上。未登录也能逛，购买、挂出、撤下都要会话。
+
+function storePath(id, suffix = "") {
+  return `/api/web/store/${encodeURIComponent(String(id ?? "").trim())}${suffix}`;
 }
 
-export function listMyResponses() {
-  return request("/api/web/responses");
+export function listStore(before) {
+  const cursor = String(before || "").trim();
+  return request(cursor ? `/api/web/store?before=${encodeURIComponent(cursor)}` : "/api/web/store");
 }
 
-export function listLooks() {
-  return request("/api/web/looks");
+export function listMyStore() {
+  return request("/api/web/store/mine");
 }
 
-export function lookRequest(id) {
-  return request(`/api/web/requests/${encodeURIComponent(String(id ?? "").trim())}/look`, { method: "POST", body: "{}" });
+export function listStoreOrders() {
+  return request("/api/web/store/orders");
+}
+
+export function createStoreItem(body, imageIds = [], fileIds = [], extra = {}) {
+  return request("/api/web/store", {
+    method: "POST",
+    body: JSON.stringify({ body, imageIds, fileIds, ...extra }),
+  });
+}
+
+export function buyStoreItem(id) {
+  return request(storePath(id, "/buy"), { method: "POST", body: "{}" });
+}
+
+export function withdrawStoreItem(id) {
+  return request(storePath(id, "/withdraw"), { method: "POST", body: "{}" });
+}
+
+export function relistStoreItem(id) {
+  return request(storePath(id, "/relist"), { method: "POST", body: "{}" });
 }
 
 export function searchInformation(q, filters = {}) {

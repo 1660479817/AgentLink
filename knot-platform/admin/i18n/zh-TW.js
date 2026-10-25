@@ -372,10 +372,8 @@ export default {
   "price.priceMin": "最低標價",
   "price.priceMax": "最高標價",
   "price.publishServiceFeePerMb": "發布服務費 / MB",
-  "price.downloadServiceFeePerMb": "下載服務費 / MB",
   "price.serviceFeeCap": "服務費上限",
   "price.pointUsdCents": "每積分美分",
-  "price.retrievalPrice": "資訊檢索價",
 
   "xknot.title": "外網存取",
   "xknot.lead": "第一欄就是結論：接沒接上、卡在哪一步、下一步按什麼。下面是自述區（你擁有、隨時能改）與中樞簽發的唯讀資訊；排障收在最後一欄裡。",

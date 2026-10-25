@@ -40,7 +40,7 @@ test("a picture picked right before the draft is cleared does not come back", as
     const form = media();
     const picked = form.addImages([jpeg(3 * 1024 * 1024)]);
     // 压缩期间表单按「忙」处理，提交与关闭按钮都点不动；这里模拟另一个入口：
-    // 分享条收起、wish 面板切到另一条、快拍组件卸载，都会走到 reset。
+    // 分享条收起、货架表单切到另一条、快拍组件卸载，都会走到 reset。
     assert.equal(form.preparing.value, true);
     form.reset();
     await picked;

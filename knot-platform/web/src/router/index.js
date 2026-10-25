@@ -12,13 +12,11 @@ const router = createRouter({
     { path: "/stars", name: "stars", component: () => import("../views/StarsView.vue") },
     { path: "/friends", name: "friends", component: () => import("../views/FriendsView.vue") },
     { path: "/mine/submissions", name: "submissions", component: () => import("../views/SubmissionsView.vue") },
-    { path: "/wish", name: "wish", component: () => import("../views/WishView.vue") },
+    { path: "/store", name: "store", component: () => import("../views/StoreView.vue") },
     { path: "/notifications", name: "notifications", component: () => import("../views/NotificationsView.vue") },
-    { path: "/chat", redirect: { name: "wish" } },
-    { path: "/buy", redirect: { name: "discover" } },
     { path: "/activity", redirect: { name: "mine" } },
     { path: "/delegate", redirect: { name: "mine" } },
-    // 兜底：/wish/xxx、/nope 这类不存在的路径回到信息流，而不是一片空白。
+    // 兜底：/store/xxx、/nope 这类不存在的路径回到信息流，而不是一片空白。
     // 站内浏览关着时，下面的 beforeEach 会把它再送回 gate，不需要在这里分开写。
     { path: "/:pathMatch(.*)*", redirect: { name: "discover" } },
   ],

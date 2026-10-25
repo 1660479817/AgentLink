@@ -5,10 +5,8 @@ import AppButton from "../components/AppButton.vue";
 import InformationCard from "../components/InformationCard.vue";
 import { StarIcon } from "../icons/index.js";
 import { addCardFriend, dismissInformation, downloadInformation, listStars, removeCardFriend, unstarInformation } from "../api.js";
-import { acceptDownload } from "../download/consent.js";
 import { cardProps } from "../cardProps.js";
-import { cardGranted, cardIsMine } from "../discoverBoard.js";
-import { feeOf, priceOf } from "../record.js";
+import { errorText } from "../composers/packet.js";
 import { t } from "../i18n/index.js";
 import { useFriendStore } from "../stores/friends";
 import { useSessionStore } from "../stores/session";
@@ -33,31 +31,15 @@ function filterByCategory(item) {
   router.push({ name: "discover", query: { category } });
 }
 
+// 收藏页只有帖子，没有商品：附件直接取，不扣分、不弹确认。
 async function downloadItem(item) {
   if (item.downloading) return;
   item.downloading = true;
+  item.notice = "";
   try {
-    if (session.user) await session.load();
-    const ok = await acceptDownload({
-      price: priceOf(item),
-      fee: feeOf(item),
-      granted: cardGranted(item, session.user),
-      // 与卡片同一套判定：不要用 canFriend 反推 mine（role=platform 的帖会算错）。
-      mine: cardIsMine(item, session.user),
-      balance: session.user?.pointsBalance,
-      code: session.user ? "" : "no_session",
-      task: () => downloadInformation(item.id),
-    });
-    if (!ok) return;
-    try {
-      const data = await listStars();
-      const next = (data.information || []).find((row) => row.id === item.id);
-      if (next) Object.assign(item, next);
-      else item.granted = true;
-      await session.load();
-    } catch {
-      item.granted = true;
-    }
+    await downloadInformation(item.id);
+  } catch (error) {
+    item.notice = errorText(error.code, session.policy);
   } finally {
     item.downloading = false;
   }

@@ -16,7 +16,7 @@ const MAX_BODY = 400_000;
 export const ROUTES = [
   { path: "/", label: "landing" },
   { path: "/discover", label: "discover" },
-  { path: "/wish", label: "wish" },
+  { path: "/store", label: "store" },
   { path: "/stars", label: "stars" },
   { path: "/friends", label: "friends" },
   { path: "/notifications", label: "notifications" },

@@ -44,8 +44,8 @@ test("the same content keeps one hash", () => {
   });
   assert.equal(first, again);
   assert.equal(first.length, 64);
-  assert.notEqual(first, contentHash({ kind: "wish", body: "原文", imageIds: [ID] }));
-  assert.notEqual(first, contentHash({ kind: "post", body: "原文", respondsTo: null, imageIds: [ID], videos: [{ url: "https://example.com/other", poster: video.poster }] }));
+  assert.notEqual(first, contentHash({ kind: "item", body: "原文", imageIds: [ID] }));
+  assert.notEqual(first, contentHash({ kind: "post", body: "原文", imageIds: [ID], videos: [{ url: "https://example.com/other", poster: video.poster }] }));
   assert.notEqual(first, contentHash({ kind: "post", body: "原文", imageIds: [ID], videos: [{ url: video.url, poster: { url: "https://cdn.example.com/other.jpg" } }] }));
 });
 
@@ -64,13 +64,12 @@ test("a card shows a stored image", () => {
     },
     {
       files: [{ id: ID, name: "a.jpg", mime: "image/jpeg", url: `/api/web/uploads/${ID}`, image: true, size: 3 * 1024 * 1024, width: 1280, height: 720 }],
-      granted: false,
     }
   );
   assert.equal(record.kMeta.hash, "abc");
   assert.equal(record.kMeta.kind, "post");
   assert.equal(record.kMeta.version, 1);
-  assert.deepEqual(record.kMeta.commerce, { price: 10, fee: 0, payee: "author" });
+  assert.deepEqual(record.kMeta.commerce, { price: 10, payee: "author" });
   assert.equal(record.images[0].url, `/api/web/uploads/${ID}`);
   assert.equal(record.images[0].stored, true);
   // 卡片按宽高排多图，比例要随记录下发，不能让前端等图下载完再量。
@@ -103,7 +102,6 @@ test("a card shows an attachment name and keeps the file address off it", () => 
     },
     {
       files: [{ id: ID, name: "书.pdf", mime: "application/pdf", url: `/api/web/uploads/${ID}` }],
-      granted: true,
     }
   );
   assert.equal(record.attachments[0].name, "书.pdf");
@@ -112,7 +110,7 @@ test("a card shows an attachment name and keeps the file address off it", () => 
   assert.equal(record.attachments[1].url, undefined);
   const audio = toRecord(
     { id: "a3", kind: "post", body: "", links: {} },
-    { files: [{ name: "一段.mp3", mime: "audio/mpeg", url: "/api/web/uploads/audio", audio: true }], granted: true }
+    { files: [{ name: "一段.mp3", mime: "audio/mpeg", url: "/api/web/uploads/audio", audio: true }] }
   );
   assert.equal(audio.audio[0].url, "/api/web/uploads/audio");
 });
@@ -141,17 +139,14 @@ test("a revised card carries its origin and version", () => {
   assert.equal(first.kMeta.originId, null);
 });
 
-test("a wish pays the platform", () => {
-  const record = toRecord({ id: "w1", kind: "wish", price: 1, is_public: false }, { granted: false });
-  assert.equal(record.kMeta.commerce.payee, "platform");
-  assert.equal(record.kMeta.public, false);
-});
-
-test("a card charges a download service fee from attachment bytes", () => {
-  const record = toRecord(
-    { id: "f1", kind: "post", price: 5, is_public: true },
-    { files: [{ id: "x", name: "a.bin", mime: "application/octet-stream", size: 1024 * 1024 + 1 }] }
-  );
-  assert.equal(record.kMeta.commerce.fee, 2); // 1MB 出头 → 2 积分（向上取整）
-  assert.equal(record.kMeta.commerce.price, 5);
+test("an item pays its author, and a free content card has no payee", () => {
+  const item = toRecord({ id: "w1", kind: "item", price: 1, is_public: false });
+  assert.equal(item.kMeta.commerce.payee, "author");
+  assert.equal(item.kMeta.public, false);
+  // 内容不带价，也就没有收款方：下载免费，价格只在 Store 里存在。
+  assert.deepEqual(toRecord({ id: "p1", kind: "post", price: 0 }).kMeta.commerce, { price: 0, payee: null });
+  // 价格只由记录本身决定，与附件字节数无关。
+  const big = toRecord({ id: "f1", kind: "post", price: 0, is_public: true }, { files: [{ id: "x", name: "a.bin", mime: "application/octet-stream", size: 5 * 1024 * 1024 }] });
+  assert.equal(big.kMeta.commerce.price, 0);
+  assert.equal("fee" in big.kMeta.commerce, false);
 });

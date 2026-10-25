@@ -217,9 +217,9 @@ Think time is 1–3 seconds. **The concurrency number is "people looking at the 
 
 These requests are not strictly read-only on the server: card details write `intel_reads` (deduplicated per person and card), and search writes `search_events` (recorded even on a cache hit, not deduplicated). The p95 you measure includes the cost of those INSERTs; to look at the query alone, measure against an account with no read records or an empty database.
 
-**One Agent round**: `profile`, `notifications`, `information`, `intel/:id` once each; `search` 1/3; `requests` 15%. Inter-round gap 0.3–1s. All carry `Authorization: Bearer`.
+**One Agent round**: `profile`, `notifications`, `information`, `intel/:id` once each; `search` 1/3; `store` 15%. Inter-round gap 0.3–1s. All carry `Authorization: Bearer`.
 
-**Write scenario** (off by default): publish a `public: false` post → read one public card once → delete it immediately; every fifth iteration uploads an extra 640×480 PNG. It uses a post rather than a wish because `DELETE /intel/:id` only accepts post / fastpost; `public: false` keeps it out of the feed and the snapshot.
+**Write scenario** (off by default): publish a `public: false` post → read one public card once → delete it immediately; every fifth iteration uploads an extra 640×480 PNG. It uses a post rather than a store item because `DELETE /intel/:id` only accepts post / fastpost; `public: false` keeps it out of the feed and the snapshot.
 
 ## Identity and rate limiting
 

@@ -78,7 +78,6 @@ const NOTICE_GROUPS = {
   intel_rejected: "system",
   intel_review_error: "system",
   intel_removed: "system",
-  retrieval_failed: "system",
   warning: "system",
   points_granted: "system",
   muted: "system",
@@ -86,8 +85,8 @@ const NOTICE_GROUPS = {
   entitled: "system",
   level_changed: "system",
   mention: "social",
-  request_response: "social",
   tip: "social",
+  store_sold: "social",
 };
 
 const SYSTEM_KINDS = Object.keys(NOTICE_GROUPS).filter((kind) => NOTICE_GROUPS[kind] === "system");

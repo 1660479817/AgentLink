@@ -10,16 +10,14 @@ function nonNegativeInt(raw, fallback) {
 }
 
 // 环境变量是还没有价格表时的初值。精算师写入 economy_policy 后，
-// 下面这八个键盖过环境变量，其余键仍只读环境变量。
+// 下面这几个键盖过环境变量，其余键仍只读环境变量。
 const PRICE_KEYS = [
   "defaultPrice",
   "priceMin",
   "priceMax",
   "publishServiceFeePerMb",
-  "downloadServiceFeePerMb",
   "serviceFeeCap",
   "pointUsdCents",
-  "retrievalPrice",
 ];
 
 let priceOverride = null;
@@ -33,7 +31,8 @@ export function clearPriceOverride() {
 }
 
 function economyFromEnv() {
-  let priceMin = nonNegativeInt(process.env.KNOT_PRICE_MIN, 0);
+  let priceMin = nonNegativeInt(process.env.KNOT_PRICE_MIN, 1);
+  if (priceMin < 1) priceMin = 1;
   let priceMax = nonNegativeInt(process.env.KNOT_PRICE_MAX, 100);
   if (priceMax < priceMin) priceMax = priceMin;
   let defaultPrice = nonNegativeInt(process.env.KNOT_DEFAULT_PRICE, 10);
@@ -45,14 +44,10 @@ function economyFromEnv() {
     priceMax,
     signupGrant: nonNegativeInt(process.env.KNOT_SIGNUP_GRANT, 100),
     grantMax: nonNegativeInt(process.env.KNOT_GRANT_MAX, 100000),
-    // 发布服务费：post/fastpost/wish/wishRespond 发布时按附件字节收，平台收（存储/传输）。每 MB x 积分，向上取整，封顶 serviceFeeCap。
+    // 发布服务费：post / fastpost / item 发布时按附件字节收，平台收（存储/传输）。每 MB x 积分，向上取整，封顶 serviceFeeCap。
     publishServiceFeePerMb: nonNegativeInt(process.env.KNOT_PUBLISH_SERVICE_FEE_PER_MB, 1),
-    // 下载服务费：下载时按附件字节收，平台收（存储/传输），加在作者标价之上。每 MB y 积分，向上取整，封顶 serviceFeeCap。
-    downloadServiceFeePerMb: nonNegativeInt(process.env.KNOT_DOWNLOAD_SERVICE_FEE_PER_MB, 1),
     // 服务费单次上限，避免大附件天价。0 表示不封顶。
     serviceFeeCap: nonNegativeInt(process.env.KNOT_SERVICE_FEE_CAP, 10),
-    // 信息检索价：平台「信息检索员」每次检索的统一定价，下载检索结果时收。独立于作者标价。
-    retrievalPrice: nonNegativeInt(process.env.KNOT_RETRIEVAL_PRICE, 10),
     // 第二期：只充值、不兑出。汇率是平台定价，盈亏平衡看现金流。
     // 每积分的美元价，用「美分」表示（1 = 0.01 美元），避免小数。
     pointUsdCents: nonNegativeInt(process.env.KNOT_POINT_USD_CENTS, 1),
@@ -106,15 +101,13 @@ export function imageUploadLimit() {
 
 export function policyConfig() {
   const price = pricePolicy();
-  const { publishServiceFeePerMb, downloadServiceFeePerMb, serviceFeeCap, retrievalPrice } = economyConfig();
+  const { publishServiceFeePerMb, serviceFeeCap } = economyConfig();
   return {
     defaultPrice: price.defaultPrice,
     priceMin: price.min,
     priceMax: price.max,
     publishServiceFeePerMb,
-    downloadServiceFeePerMb,
     serviceFeeCap,
-    retrievalPrice,
     // 下发到 WebUI：选图后先在浏览器里压到这个上限以内，再上传。
     imageMaxBytes: imageUploadLimit(),
   };
@@ -133,24 +126,13 @@ export function serviceFee(totalBytes, ratePerMb, cap) {
   return max > 0 ? Math.min(fee, max) : fee;
 }
 
-export function packetPrice(fileCount, raw) {
-  if (!fileCount) return 0;
-  const { min, max, defaultPrice } = pricePolicy();
-  if (raw == null || raw === "") return defaultPrice;
+// 商品价：Store 里的每一件都必须标价，且落在站点价格区间内、至少 1 积分。
+// 内容（post / fastpost）没有这条路径——它们不带价，也不该有价格可校验。
+export function itemPrice(raw) {
+  const { min, max } = pricePolicy();
+  const floor = Math.max(1, min);
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < min || value > max) {
-    const error = new Error("bad_price");
-    error.code = "bad_price";
-    throw error;
-  }
-  return value;
-}
-
-// 平台服务价（信息检索）：平台统一定价，独立于作者标价的 min/max 区间。
-export function servicePrice(raw) {
-  if (raw == null || raw === "") return 0;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0 || value > 100_000) {
+  if (!Number.isInteger(value) || value < floor || value > max) {
     const error = new Error("bad_price");
     error.code = "bad_price";
     throw error;

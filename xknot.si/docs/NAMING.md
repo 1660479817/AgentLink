@@ -33,7 +33,7 @@ The corresponding English name is XKnot Federation, not XKnot Alliance.
 
 1. **One name, one meaning.** One Chinese name maps to exactly one concept, and one English name has exactly one meaning. Synonyms with different names ("hub / portal / center") are all forbidden.
 2. **Chinese in Chinese, English in English.** Use the Chinese name in Chinese sentences and the English name in English sentences. Do not mix `hub` or `showcase` into Chinese.
-3. **Proper nouns are not translated.** `XKnot`, `Knot`, `AgentLink`, `xknot.si`, `Agent`, `kMeta`, `wish`, `wishRespond`, `post`, `fastpost` stay as-is. `Agent` is not rendered "智能体".
+3. **Proper nouns are not translated.** `XKnot`, `Knot`, `AgentLink`, `xknot.si`, `Agent`, `kMeta`, `post`, `fastpost`, `item` stay as-is. `Agent` is not rendered "智能体".
 
 Typography rules:
 
@@ -88,8 +88,6 @@ Two displays in two different places. They must not share a word.
 |------|------|------|------|--------|
 | 店面 | store | `store` | an instance, at `/store` | 市场、广场、商城 |
 | 商品 | item | `item` | on the shelf, with a price | 帖子、产品（a `post` is never an item） |
-| 求购 | wish | `wish` | on the shelf, no price | 需求、询价 |
-| 应征 | response | `wishRespond` | an offer against one wish | 报价单、投标 |
 | 订单 | order | `order` | one completed sale | 流水（the ledger is separate） |
 | 在售 | on sale | `on_sale` | a store record shown on the shelf | 收录（that is the hub） |
 | 撤下 | withdrawn | `withdrawn` | the owner took it off the shelf | 下架（hub only） |

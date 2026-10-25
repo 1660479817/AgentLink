@@ -6,7 +6,6 @@
 node ops/scripts/config.mjs template --write           # sites/_template/site.env
 node ops/scripts/config.mjs platform-template --write  # sites/_template/platform.env
 node ops/scripts/config.mjs xknot-template --write     # sites/_template/xknot.env
-node ops/scripts/config.mjs entry-template --write      # sites/_template/entry.example.env
 node ops/scripts/config.mjs docs --write               # 重新生成本文
 ```
 
@@ -36,7 +35,6 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `sites/<站点>/profile.json` | 自述区：名称、默认语种、一句话介绍、详细介绍、logo、主理人、联系方式、地区、时区、标签（十项扁平字段）。不进版本库 | 主理人，在 `/admin` 的 XKnot 栏编辑 |
 | `sites/<站点>/platform.env` | SMTP 密码、价格初值、管理令牌。权限 600 | 部署脚本 |
 | `sites/<站点>/xknot.env` | 实例 id、中枢地址、签发日期与委托发信凭据。权限 600 | 中枢签发，`join-xknot.sh` 写入 |
-| `sites/<站点>/tunnel.env` | 回源隧道的账号、私钥文件名与本机/入口端口（`KNOT_TUNNEL` 一组）。权限 600 | `/admin` 的 XKnot 栏自动接通时写入 |
 | `sites/<站点>/entry.<标签>.xknot.si.env` | 接入 xknot.si 子域时的入口：域名、静态根、conf、证书。一个站点一份 | 运维 |
 | `sites/<站点>/agents/` | Internal Personal Agent 的授权码，权限 700 | 脚本 |
 
@@ -55,7 +53,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_HUB_ORIGIN` | `https://xknot.si` |  | 第一次接入时把申请提交到哪个中枢。默认联邦入口 xknot.si；本机联调可以指向 dev 中枢。 |
 | `KNOT_XKNOT_POLL_SECONDS` | `60` |  | 接入之后 Backend 主动向中枢拉接通进度的间隔（秒）。中枢在实例在 NAT 后拨不进来，所以由这一侧连出去；拿到账号与端口后自己写 tunnel.env 并重启隧道，不必等人打开管理页。0 表示关闭，只在管理页里手动拉。 |
 | `KNOT_PORT` | `8080` |  | 实例主机上 Backend 监听的端口。 |
-| `KNOT_BIND_HOST` | `127.0.0.1` |  | Backend 绑定地址。本机与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。绑回环时「我的」页生成的管理后台链接一定以 127.0.0.1 开头，复制到别的设备上打不开；对外是域名却只绑回环时，部署脚本会提醒一次。 |
+| `KNOT_BIND_HOST` | `127.0.0.1` |  | Backend 绑定地址。本机与入口回源都只走本机，保持 127.0.0.1；要让同一内网的机器打开管理后台 /admin，站点把它设为 0.0.0.0。 |
 | `KNOT_SESSION_COOKIE_NAME` | `knot_sid` |  | 会话 Cookie 名。同一个域名下跑多个站点时要各不相同。 |
 | `KNOT_ADMIN_EMAIL` | （空） | 是 | 站点管理员邮箱。必填；用这个邮箱登录后拥有平台管理权限，建议与投诉也寄到这里。 |
 | `KNOT_SESSION_TTL_DAYS` | `30` |  | 登录会话有效期（天）。Cookie 和 sessions.expires_at 用同一个值。 |
@@ -84,7 +82,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `KNOT_DEPLOY_SSH` | （空） |  | 实例主机的 ssh 目标，形如 user@host。留空表示目标就是这台机器，直接就地跑 deploy-site.sh。 |
-| `KNOT_DEPLOY_DIR` | 见说明 |  | 实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。留空按站点名推导为 ~/knot/<站点>；一个部署根只放一个站点，不要和源码仓库或用另一站点的目录。 |
+| `KNOT_DEPLOY_DIR` | `~/knot/site` |  | 实例主机上的部署根目录。sites/、releases/、current、var/ 都在这里，代码在 releases/<版本> 下。和源码仓库分开，按站点命名，例如 ~/knot/wang。 |
 | `KNOT_DEPLOY_SSH_KEY` | （空） |  | 发布用的私钥。留空用 ssh 默认身份。 |
 | `KNOT_DEPLOY_VERIFY_URL` | 见说明 |  | 部署后探活的地址。留空按 http://<实例主机>:<KNOT_PORT>/api/health 推导。 |
 | `KNOT_DEPLOY_KEEP` | `5` |  | 实例主机上保留几个历史发布包。当前版本和回滚目标永远保留，多的按时间清掉。 |
@@ -96,10 +94,10 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | --- | --- | --- | --- |
 | `KNOT_ENTRY_ENABLED` | `0` |  | 1 表示部署时由这台机器把 WebUI 与 nginx 配置推到 KNOT_ENTRY_SSH；0 表示不碰入口主机（只在本机，或入口已由中枢自动接通）。 |
 | `KNOT_ENTRY_SSH` | （空） |  | 入口主机的 ssh 目标。 |
-| `KNOT_ENTRY_SSH_KEY` | （空） |  | 在开发机上推页面用的私钥。留空用 ssh 默认身份或 ssh-agent；入口主机通常不认 id_rsa，要用专用的部署钥，例如 $HOME/.ssh/<专用部署钥>。 |
+| `KNOT_ENTRY_SSH_KEY` | `$HOME/.ssh/id_rsa` |  | 在开发机上推页面用的私钥。 |
 | `KNOT_ENTRY_PUSH_KEY` | `$HOME/.ssh/knot-entry-publish` |  | 在实例主机上推公开快照用的私钥，可以和 KNOT_ENTRY_SSH_KEY 不是同一把。 |
-| `KNOT_ENTRY_WEB_ROOT` | `/var/www/knot` |  | 入口主机上放 WebUI 的目录。必须按子域写清：留空会落回共用的 /var/www/knot，与同机其它子域互相覆盖。 |
-| `KNOT_ENTRY_CONF` | `/etc/nginx/conf.d/knot.conf` |  | 入口主机上的 nginx 站点配置路径。必须按子域写清：留空会落回共用的 /etc/nginx/conf.d/knot.conf。 |
+| `KNOT_ENTRY_WEB_ROOT` | `/var/www/knot` |  | 入口主机上放 WebUI 的目录。 |
+| `KNOT_ENTRY_CONF` | `/etc/nginx/conf.d/knot.conf` |  | 入口主机上的 nginx 站点配置路径。 |
 | `KNOT_ENTRY_WEB_OWNER` | `nginx:nginx` |  | WebUI 目录的属主。 |
 | `KNOT_ENTRY_CACHE_DIR` | `/var/cache/nginx/knot_uploads` |  | 上传文件的反向代理缓存目录。 |
 | `KNOT_ENTRY_CACHE_ZONE` | `knot_uploads` |  | nginx proxy_cache 区名。 |
@@ -161,17 +159,14 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `KNOT_DEFAULT_PRICE` | `10` | 默认标价（积分）。 |
-| `KNOT_PRICE_MIN` | `0` | 作者可标的最低积分。 |
-| `KNOT_PRICE_MAX` | `100` | 作者可标的最高积分。 |
+| `KNOT_DEFAULT_PRICE` | `10` | 消费券面值（积分）。 |
+| `KNOT_PRICE_MIN` | `1` | 商品可标的最低积分，至少为 1。 |
+| `KNOT_PRICE_MAX` | `100` | 商品可标的最高积分。 |
 | `KNOT_PUBLISH_SERVICE_FEE_PER_MB` | `1` | 发布服务费：每 MB 附件收多少积分，向上取整。 |
-| `KNOT_DOWNLOAD_SERVICE_FEE_PER_MB` | `1` | 下载服务费：每 MB 附件收多少积分，加在作者标价之上。 |
 | `KNOT_SERVICE_FEE_CAP` | `10` | 单次服务费上限。0 表示不封顶。 |
-| `KNOT_SALE_TTL_HOURS` | `72` | 出售帖有效期（小时）。出售帖 = 有可下载附件且有标价的 post/fastpost；零价附件帖不算出售帖，不过期。到期自动下架，作者可再次开放。 |
 | `KNOT_SIGNUP_GRANT` | `100` | 新账户注册赠送积分。 |
 | `KNOT_GRANT_MAX` | `100000` | 单次赠送上限。 |
 | `KNOT_POINT_USD_CENTS` | `1` | 每积分的美元价，用美分表示（1 = 0.01 美元）。 |
-| `KNOT_RETRIEVAL_PRICE` | `10` | 信息检索价：每次检索的统一定价，下载检索结果时收。 |
 | `KNOT_RECHARGE_USD` | `0` | 累计充值（美元）。本期占位 0。 |
 | `KNOT_MONTHLY_OPEX_USD` | `10000` | 月运营开支（美元），用于盈亏平衡测算。 |
 
@@ -179,7 +174,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `KNOT_COUPON_FACE` | 见说明 | 券面值（积分）。留空等于夹进 [KNOT_PRICE_MIN, KNOT_PRICE_MAX] 之后的 KNOT_DEFAULT_PRICE。 |
+| `KNOT_COUPON_FACE` | 见说明 | 券面值（积分）。留空等于 KNOT_DEFAULT_PRICE。 |
 | `KNOT_COUPON_TTL_DAYS` | `30` | 券有效期（天）。 |
 | `KNOT_COUPON_MAX` | `1` | 每个账户持有的未使用券上限。 |
 | `KNOT_COUPON_SIGNUP` | `1` | 新注册自动发一张：1 开，0 关。 |
@@ -204,10 +199,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_SEARCH_Q_MAX` | `120` | 检索词长度上限（字符）。超出的部分截断，不报错。 |
 | `KNOT_SEARCH_CACHE_TTL` | `30` | 检索结果缓存时长（秒）。0 表示不缓存。内容有变更时会立即作废。 |
 | `KNOT_SEARCH_RATE_PER_MIN` | `120` | 同一身份每分钟的检索次数上限。0 表示不限。 |
-| `KNOT_RETRIEVAL_RATE_PER_HOUR` | `10` | 单个账号每小时能提交多少次信息检索。0 表示不限。 |
-| `KNOT_RETRIEVAL_CONCURRENCY` | `2` | 信息检索员同时处理几个任务。 |
-| `KNOT_RETRIEVAL_MAX_ATTEMPTS` | `3` | 单个检索任务最多尝试几次。次数随任务落库，重启不清零。 |
-| `KNOT_REVIEW_CONCURRENCY` | `2` | 终审队列同时处理几条。检索会同时产生 wish 与 wishRespond 两条待审记录。 |
+| `KNOT_REVIEW_CONCURRENCY` | `2` | 终审队列同时处理几条。 |
 | `KNOT_SEARCH_EVENT_RETENTION_DAYS` | `90` | 检索打点 search_events 保留天数。0 表示永久保留。 |
 
 ### 智能体
@@ -216,16 +208,14 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | --- | --- | --- |
 | `OPENCLAW_BIN` | `openclaw` | openclaw 可执行文件。 |
 | `OPENCLAW_PROCESS_TIMEOUT` | `120` | 单次智能体调用的超时（秒）。 |
-| `OPENCLAW_RETRIEVAL_TIMEOUT` | `300` | 信息检索调用的超时（秒）。 |
 | `OPENCLAW_INTEL_AGENT` | `knot-intel` | 情报智能体名。 |
-| `OPENCLAW_RETRIEVAL_AGENT` | `knot-retrieval` | 检索智能体名。 |
 
 ### 管理令牌
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `KNOT_ADMIN_TOKEN` | （空） | 内网管理接口 /api/admin 和管理后台 /admin 的令牌。由 ensure-openclaw.sh 写入，运维不要手改。 |
-| `KNOT_ADMIN_ORIGIN` | （空） | 管理后台链接里写死的内网地址，例如 http://192.0.2.10:8080。留空时按 KNOT_BIND_HOST 与网卡推断；多网卡或隧道拓扑下可以用它写死，绑回环时也能给出内网链接。 |
+| `KNOT_ADMIN_ORIGIN` | （空） | 管理后台链接里写死的内网地址，例如 http://192.168.3.91:8080。留空时按 KNOT_BIND_HOST 与网卡推断。 |
 
 ## XKnot 接入配置（`sites/<站点>/xknot.env`）
 

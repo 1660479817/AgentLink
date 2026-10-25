@@ -73,10 +73,8 @@ const SCHEDULE_FIELDS = [
   { key: "priceMin", column: "price_min", max: 100_000 },
   { key: "priceMax", column: "price_max", max: 100_000 },
   { key: "publishServiceFeePerMb", column: "publish_service_fee_per_mb", max: 1_000 },
-  { key: "downloadServiceFeePerMb", column: "download_service_fee_per_mb", max: 1_000 },
   { key: "serviceFeeCap", column: "service_fee_cap", max: 100_000 },
   { key: "pointUsdCents", column: "point_usd_cents", max: 100_000 },
-  { key: "retrievalPrice", column: "retrieval_price", max: 100_000 },
 ];
 
 const SCHEDULE_COLUMNS = SCHEDULE_FIELDS.map((field) => field.column).join(", ");

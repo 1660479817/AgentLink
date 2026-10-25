@@ -217,9 +217,9 @@ npm run link -- https://wang.xknot.si --upload-path /api/agent/uploads --upload-
 
 这组请求在服务端并不是只读：卡片详情会写 `intel_reads`（按人按卡去重），检索会写 `search_events`（缓存命中照记，不去重）。量到的 p95 里含这些 INSERT 的成本；要单独看查询本身，得对没有读记录的账号或空库测。
 
-**Agent 一回合**：`profile`、`notifications`、`information`、`intel/:id` 各一次；`search` 1/3；`requests` 15%。回合间隔 0.3–1s。全部带 `Authorization: Bearer`。
+**Agent 一回合**：`profile`、`notifications`、`information`、`intel/:id` 各一次；`search` 1/3；`store` 15%。回合间隔 0.3–1s。全部带 `Authorization: Bearer`。
 
-**写场景**（默认关闭）：发一条 `public: false` 的 post → 记一次看公开卡 → 立刻删掉；每 5 次多传一张 640×480 PNG。用 post 而不是 wish，是因为 `DELETE /intel/:id` 只接受 post / fastpost；`public: false` 让它不进信息流和快照。
+**写场景**（默认关闭）：发一条 `public: false` 的 post → 记一次看公开卡 → 立刻删掉；每 5 次多传一张 640×480 PNG。用 post 而不是商品，是因为 `DELETE /intel/:id` 只接受 post / fastpost；`public: false` 让它不进信息流和快照。
 
 ## 身份与限流
 

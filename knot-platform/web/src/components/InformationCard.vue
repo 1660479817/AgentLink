@@ -10,7 +10,6 @@ import { AudioIcon, CloseIcon, CoinIcon, DownloadIcon, FriendAddIcon, FriendChec
 import { containsImage, isMarkdown, parse, toHtml, toPlain } from "@knot/markdown";
 import { lockedImages, packetAudio, packetFile, packetForm, packetVideos, photoItems } from "../packet.js";
 import { altLabel } from "../mediaLabel.js";
-import { expiryOf, hoursLeftAt } from "../record.js";
 import { useCardActionsStore } from "../stores/cardActions.js";
 import { timeAgo } from "../time.js";
 
@@ -25,7 +24,6 @@ const props = defineProps({
   price: { type: Number, default: 0 },
   // 这条一共收到多少打赏。0 表示还没有，卡片不在硬币旁边写数。
   tipTotal: { type: Number, default: 0 },
-  granted: { type: Boolean, default: true },
   images: { type: Array, default: () => [] },
   audio: { type: Array, default: () => [] },
   videos: { type: Array, default: () => [] },
@@ -38,11 +36,15 @@ const props = defineProps({
   authorSelected: { type: Boolean, default: false },
   actor: { type: String, default: "" },
   createdAt: { type: String, default: "" },
-  kind: { type: String, default: "" },
-  expiresAt: { type: String, default: "" },
   mine: { type: Boolean, default: false },
+  // 帖子带附件就能取，商品要买过才能取：货架把这一项关掉，下载键就不出现。
+  canDownload: { type: Boolean, default: true },
   starred: { type: Boolean, default: false },
   canStar: { type: Boolean, default: true },
+  // 打赏是内容一侧的计费：商品不挂打赏，货架把这一项关掉。
+  canTip: { type: Boolean, default: true },
+  // 信息流可以「不感兴趣」；货架上的东西由卖家自己撤下，没有这一项。
+  canDismiss: { type: Boolean, default: true },
   friend: { type: Boolean, default: false },
   canFriend: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
@@ -74,9 +76,6 @@ const showPrice = computed(() => Number(props.price) > 0);
 // 硬币旁边的累计：刚给完打赏时接口回的数比快照新，取大的那个。
 const tipShown = computed(() => Math.max(Number(props.tipTotal) || 0, Number(cardActions.tipTotals[props.postId]) || 0));
 const tipLabel = computed(() => (tipShown.value > 0 ? t("home.tipWithTotal", { n: tipShown.value }) : t("home.tip")));
-// 时效只给作者自己看：一条已经取到的记录，算一次剩余小时，不发额外请求。
-// null 表示这条不会因时间失效（免费帖），0 表示已经到期。
-const expiryLeft = computed(() => (props.mine ? hoursLeftAt(expiryOf({ kMeta: { kind: props.kind, expiresAt: props.expiresAt } })) : null));
 const fileNote = computed(() => String(props.note || "").trim() || (props.verdict === "pending" ? t("home.filePrechecked") : ""));
 
 const bodyRef = ref(null);
@@ -212,12 +211,6 @@ watch(
             </button>
             <span v-if="category && language"> · </span>
             <span v-if="language">{{ language }}</span>
-            <template v-if="expiryLeft !== null">
-              <span v-if="posted || category || language"> · </span>
-              <span class="information-expiry" :class="{ 'is-expired': expiryLeft === 0 }">
-                {{ expiryLeft === 0 ? t("home.expiryExpired") : t("home.expiryLeft", { n: expiryLeft }) }}
-              </span>
-            </template>
           </p>
         </div>
       </div>
@@ -236,7 +229,7 @@ watch(
           <FriendRemoveIcon class="information-friend-off" aria-hidden="true" />
         </template>
       </AppButton>
-      <span v-if="showPrice" class="information-price" :aria-label="t('home.usePrice', { n: price })">
+      <span v-if="showPrice" class="information-price" :aria-label="t('store.priceOf', { n: price })">
         <CoinIcon aria-hidden="true" />
         <span>{{ price }}</span>
       </span>
@@ -252,6 +245,7 @@ watch(
         <RemovedIcon class="information-close-icon" aria-hidden="true" />
       </AppButton>
       <AppButton
+        v-if="canDismiss"
         class="information-dismiss"
         variant="icon"
         type="button"
@@ -320,7 +314,7 @@ watch(
     </ul>
     <div class="post-actions">
       <button
-        v-if="postId && authorId && !mine"
+        v-if="canTip && postId && authorId && !mine"
         type="button"
         class="post-action"
         :class="{ 'is-counted': tipShown > 0 }"
@@ -343,7 +337,7 @@ watch(
         <StarIcon :filled="starred" aria-hidden="true" />
       </button>
       <button
-        v-if="files.length"
+        v-if="files.length && canDownload"
         type="button"
         class="post-action"
         :disabled="busy"

@@ -46,7 +46,7 @@
   <!-- 第一行的字 -->
   <g font-family="PingFang SC, Hiragino Sans GB, sans-serif" text-anchor="middle">
     <text x="114" y="68" font-size="16" font-weight="600" fill="#111">提交 · Submit</text>
-    <text x="114" y="90" font-size="12" fill="#333">post · fastpost · wish</text>
+    <text x="114" y="90" font-size="12" fill="#333">post · fastpost · item</text>
     <text x="368" y="68" font-size="16" font-weight="600" fill="#111">预审 · Pre-review</text>
     <text x="368" y="90" font-size="12" fill="#333">写入前由 Backend 完成 · by Backend before write</text>
     <text x="368" y="204" font-size="16" font-weight="600" fill="#111">不入库 · Not stored</text>
@@ -88,10 +88,10 @@
     <text x="560" y="562" font-size="15" font-weight="600" fill="#111">post、fastpost 不公开 · private</text>
     <text x="560" y="590" font-size="13" fill="#333">只有作者的提交 · author's submissions only</text>
     <text x="560" y="616" font-size="12" fill="#333">别人看不到这一条 · others can't see it</text>
-    <text x="892" y="562" font-size="15" font-weight="600" fill="#111">wish</text>
-    <text x="892" y="590" font-size="13" fill="#333">出现在 /wish，不进信息流 · in /wish, not the feed</text>
-    <text x="892" y="616" font-size="12" fill="#333">wishRespond 只给发出方看 · only the issuer</text>
+    <text x="892" y="562" font-size="15" font-weight="600" fill="#111">item 在售 · on sale</text>
+    <text x="892" y="590" font-size="13" fill="#333">终审留下才上架 · shelved only after keep</text>
+    <text x="892" y="616" font-size="12" fill="#333">内容从不进这里 · content never lands here</text>
   </g>
-  <text x="64" y="676" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="13" fill="#333">终审撤销后离开上面的范围，不再接受新的查看、下载和响应。已经完成的不追回。</text>
-  <text x="64" y="698" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="12" fill="#333">After final-review revocation the record leaves the ranges above and no longer accepts new views, downloads or responses; completed ones are not reclaimed.</text>
+  <text x="64" y="676" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="13" fill="#333">终审撤销后离开上面的范围，不再接受新的查看和下载；商品也不再能买。已经完成的不追回。</text>
+  <text x="64" y="698" font-family="PingFang SC, Hiragino Sans GB, sans-serif" font-size="12" fill="#333">After final-review revocation the record leaves the ranges above and no longer accepts new views or downloads, and an item can no longer be bought; completed ones are not reclaimed.</text>
 </svg>

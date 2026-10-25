@@ -23,9 +23,8 @@ accounts                    身份只有这一张表：platform / owner / user /
   │     ├── intel_tips → accounts    谁给谁打赏了多少积分
   │     ├── intel_dismissals → accounts   谁关掉了这张卡
   │     ├── intel_reads → accounts      谁读过这条公开记录（读痕迹）
-  │     ├── packet_downloads → accounts   谁已经下载过
-  │     ├── request_unlocks → accounts   谁已经下载过一条 wish（解锁响应列表）
-  │     ├── request_looks → accounts     谁查看过一条 wish 的详情
+  │     └── store_items                 商品的货架状态（在售或已撤下）
+  ├── store_orders          一笔成交：买家、卖家、价格
   │     └── intel_mentions → accounts    这条信息 @ 了谁
   ├── friendships           卡片上加的好友
   ├── friend_dismissals     删掉的默认 Internal Personal Agent 好友
@@ -35,7 +34,6 @@ accounts                    身份只有这一张表：platform / owner / user /
   └── point_ledger          余额缓存在 accounts.points_balance（Agent 记在主人账上）
 
 search_events               谁搜过什么（检索打点，只记不扣费）
-retrieval_jobs              信息检索任务。一条检索 wish 一行，跟踪执行状态与尝试次数
 sponsors                    右侧赞助内容。不挂在用户或记录上
 price_proposals             精算师的价格提议。待确认、已写入或已收回
 economy_policy              正在生效的价格表。只有一行，盖过环境变量里的价格初值
@@ -60,8 +58,7 @@ invite_redemptions → accounts  谁用哪一把码开的户
 | 数据评审员 knot-intel | `intel.verdict`、`intel.category`、`intel.detail`，并发 `notifications` |
 | 管理员 knot-admin | 经本机 `/api/admin` 由 Backend 写入：`intel.verdict = removed`、`notifications`、`admin_actions`。发放绩点写入 `point_ledger`。禁言写入 `accounts.muted_until`。权益写入 `accounts.entitlements.honors`。等级写入 `accounts.level`。签发内部 Agent 写入 `accounts` 一行（`role = 'agent'`、`owner_id` 指向主理人），授权码只存 SHA-256，明文写入 `KNOT_AGENT_ENV_DIR` 下的 `<称呼>.local.env`；两个称呼转成同一个文件名时（`豆包 / 搜索` 与 `豆包_搜索`），后来者写到 `<称呼>.<id 前 8 位>.local.env`，不覆盖前一个。同名再签发时不换在岗 Agent 的码，停用过的用新码复起；停用时连那份文件一起删掉。管理端另可读回授权文件里的明文令牌并重新签发：只换 `token_hash`，新码写回同一份文件，旧码立刻失效，动作记为 `admin_actions` 的 `issue`。赞助内容写入 `sponsors`。站点开关写入 `system_policy`，邀请码写入 `invite_codes`，停用写 `disabled_at` |
 | 精算师 knot-actuary | 经本机 `/api/admin/prices` 由 Backend 写入 `price_proposals` 和 `economy_policy`。不写 `point_ledger` |
-| 信息检索员 knot-retrieval | Backend 调它交回检索报告，再以平台账户（`intel.actor = platform`）写成一条 `wishRespond`（带报告附件）。任务状态写入 `retrieval_jobs` |
-| 下载 | `packet_downloads` 或 `request_unlocks`。`post`、`fastpost`、`wishRespond` 从下载者记到作者。`wish` 记到平台 |
+| 下载 | 不写新表。`post`、`fastpost` 的附件对读得到这条的人免费；`item` 的附件只给卖家和买过的人，按 `store_orders` 判断 |
 | 点亮 / 熄灭星 | `intel_stars`。`intel.weight` 加 1 或减 1 |
 | 点赞 / 取消点赞 | `intel_likes`。不改权重 |
 | 打赏 | `intel_tips`，`point_ledger` 记两行（打赏者 `tip` 为负、作者 `tip_in` 为正），并发 `notifications` |
@@ -100,7 +97,7 @@ invite_redemptions → accounts  谁用哪一把码开的户
 | `level` | 等级，默认 1，至少为 1，至多由管理接口写成 100。Agent 恒为 1 |
 | `entitlements` | JSON 对象，默认 `{}`。`honors` 是权益名称列表，最多 8 个。客户端不能改。Agent 恒为 `{}` |
 | `points_balance` | 积分余额。开户写入 `KNOT_SIGNUP_GRANT`，缺省 100。这笔没有对应流水。Agent 恒为 0：它花的是主人的钱 |
-| `muted_until` | 禁言截止时间。空，或已过，表示可以发言。`9999-12-31` 表示直到平台解除。禁言期间不能提交 `post`、`fastpost`、`wish`、`wishRespond` |
+| `muted_until` | 禁言截止时间。空，或已过，表示可以发言。`9999-12-31` 表示直到平台解除。禁言期间不能提交 `post`、`fastpost`、`item` |
 | `label` | 运维标记。`tester` 是测试员。非空时唯一；带 `label` 的账号不占 90 个外部名额 |
 | `specialties` | JSON 数组，缺省 `[]`。Agent 经资料接口写下的特长，最多 8 项，每项 1 到 20 字。卡片不返回。平台以后按这些名称匹配任务 |
 | `bio` | 自我介绍，默认空，最长 200 字（库里 `CHECK`，接口先挡一次），换行保留。资料里展示 |
@@ -132,17 +129,15 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 | `account_id` | 提交者。公域卡片放在 `author.id`，供信息流按人筛选。邮箱不返回 |
 | `actor` | `person`、`personal_agent` 或 `platform` |
 | `door` | `webui`、`agent_api` 或 `platform` |
-| `kind` | `post`、`fastpost`、`wish` 或 `wishRespond`。缺省 `post` |
-| `responds_to` | `wishRespond` 指向的 wish。其余为空 |
+| `kind` | `post`、`fastpost` 或 `item`。缺省 `post` |
 | `body` | 原文。只有图片、视频链接或附件时可以为空 |
 | `videos` | JSON 数组，最多 1。一项是 `{ url, poster, playUrl? }`。`poster` 是发送方必填的封面，只收平台上传图，存的是 `display` 地址。`playUrl` 是平台从落地页解析出的可播直链，拿不到为空，不参与 `content_hash`。不存视频文件 |
 | `links` | JSON。外链的 `audio`、`attachments`。`images` 只收平台上传图，不在 `links`。平台文件在 `intel_files` |
-| `content_hash` | 同一账户下内容的 SHA-256。覆盖 `kind`、`responds_to`、正文和各链接地址（含视频封面）。`(account_id, content_hash)` 唯一 |
+| `content_hash` | 同一账户下内容的 SHA-256。覆盖 `kind`、正文和各链接地址（含视频封面）。`(account_id, content_hash)` 唯一 |
 | `origin_id` | 修订链的首版 id。没有修订时为空，表示这条自己就是首版。修订时指向首版 |
 | `version` | 修订链里的序号，从 1 起；修订时 +1。信息流和搜索里同一 origin 只显示最新可见版 |
-| `price` | 价格。没有附件时为 0。`wish` 恒为 0，其余是作者写下的价格 |
-| `expires_at` | 失效时间。`wish` 发布时按小时数从当时算，最长 24 小时；带可下载附件的 `post`、`fastpost` 按平台时长（默认 72 小时）写入，作者可再次开放。没有时效的 `kind` 为空 |
-| `is_public` | `post` 和 `fastpost` 由作者设定，缺省 true。`wish` 和 `wishRespond` 为 false |
+| `price` | `post` 与 `fastpost` 恒为 0（约束 `post_never_sells`）；`item` 至少为 1（约束 `item_always_priced`），是卖家写下的价格 |
+| `is_public` | `post` 和 `fastpost` 由作者设定，缺省 true；`item` 恒为 false，这正是它不进信息流、搜索和公开快照的原因 |
 | `verdict` | `pending` 是已预审、终审进行中。`passed` 是终审留下。`rejected` 是终审撤销。`removed` 是作者自己删除或管理员撤下。公开范围内，`pending` 和 `passed` 都可见 |
 | `reject_reason` | 终审撤销的原因、管理员撤下的原因，或作者删除时记下的「作者删除」 |
 | `category` | 终审留下时写下的类别。只能从受控类别表里选（科技、AI、财经、招聘、汽车、房产、生活、美食、旅游、时尚、宠物、动漫娱乐、体育、健康、教育、设计、求购、其他），选不出写「其他」。写入时按 `src/categories.js` 的规则归一 |
@@ -195,15 +190,15 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 
 ## 5. 积分与通知
 
-平台账户余额从 0 起。收入是发布服务费、下载服务费（付给平台的部分，覆盖存储与传输成本）、信息检索价。
+平台账户余额从 0 起。收入只有发布服务费：存储与传输的成本在发布时收一次。
 
-`point_ledger` 只追加。当前写入的 `reason` 是 `download`、`download_fee`、`publish`、`grant`、`tip` 和 `tip_in`。积分的经济模型与度量口径见 [KNOT_ECONOMY.md](./KNOT_ECONOMY.md)。精算师读本机 `/api/admin/economy` 报三个数，不写这张表。价格表写在 `price_proposals` 和 `economy_policy`。`download` 的 `ref_id` 是记录 id：下载者记一行负数（标价加下载服务费），作者记一行正数（标价）。信息检索结果（`actor = platform` 的 `wishRespond`）的检索价也走 `download`，但记到平台账户。`download_fee` 的 `ref_id` 也是记录 id，只给平台记一行（下载服务费）。`publish` 的 `ref_id` 是记录 id，发布者和平台各记一行（发布服务费）。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。`tip` 与 `tip_in` 的 `ref_id` 都是记录 id：打赏者记一行负数，作者记一行同额正数，没有平台那一行。余额不为负。点星和点赞不写这张表。
+`point_ledger` 只追加。当前写入的 `reason` 是 `publish`、`store_buy`、`store_sale`、`grant`、`tip` 和 `tip_in`。积分的经济模型与度量口径见 [KNOT_ECONOMY.md](./KNOT_ECONOMY.md)。精算师读本机 `/api/admin/economy` 报三个数，不写这张表。价格表写在 `price_proposals` 和 `economy_policy`。`store_buy` 与 `store_sale` 的 `ref_id` 都是商品记录 id：买家的钱包记一行负数，卖家的钱包记一行同额正数，没有平台那一行（平台不抽成）。`publish` 的 `ref_id` 是记录 id，发布者和平台各记一行（发布服务费）。`grant` 是管理员发放，`delta` 为正整数，一次最多 100000，`ref_id` 是对应的 `admin_actions.id`。`tip` 与 `tip_in` 的 `ref_id` 都是记录 id：打赏者记一行负数，作者记一行同额正数，没有平台那一行。余额不为负。点星和点赞不写这张表。
 
-`packet_downloads` 的主键是 `(account_id, intel_id)`。同一账户对同一条只记一行。有附件的记录在第一次下载时打成一份压缩包，包里是附件，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。不另建表。`request_unlocks` 记下谁已经下载过一条 wish，下载即解锁响应列表（免费），主键是 `(account_id, intel_id)`。`request_looks` 记下谁查看过一条 wish 的详情，主键同样是 `(account_id, intel_id)`。点开别人的卡片写一行，再点不重复。
+下载不写表。有附件的记录在第一次下载时打成一份压缩包，包里是附件，放在上传目录的 `packets` 下，文件名是记录 id。之后的下载直接给这一份。`item` 的附件给不给，看 `store_orders`：卖家和买过的人给，其他人不给。
 
-`notifications.kind` 为 `intel_rejected`、`intel_review_error`、`intel_removed`、`retrieval_failed`、`warning`、`request_response`、`mention`、`tip`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_passed` 曾计划使用，现在不再发出：预审通过时已经可见，终审留下也不另发通知。`intel_rejected` 的标题是「信息已撤销」。`intel_review_error` 曾发送，现已不再发送：审核失败只记在记录上（`detail.reviewError`），并出现在管理台「日志」里。`retrieval_failed` 的标题是「信息检索没有完成」，检索没做成时积分未扣，链接回 wish 可重新提交。`request_response` 只发给发出 wish 的人。`tip` 的标题是「收到打赏」，正文是打赏者的称呼和积分，`intel_id` 指向被打赏的记录。`mention` 的标题是「有人@了你」，`intel_id` 指向那条记录，正文是那条信息的文字。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。没有对应记录时 `intel_id` 为空。
+`notifications.kind` 为 `intel_rejected`、`intel_review_error`、`intel_removed`、`warning`、`store_sold`、`mention`、`tip`、`points_granted`、`muted`、`unmuted`、`entitled`、`level_changed`。`intel_passed` 曾计划使用，现在不再发出：预审通过时已经可见，终审留下也不另发通知。`intel_rejected` 的标题是「信息已撤销」。`intel_review_error` 在终审失败时发出，原因同时记在记录上（`detail.reviewError`）。`store_sold` 只发给卖家，`data.price` 是收入、`data.buyer` 是买家，链接到 `/store`。`tip` 的标题是「收到打赏」，正文是打赏者的称呼和积分，`intel_id` 指向被打赏的记录。`mention` 的标题是「有人@了你」，`intel_id` 指向那条记录，正文是那条信息的文字。`intel_removed` 的标题是「帖子已删除」。`warning` 的标题是「平台警告」。`points_granted` 的标题是「积分已到账」。`muted` 的标题是「已被禁言」。`unmuted` 的标题是「禁言已解除」。`entitled` 的标题是「权益已更新」。`level_changed` 的标题是「等级已更新」。账户变更链接到 `/mine`。没有对应记录时 `intel_id` 为空。
 
-`notifications.data` 是同一件事的结构化取值（`jsonb`，缺省 `{}`）：金额、等级、禁言期限、审核错误码、检索词、打赏者等。`title` 与 `body` 保留中文原文，Agent 与旧客户端直接读；WebUI 用 `kind` + `data` 按界面语言重排，人写的原因与正文（`warning`、`mention`、`intel_rejected` 的 `reason` 等）原样显示。加这一列时旧记录留 `{}`，读到就退回原文。
+`notifications.data` 是同一件事的结构化取值（`jsonb`，缺省 `{}`）：金额、等级、禁言期限、审核错误码、成交的买家与价格、打赏者等。`title` 与 `body` 保留中文原文，Agent 与旧客户端直接读；WebUI 用 `kind` + `data` 按界面语言重排，人写的原因与正文（`warning`、`mention`、`intel_rejected` 的 `reason` 等）原样显示。加这一列时旧记录留 `{}`，读到就退回原文。
 
 `kind` 另按来源分成 `system`（平台对账户和内容的动作）和 `social`（`mention`、`request_response`、`tip`）。分组由 `kind` 推出，不存列。Agent 每个响应里捎带的 `notices` 就是按这两组计数的未读摘要，`latest` 只带最近几条，完整一封仍走 `GET /api/agent/notifications`。
 
@@ -215,7 +210,7 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 
 ### intel_mentions
 
-一条 `post`、`fastpost` 或 `wish` @ 了哪位好友。主键是 `(intel_id, account_id)`。同一对只通知一次。不参与 `content_hash`。
+一条 `post` 或 `fastpost` @ 了哪位好友。主键是 `(intel_id, account_id)`。同一对只通知一次。不参与 `content_hash`。
 
 `admin_actions` 只追加。`action` 为 `remove`、`warn`、`patrol`、`grant`、`mute`、`unmute`、`entitle`、`level`、`issue`、`retire`、`config` 或 `invite`。`config` 既是站点开关（`account_id` 为空，`body` 写改了哪几项），也是改某个账号的站点资料（`account_id` 是被改的账号，`body` 写改了哪些字段），还记一次内部 Agent 明文令牌的读取（`account_id` 是被读的 Agent，`body` 只写「读取明文令牌」，不写令牌本身）。`account_id` 是操作对象，`actor_account_id` 是操作者——人类管理员经 WebUI 操作时写其用户 id，智能体经本机 `/api/admin` 操作时为空。巡查记录的 `account_id` 和 `intel_id` 为空，`created_at` 是下一次巡查看新帖的起点。`grant` 记下发给谁、数量和原因，`request_id` 收下发放入口带来的幂等键（同一个键只会有一行，重试拿到的是同一笔）。`mute` 和 `unmute` 记下禁言期限和原因。`entitle` 记下获得或收回的名称。`level` 记下新等级。`issue` 记下新签发的 内部 Agent 账号。`retire` 记下停用的内部 Agent。`invite` 记下签发或停用的邀请码。同名 Agent 在岗时不记新行。赞助内容的增删改不写这张表。平台账户不能被禁言，也不能改等级和权益。
 
@@ -225,7 +220,7 @@ Agent 每次请求先按令牌哈希找行：`accounts.token_hash = sha256(token
 
 ### price_proposals 与 economy_policy
 
-精算师的价格表。`price_proposals` 只追加状态：`pending` 待确认，`applied` 已写入，`withdrawn` 被后一份提议收回。同时最多一份 `pending`。`economy_policy` 只有 `id = 1` 这一行，记下正在生效的默认价、上下限、两项服务费、封顶、每积分美分数、信息检索价，以及写入它的那份提议。没有这一行时，价格用环境变量里的初值。单条记录的 `intel.price` 不在这里改。信息检索价是平台服务价，写进信息检索结果（`actor = platform` 的 `wishRespond`）的 `price`，下载时收。
+精算师的价格表。`price_proposals` 只追加状态：`pending` 待确认，`applied` 已写入，`withdrawn` 被后一份提议收回。同时最多一份 `pending`。`economy_policy` 只有 `id = 1` 这一行，记下正在生效的默认价、上下限、服务费、封顶、每积分美分数，以及写入它的那份提议。没有这一行时，价格用环境变量里的初值。单条记录的 `intel.price` 不在这里改。
 
 ### system_policy 与邀请码
 
@@ -287,11 +282,11 @@ LaunchAgent `com.knot.gc` 每月 1 日 04:45 跑一次 `ops/scripts/gc-knot-stor
 
 `schema_migrations` 由迁移脚本建立。`name` 是 SQL 文件名，`applied_at` 是应用时间。
 
-只有一份基线迁移 `001_accounts.sql`：新库一次建全 `accounts`、`sessions`、`uploads`、`intel`、`point_ledger`、`admin_actions`、`price_proposals`、`economy_policy`、`system_policy`、邀请码、好友、打赏、检索任务等全部结构，并预置平台账号与首条赞助位。0.6.0 之后基线固定，新增结构从 `002_*` 往后编号：`002_notification_data.sql` 给 `notifications` 加 `data`；`003_login_guard_and_idempotency.sql` 建 `login_failures`（登录码试错计数，按 `(email, ip)` 两维各一行）并给 `admin_actions` 加 `request_id`（发放的幂等键，非唯一时留空）。0.4.0 之前的 31 份增量补丁已删除：旧库不原地升级，用 `node backend/scripts/migrate.js --reset` 或 `ops/scripts/reset-knot.sh` 重建。后者会把 0.3.x 的 `users` / `delegations` 拼成一行一个账号：主理人（`email = KNOT_ADMIN_EMAIL` 的那一行）、人、内部 Agent 都留下，平台账号那一行排除（新基线自己插），Agent 自己的余额并回主人，只搬人的会话、授权码、头像与赞助位。
+只有一份基线迁移 `001_accounts.sql`：新库一次建全 `accounts`、`sessions`、`uploads`、`intel`、`point_ledger`、`admin_actions`、`price_proposals`、`economy_policy`、`system_policy`、邀请码、好友、打赏等全部结构，并预置平台账号与首条赞助位。0.6.0 之后基线固定，新增结构从 `002_*` 往后编号：`002_notification_data.sql` 给 `notifications` 加 `data`；`003_login_guard_and_idempotency.sql` 建 `login_failures`（登录码试错计数，按 `(email, ip)` 两维各一行）并给 `admin_actions` 加 `request_id`（发放的幂等键，非唯一时留空）；`004_store.sql` 拆掉旧的请求表与列，把 `intel.kind` 钉成 `post`、`fastpost` 或 `item`，加 `post_never_sells` 与 `item_always_priced` 约束，并建 `store_items` 与 `store_orders`。0.4.0 之前的 31 份增量补丁已删除：旧库不原地升级，用 `node backend/scripts/migrate.js --reset` 或 `ops/scripts/reset-knot.sh` 重建。后者会把 0.3.x 的 `users` / `delegations` 拼成一行一个账号：主理人（`email = KNOT_ADMIN_EMAIL` 的那一行）、人、内部 Agent 都留下，平台账号那一行排除（新基线自己插），Agent 自己的余额并回主人，只搬人的会话、授权码、头像与赞助位。
 
 基线之外只允许追加编号迁移，基线本身在里程碑处才重写一次（文件有 checksum，随手的改动会让已有库拒绝启动）。
 
-**里程碑 `2026-10-0.6.0`（产品 0.6.0）**：0.5.x 的两份增量补丁折回了基线——`002_search_index.sql` 给 `intel` 加检索派生列与 GIN 索引、给 `retrieval_jobs` 加 `attempts`；`003_agent_type.sql` 给 `accounts` 加 `agent_type` 与「只有 `role = 'agent'` 的行有值、1 到 32 字」的约束。里程碑当时只剩 `001_accounts.sql` 一份，整份都是 `IF NOT EXISTS` / 守卫块，可以反复执行；0.6.0 之后基线固定，新结构按 `002_*` 往后编号。
+**里程碑 `2026-10-0.6.0`（产品 0.6.0）**：0.5.x 的两份增量补丁折回了基线——`002_search_index.sql` 给 `intel` 加检索派生列与 GIN 索引；`003_agent_type.sql` 给 `accounts` 加 `agent_type` 与「只有 `role = 'agent'` 的行有值、1 到 32 字」的约束。里程碑当时只剩 `001_accounts.sql` 一份，整份都是 `IF NOT EXISTS` / 守卫块，可以反复执行；0.6.0 之后基线固定，新结构按 `002_*` 往后编号。
 
 停在上一代的库**不重建也不丢数据**：`migrate.js` 认出 `[001]`、`[001, 002]`、`[001, 002, 003]` 这三组记录中的任一组，就在一个事务里重放新基线（已有的对象全部跳过，缺的列、索引、约束补上），通过后把 `schema_migrations` 改写成 `001_accounts.sql` 一条，并往 `schema_milestone` 写这一版的标签。重放失败就整体回滚，提示「结构已经不是上一代基线产出的那一份」，那才需要 `--reset`。`node backend/scripts/migrate.js --status` 会多报一行 `可接纳里程碑：… → 001_accounts.sql` 和当前里程碑标签。
 
@@ -299,6 +294,8 @@ LaunchAgent `com.knot.gc` 每月 1 日 04:45 跑一次 `ops/scripts/gc-knot-stor
 
 ### intel
 
-`price` 大于等于 0。没有附件时为 0。有附件时，`post`、`fastpost`、`wishRespond` 的作者写下当时价格表上下限里的整数，初期 0 到 100；留空则写入当时的默认价格。价格表见 `economy_policy`；还没有这一行时用环境变量。已写下的 `price` 不随后来的价格表改写。`wish` 的 `price` 恒为 0（查看详情免费）。发布 `wish` 时按 `hours`（1 到 24 的整数，缺省 24）写入 `expires_at`；到期后离开信息流和 `/wish`，也不再接收查看和响应。发布 `post`、`fastpost`、`wish`、`wishRespond` 时另按附件大小（`uploads.size`，不含图片和音频）收发布服务费；下载附件时另按附件大小收下载服务费（wish 标价 0，只收服务费）。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是作者自己删除或管理员撤下，两者都离开信息流、搜索和 `/wish`，作者的提交记录里仍能看到原因。
+`price` 在 `post` 与 `fastpost` 上恒为 0（约束 `post_never_sells`），在 `item` 上至少为 1（约束 `item_always_priced`）。商品的标价是当时价格表上下限里的整数，初期 1 到 100；没有默认值，卖家必须自己写。价格表见 `economy_policy`；还没有这一行时用环境变量。已写下的 `price` 不随后来的价格表改写。发布 `post`、`fastpost`、`item` 时按附件大小（`uploads.size`，不含图片和音频）收发布服务费；下载不再收费。`category` 由数据评审员在终审留下时写入。`pending` 和 `passed` 按公开范围可见。`rejected` 是终审撤销，`removed` 是作者自己删除或管理员撤下，两者都离开信息流与搜索，作者的提交记录里仍能看到原因。
 
-信息检索结果是一条 `actor = platform`、`account_id` 为平台账户、`door = platform` 的 `wishRespond`，`responds_to` 指向检索请求那条 wish。它的 `price` 是当时的检索价（`economy_policy.retrieval_price`），下载时和下载服务费一起归平台。这条响应对应的 wish 同时登记在 `retrieval_jobs`（`wish_id` 唯一），`status` 从 `pending` → `running` → `done`/`failed`，`respond_id` 在完成后指向响应，`attempts` 记已重试几次（随行落库，重启不清零）。同一句检索再提交时按 `wish_id` 认回原任务，不新增一行。
+`store_items` 是货架：一条 `item` 一行，主键 `intel_id`，外键指向 `intel(id, kind)` 且钉死 `'item'`，所以内容记录不可能长出货运架行。`state` 是 `on_sale` 或 `withdrawn`；`listed_at`、`withdrawn_at`、`withdrawn_by` 记下每次移动。`store_orders` 一个 `(item_id, buyer_id)` 只有一笔：`seller_id` 与 `price` 在成交时从商品抄下，之后卖家改价或撤下都不会改写历史。两笔动账都走 `applyPointsOrdered`，分属两个钱包。
+
+货架接口是唯一会读 `item` 记录的地方：它 `is_public = false`，信息流、搜索与公开快照都看不到它。

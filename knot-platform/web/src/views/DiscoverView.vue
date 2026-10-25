@@ -10,10 +10,8 @@ import { addCardFriend, closeInformation, discoverSelf, dismissInformation, down
 import FilterBar from "../components/FilterBar.vue";
 import { browserStorage, readBoardCache } from "../boardCache.js";
 import { cardProps } from "../cardProps.js";
-import { applyDiscoverSelf, boardIsBehind, cardGranted, cardIsMine, coveredBy, fetchAuthoritativeBoard, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
+import { applyDiscoverSelf, boardIsBehind, coveredBy, fetchAuthoritativeBoard, fetchDiscoverBoard, hideDiscoverItem, paintDiscover, readAhead, readDiscoverMemory, rememberAhead, revealDiscover, showDiscoverItem } from "../discoverBoard.js";
 import { errorText, nameMark } from "../composers/packet.js";
-import { acceptDownload } from "../download/consent.js";
-import { feeOf, priceOf } from "../record.js";
 import { startPolling } from "../polling.js";
 import { timeAgo } from "../time.js";
 import { t } from "../i18n/index.js";
@@ -28,8 +26,8 @@ const pending = readAhead();
 // 首帧优先用本机留下的那一份快照：刷新后不必等隧道就能画出来。
 const cachedBoard = readDiscoverMemory() || readBoardCache(browserStorage());
 const opening = pending
-  ? { information: pending.information || [], requests: pending.requests || [], people: pending.people || [], facets: pending.facets || { categories: [], topics: [] } }
-  : paintDiscover(cachedBoard, session.user?.id);
+  ? { information: pending.information || [], people: pending.people || [], facets: pending.facets || { categories: [], topics: [] } }
+  : paintDiscover(cachedBoard);
 const items = ref(opening.information);
 const people = ref(opening.people || []);
 const facets = ref(opening.facets || { categories: [], topics: [] });
@@ -180,7 +178,7 @@ async function loadMore() {
 // 把个人状态叠到已经在屏幕上的这一列。只看当前的 items，不覆盖刷新期间新加进来的帖子。
 function applySelf(self) {
   if (!self || typeof self !== "object") return;
-  items.value = applyDiscoverSelf({ information: items.value, requests: [] }, self).information;
+  items.value = applyDiscoverSelf({ information: items.value }, self).information;
 }
 
 // 会话与个人状态一次取回。首屏已经画了快照，所以这一条迟一点不影响页面出现。
@@ -222,7 +220,7 @@ async function loadLive(options = {}, token = loadToken) {
   if (token !== loadToken) return;
   if (Array.isArray(roster?.people)) people.value = roster.people;
   filterAuthor.value = author ? info.author || null : null;
-  const painted = { information: info.information || [], requests: [], people: people.value, facets: facets.value };
+  const painted = { information: info.information || [], people: people.value, facets: facets.value };
   if (options.ahead) rememberAhead(painted);
   showPainted(painted);
 }
@@ -235,13 +233,13 @@ async function loadBoard(token = loadToken) {
     // 刚发布过：先把那一屏画出来，个人状态稍后再叠，不挡着首屏。
     // people 与 facets 沿用当前值，`/discover.json` 里那一份不一定包含刚发的这条。
     const ahead = revealDiscover(readAhead());
-    showPainted({ information: ahead.information, requests: ahead.requests, people: people.value, facets: facets.value });
+    showPainted({ information: ahead, people: people.value, facets: facets.value });
     void personalise();
     return;
   }
   if (readAhead()) rememberAhead(null);
   // 先画公开快照，不等任何一次跨境往返。
-  showPainted(paintDiscover(board, session.user?.id));
+  showPainted(paintDiscover(board));
   // 版本是会话层带回来的，所以要等它到齐再比；首帧不等它。
   // 直接读 session.boardVersion 会漏掉最常见的一条路：路由器在只有快照、
   // 还没问过会话时会先放行到本页，那时这个字段还是空的。
@@ -265,7 +263,7 @@ async function catchUpBoard(painted, token, showedCursor) {
     const latest = await fetchAuthoritativeBoard();
     if (token !== loadToken) return;
     facetsFromBoard = Boolean(latest.facets);
-    showPainted(paintDiscover(latest, session.user?.id));
+    showPainted(paintDiscover(latest));
     // 重画之后个人状态要重新叠一次，否则星标和「已下载」会掉。没有条目就不发这一条。
     const ids = items.value.map((item) => item.id);
     if (session.user && ids.length) applySelf(await discoverSelf(ids));
@@ -576,30 +574,15 @@ async function toggleFriend(item) {
   }
 }
 
+// 帖子带附件就能取：下载不扣分，也不弹确认。失败时把原因写在卡片上。
 async function downloadItem(item) {
   if (item.downloading) return;
   item.downloading = true;
+  item.notice = "";
   try {
-    if (session.user) await session.load();
-    const ok = await acceptDownload({
-      price: priceOf(item),
-      fee: feeOf(item),
-      granted: cardGranted(item, session.user),
-      mine: cardIsMine(item, session.user),
-      balance: session.user?.pointsBalance,
-      code: session.user ? "" : "no_session",
-      task: () => downloadInformation(item.id),
-    });
-    if (!ok) return;
-    try {
-      const data = searchQ.value ? await searchInformation(searchQ.value, activeFilters.value) : await listInformation(authorQ.value, null, activeFilters.value);
-      const next = (data.information || []).find((row) => row.id === item.id);
-      if (next) Object.assign(item, next);
-      else item.granted = true;
-      if (session.user) await session.load();
-    } catch {
-      item.granted = true;
-    }
+    await downloadInformation(item.id);
+  } catch (error) {
+    item.notice = errorText(error.code, session.policy);
   } finally {
     item.downloading = false;
   }

@@ -18,8 +18,7 @@ import { listAdminHosts } from "./adminHosts.js";
 import { webRouter } from "./routes/web.js";
 import { loadEconomyPolicy } from "./actuary.js";
 import { ensureOwner } from "./login.js";
-import { resumePendingReviews } from "./market.js";
-import { resumePendingRetrievals } from "./retrieval.js";
+import { resumePendingReviews } from "./intel.js";
 import { startSearchEventRetention } from "./attention.js";
 import { agentRouter } from "./routes/agent.js";
 import { loadSystemPolicy, publicBoardEnabled } from "./system.js";
@@ -227,7 +226,6 @@ try {
 const server = app.listen(bootstrap.port, bootstrap.bindHost, () => {
   console.log(`knot-backend listening on ${bootstrap.bindHost}:${bootstrap.port}`);
   resumePendingReviews(pool).catch((error) => console.error(error));
-  resumePendingRetrievals(pool).catch((error) => console.error(error));
   // 检索打点只追加，按保留天数每天清一次，别让 count(*) 随运行时间变慢。
   startSearchEventRetention(pool);
 });
