@@ -66,8 +66,9 @@ function metaTag(attr, key, value) {
  */
 export function renderEntryHtml(template, { site, origin, fallbackName = "Knot" } = {}) {
   const html = String(template || "");
-  if (!html.includes('<div id="app"></div>')) {
-    throw new Error("入口首页里找不到 <div id=\"app\"></div>，这不像是 web/dist/index.html");
+  // 挂载点可以带首帧内容：脚本没到或被旧内核拒绝执行时，那一段就是页面本身。
+  if (!/<div[^>]*\bid="app"[^>]*>/i.test(html)) {
+    throw new Error("入口首页里找不到 <div id=\"app\">，这不像是 web/dist/index.html");
   }
   const base = String(origin || "").replace(/\/+$/, "");
   if (!/^https?:\/\//i.test(base)) throw new Error(`origin 必须是绝对地址：${origin}`);
@@ -133,7 +134,15 @@ export function renderEntryHtml(template, { site, origin, fallbackName = "Knot" 
       /\n[ \t]*<\/head>/i,
       `\n${head}\n    <script type="application/ld+json">${structured}</script>\n  </head>`,
     )
-    .replace('<div id="app"></div>', `<div id="app"></div>\n${noscript}`);
+    // 首帧内容：构建产物里写的是通用文案，入口主机按站点档案换成本站的名字与一句话介绍。
+    // 正则只认带 data-knot-* 的那个节点，不碰页面里的同名元素以外的结构。
+    .replace(/(<[^>]*data-knot-name[^>]*>)[\s\S]*?(<\/[a-z]+>)/i, `$1${escapeHtml(info.name)}$2`)
+    .replace(
+      /(<[^>]*data-knot-line[^>]*>)[\s\S]*?(<\/[a-z]+>)/i,
+      `$1${escapeHtml(info.tagline || description || "正在进入…")}$2`,
+    )
+    .replace(/(data-knot-retry[^>]*href=")[^"]*(")/i, `$1${escapeHtml(base + "/")}$2`)
+    .replace(/\n[ \t]*<\/body>/i, `\n${noscript}\n  </body>`);
 
   return out;
 }

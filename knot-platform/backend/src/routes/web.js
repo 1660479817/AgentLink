@@ -221,8 +221,9 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   };
 
   router.get("/session", async (req, res) => {
-    // 带会话身份，任何一层共享缓存都不要留。
-    res.set("Cache-Control", "no-store");
+    // 匿名时这份响应只有站点开关与自述，和具体是谁无关：入口可以短缓存，
+    // 让第一次打开不必为它穿一次跨境隧道。登录后必须逐人回源。
+    res.set("Cache-Control", req.account ? "private, no-store" : "public, max-age=5");
     const policy = policyConfig();
     // 站点默认语种由主理人在 /admin 里定。这里不按访客 IP 或 Accept-Language 猜：
     // 访客自己的选择在 WebUI 的本地存储与 accounts.locale 里，比这一项优先。
@@ -304,8 +305,9 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   // 登录的人是谁、关掉了哪些卡、点亮了哪些星、有没有未读通知。
   // 首屏先画快照，这一条回来后再叠上去，所以它迟一点不影响页面出现。
   router.get("/home", async (req, res) => {
-    // 这是给某个人的一屏：不存浏览器缓存，也不许共享缓存留。
-    res.set("Cache-Control", "no-store");
+    // 这是给某个人的一屏：登录的人不存浏览器缓存，也不许共享缓存留。
+    // 未登录时内容只有站点开关与空个人态，入口可以缓存几秒吸收突发。
+    res.set("Cache-Control", req.account ? "private, no-store" : "public, max-age=5");
     const policy = policyConfig();
     const defaultLocale = parseLocale(profile?.view().site?.locale) || DEFAULT_SITE_LOCALE;
     const site = siteConfig();
@@ -669,10 +671,12 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   });
 
   router.get("/facets", contentGate, async (_req, res) => {
+    res.set("Cache-Control", "public, max-age=30");
     res.json(await listFacets(pool));
   });
 
   router.get("/people", contentGate, async (_req, res) => {
+    res.set("Cache-Control", "public, max-age=30");
     res.json({ people: await listActivePeople(pool) });
   });
 
@@ -826,11 +830,13 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   });
 
   router.get("/sponsors", async (_req, res) => {
+    res.set("Cache-Control", "public, max-age=60");
     res.json({ sponsors: await listPublicSponsors(pool) });
   });
 
   // 第二期：现实汇率与经济运行（聚合数据，无个人隐私，公开可读）。
   router.get("/economy", async (_req, res) => {
+    res.set("Cache-Control", "public, max-age=60");
     try {
       res.json(await economyReport(pool));
     } catch (error) {
@@ -840,6 +846,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   });
 
   router.get("/information", contentGate, async (req, res) => {
+    // 匿名读到的公开信息流与具体是谁无关，入口可短缓存；登录后 starred/liked/mine 逐人不同。
+    res.set("Cache-Control", req.account ? "private, no-store" : "public, max-age=10");
     const author = String(req.query.author || "").trim();
     if (author && !INTEL_ID.test(author)) return res.json({ information: [], author: null });
     const before = String(req.query.before || "").trim();
@@ -854,6 +862,8 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   // 分享海报二维码深链：按帖子 id 取一条公开信息。
   // 旧地址（首版或中间版）也解到修订链里最新的那一版，链接不会停在旧稿上。
   router.get("/intel/:id", contentGate, async (req, res) => {
+    // 公开卡片对匿名读者是同一份内容；登录后才带自己的 star/like/mine。
+    res.set("Cache-Control", req.account ? "private, no-store" : "public, max-age=10");
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const { rows } = await pool.query(

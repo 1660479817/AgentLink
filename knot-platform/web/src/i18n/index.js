@@ -58,7 +58,9 @@ export function t(key, vars) {
   let text = lookup(primary, parts) ?? lookup(catalogs[defaultLocale], parts) ?? key;
   if (vars) {
     for (const [name, value] of Object.entries(vars)) {
-      text = text.replaceAll(`{${name}}`, String(value));
+      // 不用 String.replaceAll：它在 Safari 13.1 / Chrome 85 之前不存在，
+      // 而微信内置浏览器可能比这更老。split/join 行为一致，也没有兼容门槛。
+      text = text.split(`{${name}}`).join(String(value));
     }
   }
   return text;

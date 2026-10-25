@@ -113,6 +113,39 @@ server {
     }
 {{/KNOT_ENTRY_STATIC}}
 
+{{#KNOT_ENTRY_STATIC}}
+    # 匿名公开读的入口短缓存。
+    #
+    # 这条链路是「读者 → 入口 → 跨洋隧道 → 实例」。静态快照已经绕开隧道，但首屏的
+    # 会话、公开信息流、卡片详情仍要走一次往返（约 300ms）。这些响应在未登录时对
+    # 所有人相同，入口缓存几秒就能让第一个和第一百个读者都只等一个 RTT。
+    #
+    # 只缓存 GET，且只要请求带任何 Cookie 就整条绕过（proxy_cache_bypass / proxy_no_cache）：
+    # 登录后的 starred/liked/mine 与未读数逐人不同，不能进共享缓存。
+    # 检索不在这里：它会写 search_events，也按人限流，必须逐次回源。
+    location ~ ^/api/web/(session|home|information|facets|people|sponsors|economy|intel/[0-9a-fA-F-]{36})$ {
+        proxy_pass http://knot_entry_{{KNOT_ENTRY_PROXY_PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto {{#KNOT_ENTRY_SSL}}https{{/KNOT_ENTRY_SSL}}{{^KNOT_ENTRY_SSL}}$scheme{{/KNOT_ENTRY_SSL}};
+        proxy_set_header CF-IPCountry $http_cf_ipcountry;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_cache {{KNOT_ENTRY_CACHE_ZONE}};
+        proxy_cache_key "api:$scheme$host$request_uri";
+        proxy_cache_bypass $http_cookie;
+        proxy_no_cache $http_cookie;
+        proxy_cache_valid 200 10s;
+        proxy_cache_lock on;
+        proxy_cache_background_update on;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        add_header X-Knot-Cache $upstream_cache_status;
+    }
+{{/KNOT_ENTRY_STATIC}}
+
     location /api/ {
         proxy_pass http://knot_entry_{{KNOT_ENTRY_PROXY_PORT}};
         proxy_http_version 1.1;
@@ -132,7 +165,9 @@ server {
 {{#KNOT_ENTRY_STATIC}}
     location = /index.html {
         root {{KNOT_ENTRY_WEB_ROOT}};
-        add_header Cache-Control "no-cache";
+        # no-store 而不是 no-cache：微信内置浏览器会跳过校验直接复用旧 HTML。
+        # 旧 HTML 指向的 /assets/<hash> 在发布后已经被删掉，页面就只剩白屏。
+        add_header Cache-Control "no-store";
         add_header X-Content-Type-Options nosniff always;
         add_header Referrer-Policy strict-origin-when-cross-origin always;
     }

@@ -105,8 +105,17 @@ test("the public list omits position", async () => {
   assert.deepEqual(await listSponsors(pool), [{ id: FIRST, title: "store", href: "/store", image: null, caption: "", source: "" }]);
 });
 
-test("a sponsor picture is an http address or a stored image", async () => {
+test("a stored sponsor picture is served as the display rendition", async () => {
   const pool = {
+    async query() {
+      return { rows: [{ id: FIRST, title: "store", href: "/store", image_upload_id: SECOND }] };
+    },
+  };
+  const [sponsor] = await listSponsors(pool);
+  assert.equal(sponsor.image, `/api/web/uploads/${SECOND}/display`);
+});
+
+test("a sponsor picture is an http address or a stored image", async () => {  const pool = {
     async query(sql) {
       if (sql.includes("FROM uploads")) return { rows: [{ id: SECOND }] };
       return { rows: [] };

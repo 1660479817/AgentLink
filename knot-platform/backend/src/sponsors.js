@@ -1,6 +1,6 @@
 import { uploadName } from "./information.js";
 import { PLATFORM_ACCOUNT_ID } from "./points.js";
-import { publicUploadUrl } from "./uploads.js";
+import { cardImageUrl } from "./uploads.js";
 import { storeUploadedFile } from "./uploadStore.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -73,7 +73,7 @@ function present(row, position) {
     id: row.id,
     title: row.title,
     href: row.href,
-    image: row.image_upload_id ? publicUploadUrl(row.image_upload_id) : row.image_url || null,
+    image: row.image_upload_id ? cardImageUrl(row.image_upload_id) : row.image_url || null,
     caption: row.caption || "",
     source: row.source || "",
   };
