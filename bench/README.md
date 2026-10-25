@@ -197,6 +197,7 @@ Three things this script deliberately does not do:
 - **It does not use the system proxy.** Numbers taken through a local proxy are the proxy's, not the path's.
 - **k6 and Playwright are forced direct too.** `run.mjs` clears `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` before every k6 run (set `BENCH_USE_PROXY=1` to measure a proxy path on purpose), and `human/` launches Chromium with `--no-proxy-server`. A machine that needs a proxy to reach the site will otherwise report the proxy's handshake and queueing as site latency.
 - **It does not compare across machines or hours.** A cross-border link moves by time of day; only same machine, same target, same window are comparable.
+- **It says so when the path is already congested.** The probe times the entry's static home page; when that TTFB is above 500ms, `run.mjs` prints a warning before the first level. A saturated uplink makes every p95 in the run a measurement of the queueing, not of the site, so those numbers must not be compared with a run taken on a healthy path.
 
 ## Scenario mix
 

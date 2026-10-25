@@ -197,6 +197,7 @@ npm run link -- https://wang.xknot.si --upload-path /api/agent/uploads --upload-
 - **不走系统代理。** 经本机代理测出来的是代理的数，不是这条路。
 - **k6 与 Playwright 也强制直连。** `run.mjs` 在每次 k6 运行前清空 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`（确实要测代理链路上设 `BENCH_USE_PROXY=1`），`human/` 启动 Chromium 时带 `--no-proxy-server`。否则，需要代理才能出网的压测机会把代理的握手和排队算成站点延迟。
 - **不跨机器、跨时段比。** 跨境链路随时间段浮动，只有同机、同目标、同一时间窗的两轮才可比。
+- **链路上行被占满时会明说。** 探测已经量过入口静态首页的 TTFB；超过 500ms 时 `run.mjs` 在第一档开跑前提示。那时每个 p95 量到的是链路排队，不是站点，不能和链路正常时的数字比较。
 
 ## 场景配比
 
