@@ -4,11 +4,10 @@
 //   set -a; source sites/<站点>/platform.env; set +a
 //   node backend/scripts/gc-uploads.mjs                      # 报告
 //   node backend/scripts/gc-uploads.mjs --apply              # 删行 + 删文件
-//   node backend/scripts/gc-uploads.mjs --apply --previews   # 另删旧版 previews/
 //
 // 只碰这几类：
 //   1. uploads 行没有任何引用，且早于宽限期
-//   2. blobs 和根目录里没有对应 uploads 行的文件，且早于宽限期
+//   2. blobs 里没有对应 uploads 行的文件，且早于宽限期
 //   3. display / packets / extracts / shares 里已经没有对应主体的文件
 //   4. tmp/ 里超过宽限期的半截文件
 // 不碰 board/。
@@ -20,10 +19,9 @@ import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
 import { loadBootstrapConfig } from "../src/config.js";
-import { DERIVED_KINDS, USED_UPLOADS_SQL, blobPath, blobsDir, derivedDir, keepDerivedFile, legacyBlobPath, legacyPreviewDir } from "../src/storage.js";
+import { DERIVED_KINDS, USED_UPLOADS_SQL, blobPath, blobsDir, derivedDir, keepDerivedFile } from "../src/storage.js";
 
 const APPLY = process.argv.includes("--apply");
-const WITH_PREVIEWS = process.argv.includes("--previews");
 const graceArg = process.argv.find((arg) => arg.startsWith("--grace-hours="));
 const GRACE_HOURS = Number(graceArg ? graceArg.split("=")[1] : process.env.KNOT_GC_GRACE_HOURS || 24);
 if (!Number.isFinite(GRACE_HOURS) || GRACE_HOURS < 0) throw new Error("--grace-hours 要是非负数字");
@@ -166,11 +164,11 @@ async function main() {
     );
   }
 
-  // 行已经删掉，再动文件。旧布局的同一份原件也一起清。
+  // 行已经删掉，再动文件。
   let fileBytes = 0;
   let missingFiles = 0;
   for (const name of removedNames) {
-    const files = [blobPath(root, name), legacyBlobPath(root, name)];
+    const files = [blobPath(root, name)];
     const present = files.filter((file) => fs.existsSync(file));
     if (!present.length) missingFiles += 1;
     for (const file of present) {
@@ -199,7 +197,7 @@ async function main() {
     for (const file of new Set(strayBlobs.map((entry) => path.dirname(entry)))) pruneEmptyTree(file);
   }
 
-  // 旧布局留在根目录、库里又没有记录的文件。迁移之后根目录只该有子目录。
+  // 根目录里不该有散落的原件（原件都收在 blobs/），扫出来清掉。
   const strayRoot = [];
   let strayRootBytes = 0;
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -238,20 +236,6 @@ async function main() {
     derivedReport.push(`${kind} ${doomed.length} 个 / ${human(bytes)}`);
   }
   console.log(`派生件可删：${derivedReport.join("，")}`);
-
-  // 旧版拼图。只读历史，不再写入。
-  const previews = legacyPreviewDir(root);
-  const previewFiles = walk(previews);
-  const previewBytes = previewFiles.reduce((sum, file) => sum + sizeOf(file), 0);
-  if (previewFiles.length) {
-    if (APPLY && WITH_PREVIEWS) {
-      for (const file of previewFiles) remove(file);
-      pruneEmptyTree(previews);
-      console.log(`旧拼图：删 ${previewFiles.length} 个 / ${human(previewBytes)}`);
-    } else {
-      console.log(`旧拼图：${previewFiles.length} 个 / ${human(previewBytes)}（加 --previews 一起删）`);
-    }
-  }
 
   // tmp 里超过宽限期的半截文件。
   const staleTmp = walk(path.join(root, "tmp")).filter(stale);

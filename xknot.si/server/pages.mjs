@@ -126,7 +126,7 @@ const TEXT = {
 const STATUS_LABEL = {
   approved: { "zh-CN": "已通过", "zh-TW": "已通過", en: "approved" },
   withdrawn: { "zh-CN": "已撤回", "zh-TW": "已撤回", en: "withdrawn" },
-  // 自动通过之前的历史状态，只用来打开老案例页。
+  // 只读状态，只用来打开案例页。
   pending: { "zh-CN": "等待邮箱确认", "zh-TW": "等待信箱確認", en: "waiting for email confirmation" },
   verified: { "zh-CN": "等待人工审核", "zh-TW": "等待人工審核", en: "waiting for manual review" },
   hold: { "zh-CN": "需要补充材料", "zh-TW": "需要補充材料", en: "needs more information" },

@@ -889,9 +889,4 @@ export function buildMail(eventName, application, options = {}) {
   };
 }
 
-// 兼容旧调用点：给管理员的新申请信。
-export function newApplicationMail(application, { adminEmail, origin, supportUrl } = {}) {
-  return buildMail("internal.application_new", application, { adminEmail, origin, supportUrl });
-}
-
 export { LOCALES };

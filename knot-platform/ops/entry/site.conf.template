@@ -153,14 +153,6 @@ server {
         add_header Referrer-Policy strict-origin-when-cross-origin always;
     }
 
-    location /media/previews/ {
-        root {{KNOT_ENTRY_WEB_ROOT}};
-        try_files $uri @knot_origin;
-        add_header Cache-Control "public, max-age=86400";
-        add_header X-Content-Type-Options nosniff always;
-        add_header Referrer-Policy strict-origin-when-cross-origin always;
-    }
-
     location @knot_origin {
         proxy_pass http://knot_entry_{{KNOT_ENTRY_PROXY_PORT}};
         proxy_http_version 1.1;
@@ -182,7 +174,7 @@ server {
     }
 {{/KNOT_ENTRY_STATIC}}
 {{^KNOT_ENTRY_STATIC}}
-    # proxy 投放：/、/assets/、SPA 兜底、/discover.json、/media/previews/ 全部回源。
+    # proxy 投放：/、/assets/、SPA 兜底、/discover.json 全部回源。
     # 好处是页面与接口永远来自同一次构建，代价是每个静态文件都要穿一次隧道。
     # 安全头交给 Backend：这里再加一遍，同一个响应会出现两行同名头。
     location / {

@@ -146,8 +146,7 @@ export async function run(options = {}) {
       });
       results.push({ id: instance.id, status: "ok", problems: checked.problems });
     } catch (error) {
-      // 写不进去和取不回来是两件事。以前都报 unreachable，中枢上 var/profiles
-      // 属主是 root 时，每一份档案都显示「不可达」，查一圈网络才发现是权限。
+      // 写不进去和取不回来是两件事：权限类错误要单独归类，别都报「不可达」。
       const code =
         error instanceof FetchGuardError
           ? error.code

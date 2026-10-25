@@ -75,7 +75,7 @@ export function normalizeLabel(input) {
  * 从一整条地址取出中枢签发的标签。
  *
  * 只认一级：`wang.xknot.si` 是签发的，`a.b.xknot.si` 不是，`example.com` 也不是。
- * 这里不判长度与保留名：早期已签发的短号（如 `wang`）照样要能在清单里通过校验。
+ * 这里不判长度与保留名：短号（如 `wang`）照样要能在清单里通过校验；长度与保留名在签发时才判。
  */
 export function labelFromUrl(value) {
   let host = "";

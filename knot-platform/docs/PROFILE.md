@@ -62,7 +62,7 @@
 
 `locale` 在接口层是可选：旧档案还没有这一项时要能读、能取回，缺省按 `zh-CN`；`/admin` 每次保存都会带上它，所以新写的档案一定有。写错取值（`ja`、空串以外的东西）会让整份档案被拒。
 
-空的字符串不要写：要清掉一项就整键省略。不认识的键会被拒——旧版的 `shortName`、`operator`、`vertical`、`themeColor`、`languages`、`regions`、`social`、`termsUrl`、`privacyUrl`、`moderationUrl` 都已移除。
+空的字符串不要写：要清掉一项就整键省略。不认识的键会被拒。
 
 ## 4. 接口
 
@@ -96,32 +96,3 @@
 `POST /api/admin/xknot/apply` 把自述与邮箱交给中枢的 `POST /api/applications`。中枢的 400（带 `fields`）与 409（同址重复）原样回到这一块，不做本地改写。提交即通过（`reviewed_by` 记 `auto`），没有人工审核；已是成员的，中枢直接回执成功。
 
 排障信息（接入件路径与权限、委托发信、探测地址、状态信号、接入件与进程的漂移）收在页面最下面的折叠栏「接入与探测」里，默认收起，展开时才请求 `/api/admin/federation`。
-
-## 6. 从旧配置迁移
-
-0.4 之前，名称、标语、logo 和主理人写在 `site.env` 的六项 `KNOT_SITE_*` 里。迁移一次即可：
-
-```bash
-node ops/scripts/migrate-profile.mjs --site bot01 --dry-run   # 先看会写什么
-node ops/scripts/migrate-profile.mjs --site bot01
-```
-
-脚本读旧的 `site.env`，生成 `profile.json`，再把那六项从 `site.env` 删掉。已经存在 v2 的 `profile.json` 时不写档案，但照样把那六项从 `site.env` 删掉。
-
-**v1 档案会被就地升级**：`profile.json` 还是 `formatVersion: 1` 时，脚本按简中 → 英文 → 繁中的顺序取一份文案，写成 v2 的扁平字段，再覆盖原文件。转不出来的（连名称都没有）才回落到 `site.env` 的旧值。
-
-**`locale` 由脚本补一次**：档案里没有这一项时，脚本按名称与介绍里有没有中日韩字符推断（有则 `zh-CN`，否则 `en`）写进去，`--dry-run` 会先打印要写的内容。推断只是迁移期的一次性动作；写进去以后就以档案为准，主理人随时可以在 `/admin` 改成实际的第一目标群体。已有这一项时脚本一个字节都不动。
-
-部署脚本生成的 `platform.env`、叠加层的 `site.<变体>.env` 里也可能留着这几项，用 `--env` 各给一次：
-
-```bash
-node ops/scripts/migrate-profile.mjs --site bot01 --env var/bot01/platform.env
-```
-
-在实例主机上可以直接跑部署包里的那一份，站点目录会从 `KNOT_PROFILE_FILE` 推导出来，不用写绝对路径：
-
-```bash
-node current/ops/scripts/migrate-profile.mjs --site bot01 --env sites/bot01/platform.env
-```
-
-迁移后重启 Backend。

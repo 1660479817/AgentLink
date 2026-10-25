@@ -135,7 +135,7 @@ else
   if [[ -d "$UPLOAD_DIR" ]]; then
     # 只备份原件、转写和公开快照。卡片图、下载包、分享图和 tmp 都能重新生成。
     copy_tree "$UPLOAD_DIR" "$DEST/uploads" uploads \
-      tmp/ previews/ derived/display/ derived/packets/ derived/shares/
+      tmp/ derived/display/ derived/packets/ derived/shares/
     UPLOAD_FILES="$(dir_files "$DEST/uploads")"
     UPLOAD_BYTES="$(dir_bytes "$DEST/uploads")"
   else

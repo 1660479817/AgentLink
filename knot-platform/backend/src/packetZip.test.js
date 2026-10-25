@@ -92,8 +92,8 @@ test("the first download builds one zip and the next one reuses it", async () =>
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "knot-zip-"));
   const upload = path.join(root, "uploads");
   fs.mkdirSync(upload);
-  fs.mkdirSync(path.join(upload, "blobs"), { recursive: true });
-  fs.writeFileSync(path.join(upload, "pic.bin"), "file-bytes");
+  fs.mkdirSync(path.join(upload, "blobs", "pi"), { recursive: true });
+  fs.writeFileSync(path.join(upload, "blobs", "pi", "pic.bin"), "file-bytes");
   const sources = archiveSources([{ mime: "application/pdf", original_name: "报价.pdf", storage_name: "pic.bin" }]);
   const readme = packetReadme({
     price: 10,
@@ -103,7 +103,7 @@ test("the first download builds one zip and the next one reuses it", async () =>
     files: sources,
   });
   const first = await ensurePacketZip(upload, INTEL, readme, sources);
-  fs.rmSync(path.join(upload, "pic.bin"));
+  fs.rmSync(path.join(upload, "blobs", "pi", "pic.bin"));
   const second = await ensurePacketZip(upload, INTEL, "changed\n", sources);
   assert.equal(first, second);
   const packed = unzip(fs.readFileSync(first));

@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadBootstrapConfig } from "./config.js";
-import { derivedDir, legacyDerivedDir } from "./storage.js";
+import { derivedDir } from "./storage.js";
 import { extractDocumentText } from "@knot/doc-reader";
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -42,23 +42,16 @@ export async function writeExtract(uploadDir, intelId, sections) {
 
 export async function readExtract(uploadDir, intelId) {
   if (!ID.test(String(intelId || ""))) return "";
-  for (const dir of [derivedDir(uploadDir, "extracts"), legacyDerivedDir(uploadDir, "extracts")]) {
-    try {
-      return await readFile(path.join(dir, `${intelId}.md`), "utf8");
-    } catch {
-      // 先看新位置，切换当天还能读到旧位置。
-    }
+  try {
+    return await readFile(path.join(derivedDir(uploadDir, "extracts"), `${intelId}.md`), "utf8");
+  } catch {
+    return "";
   }
-  return "";
 }
 
 export async function removeExtract(uploadDir, intelId) {
   if (!ID.test(String(intelId || ""))) return;
-  await Promise.all(
-    [derivedDir(uploadDir, "extracts"), legacyDerivedDir(uploadDir, "extracts")].map((dir) =>
-      rm(path.join(dir, `${intelId}.md`), { force: true }).catch(() => {})
-    )
-  );
+  await rm(path.join(derivedDir(uploadDir, "extracts"), `${intelId}.md`), { force: true }).catch(() => {});
 }
 
 export async function saveReviewExtract(intelId, sections) {

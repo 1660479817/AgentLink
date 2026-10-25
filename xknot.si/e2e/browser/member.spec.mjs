@@ -30,8 +30,26 @@ test.beforeAll(async () => {
       MAIL_FROM,
     },
   });
-  // 清单里已有 e2e-node，但没有申请单。补一张已通过的，才认得出成员。
-  await stack.adminCli(["backfill", "e2e-node", "--email", MEMBER_EMAIL]);
+  // 清单里已有 e2e-node，但没有申请单。提交一份申请（提交即通过），成员登录才认得出。
+  const submitted = await fetch(`${stack.apiUrl}/api/applications`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      subdomain: "e2e-node",
+      name: "端到端节点",
+      operator: "E2E",
+      email: MEMBER_EMAIL,
+      region: "SG",
+      timezone: "Asia/Singapore",
+      intro: "只在测试里存在的节点。",
+      tags: "测试",
+      agree: true,
+      locale: "zh-CN",
+    }),
+  });
+  if (submitted.status !== 201) {
+    throw new Error(`apply failed: ${submitted.status} ${await submitted.text()}`);
+  }
 });
 
 test.afterAll(async () => {

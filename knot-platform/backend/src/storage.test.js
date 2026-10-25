@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,7 +11,6 @@ import {
   derivedDir,
   ensureLayout,
   keepDerivedFile,
-  legacyBlobPath,
   readableBlobPath,
   shardOf,
   tmpDir,
@@ -44,17 +43,11 @@ test("the layout creates blobs, tmp and every derived folder", async () => {
   }
 });
 
-test("reads fall back to the old root layout while the migration has not run", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "knot-legacy-"));
+test("reads the sharded blob path", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "knot-blob-"));
   try {
     const name = "aabbccdd-1111-4111-8111-111111111111.png";
-    await writeFile(legacyBlobPath(root, name), "old");
-    assert.equal(readableBlobPath(root, name), legacyBlobPath(root, name));
-
-    fs.mkdirSync(path.dirname(blobPath(root, name)), { recursive: true });
-    await writeFile(blobPath(root, name), "new");
     assert.equal(readableBlobPath(root, name), blobPath(root, name));
-
     assert.equal(readableBlobPath(root, "missing.png"), blobPath(root, "missing.png"));
   } finally {
     await rm(root, { recursive: true, force: true });

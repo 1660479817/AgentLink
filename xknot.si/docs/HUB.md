@@ -47,7 +47,6 @@ xknot.si/
 │   ├── edit.mjs           控制台改实例配置：两份文件整份校验后原子写回
 │   ├── publish.mjs        申请通过后把实例写进清单与名册（幂等，可随自动接通重试）
 │   ├── provision.mjs      自动接通的状态机：分配、发布、账号、sshd、静态根、DNS、反代、证书，逐步幂等
-│   ├── backfill.mjs       给清单里已有、库里没有申请单的实例补一张已通过的申请
 │   ├── relay.mjs          委托发信的字段校验与消息组装（纯函数）
 │   ├── mail.mjs           SMTP 客户端（net/tls，无外部依赖）与邮件组装
 │   ├── member-mail.mjs    成员入口的一次性登录信（不进可补发的事件表）
@@ -358,7 +357,7 @@ npm run test     # 纯逻辑单元测试
 
 目录里的钟点是**实例自己时区**的当前时刻，每 20 秒刷新一次，并带 `UTC±X` 偏移。这条信息让「分布在不同时区、由不同的人维护」在版面上直接可见，不再只是一句声明。区域仍只用于筛选，不参与排序。
 
-分级的排序规则不变：`demo` → `paid` → `free`（早期快照里的 `partner` 按 `paid`、`community` 按 `free` 排），同级按 `since`，再按 `id`。写清单时只认新三档，由 `ops/validate-instances.mjs` 拦住旧值。
+分级的排序规则：`demo` → `paid` → `free`，同级按 `since`，再按 `id`。写清单时只认这三档，由 `ops/validate-instances.mjs` 校验。
 
 标签筛选：只在有站点用了标签时出现，跟在区域那行下面；选项是全部加实际出现过的标签值，按首次出现排序，点一个就只看带这个标签的站点。
 
@@ -523,7 +522,6 @@ npm run preview  # 预览构建产物（在 web/ 内执行）
 | `XKNOT_PUBLIC_ORIGIN` | `https://xknot.si` | 邮件与页面里链接用的门户地址 |
 | `XKNOT_MAIL_REPLY_TO` | 取 `MAIL_FROM` | 伙伴信的 `Reply-To`；默认 `no-reply@xknot.si` |
 | `XKNOT_SUPPORT_URL` | （空） | 伙伴信里的可选联系入口；留空整行省略 |
-| `XKNOT_REVIEW_SLA` | — | 已不再使用：提交即通过，没有审核时限 |
 | `XKNOT_RELAY_ENABLED` | 随 SMTP | 委托发信开关；配了 SMTP 即开，置 `0` 可单独关掉 |
 | `XKNOT_RELAY_DAILY_LIMIT` | `50` | 每份凭据 24 小时内的发信上限 |
 
@@ -675,7 +673,7 @@ M3：加入申请
 
 | 表 | 内容 |
 |----|------|
-| `applications` | 申请：名称、子域标签、运营者、邮箱、区域、时区、简介、标签、状态、案例键、状态版本、通过记录（`reviewed_at` / `reviewed_by`，`mode` / `domain` 两列为 2.0 之前的老单保留） |
+| `applications` | 申请：名称、子域标签、运营者、邮箱、区域、时区、简介、标签、状态、案例键、状态版本、通过记录（`reviewed_at` / `reviewed_by`，`mode` / `domain` 两列保留） |
 | `admins` | 管理员：用户名、scrypt 口令、创建时间、最近登录 |
 | `sessions` | 会话：令牌的 SHA-256、管理员、过期时间 |
 | `events` | 审计：提交、撤回、建号、删号、凭据签发与吊销 |
@@ -693,9 +691,9 @@ M3：加入申请
 提交 ──▶ approved ──▶ withdrawn
 ```
 
-`approved` 只代表「申请通过、可以收录」，与实例是否接通无关。`rejected` / `expired` 是自动通过之前留下的历史状态，只读保留。同一地址在 `approved` 时再次提交返回 `409 duplicate`；撤回之后放行，补服务或换标签要再交一张单。
+`approved` 只代表「申请通过、可以收录」，与实例是否接通无关。`rejected` / `expired` 只读保留。同一地址在 `approved` 时再次提交返回 `409 duplicate`；撤回之后放行，补服务或换标签要再交一张单。
 
-申请只收一个地址字段：`subdomain` 标签（**6–32 位**小写字母、数字、连字符，保留名不签发），`url` 由它拼成 `https://<标签>.xknot.si`。少于 6 位的标签一律不签：短号留给以后，不当第一批发出去。`mode` 与 `domain` 已停用：`mode` 只要不是 `subdomain`、或 `domain` 非空，都返回 `400`，字段错误码 `not_supported`。`subdomain` 不合法时错误码与预检一致：`required` / `too_short` / `too_long` / `format` / `reserved`。归属验证（DNS TXT / well-known）已从申请流程移除——签发前没有可验证的域名，验收改为接通后的公网 `/api/health`。
+申请只收一个地址字段：`subdomain` 标签（**6–32 位**小写字母、数字、连字符，保留名不签发），`url` 由它拼成 `https://<标签>.xknot.si`。少于 6 位的标签一律不签。`mode` 只接受 `subdomain`、`domain` 必须为空：`mode` 不是 `subdomain`、或 `domain` 非空，都返回 `400`，字段错误码 `not_supported`。`subdomain` 不合法时错误码与预检一致：`required` / `too_short` / `too_long` / `format` / `reserved`。归属验证不适用：签发前没有可验证的域名，验收是接通后的公网 `/api/health` 探测。
 
 门户右栏不再收申请表。访客看到的是「登录你的 XKnot」与四步加入指引：部署实例 → 打开 `/admin` → 在实例里选子域并提交 → 提交即通过。申请表由实例自己的管理页代交，中枢这一侧的校验、判重与自动通过流程完全一致。
 
@@ -813,34 +811,13 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug \
 
 申请通过不会自动上线，也不会自动部署。写清单之后的事——等隧道接通、探测通过、改 `active`、把名册那句「等待接通验收」换成「已接通」、重算门户快照——都由 `xknot-provision` 与 `xknot-republish.timer` 接着做，不需要人工构建。唯一要人工补的是把中枢上新增的条目取回仓库（`deploy-api.sh --pull-manifest`）。
 
-### 9.5 补记缺失的申请单
-
-早期先签发子域、后把实例写进 `instances.json` 的站点，库里没有对应的申请单。少了它，`admin-cli access <申请编号>` 找不到编号，每次只能手工拼接入件。
-
-```bash
-node server/admin-cli.mjs backfill wang --email owner@example.com --admin paul
-node server/admin-cli.mjs backfill wang --dry-run     # 只看会不会补
-```
-
-`backfill` 只把清单里已有的事实抄成一条 `approved` 申请：`url`、`since`、`tier`、`status` 取自 `instances.json`；名称、运营者、简介、区域、时区、标签取自 `var/profiles/<id>.json`（没有就用实例 id）。直接落成 `approved` 记录，`reviewedBy` 写执行补记的账号（缺省 `backfill`），`reviewedAt` 沿用清单里的签发日，并写明来源。
-
-- 它不签发新地址、不改清单、不发信。
-- 同一地址已有申请单（任何状态）时直接跳过，重复执行没有副作用。
-- 联系邮箱必须显式给：`--email`，或环境里的 `XKNOT_ADMIN_EMAIL`。没有邮箱的单不成立，脚本不会替你编一个。
-
-补记之后就该用编号走正常流程：
-
-```bash
-node server/admin-cli.mjs access XK-2026-XXXXXX --id wang
-```
-
-### 9.6 备份与清理
+### 9.5 备份与清理
 
 `var/xknot.db` 与 `var/session-secret` 要跟 `instances.json` 一起备份。数据库是普通 SQLite 文件，停机复制即可；WAL 模式下同时复制 `-wal` 与 `-shm`，或先执行 `sqlite3 var/xknot.db 'pragma wal_checkpoint(truncate)'`。
 
 `npm run test` 覆盖提交即通过、重复、限流、跨源、登录、清单生成、退出登录与邮件通知；测试用内存库和一个本地假 SMTP，不碰 `var/`，也不发真信。
 
-### 9.7 成员入口
+### 9.6 成员入口
 
 门户右栏第一条是「登录你的 XKnot」：成员填开通时确认过的邮箱，收一枚 6 位授权码，换一个 30 天的 `xknot_member` Cookie。没有口令，也没有注册入口——只有已通过、且站点已在清单里的申请单才认。
 

@@ -15,8 +15,6 @@
 //   node server/admin-cli.mjs access <id> [--id slug] [--no-relay] [--daily 50] [--out 文件]
 //                                                          生成实例的接入件（env 格式，见 docs/FEDERATION.md 7.4）
 //                                                          默认签一份委托发信凭据；--no-relay 才不带
-//   node server/admin-cli.mjs backfill <实例 id> [--email 邮箱] [--admin 操作者]
-//                                                          给清单里已有、库里没有申请单的实例补一张已通过的申请
 //   node server/admin-cli.mjs relay-tokens                 列出凭据（不含明文）
 //   node server/admin-cli.mjs relay-revoke <tokenId|instance>
 //                                                          吊销一份凭据，或整个实例的全部凭据
@@ -48,7 +46,6 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { backfillApplication } from "./backfill.mjs";
 import { withFileLock } from "./file-lock.mjs";
 import { createMailer, mailConfigFromEnv } from "./mail.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry, toRosterMember } from "./manifest.mjs";
@@ -339,63 +336,6 @@ async function main(argv) {
     if (outcome.roster) console.log(`已写入 federation.json：${entry.id}（${tunnelAccount} / ${tunnelPort}）`);
     else console.log("名册还没写：补 --tunnel-account 与 --tunnel-port，或在 federation.json 手工加同名成员。");
     console.log("下一步：npm run build，重新构建后再部署。");
-    return;
-  }
-
-  if (command === "backfill") {
-    // 清单里已经有、库里却没有申请单的实例，补一张已通过的申请。
-    // 只抄清单与自述区里的事实，不签发东西、不改清单。
-    const id = rest[0];
-    if (!id || id === "--help" || id === "-h") {
-      return fail("用法：backfill <实例 id> [--email 邮箱] [--region CN] [--admin 操作者] [--dry-run]");
-    }
-    const manifest = await readManifest();
-    const entry = (manifest.instances || []).find((item) => item.id === id);
-    if (!entry) return fail(`清单里没有实例 "${id}"`);
-
-    const profileFile = path.join(dataDir, "profiles", `${id}.json`);
-    let profile = null;
-    try {
-      profile = JSON.parse(await readFile(profileFile, "utf8"));
-    } catch {
-      profile = null;
-    }
-
-    const email = flag(rest, "email", process.env.XKNOT_ADMIN_EMAIL || "");
-    if (!email) return fail("要一个联系邮箱：加 --email，或设 XKNOT_ADMIN_EMAIL。");
-    const admin = flag(rest, "admin", process.env.XKNOT_ADMIN_USER || "");
-
-    if (rest.includes("--dry-run")) {
-      const existing = store.findByUrl(entry.url);
-      console.log(existing ? `已有申请单 ${existing.id}（${existing.status}），不需要补记。` : `会为 ${id} 补一张已通过的申请：${entry.url}`);
-      return;
-    }
-
-    const result = backfillApplication({
-      store,
-      manifest,
-      instanceId: id,
-      profile,
-      email,
-      // 自述区没写 region 时用它；不猜一个「全球」凑数。
-      region: flag(rest, "region", ""),
-      admin,
-    });
-    if (result.error === "no_instance") return fail(`清单里没有实例 "${id}"`);
-    if (result.error === "bad_email") return fail("要一个合格式的联系邮箱：加 --email，或设 XKNOT_ADMIN_EMAIL。");
-    if (result.error === "no_region") {
-      return fail("自述区里没有可用的地区码：加 --region <两位国家码>（如 CN）。");
-    }
-    if (result.error === "not_hub_subdomain") return fail(`实例 "${id}" 的地址不是中枢签发的子域，不能补记：${entry.url}`);
-    if (result.error) return fail(`补记失败：${result.error}`);
-    if (result.skipped) {
-      console.log(`已有申请单 ${result.application.id}（${result.application.status}），没有改动。`);
-      return;
-    }
-    const { application } = result;
-    console.log(`已补记申请 ${application.id}：${application.name} → ${application.url}`);
-    console.log(`状态 ${application.status}（按 instances.json 补记于 ${application.reviewedAt?.slice(0, 10)}）`);
-    console.log(`下一步：node server/admin-cli.mjs access ${application.id} --id ${id}`);
     return;
   }
 
