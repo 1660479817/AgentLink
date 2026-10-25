@@ -61,6 +61,15 @@ fi
 echo "==> snapshot routing"
 node "$APPLY" snapshot
 
+# 下线与上线走同一条路：manifest 里已经删掉的平台 Agent，本机这条 entry 与它的工作区
+# 由这里收掉。否则删掉代码之后，那台机器上还留着一个没有任何技能、却仍被 Gateway 认得的
+# 智能体，连同它的工作区一起，谁也不会再想起它。
+while IFS= read -r retired_id; do
+  [[ -z "$retired_id" ]] && continue
+  echo "==> delete retired agent $retired_id"
+  openclaw agents delete "$retired_id" --force >/dev/null || echo "warn: $retired_id 没能删除，请手工确认"
+done < <(node "$APPLY" retired-ids)
+
 while IFS= read -r agent_id; do
   [[ -z "$agent_id" ]] && continue
   workspace="$STATE_DIR/workspace-$agent_id"
