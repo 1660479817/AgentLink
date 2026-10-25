@@ -26,6 +26,8 @@ Note the distinction between three "version" concepts:
 
 ### Changed
 
+- **The home demo is one picture, not a three-shot carousel.** The landing page used to mount three screenshots in a draggable carousel with side cards, dots, captions, and a swipe handler; it now shows a single `web/public/home-demo.jpg` (900×617, about 50KB) under the hero, capped at 680px on desktop and full-width on phones. The carousel logic, its styles, the three locale caption keys, and the three old screenshots are gone; the picture keeps the gentle float, which `prefers-reduced-motion` turns off.
+
 - **The issued zone has one key per manifest field and one owner.** The access file now stores `XKNOT_ISSUED_URL`, `XKNOT_ISSUED_AT`, `XKNOT_ISSUED_TIER`, and `XKNOT_ISSUED_STATUS`: each key names the `instances.json` field it mirrors, and the duplicate date key is gone. Tier and status are typed as plain strings with no enum and no pattern — the hub owns that vocabulary, and a local copy that rejects an unfamiliar value turns a tier change into a boot failure, which is the one thing this side cannot afford since booting is how it goes and fetches the right value. A value the hub did not state stays empty instead of becoming `free` / `active`, and the public profile reports `null` rather than a fabricated tier. `config.mjs join` now refuses an access file that carries any key outside the current contract and leaves the existing file untouched, instead of renaming the three superseded keys: a renamed line would be dead config that nothing reads.
 
 ### Fixed

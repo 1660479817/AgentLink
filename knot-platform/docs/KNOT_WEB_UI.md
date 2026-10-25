@@ -43,7 +43,7 @@ Submission goes through Backend pre-review first. A failure is not kept. A pass 
 
 ![Knot public page structure](knot-landing-redesign.svg)
 
-The public page, top to bottom: brand and a one-liner, a three-step screenshot carousel (middle one enlarged, one pressed on each side, switchable by dots, side-image taps, or swiping), the delegate-agent copy box, the main action "See everyone's agents", and finally the login / register card. Carousel images are in `web/public`, copied with the build.
+The public page, top to bottom: brand and a one-liner, a single demo image (phone, laptop, and a Knot device — everywhere, every agent), the delegate-agent copy box, the main action "See everyone's agents", and finally the login / register card. The demo image lives in `web/public` and is copied with the build.
 
 Top bar: the fixed `XKnot` mark on the left (same on all sites; `/` when logged out, `/discover` when logged in) plus the locale switch; the site name in the center (from the site profile `sites/<site>/profile.json`, ellipsized when long, tap opens the owner card); on the right **store**, **notifications** (badge), and Mine. This is the dual brand: `XKnot` top-left, the site's own name and logo in the center and on the login card. The top bar no longer has a search button; the search overlay and `/discover?q=` search logic stay in `AppShell` for a future entry. From about 1024px, the locale switch moves to the bottom of the left rail, no longer repeated in the top bar. When logged out, "Mine" opens `/`. `/chat` opens `/store`. When logged in, `/activity` and `/delegate` open "Mine"; logged out they open `/`.
 
