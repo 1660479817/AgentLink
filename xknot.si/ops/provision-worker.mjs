@@ -9,11 +9,12 @@
 // 隧道对端的出口 IP 采集（ops/peers.mjs），以及把各实例的公开快照取回落到入口磁盘
 // （ops/snapshots.mjs）——读者远多于作者，首屏数据不该由访客去触发回源。
 //
-// 每一步都幂等，失败只记错误码并留在原地，下一轮重试。
+// 每一步都幂等，失败只记错误码并按退避重试（见 server/provision.mjs 的 RETRY_BACKOFF_MS）。
 // 配置（不写死在仓库里）：
 //   XKNOT_ENTRY_HOST   入口主机的公网地址，写在 var/provision.env
 //   XKNOT_ADMIN_EMAIL  证书登记邮箱，读 mail.env
 //   XKNOT_PROVISION_INTERVAL_MS  轮询间隔，默认 20000
+//   XKNOT_AWAITING_TIMEOUT_MS    等隧道多久算停滞并记事件，默认 1800000（30 分钟）
 //   XKNOT_SNAPSHOT_INTERVAL_MS   公开快照取回间隔，默认 20000
 //   XKNOT_AFTER_ACTIVATE  可选：改为 active 之后执行的脚本绝对路径（例如重建门户）
 //
@@ -33,8 +34,11 @@ import { refreshStatus } from "./node-status.mjs";
 import { SNAPSHOT_STORE, collectSnapshots } from "./snapshots.mjs";
 import { warmEntry } from "./warm-entry.mjs";
 import {
+  AWAITING_TIMEOUT_MS,
   ProvisionError,
   createRun,
+  dueStep,
+  isStalled,
   keyChanged,
   pendingStep,
   reconcileTunnel,
@@ -60,6 +64,12 @@ const rosterFile = process.env.XKNOT_FEDERATION_FILE
 const entryHost = String(process.env.XKNOT_ENTRY_HOST || "").trim();
 const adminEmail = String(process.env.XKNOT_ADMIN_EMAIL || "").trim();
 const intervalMs = Math.max(Number(process.env.XKNOT_PROVISION_INTERVAL_MS) || 20_000, 5_000);
+// 入口侧做完之后等隧道的上限。超过就把「没人来拉参数」写成一条事件，
+// 否则这张单会一直停在 awaiting_tunnel，日志里只剩「没有新日志」。
+const awaitingTimeoutMs = Math.max(
+  Number(process.env.XKNOT_AWAITING_TIMEOUT_MS) || AWAITING_TIMEOUT_MS,
+  60_000
+);
 const probeTimeoutMs = 8000;
 // 接通后的可选钩子。读一次就定下来，执行处只按参数数组跑（见 advance）。
 const afterActivate = String(process.env.XKNOT_AFTER_ACTIVATE || "").trim();
@@ -303,8 +313,11 @@ export async function advance(run) {
       return refreshed;
     }
 
-    const step = pendingStep(current);
+    // 取「现在该干的」而不是「还没完成的」：失败的那一步在退避窗口里时
+    // 这里拿到 null，但 pendingStep 仍有值——那是等一会儿再试，不是做完了。
+    const step = dueStep(current);
     if (!step) {
+      if (pendingStep(current)) return current;
       const next = { ...current, state: "awaiting_tunnel", lastError: null, updatedAt: new Date().toISOString() };
       store.saveProvisionRun(next);
       log(`${run.instanceId}: 入口侧已完成，等待隧道与探测`);
@@ -330,14 +343,32 @@ export async function advance(run) {
       const code = error instanceof ProvisionError ? error.code : "internal";
       const detail = error instanceof ProvisionError ? error.detail : error.message;
       log(`${run.instanceId}: ${step.id} 失败 ${code}${detail ? ` — ${detail}` : ""}`);
-      // 失败留在原地，下一轮重试；面板上同时保留错误码，不用等重试成功才知道卡在哪。
+      // 失败留在原地，按节拍重试；面板上同时保留错误码，不用等重试成功才知道卡在哪。
       const next = stepRetry({ ...current, attempts: (current.attempts || 0) + 1 }, step.id, code);
       store.saveProvisionRun(next);
+      if (next.state === "failed") {
+        // 有配额的步骤到上限了：再自动重试只会把限流窗口越拉越长。
+        const stepState = next.steps.find((item) => item.id === step.id);
+        log(`${run.instanceId}: ${step.id} 连续失败 ${stepState?.attempts || 0} 次，已停止自动重试，等人处理`);
+      }
       return next;
     }
   }
 
   if (run.state === "awaiting_tunnel") {
+    // 停了多久是这里唯一能发现的事：隧道一通就进 active，所以这个状态本身
+    // 就说明对端还没来拉参数、或拉了没连上。只喊一次，不刷日志。
+    if (isStalled(run, { timeoutMs: awaitingTimeoutMs })) {
+      const next = { ...run, stallNotifiedAt: new Date().toISOString() };
+      store.saveProvisionRun(next);
+      store.recordEvent(
+        "instance.awaiting_stalled",
+        run.instanceId,
+        `入口侧已完成，${Math.round(awaitingTimeoutMs / 60_000)} 分钟内没有等到隧道`
+      );
+      log(`${run.instanceId}: 等待隧道超过 ${Math.round(awaitingTimeoutMs / 60_000)} 分钟，已记事件`);
+      return next;
+    }
     const target = `https://${run.host}/api/health`;
     // 与健康巡检同一条守卫：不传 resolve 就只按主机名请求，私网/回环地址直接放过去。
     const result = await probe(target, { timeoutMs: probeTimeoutMs, resolve: host.resolveAll });

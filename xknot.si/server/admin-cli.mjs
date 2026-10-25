@@ -33,6 +33,7 @@
 //   node server/admin-cli.mjs retire <id> [--reclaim 日期] [--export 日期]
 //                                                          发退出联邦信（清单状态仍需自己改）
 //   node server/admin-cli.mjs notify-log [n] [--case id]   发信日志
+//   node server/admin-cli.mjs provision-retry <申请 id>    放行停住的自动接通：清退避与失败标记，不动已完成的前置
 //
 // 发信命令需要 SMTP_HOST / MAIL_FROM，读法与接口进程一致（见 server/mail.mjs）。
 //
@@ -51,6 +52,7 @@ import { createMailer, mailConfigFromEnv } from "./mail.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry, toRosterMember } from "./manifest.mjs";
 import { validateRoster } from "../ops/validate-federation.mjs";
 import { ALL_EVENTS, TEMPLATE_VERSION, buildMail } from "./notify.mjs";
+import { reopenRun } from "./provision.mjs";
 import { openStore } from "./store.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -620,6 +622,18 @@ async function main(argv) {
       {}
     );
     console.log("提醒：instances.json 的状态、DNS 记录与证书要按退役清单另行处理。");
+    return;
+  }
+
+  if (command === "provision-retry") {
+    // 有配额的步骤（证书）失败到上限会停手等人；等人把原因处理完，用这一条放行。
+    // 规则在 server/provision.mjs 的 reopenRun：只清失败标记与退避，完成的不重跑。
+    const run = store.getProvisionRun(rest[0]);
+    if (!run) return fail("没有这条接通记录");
+    if (run.corrupt) return fail("这条接通记录坏了：先看 provision_runs 里那一行");
+    store.saveProvisionRun(reopenRun(run));
+    store.recordEvent("instance.provision_retry", run.instanceId, "人工放行：清掉退避与失败标记");
+    console.log(`${run.instanceId}: 已放行，worker 下一轮（不超过 20 秒）继续推进`);
     return;
   }
 

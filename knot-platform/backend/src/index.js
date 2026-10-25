@@ -23,6 +23,10 @@ import { resumePendingRetrievals } from "./retrieval.js";
 import { startSearchEventRetention } from "./attention.js";
 import { agentRouter } from "./routes/agent.js";
 import { loadSystemPolicy, publicBoardEnabled } from "./system.js";
+import { federationStatus } from "./federation.js";
+import { hubOriginOf } from "./xknotJoin.js";
+import { startTunnelAgent } from "./tunnel.js";
+import { pollIntervalMs, startXknotPoller } from "./xknotPoller.js";
 
 // 产品版本跟着本包的 package.json 走，别在这里另写一份。
 const SERVICE_VERSION = JSON.parse(
@@ -196,6 +200,29 @@ app.use((err, _req, res, _next) => {
 });
 
 await loadEconomyPolicy(pool);
+
+// 入口侧做完之后这一侧要自己来接：实例在 NAT 后，中枢拨不进来，所以由一个
+// 低频轮询去拉进度、写 tunnel.env、重启隧道。没有接入的站点连 join.json 都没有，
+// 一次文件读就结束，不会打到中枢。
+try {
+  const hubOrigin = hubOriginOf({
+    status: federationStatus({
+      agentEnvDir: bootstrap.agentEnvDir,
+      publicWebOrigin: bootstrap.publicWebOrigin,
+    }),
+  });
+  startXknotPoller({
+    profileFile: profile.file,
+    localPort: bootstrap.port,
+    hubOrigin,
+    intervalMs: pollIntervalMs(process.env.KNOT_XKNOT_POLL_SECONDS),
+    restart: () => startTunnelAgent(),
+    log: (line) => console.log(line),
+  });
+} catch (error) {
+  // 拉取只是自动接通的一条腿：起不来不该影响站点本身，管理页里还能手动拉。
+  console.error(`xknot 接入轮询未启动：${error.message}`);
+}
 
 const server = app.listen(bootstrap.port, bootstrap.bindHost, () => {
   console.log(`knot-backend listening on ${bootstrap.bindHost}:${bootstrap.port}`);

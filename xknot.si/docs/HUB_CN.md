@@ -892,6 +892,8 @@ node server/admin-cli.mjs publish XK-2026-XXXXXX --id custom-slug \
 | 场景 | 操作 |
 |------|------|
 | 新增实例 | 申请通过 → 常驻 `xknot-provision` 自动跑 `publish`（`status: pending`，清单与名册一起写）→ 前置（账号、端口、DNS、证书、静态页、conf、公钥、`access` 领取链接）→ 交换点 A → 验收后自动把 `status` 改 `active` → 门户快照自动重算。顺序见 [HANDOFF.md](HANDOFF.md) |
+| 前置卡在某一步 | `journalctl -u xknot-provision` 看错误码与下一次重试时间：失败按 30 秒 / 2 分 / 10 分 / 30 分 / 2 小时退避，`tls` 连续 5 次后停手转 `failed` 等人工——证书那一步反复重试只会把 Let's Encrypt 的失败授权限制越拉越长。原因处理掉之后 `npm run admin -- provision-retry <申请 id>` 放行，已完成的前置不会重跑 |
+| 停在 `awaiting_tunnel` | 超过 30 分钟会记一条 `instance.awaiting_stalled`（控制台「最近事件」可见）。多是对端没来拉参数：看实例侧 `KNOT_XKNOT_POLL_SECONDS` 是否为 0、`join.json` 是否还在、隧道单元是否起得来；中枢这边参数已经备好，不需要重跑前置。要让它重新计时，同样用 `provision-retry` |
 | 暂停实例 | `status` 改 `suspended`，保留上次健康结果 |
 | 实例失联 | 构建时探测失败即显示 `down`，连续 30 天再决定是否删除 |
 | 橱窗违规 | 删除 `var/cards/{id}.json`，从清单移除 `cardsUrl`，重新构建 |
@@ -977,4 +979,3 @@ node ops/traffic.mjs --log ./fixtures/access.log --out ./var/traffic
 `var/snapshots.json` 记每个子域的 etag 与摘要，重启后不用重传正文。控制台里没有单独一页：看快照取回情况用 `journalctl -u xknot-provision | grep 快照`。
 
 接通那一刻还会跑一次 `ops/warm-entry.mjs`：取一遍首页，把 HTML 与样式表里引用的 `/assets/` 也取一遍。入口的资产缓存是按需填的，第一个访客没来之前谁也没存过，而个人站没有「很多人分摊第一次」。
-

@@ -4,7 +4,7 @@ Version 3.2.
 
 [JOIN.md](JOIN.md) explains policy: how to apply and how to connect after issuance. This document answers a single question — **from application approval to instance connection, what each side does and where they meet**.
 
-> **Current state: automatic by default.** After approval and with the public key in, the resident `xknot-provision` process on the entry host finishes the pre-staging automatically in the order of section 3 (`ops/provision-worker.mjs`, step code in `server/provision.mjs`). When done, the instance reads `GET /api/case/<key>/progress` by case key to take the entry host, account, and port, writes its own `site.env`, and starts the tunnel; the hub changes it to `active` once probing `/api/health` passes.
+> **Current state: automatic by default.** After approval and with the public key in, the resident `xknot-provision` process on the entry host finishes the pre-staging automatically in the order of section 3 (`ops/provision-worker.mjs`, step code in `server/provision.mjs`). When done, the instance reads `GET /api/case/<key>/progress` by case key to take the entry host, account, and port, writes its own `tunnel.env`, and starts the tunnel; the hub changes it to `active` once probing `/api/health` passes. With `knot-platform` nobody has to open the admin page for this: the Backend polls progress itself (`KNOT_XKNOT_POLL_SECONDS`, default 60, 0 disables).
 >
 > Sections 2–5 below still hold, but only in two situations: the worker is stopped, or a given application must be redone manually from scratch. The rules written into code are `server/provision.mjs` and `ops/provision-worker.mjs`; where they diverge, change the code first, then this sheet.
 
@@ -84,7 +84,7 @@ Notes:
 - Step 8 installs the public key handed over in phase 0; if the fingerprint does not match, stop and ask — do not generate your own.
 - Step 9 appears only in the manual path: the claim link shows once, and re-running `handoff` reissues after expiry. The automatic path has no such step; the `handoff` field is given directly by `progress` once the node data is ready.
 
-After pre-staging, the hub has nothing left to wait for. At this point the public `https://<label>.xknot.si/` serves the static page, and `/api/health` returns the SPA fallback (HTML), so the manifest is still `pending` and no probe runs.
+After pre-staging, the hub has nothing left to wait for. At this point the public `https://<label>.xknot.si/` serves the static page, and `/api/health` hits the pre-connected loopback port with nobody listening yet, so it answers `502` — not the SPA fallback — while the manifest is still `pending` and no probe runs.
 
 **The entry conf has two versions.** The one written during pre-staging serves `/` from `/var/www/<id>`'s placeholder page ("subdomain issued, entry connecting"), with only `/api/` pre-connected to the loopback port. The moment the probe passes, the worker rewrites this conf with the same generator: `/` reverse-proxies to the tunnel too, visitors see the instance's own WebUI, and the placeholder page retires (the static root is left only for ACME). The switch runs `nginx -t` first and writes the old content back on failure. Afterwards each round re-checks; a conf that is overwritten or deleted is switched back automatically.
 
@@ -129,10 +129,10 @@ The partner-side deployment items (which keys to write, which file they go in, i
 | tunnel peer | `knot-tunnel-〈id〉@〈entry host〉`, the private key is the local one |
 | local and remote port | remote `〈1808x〉` → local backend port (Knot default 8080) |
 
-When deploying with `knot-platform`, these land in `sites/<site>/site.env` (keys and examples in
+When deploying with `knot-platform`, these land in `sites/<site>/tunnel.env`, written by the instance's own Backend once it reads progress (keys and examples in
 [`../../knot-platform/ops/entry/README.md`](../../knot-platform/ops/entry/README.md)),
-installed by `deploy-site.sh` as the tunnel resident service. In that case do **not** run `push-entry.sh` — static-file ownership is decided by handoff sheet 6.5.
-With another implementation, follow the table above; there is no need to know what `site.env` is.
+installed by `deploy-site.sh` as the tunnel resident service; write them in `site.env` only when configuring the tunnel by hand. In that case do **not** run `push-entry.sh` — static-file ownership is decided by handoff sheet 6.5.
+With another implementation, follow the table above; there is no need to know what `tunnel.env` is.
 
 The access material and these deployment items are two different things: the access material only contains what the hub issues, no domain, port, or host.
 

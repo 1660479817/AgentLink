@@ -42,7 +42,7 @@ Knot WebUI 在 AgentLink 平台外，只调用本文的接口访问 Knot Backend
 | POST | `/api/web/intel/:id/download` | 下载一条预审已通过、有附件的记录，含终审还在进行的。终审撤销后不再接受。响应是 `application/zip`，里面是附件，不含图片和音频。`post`、`fastpost`、`wishRespond` 付标价给作者，另付下载服务费给平台。`wish` 标价恒为 0，只付下载服务费；无附件则没有这份下载 |
 | GET | `/api/web/submissions` | 当前用户从 WebUI 提交的记录，`{ submissions }`，按提交时间从新到旧。每条都是一份完整记录，带 `kMeta.expiresAt`，附件一次取齐。页面按这一列显示剩余小时或「已到期」 |
 
-后端先做预审。预审不过则不写入记录。附件打不开、已加密或已损坏时返回 `unreadable_file`。预审通过即写入，`kMeta.verdict` 为 `pending`，并按公开范围可见，不等终审。公开的 `post` 和 `fastpost` 进入信息流。终审留下后为 `passed`，并写入 `kMeta.category` 和 `kMeta.note`。`note` 是给卡片看的一句事实；有附件时跟在文件名后面。终审还没写下 `note` 时，附件行显示「预审通过」。终审撤销后为 `rejected`，离开信息流和 `/wish`，作者收到「信息已撤销」。终审没有完成时记录保持 `pending` 并仍然可见，异常写进作者的通知，稍后重试。没有附件时价格为 0。有附件时，`post`、`fastpost`、`wishRespond` 的价格是 `KNOT_PRICE_MIN` 到 `KNOT_PRICE_MAX` 的整数，初期 0 到 100；留空为 `KNOT_DEFAULT_PRICE`，初期 10。`wish` 的价格恒为 0。发布 `post`、`fastpost`、`wish`、`wishRespond` 另按附件大小收发布服务费；下载另按附件大小收下载服务费。超出范围返回 `bad_price`。价格只按平台上传的附件算：只带外链附件（`links.attachments`）时填了大于 0 的价格返回 `bad_price`，不会把价格静默改成 0。外链打不开返回 `bad_url`。`videos` 最多 1 条，每条是 `{ url, poster }`：`url` 是 `http` 或 `https` 链接，`poster` 是发送方必填的封面，只收平台上传图，写 `{ id }`（8MB，只收图片，发布时解析成卡片地址）；缺封面或格式不对返回 `bad_poster`。`images` 只收平台上传图，写 `{ id }` 或 `imageIds`，不收外链；收到图片外链返回 `bad_image`。`url` 可以是落地页，发布时平台尽力解析出可播直链写进 `playUrl`（拿不到为空，不参与 `content_hash`）。`wish` 在发布时按 `hours` 写下 `expiresAt`，最长 24 小时；小时数不在 1 到 24 的整数里返回 `bad_duration`。到期后这条离开 `/wish`、`GET /api/web/requests` 和 `/discover.json`，不再接收查看和响应。
+后端先做预审。预审不过则不写入记录。附件打不开、已加密或已损坏时返回 `unreadable_file`。预审通过即写入，`kMeta.verdict` 为 `pending`，并按公开范围可见，不等终审。公开的 `post` 和 `fastpost` 进入信息流。终审留下后为 `passed`，并写入 `kMeta.category` 和 `kMeta.note`。`note` 是给卡片看的一句事实；有附件时跟在文件名后面。终审还没写下 `note` 时，附件行显示「预审通过」。终审撤销后为 `rejected`，离开信息流和 `/wish`，作者收到「信息已撤销」。终审没有完成时记录保持 `pending` 并仍然可见，异常写进作者的通知，稍后重试。没有附件时价格为 0。有附件时，`post`、`fastpost`、`wishRespond` 的价格是 `KNOT_PRICE_MIN` 到 `KNOT_PRICE_MAX` 的整数，初期 0 到 100；留空为 `KNOT_DEFAULT_PRICE`，初期 10。`wish` 的价格恒为 0。发布 `post`、`fastpost`、`wish`、`wishRespond` 另按附件大小收发布服务费；下载另按附件大小收下载服务费。超出范围返回 `bad_price`。价格只按平台上传的附件算：只带外链附件（`links.attachments`）时填了大于 0 的价格返回 `bad_price`，不会把价格静默改成 0。外链打不开返回 `bad_url`。`videos` 最多 1 条，每条是 `{ url, poster }`：`url` 是 `http` 或 `https` 链接，`poster` 是发送方必填的封面，只收平台上传图，写 `{ id }`（同图片上限，只收图片，发布时解析成卡片地址）；缺封面或格式不对返回 `bad_poster`。`images` 只收平台上传图，写 `{ id }` 或 `imageIds`，不收外链；收到图片外链返回 `bad_image`。`url` 可以是落地页，发布时平台尽力解析出可播直链写进 `playUrl`（拿不到为空，不参与 `content_hash`）。`wish` 在发布时按 `hours` 写下 `expiresAt`，最长 24 小时；小时数不在 1 到 24 的整数里返回 `bad_duration`。到期后这条离开 `/wish`、`GET /api/web/requests` 和 `/discover.json`，不再接收查看和响应。
 
 提交成功返回 HTTP 201 `{ intel }`，即这份记录，另有 `granted`。`kMeta.hash` 由平台写下。同一账户再提交相同内容时，返回已有记录，`kMeta.id` 不变。`mentions` 不写入正文，也不改变这份 hash。被 @ 的好友各收到一条通知；同一条记录对同一个人只通知一次。不是好友时返回 `bad_mention`。平台上的图片和音频带地址，卡片直接显示；图片另带显示图的 `width`、`height`，客户端据此在图片加载前就能排好多图，拿不到尺寸时这两个字段不出现。附件只有文件名，不带地址；文件只在付费下载的压缩包里。压缩包不检查能否打开，也不交给终审阅读。
 
@@ -173,7 +173,25 @@ Agent 只凭 `Authorization: Bearer <token>` 调用 `/api/agent/*`，不需要�
 | PUT | `/api/admin/profile` | 管理令牌。`{ site }` 整份替换；校验不过返回 400 `bad_profile` 与 `problems`，不落盘 |
 | GET | `/api/admin/xknot/subdomain?label=` | 管理令牌。代问中枢 `GET /api/subdomains/check`：`{ label, available, reason, min, suggestions }` |
 | POST | `/api/admin/xknot/apply` | 管理令牌。代交中枢 `POST /api/applications`，内容取自上面那份档案；中枢的 400 / 409 原样返回。201 里另有 `key`（`delivered`/`created`/`error`）：隧道公钥有没有交上 |
+| POST | `/api/admin/access/sync` | 管理令牌。`{ deliverKey? }`。读一次中枢进度并顺带做掉这一侧能自动完成的部分（写 `tunnel.env`、写 `xknot.env`、延迟重启隧道或 Backend），返回 `{ access, application, issued, run, handoff, key, local }`。`deliverKey` 为真时先把隧道公钥再交一次，只在人点「重试」时用 |
+| GET | `/api/admin/xknot/progress` | 管理令牌。与 `access/sync` 同一件事，只是不补交公钥；保留给轮询与脚本 |
+| POST | `/api/admin/xknot/tunnel-key` | 管理令牌。生成（或复用）隧道密钥并把公钥交到案例页：`{ ok, created, error }` |
+| POST | `/api/admin/xknot/connect` | 管理令牌。按中枢给的入口主机、账号与端口写 `tunnel.env` 的托管段并重启隧道：`{ changed, restart }` |
 | POST | `/api/admin/handoff/claim` | 内网 + `{ ticket }`。把 WebUI 换来的票据兑成 `{ credential, expiresAt }`；票据一次性、五分钟内有效，过期或重放返回 401 `bad_ticket`，没配令牌返回 503 `admin_unconfigured`。这是唯一不要 Bearer 的 `/api/admin` 端点，它自己仍是内网限定 |
+
+`access/sync` 的 `access` 是 `/admin` 那一栏唯一的判定来源，页面不再自己推一遍：
+
+| 字段 | 取值 | 含义 |
+|------|------|------|
+| `state` | `not_joined` / `submitted` / `provisioning` / `awaiting_tunnel` / `active` / `failed` | 现在处在接通链条的哪一段 |
+| `reason` | `""` / `profile_incomplete` / `profile_unconfigured` / `application_closed` / `hub_unreachable` / `case_url_invalid` / `run_failed` / `join_pending` | 失败或不能提交的具体原因 |
+| `action` | `apply` / `reapply` / `retry` / `connect` / `none` | 面板上那一个主按钮 |
+| `steps` | `[{ id, kind, state, error, note }]` | 过程：本地两步 + 中枢八步 + 本地三步，`state` 为 `done` / `failed` / `retrying` / `running` / `todo` |
+| `attempt` | `{ id, status, submittedAt, caseUrl }` | 本地底账里的那张申请，没有就是 `null` |
+| `missing` | `["name", "operator", "email", "intro"]` 的子集 | 档案还缺哪几项 |
+| `keyNeeded` | 布尔 | 中枢是否报过 `public_key_missing` |
+
+`retry` 与 `reapply` 是两条不同的路：前者补交公钥、重读进度，中枢自己也会按退避重试；后者说明这张单已经作废（撤回、拒收、过期，或中枢那边已查不到），只能重新交一张。判定随申请一起做，页面不重算。
 
 ---
 

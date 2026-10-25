@@ -20,6 +20,21 @@ export const STEP_ORDER = ["allocate", "publish", "account", "sshd", "static", "
 const FIRST_PORT = 18090;
 const LAST_PORT = 18190;
 
+// 失败后的重试节拍（毫秒）。按步独立计数，成功即清零。
+//
+// 不这么做的话，20 秒的轮询间隔会变成「每 20 秒重跑一次失败的那一步」：本机步骤
+// 只是白跑，证书那一步会真的把自己锁死——Let's Encrypt 对同一主机名的失败授权
+// 限制是每小时 5 次，持续失败半小时就要等几个小时才能再签，而面板上始终只有一个
+// tls_failed，看不出是被限流还是配置错了。起步比通知链（1 / 5 / 30 分钟）紧一档：
+// 刚签发时的失败多是等 DNS 生效，等一小时太长。
+export const RETRY_BACKOFF_MS = [30_000, 2 * 60_000, 10 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
+
+// 会在外部系统留下配额痕迹的步骤：到上限就转终态，等人处理，不再自动重试。
+const CAPPED_STEPS = new Map([["tls", 5]]);
+
+// 入口侧做完之后等隧道的默认上限。超过这个时长只记一次事件，不反复喊。
+export const AWAITING_TIMEOUT_MS = 30 * 60_000;
+
 export class ProvisionError extends Error {
   constructor(code, detail = null) {
     super(detail ? `${code}: ${detail}` : code);
@@ -29,7 +44,16 @@ export class ProvisionError extends Error {
 }
 
 export function freshSteps() {
-  return STEP_ORDER.map((id) => ({ id, state: "pending", at: null, error: null, note: null }));
+  return STEP_ORDER.map((id) => ({
+    id,
+    state: "pending",
+    at: null,
+    error: null,
+    note: null,
+    // 这一步连续失败了几次、下一次最早什么时候再试。节拍见 RETRY_BACKOFF_MS。
+    attempts: 0,
+    nextAt: null,
+  }));
 }
 
 /** 公钥换了就要重装。只存短指纹：够判等，不需要在 run 里留一份公钥。 */
@@ -68,7 +92,9 @@ export function refreshKeySteps(run, application, now = new Date()) {
     publicKeyHash: keyFingerprint(application.publicKey),
     state: "provisioning",
     steps: run.steps.map((step, index) =>
-      index >= from ? { ...step, state: "pending", at: null, error: null, note: null } : step
+      index >= from
+        ? { ...step, state: "pending", at: null, error: null, note: null, attempts: 0, nextAt: null }
+        : step
     ),
     updatedAt: now.toISOString(),
   };
@@ -84,13 +110,45 @@ export function pendingStep(run) {
   return (run.steps || []).find((step) => step.state !== "done" && step.state !== "skipped") || null;
 }
 
+/**
+ * 下一个「现在可以执行」的步骤：还没完成的、且不在退避窗口里的。
+ *
+ * 与 pendingStep 的分工要分清：pendingStep 回答「还有没有活」，dueStep 回答
+ * 「现在该不该干」。worker 用后者推进，用前者判断是不是真的全做完了——
+ * 只剩退避中的步骤时，两者一个给 null 一个给非 null，正是「等一会儿再试」
+ * 与「可以去等隧道了」的差别。
+ */
+export function dueStep(run, now = new Date()) {
+  const step = pendingStep(run);
+  if (!step) return null;
+  const at = Date.parse(step.nextAt || "");
+  if (Number.isFinite(at) && at > now.getTime()) return null;
+  return step;
+}
+
+/**
+ * 入口侧做完之后，等隧道等过头了没有。
+ *
+ * 只看「上一次推进」到现在过了多久：隧道通了会进 active，所以这个状态本身
+ * 就说明对方没来拉参数（或拉了没连上）。stallNotifiedAt 保证一个停滞只喊一次。
+ */
+export function isStalled(run, { now = new Date(), timeoutMs = AWAITING_TIMEOUT_MS } = {}) {
+  if (run?.state !== "awaiting_tunnel") return false;
+  if (run.stallNotifiedAt) return false;
+  const since = Date.parse(run.updatedAt || "");
+  if (!Number.isFinite(since)) return false;
+  return now.getTime() - since >= timeoutMs;
+}
+
 export function stepDone(run, id, note = null, now = new Date()) {
   const step = run.steps.find((item) => item.id === id);
   if (!step) return run;
   return {
     ...run,
     steps: run.steps.map((item) =>
-      item.id === id ? { ...item, state: "done", at: now.toISOString(), error: null, note } : item
+      item.id === id
+        ? { ...item, state: "done", at: now.toISOString(), error: null, note, attempts: 0, nextAt: null }
+        : item
     ),
     // 这一步成功了，上一次的错误码就不该继续挂在 run 上：
     // 否则面板会把「已进入下一步」也标成红的。
@@ -103,21 +161,64 @@ export function stepFailed(run, id, code, now = new Date()) {
   return {
     ...run,
     steps: run.steps.map((item) =>
-      item.id === id ? { ...item, state: "failed", at: now.toISOString(), error: code } : item
+      item.id === id ? { ...item, state: "failed", at: now.toISOString(), error: code, nextAt: null } : item
     ),
     lastError: code,
     updatedAt: now.toISOString(),
   };
 }
 
-/** 失败的一步回到待办：下一次轮询再试，面板上保留上一次的错误码。 */
+/**
+ * 失败的一步回到待办：面板上保留错误码，但下一次要等退避窗口过去。
+ *
+ * 有配额的步骤（证书）连续失败到上限就转终态：继续自动重试只会把限流窗口
+ * 越拉越长，而且错误码永远是同一个，人看不出「等一等就好」还是「配置错了」。
+ */
 export function stepRetry(run, id, code, now = new Date()) {
+  const current = run.steps.find((item) => item.id === id);
+  const attempts = (current?.attempts || 0) + 1;
+  const cap = CAPPED_STEPS.get(id) || 0;
+  const exhausted = cap > 0 && attempts >= cap;
+  const wait = RETRY_BACKOFF_MS[Math.min(attempts - 1, RETRY_BACKOFF_MS.length - 1)];
   return {
     ...run,
+    // 到上限就不再是「进行中」，让 worker 停手，等人看完日志把它重新推进。
+    state: exhausted ? "failed" : run.state,
     steps: run.steps.map((item) =>
-      item.id === id ? { ...item, state: "pending", error: code } : item
+      item.id === id
+        ? {
+            ...item,
+            state: exhausted ? "failed" : "pending",
+            attempts,
+            nextAt: exhausted ? null : new Date(now.getTime() + wait).toISOString(),
+            error: code,
+          }
+        : item
     ),
     lastError: code,
+    updatedAt: now.toISOString(),
+  };
+}
+
+/**
+ * 人工放行：把停住的 run 推回 provisioning，其余原样保留。
+ *
+ * 只清「为什么停下」——失败标记、退避、停滞回执；已完成与已跳过的步骤一个都不动，
+ * 重跑它们虽然幂等，但证书那一步重跑是要再签一次的。用它的场合：`tls` 到了上限、
+ * 或一张单在 awaiting_tunnel 停太久原因已排除、或上次是 application_closed。
+ */
+export function reopenRun(run, now = new Date()) {
+  return {
+    ...run,
+    state: "provisioning",
+    steps: (run.steps || []).map((step) =>
+      step.state === "done" || step.state === "skipped"
+        ? step
+        : { ...step, state: "pending", error: null, attempts: 0, nextAt: null }
+    ),
+    lastError: null,
+    // 重新计时：不然刚放行就又被当成停滞，人看不到下一轮的结果。
+    stallNotifiedAt: null,
     updatedAt: now.toISOString(),
   };
 }

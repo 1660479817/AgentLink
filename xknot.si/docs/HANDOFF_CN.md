@@ -4,7 +4,7 @@
 
 [JOIN.md](JOIN.md) 讲策略：怎么申请、签发后怎么接通。本文只回答一个问题——**从申请通过到实例接通，两边各自做什么、在哪一步碰上**。
 
-> **现状：默认自动。** 申请通过且公钥到齐后，入口主机上的常驻进程 `xknot-provision` 按第 3 节的顺序自动做完前置（`ops/provision-worker.mjs`，步骤代码在 `server/provision.mjs`）。做完后实例按案例键读 `GET /api/case/<key>/progress` 取走入口主机、账号与端口，自己写 `site.env` 并起隧道；中枢探测 `/api/health` 通过就改成 `active`。
+> **现状：默认自动。** 申请通过且公钥到齐后，入口主机上的常驻进程 `xknot-provision` 按第 3 节的顺序自动做完前置（`ops/provision-worker.mjs`，步骤代码在 `server/provision.mjs`）。做完后实例按案例键读 `GET /api/case/<key>/progress` 取走入口主机、账号与端口，自己写 `tunnel.env` 并起隧道；中枢探测 `/api/health` 通过就改成 `active`。用 `knot-platform` 时不需要有人打开管理页：Backend 自己轮询进度（`KNOT_XKNOT_POLL_SECONDS`，默认 60，写 0 关闭）。
 >
 > 下面第 2–5 节仍然有效，但只在两种情况下用：worker 停着，或某一张单要人工从头做一遍。写进代码的规则以 `server/provision.mjs` 与 `ops/provision-worker.mjs` 为准；两边不一致时先改代码，再改这份单。
 
@@ -84,7 +84,7 @@
 - 第 8 步装公钥用的是阶段 0 交上来的那一份；指纹对不上就停下来问，不要自己生成。
 - 第 9 步只在手工路径出现：领取链接只显示一次，过期重跑 `handoff`。自动路径的口令没有这一步，`handoff` 字段在节点资料就绪后由 `progress` 直接给出。
 
-前置做完，中枢这边就没有等待项了。此时公网 `https://<标签>.xknot.si/` 能打开静态页，`/api/health` 返回的是 SPA 兜底（HTML），所以清单仍是 `pending`，不去探测。
+前置做完，中枢这边就没有等待项了。此时公网 `https://<标签>.xknot.si/` 能打开静态页，`/api/health` 打的是预接好、但还没人监听的回环端口，所以返回 `502`（不是 SPA 兜底），清单仍是 `pending`，不去探测。
 
 **入口 conf 分两版。** 前置阶段写的那一份，`/` 发 `/var/www/<id>` 下的占位页（「子域已签发，入口正在接通」），只有 `/api/` 预先接到回环端口上。探测通过的那一刻，worker 用同一个生成器改写这份 conf：`/` 也反代到隧道，访客看到的是实例自己的 WebUI，占位页随之退场（静态 root 只剩 ACME 校验在用）。切换先 `nginx -t`，不通过就把旧内容写回去。之后每轮还会核对一次，conf 被覆盖或删掉都会自动切回来。
 
@@ -129,10 +129,10 @@ A 完成的标志：中枢手上有这行回执，伙伴手上有账号与端口
 | 隧道对端 | `knot-tunnel-〈id〉@〈入口主机〉`，私钥是本机那把 |
 | 本地与远端端口 | 远端 `〈1808x〉` → 本地后端端口（Knot 默认 8080） |
 
-用 `knot-platform` 部署时，这几项落在 `sites/<站点>/site.env`（键名与示例见
+用 `knot-platform` 部署时，这几项落在 `sites/<站点>/tunnel.env`，由实例自己的 Backend 读到进度后写入（键名与示例见
 [`../../knot-platform/ops/entry/README.md`](../../knot-platform/ops/entry/README.md)），
-由 `deploy-site.sh` 装隧道常驻服务。此时**不要跑 `push-entry.sh`**——静态文件的归属由交付单 6.5 决定。
-换别的实现，照上表做，不需要知道 `site.env` 是什么。
+再由 `deploy-site.sh` 装隧道常驻服务；手工配置隧道时才写在 `site.env`。此时**不要跑 `push-entry.sh`**——静态文件的归属由交付单 6.5 决定。
+换别的实现，照上表做，不需要知道 `tunnel.env` 是什么。
 
 接入件与这些部署项是两回事：接入件只含中枢签发的东西，不含域名、端口和主机。
 

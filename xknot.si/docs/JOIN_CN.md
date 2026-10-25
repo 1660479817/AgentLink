@@ -119,7 +119,7 @@ DNS 与隧道都由 worker 处理，不靠手工：`dns` 这一步校验 `*.xkno
 
 通过之后不是「一步一步换消息」，而是中枢先做完，再碰一次面。
 
-**现在默认由常驻进程自动完成。** `xknot-provision`（`ops/provision-worker.mjs`）每 20 秒扫一次：已通过、已交公钥、还没有接通记录的申请，会建一条 run，然后逐项推进 `allocate → publish → account → sshd → static → dns → vhost → tls`。每一步都幂等，失败只记错误码并留在原地重试。做完后进入 `awaiting_tunnel`，探测到 `https://<子域>/api/health` 通过就把入口 conf 从占位页改成整站反代，再把清单里的 `status` 改成 `active`。
+**现在默认由常驻进程自动完成。** `xknot-provision`（`ops/provision-worker.mjs`）每 20 秒扫一次：已通过、已交公钥、还没有接通记录的申请，会建一条 run，然后逐项推进 `allocate → publish → account → sshd → static → dns → vhost → tls`。每一步都幂等，失败只记错误码并按退避重试（30 秒、2 分钟、10 分钟、30 分钟、2 小时，按步独立计数）。`tls` 连续失败 5 次就停下，不再自动重试：继续试只会把 Let's Encrypt 的失败授权限制（每主机名每小时 5 次）越拉越长。做完后进入 `awaiting_tunnel`，探测到 `https://<子域>/api/health` 通过就把入口 conf 从占位页改成整站反代，再把清单里的 `status` 改成 `active`。等隧道超过 30 分钟（`XKNOT_AWAITING_TIMEOUT_MS`）会记一条 `instance.awaiting_stalled` 事件，不让它无声地停在那儿。
 
 | 段 | 谁做 | 做完的标志 |
 |----|------|------------|

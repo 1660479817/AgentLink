@@ -10,7 +10,10 @@ import {
   ENTRY_ACCESS_LOG,
   ENTRY_PROXIED_MARK,
   ProvisionError,
+  RETRY_BACKOFF_MS,
   createRun,
+  dueStep,
+  isStalled,
   logFormatName,
   keyChanged,
   nextPort,
@@ -22,6 +25,7 @@ import {
   renderPlaceholder,
   renderSshdMatch,
   renderVhost,
+  reopenRun,
   switchEntry,
   runStep,
   stepDone,
@@ -407,6 +411,135 @@ test("run: a successful step clears the previous error code", () => {
   const failed = stepRetry(run, "dns", "dns_missing");
   assert.equal(failed.lastError, "dns_missing");
   assert.equal(stepDone(failed, "dns", "54.169.33.64").lastError, null);
+});
+
+// 前面的步骤先做完，退避中的那一步才会是「下一个要做的」。
+function beforeDns(run) {
+  return ["allocate", "publish", "account", "sshd", "static"].reduce((acc, id) => stepDone(acc, id), run);
+}
+
+test("run: a failed step is not due again until its backoff passes", () => {
+  const run = beforeDns(
+    createRun({
+      application: APP,
+      tunnel: { account: "knot-tunnel-cpswang", port: 18090 },
+      entryHost: "54.169.33.64",
+    })
+  );
+  const at = new Date("2026-10-25T00:00:00Z");
+  const failed = stepRetry(run, "dns", "dns_missing", at);
+
+  // 还有活没干完，但现在不该干：worker 据此既不会推进，也不会误判「做完了」。
+  assert.equal(pendingStep(failed).id, "dns");
+  assert.equal(dueStep(failed, at), null);
+  assert.equal(dueStep(failed, new Date(at.getTime() + 31_000)).id, "dns");
+});
+
+test("run: the backoff grows with each failure instead of hammering every tick", () => {
+  const run = beforeDns(
+    createRun({
+      application: APP,
+      tunnel: { account: "knot-tunnel-cpswang", port: 18090 },
+      entryHost: "54.169.33.64",
+    })
+  );
+  const at = new Date("2026-10-25T00:00:00Z");
+  const first = stepRetry(run, "dns", "dns_missing", at);
+  const second = stepRetry(first, "dns", "dns_missing", at);
+
+  assert.equal(first.steps.find((step) => step.id === "dns").nextAt, new Date(at.getTime() + RETRY_BACKOFF_MS[0]).toISOString());
+  assert.equal(second.steps.find((step) => step.id === "dns").attempts, 2);
+  assert.equal(second.steps.find((step) => step.id === "dns").nextAt, new Date(at.getTime() + RETRY_BACKOFF_MS[1]).toISOString());
+});
+
+test("run: tls stops retrying at the cap instead of burning the certificate quota", () => {
+  const run = ["allocate", "publish", "account", "sshd", "static", "dns", "vhost"].reduce(
+    (acc, id) => stepDone(acc, id),
+    createRun({
+      application: APP,
+      tunnel: { account: "knot-tunnel-cpswang", port: 18090 },
+      entryHost: "54.169.33.64",
+    })
+  );
+  const at = new Date("2026-10-25T00:00:00Z");
+  let retried = run;
+  for (let attempt = 0; attempt < 4; attempt += 1) retried = stepRetry(retried, "tls", "tls_failed", at);
+
+  const fourth = retried.steps.find((step) => step.id === "tls");
+  assert.equal(fourth.state, "pending");
+  assert.equal(retried.state, "provisioning");
+
+  const fifth = stepRetry(retried, "tls", "tls_failed", at);
+  assert.equal(fifth.steps.find((step) => step.id === "tls").state, "failed");
+  assert.equal(fifth.steps.find((step) => step.id === "tls").nextAt, null);
+  // 转终态之后 worker 不再推进：继续重试只会把 Let's Encrypt 的限流窗口越拉越长。
+  assert.equal(fifth.state, "failed");
+});
+
+test("run: a new public key resets the retry counter on the steps it reruns", () => {
+  const run = createRun({
+    application: APP,
+    tunnel: { account: "knot-tunnel-cpswang", port: 18090 },
+    entryHost: "54.169.33.64",
+  });
+  const failed = stepRetry(stepRetry(run, "account", "account_failed"), "account", "account_failed");
+  assert.equal(failed.steps.find((step) => step.id === "account").attempts, 2);
+
+  const refreshed = refreshKeySteps(failed, { ...APP, publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB new" });
+  const account = refreshed.steps.find((step) => step.id === "account");
+  assert.equal(account.attempts, 0);
+  assert.equal(account.nextAt, null);
+  // 已经做完的步骤不跟着重来。
+  const before = refreshed.steps.find((step) => step.id === "allocate");
+  assert.equal(before.state, "pending");
+});
+
+test("run: a stalled wait for the tunnel is reported once, not every tick", () => {
+  const run = {
+    state: "awaiting_tunnel",
+    updatedAt: new Date("2026-10-25T00:00:00Z").toISOString(),
+  };
+  const later = new Date("2026-10-25T00:31:00Z");
+
+  assert.equal(isStalled(run, { now: later, timeoutMs: 30 * 60_000 }), true);
+  assert.equal(isStalled(run, { now: later, timeoutMs: 60 * 60_000 }), false);
+  // 已经记过一次事件之后就不再重复喊。
+  assert.equal(
+    isStalled({ ...run, stallNotifiedAt: new Date("2026-10-25T00:05:00Z").toISOString() }, { now: later }),
+    false
+  );
+  // 别的状态不归这条管。
+  assert.equal(isStalled({ ...run, state: "active" }, { now: later }), false);
+});
+
+test("run: a manual retry clears the stop without redoing finished steps", () => {
+  const done = ["allocate", "publish", "account", "sshd", "static", "dns", "vhost"].reduce(
+    (acc, id) => stepDone(acc, id),
+    createRun({
+      application: APP,
+      tunnel: { account: "knot-tunnel-cpswang", port: 18090 },
+      entryHost: "54.169.33.64",
+    })
+  );
+  const at = new Date("2026-10-25T00:00:00Z");
+  let capped = done;
+  for (let attempt = 0; attempt < 5; attempt += 1) capped = stepRetry(capped, "tls", "tls_failed", at);
+  assert.equal(capped.state, "failed");
+
+  const reopened = reopenRun(capped, at);
+  assert.equal(reopened.state, "provisioning");
+  assert.equal(reopened.lastError, null);
+  assert.equal(reopened.stallNotifiedAt, null);
+  const tls = reopened.steps.find((step) => step.id === "tls");
+  assert.equal(tls.state, "pending");
+  assert.equal(tls.attempts, 0);
+  assert.equal(tls.nextAt, null);
+  assert.equal(tls.error, null);
+  // 证书重签要花配额，所以已完成的前置必须原样留着。
+  assert.deepEqual(
+    reopened.steps.filter((step) => step.state === "done").map((step) => step.id),
+    ["allocate", "publish", "account", "sshd", "static", "dns", "vhost"]
+  );
 });
 
 test("render: before the tunnel is up, / is the placeholder and only /api is proxied", () => {

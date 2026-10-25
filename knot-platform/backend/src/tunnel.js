@@ -183,6 +183,22 @@ export async function applyManagedBlock({ file, block } = {}) {
   return { changed: true };
 }
 
+/** 隧道私钥在不在。中枢按申请时那把公钥授权，缺了写配置只会换到一条连不上的隧道。 */
+export function tunnelKeyPresent(siteDir) {
+  const dir = String(siteDir || "").trim();
+  return Boolean(dir) && existsSync(tunnelKeyPath(dir));
+}
+
+/** 托管段写进去了没有。只读文件，判不出隧道进程通不通——那是中枢探测的事。 */
+export async function managedBlockPresent({ file, read = readFile } = {}) {
+  if (!file) return false;
+  try {
+    return String(await read(file, "utf8")).includes(MANAGED_START);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 让隧道进程用上新配置。装了常驻单元就重启它；没有单元时不假装成功，
  * 把命令交给调用方显示，人照着跑一次即可。
