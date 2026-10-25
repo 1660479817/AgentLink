@@ -82,6 +82,8 @@ xknot.si/
 │   ├── traffic.mjs              入口访问日志 → 按子域的日流量，写 var/traffic/
 │   ├── node-status.mjs          合成节点状态：探测、隧道、位置、流量 → var/status.json
 │   ├── peers.mjs                隧道对端 → 出口 IP：读 ss/ps，对名册的隧道账号
+│   ├── snapshots.mjs            公开快照取回：经隧道路由到实例，变了才写入口磁盘
+│   ├── warm-entry.mjs           入口预热：接通后取一遍首页与它引用的资产
 │   ├── geoip.mjs                出口 IP → 国家码：DB-IP Lite，写 var/geoip/locations.json
 │   ├── subdomain.mjs            子域名归一、保留名与长度校验、候选建议
 │   ├── probe-target.mjs         探测地址与开关：按清单 url 拼 /api/health
@@ -907,4 +909,19 @@ node ops/traffic.mjs --log ./fixtures/access.log --out ./var/traffic
 | 清单外的 host 有请求 | 查入口 conf 的 `server_name` 与 DNS；聚合日志里会列出被忽略的 host |
 | 隧道总是「断开」 | `var/peers.json` 里有没有该 id；没有就是隧道没连，或中枢不在入口主机 |
 | status.json 不更新 | 三条链路都会重算：健康巡检、provision worker、流量聚合。全都停着就只剩 CLI |
+
+### 11.4 入口磁盘上的公开快照
+
+整站反代的站点，首屏数据是 `/discover.json`。它在入口 nginx 里是一条独立的 location：先看磁盘上有没有，没有才回落到隧道。
+
+- **谁写**：中枢的 `ops/snapshots.mjs`，由常驻的 `xknot-provision` 按 `XKNOT_SNAPSHOT_INTERVAL_MS`（默认 20 秒，最短 5 秒）驱动。它经隧道路由到实例（`127.0.0.1:<端口>/api/web/board`），不经公网 DNS、TLS 与 nginx，也不需要给实例任何写权限。
+- **写不写**：带 `If-None-Match`，实例没变就回 304、不传正文；正文变了但摘要一样也不重写。所以磁盘上那份是变更驱动的，不是访客驱动的。
+- **写在哪**：`/var/www/<子域>/discover.json`，先写临时文件再 rename，权限 644。nginx 随时可能在读这个路径，原地截断会让某个访客读到半份 JSON。
+- **取不到怎么办**：保留上一份。隧道抖一下就把文件删掉，等于让首屏 404；晚几十秒看到新帖要好得多。落盘失败（目录不在、权限不对）也不跟着 20 秒的节拍重试：失败时没有可用 etag，只能整份重取，隔 5 分钟再试。
+- **实例不再提供快照**：回 410 时删掉磁盘上那份，让 nginx 回落到隧道。关掉公开快照之后入口还在发旧内容，是这条链路唯一不能容忍的失败方式。410 与 404 要分清：410 是实例明确说「此刻没有公开快照」，404 只是这条地址不存在（实例还没升级到这一版），后者保留磁盘上那份，撤掉就白丢一份可用的数据。
+- **晚了一个间隔**：`/api/web/session` 与 `/api/web/home` 带回实例侧的 `boardVersion`，页面比出屏幕上那份旧时才回源取 `/api/web/board`。
+
+`var/snapshots.json` 记每个子域的 etag 与摘要，重启后不用重传正文。控制台里没有单独一页：看快照取回情况用 `journalctl -u xknot-provision | grep 快照`。
+
+接通那一刻还会跑一次 `ops/warm-entry.mjs`：取一遍首页，把 HTML 与样式表里引用的 `/assets/` 也取一遍。入口的资产缓存是按需填的，第一个访客没来之前谁也没存过，而个人站没有「很多人分摊第一次」。
 

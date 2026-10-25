@@ -33,6 +33,11 @@ const PEOPLE_SQL = `
 // 不能随在效 wish 的总数无限长大（S11-08）。
 const WISH_SNAPSHOT_LIMIT = 100;
 
+// 公开快照里的信息公开条目。个人站一天发 20–100 条，读的人比写的人多，
+// 首屏要能一直往下翻而不再回源：60 条差不多覆盖「今天全部 + 昨天一部分」，
+// 文件仍然在几十 KB 量级，入口磁盘与浏览器都能整份留住。
+const INTEL_SNAPSHOT_LIMIT = 60;
+
 const WISH_SQL = `
   SELECT i.id, i.body, i.videos, i.links, i.content_hash, i.detail, i.verdict, i.price, i.category, i.kind, i.is_public, i.account_id, i.actor, i.created_at, i.updated_at, i.expires_at
   FROM intel i
@@ -144,7 +149,7 @@ export async function assembleDiscoverBoard(pool, meta = {}) {
   if (!publicBoardEnabled()) {
     return { ...meta, information: [], requests: [], people: [], facets: { categories: [], topics: [] } };
   }
-  const posts = await listPublicIntel(pool, 30, null);
+  const posts = await listPublicIntel(pool, INTEL_SNAPSHOT_LIMIT, null);
   const { rows: wishes } = await pool.query(WISH_SQL);
   const people = await listActivePeople(pool);
   const facets = await listFacets(pool);

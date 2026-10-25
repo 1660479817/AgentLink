@@ -71,6 +71,9 @@ export const useSessionStore = defineStore("session", {
     // 会话接口没回话时记一笔：未登录访客此时拿不到站点开关，
     // 页面要说明「连不上」，不能只是把入口藏起来。
     failed: false,
+    // 实例侧公开快照的版本。入口磁盘上那份由中枢按间隔取回，可能落后；
+    // 页面拿它比一比，落后才回源取一次（见 DiscoverView 的 catchUpBoard）。
+    boardVersion: null,
     // 站点默认界面语言，来自 sites/<站点>/profile.json 的 locale（主理人在 /admin 里设）。
     defaultLocale: cachedLocale || DEFAULT_SITE_LOCALE,
     // Agent 指引住在联邦中枢，地址由 Backend 给（KNOT_HUB_ORIGIN）。首帧先用联邦入口那份。
@@ -107,6 +110,7 @@ export const useSessionStore = defineStore("session", {
           if (data.agentDoc && typeof data.agentDoc === "object") this.agentDoc = { ...INITIAL_AGENT_DOC, ...data.agentDoc };
           // Agent 是否开通随会话一起回来，不再为这一项单独发一次请求。
           if (typeof data.agentDelegated === "boolean") this.agentDelegated = data.agentDelegated;
+          if (typeof data.boardVersion === "string") this.boardVersion = data.boardVersion;
           this.failed = false;
         } catch (error) {
           // 只有 401 才算「这个人没登录」。隧道抖一下、请求超时都只是「这次没问到」：
@@ -136,6 +140,7 @@ export const useSessionStore = defineStore("session", {
       if (typeof data.defaultLocale === "string" && data.defaultLocale) this.defaultLocale = data.defaultLocale;
       if (data.agentDoc && typeof data.agentDoc === "object") this.agentDoc = { ...INITIAL_AGENT_DOC, ...data.agentDoc };
       if (typeof data.agentDelegated === "boolean") this.agentDelegated = data.agentDelegated;
+      if (typeof data.boardVersion === "string") this.boardVersion = data.boardVersion;
       this.failed = false;
       this.userKnown = true;
       this.ready = true;

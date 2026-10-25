@@ -60,7 +60,9 @@ function pool() {
   return {
     post,
     wish,
-    async query(sql) {
+    queries: [],
+    async query(sql, params) {
+      this.queries.push({ sql, params });
       if (sql.includes("SELECT f.intel_id")) {
         return { rows: [{ intel_id: POST, id: FILE, mime: "image/jpeg", original_name: "a.jpg" }, { intel_id: POST, id: "sound", mime: "audio/mpeg", original_name: "a.mp3" }] };
       }
@@ -212,4 +214,15 @@ test("the expiry sweep counts a missing expires_at from created_at, same as the 
   assert.match(sql, /> \$1/);
   assert.match(sql, /<= \$2/);
   assert.match(sql, /LIMIT 1/);
+});
+
+test("the snapshot keeps enough posts to fill a low-frequency site's first screen", async () => {
+  // 个人站一天发 20–100 条，读的人比写的人多：首屏要能一直往下翻而不再回源。
+  // 60 条差不多是「今天全部 + 昨天一部分」，文件仍在几十 KB 量级。
+  // 上限是契约的一部分：放开成不设限，快照会随站龄无限长大。
+  const fake = pool();
+  await assembleDiscoverBoard(fake);
+  const intel = fake.queries.find((query) => query.sql.includes("LIMIT $2"));
+  assert.ok(intel, "the public intel query should be bounded");
+  assert.equal(intel.params[1], 60);
 });

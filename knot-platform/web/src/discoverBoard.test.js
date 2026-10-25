@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { applyDiscoverSelf, cardIsMine, coveredBy, emptyFacets, facetsOf, hideDiscoverItem, paintDiscover, rememberAhead, rememberDiscover, showDiscoverItem } from "./discoverBoard.js";
+import { applyDiscoverSelf, boardIsBehind, cardIsMine, coveredBy, emptyFacets, facetsOf, hideDiscoverItem, paintDiscover, rememberAhead, rememberDiscover, showDiscoverItem } from "./discoverBoard.js";
 
 beforeEach(() => {
   showDiscoverItem("11111111-1111-4111-8111-111111111111");
@@ -116,4 +116,21 @@ test("a locally hidden card stays hidden, and a new post waits for the snapshot"
   assert.equal(coveredBy({ information: [{ id: POST }, { id: FRESH }], requests: [] }), true);
   rememberAhead(null);
   rememberDiscover(null);
+});
+
+test("the painted snapshot is only behind when the instance's version is newer", () => {
+  // 入口磁盘上那份由中枢按间隔取回，可能晚一个间隔。会话响应带回实例侧版本，
+  // 只有它更新时才回源，所以正常打开不会多一次往返。
+  const painted = { version: "2026-10-25T00:00:00.000Z" };
+  assert.equal(boardIsBehind(painted, "2026-10-25T00:00:00.000Z"), false);
+  assert.equal(boardIsBehind(painted, "2026-10-25T00:00:20.000Z"), true);
+  assert.equal(boardIsBehind(painted, "2026-10-24T23:59:40.000Z"), false);
+});
+
+test("without a version on either side nothing is treated as stale", () => {
+  // 关掉公开快照、接口没回话、或者站点还是老版本：没有依据就不要回源。
+  assert.equal(boardIsBehind({}, "2026-10-25T00:00:00.000Z"), false);
+  assert.equal(boardIsBehind({ version: "2026-10-25T00:00:00.000Z" }, null), false);
+  assert.equal(boardIsBehind({ version: "not a date" }, "2026-10-25T00:00:00.000Z"), false);
+  assert.equal(boardIsBehind(null, "2026-10-25T00:00:00.000Z"), false);
 });

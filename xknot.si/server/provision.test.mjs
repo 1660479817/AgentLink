@@ -177,8 +177,8 @@ test("render: compression, HTTP/2 and tunnel keepalive do not depend on static s
     assert.match(conf, /keepalive 16;/);
     assert.match(conf, /keepalive_timeout 4s;/);
     // 有 upstream 还必须配 Connection ""，否则 nginx 给上游发 close，keepalive 形同虚设。
-    // entry 阶段多三处：`/assets/`、`/api/web/uploads/` 与 `location /`。
-    assert.equal((conf.match(/proxy_set_header Connection "";/g) || []).length, entry ? 4 : 1);
+    // entry 阶段多四处：`/assets/`、`/api/web/uploads/`、`location /` 与 /discover.json 的回落。
+    assert.equal((conf.match(/proxy_set_header Connection "";/g) || []).length, entry ? 5 : 1);
     // 一个 conf 里 upstream 只能声明一次，否则 nginx -t 直接失败。
     assert.equal((conf.match(/^upstream /gm) || []).length, 1);
   }
@@ -420,13 +420,39 @@ test("render: before the tunnel is up, / is the placeholder and only /api is pro
 test("render: once the tunnel is up, / proxies to the instance so the WebUI shows", () => {
   const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry: true });
   assert.match(conf, new RegExp(ENTRY_PROXIED_MARK));
-  // `location /`、`/assets/`、`/api/web/uploads/` 与 `/api/` 各一条。
-  assert.equal((conf.match(/proxy_pass http:\/\/knot_entry_18090;/g) || []).length, 4);
-  // 占位页不再有人访问：静态 root 只剩下 ACME 校验在用。
-  assert.doesNotMatch(conf, /try_files/);
+  // `location /`、`/assets/`、`/api/web/uploads/`、`/api/`，以及 /discover.json 的回落入口。
+  assert.equal((conf.match(/proxy_pass http:\/\/knot_entry_18090;/g) || []).length, 5);
+  // 占位页不再有人访问：静态 root 上只剩 ACME 校验与中枢取回的公开快照。
+  assert.equal((conf.match(/try_files/g) || []).length, 1);
+  assert.match(conf, /try_files \/discover\.json @knot_origin;/);
+  assert.doesNotMatch(conf, /try_files \$uri \$uri\/ \/index\.html;/);
   assert.doesNotMatch(conf, /location = \/index\.html/);
-  // 安全头交给 Backend（它每个响应都发），入口不再叠一行同名头。
-  assert.doesNotMatch(conf, /add_header X-Content-Type-Options/);
+  // 回源的 location 不自己发安全头：Backend 每个响应都发，这里再叠一遍就是两行同名头。
+  // 唯一的例外是下面那条从磁盘直出的公开快照，它不经过 Backend。
+  const withoutSnapshot = conf.replace(/location = \/discover\.json \{[^}]*\}/, "");
+  assert.doesNotMatch(withoutSnapshot, /add_header X-Content-Type-Options/);
+});
+
+test("render: the public snapshot comes from the entry disk and falls back to the tunnel", () => {
+  // 首屏数据是读者每次打开都要的，而内容一天只变几十次：让它从磁盘出，访客再多也不穿隧道。
+  // 文件由中枢取回（ops/snapshots.mjs），取不到时磁盘上没有，自动回落到隧道。
+  const entry = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry: true });
+  const block = entry.slice(entry.indexOf("location = /discover.json"), entry.indexOf("location @knot_origin"));
+  assert.match(block, /root \/var\/www\/cpswang;/);
+  assert.match(block, /try_files \/discover\.json @knot_origin;/);
+  // 缓存头跟实例自己发的那份一致，否则同一个地址会有两种缓存行为。
+  assert.match(block, /Cache-Control "public, max-age=30, stale-while-revalidate=300"/);
+  // 这一条从磁盘直出，没有 Backend 参与：安全头必须在这里发。
+  assert.match(block, /add_header X-Content-Type-Options nosniff always;/);
+  assert.match(block, /add_header Referrer-Policy strict-origin-when-cross-origin always;/);
+  // 回落时与别的回源 location 同一套管道，否则断隧道时它一个连接都保不住。
+  const fallback = entry.slice(entry.indexOf("location @knot_origin"));
+  assert.match(fallback, /proxy_pass http:\/\/knot_entry_18090;/);
+  assert.match(fallback, /proxy_set_header Connection "";/);
+
+  // 占位页阶段还没有隧道，也不会有取回的文件：这条 location 不该出现。
+  const placeholder = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090 });
+  assert.doesNotMatch(placeholder, /location = \/discover\.json/);
 });
 
 test("render: the proxied entry caches /assets/ so a partner node is not re-drilled per file", () => {
@@ -603,7 +629,7 @@ test("switch: a rejected reload that cannot restart puts the old conf back", asy
 // 留下的。下面按「每个回源 location 必须具备哪些能力」逐条列，新增 location 时
 // 必须同时在清单里补一行，否则这里不会替你检查——清单本身就是这份契约。
 
-const PROXY_LOCATIONS = ["/api/", "/api/web/uploads/", "/assets/", "/"];
+const PROXY_LOCATIONS = ["/api/", "/api/web/uploads/", "/assets/", "/", "@knot_origin"];
 
 function locationsOf(conf) {
   const found = new Map();
@@ -612,6 +638,9 @@ function locationsOf(conf) {
     "/api/web/uploads/": "    location ^~ /api/web/uploads/ {",
     "/assets/": "    location ^~ /assets/ {",
     "/": "    location / {",
+    // /discover.json 只在磁盘上没有文件时才走到这里，所以它是唯一一个不回源不够、
+    // 还必须带完整管道的位置——断隧道时它是最先被打到的那条路。
+    "@knot_origin": "    location @knot_origin {",
   };
   for (const name of PROXY_LOCATIONS) {
     // `location /` 在 80 端口那份里也有一条（301），取 443 里那条。

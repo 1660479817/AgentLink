@@ -7,7 +7,8 @@
 # nginx 的 /discover.json 是 try_files 先看磁盘再看隧道，所以入口磁盘上留一份旧文件
 # 就会一直命中旧的、不回落。快照只有几十 KB，推一份过去比让读者穿隧道取更划算。
 #
-# proxy 投放不需要推：它的 / 与 /discover.json 本来就整段回源。
+# proxy 投放不用这个脚本：那一档的 /discover.json 由中枢自己按间隔经隧道取回、
+# 落在同一个静态根上（xknot.si/ops/snapshots.mjs），实例这边不需要执行任何东西。
 #
 # 用法：push-discover.sh /path/to/board
 set -euo pipefail
@@ -56,7 +57,7 @@ ENTRY_FILE="$KNOT_SITE_DIR/entry.$KNOT_DOMAIN.env"
 }
 SERVE="$(knot_entry_value "$ENTRY_FILE" KNOT_ENTRY_SERVE)"
 if [[ "${SERVE:-static}" != "static" ]]; then
-  echo "入口是 proxy 投放，快照整段回源，不需要推送"
+  echo "入口是 proxy 投放：/discover.json 由中枢按间隔取回落到磁盘，实例这边不用推"
   exit 0
 fi
 WEB_ROOT="$(knot_entry_value "$ENTRY_FILE" KNOT_ENTRY_WEB_ROOT)"

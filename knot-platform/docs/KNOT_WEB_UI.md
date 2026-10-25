@@ -56,6 +56,8 @@ The locale switch is decided by two levels: **this person's own choice** wins; w
 
 The first frame does not wait for the session endpoint. When a previous public snapshot (`/discover.json`, carrying site switches, site identity, and default locale) exists locally, navigation and body render directly from it, then `GET /api/web/home` returns and overlays login state and personal state; the locale falls from the snapshot's site default on the first frame, so there's no half-page of "English nav over Chinese body". On a first visit with no local snapshot, or when the site turns off guest browsing, it still only draws the splash (site mark + one line "Entering") and waits for one `GET /api/web/session`. The entry home page's `<html lang>` is written at entry-push time from the profile's `locale`; after changing the profile, re-push once with `push-entry.sh`.
 
+The copy on the entry disk is fetched from the instance on an interval, so it can be one interval behind. The session and home responses carry the instance-side `boardVersion`; when it is newer than what is on screen the page fetches `GET /api/web/board` once in the background and swaps it in. When no comparison is possible it sends nothing, so a normal open costs no extra round trip. It also skips the swap once the reader has paged further down, or when this device already holds a just-published screen: either swap would pull the reader back to the top.
+
 ---
 
 ## 3. Notifications
