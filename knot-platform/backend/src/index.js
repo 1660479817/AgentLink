@@ -135,9 +135,19 @@ app.use(
     handoff,
     adminHosts,
     storeEnabled: bootstrap.storeEnabled,
+    publicWebOrigin: bootstrap.publicWebOrigin,
   })
 );
-app.use("/api/agent", agentRouter({ pool, uploadDir: bootstrap.uploadDir, storeEnabled: bootstrap.storeEnabled }));
+app.use(
+  "/api/agent",
+  agentRouter({
+    pool,
+    uploadDir: bootstrap.uploadDir,
+    storeEnabled: bootstrap.storeEnabled,
+    profile,
+    publicWebOrigin: bootstrap.publicWebOrigin,
+  })
+);
 app.use(
   "/api/federation",
   federationRouter({

@@ -147,7 +147,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `SMTP_HOST` | （空） | SMTP 主机。未配置时登录接口返回 mail_unavailable，登录密钥寄不出去。 |
+| `SMTP_HOST` | （空） | SMTP 主机。既没配 SMTP 又没配 XKNOT_HUB_RELAY_TOKEN 时，登录接口返回 mail_unavailable，登录密钥寄不出去。 |
 | `SMTP_PORT` | `587` | SMTP 端口。 |
 | `SMTP_SECURE` | `0` | 465 端口从第一包就要 TLS，写 1；587 用 STARTTLS 时保持 0。 |
 | `SMTP_USER` | （空） | SMTP 用户名。 |
@@ -241,7 +241,7 @@ node ops/scripts/config.mjs check --xknot --site <站点>     # 只校验这一�
 | `XKNOT_INSTANCE_ID` | （空） | 是 | 中枢清单里的实例 id（小写字母、数字、短横线）。会写进 /api/health 的 instance，供中枢核对身份。 |
 | `XKNOT_HUB_ORIGIN` | `https://xknot.si` |  | 接入的中枢地址。委托发信地址由它推导。 |
 | `XKNOT_HUB_RELAY_URL` | （空） |  | 委托发信的完整地址。留空时按 XKNOT_HUB_ORIGIN 推导，只在换入口时手写。 |
-| `XKNOT_HUB_RELAY_TOKEN` | （空） |  | 中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。 |
+| `XKNOT_HUB_RELAY_TOKEN` | （空） |  | 中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。配上之后登录密钥与通知都走中枢代发（纯文本），不再用本机 SMTP。 |
 | `XKNOT_ISSUED_URL` | （空） |  | 中枢签发的对外地址。签发区的一部分，与清单里的 url 一致；节点只读。 |
 | `XKNOT_ISSUED_AT` | （空） |  | 签发日期（YYYY-MM-DD）。签发区的一部分，对外报作 since。 |
 | `XKNOT_ISSUED_TIER` | （空） |  | 中枢签发的档位，当前取值 demo / free / paid。签发区的一部分，只保存与转述，取值由中枢决定；这一侧不解释、不校验取值，留空表示中枢尚未告知。 |
