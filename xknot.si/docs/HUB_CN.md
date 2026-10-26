@@ -16,6 +16,7 @@
 | 节点状态 | 合成文档 | `ops/node-status.mjs` 把探测、隧道对端、位置、流量合成 `var/status.json`；控制台读这一份 |
 | 站点档案取回 | 构建步骤 | 构建时拉取 `url` + `/api/federation/profile`，写 `var/profiles/{id}.json` |
 | 数据快照 | 构建步骤 | 合并清单（签发区）、档案副本（自述区）、探测、活动数据与橱窗，写 `dist/data/hub.json` |
+| 抓取入口 | 构建步骤 | `ops/build-seo.mjs` 写 `dist/robots.txt`、`dist/sitemap.xml`，并按快照生成三份无脚本的 `<locale>/instances/` 目录页；首页 `<noscript>` 里补同一份目录摘要 |
 | 橱窗拉取 | 构建步骤 | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
 | Agent 指引 | 构建步骤 | 仓库根 `docs/KNOT_HELP.md`（英文正文，唯一发布的源文件）渲染成 `dist/knot-help.html`，并原样复制成 `dist/knot-help.md`；同目录 `docs/KNOT_HELP_CN.md` 只作中文对照，不进构建 |
 
@@ -96,6 +97,7 @@ xknot.si/
 │   ├── xknot-republish.service  门户快照重算单元（oneshot）
 │   ├── xknot-republish.timer    门户快照重算定时器（每 10 分钟）
 │   ├── build-hub-data.mjs       合并清单、探测、活动数据与橱窗，写 data/hub.json
+│   ├── build-seo.mjs            抓取入口：robots、sitemap 与三份无脚本的实例目录
 │   ├── doc-page.mjs             通用文档页：markdown → 单页 HTML + 原文，门户上所有静态文档共用
 │   ├── render-knot-help.mjs     把仓库根 docs/KNOT_HELP.md 发成 /knot-help 与 /knot-help.md
 │   ├── build-federation-map.mjs 生成联邦地图示意图（仓库根 docs/knot-federation-map.svg）
@@ -108,7 +110,7 @@ xknot.si/
 │   ├── fetch-profile.mjs        档案拉取：读 /api/federation/profile，写 var/profiles/{id}.json
 │   ├── profile-schema.mjs       自述区的字段契约与清洗（门户与拉取共用）
 │   ├── profiles.mjs             读 var/profiles/ 的副本
-│   ├── build-hub.sh             本机构建：校验、探测、拉取、构建、写快照
+│   ├── build-hub.sh             本机构建：校验、探测、拉取、构建、写快照、抓取入口
 │   ├── verify-hub-data.mjs      发布前守卫：快照里的 id 必须与清单一致
 │   ├── deploy-hub.sh            可选的静态站同步（目标由环境变量给出）
 │   ├── deploy-api.sh            中枢接口、控制台与站点配置的同步
@@ -268,11 +270,11 @@ npm run test     # 纯逻辑单元测试
 构建流程：
 
 ```bash
-./xknot.si/ops/build-hub.sh            # 校验、探测、取档案、构建、写快照
+./xknot.si/ops/build-hub.sh            # 校验、探测、取档案、构建、写快照、出抓取入口
 ./xknot.si/ops/build-hub.sh --offline  # 跳过探测，复用 var/health.json
 ```
 
-脚本顺序固定：校验清单 → 探测健康 → 取回档案 → 安装依赖（仅首次）→ 构建 → 出 Agent 指引 → 写 `dist/data/hub.json`。全程在本机完成，不连接远端。
+脚本顺序固定：校验清单 → 探测健康 → 取回档案 → 安装依赖（仅首次）→ 构建 → 出 Agent 指引 → 写 `dist/data/hub.json` → 写 `robots.txt`、`sitemap.xml` 与静态实例目录。全程在本机完成，不连接远端。
 
 页面取数规则：
 
@@ -302,6 +304,17 @@ node ops/republish.mjs --out /var/www/xknot/data/hub.json --quiet
 两条约束写在 `ops/republish.mjs` 里：快照过不了 `verifyHubData` 就不落盘（宁可不更新，也不发一份坏的）；某个伙伴的档案拉不到只记一条 warning，卡片退回 id，不让整站停更。
 
 部署到中枢后 `deploy-api.sh` 会启用这个 timer；`systemctl list-timers xknot-republish.timer` 能确认。
+
+### 3.3 抓取入口与静态目录
+
+门户首页是单页空壳，不执行 JS 的抓取只看得到标题，也看不到任何指向实例的链接。`ops/build-seo.mjs` 在快照之后补一层纯静态内容：
+
+- `dist/robots.txt`：放行页面，挡住 `/api/`、`/admin`、`/case/`、`/claim/`，并指向 `sitemap.xml`。
+- `dist/sitemap.xml`：三个语种入口、三份 `/<locale>/instances/` 目录与 `/knot-help`。
+- `dist/<locale>/instances/index.html`：无脚本的实例目录，每个实例一个链接、一句话介绍、标签与状态，并带 `CollectionPage` + `ItemList` 结构化数据。
+- `dist/<locale>/index.html` 的 `</body>` 前补一段 `<noscript>` 摘要，链接到各实例与完整目录；重复构建替换旧块，不叠加。
+
+目录读 `dist/data/hub.json`，与门户同一份数据；`health.hidden` 的条目不列，只收 `https` 站点地址。origin 默认 `https://xknot.si`，可用 `--origin` 或 `XKNOT_HUB_ORIGIN` 覆盖（本地构建会写进 canonical 与 sitemap）。
 
 ## 4. 页面
 
@@ -402,6 +415,9 @@ M2 的拉取步骤落地后，`ops/fetch-cards.mjs` 把每个 `cardsUrl` 取回�
 | `/en/` | 英文页面 |
 | `/zh-CN/` | 简体页面 |
 | `/zh-TW/` | 繁体页面 |
+| `/<locale>/instances/` | 无脚本的实例目录，进 sitemap |
+| `/robots.txt` | 抓取入口，指向 sitemap |
+| `/sitemap.xml` | 三语入口、实例目录与 `/knot-help` |
 | `/data/hub.json` | 运行时快照，`no-cache` |
 | `/admin/` | 控制台，需要管理员会话才能读数据 |
 | `/api/applications` | 加入申请，`POST` |

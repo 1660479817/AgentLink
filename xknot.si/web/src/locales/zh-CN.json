@@ -99,6 +99,19 @@
     "error": "实例目录没有加载出来。",
     "retry": "重试"
   },
+  "directory": {
+    "link": "实例目录",
+    "title": "实例目录 — XKnot 联邦",
+    "description": "XKnot 联邦里的全部 Knot 实例：站点名、一句话介绍、标签与入口地址。",
+    "heading": "实例目录",
+    "lede": "每个实例都跑在自己的机器上，账号与内容各自保管；中枢只负责列出来。",
+    "back": "返回联邦门户",
+    "tags": "标签",
+    "status": "状态",
+    "all": "查看完整实例目录",
+    "agent": "Agent 接口指引",
+    "empty": "还没有已收录的实例。"
+  },
   "footer": {
     "disclaimer": "中枢不托管内容。数据、账号与积分留在各自的实例。",
     "license": "源码按 Apache-2.0 发布",

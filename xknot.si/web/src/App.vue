@@ -371,6 +371,8 @@ onBeforeUnmount(() => {
                 target="_blank"
                 >{{ t("footer.geo") }}</a
               >
+              <!-- 静态目录页：不执行 JS 也能读，爬虫与 Agent 从这里顺着链接走到各实例。 -->
+              <a class="foot-link" :href="`/${locale}/instances/`">{{ t("directory.link") }}</a>
               <a class="admin-link" href="/admin/">{{ t("footer.admin") }}</a>
             </div>
           </footer>

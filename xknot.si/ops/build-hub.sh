@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 在本机构建中枢门户：校验 → 探测 → 安装依赖 → 构建 → 写数据快照。
+# 在本机构建中枢门户：校验 → 探测 → 安装依赖 → 构建 → 写数据快照 → 抓取入口。
 #
 # 全部步骤在本机完成，不连接 bot01，不推送任何远端。
 # 产物是 xknot.si/web/dist，可以直接用任意静态服务器或 `npm run preview` 查看。
@@ -83,6 +83,11 @@ node "$HUB/ops/render-knot-help.mjs" --out "$DIST"
 
 echo "== snapshot =="
 XKNOT_PREVIEW="$PREVIEW" node "$HUB/ops/build-hub-data.mjs" --out "$DIST/data/hub.json"
+
+# 抓取入口与无脚本目录：robots、sitemap，以及每个语种一份 /instances/ 静态页。
+# 目录读的就是上一步写出的快照，与门户上看到的是同一份数据。
+echo "== seo =="
+node "$HUB/ops/build-seo.mjs" --dist "$DIST" --origin "${XKNOT_HUB_ORIGIN:-https://xknot.si}"
 
 echo "== verify =="
 if [ "$PREVIEW" = "1" ]; then

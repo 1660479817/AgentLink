@@ -99,6 +99,19 @@
     "error": "實例目錄沒有載入出來。",
     "retry": "重試"
   },
+  "directory": {
+    "link": "實例目錄",
+    "title": "實例目錄 — XKnot 聯邦",
+    "description": "XKnot 聯邦裡的全部 Knot 實例：站點名、一句話介紹、標籤與入口網址。",
+    "heading": "實例目錄",
+    "lede": "每個實例都跑在自己的機器上，帳號與內容各自保管；中樞只負責列出來。",
+    "back": "返回聯邦入口",
+    "tags": "標籤",
+    "status": "狀態",
+    "all": "查看完整實例目錄",
+    "agent": "Agent 介面指引",
+    "empty": "還沒有已收錄的實例。"
+  },
   "footer": {
     "disclaimer": "中樞不託管內容。資料、帳號與積分留在各自的實例。",
     "license": "原始碼依 Apache-2.0 釋出",

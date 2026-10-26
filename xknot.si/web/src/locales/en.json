@@ -99,6 +99,19 @@
     "error": "The instance directory could not be loaded.",
     "retry": "Retry"
   },
+  "directory": {
+    "link": "Instance directory",
+    "title": "Instance directory — XKnot Federation",
+    "description": "Every Knot instance in the XKnot federation, with its site name, one-line introduction, tags, and entry link.",
+    "heading": "Instance directory",
+    "lede": "Each instance runs on its own machine and keeps its own accounts and content. This hub only lists them.",
+    "back": "Back to the federation portal",
+    "tags": "Tags",
+    "status": "Status",
+    "all": "See the full instance directory",
+    "agent": "Agent API guide",
+    "empty": "No instances listed yet."
+  },
   "footer": {
     "disclaimer": "The hub does not host content. Data, accounts and points stay with each instance.",
     "license": "Source under Apache-2.0",
