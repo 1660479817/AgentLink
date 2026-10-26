@@ -346,6 +346,10 @@ printf '{"state":"off","checkedAt":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 - 触碰 `var/run/openclaw-probe.request` 会让它下一轮把两项贵的检查重跑一次。这是给运维
   的钩子，不是控制台的按钮：一个为了省一次等待就写文件的 REST 端点，是一项新能力，
   而探测本来就每五分钟跑一次、装载时也跑一次。
+- 每个入口都用**真实路径**判断「我是被执行，还是被 import」（见
+  `ops/scripts/lib/main-module.mjs`）。单元通过 `<部署根>/current` 拉起探测，而 node
+  在算 `import.meta.url` 时已经把那条软链解开；用字符串比路径，整个文件就变成一个
+  静默的空操作、退出码还是 0。监测最不能有的就是这种失败：单元是绿的，背后没有读数。
 
 ### 6.2 单元，用固定间隔
 
@@ -529,7 +533,8 @@ the site; knot-admin does. You are a side path: if you are down the site still r
 | `backend/src/routes/adminStatus.test.js` | 两个模块都失败时返回 200 与 null；无令牌 401；非内网被拒；`Cache-Control: no-store` |
 | `ops/scripts/openclaw-check.test.mjs` | 没有二进制 → `off` 行、退出 0；Gateway 挂了 → 退出 0；`agents list` 解析不了 → 退出 0；断言脚本里没有 `exit 1` |
 | `ops/openclaw/apply-config.test.js`（扩充） | `renderSyncReport` 的形状；`writeSyncReport` 原子且 `0600`；`renderBrief` 取值；`patchAgentsBrief` 只替换标记区；没有标记时只追加一次；`AGENTS.md` 缺失时不写 |
-| `ops/openclaw/probe.test.mjs` | 注入 runner 加临时目录：装了与没装；Gateway 好与坏；少一个 agent；列表解析不了；写文件失败；每种都退出 0 |
+| `ops/openclaw/probe.test.mjs` | 注入 runner 加临时目录：装了与没装；Gateway 好与坏；少一个 agent；列表解析不了；写文件失败；每种都退出 0；经由软链调用时仍然落盘、仍然把结论打出来 |
+| `ops/scripts/direct-run.test.mjs` | `ops/` 与 `backend/scripts/` 下没有脚本用未解析的路径判断「直接执行」；六个随包发布的命令行都走同一份实现 |
 | `backend/src/intel.test.js`（扩充） | 每个水印只给主人一条；没有主人时返回 false 而不是抛；作者就是主人时不再发第二遍；没有错误码时 data 里是 null |
 | `web/src/noticeText.test.js`（扩充） | 停止重试的通知渲染出次数、最后一次失败与「站点没事」的尾句；次数不是数字时退回库里的原文 |
 | `admin/i18n.test.mjs`（现有） | 自动覆盖新键 |

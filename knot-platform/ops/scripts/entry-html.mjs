@@ -17,7 +17,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 import { inferLocale, isLocale } from "@knot/locale";
 
@@ -217,6 +217,7 @@ function main() {
   console.log(`==> 入口首页：${site?.name || name}（${origin}），robots.txt 与 sitemap.xml 已生成`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+// 入口文件由 push-entry 调用，可能经由软链；判断要比真实路径。
+if (invokedDirectly(import.meta.url)) {
   main();
 }

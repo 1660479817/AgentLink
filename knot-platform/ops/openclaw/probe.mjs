@@ -15,6 +15,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "../scripts/lib/main-module.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MANIFEST = path.join(HERE, "manifest.json");
@@ -177,7 +178,9 @@ async function main() {
 }
 
 // 这一行是契约：探测永远不让调用方失败。
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// 单元从 <部署根>/current 拉起，那条路径是软链，所以判断必须比真实路径，
+// 否则探测会一声不吭地什么都不做，日志空白、退出码 0，页面永远停在 unknown。
+if (invokedDirectly(import.meta.url)) {
   await main();
   process.exit(0);
 }

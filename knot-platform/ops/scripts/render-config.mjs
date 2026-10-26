@@ -12,7 +12,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 const TOKEN = /\{\{([#^/]?)([A-Za-z0-9_]+)\}\}/g;
 
@@ -100,6 +100,7 @@ function main(argv) {
   writeFileSync(dest, text);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// 部署机上脚本从 <部署根>/current 调用，那条路径是软链：判断要比真实路径。
+if (invokedDirectly(import.meta.url)) {
   main(process.argv.slice(2));
 }

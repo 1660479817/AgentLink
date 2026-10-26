@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -206,4 +206,24 @@ test("the probe exits 0 even with no deploy root and no openclaw", () => {
   });
   assert.equal(result.status, 0);
   assert.match(result.stderr, /没有 KNOT_DEPLOY_ROOT/);
+});
+
+// 部署机上单元从 <部署根>/current 拉起，那是软链。一旦「是否直接执行」用字符串比路径，
+// 探测就会一声不吭地什么都不做、退出 0，日志空白——这一条守的就是那个失败形态。
+test("the probe still runs when the unit reaches it through a symlink", () => {
+  const site = root();
+  try {
+    const link = path.join(site.dir, "current-probe.mjs");
+    symlinkSync(PROBE, link);
+    const result = spawnSync(process.execPath, [link], {
+      encoding: "utf8",
+      env: { PATH: "/usr/bin:/bin", HOME: site.state, KNOT_DEPLOY_ROOT: site.dir },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(site.paths.status, "utf8").includes("unknown"), true);
+    // 也要求它把结论说出来：空白日志正是这个 bug 当初的样子。
+    assert.match(result.stdout, /state: unknown/);
+  } finally {
+    site.cleanup();
+  }
 });

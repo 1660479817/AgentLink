@@ -3,6 +3,7 @@ import { access, chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat, wr
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "../scripts/lib/main-module.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const stateDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), ".openclaw");
@@ -524,7 +525,8 @@ function parseFlags(args) {
 }
 
 const command = process.argv[2];
-const isDirect = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// 部署机上这些子命令从 <部署根>/current 调用，那条路径是软链；判断要比真实路径。
+const isDirect = invokedDirectly(import.meta.url);
 const manifest = !isDirect || command === "patch-test" ? null : await readManifest();
 if (isDirect && command === "ids") {
   process.stdout.write(`${manifest.agents.map((agent) => agent.id).join("\n")}\n`);

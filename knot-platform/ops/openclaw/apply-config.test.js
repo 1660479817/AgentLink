@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -271,6 +271,19 @@ test("a workspace without AGENTS.md still gets KNOT.md, and nothing is created",
     assert.deepEqual(readdirSync(workspace), ["KNOT.md"]);
     const missing = await writeMainBrief({ workspace: null, brief: "brief" });
     assert.deepEqual(missing, { ok: false, reason: "no_workspace" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the subcommands still run when reached through the deploy root's current symlink", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "knot-current-link-"));
+  try {
+    const link = path.join(dir, "current-apply.mjs");
+    symlinkSync(fileURLToPath(new URL("./apply-config.mjs", import.meta.url)), link);
+    const result = spawnSync(process.execPath, [link, "ids"], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.stdout.trim().split("\n"), ["knot-intel", "knot-admin", "knot-actuary"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

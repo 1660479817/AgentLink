@@ -10,9 +10,9 @@
 // 只做文件读取和校验，不构建、不部署。
 
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export const BUILD_FILE = "BUILD.json";
 const REQUIRED = ["version", "commit", "platform", "builtAt"];
@@ -116,18 +116,9 @@ function main(argv) {
   }
 }
 
-// 被 import 时不执行 CLI。比较真实路径：macOS 的 /var 是 /private/var 的软链，
-// 直接比字符串会在临时目录里失配，命令行一句话都不输出。
-function invokedDirectly() {
-  if (!process.argv[1]) return false;
-  try {
-    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (invokedDirectly()) {
+// 被 import 时不执行 CLI。比较真实路径的理由见 lib/main-module.mjs：
+// macOS 的 /var 是 /private/var 的软链，部署机上的入口又都经过 current 软链。
+if (invokedDirectly(import.meta.url)) {
   Promise.resolve()
     .then(() => main(process.argv.slice(2)))
     .then((code) => {
