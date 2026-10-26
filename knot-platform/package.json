@@ -14,7 +14,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "node --test",
+    "test": "node ops/scripts/run-tests.mjs",
     "config": "node ops/scripts/config.mjs",
     "build": "./ops/scripts/build.sh",
     "build:web": "npm run build -w web && node web/scripts/check-legacy.mjs",
