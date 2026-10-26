@@ -8,7 +8,9 @@ Note the distinction between three "version" concepts:
 - **Content revision number**: `kMeta.version`, a piece of content's position in its revision chain, starting from 1.
 - **Revision lineage**: `kMeta.originId` points at the first version; the several versions of one piece are strung into a chain.
 
-## [Unreleased]
+## [0.8.0] — 2026-10-26
+
+Store release. The shelf becomes the one place things are sold and bought, and the rest moves around it: the wish/request chain is gone, the admin's XKnot panel decides the next action instead of listing states, pictures are shrunk in the browser before upload, the instance polls handoff progress by itself, and the first screen is read from the entry disk. The blank first frame in WeChat's in-app browser is fixed in three layers — the bundle floor, the fallback guard, and the entry's asset retention.
 
 ### Added
 

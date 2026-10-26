@@ -1,6 +1,6 @@
 {
   "name": "knot-platform-workspace",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "license": "Apache-2.0",
   "private": true,
   "engines": {
