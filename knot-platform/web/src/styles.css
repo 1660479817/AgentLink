@@ -4069,6 +4069,8 @@ body:has(.site-owner[open]) {
   color: var(--color-muted);
   font-size: 0.9rem;
   line-height: 1.4;
+  /* 标语允许写成多行（分享图就按行画）：主理人在哪儿断行，卡片上就在哪儿断。 */
+  white-space: pre-line;
 }
 
 .site-owner-body {
