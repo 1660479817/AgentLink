@@ -37,7 +37,7 @@ test("空库返回一行 null，而不是零行", async () => {
   assert.equal(snapshot.lastSuccessAt, null);
   assert.deepEqual(snapshot.pending, { count: 0, oldestMinutes: null });
   assert.equal(snapshot.gaveUp, 0);
-  assert.deepEqual(snapshot.latencySeconds, { p50: null, p95: null });
+  assert.deepEqual(snapshot.latencySeconds, { p50: null, p95: null, settled: 0, timed: 0 });
   assert.deepEqual(snapshot.errors24h, []);
 
   const patrol = await patrolFacts(pool, { now: 1_700_000_000_000 });
@@ -52,6 +52,8 @@ test("积压与重试到顶都按行算，积压年龄从最早那条算", async
       pending_count: 3,
       pending_oldest: new Date("2026-10-26T03:13:00.000Z"),
       gave_up: 2,
+      settled: 40,
+      timed: 12,
       p50: 8.14,
       p95: 41.66,
     },
@@ -61,7 +63,7 @@ test("积压与重试到顶都按行算，积压年龄从最早那条算", async
   assert.equal(snapshot.lastSuccessAt, "2026-10-26T03:18:00.000Z");
   assert.deepEqual(snapshot.pending, { count: 3, oldestMinutes: 47 });
   assert.equal(snapshot.gaveUp, 2);
-  assert.deepEqual(snapshot.latencySeconds, { p50: 8.1, p95: 41.7 });
+  assert.deepEqual(snapshot.latencySeconds, { p50: 8.1, p95: 41.7, settled: 40, timed: 12 });
   assert.deepEqual(snapshot.errors24h, [{ code: "agent_timeout", count: 3 }]);
 });
 
@@ -72,7 +74,7 @@ test("查询抛错时返回全 null，不抛给调用方", async () => {
   assert.equal(snapshot.lastSuccessAt, null);
   assert.deepEqual(snapshot.pending, { count: null, oldestMinutes: null });
   assert.equal(snapshot.gaveUp, null);
-  assert.deepEqual(snapshot.latencySeconds, { p50: null, p95: null });
+  assert.deepEqual(snapshot.latencySeconds, { p50: null, p95: null, settled: null, timed: null });
   assert.deepEqual(snapshot.errors24h, []);
   assert.deepEqual(await patrolFacts(pool), { ok: false, lastAt: null, today: null });
 });
@@ -112,6 +114,26 @@ test("窗口与重试上限进 SQL 参数，且 reviewAttempts 的转型有正�
   assert.deepEqual(call.params, [reviewWindow().days, reviewWindow().maxAttempts]);
   // detail 是自由 jsonb：没有这道正则，一个非数字的 reviewAttempts 会把只读端点打挂。
   assert.match(call.sql, /reviewAttempts' ~ '\^\[0-9\]\+\$'/);
+});
+
+test("耗时只取终审真的落地过的行，计数把没计时的那批说出来", async () => {
+  // 0.8.1 之前的历史行与 created_at 相同：混进百分位就是一堆 0，
+  // 中位数与 p95 会被压在 0 上，这个数再也提示不了「终审卡住了」。
+  assert.match(
+    AGENT_REVIEW_SQL.REVIEW_SQL,
+    /FILTER \(WHERE i\.verdict IN \('passed','rejected'\) AND i\.updated_at > i\.created_at\)\s+AS p50/
+  );
+  assert.match(
+    AGENT_REVIEW_SQL.REVIEW_SQL,
+    /FILTER \(WHERE i\.verdict IN \('passed','rejected'\) AND i\.updated_at > i\.created_at\)\s+AS p95/
+  );
+  // 覆盖多少条、其中多少条可计时，一并给出去。
+  assert.match(AGENT_REVIEW_SQL.REVIEW_SQL, /AS settled/);
+  assert.match(AGENT_REVIEW_SQL.REVIEW_SQL, /AS timed/);
+
+  const pool = poolOf({ review: { settled: 679, timed: 1, p50: 70.8, p95: 70.8, pending_count: 0, gave_up: 0 } });
+  const snapshot = await agentReviewSnapshot(pool);
+  assert.deepEqual(snapshot.latencySeconds, { p50: 70.8, p95: 70.8, settled: 679, timed: 1 });
 });
 
 test("每个查询都按时间收边，且这份模块里没有写库语句", () => {

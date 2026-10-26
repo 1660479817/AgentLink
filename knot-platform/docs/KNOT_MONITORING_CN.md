@@ -82,10 +82,16 @@ SELECT
       AND CASE WHEN i.detail->>'reviewAttempts' ~ '^[0-9]+$'
                THEN (i.detail->>'reviewAttempts')::int ELSE 0 END >= $2
   )::int                                                               AS gave_up,
+  count(*) FILTER (WHERE i.verdict IN ('passed','rejected'))::int       AS settled,
+  count(*) FILTER (
+    WHERE i.verdict IN ('passed','rejected') AND i.updated_at > i.created_at
+  )::int                                                               AS timed,
   percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (i.updated_at - i.created_at)))
-    FILTER (WHERE i.verdict IN ('passed','rejected'))                   AS p50,
+    FILTER (WHERE i.verdict IN ('passed','rejected')
+              AND i.updated_at > i.created_at)                         AS p50,
   percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (i.updated_at - i.created_at)))
-    FILTER (WHERE i.verdict IN ('passed','rejected'))                   AS p95
+    FILTER (WHERE i.verdict IN ('passed','rejected')
+              AND i.updated_at > i.created_at)                         AS p95
 FROM intel i
 WHERE i.created_at > now() - make_interval(days => $1)
 ```
@@ -99,6 +105,12 @@ WHERE i.created_at > now() - make_interval(days => $1)
   `(detail->>'reviewAttempts')::int` 碰到一个非数字就抛，而那会把一个只读端点打挂。
   `CASE` 让它变成 0。
 - **没有 `FILTER` 匹配时返回的是一行 null，不是零行。** 空表下形状依然稳定。
+- **耗时只算终审真的落地过的行。** 判词落地会把 `updated_at` 推到那一刻，
+  `updated_at - created_at` 因此是「发布到终审」的时间。没被推过的行——0.8.1 之前的历史
+  记录、以及没配评审员所以直接通过的站点——全都会读成 0 秒，把 p50 与 p95 一起摁在 0 上，
+  这个数就再也提示不了「终审卡住了」。所以百分位只取 `updated_at > created_at`，另给
+  `settled` 与 `timed` 两个计数，说明窗口里有多少条记录、其中多少条根本没法计时。
+  `timed: 0` 说的是「还没有可测的」，不是 `p50: 0` 那句「审得飞快」。
 
 第二条查询取近 24 小时的失败码直方图，同样收边：
 
@@ -197,7 +209,7 @@ router.get("/status", async (_req, res) => {
     "lastSuccessAt": "2026-10-26T03:18:00.000Z",
     "pending": { "count": 2, "oldestMinutes": 47 },
     "gaveUp": 0,
-    "latencySeconds": { "p50": 8.1, "p95": 41.7 },
+    "latencySeconds": { "p50": 8.1, "p95": 41.7, "settled": 40, "timed": 39 },
     "errors24h": [{ "code": "agent_timeout", "count": 3 }]
   },
   "patrol": { "ok": true, "lastAt": "2026-10-26T01:00:00.000Z", "today": 1 },

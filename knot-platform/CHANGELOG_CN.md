@@ -16,6 +16,8 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里。`/api/health` 的
 
 - **终审落地会更新 `updated_at`，审核快照的数字因此是真的。** `judgeIntel` 的两条终审更新只写 `verdict`、`category` 与 `detail`，没动 `updated_at`；而 `/api/admin/status` 拿 `max(updated_at)` 当最后一次成功、拿 `updated_at - created_at` 当审核耗时。于是每条留下或撤销的记录都像是「发布那一刻就审完了」：`lastSuccessAt` 与审核完成时间无关，p50/p95 恒为 0，本来用来发现「终审卡住」的那个数永远不会动。两条分支现在都写 `updated_at = now()`，与作者删除已有的做法一致，并各有一条测试盯住留下与撤销。
 
+- **审核耗时只统计真的落地过的判词，管理页把它显示出来。** 时间戳修好之后，30 天窗口里仍有一大批 `updated_at` 与 `created_at` 相同的行——本版之前落地的全部记录，加上没配评审员、直接通过的站点。中位数会被这批 0 压住，只要它们比真实审核多，这个数就一直不动，也就失去了唯一用途。百分位现在只取 `updated_at > created_at` 的行，`latencySeconds` 另带 `settled` 与 `timed` 两个计数，让读的人分得清「还没测到」与「审得快」。管理端概览的评审员那一行会显示这两个数。
+
 - **入口先收完请求体再回源，上传的超时与隧道匹配。** 公网入口上 `/api/web/files`、`/api/agent/files`、`/api/agent/audio` 与 `/api/agent/uploads` 沿用普通接口的 120 秒读超时，中枢签发的 vhost 还把请求体直接透传（`proxy_request_buffering off`）。一个在 50MB 限制内的 3.3MB 附件被入口在 162 秒时回 `504`，1.1MB 用了 57 秒。这四个端点与图片端点 `/api/web/uploads` 现在先缓冲请求体、请求体读取间隔放宽到 300 秒、读写超时 900 秒；其余 `/api` 仍按 120 秒。中枢签发的 vhost 同样补上这条 location，并去掉 `/api/web/uploads` 的尾斜杠——它会把 POST 变成 301，跟随的 GET 丢掉请求体。
 
 ## [0.8.0] — 2026-10-26
