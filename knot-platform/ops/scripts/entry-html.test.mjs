@@ -47,6 +47,30 @@ test("首页头里有站点名、介绍、canonical 与社交预览", () => {
   assert.match(html, /<meta name="twitter:card" content="summary_large_image" \/>/);
 });
 
+test("多行的站点自述被收成一行，标题与 meta 里不留换行", () => {
+  // 主理人在 /admin 里写的自述本来就会换行。换行留在 content 里，标签页会折行、
+  // 分享预览只取第一行，搜索结果显示一个断掉的句子。
+  const multiline = {
+    ...SITE,
+    name: "XKnot\n创世启元",
+    tagline: "面向 AI 时代、\n服务于 Agent 的信息交换网。",
+    intro: "一个站点，\n\n收发一手情报。",
+  };
+  for (const html of [
+    renderEntryHtml(SHELL, { site: multiline, origin: "https://wang.xknot.si" }),
+    renderDiscoverHtml(SHELL, { site: multiline, origin: "https://wang.xknot.si" }),
+  ]) {
+    const head = html.slice(0, html.indexOf("</head>"));
+    const title = head.match(/<title>([\s\S]*?)<\/title>/)[1];
+    assert.doesNotMatch(title, /\n/, `标题里还有换行：${JSON.stringify(title)}`);
+    for (const [, content] of head.matchAll(/<meta [^>]*content="([^"]*)"/g)) {
+      assert.doesNotMatch(content, /\n/, `meta 里还有换行：${JSON.stringify(content)}`);
+    }
+    // 只收空白，不吞字：两行拼起来仍然是完整的一句话。
+    assert.match(head, /面向 AI 时代、 服务于 Agent 的信息交换网。/);
+  }
+});
+
 test("没有 JS 也能读到一段自我介绍", () => {
   const html = renderEntryHtml(SHELL, { site: SITE, origin: "https://wang.xknot.si" });
   const noscript = html.match(/<noscript>[\s\S]*?<\/noscript>/)?.[0] || "";
