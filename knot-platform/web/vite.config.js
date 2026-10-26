@@ -8,18 +8,15 @@ const apiTarget = process.env.KNOT_API_TARGET || "http://127.0.0.1:8080";
 export default defineConfig({
   plugins: [
     vue(),
-    // 微信内置浏览器不总是 Chromium 的最近版本：旧 X5 内核（Chromium 53 一带）
-    // 既没有 type="module"，也没有 async/await——而 babel 只按 targets 的下限决定
-    // 转不转某个语法。targets 写 chrome 61 时 async 原样留着，53 的内核拿到 legacy
-    // 包一样是语法错误，两套产物都跑不起来。下限压到 53 / Safari 10，
-    // 让 legacy 包真的能被这批内核解析。
+    // Babel 只按下限决定转不转某个语法：下限写高了，async 之类的语法会原样留在
+    // nomodule 包里，而没有 type="module" 的内核只会执行这一份。
+    // chrome 53 / Safari 10 是内置浏览器（X5、WKWebView）的合理下限。
     legacy({
       targets: ["chrome >= 53", "safari >= 10", "ios >= 10", "firefox >= 60", "edge >= 18"],
     }),
   ],
   build: {
-    // 微信内置浏览器与旧 Android 内核未必支持 ??、?. 这些语法。构建产物降到 ES2015：
-    // 新内核照常跑，老内核至少能解析；不能在客户端假设「用户用的是今年的 Chrome」。
+    // 产物降到 ES2015：?? 与 ?. 在这些内核里是语法错误。新内核照常跑，老内核至少能解析。
     target: "es2015",
     rollupOptions: {
       output: {

@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
 # 入口静态根的安装与裁剪。
 #
-# 为什么不能每次发布都删光上一版的 /assets：
+# index.html 是 no-store，但它之外还有缓存：WebView 的离线层、没关的标签页、
+# 中间代理都可能留着旧 HTML，引用的 chunk 名在新一版里已经不存在。
+# 默认的 `rsync --delete` 会删掉那些文件，旧页面从此取不到自己那一版。
 #
-# index.html 是 no-store，正常情况下没人会拿着旧 HTML。但 WebView 的离线缓存层、
-# 没关的老标签页、中间代理都可能攥着一份旧 HTML，它引用的 chunk 名在新一版里已经
-# 不存在。默认的 `rsync --delete` 会把那些文件删掉，那个页面再去取就是 404，
-# 白屏，而且按「重新加载」也救不了——拿回来的还是同一份旧 HTML。
-#
-# 所以安装用 rsync 的 protect 规则：`--delete` 照旧清掉不该留的东西，
-# 但 /assets 下已在磁盘上的文件不删。之后按时间裁掉超过保留期的那些，
-# 并且当前 index.html 还在引用的文件一律不删（防开发机与入口的时钟不一致）。
+# 所以安装用 rsync 的 protect 规则保住 /assets 下已有的文件，之后按时间裁剪，
+# 当前 index.html 仍引用的一律保留。
 #
 # 变量：
-#   KNOT_SUDO                提权命令，默认 sudo；设成空字符串表示不需要提权（测试用）。
+#   KNOT_SUDO                   提权命令，默认 sudo；空字符串表示不提权（测试用）。
 #   KNOT_ENTRY_ASSET_KEEP_DAYS  保留天数，默认 7；0 或非数字表示不裁剪。
 #
 # 用法（在入口主机上）：
@@ -21,8 +17,7 @@
 #   knot_install_static "$stage/web" "$web_root"
 #   knot_prune_assets "$web_root"
 
-# 默认 7 天：一次发布约 3.5MB，七天不到 25MB，相对 2g 的缓存区可以忽略；
-# 而微信这类 WebView 的缓存寿命通常以天计，一周足够覆盖。
+# 一次发布约 3.5MB；WebView 的缓存寿命通常以天计，一周足够覆盖。
 KNOT_ENTRY_ASSET_KEEP_DAYS=7
 
 # 提权前缀。测试里把它设成空串，函数就按当前用户跑。
@@ -35,8 +30,7 @@ knot_elevate() {
 }
 
 # knot_install_static <源目录> <静态根>
-# 把一份构建产物装进静态根：index.html 与其它顶层文件整体替换，
-# /assets 下已经存在的文件保留（新文件照常写入，同名文件照常更新）。
+# 顶层文件整体替换；/assets 下已存在的文件保留，新增与同名的照常写入。
 knot_install_static() {
   local src="$1"
   local web_root="$2"
@@ -45,11 +39,10 @@ knot_install_static() {
 
   knot_elevate mkdir -p "$web_root"
   # --exclude 默认也保护接收端的同名文件，所以 .well-known、快照与媒体目录不会被删。
-  # protect 规则只挡删除，不挡写入：新一版里同名但内容不同的文件仍会被替换。
+  # protect 只挡删除，不挡写入。
   #
-  # -c（按内容校验）不能省：rsync 默认按「大小 + mtime」判断是否需要传输，
-  # 而构建产物的 mtime 常常落在同一秒——两份长度相同的 index.html 会被当成没变，
-  # 装上去的还是旧首页。旧首页引用的是新一版不存在的 chunk 名，等于白屏。
+  # -c 不能省：默认按「大小 + mtime」判断是否传输，而构建产物的 mtime 常常同一秒，
+  # 长度相同的两份 index.html 会被当成没变，装上去的还是旧首页。
   knot_elevate rsync -a -c --delete \
     --exclude .well-known \
     --exclude /discover.json \
@@ -65,12 +58,12 @@ knot_prune_assets() {
   local keep="${2-$KNOT_ENTRY_ASSET_KEEP_DAYS}"
   local dir="$web_root/assets"
   [[ -d "$dir" ]] || return 0
-  # 空、0、非数字都表示不裁剪：宁可多留几个文件，也不要在参数写错时删掉别人的页面。
+  # 空、0、非数字都不裁剪：参数写错时宁可多留文件，也不能删掉别人的页面。
   case "$keep" in ''|*[!0-9]*) return 0 ;; esac
   [[ "$keep" -gt 0 ]] || return 0
 
-  # 当前首页还引用的文件名。时钟偏了、mtime 被保留过、或者同一份产物又发了一次，
-  # 都可能让「应该留着的文件」看上去很旧；这一条把它们无条件保住。
+  # 首页引用的文件名无条件保住：时钟偏差、mtime 被保留、同一份产物重复发布，
+  # 都会让在用的文件看上去很旧。
   local -a guards=()
   local name
   if [[ -f "$web_root/index.html" ]]; then
@@ -81,15 +74,10 @@ knot_prune_assets() {
   fi
 
   local -a expired=()
-  if [[ ${#guards[@]} -gt 0 ]]; then
-    while IFS= read -r name; do
-      [[ -n "$name" ]] && expired+=("$name")
-    done < <(find "$dir" -type f -mtime +"$keep" "${guards[@]}" -print 2>/dev/null)
-  else
-    while IFS= read -r name; do
-      [[ -n "$name" ]] && expired+=("$name")
-    done < <(find "$dir" -type f -mtime +"$keep" -print 2>/dev/null)
-  fi
+  # ${arr[@]+…} 而不是 "${arr[@]}"：bash 3.2 在 set -u 下会把空数组当成未定义变量。
+  while IFS= read -r name; do
+    [[ -n "$name" ]] && expired+=("$name")
+  done < <(find "$dir" -type f -mtime +"$keep" ${guards[@]+"${guards[@]}"} -print 2>/dev/null)
 
   [[ ${#expired[@]} -gt 0 ]] || return 0
   knot_elevate rm -f "${expired[@]}"

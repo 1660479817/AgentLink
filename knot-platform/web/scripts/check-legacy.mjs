@@ -1,12 +1,8 @@
 // 构建产物要能被它声称支持的浏览器解析。
 //
-// 这一条守的是 2026-10-25 那次「微信里一片空白」的一类成因：两套产物各按自己的
-// 下限转译，而 targets 一旦被调高（比如 chrome 61），async/await 就会原样留在
-// legacy 包里。支持 type="module" 的内核用现代包没事，不支持 module 的老内核
-// 拿到的正是这份跑不起来的 legacy 包——两套都白。
-//
-// 检查的是语法级别，不是功能：legacy 包按 ES2015 解析（Chrome 53 / Safari 10 能解析），
-// 现代包按 ES2015 module 解析。解析不过就说明这个包发到那批内核上必然 SyntaxError。
+// plugin-legacy 只把语法转译到 targets 的下限：下限写高了，async 之类的语法会原样
+// 留在 nomodule 包里，而那份包正是不支持 type="module" 的内核唯一会执行的。
+// 这里按各自声称的级别解析一遍，解析不过就说明那个包发到那批内核上必然 SyntaxError。
 //
 // 用法：node scripts/check-legacy.mjs [dist 目录]
 
@@ -18,23 +14,18 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(process.argv[2] || path.join(HERE, "..", "dist"));
 
-// 两个阈值不一样，因为两套产物本来就不同：
+// legacy 包按 ES2015 解析：它的下限是 chrome 53 / safari 10，这批内核能解析全部 ES2015，
+// 再往上（async、对象展开）不一定。解析不过就是白屏，这条不能放松。
 //
-// legacy 包是**老内核唯一的路径**——不支持 type="module" 的浏览器只会跑它。
-// 这里按 ES2015 解析（Chrome 53 / Safari 10 能解析全部语法），它解析不过，
-// 那批用户就一定是白屏。这条不能放松。
-//
-// 现代包只发给支持 type="module" 的内核（Chrome 61+ / Safari 11+）。Vite 的
-// build.target: "es2015" 实际会留下 async 与对象展开（Chrome 60 / Safari 11.1 起），
-// 再往后的内核才都认识；Safari 11.0 撞上会 SyntaxError，由 plugin-legacy 的
-// __vite_is_modern_browser 回落接住。所以这里只防「明显超出这批内核」的语法。
+// 现代包只发给支持 type="module" 的内核，Vite 的 es2015 目标实际会留下 async 与
+// 对象展开，由 plugin-legacy 的 __vite_is_modern_browser 回落接住。这里只防
+// 明显超出这批内核的语法。
 const LEGACY_ECMA = 2015;
 const MODERN_ECMA = 2020;
 
 function loadAcorn() {
   const require = createRequire(import.meta.url);
-  // acorn 是 vite 依赖链上的包，不在本项目的 dependencies 里。
-  // 找不到就明说跳过了哪一步，不要静默通过。
+  // acorn 在 vite 的依赖链上，不在本项目的 dependencies 里；取不到就明说跳过了哪一步。
   try {
     return require("acorn");
   } catch {
