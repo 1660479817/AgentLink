@@ -53,7 +53,7 @@ fi
 
 if ! CREATEDB_OUT="$("$BIN/createdb" -h 127.0.0.1 -p "$PORT" -U knot knot 2>&1)"; then
   # 只有「库已存在」可以忽略；其余失败（连不上、认证失败）直接报出来，
-  # 不要像以前那样一律吞掉，让部署以为库已经好了。
+  # 一律吞掉会让部署以为库已经好了。
   case "$CREATEDB_OUT" in
     *"already exists"*) ;;
     *)

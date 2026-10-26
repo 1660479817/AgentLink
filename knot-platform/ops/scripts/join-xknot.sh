@@ -172,7 +172,7 @@ if (( DRY_RUN )); then
   echo "(dry-run) 会用 $PAYLOAD 写入 $JOIN_ENV"
   # 接入件里是能用的凭据。dry-run 不该在站点目录里留一份带令牌的文件：
   # 落成 mktemp 的 600 临时文件，失败时由 trap 清掉（config.mjs 报错会直接退出，
-  # 走不到下面那行 rm）。以前写的是 $JOIN_ENV.dryrun，没有先改权限，也只在成功路径删。
+  # 走不到下面那行 rm）。
   TMP_DRYRUN="$(mktemp "${TMPDIR:-/tmp}/xknot-dryrun.XXXXXX")"
   chmod 600 "$TMP_DRYRUN"
   node "$KNOT_APP_DIR/ops/scripts/config.mjs" join --site "$KNOT_SITE" --in "$PAYLOAD" --out "$TMP_DRYRUN"

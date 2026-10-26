@@ -481,7 +481,7 @@ function showApp() {
 
 // 存储位置决定「保持多久」：
 // - persist（从站点「我的」换来的凭据）写 localStorage，下次打开 /admin 直接用；
-// - 手动粘的主令牌只写 sessionStorage，关掉标签页就没了，和以前一样。
+// - 手动粘的主令牌只写 sessionStorage，关掉标签页就没了。
 function remember(value, persist) {
   if (persist) {
     sessionStorage.removeItem(TOKEN_KEY);

@@ -112,9 +112,8 @@ fi
 ln -sfn "releases/$TARGET_NAME" "$CURRENT_LINK"
 
 # 用哪种运行时，先看装过什么（LaunchAgent / systemd unit 是明确的证据），
-# 最后才按 var/run 里的 pid 文件推断。以前先看 pid 文件：从 --runtime none
-# 切到 launchd/systemd 之后，残留的 pid 文件会让脚本去 kill 一个早就不存在的
-# pid、删掉文件，而真正在跑的服务没被重启——current 换了，进程还是旧的。
+# 最后才按 var/run 里的 pid 文件推断。反过来做的话，残留的 pid 文件会让脚本
+# 去 kill 一个不存在的 pid，而真正在跑的服务没被重启——current 换了，进程还是旧的。
 restart_backend() {
   local pid_file="$KNOT_DEPLOY_ROOT/var/run/backend.pid"
   if [[ -f "$HOME/Library/LaunchAgents/com.knot.platform.plist" ]]; then
@@ -186,8 +185,8 @@ wait_healthy() {
 restart_backend
 
 if ! wait_healthy 30; then
-  # 回滚也可能落在一个坏版本上（另一个版本同样起不来）。这时候别把 current
-  # 留在坏版本上就走人：切回原来的版本再试一次，至少回到「回滚之前」的状态。
+  # 回滚也可能落在一个坏版本上（另一个版本同样起不来）。那时切回原版本再试一次，
+  # 至少回到回滚之前的状态。
   knot_warn "回滚到 ${TARGET_NAME} 后后端没有起来，切回 ${CURRENT_NAME}。"
   ln -sfn "releases/$CURRENT_NAME" "$CURRENT_LINK"
   restart_backend || true

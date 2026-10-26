@@ -4,7 +4,7 @@
 // 判定放这里而不是 write.js 里，是为了能用 node --test 覆盖：k6 脚本在 node 下 import 不了。
 
 // 从 POST /api/agent/intel 的响应里取 id；取不到返回空串，调用方必须把它当失败。
-// 以前这里 catch 住异常返回空串就完事，发帖已经进了库，却连一条错误都不记。
+// 拿到 id 之前吞掉异常的话，发帖已经进了库，却连一条错误都不记。
 export function intelIdFrom(response) {
   try {
     const body = response.json();
