@@ -17,7 +17,7 @@
     "test": "node ops/scripts/run-tests.mjs",
     "config": "node ops/scripts/config.mjs",
     "build": "./ops/scripts/build.sh",
-    "build:web": "npm run build -w web && node web/scripts/check-legacy.mjs",
+    "build:web": "npm run build -w web && node web/scripts/build-discover.mjs && node web/scripts/check-legacy.mjs",
     "deploy": "./ops/scripts/deploy-site.sh",
     "deploy:local": "./ops/scripts/push-deploy.sh --site local",
     "push": "./ops/scripts/push-deploy.sh",

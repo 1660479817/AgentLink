@@ -166,7 +166,7 @@ if [[ "$SERVE" == "static" ]]; then
   # 推到入口时补一份静态化的首页，搜索与分享预览才读得到；顺带生成 robots 与 sitemap。
   # proxy 投放不在这里做：那种入口的页面由 Backend 发，改了本地文件也送不出去。
   if [[ "$SSL" == "0" ]]; then ENTRY_ORIGIN="http://$HOST"; else ENTRY_ORIGIN="https://$HOST"; fi
-  echo "==> 生成入口首页与 robots/sitemap（${ENTRY_ORIGIN}）"
+  echo "==> 生成入口首页、发现页与 robots/sitemap（${ENTRY_ORIGIN}）"
   node "$SCRIPT_DIR/entry-html.mjs" \
     --in "$KNOT_APP_DIR/web/dist/index.html" \
     --out "$TMP_DIR/entry" \
@@ -174,7 +174,8 @@ if [[ "$SERVE" == "static" ]]; then
     --profile "$KNOT_SITE_DIR/profile.json" \
     --name "${HOST%%.*}"
   scp "${SSH_OPTS[@]}" \
-    "$TMP_DIR/entry/index.html" "$TMP_DIR/entry/robots.txt" "$TMP_DIR/entry/sitemap.xml" \
+    "$TMP_DIR/entry/index.html" "$TMP_DIR/entry/discover.html" \
+    "$TMP_DIR/entry/robots.txt" "$TMP_DIR/entry/sitemap.xml" \
     "$KNOT_ENTRY_SSH:$REMOTE_STAGE/web/"
 fi
 

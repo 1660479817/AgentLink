@@ -1,6 +1,6 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import AppButton from "../components/AppButton.vue";
 import CardShareDialog from "../components/CardShareDialog.vue";
 import CardTipDialog from "../components/CardTipDialog.vue";
@@ -19,6 +19,7 @@ import { useOutboxStore } from "../stores/outbox";
 import { useSessionStore } from "../stores/session";
 import { internalHref } from "../links.js";
 
+const route = useRoute();
 const router = useRouter();
 const notifications = useNotificationStore();
 const outbox = useOutboxStore();
@@ -111,14 +112,25 @@ function reloadPage() {
   window.location.reload();
 }
 
-// 浏览器标签上的名字也跟站点配置走，别停留在默认的 Knot。
-watch(
-  siteName,
-  (name) => {
-    if (typeof document !== "undefined") document.title = name;
-  },
-  { immediate: true }
-);
+// 浏览器标签与搜索结果里的标题跟路由走，别停留在默认的 Knot。
+// 只写站点名会把入口静态页给 /discover 写的标题统一盖掉，每页都只剩站点名。
+const PAGE_TITLE_KEYS = {
+  discover: "discover.pageTitle",
+  store: "store.title",
+  economy: "economy.title",
+  mine: "mine.title",
+  submissions: "submissions.title",
+  notifications: "notifications.title",
+  friends: "friends.title",
+  stars: "stars.title",
+};
+
+watchEffect(() => {
+  if (typeof document === "undefined") return;
+  const name = siteName.value;
+  const key = PAGE_TITLE_KEYS[route.name];
+  document.title = key ? `${name} · ${t(key)}` : name;
+});
 
 watch(
   () => outbox.jobs.map((job) => `${job.id}:${job.status}`).join(","),

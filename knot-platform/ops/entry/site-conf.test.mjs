@@ -28,12 +28,37 @@ const render = (overrides) => renderTemplate(TEMPLATE, { ...BASE, ...overrides }
 test("static 投放：首页从磁盘出，缓存区不在这份文件里声明", () => {
   const text = render({ KNOT_ENTRY_STATIC: "1" });
   assert.match(text, /root \/var\/www\/wang;/);
-  assert.match(text, /try_files \$uri \$uri\/ \/index\.html;/);
+  // 未知路径是 404，不再拿首页兜底——那会把任何拼错的地址都答成 200。
+  assert.match(text, /try_files \$uri \$uri\/ =404;/);
+  assert.doesNotMatch(text, /try_files \$uri \$uri\/ \/index\.html;/);
   assert.match(text, /proxy_cache knot_uploads;/);
   // 缓存区同一台入口主机只允许一次，放在 cache.conf.template。
   assert.doesNotMatch(text, /^proxy_cache_path/m);
   // 静态兜底在那里，但 / 不应该整段回源。
   assert.doesNotMatch(text, /location \/ \{\n\s*proxy_pass/);
+});
+
+test("static 投放：只有站内路由白名单回 SPA 壳", () => {
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  // 公开页面：刷新要回到同一个页面。
+  assert.match(text, /location ~ \^\/\(\?:store\|economy\|activity\|delegate\)\/\?\$ \{[\s\S]*?try_files \/index\.html =404;/);
+  // 账户态页面同样回壳，但明确 noindex。
+  assert.match(
+    text,
+    /location ~ \^\/\(\?:mine\(\?:\/submissions\)\?\|notifications\|stars\|friends\)\/\?\$ \{[\s\S]*?try_files \/index\.html =404;[\s\S]*?X-Robots-Tag "noindex, nofollow" always;/,
+  );
+  // 没有一条通吃的 SPA 兜底。
+  assert.doesNotMatch(text, /location \/ \{[\s\S]*?try_files[^;]*\/index\.html/);
+});
+
+test("static 投放：发现页有自己的静态壳与 canonical 地址", () => {
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  assert.match(text, /location ~ \^\/discover\/\?\$ \{[\s\S]*?try_files \/discover\.html =404;/);
+  // .html 直链只留一份可索引地址。
+  assert.match(text, /location = \/discover\.html \{\s*return 301 \/discover;/);
+  // 发现页不能被打上 noindex：它是公开信息流，sitemap 里就列着它。
+  const discover = text.match(/location ~ \^\/discover\/\?\$ \{[\s\S]*?\n    \}/)?.[0] || "";
+  assert.doesNotMatch(discover, /X-Robots-Tag/);
 });
 
 test("proxy 投放：不声明缓存区，首页整段回源", () => {
@@ -105,7 +130,7 @@ test("两种投放都保留管理接口、管理后台 404 与 ACME 目录", () 
   }
 });
 
-test("入口不为 /help 单独回源，它和任何不存在的路径一样走 SPA 兜底", () => {
+test("入口不为 /help 单开口；static 下它和任何不存在的路径一样是 404", () => {
   for (const flag of ["1", ""]) {
     const text = render({ KNOT_ENTRY_STATIC: flag });
     // Agent 指引在中枢（xknot.si/knot-help）。入口只转运 /api 与静态站：
@@ -113,6 +138,9 @@ test("入口不为 /help 单独回源，它和任何不存在的路径一样走 
     assert.doesNotMatch(text, /location = \/help\b/);
     assert.doesNotMatch(text, /\bhelpPage\b|knot-help\.md/);
   }
+  // 没有专门回源，也不拿首页冒充：静态兜底已经改成 404。
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  assert.match(text, /try_files \$uri \$uri\/ =404;/);
 });
 
 test("两种投放都开 gzip，且只压文本类", () => {
