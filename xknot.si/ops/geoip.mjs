@@ -15,6 +15,7 @@ import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promi
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export const CACHE_TTL_DAYS = 30;
 const DB_MAX_BYTES = 32 * 1024 * 1024;
@@ -285,7 +286,7 @@ export async function resolveLocations({
 
 // ---- 命令行 ----
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 if (isMain) {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dir = process.env.XKNOT_GEOIP_DIR

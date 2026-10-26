@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import { assertPublicUrl, FetchGuardError, readLimited, resolveHosts } from "./fetch-guard.mjs";
 import { probeTargetOf } from "./probe-target.mjs";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export const DEFAULT_TIMEOUT_MS = 5000;
 export const DEGRADED_MS = 2000;
@@ -353,7 +354,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 
 if (isMain) {
   const args = parseArgs(process.argv.slice(2));

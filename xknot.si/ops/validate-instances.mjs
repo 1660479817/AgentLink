@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { checkIssued, STATUSES, TIERS } from "./profile-schema.mjs";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export { TIERS, STATUSES };
 
@@ -74,7 +75,7 @@ async function main(argv) {
   process.exitCode = 1;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 if (isMain) {
   main(process.argv.slice(2)).catch((error) => {
     console.error(error.message);

@@ -12,6 +12,7 @@ import { mergePreview } from "../web/src/lib/preview.js";
 import { mergeCards, readCards, PREVIEW_CARDS_PATH } from "./cards.mjs";
 import { mergeProfiles, readProfiles, PREVIEW_PROFILES_PATH } from "./profiles.mjs";
 import { mergeStats, readStats, PREVIEW_STATS_PATH } from "./stats.mjs";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export { buildHubData };
 
@@ -57,7 +58,7 @@ async function main(argv) {
   return data;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 if (isMain) {
   main(process.argv.slice(2)).catch((error) => {
     console.error(error.message);

@@ -11,6 +11,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeDocPage } from "./doc-page.mjs";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 const HUB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // 源文件在仓库根 docs/，与 xknot.si/ 是兄弟目录。
@@ -46,7 +47,7 @@ function parseArgs(argv) {
   return options;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (invokedDirectly(import.meta.url)) {
   const written = writeKnotHelp(parseArgs(process.argv.slice(2)));
   console.log(`knot-help: ${written.html} (${written.bytes} bytes markdown)`);
 }

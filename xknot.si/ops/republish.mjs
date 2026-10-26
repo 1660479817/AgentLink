@@ -31,6 +31,7 @@ import { run as fetchProfiles } from "./fetch-profile.mjs";
 import { readProfiles } from "./profiles.mjs";
 import { readStats } from "./stats.mjs";
 import { verifyHubData } from "./verify-hub-data.mjs";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -131,7 +132,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 
 if (isMain) {
   const { quiet = false, ...rest } = parseArgs(process.argv.slice(2));

@@ -13,6 +13,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export const ROLES = ["founder", "partner"];
 export const STANDINGS = ["permanent", "regular"];
@@ -215,7 +216,7 @@ async function main(argv) {
   return 1;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 if (isMain) {
   main(process.argv.slice(2))
     .then((code) => {

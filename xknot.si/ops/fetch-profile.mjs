@@ -16,6 +16,7 @@ import {
   writeJsonAtomic,
 } from "./fetch-guard.mjs";
 import { cleanSite, FORMAT_VERSION, ID_RE, isHttpsUrl } from "./profile-schema.mjs";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export { FORMAT_VERSION };
 
@@ -195,7 +196,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 if (isMain) {
   run({ ...parseArgs(process.argv.slice(2)), log: (line) => console.log(line) })
     .then(() => {})

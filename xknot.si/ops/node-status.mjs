@@ -15,6 +15,7 @@
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export const STATUS_FILE = "status.json";
 
@@ -224,7 +225,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 
 if (isMain) {
   refreshStatus(parseArgs(process.argv.slice(2)))

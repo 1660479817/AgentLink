@@ -13,6 +13,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -65,7 +66,7 @@ export async function findBadServerImports(root) {
   return problems;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (invokedDirectly(import.meta.url)) {
   const at = process.argv.indexOf("--root");
   const root = at >= 0 ? path.resolve(process.argv[at + 1]) : path.join(here, "..");
   const problems = await findBadServerImports(root);

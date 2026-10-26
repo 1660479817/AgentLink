@@ -21,6 +21,7 @@ import { createGunzip } from "node:zlib";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export const DEFAULT_DAYS = 30;
 export const DEFAULT_LOG = "/var/log/nginx/knot-access.log";
@@ -425,7 +426,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 
 if (isMain) {
   const args = parseArgs(process.argv.slice(2));
