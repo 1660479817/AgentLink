@@ -16,9 +16,10 @@
 // 站点用 --site 选择，也可以用环境变量 KNOT_SITE。只有 sites/ 下恰好一个站点时才自动选中。
 // check 发现类型错误、缺必填、跨键矛盾时以退出码 1 结束。部署脚本据此在动任何东西之前停下。
 
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 import {
   KEYS,
   FORBIDDEN_PLATFORM_KEYS,
@@ -506,15 +507,10 @@ function main(argv) {
   }
 }
 
-function invokedDirectly() {
-  if (!process.argv[1]) return false;
-  try {
-    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
+function runDirectly() {
+  return invokedDirectly(import.meta.url);
 }
 
-if (invokedDirectly()) {
+if (runDirectly()) {
   process.exitCode = main(process.argv.slice(2));
 }

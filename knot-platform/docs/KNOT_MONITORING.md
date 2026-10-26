@@ -367,6 +367,12 @@ stays the bash plumbing.
 - Touching `var/run/openclaw-probe.request` forces the two expensive checks on the next
   run. It is an operator hook, not a console button: a REST endpoint that writes a file is
   a new capability, and the probe already runs every five minutes and at load.
+- Every entry point decides "am I being run, or imported?" by comparing **real paths**
+  (`ops/scripts/lib/main-module.mjs`). The unit starts the probe through
+  `<deploy root>/current`, a symlink that Node resolves when it computes
+  `import.meta.url`; a string comparison makes the whole file a silent no-op that still
+  exits 0. That is the one failure mode monitoring must not have — a green unit with no
+  reading behind it.
 
 ### 6.2 Units, with a fixed interval
 
@@ -565,7 +571,8 @@ and without `~/.openclaw`.
 | `backend/src/routes/adminStatus.test.js` | 200 with nulls when both modules fail; 401 without a token; refused off-intranet; `Cache-Control: no-store` |
 | `ops/scripts/openclaw-check.test.mjs` | binary absent → `off` rows, exit 0; gateway down → exit 0; `agents list` unparsable → exit 0; asserts the script contains no `exit 1` |
 | `ops/openclaw/apply-config.test.js` (extend) | `renderSyncReport` shape; `writeSyncReport` is atomic and `0600`; `renderBrief` values; `patchAgentsBrief` replaces only the marked region; no markers means append-once; missing `AGENTS.md` means no write |
-| `ops/openclaw/probe.test.mjs` | injected runner and temp dir: installed and not; gateway up and down; one agent missing; unparsable list; failed write; every case exits 0 |
+| `ops/openclaw/probe.test.mjs` | injected runner and temp dir: installed and not; gateway up and down; one agent missing; unparsable list; failed write; every case exits 0; reached through a symlink it still writes and still prints its verdict |
+| `ops/scripts/direct-run.test.mjs` | no script under `ops/` or `backend/scripts/` decides "run directly" by comparing unresolved paths; the six shipped CLIs use the shared helper |
 | `backend/src/intel.test.js` (extend) | the owner gets one notice per watermark; nobody to tell is `false`, not a throw; the owner who wrote the record is not told twice; a missing code is `null` |
 | `web/src/noticeText.test.js` (extend) | a stalled review renders attempts, the last failure, and the "the site is fine" tail; a non-numeric count falls back to the stored text |
 | `backend/src/intel.test.js` (extend) | the owner gets one notice per watermark; nobody to tell is `false`, not a throw; the owner who wrote the record is not told twice; a missing code is `null` |

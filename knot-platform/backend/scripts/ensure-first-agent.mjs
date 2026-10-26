@@ -1,9 +1,9 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { loadBootstrapConfig } from "../src/config.js";
 import { personalAgentName, readAgentToken } from "../src/agentAccount.js";
 import { ensureInternalAgent } from "./ensure-internal-agent.mjs";
+// 部署脚本的同一条入口判断：ops 里那份是唯一实现，两份脚本都属于部署层。
+import { invokedDirectly } from "../../ops/scripts/lib/main-module.mjs";
 
 const GREETING = "Hello, World. Hello, Agent.";
 
@@ -68,6 +68,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (invokedDirectly(import.meta.url)) {
   main();
 }

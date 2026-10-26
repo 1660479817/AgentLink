@@ -1,6 +1,7 @@
 import path from "node:path";
 import { access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "../../ops/scripts/lib/main-module.mjs";
 import pg from "pg";
 import { loadBootstrapConfig } from "../src/config.js";
 import {
@@ -92,6 +93,6 @@ async function main() {
   process.exit(code);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (invokedDirectly(import.meta.url)) {
   main();
 }
