@@ -58,6 +58,8 @@ Store release. The shelf becomes the one place things are sold and bought, and t
 
 - **Uploading from the WebUI works again through the public entry.** The entry's proxy location was written as `location ^~ /api/web/uploads/`, so nginx treated the path as a directory and answered `301` for `POST /api/web/uploads`; a browser replays that redirect as a `GET` without the body, and the upload came back 404. The location no longer carries a trailing slash, in both the static and proxy forms, so reads under `/api/web/uploads/<id>` keep working while posts reach the Backend. `ops/entry/site-conf.test.mjs` renders the real template and fails if the slash comes back.
 
+- **An anonymous read carries one TTL, and the entry keeps it.** `/session` and `/home` declared `public, max-age=5` while `/information` and `/intel/:id` declared ten seconds, and the entry caches all four for ten. A reader could therefore see a copy the Backend itself said had expired. `ANON_CACHE` is now the single value for the four routes, and `ops/entry/site-conf.test.mjs` reads it and fails if the entry's `proxy_cache_valid` disagrees.
+
 ## [0.7.0] — 2026-10-24
 
 Hardening and bilingualization release. This folds the audit wave into a stable baseline: the admin console gains a review-failure log, admin token rotation becomes atomic, the visibility predicate is consolidated into one place, download billing and the admin router gain test coverage, config docs and templates are generated in English, and iOS HEIC photos are transcoded to JPEG in the browser before upload.
