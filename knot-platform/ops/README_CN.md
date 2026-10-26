@@ -495,7 +495,7 @@ node ops/scripts/config.mjs sites             # 列出站点与 platform.env 状
    ./ops/scripts/push-entry.sh --site <站点>
    ```
 
-   `push-entry.sh` 只处理这一个 `entry.<标签>.xknot.si.env`：渲染 [`entry/site.conf.template`](./entry/site.conf.template)、按 `KNOT_ENTRY_SERVE` 同步 `web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建。`static` 投放时还会用 `entry-html.mjs` 把站点自述写进入口首页，并生成 `robots.txt` 与 `sitemap.xml`（见 [`entry/README.md`](./entry/README.md)）。仓库里不带任何具体域名的 conf——入口由站点配置生成。
+   `push-entry.sh` 只处理这一个 `entry.<标签>.xknot.si.env`：渲染 [`entry/site.conf.template`](./entry/site.conf.template)、按 `KNOT_ENTRY_SERVE` 同步 `web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建。`static` 投放时还会用 `entry-html.mjs` 把站点自述写进入口首页与发现页，并生成 `robots.txt` 与 `sitemap.xml`（见 [`entry/README.md`](./entry/README.md)）。仓库里不带任何具体域名的 conf——入口由站点配置生成。
 
    **安装静态根时不会删掉上一版的 `/assets`。** 带哈希文件名的 chunk 一旦被删，还攥着旧
    `index.html` 的地方（WebView 离线缓存、没关的老标签页、中间代理）就再也取不到自己那一版，

@@ -3,6 +3,9 @@
     "loading": "正在進入",
     "skipToContent": "跳到主要內容"
   },
+  "discover": {
+    "pageTitle": "發現"
+  },
   "brand": {
     "xknotHome": "XKnot · {name} 首頁"
   },

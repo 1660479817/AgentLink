@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { documentLang, renderEntryHtml, renderRobots, renderSitemap } from "./entry-html.mjs";
+import {
+  documentLang,
+  renderDiscoverHtml,
+  renderEntryHtml,
+  renderRobots,
+  renderSitemap,
+} from "./entry-html.mjs";
 
 // 入口首页是纯静态的：SPA 跑起来之前，机器与分享预览只能读这份 HTML。
 // 这里盯住「读得到」这件事本身，不涉及运行时。
@@ -120,6 +126,70 @@ test("robots.txt 放行页面，挡住接口与管理台", () => {
   assert.match(text, /^Disallow: \/api\/$/m);
   assert.match(text, /^Disallow: \/admin$/m);
   assert.match(text, /^Sitemap: https:\/\/wang\.xknot\.si\/sitemap\.xml$/m);
+});
+
+test("发现页有自己的 canonical，不指回首页", () => {
+  const html = renderDiscoverHtml(SHELL, { site: SITE, origin: "https://wang.xknot.si/" });
+  assert.match(html, /<title>XKnot创世启元 · 发现<\/title>/);
+  assert.match(html, /<link rel="canonical" href="https:\/\/wang\.xknot\.si\/discover" \/>/);
+  // 首页那条 canonical 不能同时留着：两页指同一个地址，发现页等于没被索引。
+  assert.doesNotMatch(html, /<link rel="canonical" href="https:\/\/wang\.xknot\.si\/" \/>/);
+  assert.match(html, /<meta property="og:url" content="https:\/\/wang\.xknot\.si\/discover" \/>/);
+  assert.match(html, /<meta name="description" content="公开的信息流 · 面向 AI 时代、服务于 Agent 的信息交换网。" \/>/);
+});
+
+test("发现页的 JSON-LD 是 CollectionPage，并挂在本站 WebSite 下", () => {
+  const html = renderDiscoverHtml(SHELL, { site: SITE, origin: "https://wang.xknot.si" });
+  const json = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1];
+  const parsed = JSON.parse(json);
+  assert.equal(parsed["@type"], "CollectionPage");
+  assert.equal(parsed.url, "https://wang.xknot.si/discover");
+  assert.equal(parsed.isPartOf.url, "https://wang.xknot.si/");
+  assert.equal(parsed.inLanguage, "zh-CN");
+});
+
+test("没有 JS 也能在发现页读到这是公开信息流", () => {
+  const html = renderDiscoverHtml(SHELL, { site: SITE, origin: "https://wang.xknot.si" });
+  const noscript = html.match(/<noscript>[\s\S]*?<\/noscript>/)?.[0] || "";
+  assert.match(noscript, /公开的信息流/);
+  assert.match(noscript, /XKnot创世启元/);
+  assert.match(noscript, /href="\/">回到首页</);
+});
+
+test("构建时不知道域名也生成发现页：canonical 用相对地址", () => {
+  // 构建产物的 <html lang> 是默认语种（zh-CN）；没有档案时按它出文案，
+  // 不拿「Knot」这个词去猜语种。
+  const html = renderDiscoverHtml(SHELL.replace('<html lang="en">', '<html lang="zh-CN">'), {});
+  assert.match(html, /<link rel="canonical" href="\/discover" \/>/);
+  assert.match(html, /<title>Knot · 发现<\/title>/);
+  assert.match(html, /<meta name="description" content="本站公开的帖子、问答与情报。" \/>/);
+  // og:url 必须绝对地址；没有 origin 时宁可不写，也不写一个相对的。
+  assert.doesNotMatch(html, /property="og:url"/);
+});
+
+test("发现页把模板里原有的 canonical 换掉，不会留下两条", () => {
+  const withCanonical = SHELL.replace(
+    "</head>",
+    '    <link rel="canonical" href="https://wang.xknot.si/" />\n  </head>',
+  );
+  const html = renderDiscoverHtml(withCanonical, { site: SITE, origin: "https://wang.xknot.si" });
+  assert.equal(html.match(/rel="canonical"/g)?.length, 1);
+  assert.match(html, /canonical" href="https:\/\/wang\.xknot\.si\/discover"/);
+});
+
+test("发现页的站点名同样转义", () => {
+  const html = renderDiscoverHtml(SHELL, {
+    site: { name: "<script>alert(1)</script>", tagline: "a & b", locale: "zh-CN" },
+    origin: "https://wang.xknot.si",
+  });
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(html, /公开的信息流 · a &amp; b/);
+});
+
+test("拿错文件时发现页也直接报错", () => {
+  assert.throws(() => renderDiscoverHtml("<html></html>", {}), /app/);
+  assert.throws(() => renderDiscoverHtml(SHELL, { origin: "wang.xknot.si" }), /origin/);
 });
 
 test("sitemap 只列真正的静态页", () => {

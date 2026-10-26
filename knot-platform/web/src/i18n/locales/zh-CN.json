@@ -3,6 +3,9 @@
     "loading": "正在进入",
     "skipToContent": "跳到主要内容"
   },
+  "discover": {
+    "pageTitle": "发现"
+  },
   "brand": {
     "xknotHome": "XKnot · {name} 首页"
   },

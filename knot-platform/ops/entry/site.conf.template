@@ -8,7 +8,7 @@
 #   2. 把 /api 反代到回源端口（隧道或同机 Backend）；
 #   3. 给 /discover.json 和 /api/web/uploads 加缓存（仅 static 投放）。
 # 入口不发文档：Agent 指引在 xknot.si/knot-help，实例没有 /help 页，
-# 它和任何不存在的路径一样落到 SPA 兜底，入口不为它单独回源。
+# 它和任何不存在的路径一样是 404，入口不为它单独回源，也不拿首页冒充。
 #
 # 缓存区（proxy_cache_path）不在这里声明：同一台入口主机只允许一次，放在 cache.conf.template，
 # 由 push-entry.sh 单独装成 knot-cache.conf。
@@ -160,7 +160,7 @@ server {
     }
 
     # 入口不认 /help：Agent 指引是协议层文档，在 xknot.si/knot-help。实例没有这个页面，
-    # 它和任何不存在的路径一样走下面的 SPA 兜底。
+    # 它和任何不存在的路径一样由下面的静态兜底答 404。
 
 {{#KNOT_ENTRY_STATIC}}
     location = /index.html {
@@ -168,6 +168,45 @@ server {
         # no-store 而不是 no-cache：微信内置浏览器会跳过校验直接复用旧 HTML。
         # 旧 HTML 指向的 /assets/<hash> 在发布后已经被删掉，页面就只剩白屏。
         add_header Cache-Control "no-store";
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+    }
+
+    # 发现页是独立的一份静态页，canonical 指向 /discover 自己。
+    # 以前它落在 SPA 兜底里：地址是 /discover，HTML 的 canonical 却写着 /，
+    # 爬虫把两页并成一页，sitemap 里那条 /discover 也就没有意义了。
+    location ~ ^/discover/?$ {
+        root {{KNOT_ENTRY_WEB_ROOT}};
+        try_files /discover.html =404;
+        add_header Cache-Control "no-store";
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+    }
+
+    # 直接请求 .html 的地址只留一份：能索引的地址是 /discover。
+    location = /discover.html {
+        return 301 /discover;
+    }
+
+    # 站内路由白名单：只有这些地址回 SPA 壳，其余路径一律 404。
+    #
+    # 以前是 `try_files $uri $uri/ /index.html`：任何拼错的地址都答 200 和同一份首页，
+    # 爬虫会把它们当成无限多个有效页面（软 404），站点地图也就失去了边界。
+    location ~ ^/(?:store|economy|activity|delegate)/?$ {
+        root {{KNOT_ENTRY_WEB_ROOT}};
+        try_files /index.html =404;
+        add_header Cache-Control "no-store";
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+    }
+
+    # 账户态页面：刷新要能回到同一个页面，但不该被索引。
+    # 爬虫拿不到会话，收进去的只会是登录页，之后还给每个账户看一条无效结果。
+    location ~ ^/(?:mine(?:/submissions)?|notifications|stars|friends)/?$ {
+        root {{KNOT_ENTRY_WEB_ROOT}};
+        try_files /index.html =404;
+        add_header Cache-Control "no-store";
+        add_header X-Robots-Tag "noindex, nofollow" always;
         add_header X-Content-Type-Options nosniff always;
         add_header Referrer-Policy strict-origin-when-cross-origin always;
     }
@@ -203,17 +242,19 @@ server {
         proxy_read_timeout 30s;
     }
 
-    # 静态文件与 SPA 兜底。反代位置不写这两个头，交给 Backend，免得同一个值出现两行。
+    # 静态文件：存在就发，不存在就是 404。SPA 路由已经在上面逐条列出，
+    # 这里不再拿 index.html 兜底——那正是软 404 的来源。
+    # 反代位置不写这两个头，交给 Backend，免得同一个值出现两行。
     location / {
         root {{KNOT_ENTRY_WEB_ROOT}};
         index index.html;
-        try_files $uri $uri/ /index.html;
+        try_files $uri $uri/ =404;
         add_header X-Content-Type-Options nosniff always;
         add_header Referrer-Policy strict-origin-when-cross-origin always;
     }
 {{/KNOT_ENTRY_STATIC}}
 {{^KNOT_ENTRY_STATIC}}
-    # proxy 投放：/、/assets/、SPA 兜底、/discover.json 全部回源。
+    # proxy 投放：/、/assets/、站内路由、/discover.json 全部回源。
     # 好处是页面与接口永远来自同一次构建，代价是每个静态文件都要穿一次隧道。
     # 安全头交给 Backend：这里再加一遍，同一个响应会出现两行同名头。
     location / {

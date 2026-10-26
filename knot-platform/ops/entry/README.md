@@ -106,17 +106,25 @@ When the entry sits behind Cloudflare, `$remote_addr` is by default the CF edge 
 
 `web/dist/index.html` is an SPA shell: `<title>Knot</title>`, nothing in `#app`. Pushed straight up, search indexing, social-platform previews, and non-JS crawlers get not a word.
 
-In `static` mode, `push-entry.sh` calls `ops/scripts/entry-html.mjs` after rsync, generating three files from `sites/<site>/profile.json`, then ships them to the entry host:
+In `static` mode, `push-entry.sh` calls `ops/scripts/entry-html.mjs` after rsync, generating the pages from `sites/<site>/profile.json`, then ships them to the entry host:
 
 | File | Contents |
 |------|------|
-| `index.html` | `title`, `description`, canonical, Open Graph, Twitter Card, JSON-LD, `<noscript>` intro; `#app` and the asset references from the build output kept verbatim |
+| `index.html` | `title`, `description`, canonical, Open Graph, Twitter Card, `WebSite` JSON-LD, `<noscript>` intro; `#app` and the asset references from the build output kept verbatim |
+| `discover.html` | the feed's own shell: canonical `https://<host>/discover`, `CollectionPage` JSON-LD, feed copy and `<noscript>` fallback; never canonicalises back to `/` |
 | `robots.txt` | allows pages, blocks `/api/` and `/admin`, points at the sitemap |
 | `sitemap.xml` | only lists the two real static pages `/` and `/discover` |
 
 - After the site name, intro, or logo changes, re-push the entry once, no rebuild needed.
 - The profile's `locale` decides `lang`; old profiles without this field infer once by whether the copy contains CJK characters (the migration script writes it in, so no re-inference after).
-- `proxy` mode doesn't do this step: pages come from the origin-fetching Backend, changing files on the entry disk is useless.
+- `npm run build:web` also emits `web/dist/discover.html` with a relative canonical (`/discover`). It is what `proxy` mode and local builds serve; the push-time version only overrides it with site-specific text and an absolute URL.
+- `proxy` mode doesn't run the entry step: pages come from the origin-fetching Backend, changing files on the entry disk is useless.
+
+### Unknown paths are 404, not the home page
+
+In `static` mode the SPA shell is served only for the routes the WebUI actually defines: `/`, `/discover`, `/store`, `/economy`, `/activity`, `/delegate`, and the account pages `/mine`, `/mine/submissions`, `/notifications`, `/stars`, `/friends`. Every other path is a real 404. The old `try_files $uri $uri/ /index.html` answered 200 with the home page for any typo, which search engines read as an unbounded set of valid pages (soft 404); `/help` is not an exception — the Agent guide lives on the hub at `xknot.si/knot-help`.
+
+Account pages keep their shell on refresh but carry `X-Robots-Tag: noindex, nofollow`; a crawler has no session, so indexing them would only file a login page. `Backend` sends the same header in `proxy` mode.
 - The generated files go into `/var/www/<id>` together with `web/dist`; `/discover.json` and `/media/` are still pushed separately by `push-discover.sh`, never overwriting each other.
 
 ## Landing (entry host)

@@ -3,6 +3,9 @@
     "loading": "Opening",
     "skipToContent": "Skip to content"
   },
+  "discover": {
+    "pageTitle": "Discover"
+  },
   "brand": {
     "xknotHome": "XKnot · {name} home"
   },

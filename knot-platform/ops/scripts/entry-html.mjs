@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// 入口首页的静态化：把站点自述写进 index.html 的 head，再随手生成 robots.txt 与 sitemap.xml。
+// 入口静态页的生成：把站点自述写进 index.html 与 discover.html 的 head，
+// 再随手生成 robots.txt 与 sitemap.xml。
 //
-// 为什么不在构建时做：站点名称、介绍和 logo 属于「自述区」，主理人在 /admin 里随时改，
-// 构建产物不知道域名，也不知道这份档案。推到哪台入口主机、用哪个子域，只有 push-entry.sh
-// 知道，所以在这一步生成。
+// 为什么站点自述不在构建时做：站点名称、介绍和 logo 属于「自述区」，主理人在 /admin 里
+// 随时改，构建产物不知道域名，也不知道这份档案。推到哪台入口主机、用哪个子域，只有
+// push-entry.sh 知道，所以这一刻才生成。发现页在构建时先有一份通用壳
+// （web/scripts/build-discover.mjs），这里再按档案覆盖成站点自己的文案。
 //
 // 这里不渲染信息流，也不起 Node 服务：入口仍然只放静态文件，只是把「首页 HTML 里
 // 一个字都没有」变成「首页 HTML 里有站点名、一句话介绍和详细介绍」。
@@ -22,6 +24,36 @@ import { invokedDirectly } from "./lib/main-module.mjs";
 import { inferLocale, isLocale } from "@knot/locale";
 
 const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
+// /discover 的文字随站点默认语种走。它是信息流本身，不是首页的复述：
+// 首页回答「这个站是什么」，这一页回答「这里现在有什么」。
+const DISCOVER_COPY = {
+  en: {
+    title: "Discover",
+    heading: "Public posts and intel",
+    description: "Public posts, questions, and intel from this Knot instance.",
+    loading: "Loading public posts…",
+    back: "Open the front page",
+  },
+  "zh-CN": {
+    title: "发现",
+    heading: "公开的信息流",
+    description: "本站公开的帖子、问答与情报。",
+    loading: "正在读取公开内容…",
+    back: "回到首页",
+  },
+  "zh-TW": {
+    title: "發現",
+    heading: "公開的資訊流",
+    description: "本站公開的貼文、問答與情報。",
+    loading: "正在讀取公開內容…",
+    back: "回到首頁",
+  },
+};
+
+function discoverCopy(lang) {
+  return DISCOVER_COPY[lang] || DISCOVER_COPY["zh-CN"];
+}
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ESCAPES[char]);
@@ -147,6 +179,106 @@ export function renderEntryHtml(template, { site, origin, fallbackName = "Knot" 
   return out;
 }
 
+/**
+ * 发现页的静态壳。
+ *
+ * `/discover` 以前是 `try_files ... /index.html` 兜底出来的：浏览器地址是 /discover，
+ * HTML 里的 canonical 却指着首页，爬虫于是把两页当成同一页，sitemap 里那条 /discover
+ * 也等于白写。这里给它一份独立的 HTML，canonical 指向自己。
+ *
+ * 构建时没有站点档案和 origin，也照样生成一份：proxy 投放的实例直接发 web/dist，
+ * 相对 canonical（`/discover`）在哪个域名下都能解析，不会指回首页。
+ */
+export function renderDiscoverHtml(template, { site, origin = "", fallbackName = "Knot" } = {}) {
+  const html = String(template || "");
+  if (!/<div[^>]*\bid="app"[^>]*>/i.test(html)) {
+    throw new Error("入口发现页里找不到 <div id=\"app\">，这不像是 web/dist/index.html");
+  }
+  const base = String(origin || "").replace(/\/+$/, "");
+  if (base && !/^https?:\/\//i.test(base)) throw new Error(`origin 必须是绝对地址：${origin}`);
+
+  const info = cleanSite(site, fallbackName);
+  // 语种优先级：档案里写了的用写的；有文案就按文案推；两样都没有（构建时）
+  // 才用模板自己的 <html lang>，不要拿「Knot」这个词去猜语种。
+  const templateLang = html.match(/<html[^>]*\blang="([^"]+)"/i)?.[1] || "";
+  const hasCopy = Boolean(info.tagline || info.intro);
+  const locale =
+    info.locale ||
+    (hasCopy
+      ? inferLocale(`${info.tagline} ${info.intro}`)
+      : isLocale(templateLang)
+        ? templateLang
+        : "");
+  const lang = documentLang({
+    locale,
+    text: [info.name, info.tagline, info.intro].filter(Boolean).join(" "),
+  });
+  const copy = discoverCopy(lang);
+  const description = clip(
+    info.tagline ? `${copy.heading} · ${info.tagline}` : info.intro || copy.description,
+    160,
+  );
+  const title = clip(`${info.name} · ${copy.title}`, 70);
+  const canonical = base ? `${base}/discover` : "/discover";
+
+  const head = [
+    `    <link rel="canonical" href="${escapeHtml(canonical)}" />`,
+    metaTag("property", "og:type", "website"),
+    metaTag("property", "og:site_name", info.name),
+    metaTag("property", "og:title", title),
+    metaTag("property", "og:description", description),
+    ...(base ? [metaTag("property", "og:url", canonical)] : []),
+    ...(info.logo ? [metaTag("property", "og:image", info.logo)] : []),
+    metaTag("name", "twitter:card", info.logo ? "summary_large_image" : "summary"),
+    metaTag("name", "twitter:title", title),
+    metaTag("name", "twitter:description", description),
+  ].join("\n");
+
+  const structured = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: title,
+    description,
+    inLanguage: lang,
+    ...(base
+      ? { url: canonical, isPartOf: { "@type": "WebSite", name: info.name, url: `${base}/` } }
+      : {}),
+  }).replace(/</g, "\\u003c");
+
+  const noscript = [
+    "    <noscript>",
+    "      <style>.knot-static{max-width:36rem;margin:3rem auto;padding:0 1rem;font-family:system-ui,-apple-system,sans-serif;line-height:1.7;color:#050505}.knot-static h1{margin:0 0 .5rem;font-size:1.7rem;line-height:1.2}.knot-static p{margin:.6rem 0;color:#65676b}.knot-static a{color:#0866ff}</style>",
+    '      <div class="knot-static">',
+    `        <h1>${escapeHtml(info.name)}</h1>`,
+    `        <p>${escapeHtml(copy.heading)}</p>`,
+    ...(info.tagline ? [`        <p>${escapeHtml(info.tagline)}</p>`] : []),
+    `        <p><a href="/">${escapeHtml(copy.back)}</a></p>`,
+    "      </div>",
+    "    </noscript>",
+  ].join("\n");
+
+  let out = html
+    .replace(/<html[^>]*>/i, `<html lang="${lang}">`)
+    .replace(/<link[^>]+rel="canonical"[^>]*>/gi, "")
+    .replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(title)}</title>`);
+
+  if (/<meta name="description"[^>]*>/i.test(out)) {
+    out = out.replace(/<meta name="description"[^>]*>/i, metaTag("name", "description", description).trim());
+  } else {
+    out = out.replace(
+      /\n[ \t]*<\/head>/i,
+      `\n    <meta name="description" content="${escapeHtml(description)}" />\n  </head>`,
+    );
+  }
+
+  return out
+    .replace(/\n[ \t]*<\/head>/i, `\n${head}\n    <script type="application/ld+json">${structured}</script>\n  </head>`)
+    .replace(/(<[^>]*data-knot-name[^>]*>)[\s\S]*?(<\/[a-z]+>)/i, `$1${escapeHtml(info.name)}$2`)
+    .replace(/(<[^>]*data-knot-line[^>]*>)[\s\S]*?(<\/[a-z]+>)/i, `$1${escapeHtml(copy.loading)}$2`)
+    .replace(/(data-knot-retry[^>]*href=")[^"]*(")/i, `$1${escapeHtml(canonical)}$2`)
+    .replace(/\n[ \t]*<\/body>/i, `\n${noscript}\n  </body>`);
+}
+
 export function renderRobots(origin) {
   const base = String(origin || "").replace(/\/+$/, "");
   return ["User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /admin", "", `Sitemap: ${base}/sitemap.xml`, ""].join("\n");
@@ -210,11 +342,18 @@ function main() {
   }
 
   fs.mkdirSync(outDir, { recursive: true });
-  const html = renderEntryHtml(fs.readFileSync(input, "utf8"), { site, origin, fallbackName: name });
-  fs.writeFileSync(path.join(outDir, "index.html"), html);
+  const template = fs.readFileSync(input, "utf8");
+  fs.writeFileSync(
+    path.join(outDir, "index.html"),
+    renderEntryHtml(template, { site, origin, fallbackName: name }),
+  );
+  fs.writeFileSync(
+    path.join(outDir, "discover.html"),
+    renderDiscoverHtml(template, { site, origin, fallbackName: name }),
+  );
   fs.writeFileSync(path.join(outDir, "robots.txt"), renderRobots(origin));
   fs.writeFileSync(path.join(outDir, "sitemap.xml"), renderSitemap(origin));
-  console.log(`==> 入口首页：${site?.name || name}（${origin}），robots.txt 与 sitemap.xml 已生成`);
+  console.log(`==> 入口首页与发现页：${site?.name || name}（${origin}），robots.txt 与 sitemap.xml 已生成`);
 }
 
 // 入口文件由 push-entry 调用，可能经由软链；判断要比真实路径。

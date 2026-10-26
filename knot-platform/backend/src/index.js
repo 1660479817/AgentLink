@@ -63,10 +63,15 @@ app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(createSessionMiddleware({ pool, sessionCookieName: bootstrap.sessionCookieName }));
 
+// 账户态页面不该被索引：爬虫没有会话，收进去的只会是登录页。
+// 入口 static 投放也在 nginx 里另加一遍，这里管 proxy 投放和本机直连。
+const ACCOUNT_PATH = /^\/(?:mine(?:\/submissions)?|notifications|stars|friends|admin)(?:\/|$)/;
+
 // 上传的文件按自己的 MIME 回源。禁止嗅探，避免浏览器把图片当页面执行。
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (ACCOUNT_PATH.test(req.path)) res.setHeader("X-Robots-Tag", "noindex, nofollow");
   next();
 });
 
@@ -100,7 +105,7 @@ app.get("/api/health", (_req, res) => {
 
 // Agent 指引只有一份，在仓库根 docs/KNOT_HELP.md，由联邦中枢发布（xknot.si/knot-help）。
 // 它不属于任何一个实例，实例也不提供文档端点：`/help` 在这里没有页面，和任何
-// 不存在的路径一样落到 SPA 兜底。WebUI 的入口地址从下面注入会话，页面不自己拼。
+// 不存在的路径一样是 404。WebUI 的入口地址从下面注入会话，页面不自己拼。
 const AGENT_DOC_ORIGIN = String(process.env.KNOT_HUB_ORIGIN || "https://xknot.si").replace(/\/+$/, "");
 
 // 快照要在 WebUI 路由之前绑定：首页的会话层会按同一份快照算「哪些卡属于我」。
@@ -177,6 +182,16 @@ app.use("/admin", adminPageRouter({ dir: adminDir }));
 if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
   const dir = path.resolve(bootstrap.staticWebDir);
   app.use("/assets", express.static(path.join(dir, "assets"), { immutable: true, maxAge: "1y" }));
+
+  // /discover 有自己的静态壳（canonical 指向 /discover）。没有这份文件时宁可 404，
+  // 也不要回 index.html：那样地址是 /discover，canonical 却指着首页。
+  app.get(["/discover", "/discover/"], (_req, res, next) => {
+    const file = path.join(dir, "discover.html");
+    if (!fs.existsSync(file)) return next();
+    res.set("Cache-Control", "no-cache");
+    res.sendFile(file);
+  });
+
   app.use(
     express.static(dir, {
       setHeaders(res, filePath) {
@@ -184,8 +199,16 @@ if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
       },
     })
   );
+
+  // 只有 WebUI 真正定义过的路由才回 SPA 壳；其余路径是 404。
+  // 以前一律回 index.html，任何拼错的地址都是 200（软 404），爬虫会当成无限多个页面。
+  const SPA_PATH = /^\/(?:economy|mine(?:\/submissions)?|stars|friends|store|notifications|activity|delegate)?\/?$/;
   app.get("*", (req, res, next) => {
     if (req.path.startsWith("/api")) return next();
+    if (!SPA_PATH.test(req.path)) {
+      res.status(404).type("text/plain").send("not found\n");
+      return;
+    }
     res.set("Cache-Control", "no-cache");
     res.sendFile(path.join(dir, "index.html"));
   });

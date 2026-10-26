@@ -114,23 +114,37 @@ KNOT_ENTRY_SERVE=static        # 或 proxy
 - 声明在 http 级、一台入口主机一份；**不要**写进 `site.conf.template`，每个子域各写一份只会互相盖掉。
 - 网段抄自 <https://www.cloudflare.com/ips-v4> 与 `/ips-v6`；漏了新段只是新段客户端仍显示边缘地址，不会让配置失效。
 
-## 入口首页不是构建产物
+## 入口静态页不是构建产物
 
 `web/dist/index.html` 是 SPA 空壳：`<title>Knot</title>`，`#app` 里什么都没有。直接推上去，
 搜索收录、社交平台预览、不执行 JS 的抓取都拿不到一个字。
 
 `static` 投放时 `push-entry.sh` 会在 rsync 之后调 `ops/scripts/entry-html.mjs`，用
-`sites/<站点>/profile.json` 生成三份文件，再送到入口主机：
+`sites/<站点>/profile.json` 生成页面，再送到入口主机：
 
 | 文件 | 内容 |
 |------|------|
-| `index.html` | `title`、`description`、canonical、Open Graph、Twitter Card、JSON-LD、`<noscript>` 简介；`#app` 与构建产物里的资源引用原样保留 |
+| `index.html` | `title`、`description`、canonical、Open Graph、Twitter Card、`WebSite` JSON-LD、`<noscript>` 简介；`#app` 与构建产物里的资源引用原样保留 |
+| `discover.html` | 信息流自己的壳：canonical 是 `https://<host>/discover`，带 `CollectionPage` JSON-LD、信息流文案与 `<noscript>` 兜底；不会再把 canonical 指回 `/` |
 | `robots.txt` | 放行页面，挡住 `/api/` 与 `/admin`，指向 sitemap |
 | `sitemap.xml` | 只列 `/` 与 `/discover` 两个真实静态页 |
 
 - 站点名、介绍、logo 改了以后，重推一次入口即可，不用重新构建。
 - 档案里 `locale` 决定 `lang`；旧档案没有这一项时按文案里有没有中日韩字符推一次（迁移脚本写进去以后就不再推）。
+- `npm run build:web` 也会生成一份 `web/dist/discover.html`，canonical 用相对地址（`/discover`）。`proxy` 投放和本地构建发的就是这一份；推入口时只覆盖成站点自己的文案和绝对地址。
 - `proxy` 投放不做这一步：页面由回源的 Backend 发，改入口磁盘上的文件没有用。
+
+### 未知路径是 404，不是首页
+
+`static` 投放只给 WebUI 真正定义过的路由回 SPA 壳：`/`、`/discover`、`/store`、`/economy`、
+`/activity`、`/delegate`，以及账户态页面 `/mine`、`/mine/submissions`、`/notifications`、
+`/stars`、`/friends`。其余路径一律 404。以前 `try_files $uri $uri/ /index.html` 对任何拼错的
+地址都答 200 和同一份首页，搜索引擎会把它们当成无限多个有效页面（软 404）；`/help` 不是例外——
+Agent 指引在中枢的 `xknot.si/knot-help`。
+
+账户态页面刷新时仍回到同一个页面，但带 `X-Robots-Tag: noindex, nofollow`：爬虫没有会话，
+收进去的只会是登录页。`proxy` 投放由 Backend 发同一个头。
+
 - 生成的文件和 `web/dist` 一起进 `/var/www/<id>`；`/discover.json` 与 `/media/` 仍由 `push-discover.sh` 单独推，互不覆盖。
 
 ## 落地（入口主机）
