@@ -24,8 +24,13 @@
 //   node server/admin-cli.mjs relay-log [n]                最近 n 条发信记录（只有域名，没有地址和正文）
 //   node server/admin-cli.mjs notify <id> <event> [--url URL]
 //                                                          补发/重发一封伙伴信；event 见 docs/PARTNER-MAIL.md
-//   node server/admin-cli.mjs handoff <id> --payload <file> [--ttl 72]
-//                                                          生成一次性领取令牌并寄交付信，同时打印领取地址
+//                                                          partner.handoff 不能用它补发：交付走 handoff
+//   node server/admin-cli.mjs handoff <id> --payload <file> [--ttl 72] [--offline]
+//                                                          签一次性领取令牌并寄交付信；重发即作废旧链接
+//                                                          --offline 不寄信，只打印领取地址
+//   node server/admin-cli.mjs claims [<申请 id>]           列出领取记录及其状态（不含明文）
+//   node server/admin-cli.mjs claim-revoke <领取记录 id|申请 id>
+//                                                          作废一条领取链接，或这张单上全部未领取的
 //   node server/admin-cli.mjs live <id> [--status up|down] 通知伙伴实例已上线
 //   node server/admin-cli.mjs contact-revalidate <id>      发联系人复验信
 //   node server/admin-cli.mjs suspend <id> [--condition 文案]
@@ -36,6 +41,7 @@
 //   node server/admin-cli.mjs provision-retry <申请 id>    放行停住的自动接通：清退避与失败标记，不动已完成的前置
 //
 // 发信命令需要 SMTP_HOST / MAIL_FROM，读法与接口进程一致（见 server/mail.mjs）。
+// 两者没在环境里给出时，会自动读 `var/mail.env`（与 systemd 的 EnvironmentFile 同一份）。
 //
 // 示例：
 //   XKNOT_ADMIN_PASSWORD='...' node server/admin-cli.mjs create-admin paul
@@ -48,6 +54,7 @@ import { stdin, stdout } from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { withFileLock } from "./file-lock.mjs";
+import { loadEnvFile } from "./env-file.mjs";
 import { createMailer, mailConfigFromEnv } from "./mail.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry, toRosterMember } from "./manifest.mjs";
 import { validateRoster } from "../ops/validate-federation.mjs";
@@ -59,6 +66,9 @@ import { openStore } from "./store.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const dataDir = process.env.XKNOT_DATA_DIR || path.join(root, "var");
+// 发信取值在生产由 systemd 从 var/mail.env 读入。终端里没有 systemd，
+// 就在进程启动时补同一份；已经显式给过的变量不覆盖。
+loadEnvFile(path.join(dataDir, "mail.env"));
 // 与接口共用同一个开关：本地联调/端到端可以指向一份测试清单，
 // publish 也会写回那份文件，不动仓库里的实例表。
 const manifestFile = process.env.XKNOT_INSTANCES_FILE
@@ -107,7 +117,7 @@ function flag(rest, name, fallback = null) {
 
 function mailerFromEnv() {
   const config = mailConfigFromEnv();
-  if (!config) return { error: "没有 SMTP 配置：需要 SMTP_HOST 与 MAIL_FROM" };
+  if (!config) return { error: "没有 SMTP 配置：需要 SMTP_HOST 与 MAIL_FROM（也可以写进 var/mail.env）" };
   return {
     config,
     mailer: createMailer(config),
@@ -123,6 +133,20 @@ function mailSwitchError() {
   return store.getSetting("mail")?.value === "off"
     ? "发信总闸已关闭：打开 /admin 的「发信」面板，把它开回来再跑这条命令。"
     : null;
+}
+
+// 领取记录的状态由三个时间决定：被作废、被领走、到期。
+// 先看作废：作废是运营方收回，和「伙伴领走了」是两件事，混成一句就分不清是谁关的。
+function claimState(row, now = Date.now()) {
+  if (row.revokedAt) return "已作废";
+  if (row.usedAt) return "已领取";
+  if (Date.parse(row.expiresAt) <= now) return "已过期";
+  return "可领取";
+}
+
+// 命令行里只给到分钟：秒对运营判断没有用，反而把一行撑长。
+function stamp(value) {
+  return String(value || "").slice(0, 16).replace("T", " ");
 }
 
 // 命令行发信与接口走同一套模板和同一张日志表，区别只是同步等待结果。
@@ -527,6 +551,11 @@ async function main(argv) {
     if (!application) return fail("没有这条申请");
     const eventName = rest[1];
     if (!eventName) return fail(`用法：notify <id> <event>，可选 ${ALL_EVENTS.join(" / ")}`);
+    // 交付信的全部作用是那条一次性领取链接；补发时手上没有链接，寄出去就是
+    // 一封让伙伴点空的信。交付走 handoff：它会重签链接并作废旧链接。
+    if (eventName === "partner.handoff") {
+      return fail("交付信用 notify 补不了：跑 handoff <申请编号> --payload <文件>，它会重签链接并作废旧链接。");
+    }
 
     const links = {};
     if (eventName === "partner.contact_revalidate") {
@@ -542,36 +571,98 @@ async function main(argv) {
     if (!application) return fail("没有这条申请");
     if (application.status !== "approved") return fail("只有已通过的申请才能交付");
     const file = flag(rest, "payload");
-    if (!file) return fail("用法：handoff <id> --payload <file> [--ttl 72]");
+    if (!file) return fail("用法：handoff <id> --payload <file> [--ttl 72] [--offline]");
     const payload = (await readFile(path.resolve(file), "utf8")).trim();
     if (!payload) return fail("payload 文件是空的");
     if (payload.length > 8000) return fail("payload 超过 8000 字，请精简后再交付");
-    // 信发不出去时别先把领取令牌造出来：那会留下一条谁也不知道的令牌。
-    const closed = mailSwitchError();
-    if (closed) return fail(closed);
+    // 不寄信时只打印链接，由运营方线下转交；这也是邮件系统坏掉时唯一的路。
+    const offline = rest.includes("--offline");
+
+    // 先确认信能发出去，再动库：没有 SMTP 时造出领取令牌，链接只存在库里，
+    // 谁也拿不到，还占着一份已经轮换过的资料。
+    if (!offline) {
+      const closed = mailSwitchError();
+      if (closed) return fail(`${closed}（只想拿链接不寄信，加 --offline）`);
+      const preflight = mailerFromEnv();
+      if (preflight.error) return fail(`${preflight.error}（只想拿链接不寄信，加 --offline）`);
+    }
 
     // ttl 可传 1–168：交付信与终端提示都要读这个值，写死 72 小时就是在
     // 告诉伙伴一个比真实过期时间更长的期限。
     const ttlHours = Math.min(Math.max(Number(flag(rest, "ttl", 72)) || 72, 1), 168);
-    const claim = store.createClaimToken({
+    // 重发即作废：上一封信里的链接不该还能换出资料。新签与作废是同一个事务。
+    const claim = store.rotateClaimToken({
       applicationId: application.id,
       payload,
       ttlHours,
       createdBy: process.env.XKNOT_ADMIN_USER || null,
     });
     if (claim.error) return fail(`生成领取令牌失败：${claim.error}`);
+    if (claim.revoked.length) {
+      console.log(`已作废 ${claim.revoked.length} 条旧领取链接：${claim.revoked.map((row) => row.id).join("、")}`);
+    }
 
-    const env = mailerFromEnv();
-    const claimUrl = `${env.origin}/claim/${claim.token}`;
+    const origin = String(process.env.XKNOT_PUBLIC_ORIGIN || "https://xknot.si").replace(/\/+$/, "");
+    const claimUrl = `${origin}/claim/${claim.token}`;
+    if (offline) {
+      console.log(`领取地址（只显示这一次，链接 ${ttlHours} 小时后失效；未寄信）：\n${claimUrl}`);
+      console.log(`领取记录 ${claim.id}，过期于 ${claim.expiresAt}`);
+      return;
+    }
+
     const message = await sendEvent(
       "partner.handoff",
       application,
       { links: { claimUrl }, claimTtlHours: ttlHours },
       {}
     );
-    if (!message) return;
+    if (!message) {
+      // 信没出去，这条链接没有任何人拿到。留着只是一把没人认领的钥匙，
+      // 还会挡住下一次 handoff 的「唯一可领取」判断，于是当场收掉。
+      const undone = store.revokeClaimTokens(claim.id);
+      if (undone.revoked.length) {
+        console.error(`交付信未寄出，已作废本次领取链接 ${claim.id}；重跑 handoff 会重新签发。`);
+      }
+      return;
+    }
     console.log(`领取地址（只显示这一次，链接 ${ttlHours} 小时后失效）：\n${claimUrl}`);
     console.log(`领取记录 ${claim.id}，过期于 ${claim.expiresAt}`);
+    return;
+  }
+
+  if (command === "claims") {
+    const scope = rest[0] || null;
+    const rows = store.listClaimTokens({ applicationId: scope });
+    if (!rows.length) {
+      console.log(scope ? `${scope} 没有领取记录。` : "还没有领取记录。");
+      return;
+    }
+    for (const row of rows) {
+      const state = claimState(row);
+      const when = row.revokedAt
+        ? `作废 ${stamp(row.revokedAt)}`
+        : row.usedAt
+          ? `领取 ${stamp(row.usedAt)}`
+          : `过期 ${stamp(row.expiresAt)}`;
+      console.log(
+        `${row.id}  ${row.applicationId.padEnd(16)} ${state}  ${when}  签发 ${stamp(row.createdAt)}  ${row.payloadLength} 字节  ${row.createdBy || ""}`
+      );
+    }
+    return;
+  }
+
+  if (command === "claim-revoke") {
+    const key = rest[0];
+    if (!key) return fail("用法：claim-revoke <领取记录 id|申请 id>");
+    const result = store.revokeClaimTokens(key);
+    if (!result.revoked.length) {
+      return fail(
+        `没有可作废的领取记录：${key} 不存在，或者这张单上的链接都已经领取 / 作废 / 过期。`
+      );
+    }
+    for (const row of result.revoked) {
+      console.log(`已作废领取链接 ${row.id}（申请 ${row.applicationId}）`);
+    }
     return;
   }
 

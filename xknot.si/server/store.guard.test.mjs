@@ -200,10 +200,11 @@ test("schema: an existing database is not migrated twice", (t) => {
   store.close();
 
   // 再打开一次：user_version 已经写过，破坏性的 UPDATE 不该再跑一遍。
+  // 断言对的是「最后一个迁移的版本号」，加新迁移时一起跟着改。
   const reopened = openStore(file);
   t.after(() => reopened.close());
   const db = new DatabaseSync(file, { readOnly: true });
-  assert.equal(Number(db.prepare("pragma user_version").get().user_version), 2);
+  assert.equal(Number(db.prepare("pragma user_version").get().user_version), 3);
   db.close();
   assert.equal(reopened.listApplications().length, 1);
 });

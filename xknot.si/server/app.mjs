@@ -1336,6 +1336,8 @@ export function createApp({ store, config }) {
       if (result.error === "missing") return sendHtml(res, 404, renderClaimResult("missing", null, "zh-CN"));
       if (result.error === "not_found") return sendHtml(res, 404, renderClaimResult("missing", null, "zh-CN"));
       if (result.error === "expired") return sendHtml(res, 410, renderClaimResult("expired", null, "zh-CN"));
+      // 作废是运营方收回的：说清楚去要最新一封交付信，别让伙伴以为资料被自己弄丢了。
+      if (result.error === "revoked") return sendHtml(res, 410, renderClaimResult("revoked", null, "zh-CN"));
       if (result.error === "already_used") return sendHtml(res, 409, renderClaimResult("used", null, "zh-CN"));
       // 申请撤回后令牌一并失效：这份链接对应的单已经不在办了，按「找不到」回。
       if (result.error === "application_closed") {
@@ -1532,6 +1534,9 @@ export function createApp({ store, config }) {
       if (!application) return send(res, 404, { error: "not_found" });
       const event = String(body.event || "");
       if (!ALL_EVENTS.includes(event)) return send(res, 400, { error: "unknown_event" });
+      // 交付信的全部作用是那条一次性链接；补发时手上没有链接，寄出去的就是
+      // 一封让伙伴点空的信。交付走 handoff：它重签链接并作废旧链接。
+      if (event === "partner.handoff") return send(res, 409, { error: "use_handoff" });
 
       const result = dispatchMail(event, application, { ...body.context }, {});
       if (!result) return send(res, 503, { error: "mail_unavailable" });
@@ -1556,9 +1561,13 @@ export function createApp({ store, config }) {
       const payload = String(body.payload || "").trim();
       if (!payload) return send(res, 400, { error: "invalid", fields: { payload: "required" } });
       if (payload.length > 8000) return send(res, 413, { error: "too_large" });
+      // 信发不出去时别先把领取令牌造出来：链接只存在于库里，谁也拿不到，
+      // 还占着一份已经轮换过的资料。
+      if (!mailOpen()) return send(res, 503, { error: "mail_unavailable" });
 
       const ttlHours = Math.min(Math.max(Number(body.ttlHours) || 72, 1), 168);
-      const claim = store.createClaimToken({
+      // 重发即作废：上一封信里的链接不该还能换出资料。新签与作废在同一个事务里。
+      const claim = store.rotateClaimToken({
         applicationId: application.id,
         payload,
         ttlHours,
@@ -1573,12 +1582,18 @@ export function createApp({ store, config }) {
         { ...body.context, links, claimTtlHours: ttlHours },
         {}
       );
-      if (!result) return send(res, 503, { error: "mail_unavailable" });
-      if (result.throttled) return send(res, 429, { error: "throttled" });
+      if (!result) {
+        store.revokeClaimTokens(claim.id);
+        return send(res, 503, { error: "mail_unavailable" });
+      }
+      if (result.throttled) {
+        store.revokeClaimTokens(claim.id);
+        return send(res, 429, { error: "throttled" });
+      }
 
       return send(res, 200, {
         ok: true,
-        claim: { id: claim.id, expiresAt: claim.expiresAt },
+        claim: { id: claim.id, expiresAt: claim.expiresAt, revoked: claim.revoked.length },
         claimUrl: links.claimUrl,
       });
     }

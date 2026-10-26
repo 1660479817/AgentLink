@@ -212,10 +212,27 @@ test("join: 通过后交接发一次性领取链接，领取页不消费、领�
     body: { payload: PAYLOAD, ttlHours: 72 },
   });
   assert.equal(handoff.status, 200, handoff.text);
-  const claimPath = handoff.data.claimUrl.replace(/^https?:\/\/[^/]+/, "");
 
   const handedOff = await nextMail(application.email);
   assert.ok(!handedOff.body.includes(PAYLOAD), "交接信里不能有明文凭据");
+
+  // 重发交付：上一封里的链接当场作废，伙伴只能用最新一封的链接。
+  const reissued = await request(`/api/admin/applications/${id}/handoff`, {
+    method: "POST",
+    cookie: adminCookie,
+    headers: { origin: stack.portalUrl },
+    body: { payload: `${PAYLOAD}_v2`, ttlHours: 72 },
+  });
+  assert.equal(reissued.status, 200, reissued.text);
+  assert.equal(reissued.data.claim.revoked, 1);
+  await nextMail(application.email);
+
+  const staleToken = handoff.data.claimUrl.split("/").pop();
+  const stale = await request("/api/claim", { method: "POST", form: { token: staleToken } });
+  assert.equal(stale.status, 410);
+  assert.ok(!stale.text.includes(PAYLOAD), "作废的链接不能泄露上一份资料");
+
+  const claimPath = reissued.data.claimUrl.replace(/^https?:\/\/[^/]+/, "");
 
   // 领取页同样只渲染，不消费。
   for (let i = 0; i < 2; i += 1) {
@@ -227,7 +244,8 @@ test("join: 通过后交接发一次性领取链接，领取页不消费、领�
   const claimToken = claimPath.split("/").pop();
   const claimed = await request("/api/claim", { method: "POST", form: { token: claimToken } });
   assert.equal(claimed.status, 200);
-  assert.ok(claimed.text.includes(PAYLOAD), "第一次领取要给出交接内容");
+  const shown = /<pre>([\s\S]*?)<\/pre>/.exec(claimed.text)?.[1] || "";
+  assert.equal(shown.trim(), `${PAYLOAD}_v2`, "领到的必须是重签后的那一份，不是旧的");
 
   const second = await request("/api/claim", { method: "POST", form: { token: claimToken } });
   assert.equal(second.status, 409);
