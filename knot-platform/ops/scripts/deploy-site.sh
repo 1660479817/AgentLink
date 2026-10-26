@@ -686,6 +686,16 @@ openclaw_report() {
   "$KNOT_APP_DIR/ops/scripts/openclaw-check.sh" || true
 }
 
+# 同步这一步可能刚把「明确关闭」的标记清掉，下一次定时探测还在几分钟之后。
+# 这里立刻跑一次，部署完控制台就有读数，而不是空着一块等人以为坏了。
+openclaw_probe_now() {
+  case "${RUNTIME:-}" in
+    launchd) launchctl kickstart -k "gui/$(id -u)/com.knot.openclaw-probe" >/dev/null 2>&1 || true ;;
+    systemd) knot_systemctl start knot-openclaw-probe.service >/dev/null 2>&1 || true ;;
+    *) ;;
+  esac
+}
+
 openclaw_mode="$(printf '%s' "$KNOT_OPENCLAW" | tr '[:upper:]' '[:lower:]')"
 case "$openclaw_mode" in
   0 | false | no | off)
@@ -704,6 +714,7 @@ case "$openclaw_mode" in
       chmod +x "$KNOT_APP_DIR/ops/scripts/ensure-openclaw.sh"
       OPENCLAW_ENABLE_PROCESS=1 "$KNOT_APP_DIR/ops/scripts/ensure-openclaw.sh"
       openclaw_report
+      openclaw_probe_now
     else
       echo "==> 未安装 openclaw，跳过（KNOT_OPENCLAW=auto）"
     fi
@@ -713,6 +724,7 @@ case "$openclaw_mode" in
     chmod +x "$KNOT_APP_DIR/ops/scripts/ensure-openclaw.sh"
     OPENCLAW_ENABLE_PROCESS=1 "$KNOT_APP_DIR/ops/scripts/ensure-openclaw.sh"
     openclaw_report
+    openclaw_probe_now
     ;;
 esac
 
