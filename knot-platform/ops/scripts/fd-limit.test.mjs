@@ -1,8 +1,8 @@
 // 常驻进程的文件描述符软限。
 //
-// 2026-10-25 那次 300 并发的 502 回归测试：入口的隧道进程被 launchd 的
-// 256 fd 软限卡住，日志里是 "socket: Too many open files"，入口把每条
-// reset 掉的连接记成 502——Backend 自己一直健康。
+// 入口的隧道进程每转发一条连接都要开一个 socket，被 launchd 的 256 软限卡住时
+// 日志里是 "socket: Too many open files"，入口把每条被 reset 的连接记成 502，
+// 而 Backend 自己一直健康。
 //
 // 用真的 bash 跑 fd-limit.sh：抬限靠的是 shell 内建 ulimit，
 // 在 JS 里复刻一遍测不出它到底有没有生效。

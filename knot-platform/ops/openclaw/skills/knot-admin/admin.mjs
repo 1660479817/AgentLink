@@ -323,9 +323,9 @@ async function request(spec, { token, fetchImpl, baseUrl, read }) {
     }
     const name = path.basename(spec.file);
     const type = IMAGE_TYPES[path.extname(name).toLowerCase()];
-    // SKILL.md 说只收 JPEG、PNG、GIF、WebP。以前不在表里的一律按
-    // application/octet-stream 发出去，由后端 bad_mime 拒——智能体拿到的
-    // 只有一句英文错误，不知道为什么、该怎么改。本地先拦，给同一套措辞。
+    // SKILL.md 说只收 JPEG、PNG、GIF、WebP。不在表里的按 application/octet-stream
+    // 发出去只会被后端 bad_mime 拒，智能体拿到的是一句英文错误，不知道怎么改。
+    // 本地先拦，给同一套措辞。
     if (!type) return { code: 1, body: { error: "bad_mime", hint: HINTS.bad_mime } };
     const form = new FormData();
     form.append("file", new Blob([bytes], { type }), name);

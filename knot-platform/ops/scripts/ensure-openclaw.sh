@@ -117,7 +117,7 @@ ensure_admin_token() {
   local token dest agent_id tmp
   token="$(grep '^KNOT_ADMIN_TOKEN=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true)"
   if [[ -z "$token" ]]; then
-    # 空值不能当成「已配置」。以前只判断「有没有非空行」，于是文件里留着
+    # 空值不能当成「已配置」：只判断「有没有非空行」的话，文件里留着
     # `KNOT_ADMIN_TOKEN=`（手改、上次写了一半）时会再追加一行，而 head -1
     # 取到的仍是那个空值——两个工作区都写成空令牌，智能体集体不可用。
     # 先把同名行全部去掉，再写一条新的，文件里只留一行。

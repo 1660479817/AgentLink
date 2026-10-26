@@ -61,7 +61,7 @@ async function main(argv) {
   const site = arg(argv, "site", process.env.KNOT_SITE || "local");
   const dryRun = argv.includes("--dry-run");
   const all = argv.includes("--all");
-  // --limit 只收非负整数。以前 `Number(...) || 0` 会把 `--limit abc` 静默吃成 0，
+  // --limit 只收非负整数。不能用 `Number(...) || 0`：写错的参数会被静默吃成 0，
   // 而 0 的含义是「全库都跑一遍」，正好和「只处理几条」相反。
   const limitArg = String(arg(argv, "limit", "0") ?? "0");
   if (!/^\d+$/.test(limitArg)) {

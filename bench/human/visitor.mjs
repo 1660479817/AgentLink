@@ -164,9 +164,9 @@ function median(values) {
   return clean[Math.floor((clean.length - 1) / 2)];
 }
 
-// 失败的请求与控制台报错记在每一轮（run）上，不属于某一页。以前它们只写进
-// human.json：表格里的「失败」只数每页自己的 HTTP 状态和导航异常，于是文件头
-// 声称的「含失败请求、控制台错误」在表上看不到，error 也永远是 0。
+// 失败的请求与控制台报错记在每一轮（run）上，不属于某一页。只写进 human.json
+// 的话，表格里的「失败」只数每页自己的 HTTP 状态和导航异常——文件头声称
+// 「含失败请求、控制台错误」，表上却看不到，error 永远是 0。
 function summarize(runs) {
   const byKey = new Map();
   const runErrors = new Map();

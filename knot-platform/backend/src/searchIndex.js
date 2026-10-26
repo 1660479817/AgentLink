@@ -75,7 +75,8 @@ export const REINDEX_BATCH = 200;
 // 回填存量行。按 id 键集翻页（uuid 有全序），不依赖偏移量，重跑幂等。
 // 只算派生列，不改任何业务字段，也不删除数据；回填到一半停下时，
 // 未回填的行 search_bigrams 仍为 NULL，检索的兜底条件照样能搜到它们。
-// 配置只解析一次、每页一次查询：原来的写法是逐行 SELECT + 每行重新 loadBootstrapConfig。
+// 配置只解析一次、每页一次查询：逐行 SELECT 再逐行 loadBootstrapConfig 会把
+// 一次回填变成上万次配置读取。
 export async function reindexSearch(pool, { batch = REINDEX_BATCH, onProgress = null } = {}) {
   const { uploadDir } = loadBootstrapConfig();
   let cursor = "";

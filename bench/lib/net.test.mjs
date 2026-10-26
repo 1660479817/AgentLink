@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isDirectHost } from "./net.mjs";
 
-// 直连判定只留这一处。以前 run.mjs 认私网、probe.mjs 只认回环，
-// 直接探测 192.168.3.91 会被报成「管理入口泄漏到公网」。
+// 直连判定只留这一处：只认回环的话，直接探测 192.168.3.91 会被报成
+// 「管理入口泄漏到公网」。
 
 test("回环地址算直连", () => {
   for (const host of ["127.0.0.1", "127.1.2.3", "localhost", "localhost.", "::1", "[::1]"]) {

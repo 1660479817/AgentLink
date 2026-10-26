@@ -174,7 +174,7 @@ function measureRows(breaks, real, box, prefix, rules, photoCount) {
 
 // 两种切法谁更好：先看有没有一格窄到按不住（能避开就避开，哪怕代价高一些），
 // 再看整组是否塞不进高度上限（strictCard 时），最后才比代价。
-// 只有极端比例被夹取时才可能踩到前两条，所以普通相册的切法与以前完全一样。
+// 只有极端比例被夹取时才可能踩到前两条，普通相册的切法不受影响。
 function beats(candidate, best) {
   if (!best) return true;
   if (candidate.untappable < best.untappable - EPS) return true;

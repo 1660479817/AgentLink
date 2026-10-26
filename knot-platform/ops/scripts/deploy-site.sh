@@ -197,8 +197,8 @@ fi
 
 # 发布包必须自带生产依赖。目标机不跑 npm ci（ops/README.md 的交付前提），
 # 而 --no-modules 打出来的包名与默认包完全一样，只在 BUILD.json 的 modules
-# 字段上有差别。以前这个字段没人读：解包后 node_modules 是空的，部署一路走到
-# 探活才失败，报错看起来像「后端起不来」，查不出是包装错了。
+# 字段上有差别；这个字段不读的话，解包后 node_modules 是空的，一路走到探活
+# 才失败，报错看起来像「后端起不来」。
 REL_MODULES="$(node "$SCRIPT_DIR/artifact.mjs" field modules "$MANIFEST")"
 if [[ "$REL_MODULES" != "true" ]]; then
   knot_fail "这个发布包不带 node_modules（BUILD.json 里 modules=${REL_MODULES:-false}）。
@@ -314,8 +314,8 @@ if knot_enabled KNOT_ENTRY_ENABLED; then
 fi
 
 # 隧道私钥的检查不放在 KNOT_ENTRY_ENABLED 里面：接了子域的站点常常是
-# KNOT_ENTRY_ENABLED=0（入口 conf 由中枢写），隧道由 tunnel.env 打开，
-# 这种情况以前整个跳过检查，密钥丢了也会「部署成功」，然后入口 502 到有人发现。
+# KNOT_ENTRY_ENABLED=0（入口 conf 由中枢写），隧道由 tunnel.env 打开；
+# 放进那个判断里的话，密钥丢了也算「部署成功」，直到入口 502 才有人发现。
 if knot_enabled KNOT_TUNNEL; then
   knot_require KNOT_TUNNEL_SSH "KNOT_TUNNEL=1 时要有隧道账号；留空会自动用 knot-tunnel@<入口主机>。"
   TUNNEL_KEY="$(knot_tunnel_key_path)"
@@ -605,8 +605,8 @@ if [[ "$healthy" == 1 ]]; then
   RUNNING_RELEASE="$(node -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).release || "")) } catch {}' "$BODY")"
   RUNNING_COMMIT="$(node -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).commit || "")) } catch {}' "$BODY")"
   # 发布包名以 BUILD.json 为准；老版本没有 release 字段时退回比版本号。
-  # 端口上答话的不是本次装的这一份，就说明旧进程还占着端口、新进程根本没起来。
-  # 这种情况以前只 warn 一句再照常写 deployed.json，于是「部署成功」但线上是旧代码。
+  # 端口上答话的不是本次装的这一份，就说明旧进程还占着端口、新进程没起来；
+  # 这种情况必须判失败，否则「部署成功」而线上跑的是旧代码。
   MISMATCH=""
   if [[ -n "$RUNNING_RELEASE" && "$RUNNING_RELEASE" != "$REL_NAME" ]]; then
     MISMATCH="探活报的发布包是 ${RUNNING_RELEASE}，本次装的是 ${REL_NAME}。"
