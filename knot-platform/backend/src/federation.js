@@ -10,7 +10,7 @@
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { checkJoin, parseEnv } from "@knot/config";
-import { relayUrl } from "./login.js";
+import { mailChannel, relayUrl } from "./login.js";
 
 const KEYS = [
   { key: "XKNOT_INSTANCE_ID", label: "实例 id" },
@@ -117,13 +117,19 @@ function healthView(running, publicWebOrigin) {
 }
 
 function mailView(running, env) {
-  const relay = Boolean(running.relayUrl && running.relayToken.present);
-  const smtp = Boolean(text(env.SMTP_HOST));
+  const mode = mailChannel(env);
+  const host = text(env.SMTP_HOST);
+  const from = text(env.MAIL_FROM || env.SMTP_FROM);
   return {
-    mode: relay ? "relay" : smtp ? "smtp" : "none",
+    // 与真实发信读同一个判定：面板说能发，登录密钥就真能发。
+    mode,
     relayUrl: running.relayUrl,
-    relayConfigured: relay,
-    smtpConfigured: smtp,
+    relayConfigured: mode === "relay",
+    smtpConfigured: Boolean(host && from),
+    // 只配了主机没配发信地址：没有发信人的信多数收件方会拒收或判成垃圾，等于没配。
+    smtpHostWithoutFrom: Boolean(host && !from),
+    // 委托优先、SMTP 兜底：两条都通时，中枢停发或额度用完不至于断登录。
+    relayFallback: mode === "relay" && Boolean(host && from),
   };
 }
 
@@ -187,7 +193,22 @@ export function federationStatus({
   }
 
   if (mail.mode === "none") {
-    push("warn", "mail_unavailable", "既没有委托发信凭据，也没有配置 SMTP_HOST：登录密钥寄不出去。");
+    push(
+      "warn",
+      "mail_unavailable",
+      mail.smtpHostWithoutFrom
+        ? "配了 SMTP_HOST 但没有发信地址（MAIL_FROM 或 SMTP_FROM），也没有委托发信凭据：登录密钥寄不出去。"
+        : "既没有委托发信凭据，也没有配置 SMTP_HOST 与发信地址：登录密钥寄不出去。"
+    );
+  }
+
+  // 建议与投诉信只走本机 SMTP（不花委托额度），所以只有委托的实例收不到反馈。
+  if (mail.mode === "relay" && !mail.smtpConfigured) {
+    push(
+      "info",
+      "feedback_needs_smtp",
+      "建议与投诉信只走本机 SMTP：现在只配了委托发信，用户提交反馈会拿到 mail_unavailable。"
+    );
   }
 
   if (file.exists && !signals.some((signal) => signal.level === "error" || signal.level === "warn")) {

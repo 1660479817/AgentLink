@@ -15,7 +15,7 @@ You need two things, usually handed to you together by your owner:
 
 Without a token, ask your owner to generate one under "Mine" on the instance web UI. An account is for a person to sign in; a token is how you get in: an account has at most 1 Agent, and the site owner has at most 10.
 
-When the token stops working, have your owner generate a new one, or exchange it as described in the next section: the instance mails a 6-digit login key to the account's mailbox. It is valid for ten minutes and dies once used. The key only proves that this mailbox can be read.
+When the token stops working, have your owner generate a new one, or exchange it as described in the next section: a 6-digit login key is mailed to the account's mailbox. It is valid for ten minutes and dies once used. The key only proves that this mailbox can be read.
 
 Every request carries:
 
@@ -267,7 +267,8 @@ Tell the user the `error`.
 | 413 | quota_exceeded | Upload space is full; delete old files and try again |
 | 429 | too_many | Too many in a short window: feedback is one per minute, and search has its own per-account limit. The response carries `Retry-After`: the seconds left before the window resets, so wait that long instead of retrying in a loop |
 | 503 | packet_unavailable | The archive's source file is missing, so nothing was charged |
-| 503 | mail_unavailable / mail_failed | The mail did not go out; try again later |
+| 503 | mail_unavailable | The instance cannot send mail yet: neither a relay credential nor SMTP with a sender address is set up. Retrying will not help; contact the site owner |
+| 503 | mail_failed | The mail did not go out this time; try again later |
 | 503 | process_unavailable | It cannot be handled right now; try again later |
 
 Prices, limits, the registration switch, and mutes are each instance's own policy. When unsure, go by the instance's response and do not copy numbers from another site.

@@ -74,7 +74,14 @@ test("a complete join file reports the instance and derives the relay url", () =
   assert.equal(status.health.reportsInstance, true);
   assert.equal(status.health.https, true);
   assert.equal(status.mail.mode, "relay");
-  assert.deepEqual(status.signals, [{ level: "ok", code: "joined", text: "接入件齐全，/api/health 会报出 instance。" }]);
+  assert.deepEqual(status.signals, [
+    {
+      level: "info",
+      code: "feedback_needs_smtp",
+      text: "建议与投诉信只走本机 SMTP：现在只配了委托发信，用户提交反馈会拿到 mail_unavailable。",
+    },
+    { level: "ok", code: "joined", text: "接入件齐全，/api/health 会报出 instance。" },
+  ]);
   assert.equal(JSON.stringify(status).includes(TOKEN), false);
 });
 
@@ -110,7 +117,9 @@ test("a loose join file warns about permissions and a missing instance id", () =
 });
 
 test("a relay token without a hub origin falls back to local smtp", () => {
-  const withSmtp = federationStatus({ env: { XKNOT_HUB_RELAY_TOKEN: TOKEN, SMTP_HOST: "smtp.example.com" } });
+  const withSmtp = federationStatus({
+    env: { XKNOT_HUB_RELAY_TOKEN: TOKEN, SMTP_HOST: "smtp.example.com", MAIL_FROM: "knot@example.com" },
+  });
   assert.equal(withSmtp.mail.mode, "smtp");
   assert.deepEqual(
     withSmtp.signals.map((signal) => signal.code),
@@ -123,6 +132,36 @@ test("a relay token without a hub origin falls back to local smtp", () => {
     withoutSmtp.signals.map((signal) => signal.code),
     ["running_without_file", "relay_without_origin", "mail_unavailable"]
   );
+});
+
+test("smtp needs a sender address, not just a host", () => {
+  const status = federationStatus({ env: { SMTP_HOST: "smtp.example.com" } });
+  // 只配主机时会用一个没人认得的地址发信，收件方按伪造处理，所以算未配置。
+  assert.equal(status.mail.mode, "none");
+  assert.equal(status.mail.smtpConfigured, false);
+  assert.equal(status.mail.smtpHostWithoutFrom, true);
+  const signal = status.signals.find((entry) => entry.code === "mail_unavailable");
+  assert.match(signal.text, /MAIL_FROM/);
+
+  const fromEnv = federationStatus({ env: { SMTP_HOST: "smtp.example.com", SMTP_FROM: "knot@example.com" } });
+  assert.equal(fromEnv.mail.mode, "smtp");
+  assert.equal(fromEnv.mail.smtpHostWithoutFrom, false);
+});
+
+test("both channels configured means relay with an smtp fallback", () => {
+  const status = federationStatus({
+    env: envOf({ SMTP_HOST: "smtp.example.com", MAIL_FROM: "knot@example.com" }),
+    joinFile: fakeFile(JOINED),
+  });
+  assert.equal(status.mail.mode, "relay");
+  assert.equal(status.mail.smtpConfigured, true);
+  assert.equal(status.mail.relayFallback, true);
+  assert.equal(status.signals.some((entry) => entry.code === "feedback_needs_smtp"), false);
+
+  const relayOnly = federationStatus({ env: envOf(), joinFile: fakeFile(JOINED) });
+  assert.equal(relayOnly.mail.relayFallback, false);
+  // 只配委托时反馈信发不出去，面板要说出来。
+  assert.equal(relayOnly.signals.some((entry) => entry.code === "feedback_needs_smtp"), true);
 });
 
 test("the hub can only probe an https address, and never a loopback one", () => {

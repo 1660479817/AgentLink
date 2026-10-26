@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adminEmail, defaultDisplayName, ensureOwner, feedbackMessage, isOwnerAccount, loginKeyMessage, loginLockRemaining, LOGIN_LOCK_MS, LOGIN_MAX_FAILURES, newLoginKey, normalizeLoginKey, redeemLoginKey, relayUrl, requestLoginKey, resetLoginGuard, sendLoginKey } from "./login.js";
+import nodemailer from "nodemailer";
+import { adminEmail, defaultDisplayName, ensureOwner, feedbackMessage, isOwnerAccount, loginKeyMessage, loginLockRemaining, LOGIN_LOCK_MS, LOGIN_MAX_FAILURES, mailChannel, newLoginKey, normalizeLoginKey, redeemLoginKey, relayUrl, requestLoginKey, resetLoginGuard, sendLoginKey, sendFeedback } from "./login.js";
 import { installSystemPolicy, resetSystemPolicy } from "./system.js";
 
 test("login key is six digits", () => {
@@ -79,6 +80,43 @@ test("站点名进 HTML 前要转义", () => {
   const message = loginKeyMessage("048291", { name: '<img src=x onerror="alert(1)">' });
   assert.doesNotMatch(message.html, /<img src=x/);
   assert.match(message.html, /&lt;img src=x/);
+});
+
+// 档案允许站点名里有换行（介绍与标语本来就多行）。主题里一个换行会让中枢拒收整封信，
+// 所以进邮件前先压成一行。
+test("站点名里的换行与连续空白压成一行", () => {
+  const message = loginKeyMessage("048291", { name: "  王 的\n\n站点\t " });
+  assert.equal(message.subject, "王 的 站点 登录密钥");
+  assert.equal(/[\r\n]/.test(message.subject), false);
+  assert.match(message.text, /^王 的 站点 登录密钥$/m);
+});
+
+test("站点名按档案上限截断，主题不超中枢的长度限制", () => {
+  const long = "站".repeat(80);
+  const message = loginKeyMessage("048291", { name: long });
+  assert.equal([...message.subject].length, 40 + " 登录密钥".length);
+  // 中枢上限：主题 120 字，正文 4000 字。
+  assert.ok([...message.subject].length <= 120);
+  assert.ok([...message.text].length <= 4000);
+});
+
+test("联系方式写进信里，没有就不写那行", () => {
+  const withContact = loginKeyMessage("048291", {
+    name: "zhoujj",
+    url: "https://zhoujj.xknot.si",
+    contact: "owner@example.com",
+  });
+  assert.match(withContact.text, /需要帮助？联系 owner@example\.com/);
+  assert.match(withContact.html, /需要帮助？联系 owner@example\.com/);
+
+  const without = loginKeyMessage("048291", { name: "zhoujj", contact: "   " });
+  assert.doesNotMatch(without.text, /需要帮助/);
+  assert.doesNotMatch(without.html, /需要帮助/);
+
+  // 联系方式也是自由文本：压成一行、转义后再进信里。
+  const messy = loginKeyMessage("048291", { name: "zhoujj", contact: "a\n@example.com<script>" });
+  assert.match(messy.text, /联系 a @example\.com<script>/);
+  assert.doesNotMatch(messy.html, /<script>/);
 });
 
 test("登录密钥信跟着站点语种走", () => {
@@ -195,6 +233,143 @@ test("显式写了发信地址时以它为准", () => {
     "http://127.0.0.1:5181/api/federation/mail"
   );
   assert.equal(relayUrl({}), "");
+});
+
+test("发信方式与真实发信读同一份判定", () => {
+  assert.equal(mailChannel({ XKNOT_HUB_ORIGIN: "https://xknot.test", XKNOT_HUB_RELAY_TOKEN: "xkr_test" }), "relay");
+  assert.equal(mailChannel({ SMTP_HOST: "smtp.example.com", MAIL_FROM: "knot@example.com" }), "smtp");
+  assert.equal(mailChannel({ SMTP_HOST: "smtp.example.com", SMTP_FROM: "knot@example.com" }), "smtp");
+  // 只有主机没有发信地址：照样是未配置，不能报成能发。
+  assert.equal(mailChannel({ SMTP_HOST: "smtp.example.com" }), "none");
+  // 只有凭据没有中枢地址：推导不出委托地址。
+  assert.equal(mailChannel({ XKNOT_HUB_RELAY_TOKEN: "xkr_test" }), "none");
+  assert.equal(mailChannel({}), "none");
+});
+
+function withMailEnv(overrides, run) {
+  const keys = ["XKNOT_HUB_RELAY_URL", "XKNOT_HUB_ORIGIN", "XKNOT_HUB_RELAY_TOKEN", "SMTP_HOST", "MAIL_FROM", "SMTP_FROM"];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  Object.assign(process.env, overrides);
+  const restore = () => {
+    for (const key of keys) {
+      if (previous[key] == null) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  };
+  return Promise.resolve()
+    .then(run)
+    .finally(restore);
+}
+
+function fakeSmtp(t, sent) {
+  t.mock.method(nodemailer, "createTransport", () => ({
+    sendMail: async (message) => {
+      sent.push(message);
+      return { messageId: "test" };
+    },
+  }));
+}
+
+test("委托发信失败时回退本机 SMTP，同一把密钥照常寄出", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
+  const sent = [];
+  fakeSmtp(t, sent);
+  const warn = t.mock.method(console, "warn", () => {});
+  try {
+    await withMailEnv(
+      {
+        XKNOT_HUB_RELAY_URL: "https://xknot.test/api/federation/mail",
+        XKNOT_HUB_RELAY_TOKEN: "xkr_wang_test",
+        SMTP_HOST: "smtp.example.com",
+        MAIL_FROM: "knot@example.com",
+      },
+      () => sendLoginKey("lin@example.com", "048291", { name: "zhoujj", url: "https://zhoujj.xknot.si" })
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].from, "knot@example.com");
+  assert.equal(sent[0].subject, "zhoujj 登录密钥");
+  assert.match(sent[0].text, /048291/);
+  // 这一份是本机发出的，不该带代发声明；版面照常带上。
+  assert.doesNotMatch(sent[0].text, /联邦代/);
+  assert.match(sent[0].html, /zhoujj/);
+  assert.match(String(warn.mock.calls[0]?.arguments[0]), /委托发信失败/);
+  // 日志里不该出现收件地址或密钥。
+  assert.doesNotMatch(String(warn.mock.calls[0]?.arguments[0]), /lin@example\.com|048291/);
+});
+
+test("没有本机 SMTP 时委托失败就是失败，不吞错", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
+  try {
+    await withMailEnv(
+      {
+        XKNOT_HUB_RELAY_URL: "https://xknot.test/api/federation/mail",
+        XKNOT_HUB_RELAY_TOKEN: "xkr_wang_test",
+      },
+      async () => {
+        await assert.rejects(
+          () => sendLoginKey("lin@example.com", "048291"),
+          (error) => error.code === "relay_failed" && error.status === 503
+        );
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("一样都没配时说清楚是 mail_unavailable", async () => {
+  await withMailEnv({}, async () => {
+    await assert.rejects(
+      () => sendLoginKey("lin@example.com", "048291"),
+      (error) => error.code === "mail_unavailable"
+    );
+  });
+});
+
+test("建议与投诉只走本机 SMTP，不占委托额度", async (t) => {
+  const previousAdmin = process.env.KNOT_ADMIN_EMAIL;
+  process.env.KNOT_ADMIN_EMAIL = "owner@example.com";
+  const originalFetch = globalThis.fetch;
+  let relayed = 0;
+  globalThis.fetch = async () => {
+    relayed += 1;
+    return { ok: true, json: async () => ({ ok: true }) };
+  };
+  const sent = [];
+  fakeSmtp(t, sent);
+  try {
+    await withMailEnv(
+      {
+        XKNOT_HUB_RELAY_URL: "https://xknot.test/api/federation/mail",
+        XKNOT_HUB_RELAY_TOKEN: "xkr_wang_test",
+        SMTP_HOST: "smtp.example.com",
+        MAIL_FROM: "knot@example.com",
+      },
+      () =>
+        sendFeedback({
+          kind: "complaint",
+          accountEmail: "name@example.com",
+          userId: "user-1",
+          body: "页面打不开",
+          site: "zhoujj",
+        })
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousAdmin == null) delete process.env.KNOT_ADMIN_EMAIL;
+    else process.env.KNOT_ADMIN_EMAIL = previousAdmin;
+  }
+  assert.equal(relayed, 0);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, "owner@example.com");
+  assert.equal(sent[0].replyTo, "name@example.com");
+  assert.equal(sent[0].subject, "zhoujj 投诉");
 });
 
 test("a complaint letter names the account and keeps the text", () => {

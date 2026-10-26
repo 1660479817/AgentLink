@@ -676,6 +676,7 @@ export function agentRouter({ pool, uploadDir, storeEnabled = false, profile = n
         accountEmail: access.email,
         userId: access.userId,
         body: text,
+        site: mailSite().name,
       });
     } catch (error) {
       feedbackAt.delete(access.userId);

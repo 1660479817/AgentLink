@@ -300,6 +300,7 @@ When your own SMTP is hard to deliver, hand the notification to the hub. Contrac
 | Precondition | instance in the manifest with `status: active`; hub has SMTP configured |
 | How to enable | on by default. The access material the operator generates via `access` carries `XKNOT_HUB_RELAY_TOKEN`; the instance writes it into the access material and restarts — no node-side code change |
 | How to disable | per instance on the hub: `relay-disable <instance>` (recoverable) / `relay-revoke <instance>` (irreversible); globally: the `/admin` mail master switch (one click stops, recoverable) or `XKNOT_RELAY_ENABLED=0` (stops only relay). Instance side for pure SMTP: just leave this item out |
+| Instance fallback | with a working local SMTP (host and sender address) configured too, a stopped or exhausted relay falls back to the instance's own SMTP; a relay-only instance cannot mail sign-in keys while relay is off |
 | Instance config | `XKNOT_HUB_ORIGIN=https://xknot.si`, `XKNOT_HUB_RELAY_TOKEN=…`; the send address is derived from the hub address |
 | Sender | always the hub's `MAIL_FROM`; the instance cannot override |
 | Reply | `Reply-To` must fall within the instance's own domain; when omitted, the manifest's `contact` is used |

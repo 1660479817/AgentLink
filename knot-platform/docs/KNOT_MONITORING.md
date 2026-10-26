@@ -627,4 +627,6 @@ that it cries wolf.
 - No whole-file replacement of `main`'s `AGENTS.md`; only the managed block, with a
   one-time backup.
 - No self-test button (it is a business write and needs its own decision), no daily digest
-  mail (the SMTP path exists for login keys), no alert banner yet.
+  mail (mail is reserved for sign-in keys and for suggestions or complaints to the site
+  owner, so it is not a notification channel; sign-in keys may be relayed by the hub),
+  no alert banner yet.

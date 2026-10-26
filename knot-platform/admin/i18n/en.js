@@ -507,6 +507,7 @@ export default {
   "xknot.notHttps": "not https (reported as unknown)",
   "xknot.mail": "Mail delivery",
   "xknot.mailRelay": "via the hub",
+  "xknot.mailRelayFallback": "via the hub, falling back to local SMTP",
   "xknot.mailSmtp": "local SMTP",
   "xknot.mailNone": "not configured",
   "xknot.waitingHub": "Waiting for the hub",
