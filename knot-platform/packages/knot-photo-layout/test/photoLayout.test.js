@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LAYOUT_RULES, photoAspect, planPhotoBoxes, planPhotoLayout, planPhotoRows, rowShares } from "../src/index.js";
+import {
+  LAYOUT_RULES,
+  POSTER_LAYOUT_RULES,
+  photoAspect,
+  planPhotoBoxes,
+  planPhotoLayout,
+  planPhotoRows,
+} from "../src/index.js";
 
 const LANDSCAPE = 1920 / 1080;
 const PORTRAIT = 1080 / 1440;
@@ -26,9 +33,15 @@ test("a row keeps every cell the picture's own ratio", () => {
   assert.equal(photoAspect({ width: 1920, height: 1080 }), 1920 / 1080);
   assert.equal(photoAspect({ width: 0, height: 0 }), 4 / 3);
   assert.equal(photoAspect({}), 4 / 3);
-  // 极端比例夹在 0.4 到 3.5 之间：再长的全景只当全景，不该把一行压成一条线。
-  assert.equal(photoAspect({ width: 400, height: 4000 }), 0.4);
-  assert.equal(photoAspect({ width: 4000, height: 400 }), 3.5);
+  // 真实比例原样返回，极端的也保留：夹取只发生在排版的盒子形状上。
+  assert.equal(photoAspect({ width: 400, height: 4000 }), 0.1);
+  assert.equal(photoAspect({ width: 4000, height: 400 }), 10);
+  // 盒子形状夹在 1:4 到 8:1 之间：再长的截图与 1:4 排成同一个盒子，再宽的全景与 8:1 一样。
+  assert.equal(planPhotoRows([1 / 8])[0].height, planPhotoRows([1 / 4])[0].height);
+  assert.equal(planPhotoRows([20])[0].height, planPhotoRows([8])[0].height);
+  // 但裁切代价按真实比例算：1:8 比 1:4 多裁一截，20:1 比 8:1 多裁一截。
+  assert.ok(planPhotoRows([1 / 8])[0].crop > planPhotoRows([1 / 4])[0].crop);
+  assert.ok(planPhotoRows([20])[0].crop > planPhotoRows([8])[0].crop);
 });
 
 test("four landscape pictures take two rows instead of four squares", () => {
@@ -62,25 +75,30 @@ test("a tie puts the taller row on top", () => {
 });
 
 test("a row that would be too tall is cropped, not shrunk", () => {
-  // 一张 1:1.6 的竖版长图：满宽一条，行高顶到 maxRow，多出来的下半截裁掉。
-  const [tall] = planPhotoRows([1 / 1.6]);
+  // 一张 1:2.5 的竖版长图：满宽一条，行高顶到 maxRow（2），多出来的下半截裁掉。
+  const [tall] = planPhotoRows([1 / 2.5]);
   assert.equal(tall.cells.length, 1);
   assert.equal(tall.height, LAYOUT_RULES.maxRow);
   assert.ok(tall.cropped && tall.vertical);
-  // 可见比例 = maxRow / 自然行高，1:1.6 的长图约看到八成。
+  // 可见比例 = maxRow / 自然行高，1:2.5 的长图约看到八成。
   assert.ok(tall.height / tall.natural > 0.7);
+  assert.ok(tall.height / tall.natural < 0.85);
+  // 1:2 以内不裁：手机截图多在 1:2 附近，行高还没顶到上限。
+  const [phone] = planPhotoRows([1 / 2]);
+  assert.ok(!phone.cropped);
+  assert.equal(phone.height, 2);
 
   // 更长的截图裁得更多，但行高不会超过同一个上限，也不会因为「太长」换一种排法：
-  // 比例先夹到 0.4，所以 1:8 与 1:2.5 在排版眼里是同一件事（可见一半），差的部分由 cover 继续收。
+  // 盒子形状先夹到 1:4，所以行高与 1:4 一样；裁切代价却按真实的 1:8 算（只留下四分之一）。
   const [long] = planPhotoRows([1 / 8]);
   assert.equal(long.height, LAYOUT_RULES.maxRow);
   assert.ok(long.cropped && long.vertical);
-  assert.ok(long.height / long.natural <= 0.5);
+  assert.ok(Math.abs(long.crop - Math.log(4)) < 1e-9, `crop was ${long.crop}`);
 });
 
 test("a picture inside the rules is not cropped at all", () => {
-  // 上限是 4:5：比它矮的竖图（1280x1440 之类）、方图、宽景都原样显示。
-  for (const [width, height] of [[1920, 1080], [1080, 1080], [1200, 1400], [2400, 900]]) {
+  // 上限是 1:2：比它矮的竖图（1080x2160 之类）、方图、宽景、8:1 以内的全景都原样显示。
+  for (const [width, height] of [[1920, 1080], [1080, 1080], [1200, 1400], [2400, 900], [1080, 2160], [4000, 1000], [5600, 800]]) {
     const [row] = planPhotoRows([width / height]);
     assert.equal(row.cells.length, 1);
     assert.ok(!row.cropped, `${width}x${height} was cropped`);
@@ -128,6 +146,47 @@ test("no cell gets narrower than a finger can hit", () => {
   }
 });
 
+test("a cell too narrow to tap is split off, not squeezed in", () => {
+  // 极端比例被夹取之后，1:8 的长截图和 16:9 挤在一行只剩 12% 宽（326px 上约 40px），
+  // 够不上 44px 的按动下限。这不是罚分能解决的事：宁可各占一行，也不留一格按不住。
+  const sets = [[1 / 8, 1.78], [1 / 8, 1.78, 1.78, 1.78], [1 / 8, 1 / 8, 1.78, 1.78], [1.78, 1 / 4]];
+  for (const aspects of sets) {
+    const rows = planPhotoRows(aspects);
+    assertCoversAll(rows, aspects.length);
+    for (const row of rows) {
+      for (const share of row.shares) {
+        assert.ok(share >= LAYOUT_RULES.minTapShare - 1e-9, `${aspects} left a cell of ${Math.round(share * 326)}px`);
+      }
+    }
+  }
+  // 1:8 + 16:9：两行各一格，而不是一行里一格 40px。
+  assert.deepEqual(counts(planPhotoRows([1 / 8, 1.78])), [1, 1]);
+  // 正常比例的混排不受这条底线影响：一竖三横仍然排成 2+2。
+  assert.deepEqual(counts(planPhotoRows([0.75, 1.78, 1.78, 1.78])), [2, 2]);
+  assert.deepEqual(counts(planPhotoRows([0.75, 1.78, 1, 1.78, 0.75])), [2, 3]);
+});
+
+test("the poster's height budget is a ceiling; the card's is a soft target", () => {
+  // 极端比例凑在一起时两份预算会做出不同选择：
+  // 卡片要让每格都按得住，宁可一张一行、整组变高；海报不点，且必须塞进 maxCard，
+  // 所以允许格子窄（两张极端图挤一行），整块不高。
+  const aspects = [0.125, 10, 20, 1, 0.25, 10, 8, 20, 0.125];
+  const height = (rows) => rows.reduce((sum, row) => sum + row.height, 0);
+  const card = planPhotoRows(aspects);
+  const poster = planPhotoRows(aspects, POSTER_LAYOUT_RULES);
+  assertCoversAll(card, aspects.length);
+  assertCoversAll(poster, aspects.length);
+  assert.ok(height(poster) <= POSTER_LAYOUT_RULES.maxCard + 1e-9, `poster was ${height(poster).toFixed(2)} rows`);
+  assert.ok(height(card) > height(poster));
+  // 没开 strictCard 时同一个预算只是罚分，会为了少裁而超出去——海报的高度上限就守不住了。
+  const soft = planPhotoRows(aspects, { ...POSTER_LAYOUT_RULES, strictCard: false });
+  assert.ok(height(soft) > POSTER_LAYOUT_RULES.maxCard + 1e-9);
+  // 普通比例的图两份预算排法一致，只有行高不同。
+  for (const normal of [[0.75, 1.78, 1, 1.78, 0.75], [1.78, 0.75, 0.75], Array(9).fill(0.75)]) {
+    assert.deepEqual(counts(planPhotoRows(normal, POSTER_LAYOUT_RULES)), counts(planPhotoRows(normal)));
+  }
+});
+
 test("no row is longer than the rule allows", () => {
   for (const count of [2, 3, 4, 5, 6, 7, 8, 9]) {
     for (const row of rowsFor(PORTRAIT, count)) {
@@ -168,7 +227,10 @@ test("one picture is planned as a row of one", () => {
   const plan = planPhotoLayout([{ url: "/a", width: 1200, height: 1600 }]);
   assert.equal(plan.rows.length, 1);
   assert.deepEqual(plan.rows[0].cells, [0]);
-  assert.ok(plan.rows[0].cropped, "a 3:4 picture is cropped to the 4:5 ceiling");
+  assert.ok(!plan.rows[0].cropped, "a 3:4 picture fits the 1:2 ceiling");
+  // 超过 1:2 才裁：1:3 的截图顶到上限，只留下三分之二。
+  const tall = planPhotoLayout([{ url: "/b", width: 1080, height: 3240 }]);
+  assert.ok(tall.rows[0].cropped && tall.rows[0].vertical);
   assert.deepEqual(planPhotoLayout([]), { rows: [] });
 });
 
@@ -190,10 +252,25 @@ test("each row's shares add up to one", () => {
   // 份额归一之后，flex 才一定铺满整行（grow 之和小于 1 时浏览器会留下空档）。
   for (const aspects of [[1], [0.75], [LANDSCAPE, LANDSCAPE], [0.4, 1.78, 3.5, 1]]) {
     for (const row of planPhotoRows(aspects)) {
-      const total = rowShares(aspects, row.cells).reduce((sum, share) => sum + share, 0);
+      const total = row.shares.reduce((sum, share) => sum + share, 0);
       assert.ok(Math.abs(total - 1) < 1e-9, `shares added up to ${total}`);
     }
   }
+});
+
+test("a planned row carries its cell shares", () => {
+  // 卡片直接拿 row.shares 落 CSS；份额必须随行给出，不能靠调用方再传一遍比例。
+  const [row] = planPhotoRows([0.5, 1.5]);
+  assert.deepEqual(row.cells, [0, 1]);
+  assert.ok(Math.abs(row.shares[0] - 0.25) < 1e-9);
+  assert.ok(Math.abs(row.shares[1] - 0.75) < 1e-9);
+  // 一张没尺寸的图按 4:3 参与份额，不会把整行宽度算给别人。
+  const plan = planPhotoLayout([
+    { url: "/a", width: 500, height: 1000 },
+    { url: "/b", width: 1500, height: 1000 },
+  ]);
+  assert.ok(Math.abs(plan.rows[0].shares[0] - 0.25) < 1e-9);
+  assert.ok(Math.abs(plan.rows[0].shares[1] - 0.75) < 1e-9);
 });
 
 test("boxes fill the width and stack in the planned rows", () => {
@@ -226,13 +303,17 @@ test("boxes fill the width and stack in the planned rows", () => {
   assert.equal(secondRow.y, firstBottom + 2);
 });
 
-test("a taller budget keeps a portrait screenshot whole in the share poster", () => {
-  const tall = { width: 598, height: 949 };
+test("the poster budget keeps a portrait screenshot whole where the card crops it", () => {
+  // 一张比卡片上限高、比海报上限矮的竖版截图：卡片裁一截，分享图整张放得下。
+  // 取哪张图由两份预算算出来，不钉死某个比例——预算调了，这条自然换一张符合条件的图。
+  const width = 598;
+  const height = Math.round(width * ((LAYOUT_RULES.maxRow + POSTER_LAYOUT_RULES.maxRow) / 2));
+  const tall = { width, height };
   const card = planPhotoBoxes([tall], { width: 936 });
   assert.equal(card.boxes[0].cropped, true);
   // 分享图的预算更宽：同一张图不裁，行高就是它的自然高度。
-  const poster = planPhotoBoxes([tall], { width: 936, rules: { ...LAYOUT_RULES, maxRow: 3, maxCard: 3 } });
+  const poster = planPhotoBoxes([tall], { width: 936, rules: POSTER_LAYOUT_RULES });
   assert.equal(poster.boxes[0].cropped, false);
-  assert.equal(poster.boxes[0].height, Math.round((949 / 598) * 936));
+  assert.equal(poster.boxes[0].height, Math.round((height / width) * 936));
 });
 

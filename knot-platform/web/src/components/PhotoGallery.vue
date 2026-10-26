@@ -4,7 +4,7 @@ import PhotoLightbox from "./PhotoLightbox.vue";
 import { t } from "../i18n/index.js";
 import { photoAlt } from "../mediaLabel.js";
 // 排版算法在 @knot/photo-layout：卡片与分享图各有一套预算，但切行与裁剪的判断只有那一份。
-import { planPhotoLayout, rowShares } from "@knot/photo-layout";
+import { planPhotoLayout } from "@knot/photo-layout";
 
 const props = defineProps({
   // [{ url, width, height }]。宽高用来算多图的切分与行高，缺了就按 4:3 猜。
@@ -22,24 +22,21 @@ const plan = computed(() => planPhotoLayout(items.value));
 const urls = computed(() => items.value.map((photo) => photo.url));
 
 // 行高与裁切方向都由 @knot/photo-layout 算好，这里只把数字落到 CSS 变量上，不做「单图/长图」这类判断。
-// 每格的份额由 rowShares 归一（一行加起来正好 1）：行宽按份额分给各格，
+// 每格的份额也随行给出（一行加起来正好 1）：行宽按份额分给各格，
 // 格子宽高比因此等于图片比例；行高被规则夹住时，差额由 cover 裁掉，is-vertical 只决定往哪头对齐。
 const rows = computed(() =>
-  plan.value.rows.map((row) => {
-    const shares = rowShares(items.value, row.cells);
-    return {
-      key: row.cells.join("-"),
-      aspect: row.aspect.toFixed(4),
-      cropped: row.cropped,
-      vertical: row.vertical,
-      cells: row.cells.map((position, offset) => ({
-        position,
-        url: items.value[position].url,
-        share: shares[offset].toFixed(4),
-        alt: photoAlt(t, props.label, position, items.value.length),
-      })),
-    };
-  })
+  plan.value.rows.map((row) => ({
+    key: row.cells.join("-"),
+    aspect: row.aspect.toFixed(4),
+    cropped: row.cropped,
+    vertical: row.vertical,
+    cells: row.cells.map((position, offset) => ({
+      position,
+      url: items.value[position].url,
+      share: row.shares[offset].toFixed(4),
+      alt: photoAlt(t, props.label, position, items.value.length),
+    })),
+  }))
 );
 
 function openAt(position) {

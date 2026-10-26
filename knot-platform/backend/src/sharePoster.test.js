@@ -5,9 +5,10 @@ import path from "node:path";
 import test from "node:test";
 import QRCode from "qrcode";
 import sharp from "sharp";
+// 海报预算从排版包取：测试要钉的是「预算与它驱动的结果一致」，不是把数字再抄一份。
+import { POSTER_LAYOUT_RULES } from "@knot/photo-layout";
 import {
   MAX_HEIGHT,
-  MAX_PREVIEW_HEIGHT,
   SHARE_HOST,
   SHARE_PAGE,
   buildSharePoster,
@@ -453,7 +454,8 @@ test("an extremely tall preview is cropped instead of stretching the picture", a
     .toBuffer();
   const content = { body: "", video: false, audioName: "", fileName: "", image: true, preview };
   const layout = await buildSharePoster(content);
-  assert.equal(layout.previewBox.height, MAX_PREVIEW_HEIGHT);
+  // 预览框由海报预算算出来：期望值从规则取，不再有一个「预览专用」的上限常量。
+  assert.equal(layout.previewBox.height, Math.round(POSTER_LAYOUT_RULES.maxRow * layout.previewBox.width));
   assert.ok(layout.height <= MAX_HEIGHT);
   const jpeg = await renderSharePoster(content);
   const meta = await sharp(jpeg).metadata();
@@ -508,15 +510,50 @@ test("a long screenshot keeps the top and never eats the whole picture", async (
   const content = { body: "", video: false, audioName: "", fileName: "", image: true, photos: [{ file: tall, width: 300, height: 2400 }] };
   const layout = await buildSharePoster(content);
   const box = layout.photoBoxes[0];
-  // 比 1:2.5 还长的截图按 1:2.5 记（再长就跟内容无关了），行高仍在 3 倍内容宽以内。
-  assert.equal(box.height, Math.round(2.5 * 936));
-  assert.ok(box.height <= 3 * 936);
+  // 行高顶到海报预算，再长也不再抬高整张海报。期望值从规则算、不写死像素：
+  // 行高上限或内容宽再调一次，这条测试跟着一起走，而不是跟着某一个像素值变红。
+  assert.equal(box.height, Math.round(POSTER_LAYOUT_RULES.maxRow * box.width));
+  assert.ok(box.cropped && box.vertical);
+  // 这张图整张放下要占 8 倍内容宽，远超预算，所以框的高度是被预算夹出来的。
+  assert.ok((2400 / 300) * box.width > box.height);
   assert.ok(layout.height <= MAX_HEIGHT);
   const jpeg = await renderSharePoster(content);
   const { data, info } = await sharp(jpeg).raw().toBuffer({ resolveWithObject: true });
   // 裁的是下半截：框顶那几行是原图的开头（蓝），不是空白。
   const offset = (box.y + 12) * info.width * info.channels + (box.x + 12) * info.channels;
   assert.ok(data[offset + 2] > 120 && data[offset] < 120);
+});
+
+test("one picture lands in the same box on both paths, tall, wide, and square", async () => {
+  // 同一张图走两条路：有尺寸时进拼图，没尺寸时退回单图预览（尺寸从文件里读回来）。
+  // 两条路必须落进同一个框——长截图被上限压下来的高度、宽景被下限抬起来的高度、
+  // 方图不被碰的高度，三样都要一致。只对齐其中一边，同一张照片换个入口就是另一个尺寸。
+  for (const [width, height] of [[300, 4800], [4800, 600], [936, 936]]) {
+    const file = await picture(width, height, { r: 30, g: 60, b: 200 });
+    const collage = await buildSharePoster({
+      body: "",
+      video: false,
+      audioName: "",
+      fileName: "",
+      image: true,
+      photos: [{ file, width, height }],
+    });
+    const preview = await buildSharePoster({ body: "", video: false, audioName: "", fileName: "", image: true, preview: file });
+    const box = collage.photoBoxes[0];
+    assert.equal(preview.previewBox.height, box.height, `${width}x${height}`);
+    assert.equal(preview.previewBox.width, box.width, `${width}x${height}`);
+  }
+});
+
+test("a poster with extreme pictures still fits the height limit", async () => {
+  // 九张极端比例的图（长截图与全景混排）：拼图必须塞进海报的高度上限。
+  // 排法由 POSTER_LAYOUT_RULES 的 maxCard 硬约束保证；没有它，求解器会为了少裁
+  // 把整块拼图排到七八倍内容宽，海报就超过 MAX_HEIGHT 了。
+  const dims = [[125, 1000], [10000, 1000], [20000, 1000], [1000, 1000], [250, 1000], [10000, 1000], [8000, 1000], [20000, 1000], [125, 1000]];
+  const photos = dims.map(([width, height], index) => ({ file: `/tmp/extreme-${index}.png`, width, height }));
+  const layout = await buildSharePoster({ body: "", video: false, audioName: "", fileName: "", image: true, photos });
+  assert.equal(layout.photoBoxes.length, 9);
+  assert.ok(layout.height <= MAX_HEIGHT, `the poster was ${layout.height}px tall`);
 });
 
 test("a post with several pictures is read as a photo set", async () => {
