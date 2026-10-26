@@ -68,9 +68,20 @@ export function documentLang({ locale, text } = {}) {
   return inferLocale(text);
 }
 
+/**
+ * 把多行文字收成一行。
+ *
+ * 站点自述是主理人在 /admin 里写的，带换行很正常。换行进了 <title> 与 meta 的
+ * content，标签页会折行、分享预览截在第一行，搜索引擎也读到一个断句的句子。
+ * HTML 里读得到的那几段正文不走这里，换行在那里仍然是换行。
+ */
+function oneLine(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
 /** 按字符截断，避免把 emoji 或中文切一半。 */
 function clip(text, limit) {
-  const chars = [...String(text ?? "").trim()];
+  const chars = [...oneLine(text)];
   return chars.length <= limit ? chars.join("") : chars.slice(0, limit).join("");
 }
 
@@ -89,7 +100,7 @@ function cleanSite(site, fallbackName) {
 }
 
 function metaTag(attr, key, value) {
-  return `    <meta ${attr}="${key}" content="${escapeHtml(value)}" />`;
+  return `    <meta ${attr}="${key}" content="${escapeHtml(oneLine(value))}" />`;
 }
 
 /**
