@@ -619,6 +619,8 @@ test("render: the page shell is cached briefly so a tunnel blip opens a shell in
   assert.match(shell, /proxy_cache knot_cache_cpswang_xknot_si;/);
   assert.match(shell, /proxy_cache_valid 200 10s;/);
   assert.match(shell, /proxy_cache_background_update on;/);
+  // 404 也要能存：后台刷新拿到 404 时若存不下，旧壳就一直有效——软 404 下线等于没改。
+  assert.match(shell, /proxy_cache_valid 404 10s;/);
   assert.match(shell, /proxy_cache_use_stale error timeout updating/);
   // 上游对 index.html 发 no-cache，不忽略就一条都存不下。
   assert.match(shell, /proxy_ignore_headers Cache-Control Expires;/);
