@@ -522,6 +522,9 @@ ${proxyDirectives(8, upstream)}
         # 拼错的地址、/help 这类路径在入口这一层继续是 200，改等于没改。
         # 负缓存只留 10 秒，和正缓存同档：路径恢复时最多多看十秒的 404。
         proxy_cache_valid 404 10s;
+        # 301 同理：地址换了位置（/discover.html → /discover）也是从 200 变更来的，
+        # 不缓存跳转就换不掉旧壳，两个地址会一直都能打开。
+        proxy_cache_valid 301 10s;
         # 过期后先把旧的发出去，刷新在后台做：过期那一下也不让访客等隧道。
         proxy_cache_background_update on;
         # 隧道断了、后端 5xx 了，发上一次的壳。这是静态投放那一档能力，
