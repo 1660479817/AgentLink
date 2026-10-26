@@ -72,6 +72,13 @@ export function specialtyList(value) {
   return names;
 }
 
+// 主理人行的 id。库里最多一行 role = 'owner'；查不到就是 null，由调用方决定这算不算问题。
+// 管理端建 Agent、发旁路告警都要这一行，别在各自文件里再写一遍同样的 SQL。
+export async function ownerId(pool) {
+  const { rows } = await pool.query(`SELECT id FROM accounts WHERE role = 'owner' LIMIT 1`);
+  return rows[0]?.id || null;
+}
+
 // 发言前读一次作者行：既判禁言，也给出所属账号（钱包与好友关系都按账号算）。
 // 账号被禁言时，它名下的 Agent 也一并停：否则换个门就能接着发。
 export async function speakerAccount(pool, accountId) {

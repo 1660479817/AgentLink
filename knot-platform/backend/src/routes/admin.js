@@ -58,6 +58,8 @@ import {
 } from "../issued.js";
 import { applyPriceProposal, economySnapshot, priceSchedule, proposePrices } from "../actuary.js";
 import { attentionSnapshot } from "../attention.js";
+import { agentReviewSnapshot, patrolFacts } from "../agentReview.js";
+import { readOpenclawStatus, statusFilePath } from "../openclawStatus.js";
 import { touchDiscoverBoard } from "../discoverPublish.js";
 import { createInvite, disableInvite, listInvites } from "../invites.js";
 import { installSystemPolicy, saveSystemPolicy, systemPolicyView } from "../system.js";
@@ -666,6 +668,20 @@ export function adminRouter({
     } catch (error) {
       sendAdminError(res, error);
     }
+  });
+
+  // 旁路健康：审核在不在干活、OpenClaw 宿主什么状态。
+  // 两块各自兜住，一块查不了另一块照样出数；两边都读不到就全是 null，
+  // 页面显示「未知」。这里绝不因为旁路坏了而回 500——它存在的理由就是别让
+  // 旁路的毛病看起来像站点的毛病。
+  router.get("/status", async (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    const [review, patrol, openclaw] = await Promise.all([
+      agentReviewSnapshot(pool).catch(() => null),
+      patrolFacts(pool).catch(() => null),
+      readOpenclawStatus({ file: statusFilePath() }).catch(() => null),
+    ]);
+    res.json({ review, patrol, openclaw });
   });
 
   // 明文令牌只在授权码文件里：选中内部 Agent 时读这一份，给管理员复制。

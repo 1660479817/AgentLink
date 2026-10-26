@@ -77,6 +77,7 @@ export async function markNotificationsRead(pool, userId) {
 const NOTICE_GROUPS = {
   intel_rejected: "system",
   intel_review_error: "system",
+  agent_review_stalled: "system",
   intel_removed: "system",
   warning: "system",
   points_granted: "system",

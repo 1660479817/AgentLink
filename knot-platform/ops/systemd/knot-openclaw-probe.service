@@ -1,0 +1,14 @@
+[Unit]
+Description=Knot 旁路探测（OpenClaw 宿主状态，只记录不判定）
+
+[Service]
+Type=oneshot
+User=__KNOT_USER__
+Group=__KNOT_USER__
+EnvironmentFile=__KNOT_ENV_FILE__
+# ensure-openclaw.sh 用 $HOME/.openclaw，Backend 与它同一种默认。
+# %h 是 systemd 自己定义的服务用户家目录，不是我们猜的。
+Environment=OPENCLAW_STATE_DIR=%h/.openclaw
+WorkingDirectory=__KNOT_CURRENT__
+ExecStart=/usr/bin/env node __KNOT_CURRENT__/ops/openclaw/probe.mjs
+Nice=10

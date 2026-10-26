@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BIO_MAX, NAME_MAX, bioText, displayNameText, specialtyList, storedSpecialties } from "./account.js";
+import { BIO_MAX, NAME_MAX, bioText, displayNameText, ownerId, specialtyList, storedSpecialties } from "./account.js";
 
 test("specialties keep the first spelling of each name", () => {
   assert.deepEqual(specialtyList([" 网页搜索 ", "网页搜索", "资料整理"]), ["网页搜索", "资料整理"]);
@@ -35,4 +35,11 @@ test("a display name collapses whitespace and stays non-empty", () => {
   assert.throws(() => displayNameText("   "), (error) => error.code === "bad_name");
   assert.throws(() => displayNameText(null), (error) => error.code === "bad_name");
   assert.throws(() => displayNameText("字".repeat(NAME_MAX + 1)), (error) => error.code === "bad_name");
+});
+
+test("the owner lookup answers null instead of failing when the row is missing", async () => {
+  const withOwner = { async query() { return { rows: [{ id: "owner-1" }] }; } };
+  assert.equal(await ownerId(withOwner), "owner-1");
+  const empty = { async query() { return { rows: [] }; } };
+  assert.equal(await ownerId(empty), null);
 });

@@ -7,6 +7,7 @@ import {
   storedSpecialties,
   displayNameText,
   agentLimitOf,
+  ownerId,
   AGENT_LIMIT,
   USER_LIMIT,
 } from "./account.js";
@@ -364,16 +365,15 @@ export async function issueInternalAgent(pool, name, options = {}) {
   if (!envDir) throw fail("env_unconfigured");
   const writeEnv = options.writeEnv || writeAgentEnvFile;
 
-  const owner = await pool.query(`SELECT id FROM accounts WHERE role = 'owner' LIMIT 1`);
-  const ownerId = owner.rows[0]?.id;
-  if (!ownerId) throw fail("owner_unconfigured");
+  const owner = await ownerId(pool);
+  if (!owner) throw fail("owner_unconfigured");
 
   const found = await pool.query(
     `SELECT ${ACCOUNT_COLUMNS} FROM accounts WHERE lower(btrim(display_name)) = lower(btrim($1))`,
     [displayName]
   );
   const existing = found.rows[0];
-  if (existing && (existing.role !== "agent" || existing.owner_id !== ownerId)) throw fail("name_taken");
+  if (existing && (existing.role !== "agent" || existing.owner_id !== owner)) throw fail("name_taken");
   if (existing && !existing.retired_at) {
     return { ok: true, created: false, issued: false, already: true, envFile: null, agent: presentIssued(existing) };
   }
@@ -382,11 +382,11 @@ export async function issueInternalAgent(pool, name, options = {}) {
   try {
     issued = existing
       ? await reviveAgent(pool, existing.id, specialties)
-      : await createAgent(pool, { ownerId, name: displayName, specialties });
+      : await createAgent(pool, { ownerId: owner, name: displayName, specialties });
   } catch (error) {
     throw mapAgentError(error) || error;
   }
-  issued.ownerId = ownerId;
+  issued.ownerId = owner;
 
   let envFile = null;
   try {
@@ -415,14 +415,13 @@ export async function issueInternalAgent(pool, name, options = {}) {
 
 // 管理端看到的 Agent 配额：内部 Agent 与每个外部账号的那一个。
 export async function listAgents(pool) {
-  const owner = await pool.query(`SELECT id FROM accounts WHERE role = 'owner' LIMIT 1`);
-  const ownerId = owner.rows[0]?.id || null;
-  const agents = ownerId ? await findAgentsOf(pool, ownerId, { includeRetired: true }) : [];
+  const owner = await ownerId(pool);
+  const agents = owner ? await findAgentsOf(pool, owner, { includeRetired: true }) : [];
   const users = await pool.query(
     `SELECT count(*)::int AS users FROM accounts WHERE role = 'user' AND retired_at IS NULL AND label IS NULL`
   );
   return {
-    ownerId,
+    ownerId: owner,
     internalLimit: AGENT_LIMIT.owner,
     internalUsed: agents.filter((agent) => !agent.retired_at).length,
     userLimit: USER_LIMIT,

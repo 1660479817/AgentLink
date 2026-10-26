@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { keyEntry } from "@knot/config";
 import { saveReviewExtract } from "./extracts.js";
-import { compareByWeight, createIntel, deleteOwnPost, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, presentIntel, publicAuthor, reviewFailureText, searchPublicIntel } from "./intel.js";
+import { compareByWeight, createIntel, deleteOwnPost, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, notifyOwnerReviewStalled, presentIntel, publicAuthor, reviewFailureText, searchPublicIntel } from "./intel.js";
 import { clearSearchCache } from "./searchCache.js";
 import { imageUploadLimit, itemPrice, serviceFee, policyConfig } from "./points.js";
 
@@ -357,6 +357,70 @@ test("the same review failure is told once, and a new one is told again", async 
   assert.equal(await noteReviewFailure(pool, id, new Error("agent_bad_json")), true);
   assert.equal(notes.length, 2);
   assert.match(notes[1][3], /没有交回可用结果/);
+});
+
+// 主人那条通知的池：只认这条路径上的三句 SQL，别的一律当「没有」。
+function stalledPool({ owner = "99999999-9999-4999-8999-999999999999", author = AUTHOR, claim = true } = {}) {
+  const notes = [];
+  const sqls = [];
+  const pool = {
+    async query(sql, params) {
+      sqls.push(sql);
+      if (sql.includes("role = 'owner'")) return { rows: owner ? [{ id: owner }] : [] };
+      if (sql.includes("UPDATE intel")) return { rows: claim ? [{ account_id: author }] : [] };
+      if (sql.includes("INSERT INTO notifications")) {
+        notes.push(params);
+        return { rows: [{ id: "n1" }] };
+      }
+      return { rows: [] };
+    },
+  };
+  return { pool, notes, sqls };
+}
+
+test("giving up also tells the owner, in a kind the summary can group", async () => {
+  const { pool, notes, sqls } = stalledPool();
+  assert.equal(await notifyOwnerReviewStalled(pool, "id", 10, { code: "agent_timeout" }), true);
+  assert.equal(notes.length, 1);
+  const [userId, kind, title, body, href, intelId, data] = notes[0];
+  assert.equal(userId, "99999999-9999-4999-8999-999999999999");
+  assert.equal(kind, "agent_review_stalled");
+  assert.equal(title, "数据评审员已停止重试");
+  assert.match(body, /连续 10 次/);
+  assert.match(body, /agent_timeout/);
+  assert.match(body, /智能体/);
+  // 主人不在站点页面上看这条：管理后台在内网地址，链接过去只会是一扇打不开的门。
+  assert.equal(href, null);
+  assert.equal(intelId, "id");
+  assert.deepEqual(JSON.parse(data), { code: "agent_timeout", attempts: 10 });
+  // 水印写回同一行：重启恢复从 10 次继续往上加时，不会每天重复通知一遍。
+  const claim = sqls.find((sql) => sql.includes("UPDATE intel"));
+  assert.match(claim, /reviewGaveUpNotified/);
+});
+
+test("no owner means no notice and no throw", async () => {
+  const { pool, notes } = stalledPool({ owner: null });
+  assert.equal(await notifyOwnerReviewStalled(pool, "id", 10), false);
+  assert.equal(notes.length, 0);
+});
+
+test("the owner who wrote the record is not told twice", async () => {
+  const author = "99999999-9999-4999-8999-999999999999";
+  const { pool, notes } = stalledPool({ author });
+  assert.equal(await notifyOwnerReviewStalled(pool, "id", 10, { code: "" }), false);
+  assert.equal(notes.length, 0);
+});
+
+test("the same watermark is reported once, whatever the retries do after it", async () => {
+  const { pool, notes } = stalledPool({ claim: false });
+  assert.equal(await notifyOwnerReviewStalled(pool, "id", 11, { code: "agent_failed" }), false);
+  assert.equal(notes.length, 0);
+});
+
+test("a missing error code is null in data, not an empty string", async () => {
+  const { pool, notes } = stalledPool();
+  await notifyOwnerReviewStalled(pool, "id", 10);
+  assert.deepEqual(JSON.parse(notes[0][6]), { code: null, attempts: 10 });
 });
 
 test("a finished record does not get a review-failure notice", async () => {

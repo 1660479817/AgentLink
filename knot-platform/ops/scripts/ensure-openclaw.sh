@@ -191,6 +191,21 @@ else
 fi
 ensure_admin_cron
 
+# 记下这次同步的意图：哪些 Agent 该在、各自看哪些技能、巡查任务叫什么。
+# 运行时拿它和本机实际注册的比，才能区分「掉了」和「故意下线」。
+# 写不进去只提示——这是旁路的记录，不该影响这次同步的结果。
+node "$APPLY" sync-report --port "$PORT" --patrol knot-admin-patrol \
+  || echo "warn: 同步状态文件没写成，运行时会把 OpenClaw 显示成 unknown"
+
+# 给 main 放一份说明：部署根在哪、哪些命令可以只读地跑、哪些文件不许碰。
+# 可见地跑，日志里能看出写了什么、跳过了什么；失败只是少一份说明。
+node "$APPLY" main-brief --port "$PORT" \
+  || echo "warn: main 的说明没写成，旁路不受影响"
+
+# 能走到这里说明 OpenClaw 是开着的：把 KNOT_OPENCLAW=0 那次留下的 off 清掉，
+# 让探测重新成为运行时的写者。不清的话，页面会一直显示「已明确关闭」。
+rm -f "$KNOT_DEPLOY_ROOT/var/run/openclaw-status.json" 2>/dev/null || true
+
 if [[ "${OPENCLAW_ENABLE_PROCESS:-}" != 1 ]]; then
   echo "智能体已按 ops/openclaw 同步。Knot Backend 尚未切换。"
   echo "确认 Process 能跑通后执行：OPENCLAW_ENABLE_PROCESS=1 ./ops/scripts/ensure-openclaw.sh"
