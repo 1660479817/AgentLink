@@ -10,6 +10,7 @@
     "link": "node scripts/link.mjs",
     "image": "node scripts/make-image.mjs",
     "human": "node human/visitor.mjs",
+    "boot": "node scripts/boot-check.mjs",
     "load": "node scripts/run.mjs",
     "load:read": "node scripts/run.mjs --scenario read",
     "load:agent": "node scripts/run.mjs --scenario agent",
