@@ -58,6 +58,8 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里。`/api/health` 的
 
 - **从 WebUI 经公网入口传图恢复正常**。入口的代理 location 写成 `location ^~ /api/web/uploads/`，nginx 因此把这条路径当成目录，对 `POST /api/web/uploads` 回 `301`；浏览器跟随时改发不带请求体的 `GET`，上传于是 404。static 与 proxy 两种投放都不再带尾斜杠，`/api/web/uploads/<id>` 的读取照旧，写请求能抵达后端。`ops/entry/site-conf.test.mjs` 渲染真模板，尾斜杠再回来就会失败。
 
+- **匿名读只有一个 TTL，入口照它留副本**。`/session` 与 `/home` 声明 `public, max-age=5`，`/information` 与 `/intel/:id` 声明十秒，而入口四个都缓存十秒——读者可能看到一份后端自己都说过期了的副本。现在四条路由共用 `ANON_CACHE`，`ops/entry/site-conf.test.mjs` 读它，入口的 `proxy_cache_valid` 一旦不一致就失败。
+
 ## [0.7.0] — 2026-10-24
 
 加固与双语化版本。这一版把审计波次收口成稳定基线：管理端多了「终审失败日志」栏，授权码轮换改成原子操作，可见性谓词收拢到一处，下载计费与管理路由补上测试覆盖，配置文档与模板改为英文生成，iOS HEIC 照片在上传前由浏览器转成 JPEG。

@@ -38,6 +38,12 @@ import { brandView } from "../profile.js";
 
 const MiB = 1024 * 1024;
 
+// 匿名公开读的缓存头。入口的静态投放按同一个 TTL 缓存
+// （ops/entry/site.conf.template 的 proxy_cache_valid 200 10s），两处必须一致：
+// 入口留着 10 秒的副本，后端却声明 5 秒，读者会在自己也没法解释的时间里看到旧内容。
+// 登录后的响应逐人不同，一律 private, no-store。
+const ANON_CACHE = "public, max-age=10";
+
 // 上传上限。默认值写在 ops/config/schema.mjs，环境变量只做覆盖。
 function envBytes(name, fallback) {
   const value = Number(process.env[name]);
@@ -223,7 +229,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   router.get("/session", async (req, res) => {
     // 匿名时这份响应只有站点开关与自述，和具体是谁无关：入口可以短缓存，
     // 让第一次打开不必为它穿一次跨境隧道。登录后必须逐人回源。
-    res.set("Cache-Control", req.account ? "private, no-store" : "public, max-age=5");
+    res.set("Cache-Control", req.account ? "private, no-store" : ANON_CACHE);
     const policy = policyConfig();
     // 站点默认语种由主理人在 /admin 里定。这里不按访客 IP 或 Accept-Language 猜：
     // 访客自己的选择在 WebUI 的本地存储与 accounts.locale 里，比这一项优先。
@@ -307,7 +313,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   router.get("/home", async (req, res) => {
     // 这是给某个人的一屏：登录的人不存浏览器缓存，也不许共享缓存留。
     // 未登录时内容只有站点开关与空个人态，入口可以缓存几秒吸收突发。
-    res.set("Cache-Control", req.account ? "private, no-store" : "public, max-age=5");
+    res.set("Cache-Control", req.account ? "private, no-store" : ANON_CACHE);
     const policy = policyConfig();
     const defaultLocale = parseLocale(profile?.view().site?.locale) || DEFAULT_SITE_LOCALE;
     const site = siteConfig();
@@ -847,7 +853,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
 
   router.get("/information", contentGate, async (req, res) => {
     // 匿名读到的公开信息流与具体是谁无关，入口可短缓存；登录后 starred/liked/mine 逐人不同。
-    res.set("Cache-Control", req.account ? "private, no-store" : "public, max-age=10");
+    res.set("Cache-Control", req.account ? "private, no-store" : ANON_CACHE);
     const author = String(req.query.author || "").trim();
     if (author && !INTEL_ID.test(author)) return res.json({ information: [], author: null });
     const before = String(req.query.before || "").trim();
@@ -863,7 +869,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   // 旧地址（首版或中间版）也解到修订链里最新的那一版，链接不会停在旧稿上。
   router.get("/intel/:id", contentGate, async (req, res) => {
     // 公开卡片对匿名读者是同一份内容；登录后才带自己的 star/like/mine。
-    res.set("Cache-Control", req.account ? "private, no-store" : "public, max-age=10");
+    res.set("Cache-Control", req.account ? "private, no-store" : ANON_CACHE);
     const id = String(req.params.id || "");
     if (!INTEL_ID.test(id)) return res.status(404).json({ error: "not_found" });
     const { rows } = await pool.query(

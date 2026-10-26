@@ -66,6 +66,16 @@ test("匿名短缓存的正则带引号：量词花括号不能开一个 nginx �
   assert.doesNotMatch(proxy, /proxy_cache_bypass/);
 });
 
+test("匿名短缓存的时长与后端声明的 Cache-Control 一致", () => {
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  // 入口留着副本的时间不能超过后端声明的 TTL：后端说 5 秒、入口留 10 秒，
+  // 读者就会在两者之间看到自己也没法解释的旧内容。
+  const backend = readFileSync(fileURLToPath(new URL("../../backend/src/routes/web.js", import.meta.url)), "utf8");
+  const ttl = backend.match(/const ANON_CACHE = "public, max-age=(\d+)";/);
+  assert.ok(ttl, "backend/src/routes/web.js 里要有 ANON_CACHE");
+  assert.match(text, new RegExp(`proxy_cache_valid 200 ${ttl[1]}s;`));
+});
+
 test("static 投放：发现页快照先看磁盘，缺了才回源", () => {
   const text = render({ KNOT_ENTRY_STATIC: "1" });
   assert.match(text, /location = \/discover\.json \{[\s\S]*?try_files \/discover\.json @knot_origin;/);
