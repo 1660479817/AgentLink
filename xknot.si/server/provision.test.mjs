@@ -181,8 +181,9 @@ test("render: compression, HTTP/2 and tunnel keepalive do not depend on static s
     assert.match(conf, /keepalive 16;/);
     assert.match(conf, /keepalive_timeout 4s;/);
     // 有 upstream 还必须配 Connection ""，否则 nginx 给上游发 close，keepalive 形同虚设。
-    // entry 阶段多四处：`/assets/`、`/api/web/uploads/`、`location /` 与 /discover.json 的回落。
-    assert.equal((conf.match(/proxy_set_header Connection "";/g) || []).length, entry ? 5 : 1);
+    // entry 阶段多五处：`/assets/`、`/api/web/uploads`、附件/音频/Agent 上传入口、
+    // `location /` 与 /discover.json 的回落。
+    assert.equal((conf.match(/proxy_set_header Connection "";/g) || []).length, entry ? 6 : 1);
     // 一个 conf 里 upstream 只能声明一次，否则 nginx -t 直接失败。
     assert.equal((conf.match(/^upstream /gm) || []).length, 1);
   }
@@ -553,8 +554,9 @@ test("render: before the tunnel is up, / is the placeholder and only /api is pro
 test("render: once the tunnel is up, / proxies to the instance so the WebUI shows", () => {
   const conf = renderVhost({ domain: "cpswang.xknot.si", root: "/var/www/cpswang", port: 18090, entry: true });
   assert.match(conf, new RegExp(ENTRY_PROXIED_MARK));
-  // `location /`、`/assets/`、`/api/web/uploads/`、`/api/`，以及 /discover.json 的回落入口。
-  assert.equal((conf.match(/proxy_pass http:\/\/knot_entry_18090;/g) || []).length, 5);
+  // `location /`、`/assets/`、`/api/web/uploads`、附件/音频/Agent 上传入口、`/api/`，
+  // 以及 /discover.json 的回落入口。
+  assert.equal((conf.match(/proxy_pass http:\/\/knot_entry_18090;/g) || []).length, 6);
   // 占位页不再有人访问：静态 root 上只剩 ACME 校验与中枢取回的公开快照。
   assert.equal((conf.match(/try_files/g) || []).length, 1);
   assert.match(conf, /try_files \/discover\.json @knot_origin;/);
@@ -766,13 +768,14 @@ test("switch: a rejected reload that cannot restart puts the old conf back", asy
 // 留下的。下面按「每个回源 location 必须具备哪些能力」逐条列，新增 location 时
 // 必须同时在清单里补一行，否则这里不会替你检查——清单本身就是这份契约。
 
-const PROXY_LOCATIONS = ["/api/", "/api/web/uploads/", "/assets/", "/", "@knot_origin"];
+const PROXY_LOCATIONS = ["/api/", "/api/web/uploads", "/api/uploads", "/assets/", "/", "@knot_origin"];
 
 function locationsOf(conf) {
   const found = new Map();
   const heads = {
     "/api/": "    location /api/ {",
-    "/api/web/uploads/": "    location ^~ /api/web/uploads/ {",
+    "/api/web/uploads": "    location ^~ /api/web/uploads {",
+    "/api/uploads": "    location ~ ^/api/(web/files|agent/(files|audio|uploads))$ {",
     "/assets/": "    location ^~ /assets/ {",
     "/": "    location / {",
     // /discover.json 只在磁盘上没有文件时才走到这里，所以它是唯一一个不回源不够、
@@ -802,10 +805,17 @@ test("render: every proxied location carries the same tunnel plumbing", () => {
       'proxy_set_header Connection "";',
       "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
       "proxy_set_header X-Forwarded-Proto $scheme;",
-      "proxy_read_timeout 120s;",
-      "proxy_send_timeout 120s;",
     ]) {
       assert.ok(block.includes(directive), `${name} 缺 ${directive}`);
+    }
+    // 上传可能传几分钟，两处放宽到 900 秒；其余仍按 120 秒，不让一个挂死的接口占住连接。
+    const upload = name === "/api/web/uploads" || name === "/api/uploads";
+    const timeout = upload ? "900s" : "120s";
+    assert.ok(block.includes(`proxy_read_timeout ${timeout};`), `${name} 缺 proxy_read_timeout ${timeout}`);
+    assert.ok(block.includes(`proxy_send_timeout ${timeout};`), `${name} 缺 proxy_send_timeout ${timeout}`);
+    if (upload) {
+      assert.match(block, /proxy_request_buffering on;/);
+      assert.match(block, /client_body_timeout 300s;/);
     }
   }
 });
@@ -815,7 +825,7 @@ test("render: uploads are cached at the entry, but the backend keeps the last wo
   // 但「能不能进共享缓存」必须由后端的 Cache-Control 决定（私帖是 private），
   // 所以这里绝不能像 /assets/ 那样 ignore Cache-Control。
   const conf = renderVhost({ domain: "zhoujj.xknot.si", root: "/var/www/zhoujj", port: 18091, entry: true });
-  const uploads = locationsOf(conf).get("/api/web/uploads/");
+  const uploads = locationsOf(conf).get("/api/web/uploads");
   assert.match(uploads, /proxy_cache knot_cache_zhoujj_xknot_si;/);
   assert.match(uploads, /proxy_cache_key "\$uri";/);
   assert.match(uploads, /proxy_cache_valid 200 1d;/);

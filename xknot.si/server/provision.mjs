@@ -380,9 +380,10 @@ const GZIP_BLOCK = `    gzip on;
  * 入口上每一个回源 location 都必须带这一整组：少了 `Connection ""`，nginx 给上游
  * 发 close，upstream 的 keepalive 形同虚设（每个请求重开一条穿隧道的 TCP）；
  * 少了 `proxy_send_timeout`，在慢上行发大文件会按默认 60 秒被掐断。
- * 所以四处（/api/、/api/web/uploads/、/assets/、/）都从这里取，不各写一份。
+ * 所以每个回源 location 都从这里取，不各写一份。上传端点要更长的超时：
+ * 请求体本身可能传几分钟，120 秒会把一个 2MB 以上的附件判成 504。
  */
-function proxyDirectives(indent, upstream) {
+function proxyDirectives(indent, upstream, { timeout = "120s" } = {}) {
   const pad = " ".repeat(indent);
   return [
     `proxy_pass http://${upstream};`,
@@ -392,8 +393,8 @@ function proxyDirectives(indent, upstream) {
     "proxy_set_header X-Real-IP $remote_addr;",
     "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
     "proxy_set_header X-Forwarded-Proto $scheme;",
-    "proxy_read_timeout 120s;",
-    "proxy_send_timeout 120s;",
+    `proxy_read_timeout ${timeout};`,
+    `proxy_send_timeout ${timeout};`,
   ]
     .map((line) => `${pad}${line}`)
     .join("\n");
@@ -472,15 +473,26 @@ proxy_cache_path /var/cache/nginx/${cacheName} levels=1:2 keys_zone=${cacheName}
     # 与静态投放的入口同一套语义：缓存键只有 $uri、不含会话，「能不能进共享缓存」
     # 完全交给后端的 Cache-Control（公开内容 public，只有当事人能读的 private，
     # 生成失败回退原件 no-store）。所以这里不 ignore 任何头——后端说了算。
-    location ^~ /api/web/uploads/ {
-${proxyDirectives(8, upstream)}
-        proxy_request_buffering off;
+    # 不带尾斜杠：带上之后 nginx 把 /api/web/uploads 当成目录，对 POST 回 301 补斜杠；
+    # 浏览器跟随时按 GET 重发、请求体丢掉，选好的图传上去就是 404。
+    location ^~ /api/web/uploads {
+${proxyDirectives(8, upstream, { timeout: "900s" })}
+        client_body_timeout 300s;
+        proxy_request_buffering on;
         proxy_cache ${cacheName};
         proxy_cache_key "$uri";
         proxy_cache_valid 200 1d;
         proxy_cache_lock on;
         proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
         add_header X-Knot-Cache $upstream_cache_status;
+    }
+
+    # 附件、音频与 Agent 的上传入口：都是慢链路上的大请求体，与图片上传同一档超时。
+    # 图片的 /api/web/uploads 由上面的 ^~ 前缀命中，这里补其余四个端点。
+    location ~ ^/api/(web/files|agent/(files|audio|uploads))$ {
+${proxyDirectives(8, upstream, { timeout: "900s" })}
+        client_body_timeout 300s;
+        proxy_request_buffering on;
     }
 
     location ^~ /assets/ {
@@ -601,9 +613,10 @@ ${GZIP_BLOCK}
         return 404 '{"error":"not_found"}';
     }
 
+    # 普通接口的请求体都很小，先收完再回源；不把请求体边收边转，避免一个慢上传
+    # 让 120 秒的读超时在请求体还没传完时就到期（上传端点已在上面的 location 放宽）。
     location /api/ {
 ${proxyDirectives(8, upstream)}
-        proxy_request_buffering off;
     }
 
 ${rootLocation}
