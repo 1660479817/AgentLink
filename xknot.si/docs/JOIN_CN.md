@@ -299,6 +299,7 @@ IP 变了不需要改任何清单字段：实例重新连出、入口主机的�
 | 前提 | 实例已在清单里且 `status: active`；中枢已配 SMTP |
 | 怎么开通 | 默认开通。运营方 `access` 生成的接入件里带 `XKNOT_HUB_RELAY_TOKEN`，实例写入接入件并重启即可，节点侧不需要改代码 |
 | 怎么关 | 中枢按实例：`relay-disable <instance>`（可恢复）/ `relay-revoke <instance>`（不可逆）；整体：`/admin` 的发信总闸（点一下即停，可恢复）或 `XKNOT_RELAY_ENABLED=0`（只停代发）。实例侧想要纯 SMTP：不写这一项即可 |
+| 实例侧回退 | 同时配了本机 SMTP（主机与发信地址齐全）时，中枢停发或额度用完会退回本机发信；只配委托的实例这时登录密钥寄不出去 |
 | 实例配置 | `XKNOT_HUB_ORIGIN=https://xknot.si`、`XKNOT_HUB_RELAY_TOKEN=…`；发信地址按中枢地址推导 |
 | 发信人 | 恒为中枢的 `MAIL_FROM`，实例不能覆盖 |
 | 回信 | `Reply-To` 必须落在实例自己的域名；省略时用清单里的 `contact` |

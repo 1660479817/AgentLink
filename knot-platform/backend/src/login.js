@@ -4,6 +4,7 @@ import { DEFAULT_SITE_LOCALE, parseLocale } from "@knot/locale";
 import { NAME_MAX } from "./account.js";
 import { consumeInvite, findUsableInvite, normalizeInviteCode, recordInviteRedemption } from "./invites.js";
 import { signupGrant } from "./points.js";
+import { LIMITS } from "./profile.js";
 import { registrationMode } from "./system.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -98,30 +99,38 @@ function noteLoginFailure(email, now) {
   while (guard.size > MAX_GUARDED_EMAILS) guard.delete(guard.keys().next().value);
 }
 
-function smtpSecureEnabled() {
-  const value = String(process.env.SMTP_SECURE || "").trim().toLowerCase();
+function smtpSecureEnabled(env) {
+  const value = String(env.SMTP_SECURE || "").trim().toLowerCase();
   return value === "1" || value === "true" || value === "yes";
 }
 
-function mailTransport() {
-  const host = process.env.SMTP_HOST || "";
-  const from = process.env.MAIL_FROM || process.env.SMTP_FROM || "";
+function smtpFrom(env) {
+  return String(env.MAIL_FROM || env.SMTP_FROM || "").trim();
+}
+
+// 本机 SMTP。主机与发信地址缺一不可：只有主机时发出去的信没有发信人，
+// 多数收件方会拒收或判成垃圾，所以这种配置当作没配。
+function smtpSender(env = process.env) {
+  const host = String(env.SMTP_HOST || "").trim();
+  const from = smtpFrom(env);
   if (!host || !from) return null;
-  const user = process.env.SMTP_USER || "";
-  const pass = process.env.SMTP_PASS || "";
+  const user = String(env.SMTP_USER || "");
+  const pass = String(env.SMTP_PASS || "");
+  const transport = nodemailer.createTransport({
+    host,
+    port: Number(env.SMTP_PORT || 587),
+    secure: smtpSecureEnabled(env),
+    auth: user ? { user, pass } : undefined,
+  });
   return {
-    from,
-    transport: nodemailer.createTransport({
-      host,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: smtpSecureEnabled(),
-      auth: user ? { user, pass } : undefined,
-    }),
+    // replyTo 由调用方给：反馈信要回到提交者的邮箱，登录密钥信不需要回信地址。
+    send: ({ to, subject, text, html, replyTo }) =>
+      transport.sendMail({ from, to, subject, text, html, replyTo: replyTo || undefined }),
   };
 }
 
-// 委托发信：自己配 SMTP 送达不稳时，把纯文本交给联邦中枢代发（契约见
-// xknot.si/docs/FEDERATION.md 第 7 节）。配了凭据就优先走它，不需要 SMTP 口令。
+// 委托发信：自己配 SMTP 送达不稳、或不想在这台机器上放 SMTP 口令时，把纯文本
+// 交给联邦中枢代发（契约见 xknot.si/docs/FEDERATION.md 第 7 节）。
 //
 // 发信地址是协议的常量，能从 XKNOT_HUB_ORIGIN 推出来；显式写了 XKNOT_HUB_RELAY_URL
 // 时以它为准（换中枢时用）。这样接入件里只有中枢地址和凭据两项。
@@ -135,38 +144,57 @@ export function relayUrl(env = process.env) {
   return `${origin}/api/federation/mail`;
 }
 
-function relayTransport() {
-  const url = relayUrl();
-  const token = String(process.env.XKNOT_HUB_RELAY_TOKEN || "").trim();
+function relaySender(env = process.env) {
+  const url = relayUrl(env);
+  const token = String(env.XKNOT_HUB_RELAY_TOKEN || "").trim();
   if (!url || !token) return null;
   return {
-    from: process.env.MAIL_FROM || process.env.SMTP_FROM || "",
-    transport: {
-      async sendMail(message) {
-        let response;
-        try {
-          response = await fetch(url, {
-            method: "POST",
-            headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-            body: JSON.stringify({ to: message.to, subject: message.subject, text: message.text }),
-            signal: AbortSignal.timeout(30_000),
-          });
-        } catch (cause) {
-          const error = new Error("relay_unreachable");
-          error.code = "relay_unreachable";
-          error.cause = cause;
-          throw error;
-        }
-        if (!response.ok) {
-          const error = new Error(`relay_${response.status}`);
-          error.code = "relay_failed";
-          error.status = response.status;
-          throw error;
-        }
-        return response.json();
-      },
+    // 中枢只收 to / subject / text（可选 replyTo），html、附件、抄送一律丢弃，
+    // 所以这里显式只取纯文本，别让调用方以为版面也会送出去。登录密钥不需要
+    // 回信地址：省略 replyTo 时中枢按实例档案的 contact 填。
+    async send({ to, subject, text }) {
+      let response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body: JSON.stringify({ to, subject, text }),
+          signal: AbortSignal.timeout(30_000),
+        });
+      } catch (cause) {
+        const error = new Error("relay_unreachable");
+        error.code = "relay_unreachable";
+        error.cause = cause;
+        throw error;
+      }
+      if (!response.ok) {
+        const error = new Error(`relay_${response.status}`);
+        error.code = "relay_failed";
+        error.status = response.status;
+        throw error;
+      }
+      return response.json();
     },
   };
+}
+
+/**
+ * 这台机器实际能用哪种发信方式，按优先级给一个值：
+ *   relay —— 有中枢地址和凭据，登录密钥优先走中枢；
+ *   smtp  —— 有 SMTP 主机和发信地址；
+ *   none  —— 一样都没有，登录密钥寄不出去。
+ * 管理后台的排障面板与真实发信读同一个函数，面板说能发就是真能发。
+ */
+export function mailChannel(env = process.env) {
+  if (relayUrl(env) && String(env.XKNOT_HUB_RELAY_TOKEN || "").trim()) return "relay";
+  if (String(env.SMTP_HOST || "").trim() && smtpFrom(env)) return "smtp";
+  return "none";
+}
+
+function mailUnavailable() {
+  const error = new Error("mail_unavailable");
+  error.code = "mail_unavailable";
+  return error;
 }
 
 export async function requestLoginKey(pool, email, options = {}) {
@@ -396,30 +424,28 @@ export async function isOwnerAccount(pool, accountId) {
   return rows[0]?.role === "owner";
 }
 
-export function feedbackMessage({ kind, accountEmail, userId, body }) {
+export function feedbackMessage({ kind, accountEmail, userId, body, site = "" }) {
   const label = FEEDBACK_LABEL[kind];
   return {
-    subject: `Knot ${label}`,
+    subject: `${site || "Knot"} ${label}`,
     text: `类型：${label}\n账户：${accountEmail}\n用户：${userId}\n\n${body}\n`,
   };
 }
 
-export async function sendFeedback({ kind, accountEmail, userId, body }) {
+/**
+ * 建议与投诉寄给站点的管理邮箱。
+ *
+ * 这条只走本机 SMTP，不交给中枢代发：代发的额度是登录密钥的命根子，
+ * 一个用户连发几十条就能把当天的登录密钥挤掉；而且代发要求 Reply-To 落在
+ * 实例自己的域名，这里要回到提交者本人的邮箱，本来就过不了那道校验。
+ * 没配 SMTP 时如实返回 mail_unavailable，不假装发出去了。
+ */
+export async function sendFeedback({ kind, accountEmail, userId, body, site = "" }) {
   const to = adminEmail();
-  const mail = mailTransport();
-  if (!mail || !to || !FEEDBACK_LABEL[kind]) {
-    const error = new Error("mail_unavailable");
-    error.code = "mail_unavailable";
-    throw error;
-  }
-  const message = feedbackMessage({ kind, accountEmail, userId, body });
-  await mail.transport.sendMail({
-    from: mail.from,
-    to,
-    replyTo: accountEmail,
-    subject: message.subject,
-    text: message.text,
-  });
+  const mail = smtpSender();
+  if (!mail || !to || !FEEDBACK_LABEL[kind]) throw mailUnavailable();
+  const message = feedbackMessage({ kind, accountEmail, userId, body, site });
+  await mail.send({ to, replyTo: accountEmail, subject: message.subject, text: message.text });
 }
 
 const EMAIL_FONT = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'PingFang SC','Microsoft YaHei',sans-serif`;
@@ -434,8 +460,8 @@ function digitBoxes(key) {
 }
 
 // 登录密钥信的文案。语种跟着站点档案走（登录前不知道是谁，只可能是站点默认），
-// 站点名与地址是变量，其余是常量。代发只收纯文本，所以 text 必须自己站得住：
-// 站点名、地址、有效期、忽略提示一项都不能只在 html 里。
+// 站点名、地址与联系方式是变量，其余是常量。代发只收纯文本，所以 text 必须自己
+// 站得住：站点名、地址、联系方式、有效期、忽略提示一项都不能只在 html 里。
 const LOGIN_MAIL = {
   "zh-CN": {
     subject: (site) => `${site} 登录密钥`,
@@ -446,7 +472,7 @@ const LOGIN_MAIL = {
     siteLine: (site, url) => `站点：${site}${url ? `  ${url}` : ""}`,
     ignore: "如果不是你本人操作，请忽略这封邮件。",
     ignoreText: "如果不是你本人操作，请忽略这封邮件，不要把上面的数字告诉任何人。",
-    help: "需要帮助？回复这封邮件联系我们。",
+    contactLine: (contact) => `需要帮助？联系 ${contact}`,
     relay: (site) => `本邮件由 XKnot 联邦代 ${site} 发出。`,
   },
   "zh-TW": {
@@ -458,7 +484,7 @@ const LOGIN_MAIL = {
     siteLine: (site, url) => `站點：${site}${url ? `  ${url}` : ""}`,
     ignore: "如果不是你本人操作，請忽略這封郵件。",
     ignoreText: "如果不是你本人操作，請忽略這封郵件，不要把上面的數字告訴任何人。",
-    help: "需要協助？回覆這封郵件與我們聯絡。",
+    contactLine: (contact) => `需要協助？聯絡 ${contact}`,
     relay: (site) => `本郵件由 XKnot 聯邦代 ${site} 發出。`,
   },
   en: {
@@ -471,7 +497,7 @@ const LOGIN_MAIL = {
     siteLine: (site, url) => `Site: ${site}${url ? `  ${url}` : ""}`,
     ignore: "If you did not request this, ignore this email.",
     ignoreText: "If you did not request this, ignore this message and do not share the number with anyone.",
-    help: "Need help? Reply to this email.",
+    contactLine: (contact) => `Need help? Contact ${contact}`,
     relay: (site) => `This message was sent by the XKnot federation on behalf of ${site}.`,
   },
 };
@@ -498,36 +524,53 @@ function publicSiteUrl(value) {
 }
 
 /**
- * 把站点档案与对外地址收成信里要用的三项。
- * 地址只认配置（KNOT_PUBLIC_ORIGIN），不取请求的 Host：Host 可被伪造，
- * 等于让实例往信里写一个攻击者控制的域名。
+ * 把站点档案收成信里要用的四项。`url` 是调用方从 KNOT_PUBLIC_ORIGIN 取来的对外地址。
+ *
+ * 站点名与联系方式都是主理人填的自由文本：档案允许换行，而主题里一个换行会让中枢
+ * 拒收整封信（SMTP 头里也不该出现换行），所以这里先压成一行再按档案上限截断。
+ * 地址只认配置，不取请求的 Host：Host 可被伪造，等于让实例往信里写一个
+ * 攻击者控制的域名。
  */
-export function loginMailSite(site = {}, origin = "") {
+function loginMailSite(site = {}) {
   const source = site || {};
   return {
-    name: typeof source.name === "string" && source.name.trim() ? source.name.trim() : "Knot",
+    name: singleLine(source.name, LIMITS.name) || "Knot",
     locale: parseLocale(source.locale) || DEFAULT_SITE_LOCALE,
-    url: publicSiteUrl(origin || source.url),
+    url: publicSiteUrl(source.url),
+    contact: singleLine(source.contact, LIMITS.contact),
   };
 }
 
-function loginKeyText(copy, { key, name, url, relayed }) {
+// 压成一行并按码点截断：换行会破坏主题与排版，超长的值不该撑破信纸。
+function singleLine(value, max) {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return text ? [...text].slice(0, max).join("") : "";
+}
+
+function loginKeyText(copy, { key, name, url, contact, relayed }) {
   const lines = [copy.subject(name), "", key, "", copy.ttlText, "", copy.siteLine(name, url)];
+  if (contact) lines.push(copy.contactLine(contact));
   if (relayed) lines.push(copy.relay(name));
   lines.push("", copy.ignoreText);
   return lines.join("\n");
 }
 
-function loginKeyHtml(copy, { key, name, url, relayed, locale }) {
+function loginKeyHtml(copy, { key, name, url, contact, relayed, locale }) {
   const footer = [
     `<p style="margin:0 0 8px;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#65676B;">${escapeHtml(
       copy.siteLine(name, url)
     )}</p>`,
-    `<p style="margin:0 0 8px;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#8A8D91;">${escapeHtml(
-      copy.ignore
-    )}</p>`,
-    `<p style="margin:0;font-family:${EMAIL_FONT};font-size:12px;line-height:1.6;color:#B0B3B8;">${escapeHtml(copy.help)}</p>`,
   ];
+  if (contact) {
+    footer.push(
+      `<p style="margin:0 0 8px;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#8A8D91;">${escapeHtml(
+        copy.contactLine(contact)
+      )}</p>`
+    );
+  }
+  footer.push(
+    `<p style="margin:0;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#8A8D91;">${escapeHtml(copy.ignore)}</p>`
+  );
   if (relayed) {
     footer.push(
       `<p style="margin:8px 0 0;font-family:${EMAIL_FONT};font-size:12px;line-height:1.6;color:#B0B3B8;">${escapeHtml(
@@ -585,13 +628,13 @@ function loginKeyHtml(copy, { key, name, url, relayed, locale }) {
 
 /**
  * 一封登录密钥信。两个通道共用这一份：端侧 SMTP 发 text + html，
- * 联邦代发只把 subject 与 text 交出去（html 到 relayTransport 就被丢掉）。
+ * 联邦代发只把 subject 与 text 交出去，版面不出实例。
  * 所以加变量时先加进 text，html 只做增强。
  */
 export function loginKeyMessage(key, site = {}, { relayed = false } = {}) {
-  const { name, locale, url } = loginMailSite(site);
+  const { name, locale, url, contact } = loginMailSite(site);
   const copy = LOGIN_MAIL[locale];
-  const vars = { key, name, url, relayed, locale };
+  const vars = { key, name, url, contact, relayed, locale };
   return {
     subject: copy.subject(name),
     text: loginKeyText(copy, vars),
@@ -599,20 +642,29 @@ export function loginKeyMessage(key, site = {}, { relayed = false } = {}) {
   };
 }
 
+/**
+ * 寄登录密钥：有委托凭据先走中枢，失败且本机 SMTP 也在时兜底。
+ *
+ * 兜底是必要的：只有委托一条路的实例，中枢停发信或当天额度用完时，
+ * 全站登录会一起断。同一次请求里两封信用的是同一把密钥，重复投递也
+ * 只是多一封码相同的信，不影响可用性；真正发不出去时照常抛错，
+ * 由 requestLoginKey 删掉那条没用上的密钥。
+ */
 export async function sendLoginKey(email, key, site = {}) {
-  const relay = relayTransport();
-  const mail = relay || mailTransport();
-  if (!mail) {
-    const error = new Error("mail_unavailable");
-    error.code = "mail_unavailable";
-    throw error;
+  const relay = relaySender();
+  let smtp = null;
+  if (relay) {
+    try {
+      await relay.send({ to: email, ...loginKeyMessage(key, site, { relayed: true }) });
+      return;
+    } catch (error) {
+      smtp = smtpSender();
+      if (!smtp) throw error;
+      // 只记通道与错误码：收件地址和密钥都不该进日志。
+      console.warn(`[mail] 委托发信失败（${error.code || "relay_failed"}），改走本机 SMTP`);
+    }
   }
-  const message = loginKeyMessage(key, site, { relayed: Boolean(relay) });
-  await mail.transport.sendMail({
-    from: mail.from,
-    to: email,
-    subject: message.subject,
-    text: message.text,
-    html: message.html,
-  });
+  smtp = smtp || smtpSender();
+  if (!smtp) throw mailUnavailable();
+  await smtp.send({ to: email, ...loginKeyMessage(key, site) });
 }

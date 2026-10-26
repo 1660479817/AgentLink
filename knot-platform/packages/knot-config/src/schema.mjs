@@ -593,7 +593,7 @@ const PLATFORM_KEYS = [
     group: "mail",
     type: "string",
     default: "",
-    desc: "SMTP 主机。既没配 SMTP 又没配 XKNOT_HUB_RELAY_TOKEN 时，登录接口返回 mail_unavailable，登录密钥寄不出去。",
+    desc: "SMTP 主机。要和发信地址（MAIL_FROM 或 SMTP_FROM）一起才算配置好；两样都没有、又没有委托发信凭据时，登录接口返回 mail_unavailable，登录密钥寄不出去。",
     example: "smtp.example.com",
   },
   { key: "SMTP_PORT", group: "mail", type: "port", default: 587, desc: "SMTP 端口。" },
@@ -606,8 +606,8 @@ const PLATFORM_KEYS = [
   },
   { key: "SMTP_USER", group: "mail", type: "string", default: "", desc: "SMTP 用户名。" },
   { key: "SMTP_PASS", group: "mail", type: "string", default: "", secret: true, desc: "SMTP 密码。" },
-  { key: "SMTP_FROM", group: "mail", type: "string", default: "", desc: "发信地址。" },
-  { key: "MAIL_FROM", group: "mail", type: "string", default: "", desc: "发信地址，优先于 SMTP_FROM。" },
+  { key: "SMTP_FROM", group: "mail", type: "string", default: "", desc: "发信地址。没配 MAIL_FROM 时用这个；两样都空等于没有本机 SMTP。" },
+  { key: "MAIL_FROM", group: "mail", type: "string", default: "", desc: "发信地址，优先于 SMTP_FROM。登录密钥与建议投诉信都用它作发信人。" },
 
   // ---- 商店 ----
   {
@@ -852,7 +852,7 @@ const XKNOT_KEYS = [
     default: "",
     secret: true,
     pattern: /^xkr_[A-Za-z0-9_-]{8,}$/,
-    desc: "中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。配上之后登录密钥与通知都走中枢代发（纯文本），不再用本机 SMTP。",
+    desc: "中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。登录密钥优先走它（纯文本）；同时配了本机 SMTP 时，中枢停发或额度用完会回退到本机。",
   },
   {
     key: "XKNOT_ISSUED_URL",

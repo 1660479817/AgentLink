@@ -507,6 +507,7 @@ export default {
   "xknot.notHttps": "非 https（会判 unknown）",
   "xknot.mail": "发信方式",
   "xknot.mailRelay": "中枢代发",
+  "xknot.mailRelayFallback": "中枢代发，失败回退本机 SMTP",
   "xknot.mailSmtp": "本机 SMTP",
   "xknot.mailNone": "未配置",
   "xknot.waitingHub": "等待中枢接手",

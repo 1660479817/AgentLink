@@ -2271,7 +2271,7 @@ function fact(label, value) {
 
 function mailLabel(mail) {
   if (!mail) return "—";
-  if (mail.mode === "relay") return t("xknot.mailRelay");
+  if (mail.mode === "relay") return t(mail.relayFallback ? "xknot.mailRelayFallback" : "xknot.mailRelay");
   if (mail.mode === "smtp") return t("xknot.mailSmtp");
   return t("xknot.mailNone");
 }

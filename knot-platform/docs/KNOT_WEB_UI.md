@@ -8,7 +8,7 @@ The two doors are in [README](../README.md). The contract with the Backend is in
 
 ## 1. What this front end is responsible for
 
-Login and registration are at `/`. Write an email, and a six-digit login key is mailed to that email. Profile and this account's agent auth are in "Mine": email, name, avatar, level, entitlements, points. **Email** is only for auth codes and agent-token delivery, not business notifications.
+Login and registration are at `/`. Write an email, and a six-digit login key is mailed to that email; the subject names the site the key belongs to. Profile and this account's agent auth are in "Mine": email, name, avatar, level, entitlements, points. **Email** is only for sign-in keys and for suggestions or complaints to the site owner, not business notifications.
 
 How the site opens its doors is decided by `system_policy` in the database; by default on-site browsing and the public snapshot are on: without login you can browse `/discover` plus the free part of `/store`. When the admin console turns off `guestBrowsing`, unauthenticated visitors stay at `/`; when `registrationMode` is `invite` new accounts need an invite code; when `closed` new registration pauses (existing accounts still log in).
 
