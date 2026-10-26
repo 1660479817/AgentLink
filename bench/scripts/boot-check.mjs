@@ -2,20 +2,20 @@
 //
 // 单元测试用 fake DOM 覆盖了守卫的逻辑，这里验证三件只有真浏览器能证的事：
 //   1. 正常首屏挂载后，<html> 有 data-knot-ready，兜底节点已消失；
-//   2. 首屏接口全部失败时，页面不会变成一片空白（要么页面内报错，要么兜底还在）；
+//   2. 首屏接口全部失败时，页面仍有可读内容；
 //   3. 6 秒兜底计时器不会把正常页面误判成失败。
 //
-// 默认起一个本地静态服务读构建产物；给 KNOT_BASE（如 https://wang.xknot.si）就直接打
-// 那个地址，不碰 dist——这一路才是 bench 的黑箱口径：只输入 URL，不读站点配置。
+// 给 --base（或 BENCH_BASE）就直接打那个地址，不碰 dist：这是 bench 的黑箱口径，
+// 只输入 URL，不读站点配置。不变量名不加 KNOT_ 前缀，避免和站点的配置键撞上。
 import { createServer } from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 
-const DIST = path.resolve(process.env.KNOT_DIST || "../knot-platform/web/dist");
-const PORT = Number(process.env.KNOT_PORT || 4179);
+const DIST = path.resolve(process.env.BENCH_DIST || "../knot-platform/web/dist");
+const PORT = Number(process.env.BENCH_PORT || 4179);
 
-// 与 bench 其它脚本一致：--base 优先，其次 KNOT_BASE；都没有才起本地 dist 服务。
+// 与 bench 其它脚本一致：--base 优先，其次 BENCH_BASE；都没有才起本地 dist 服务。
 function argValue(name) {
   const index = process.argv.indexOf(name);
   return index > -1 && process.argv[index + 1] ? process.argv[index + 1] : "";
@@ -35,7 +35,7 @@ const TYPES = {
 
 // 入口的 nginx 对未知路径回落到 index.html；这里照做，SPA 路由才会拿到页面。
 let server = null;
-let BASE = (argValue("--base") || process.env.KNOT_BASE || "").replace(/\/$/, "");
+let BASE = (argValue("--base") || process.env.BENCH_BASE || "").replace(/\/$/, "");
 if (!BASE) {
   server = createServer(async (req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
