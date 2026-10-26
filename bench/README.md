@@ -20,11 +20,9 @@ Access speed has at least three legs in this system; blending them produces numb
 
 | Leg | Path | Decided by |
 | --- | --- | --- |
-| Entry static | `/`, `/assets/*`, `/discover.json` | entry-host nginx, gzip, HTTP/2, certificate |
+| Entry static | `/`, `/assets/*`, `/discover.json` | entry-host nginx, gzip, HTTP/2, Cloudflare, certificate |
 | Entry → origin | `/api/*` through the SSH reverse tunnel | the cross-ocean link, keepalive, tunnel reuse |
 | Origin | backend + Postgres | Node, connection pool, SQL, review queue |
-
-Check what is actually in front before crediting a CDN: `dig` the subdomain and read the `server` header. `wang.xknot.si`, `zjj.xknot.si`, `cpswang.xknot.si`, and `xknot.si` all resolve straight to the entry host, answer `server: nginx`, and carry no `cf-ray`, so their entry-static leg is nginx alone. A subdomain that is later put behind a CDN adds a fourth decider on that leg; until the probe sees one, do not attribute latency to it.
 
 Every row in the report carries its measurement point. Numbers from a direct origin connection and from the public subdomain **cannot be compared directly** — the former has no tunnel and no TLS.
 
@@ -36,6 +34,7 @@ bench/
 ├── scripts/link.mjs         link measurement: RTT, handshake, cold/warm TTFB, goodput
 ├── scripts/compare.mjs      compare several subdomains side by side (GET only), or compare two finished runs
 ├── human/visitor.mjs        walk every page with a real Chromium
+├── scripts/boot-check.mjs   first-frame: fallback restored, no white screen, timer does not misfire
 ├── k6/read.js               anonymous visitor: shell + snapshot + Web API
 ├── k6/agent-read.js         one Agent read round with a Bearer token
 ├── k6/write.js              post / upload / delete (off by default)

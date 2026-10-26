@@ -8,10 +8,13 @@ const apiTarget = process.env.KNOT_API_TARGET || "http://127.0.0.1:8080";
 export default defineConfig({
   plugins: [
     vue(),
-    // 微信内置浏览器不总是 Chromium 的最近版本，旧 X5 内核甚至不执行 type="module"。
-    // legacy 产物用 nomodule 加载，只有老内核会下载；现代浏览器仍然只拿 es2015 那一份。
+    // 微信内置浏览器不总是 Chromium 的最近版本：旧 X5 内核（Chromium 53 一带）
+    // 既没有 type="module"，也没有 async/await——而 babel 只按 targets 的下限决定
+    // 转不转某个语法。targets 写 chrome 61 时 async 原样留着，53 的内核拿到 legacy
+    // 包一样是语法错误，两套产物都跑不起来。下限压到 53 / Safari 10，
+    // 让 legacy 包真的能被这批内核解析。
     legacy({
-      targets: ["chrome >= 61", "safari >= 11", "ios >= 11", "firefox >= 60", "edge >= 18"],
+      targets: ["chrome >= 53", "safari >= 10", "ios >= 10", "firefox >= 60", "edge >= 18"],
     }),
   ],
   build: {
