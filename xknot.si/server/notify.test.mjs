@@ -131,6 +131,25 @@ test("copy: handoff never contains the claim payload", () => {
   assert.ok(!/xkr_/.test(mail.text));
 });
 
+test("copy: handoff says where to claim, not what is on the page", () => {
+  // payload 是每次交付时选的（有的只有接入件，有的还有连通参数）。模板写死
+  // 一份清单，就会替这次交付承诺没放进去的项，伙伴照着核对时只会以为中枢漏发。
+  for (const locale of LOCALES) {
+    const mail = buildMail("partner.handoff", { ...application, locale }, options);
+    assert.doesNotMatch(mail.text, /内容包含|內容包含|and contains:/);
+    assert.doesNotMatch(mail.text, /接通前的验收命令|acceptance commands/);
+  }
+});
+
+test("copy: suspension pauses relay instead of revoking the credential", () => {
+  // 暂停收录只让接口回 403 instance_inactive，凭据与额度都还在。信里说「已吊销」，
+  // 伙伴就会去重领一份接入件——那把旧钥匙其实还能用，新的一份也不必存在。
+  for (const locale of LOCALES) {
+    const mail = buildMail("partner.suspended", { ...application, locale }, options);
+    assert.doesNotMatch(mail.text, /已吊销|已吊銷|is revoked/);
+  }
+});
+
 test("copy: the handoff mail shows the TTL that was actually used", () => {
   // --ttl 24 时信里还写 72 小时，就是在告诉伙伴一个比真实期限更长的窗口，
   // 过了那一刻链接已经失效，他还在等。终端提示读的是同一个值。

@@ -741,7 +741,6 @@ M3：加入申请
 | `GET /api/admin/applications/:id/manifest` | 会话 | 生成清单条目，生成后自检，不合法返回 422 |
 | `GET /case/:caseKey` | 公开 | 案例页：状态、公钥、撤回 |
 | `GET /api/case/:caseKey/progress` | 公开 | 接通进度：`{ application, issued, run, handoff }`；`run` 给状态与逐项步骤，`handoff { host, account, port }` 只在节点资料就绪（`awaiting_tunnel` / `active`）后给出，否则为 `null`；案例键本身就是凭据，按 IP 每分钟 60 次 |
-| `POST /api/case/:caseKey/relay` | 案例键 | 自取（轮换）本实例的委托发信凭据，返回 `{ relay: { token, dailyLimit, url } }`；实例未上清单 403，未验收 403，中枢没配 SMTP 503 |
 | `POST /api/case/:caseKey/{withdraw,public-key}` | 公开 | 案例页动作；成功 303 回案例页 |
 | `GET /claim/:token` | 公开 | 领取页；只渲染按钮，不消费令牌 |
 | `POST /api/claim` | 公开 | 消费领取令牌，明文只返回这一次 |
@@ -753,7 +752,7 @@ M3：加入申请
 委托发信：
 
 - 凭据由命令行签发：`npm run admin -- relay-token <instance> [--label text] [--daily 50]`。明文只打印一次，库里只有 SHA-256。
-- **默认开通，实例自取**：接入验收后实例按案例键调 `POST /api/case/<caseKey>/relay`，拿到一份只绑定本实例、按中枢默认额度、每次轮换的凭据。接入件里的这一项由 `access` 默认签发；要纯 SMTP 才加 `--no-relay`。
+- **默认开通，运营方签发**：`access` 生成的接入件本来就带一份凭据（同一实例旧凭据一并作废，重签即轮换）；实例按既有路径写入接入件、重启 Backend 即可，不需要改节点代码（它从环境里读 `XKNOT_HUB_RELAY_TOKEN`）。要纯 SMTP 的接入件才加 `--no-relay`，那会把该实例旧的凭据一并吊销。
 - 实例要的接入件由 `npm run admin -- access <申请编号> --id <instance> --out <文件>` 生成：只含实例 id、中枢地址、签发日期与委托发信凭据（发信地址由中枢地址推导）。格式与键名见 [FEDERATION.md 第 7.4 节](FEDERATION.md#74-接入件)；实例存成什么文件名、放哪个目录，是实例自己的事。站点拓扑不进这份文件，部署与接入因此互不牵连。清单 `status` 是 `pending` 时就能签：验收前伙伴正是靠这份接入件起隧道，挂起或退出后不再签。
 - 吊销按凭据 id，或按实例 id 一次吊销该实例全部凭据：`npm run admin -- relay-revoke <id|instance>`。
 - 只认 `Authorization: Bearer`，不读 Cookie；实例必须在清单里且 `status: active`。

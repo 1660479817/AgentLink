@@ -9,7 +9,7 @@
 //     因此所有需要申请人动作的事都必须给链接，不能写「请回复本邮件」。
 //  2. 正文只放事实：不放内部备注、审核人、IP、哈希，也不放任何凭据明文。
 
-export const TEMPLATE_VERSION = "2.1.0";
+export const TEMPLATE_VERSION = "2.2.0";
 
 const LOCALES = ["zh-CN", "zh-TW", "en"];
 
@@ -78,7 +78,7 @@ export const TEMPLATES = {
 
 收录不包含入口主机与 SSH 反向隧道，需要时另行确认。
 
-委托发信默认由中枢代发：接入件里带一份发信凭据，不必再单独申请，也不用自己配 SMTP。
+委托发信默认由中枢代发：要用它，请运营方签发一次接入件（一次性领取），里面带发信凭据；不必自己配 SMTP。
 
 申请状态与公钥提交：
 {caseUrl}
@@ -100,7 +100,7 @@ ${SIGN["zh-CN"]}`,
 
 收錄不包含入口主機與 SSH 反向隧道，需要時另行確認。
 
-委託發信預設由中樞代發：接入件裡帶一份發信憑證，不必再單獨申請，也不用自己設 SMTP。
+委託發信預設由中樞代發：要用它，請營運方簽發一次接入件（一次性領取），裡面帶發信憑證；不必自己設 SMTP。
 
 申請狀態與公鑰提交：
 {caseUrl}
@@ -122,7 +122,7 @@ The operator will now add the instance to the federation manifest and connect th
 
 Listing does not include the entry host and SSH reverse tunnel, which are confirmed separately.
 
-Delegated mail is on by default: the access material includes a relay token, so there is no separate application and no SMTP setup of your own.
+Delegated mail is on by default: when you want it, ask the operator to issue an access material (one-time claim), which carries a relay token; you need no SMTP setup of your own.
 
 Application status and public key:
 {caseUrl}
@@ -218,6 +218,8 @@ ${SIGN.en}`,
     },
   },
 
+  // 交付信只说「去哪里领」，不说「领什么」：领取页里放的是哪个 payload 由
+  // 运营方这一次交付的东西决定，模板写死一份清单就会替他承诺没放进去的项。
   "partner.handoff": {
     audience: "partner",
     subject: {
@@ -230,17 +232,10 @@ ${SIGN.en}`,
 
 实例 {id}（{name}）的接入资料已就绪。
 
-请在 {claimTtl} 内领取：
+请在 {claimTtl}内领取：
 {claimUrl}
 
-领取页只显示一次，内容包含：
-
-- 委托发信凭据
-- 接入件（实例 id、中枢地址、签发日期）
-- 连通参数（隧道账号、专属端口；直连为空）
-- 接通前的验收命令
-
-领取后请立即写进实例配置，不要转发、截图或存进版本库。
+领取页只显示一次，领取后请立即写进实例配置；不要转发、截图或存进版本库。
 
 ${CLOSING["zh-CN"]}
 
@@ -249,17 +244,10 @@ ${SIGN["zh-CN"]}`,
 
 實例 {id}（{name}）的接入資料已就緒。
 
-請在 {claimTtl} 內領取：
+請在 {claimTtl}內領取：
 {claimUrl}
 
-領取頁只顯示一次，內容包含：
-
-- 委託發信憑證
-- 接入件（實例 id、中樞位址、簽發日期）
-- 連通參數（隧道帳號、專屬埠；直連為空）
-- 接通前的驗收命令
-
-領取後請立即寫進實例設定，不要轉發、截圖或存進版本庫。
+領取頁只顯示一次，領取後請立即寫進實例設定；不要轉發、截圖或存進版本庫。
 
 ${CLOSING["zh-TW"]}
 
@@ -271,14 +259,7 @@ Access material for instance {id} ({name}) is ready.
 Claim it within {claimTtl}:
 {claimUrl}
 
-The claim page is shown once and contains:
-
-- the relay token
-- the access material (instance id, hub origin, issue date)
-- the connectivity parameters (tunnel account and port; empty for direct)
-- the acceptance commands
-
-Write it into the instance configuration right away. Do not forward, screenshot, or commit it.
+The claim page is shown once. Write it into the instance configuration right away; do not forward, screenshot, or commit it.
 
 ${CLOSING.en}
 
@@ -403,7 +384,7 @@ ${SIGN.en}`,
 影响：
 
 - 门户不再展示该条目的站点档案与热点橱窗
-- 委托发信凭据已吊销
+- 委托发信暂停（凭据保留，恢复收录后继续可用）
 - 隧道账号暂停
 
 不受影响：
@@ -424,7 +405,7 @@ ${SIGN["zh-CN"]}`,
 影響：
 
 - 入口不再展示該條目的站點檔案與熱點櫥窗
-- 委託發信憑證已吊銷
+- 委託發信暫停（憑證保留，恢復收錄後繼續可用）
 - 隧道帳號暫停
 
 不受影響：
@@ -445,7 +426,7 @@ Effective: {effectiveAt}
 Affected:
 
 - the portal no longer shows this entry's site profile or showcase
-- the relay token is revoked
+- relay sending is paused (the credential stays and works again once the listing resumes)
 - the tunnel account is disabled
 
 Not affected:
