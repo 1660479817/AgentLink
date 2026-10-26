@@ -20,9 +20,14 @@
 
 | 段 | 路径 | 谁决定 |
 | --- | --- | --- |
-| 入口静态 | `/`、`/assets/*`、`/discover.json` | 入口主机 nginx、gzip、HTTP/2、Cloudflare、证书 |
+| 入口静态 | `/`、`/assets/*`、`/discover.json` | 入口主机 nginx、gzip、HTTP/2、证书 |
 | 入口 → 源站 | `/api/*` 穿 SSH 反向隧道 | 跨洋链路、keepalive、隧道复用 |
 | 源站 | 后端 + Postgres | Node、连接池、SQL、审核队列 |
+
+前面的 CDN 要先确认真的在，再算账：`dig` 一下子域、看 `server` 头。`wang.xknot.si`、
+`zjj.xknot.si`、`cpswang.xknot.si`、`xknot.si` 都直接解析到入口主机，回 `server: nginx`，
+没有 `cf-ray`，所以它们的入口静态这一段只有 nginx。以后哪个子域真放到 CDN 后面，
+那一段才多一个决定因素；探测没看见之前，不要把延迟归给它。
 
 报告里每一行都带测点。源站直连和公网子域的数字**不能直接比**——前者不含隧道和 TLS。
 
