@@ -23,6 +23,7 @@ import { refreshStatus } from "./node-status.mjs";
 import { readProfiles } from "./profiles.mjs";
 import { mailConfigFromEnv, sendMail } from "../server/mail.mjs";
 import { ALERT_LABELS, buildMail } from "../server/notify.mjs";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
@@ -191,7 +192,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 if (isMain) {
   const args = parseArgs(process.argv.slice(2));
   // 收件人优先取申请单（申请人自己填的邮箱与语种），读不到就只用档案副本里的联系方式。

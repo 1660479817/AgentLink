@@ -15,6 +15,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 // 保留给示例与测试的顶级域，永远不该出现在对外清单里。
 const RESERVED_TLDS = [".example", ".test", ".invalid", ".localhost"];
@@ -139,7 +140,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 
 if (isMain) {
   const here = path.dirname(fileURLToPath(import.meta.url));

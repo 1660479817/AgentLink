@@ -21,6 +21,7 @@ import { stat } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -341,7 +342,7 @@ async function main(argv) {
   process.on("SIGTERM", stop);
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 if (isMain) {
   main(process.argv.slice(2)).catch((error) => {
     console.error(error.message);

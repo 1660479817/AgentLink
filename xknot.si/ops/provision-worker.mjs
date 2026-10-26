@@ -51,6 +51,7 @@ import {
   tunnelFor,
 } from "../server/provision.mjs";
 import { probe } from "./check-health.mjs";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -472,6 +473,6 @@ async function main() {
 }
 
 // 直接运行时才进循环；被测试 import 时只提供 advance()。
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (invokedDirectly(import.meta.url)) {
   main();
 }

@@ -14,6 +14,7 @@ import {
   writeJsonAtomic,
 } from "./fetch-guard.mjs";
 import { ID_RE } from "./profile-schema.mjs";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 export const FORMAT_VERSION = 1;
 export const CARD_LIMIT = 6;
@@ -298,7 +299,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 if (isMain) {
   run({ ...parseArgs(process.argv.slice(2)), log: (line) => console.log(line) })
     .then(() => {})

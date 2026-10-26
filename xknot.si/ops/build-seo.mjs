@@ -23,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { LOCALES } from "../web/src/lib/i18n.js";
+import { invokedDirectly } from "./lib/main-module.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -394,7 +395,7 @@ function main(argv) {
   );
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = invokedDirectly(import.meta.url);
 if (isMain) {
   try {
     main(process.argv.slice(2));
