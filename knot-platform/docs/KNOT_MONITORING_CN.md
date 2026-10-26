@@ -324,6 +324,12 @@ printf '{"state":"off","checkedAt":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 
 按 §5.1，`|| true` 是多余的，但仍然留着：读这个文件的人不必先知道被调用方是守规矩的。
 
+OpenClaw 这一步最后还多一句 `openclaw_probe_now`：把探测单元立刻拉起一次。单元在同一轮
+部署里先装好，`RunAtLoad` / `start` 已经跑过一次；但 `ensure-openclaw.sh` 在它之后执行，
+会清掉 `off` 标记，而下一次定时探测最多还在五分钟之后。没有这一句，每次部署完控制台都
+要空等那五分钟，看起来像探测坏了，而它其实只是还没跑。`probe-freshness.test.mjs` 守住
+两半：只有写着 `off` 时才清标记，以及每个执行同步的分支都补一次探测。
+
 ## 6. 阶段三：探测
 
 ### 6.1 `ops/openclaw/probe.mjs`

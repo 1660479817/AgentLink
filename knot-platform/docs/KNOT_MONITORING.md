@@ -342,6 +342,14 @@ After the existing OpenClaw step, still before `ensure-first-agent`:
 `|| true` is redundant given §5.1 and is kept anyway: the reader of that file should not
 have to know that the callee is well behaved.
 
+The OpenClaw step ends with one more thing: `openclaw_probe_now`, which kicks the probe
+unit once. The units are installed earlier in the same run, so their `RunAtLoad`/`start`
+already fired — but `ensure-openclaw.sh` runs after that and clears the `off` marker, and
+the next scheduled probe is up to five minutes away. Without this line every deploy leaves
+the console blank for those five minutes, which reads as a broken probe rather than a
+fresh one. `probe-freshness.test.mjs` keeps both halves: the marker is cleared only when
+it says `off`, and every branch that syncs also probes once.
+
 ## 6. Phase 3 — the probe
 
 ### 6.1 `ops/openclaw/probe.mjs`

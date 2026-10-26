@@ -204,7 +204,13 @@ node "$APPLY" main-brief --port "$PORT" \
 
 # 能走到这里说明 OpenClaw 是开着的：把 KNOT_OPENCLAW=0 那次留下的 off 清掉，
 # 让探测重新成为运行时的写者。不清的话，页面会一直显示「已明确关闭」。
-rm -f "$KNOT_DEPLOY_ROOT/var/run/openclaw-status.json" 2>/dev/null || true
+#
+# 只清 off：一份写着 ok / degraded 的读数是运行时的证据，不是这次部署的决定。
+# 一并删掉的话，控制台会空到下一个五分钟，看上去像探测坏了——而它什么都没坏。
+STATUS_FILE="$KNOT_DEPLOY_ROOT/var/run/openclaw-status.json"
+if grep -q '"state"[[:space:]]*:[[:space:]]*"off"' "$STATUS_FILE" 2>/dev/null; then
+  rm -f "$STATUS_FILE" 2>/dev/null || true
+fi
 
 if [[ "${OPENCLAW_ENABLE_PROCESS:-}" != 1 ]]; then
   echo "智能体已按 ops/openclaw 同步。Knot Backend 尚未切换。"
