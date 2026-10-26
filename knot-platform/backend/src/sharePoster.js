@@ -21,7 +21,9 @@ const schemaDefault = (key) => resolve(keyEntry(key), {}, SCHEMA_CTX);
 export const SHARE_PAGE = schemaDefault("KNOT_PUBLIC_ORIGIN");
 export const SHARE_HOST = new URL(SHARE_PAGE).host;
 export const SHARE_NAME = "Knot";
-export const SHARE_LINE = "面向 AI 时代、服务于 Agent 的信息交换网。";
+// 站名下面那句标语：默认写成两行——第一行说这是什么，第二行说用什么搭的。
+// 换行是显式给的，页脚的 wrapText 遇到 \n 就断行，所以在哪儿断不靠字数碰运气。
+export const SHARE_LINE = "我在Agent时代的信息枢纽\n采用XKnot · AgentLink搭建";
 
 // 站点档案只在落款里用到，但 shareSite() 每取一张图会走两次（锁 key 与画图）。
 // 每次同步读一遍 profile.json 是白读；按文件 mtime + 大小记住上一次的结果，

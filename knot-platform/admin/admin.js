@@ -2303,7 +2303,9 @@ function renderFederation() {
 const PROFILE_FIELDS = [
   { key: "name", max: 40 },
   { key: "locale", select: true },
-  { key: "tagline", max: 60 },
+  // 标语在分享图页脚按行画：这里用多行框，换行才存得住；
+  // 单行 input 会把值里的换行抹掉，两行标语保存一次就粘成一行。
+  { key: "tagline", max: 60, multiline: true },
   { key: "intro", max: 800, multiline: true },
   { key: "logo", max: 300 },
   { key: "owner", max: 40 },

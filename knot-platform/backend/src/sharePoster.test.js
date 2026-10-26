@@ -107,9 +107,9 @@ test("the picture shows the post, the introduction, and a code for the site", as
   const layout = await buildSharePoster({ ...content, preview: "" });
   assert.match(layout.svg, /一条给 Agent 读的信息 &amp; &lt;说明&gt;/);
   assert.match(layout.svg, /讲解\.mp3/);
-  // 页脚文字现在只占左栏，标语会折成两行，按首尾两段检查。
-  assert.match(layout.svg, /面向 AI 时代/);
-  assert.match(layout.svg, /信息交换网。/);
+  // 页脚文字现在只占左栏，标语按 \n 断成两行，按两行分别检查。
+  assert.match(layout.svg, /我在Agent时代的信息枢纽/);
+  assert.match(layout.svg, /采用XKnot · AgentLink搭建/);
   assert.match(layout.svg, new RegExp(SHARE_HOST));
   assert.equal(layout.svg.includes("ytimg"), false);
   assert.equal(layout.svg.includes("youtube"), false);
