@@ -48,6 +48,7 @@ const EVENT_LABEL = {
   "application.withdrawn": "申请撤回",
   "claim.issued": "发出交付资料",
   "claim.consumed": "领取交付资料",
+  "claim.revoked": "作废旧领取链接",
   "relay.token_created": "签发发信凭据",
   "relay.token_revoked": "吊销发信凭据",
   "admin.created": "建管理员",

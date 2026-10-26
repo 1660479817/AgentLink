@@ -83,7 +83,7 @@ the entry appears in the portal map and directory
 - **No review action**: submission is approval. The console only does record viewing, instance config, manifest entry generation, and probe/mail observation.
 - Notifications: on submission, an approval letter to the applicant and a new-member alert to the operator; afterwards issuance, handoff, launch, disconnect, etc. send per-event mail. Internal notes are not sent out. Full event and trilingual text in [PARTNER-MAIL.md](PARTNER-MAIL.md).
 - Accounts: `npm run admin -- create-admin <username>` (`server/admin-cli.mjs`). Passwords and session secrets do not enter this document or version control.
-- Resend any mail: `npm run admin -- notify <application id> <event>`.
+- Resend any mail: `npm run admin -- notify <application id> <event>`. The handoff mail is the exception: its body is the claim link, so reissue with `handoff`, which signs a new link and retires the previous one.
 
 ### 1.4 Write into the manifest and launch
 

@@ -857,6 +857,77 @@ test("api: a claim link stops working once the application is withdrawn", async 
   assert.ok(!claimed.data.includes("xkr_wang_secret"));
 });
 
+test("api: a second handoff kills the link from the first mail", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const cookie = await loginAs(call, store);
+
+  const submitted = await call("/api/applications", { method: "POST", body: { ...valid, locale: "zh-CN" } });
+  const id = submitted.data.application.id;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const first = await call(`/api/admin/applications/${id}/handoff`, {
+    method: "POST",
+    cookie,
+    body: { payload: "XKNOT_HUB_RELAY_TOKEN=xkr_old_secret", ttlHours: 72 },
+  });
+  const oldToken = tokenFromMail(first.data.claimUrl, "claim");
+
+  // 重发交付：旧资料不该还能被领出来，伙伴该用最新一封里的链接。
+  const second = await call(`/api/admin/applications/${id}/handoff`, {
+    method: "POST",
+    cookie,
+    body: { payload: "XKNOT_HUB_RELAY_TOKEN=xkr_new_secret", ttlHours: 72 },
+  });
+  assert.equal(second.status, 200);
+  assert.equal(second.data.claim.revoked, 1);
+
+  const stale = await call("/api/claim", { method: "POST", form: { token: oldToken } });
+  assert.equal(stale.status, 410);
+  assert.match(stale.data, /作废/);
+  assert.ok(!stale.data.includes("xkr_old_secret"));
+
+  const fresh = tokenFromMail(second.data.claimUrl, "claim");
+  const claimed = await call("/api/claim", { method: "POST", form: { token: fresh } });
+  assert.equal(claimed.status, 200);
+  assert.match(claimed.data, /xkr_new_secret/);
+});
+
+test("api: handoff refuses to mint a claim link when mail cannot be sent", async (t) => {
+  // 没有 mailer：信发不出去。先造令牌就会留下一条谁也拿不到的链接。
+  const { call, store } = await start(t, { adminEmail: "admin@example.com" });
+  const cookie = await loginAs(call, store);
+  const submitted = await call("/api/applications", { method: "POST", body: valid });
+  const id = submitted.data.application.id;
+
+  const handoff = await call(`/api/admin/applications/${id}/handoff`, {
+    method: "POST",
+    cookie,
+    body: { payload: "XKNOT_HUB_RELAY_TOKEN=xkr_secret" },
+  });
+  assert.equal(handoff.status, 503);
+  assert.equal(handoff.data.error, "mail_unavailable");
+  assert.deepEqual(store.listClaimTokens({ applicationId: id }), []);
+});
+
+test("api: the handoff mail cannot be resent by notify; it has no link to give", async (t) => {
+  const mailer = recordingMailer();
+  const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });
+  const cookie = await loginAs(call, store);
+  const submitted = await call("/api/applications", { method: "POST", body: valid });
+  const id = submitted.data.application.id;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const resent = await call(`/api/admin/applications/${id}/notify`, {
+    method: "POST",
+    cookie,
+    body: { event: "partner.handoff" },
+  });
+  assert.equal(resent.status, 409);
+  assert.equal(resent.data.error, "use_handoff");
+  assert.ok(!mailer.sent.some((mail) => /接入资料已就绪/.test(mail.subject)));
+});
+
 test("api: submission mails once and the console can resend deliberately", async (t) => {
   const mailer = recordingMailer();
   const { call, store } = await start(t, { mailer, adminEmail: "admin@example.com" });

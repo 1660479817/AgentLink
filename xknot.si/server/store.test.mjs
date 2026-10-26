@@ -137,6 +137,69 @@ test("claim: a token issued before a withdrawal cannot be redeemed", (t) => {
   assert.deepEqual(store.consumeClaimToken(issued.token), { error: "application_closed" });
 });
 
+test("claim: reissuing revokes the link from the previous mail", (t) => {
+  const file = withTempDb(t);
+  const store = openStore(file);
+  t.after(() => store.close());
+
+  const application = store.createApplication(applicationInput());
+  const first = store.createClaimToken({ applicationId: application.id, payload: "old" });
+  const second = store.rotateClaimToken({ applicationId: application.id, payload: "new" });
+
+  assert.deepEqual(second.revoked, [{ id: first.id, applicationId: application.id }]);
+  // 旧链接换不出旧资料，新链接拿到的是新资料。
+  assert.deepEqual(store.consumeClaimToken(first.token), { error: "revoked" });
+  assert.equal(store.consumeClaimToken(second.token).payload, "new");
+
+  // 作废与领取分开记：审计要能看出是运营方收回的，不是伙伴领走的。
+  const rows = store.listClaimTokens({ applicationId: application.id });
+  assert.deepEqual(rows.map((row) => row.id), [second.id, first.id]);
+  assert.equal(rows.find((row) => row.id === first.id).revokedAt !== null, true);
+  assert.equal(rows.find((row) => row.id === first.id).usedAt, null);
+});
+
+test("claim: reissuing leaves claimed links, expiry, and other applications alone", (t) => {
+  const file = withTempDb(t);
+  const store = openStore(file);
+  t.after(() => store.close());
+
+  const application = store.createApplication(applicationInput());
+  const other = store.createApplication(applicationInput({ subdomain: "nordhavn", email: "lin@example.com" }));
+  const claimed = store.createClaimToken({ applicationId: application.id, payload: "claimed" });
+  const live = store.createClaimToken({ applicationId: application.id, payload: "live" });
+  const elsewhere = store.createClaimToken({ applicationId: other.id, payload: "other" });
+
+  assert.equal(store.consumeClaimToken(claimed.token).payload, "claimed");
+  const reissued = store.rotateClaimToken({ applicationId: application.id, payload: "again" });
+
+  // 已领走的那条是历史，不该被改写成「作废」。
+  assert.deepEqual(reissued.revoked, [{ id: live.id, applicationId: application.id }]);
+  const rows = store.listClaimTokens({ applicationId: application.id });
+  assert.equal(rows.find((row) => row.id === claimed.id).usedAt !== null, true);
+  assert.equal(rows.find((row) => row.id === claimed.id).revokedAt, null);
+  // 别的申请单上的链接与这次重发无关。
+  assert.equal(store.consumeClaimToken(elsewhere.token).payload, "other");
+});
+
+test("claim: revoking by application id only takes the outstanding links", (t) => {
+  const file = withTempDb(t);
+  const store = openStore(file);
+  t.after(() => store.close());
+
+  const application = store.createApplication(applicationInput());
+  const claimed = store.createClaimToken({ applicationId: application.id, payload: "claimed" });
+  const live = store.createClaimToken({ applicationId: application.id, payload: "live" });
+  assert.equal(store.consumeClaimToken(claimed.token).payload, "claimed");
+
+  const result = store.revokeClaimTokens(application.id);
+  assert.deepEqual(result.revoked, [{ id: live.id, applicationId: application.id }]);
+  assert.deepEqual(store.consumeClaimToken(live.token), { error: "revoked" });
+
+  // 再收一次没有可收的：作废是幂等的，不会把已领走的改写成作废。
+  assert.deepEqual(store.revokeClaimTokens(application.id).revoked, []);
+  assert.deepEqual(store.revokeClaimTokens("clm_nope"), { revoked: [] });
+});
+
 test("claim: two redemptions of the same token cannot both win", (t) => {
   const file = withTempDb(t);
   const store = openStore(file);
@@ -258,4 +321,45 @@ test("migration v2: a leftover verify_tokens table is dropped", (t) => {
     .all();
   db.close();
   assert.equal(names.length, 0, "verify_tokens 应该在迁移 v2 里被 drop");
+});
+
+test("migration v3: a revocation borrowed from used_at becomes revoked_at", (t) => {
+  const file = withTempDb(t, (db) => {
+    // 3.0 之前的领取表没有 revoked_at：作废借用 used_at，审计上跟「领走了」分不清。
+    db.exec(`
+      create table claim_tokens (
+        id             text primary key,
+        token_hash     text not null unique,
+        application_id text not null,
+        payload        text not null,
+        created_at     text not null,
+        expires_at     text not null,
+        used_at        text,
+        created_by     text
+      );
+      create table events (
+        seq    integer primary key autoincrement,
+        at     text not null,
+        kind   text not null,
+        ref    text,
+        detail text
+      );
+      insert into claim_tokens (id, token_hash, application_id, payload, created_at, expires_at, used_at)
+      values ('clm_old', 'hash-old', 'XK-1', 'old', '2026-01-01T00:00:00.000Z', '2026-01-04T00:00:00.000Z', '2026-01-02T00:00:00.000Z'),
+             ('clm_new', 'hash-new', 'XK-1', 'new', '2026-01-01T00:00:00.000Z', '2026-01-04T00:00:00.000Z', null);
+      insert into events (at, kind, ref, detail) values
+        ('2026-01-02T00:00:00.000Z', 'claim.revoked', 'XK-1', 'clm_old'),
+        ('2026-01-02T00:00:00.000Z', 'claim.consumed', 'XK-1', 'clm_missing');
+    `);
+  });
+
+  const store = openStore(file);
+  t.after(() => store.close());
+
+  const rows = store.listClaimTokens({ applicationId: "XK-1" });
+  const old = rows.find((row) => row.id === "clm_old");
+  // 事件表说它被作废过：搬进 revoked_at，used_at 清空，状态才不是「已领取」。
+  assert.equal(old.revokedAt, "2026-01-02T00:00:00.000Z");
+  assert.equal(old.usedAt, null);
+  assert.equal(rows.find((row) => row.id === "clm_new").revokedAt, null);
 });

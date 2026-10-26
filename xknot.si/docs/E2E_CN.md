@@ -128,6 +128,7 @@ E2E_CHANNEL= npm run test:ui
 - 已通过列表能看到申请，`reviewedBy` 为 `auto`；生成的清单条目过 `checkManifestEntry`，默认 `tier: free`。
 - 审核接口已移除，再调返回 404；退出后会话立刻失效。
 - `handoff` 生成一次性领取链接：`GET /claim/<token>` 不消费，`POST /api/claim` 只返回一次明文，再取 409；邮件正文不含凭据。
+- 重发交付会作废上一封里的链接：再领返回 410，且不透露任何内容；`notify` 拒绝 `partner.handoff`。
 
 ### 4.3 委托发信（`e2e/relay.e2e.test.mjs`）
 

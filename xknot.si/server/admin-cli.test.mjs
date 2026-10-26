@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,9 +30,8 @@ const APPLICATION = {
   intro: "自用实例。",
 };
 
-async function fixture(t) {
-  const dir = await mkdtemp(path.join(tmpdir(), "xknot-cli-"));
-  const manifestFile = path.join(dir, "instances.json");
+async function fixture(t, extraEnv = {}) {
+  const dir = await mkdtemp(path.join(tmpdir(), "xknot-cli-"));  const manifestFile = path.join(dir, "instances.json");
   const rosterFile = path.join(dir, "federation.json");
   await writeFile(
     manifestFile,
@@ -77,6 +77,7 @@ async function fixture(t) {
   store.close();
 
   // 只给命令行必要的环境：本机如果有 SMTP 变量，发信命令会真的去连。
+  // 需要真的发信时传 extraEnv（测试用本机假 SMTP），别读开发机上的那份配置。
   const env = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
@@ -85,6 +86,7 @@ async function fixture(t) {
     XKNOT_FEDERATION_FILE: rosterFile,
     XKNOT_ADMIN_PASSWORD: "correct-horse-battery",
     XKNOT_ADMIN_USER: "paul",
+    ...extraEnv,
   };
 
   async function cli(args) {
@@ -256,4 +258,197 @@ test("publish: the roster is written with the manifest, and a second run is refu
   const again = await cli(args);
   assert.equal(again.code, 1, "同一条不能再写一次");
   assert.match(again.stderr, /已有|占用/);
+});
+
+// 一个只收信的假 SMTP：交付信走真 socket，才能验证「链接寄出去了」而不是「函数返回值对」。
+// 不开 AUTH：命令行这边只设 SMTP_HOST / MAIL_FROM，认证不是这条用例要验的东西。
+function fakeSmtp(t) {
+  const messages = [];
+  const server = net.createServer((socket) => {
+    socket.setEncoding("utf8");
+    let buffer = "";
+    let inData = false;
+    let body = "";
+    socket.write("220 fake ESMTP\r\n");
+
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      let index;
+      while ((index = buffer.indexOf("\r\n")) >= 0) {
+        const line = buffer.slice(0, index);
+        buffer = buffer.slice(index + 2);
+
+        if (inData) {
+          if (line === ".") {
+            inData = false;
+            messages.push(body);
+            body = "";
+            socket.write("250 2.0.0 queued\r\n");
+          } else {
+            body += `${line}\r\n`;
+          }
+          continue;
+        }
+
+        if (/^EHLO /i.test(line)) socket.write("250-fake\r\n250 SIZE 10485760\r\n");
+        else if (/^MAIL FROM:/i.test(line)) socket.write("250 2.1.0 ok\r\n");
+        else if (/^RCPT TO:/i.test(line)) socket.write("250 2.1.5 ok\r\n");
+        else if (/^DATA$/i.test(line)) {
+          inData = true;
+          socket.write("354 send it\r\n");
+        } else if (/^QUIT$/i.test(line)) {
+          socket.write("221 bye\r\n");
+          socket.end();
+        } else socket.write("250 ok\r\n");
+      }
+    });
+    socket.on("error", () => {});
+  });
+
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      t.after(() => new Promise((done) => server.close(done)));
+      resolve({ port: server.address().port, messages });
+    });
+  });
+}
+
+// 正文是 base64；去掉折行还原成邮件里真正写着的文本。
+function mailText(message) {
+  const index = message.indexOf("\r\n\r\n");
+  const body = message.slice(index + 4).replace(/\r\n/g, "");
+  return Buffer.from(body, "base64").toString("utf8");
+}
+
+function claimTokenOf(text) {
+  const match = /\/claim\/([A-Za-z0-9_-]{8,})/.exec(text);
+  return match ? match[1] : null;
+}
+
+test("handoff: the mail carries the link, and a resend retires the previous one", async (t) => {
+  const smtp = await fakeSmtp(t);
+  const { cli, dir, application, env } = await fixture(t, {
+    SMTP_HOST: "127.0.0.1",
+    SMTP_PORT: String(smtp.port),
+    SMTP_ALLOW_INSECURE: "1",
+    MAIL_FROM: "notify@mail.xknot.si",
+    XKNOT_PUBLIC_ORIGIN: "https://hub.example",
+  });
+  const payload = path.join(dir, "cpswang.env");
+  await writeFile(payload, "XKNOT_HUB_RELAY_TOKEN=xkr_do_not_leak\n", { mode: 0o600 });
+
+  const first = await cli(["handoff", application.id, "--payload", payload, "--ttl", "24"]);
+  assert.equal(first.code, 0, first.stderr);
+  assert.match(first.stdout, /https:\/\/hub\.example\/claim\//);
+  // 有效期照参数写进信里：写死 72 小时就是在骗伙伴。
+  assert.match(first.stdout, /24 小时后失效/);
+
+  const sent = mailText(smtp.messages[0]);
+  const firstToken = claimTokenOf(sent);
+  assert.ok(firstToken, "the mail must carry the claim link");
+  // 这单没有 locale，信按默认英文出；有效期照参数写成 24 小时。
+  assert.match(sent, /24 hours/);
+  // 资料本身不进信：信里只有领取链接。
+  assert.ok(!sent.includes("xkr_do_not_leak"), "secrets never go into mail");
+
+  // 资料轮换后重发：旧链接必须当场作废，否则两封信各能领出一份。
+  await writeFile(payload, "XKNOT_HUB_RELAY_TOKEN=xkr_rotated\n", { mode: 0o600 });
+  const second = await cli(["handoff", application.id, "--payload", payload]);
+  assert.equal(second.code, 0, second.stderr);
+  assert.match(second.stdout, /已作废 1 条旧领取链接/);
+
+  const store = openStore(path.join(env.XKNOT_DATA_DIR, "xknot.db"));
+  t.after(() => store.close());
+  const rows = store.listClaimTokens({ applicationId: application.id });
+  assert.equal(rows.length, 2);
+  assert.equal(rows.filter((row) => row.revokedAt).length, 1);
+  assert.equal(rows.filter((row) => !row.revokedAt && !row.usedAt).length, 1);
+  // 旧令牌在库里只剩哈希，校验走的是真令牌；这里用「旧的已作废」间接确认。
+  const [latest] = rows.filter((row) => !row.revokedAt);
+  assert.equal(latest.payloadLength > 0, true);
+});
+
+test("handoff: no SMTP means no claim link, unless --offline asks for one", async (t) => {
+  const { cli, dir, application, env } = await fixture(t);
+  const payload = path.join(dir, "cpswang.env");
+  await writeFile(payload, "XKNOT_HUB_RELAY_TOKEN=xkr_offline\n", { mode: 0o600 });
+
+  // 信发不出去时先造链接，就会留下一条谁也拿不到的领取记录。
+  const refused = await cli(["handoff", application.id, "--payload", payload]);
+  assert.equal(refused.code, 1);
+  assert.match(refused.stderr, /SMTP|MAIL_FROM/);
+  assert.match(refused.stderr, /--offline/);
+
+  const store = openStore(path.join(env.XKNOT_DATA_DIR, "xknot.db"));
+  t.after(() => store.close());
+  assert.deepEqual(store.listClaimTokens({ applicationId: application.id }), []);
+
+  // 线下转交仍然是合法的路：只打印链接，不碰 SMTP。
+  const offline = await cli(["handoff", application.id, "--payload", payload, "--offline"]);
+  assert.equal(offline.code, 0, offline.stderr);
+  assert.match(offline.stdout, /未寄信/);
+  const token = claimTokenOf(offline.stdout);
+  assert.ok(token);
+  assert.equal(store.consumeClaimToken(token).payload, "XKNOT_HUB_RELAY_TOKEN=xkr_offline");
+});
+
+test("handoff: var/mail.env supplies SMTP when the shell has none", async (t) => {
+  const smtp = await fakeSmtp(t);
+  const { cli, dir, application } = await fixture(t);
+  // 生产由 systemd 的 EnvironmentFile 读这份文件；手工跑命令行时由 CLI 自己补，
+  // 否则同一台机器上「接口能发信、终端说没配置」。
+  await writeFile(
+    path.join(dir, "mail.env"),
+    [
+      "SMTP_HOST=127.0.0.1",
+      `SMTP_PORT=${smtp.port}`,
+      "SMTP_ALLOW_INSECURE=1",
+      "MAIL_FROM=notify@mail.xknot.si",
+      "XKNOT_PUBLIC_ORIGIN=https://hub.example",
+    ].join("\n"),
+    { mode: 0o600 }
+  );
+  const payload = path.join(dir, "cpswang.env");
+  await writeFile(payload, "XKNOT_HUB_RELAY_TOKEN=xkr_from_file\n", { mode: 0o600 });
+
+  const result = await cli(["handoff", application.id, "--payload", payload]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /https:\/\/hub\.example\/claim\//);
+  assert.equal(smtp.messages.length, 1);
+});
+
+test("claims / claim-revoke: states are visible, and revoking is explicit", async (t) => {
+  const { cli, dir, application, env } = await fixture(t);
+  const payload = path.join(dir, "cpswang.env");
+  await writeFile(payload, "XKNOT_HUB_RELAY_TOKEN=xkr_state\n", { mode: 0o600 });
+
+  const issued = await cli(["handoff", application.id, "--payload", payload, "--offline"]);
+  assert.equal(issued.code, 0, issued.stderr);
+
+  const store = openStore(path.join(env.XKNOT_DATA_DIR, "xknot.db"));
+  t.after(() => store.close());
+  const [row] = store.listClaimTokens({ applicationId: application.id });
+
+  const listed = await cli(["claims", application.id]);
+  assert.equal(listed.code, 0, listed.stderr);
+  assert.match(listed.stdout, /可领取/);
+  assert.match(listed.stdout, new RegExp(row.id));
+  assert.ok(!listed.stdout.includes("xkr_state"), "领取列表不给明文");
+
+  const revoked = await cli(["claim-revoke", row.id]);
+  assert.equal(revoked.code, 0, revoked.stderr);
+  assert.match(revoked.stdout, /已作废领取链接/);
+  assert.match((await cli(["claims", application.id])).stdout, /已作废/);
+
+  // 再收一次没有可收的：命令行要说清楚，而不是静默成功。
+  const again = await cli(["claim-revoke", row.id]);
+  assert.equal(again.code, 1);
+  assert.match(again.stderr, /没有可作废的领取记录/);
+});
+
+test("notify: partner.handoff cannot be resent without a link", async (t) => {
+  const { cli, application } = await fixture(t);
+  const result = await cli(["notify", application.id, "partner.handoff"]);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /handoff/);
 });

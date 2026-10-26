@@ -82,7 +82,7 @@ Notes:
 - Steps 4 and 5 must come before step 7. Reloading a conf whose certificate does not exist yet takes the whole entry down.
 - Step 8's `Match` block matches by account; **one subdomain, one account, one port**, never shared (reason in section 9 item 1).
 - Step 8 installs the public key handed over in phase 0; if the fingerprint does not match, stop and ask — do not generate your own.
-- Step 9 appears only in the manual path: the claim link shows once, and re-running `handoff` reissues after expiry. The automatic path has no such step; the `handoff` field is given directly by `progress` once the node data is ready, and that field carries tunnel parameters only — the relay token is still issued by the operator.
+- Step 9 appears only in the manual path: the claim link shows once, and re-running `handoff` reissues a link and retires the one from the previous mail in the same transaction. The automatic path has no such step; the `handoff` field is given directly by `progress` once the node data is ready, and that field carries tunnel parameters only — the relay token is still issued by the operator.
 
 After pre-staging, the hub has nothing left to wait for. At this point the public `https://<label>.xknot.si/` serves the static page, and `/api/health` hits the pre-connected loopback port with nobody listening yet, so it answers `502` — not the SPA fallback — while the manifest is still `pending` and no probe runs.
 
@@ -334,9 +334,11 @@ The access material is issued by the operator, and `access` writes the same file
 The `partner.issuance` mail is used only when the public key is late (its body asks the partner for the `.pub`). When the key arrives on time, it is skipped, and pre-staging sends `partner.handoff` directly after finishing — so the whole flow has only one mail waiting on partner action.
 
 - The claim link shows once; expired or already claimed both require reissue.
-- `handoff` prints `claimUrl` to the terminal so it can be passed offline if mail fails; do not commit this output to version control or chat.
+- Re-running `handoff` issues a new link and retires every outstanding link of that application; use the link in the latest mail.
+- Without a usable mail channel `handoff` refuses before writing anything (it reads `var/mail.env` when the shell has no SMTP variables). Add `--offline` to get a link for manual delivery: it prints `claimUrl` to the terminal and sends nothing. Do not commit this output to version control or chat.
 - The mail body only says "where to claim", not "what to claim". Any credential plaintext in a mail counts as an incident.
 - The claim page and case page have `access_log` disabled in nginx.
+- To retire a link without reissuing: `npm run admin -- claims <application id>` lists them, `claim-revoke <claim id|application id>` revokes.
 - Revoke access: `npm run admin -- relay-revoke <instance>`; the instance side deletes the access material (`knot-platform` uses
   `./ops/scripts/join-xknot.sh --remove`).
 

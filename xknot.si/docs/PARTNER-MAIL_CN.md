@@ -18,7 +18,7 @@
 | `server/store.mjs` | `notify_log`、`claim_tokens`、申请状态与 `state_version` |
 | `server/app.mjs` | 提交（自动通过）、案例动作、交付、领取的接口与发信触发 |
 | `server/pages.mjs` | `/case/`、`/claim/` 两个无脚本页面 |
-| `server/admin-cli.mjs` | `notify` / `handoff` / `live` / `contact-revalidate` / `suspend` / `retire` / `notify-log` |
+| `server/admin-cli.mjs` | `notify` / `handoff` / `claims` / `claim-revoke` / `live` / `contact-revalidate` / `suspend` / `retire` / `notify-log` |
 | `server/notify.test.mjs` | 每事件 × 3 语种，断言编号在内、内部备注不在、无占位符、无凭据明文 |
 
 一条邮件的走向：
@@ -773,7 +773,7 @@ This message was sent automatically; replies are not monitored.
 | `server/store.mjs` | `notify_log` + `unique(event, case_id, state_version)`；`state_version` 在每次状态迁移 +1；运营类事件（签发/交付/上线）不传版本号，允许补发 |
 | `server/app.mjs` | 提交（自动通过）、案例动作、交付处调用 `dispatchMail`；限流命中记 `throttled` |
 | `server/pages.mjs` | 两个页面无脚本、无构建；所有变量经 `escapeHtml`；页面自带 CSP 与 `no-store` |
-| `server/admin-cli.mjs` | `notify` 补发任意事件；`handoff` 生成领取令牌并打印领取地址；`suspend` / `retire` 只发信，清单状态仍需按 ops 清单改 |
+| `server/admin-cli.mjs` | `notify` 补发任意事件，但 `partner.handoff` 除外（没有链接可补，要用 `handoff`）；`handoff` 签领取令牌、打印领取地址，并作废上一封里的链接；`claims` / `claim-revoke` 只看与只收，不重签；`suspend` / `retire` 只发信，清单状态仍需按 ops 清单改 |
 | `server/notify.test.mjs` | 11 个事件 × 3 语种；断言无占位符残留、无凭据明文、内部备注不外发 |
 | `ops/xknot.si.conf` | `/case/`、`/claim/`、`/api/claim`、`/api/case/` 关闭 `access_log` |
 

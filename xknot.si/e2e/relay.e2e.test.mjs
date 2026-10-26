@@ -121,8 +121,14 @@ test("relay: 字段非法按字段拒绝", async () => {
   assert.equal(foreign.status, 400);
   assert.equal(foreign.data.fields.replyTo, "foreign_domain");
 
-  const ownDomain = await relay({ body: { ...message, replyTo: "desk@e2e-node.example" }, token });
-  assert.equal(ownDomain.status, 200, "实例自己域名下的回信地址应放行");
+  // 放行的是实例自己签发的域名，不是联系邮箱所在的那个域：
+  // 按域名放行联系邮箱的域，等于允许把回复指向该域下别人的信箱。
+  const ownDomain = await relay({ body: { ...message, replyTo: "desk@e2e-node.xknot.si" }, token });
+  assert.equal(ownDomain.status, 200, "实例自己签发域名下的回信地址应放行");
+
+  const siblingMailbox = await relay({ body: { ...message, replyTo: "desk@e2e-node.example" }, token });
+  assert.equal(siblingMailbox.status, 400);
+  assert.equal(siblingMailbox.data.fields.replyTo, "foreign_domain");
 });
 
 test("relay: 没凭据、伪造凭据都是 401", async () => {

@@ -56,6 +56,7 @@ const TEXT = {
     claimButton: "显示接入资料",
     claimUsed: "这份资料已经被领取过。需要重新签发请联系运营方。",
     claimExpired: "这个领取链接已过期。请联系运营方重新签发。",
+    claimRevoked: "这个领取链接已被作废，通常是因为运营方重发了交付信。请用最新一封邮件里的链接。",
     claimMissing: "这个链接无效。",
     claimWarning: "关闭本页后不会再显示。",
     tooMany: "请求过多，请稍后再试。",
@@ -83,6 +84,7 @@ const TEXT = {
     claimButton: "顯示接入資料",
     claimUsed: "這份資料已經被領取過。需要重新簽發請聯絡營運方。",
     claimExpired: "這個領取連結已過期。請聯絡營運方重新簽發。",
+    claimRevoked: "這個領取連結已被作廢，通常是因為營運方重發了交付信。請用最新一封郵件裡的連結。",
     claimMissing: "這個連結無效。",
     claimWarning: "關閉本頁後不會再顯示。",
     tooMany: "請求過多，請稍後再試。",
@@ -110,6 +112,7 @@ const TEXT = {
     claimButton: "Reveal access material",
     claimUsed: "This material was already claimed. Ask the operator to issue it again.",
     claimExpired: "This claim link has expired. Ask the operator to issue it again.",
+    claimRevoked: "This claim link was revoked, usually because a newer handoff mail was sent. Use the link in the latest mail.",
     claimMissing: "This link is not valid.",
     claimWarning: "It will not be shown again after you close this page.",
     tooMany: "Too many requests. Try again in a moment.",
@@ -255,6 +258,7 @@ export function renderClaimResult(outcome, payload, locale) {
   if (outcome !== "ok") {
     const message = {
       used: t(useLocale, "claimUsed"),
+      revoked: t(useLocale, "claimRevoked"),
       expired: t(useLocale, "claimExpired"),
       missing: t(useLocale, "claimMissing"),
       rate_limited: t(useLocale, "tooMany"),

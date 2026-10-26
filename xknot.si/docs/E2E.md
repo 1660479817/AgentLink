@@ -119,6 +119,7 @@ Each end-to-end file starts its own deployment, sharing no port, database, or ra
 - The approved list shows the application, `reviewedBy` is `auto`; the generated manifest entry passes `checkManifestEntry`, defaulting to `tier: free`.
 - The review endpoint is removed; calling it returns 404; the session is invalidated immediately after logout.
 - `handoff` generates a one-time claim link: `GET /claim/<token>` does not consume it, `POST /api/claim` returns the plaintext only once, then 409; the mail body contains no credentials.
+- Reissuing a handoff retires the link from the previous mail: it answers 410 and reveals nothing; `notify` refuses `partner.handoff`.
 
 ### 4.3 Mail relay (`e2e/relay.e2e.test.mjs`)
 

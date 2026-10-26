@@ -50,6 +50,7 @@ xknot.si/
 │   ├── provision.mjs      自动接通的状态机：分配、发布、账号、sshd、静态根、DNS、反代、证书，逐步幂等
 │   ├── relay.mjs          委托发信的字段校验与消息组装（纯函数）
 │   ├── mail.mjs           SMTP 客户端（net/tls，无外部依赖）与邮件组装
+│   ├── env-file.mjs       读 var/mail.env，命令行与 systemd 用同一份发信配置
 │   ├── member-mail.mjs    成员入口的一次性登录信（不进可补发的事件表）
 │   ├── notify.mjs         伙伴与内部邮件模板注册表（9 + 2，三语）
 │   ├── pages.mjs          /case/、/claim/ 两个无脚本页面
@@ -568,7 +569,7 @@ npm run preview  # 预览构建产物（在 web/ 内执行）
 | `XKNOT_RELAY_ENABLED` | 随 SMTP | 委托发信开关；配了 SMTP 即开，置 `0` 可单独关掉代发（不锁控制台的发信总闸，面板会注明） |
 | `XKNOT_RELAY_DAILY_LIMIT` | `50` | 每份凭据 24 小时内的发信上限 |
 
-生产把密码放在 `/opt/xknot/var/mail.env`（`0600`），由 systemd 的 `EnvironmentFile` 读入，不写进 unit 文件。`npm run mail:test -- <收件地址>` 用同一套环境变量发一封测试信。
+生产把密码放在 `/opt/xknot/var/mail.env`（`0600`），由 systemd 的 `EnvironmentFile` 读入，不写进 unit 文件。`npm run mail:test -- <收件地址>` 用同一套环境变量发一封测试信；`admin-cli` 与 `mail:test` 在当前环境没有 `SMTP_HOST` / `MAIL_FROM` 时会自动读同一份 `var/mail.env`（已经显式给出的变量不覆盖），终端里不必先 `set -a; . ...`。
 
 接口没有外部依赖，Node 26 的 `node:sqlite` 即可运行，根目录仍然不需要 `node_modules`；SMTP 客户端用 `node:net` / `node:tls`，也没有引入新依赖。
 
@@ -722,7 +723,7 @@ M3：加入申请
 | `admins` | 管理员：用户名、scrypt 口令、创建时间、最近登录 |
 | `sessions` | 会话：令牌的 SHA-256、管理员、过期时间 |
 | `events` | 审计：提交、撤回、建号、删号、凭据签发与吊销 |
-| `claim_tokens` | 一次性领取令牌：SHA-256、申请、交付内容、签发/过期/使用时间 |
+| `claim_tokens` | 一次性领取令牌：SHA-256、申请、交付内容、签发/过期/使用时间与作废时间（重发交付即作废旧链接） |
 | `notify_log` | 发信记录：事件、案例、状态版本、语种、收件域名、地址哈希、模板版本、结果；不含正文 |
 | `relay_tokens` | 委托发信凭据：实例、标签、令牌 SHA-256、每日上限、签发与吊销时间 |
 | `relay_switches` | 每实例的委托发信开关：关掉只暂停受理，凭据留着，`relay-enable` 即恢复 |
@@ -765,8 +766,8 @@ M3：加入申请
 | `POST /api/admin/mail` | 会话 | 发信总闸：`{ enabled: true \| false }`，写 `settings.mail` 并立刻生效 |
 | `POST /api/admin/instances/:id/config` | 会话 | 改实例配置：`{ instance, member }` 两份补丁，整份校验通过后原子写回 `instances.json` 与 `federation.json`；不合法返回 400 + `fields[]` |
 | `GET /api/admin/applications?status=` | 会话 | 列表与各状态计数（`approved` / `withdrawn` / `rejected` / `expired`） |
-| `POST /api/admin/applications/:id/notify` | 会话 | 补发任意伙伴事件（`event` 取自 PARTNER-MAIL.md） |
-| `POST /api/admin/applications/:id/handoff` | 会话 | 生成一次性领取令牌并寄交付信，返回 `claimUrl` |
+| `POST /api/admin/applications/:id/notify` | 会话 | 补发伙伴事件（`event` 取自 PARTNER-MAIL.md）；`partner.handoff` 除外，它没有链接可补，返回 409 `use_handoff` |
+| `POST /api/admin/applications/:id/handoff` | 会话 | 签一次性领取令牌并寄交付信，返回 `claimUrl`；重发即作废上一封里的链接，`claim.revoked` 给出作废条数；没有可用发信通道时 503 `mail_unavailable`，不留令牌 |
 | `GET /api/admin/notify-log?limit=&case=` | 会话 | 发信日志 |
 | `GET /api/admin/applications/:id/manifest` | 会话 | 生成清单条目，生成后自检，不合法返回 422 |
 | `GET /case/:caseKey` | 公开 | 案例页：状态、公钥、撤回 |
@@ -822,7 +823,7 @@ M3：加入申请
   - 停发期间不收新信，也不写 `notify_log`：打开之后同一件事还能补发，不会被去重键当成「已经发过」。
   - 没配 SMTP 时开关禁用，提示先填 `SMTP_HOST` 与 `MAIL_FROM`。
   - 环境变量 `XKNOT_RELAY_ENABLED=0` 是只管代发的另一道闸：总闸开着时面板会加一句「各节点的代发请求仍返回 503」，不假装代发是好的。
-  - 命令行也受同一行约束：总闸关着时 `admin-cli notify / handoff / live` 直接报错退出，不会出现「界面停着、终端又发了一封」。
+  - 命令行也受同一行约束：总闸关着时 `admin-cli notify / handoff / live` 直接报错退出，不会出现「界面停着、终端又发了一封」。`handoff --offline` 不寄信，不受这道闸限制。
 - 实例行显示名称、地址、分级、在线/离线/未探测、延迟或断连时长；有橱窗或活动数据的实例带标记。
 - 点一行在下面展开这个账号的配置，不跳站点：名册身份、席位、隧道账号与端口、清单列出、加入时间、时区、语言、运营者、所有者、联系邮箱、对外地址、探测地址、橱窗与统计入口，以及名册备注。地址类字段单独给链接，跳站是明确动作，点整行只展开。
 - 配置里的身份字段来自 `federation.json`，地址类字段来自 `instances.json`；两边都按文件 `mtime` 读，改完刷新总览就能看到，不用重启接口。清单里有、名册里没有的实例会显示「未进名册」。

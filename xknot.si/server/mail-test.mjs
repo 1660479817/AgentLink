@@ -5,12 +5,20 @@
 //   npm run mail:test -- you@example.com
 //
 // 只读环境变量，不打印密码。退出码 0 表示 SMTP 服务器收下了这封信。
+// 环境里没有 SMTP 取值时读 `var/mail.env`（与 systemd 的 EnvironmentFile 同一份）。
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { loadEnvFile } from "./env-file.mjs";
 import { createMailer, mailConfigFromEnv } from "./mail.mjs";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+loadEnvFile(path.join(process.env.XKNOT_DATA_DIR || path.join(root, "var"), "mail.env"));
 
 const config = mailConfigFromEnv();
 if (!config) {
-  console.error("未配置 SMTP_HOST 或 MAIL_FROM，先填 /opt/xknot/var/mail.env。");
+  console.error("未配置 SMTP_HOST 或 MAIL_FROM，先填 var/mail.env。");
   process.exit(1);
 }
 
