@@ -15,6 +15,12 @@ import { chromium } from "playwright";
 const DIST = path.resolve(process.env.KNOT_DIST || "../knot-platform/web/dist");
 const PORT = Number(process.env.KNOT_PORT || 4179);
 
+// 与 bench 其它脚本一致：--base 优先，其次 KNOT_BASE；都没有才起本地 dist 服务。
+function argValue(name) {
+  const index = process.argv.indexOf(name);
+  return index > -1 && process.argv[index + 1] ? process.argv[index + 1] : "";
+}
+
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -29,7 +35,7 @@ const TYPES = {
 
 // 入口的 nginx 对未知路径回落到 index.html；这里照做，SPA 路由才会拿到页面。
 let server = null;
-let BASE = (process.env.KNOT_BASE || "").replace(/\/$/, "");
+let BASE = (argValue("--base") || process.env.KNOT_BASE || "").replace(/\/$/, "");
 if (!BASE) {
   server = createServer(async (req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
