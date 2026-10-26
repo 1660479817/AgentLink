@@ -782,7 +782,7 @@ M3：加入申请
 委托发信：
 
 - 凭据由命令行签发：`npm run admin -- relay-token <instance> [--label text] [--daily 50]`。明文只打印一次，库里只有 SHA-256。
-- **默认开通**：`access` 生成的接入件里本来就带一份凭据；节点按既有路径写入接入件、重启 Backend 即可，**不需要改任何节点代码**（它从环境里读 `XKNOT_HUB_RELAY_TOKEN`）。要纯 SMTP 的接入件才加 `--no-relay`，那会把该实例旧的凭据一并吊销。
+- **默认开通**：`access` 生成的接入件里本来就带一份凭据（同一实例旧凭据一并作废，重签即轮换）；节点按既有路径写入接入件、重启 Backend 即可，**不需要改任何节点代码**（它从环境里读 `XKNOT_HUB_RELAY_TOKEN`）。要纯 SMTP 的接入件才加 `--no-relay`，那会把该实例旧的凭据一并吊销。
 - 实例要的接入件由 `npm run admin -- access <申请编号> --id <instance> --out <文件>` 生成：只含实例 id、中枢地址、签发日期与委托发信凭据（发信地址由中枢地址推导）。格式与键名见 [FEDERATION.md 第 7.4 节](FEDERATION.md#74-接入件)；实例存成什么文件名、放哪个目录，是实例自己的事。站点拓扑不进这份文件，部署与接入因此互不牵连。清单 `status` 是 `pending` 时就能签：验收前伙伴正是靠这份接入件起隧道，挂起或退出后不再签。
 - 两道开关：中枢整体 `XKNOT_RELAY_ENABLED=0` 一律 503；按实例暂停用 `relay-disable <instance> --note 原因`（`403 relay_disabled`，`relay-enable` 即恢复，凭据不动）。
 - 吊销按凭据 id，或按实例 id 一次吊销该实例全部凭据：`npm run admin -- relay-revoke <id|instance>`。吊销不可逆，实例得换新接入件。

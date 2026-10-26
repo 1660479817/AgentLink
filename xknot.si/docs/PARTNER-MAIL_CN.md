@@ -107,6 +107,7 @@
 | 响应头 | `Cache-Control: no-store`、`Referrer-Policy: no-referrer`、`X-Robots-Tag: noindex` |
 | 日志 | nginx 对 `/case/`、`/claim/`、`/api/claim`、`/api/case/` 关闭 `access_log` |
 | 有效期 | 领取页 72 小时，单次使用 |
+| 正文写法 | 只写「去哪里领」，不写领取页里有什么。payload 是每次交付时选的，写死一份清单就会承诺这次没放进去的项 |
 
 ### 1.7 变量卫生
 
@@ -183,7 +184,7 @@
 
 收录不包含入口主机与 SSH 反向隧道，需要时另行确认。
 
-委托发信默认由中枢代发：接入件里带一份发信凭据，不必再单独申请，也不用自己配 SMTP。
+委托发信默认由中枢代发：要用它，请运营方签发一次接入件（一次性领取），里面带发信凭据；不必自己配 SMTP。
 
 申请状态与公钥提交：
 {caseUrl}
@@ -208,7 +209,7 @@
 
 收錄不包含入口主機與 SSH 反向隧道，需要時另行確認。
 
-委託發信預設由中樞代發：接入件裡帶一份發信憑證，不必再單獨申請，也不用自己設 SMTP。
+委託發信預設由中樞代發：要用它，請營運方簽發一次接入件（一次性領取），裡面帶發信憑證；不必自己設 SMTP。
 
 申請狀態與公鑰提交：
 {caseUrl}
@@ -233,7 +234,7 @@ The hub will now add the instance to the federation manifest and connect the ent
 
 Listing does not include the entry host and SSH reverse tunnel, which are confirmed separately.
 
-Delegated mail is on by default: the access material includes a relay token, so there is no separate application and no SMTP setup of your own.
+Delegated mail is on by default: when you want it, ask the operator to issue an access material (one-time claim), which carries a relay token; you need no SMTP setup of your own.
 
 Application status and public key:
 {caseUrl}
@@ -347,17 +348,10 @@ This message was sent automatically; replies are not monitored.
 
 实例 {id}（{name}）的接入资料已就绪。
 
-请在 {claimTtl} 内领取：
+请在 {claimTtl}内领取：
 {claimUrl}
 
-领取页只显示一次，内容包含：
-
-- 委托发信凭据
-- 接入件（实例 id、中枢地址、签发日期）
-- 连通参数（隧道账号、专属端口；直连为空）
-- 接通前的验收命令
-
-领取后请立即写进实例配置，不要转发、截图或存进版本库。
+领取页只显示一次，领取后请立即写进实例配置；不要转发、截图或存进版本库。
 
 本邮件由系统发出，不接收回复。
 
@@ -371,17 +365,10 @@ This message was sent automatically; replies are not monitored.
 
 實例 {id}（{name}）的接入資料已就緒。
 
-請在 {claimTtl} 內領取：
+請在 {claimTtl}內領取：
 {claimUrl}
 
-領取頁只顯示一次，內容包含：
-
-- 委託發信憑證
-- 接入件（實例 id、中樞位址、簽發日期）
-- 連通參數（隧道帳號、專屬埠；直連為空）
-- 接通前的驗收命令
-
-領取後請立即寫進實例設定，不要轉發、截圖或存進版本庫。
+領取頁只顯示一次，領取後請立即寫進實例設定；不要轉發、截圖或存進版本庫。
 
 本郵件由系統發出，不接收回覆。
 
@@ -398,14 +385,7 @@ Access material for instance {id} ({name}) is ready.
 Claim it within {claimTtl}:
 {claimUrl}
 
-The claim page is shown once and contains:
-
-- the relay token
-- the access material (instance id, hub origin, issue date)
-- the connectivity parameters (tunnel account and port; empty for direct)
-- the acceptance commands
-
-Write it into the instance configuration right away. Do not forward, screenshot, or commit it.
+The claim page is shown once. Write it into the instance configuration right away; do not forward, screenshot, or commit it.
 
 This message was sent automatically; replies are not monitored.
 
@@ -543,7 +523,7 @@ This message was sent automatically; replies are not monitored.
 影响：
 
 - 门户不再展示该条目的站点档案与热点橱窗
-- 委托发信凭据已吊销
+- 委托发信暂停（凭据保留，恢复收录后继续可用）
 - 隧道账号暂停
 
 不受影响：
@@ -570,7 +550,7 @@ This message was sent automatically; replies are not monitored.
 影響：
 
 - 入口不再展示該條目的站點檔案與熱點櫥窗
-- 委託發信憑證已吊銷
+- 委託發信暫停（憑證保留，恢復收錄後繼續可用）
 - 隧道帳號暫停
 
 不受影響：
@@ -597,7 +577,7 @@ Effective: {effectiveAt}
 Affected:
 
 - the portal no longer shows this entry's site profile or showcase
-- the relay token is revoked
+- relay sending is paused (the credential stays and works again once the listing resumes)
 - the tunnel account is disabled
 
 Not affected:
@@ -780,7 +760,7 @@ This message was sent automatically; replies are not monitored.
 | 对外支持入口 `{supportUrl}` | **待定** | 选了 `no-reply` 之后伙伴没有回信渠道。上线前必须在支持页与工单邮箱之间定一个；为空时该行整段省略，但那样伙伴只能靠案例页 |
 | `no-reply@xknot.si` 的发信认证 | 已配 | 阿里云要求 `SMTP_USER` 与 `SMTP_FROM` 一致；改发信地址要同时改两处 |
 | `MAIL_FROM` 与 `Reply-To` 一致 | 已配 | 二者都用 `no-reply@xknot.si`，与「不接收回复」的措辞一致 |
-| 模板版本与文案责任人 | 已定 | 运行时版本 `TEMPLATE_VERSION=2.0.0`；改文案必须两边一起改并升版本 |
+| 模板版本与文案责任人 | 已定 | 运行时版本 `TEMPLATE_VERSION=2.2.0`；改文案必须两边一起改并升版本 |
 | 归属验证记录 | **无** | 申请只按子域走，签发前没有可验证的域名。验收改为接通后的公网 `/api/health` 探测；`proof_method` / `proof_at` 两列已不再写入，申请对象不返回这两个字段 |
 
 ---

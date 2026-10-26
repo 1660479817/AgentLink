@@ -82,7 +82,7 @@ Notes:
 - Steps 4 and 5 must come before step 7. Reloading a conf whose certificate does not exist yet takes the whole entry down.
 - Step 8's `Match` block matches by account; **one subdomain, one account, one port**, never shared (reason in section 9 item 1).
 - Step 8 installs the public key handed over in phase 0; if the fingerprint does not match, stop and ask — do not generate your own.
-- Step 9 appears only in the manual path: the claim link shows once, and re-running `handoff` reissues after expiry. The automatic path has no such step; the `handoff` field is given directly by `progress` once the node data is ready.
+- Step 9 appears only in the manual path: the claim link shows once, and re-running `handoff` reissues after expiry. The automatic path has no such step; the `handoff` field is given directly by `progress` once the node data is ready, and that field carries tunnel parameters only — the relay token is still issued by the operator.
 
 After pre-staging, the hub has nothing left to wait for. At this point the public `https://<label>.xknot.si/` serves the static page, and `/api/health` hits the pre-connected loopback port with nobody listening yet, so it answers `502` — not the SPA fallback — while the manifest is still `pending` and no probe runs.
 
@@ -329,7 +329,7 @@ How the instance stores this file is its own decision: `knot-platform`'s convent
 
 `access` writes the access material to the file named by `--out` and sets 600; without `--out` it only prints to the terminal.
 **It issues one relay token by default** and writes it into the access material; only when pure SMTP is explicitly wanted do you add `--no-relay`.
-The automatically connected instance writes the same access material: the hub gives `issued` together with the credential, and the instance persists it along the existing path, with no separate code or script change for mail.
+The access material is issued by the operator, and `access` writes the same file whether the instance was connected automatically or by hand. Automatic connection hands over only the `issued` fields through `progress`; the relay token never travels that path, so an instance that wants hub relay mail asks the operator for one access material (one-time claim, 72 hours).
 
 The `partner.issuance` mail is used only when the public key is late (its body asks the partner for the `.pub`). When the key arrives on time, it is skipped, and pre-staging sends `partner.handoff` directly after finishing — so the whole flow has only one mail waiting on partner action.
 
