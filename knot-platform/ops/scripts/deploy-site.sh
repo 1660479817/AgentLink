@@ -29,7 +29,7 @@
 # 从开发机一步完成构建、传输和部署用 ./ops/scripts/push-deploy.sh。
 # 实例主机只支持 macOS + launchd（main 分支）；别的平台要 fork 发布层。
 set -euo pipefail
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH="${HOME}/.npm-global/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -796,14 +796,19 @@ fi
 # 发布包按同一份保留数清：只有已安装过的 tar.gz 才算冗余，没装过的是「待用」。
 # 安装失败时 .incoming 会留下来，这里把超过一天的一并清掉。
 if (( KEEP > 0 )) && [[ -d "$KNOT_DEPLOY_ROOT/artifacts" ]]; then
-  ls -1t "$KNOT_DEPLOY_ROOT/artifacts"/*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) |
-    while IFS= read -r file; do
-      base="$(basename "$file")"
-      # 当前版本对应的包先留着，下一轮再清。
-      [[ "$base" == "${REL_NAME}"-*.tar.gz ]] && continue
-      echo "==> 清理旧发布包 $(basename "$file")"
-      rm -f "$file" "$file.sha256"
-    done || true
+  # 部署根 artifacts/ 可能是空目录（发布包仍在开发机/仓库的 artifacts/）。
+  # set -o pipefail 下空 glob 的 ls 非零会把整次部署标成失败，即使前面已经 OK。
+  if ls -1t "$KNOT_DEPLOY_ROOT/artifacts"/*.tar.gz >/dev/null 2>&1; then
+    ls -1t "$KNOT_DEPLOY_ROOT/artifacts"/*.tar.gz |
+      tail -n +$((KEEP + 1)) |
+      while IFS= read -r file; do
+        base="$(basename "$file")"
+        # 当前版本对应的包先留着，下一轮再清。
+        [[ "$base" == "${REL_NAME}"-*.tar.gz ]] && continue
+        echo "==> 清理旧发布包 $(basename "$file")"
+        rm -f "$file" "$file.sha256"
+      done || true
+  fi
 fi
 if [[ -d "$KNOT_DEPLOY_ROOT/.incoming" ]]; then
   find "$KNOT_DEPLOY_ROOT/.incoming" -mindepth 1 -maxdepth 1 -type d -mtime +1 -print -exec rm -rf {} + 2>/dev/null || true

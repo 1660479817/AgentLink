@@ -1611,9 +1611,22 @@ textarea.share-input:focus {
   padding: 0.45rem 0.75rem;
 }
 
-button.intel-create[aria-pressed="true"],
-.intel-bounty[aria-pressed="true"] {
-  box-shadow: 0 0 0 2px var(--color-accent);
+/* 选中蓝框：不能用外侧 box-shadow（首卡贴边会被横滑条裁掉），
+   也不能直接 inset（会被内部灰/白层盖住）。用伪元素盖在内容上。 */
+button.intel-create,
+.intel-bounty {
+  isolation: isolate;
+}
+
+button.intel-create[aria-pressed="true"]::after,
+.intel-bounty[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+  pointer-events: none;
 }
 
 @media (max-width: 720px) {
@@ -1802,6 +1815,7 @@ a.intel-bounty:hover {
 }
 
 .intel-bounty {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 0 0 var(--story-width);

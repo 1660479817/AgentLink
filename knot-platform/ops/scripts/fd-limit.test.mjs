@@ -20,11 +20,12 @@ function run(script) {
 }
 
 test("fd limit: raises a launchd-like soft limit to the target, leaving the hard limit alone", () => {
-  // launchd 的常态：软限 256，硬限 unlimited。
+  // launchd 的常态：软限 256，硬限 unlimited；Linux 常见硬限是有限整数（如 524288）。
   const out = run('ulimit -Sn 256; knot_raise_fd_limit; echo "$(ulimit -n) $(ulimit -Hn)"');
   const [soft, hard] = out.split(" ");
   assert.ok(Number(soft) >= 1024, `软限仍是 ${soft}`);
-  assert.equal(hard, "unlimited");
+  if (hard === "unlimited") return;
+  assert.ok(Number(hard) >= Number(soft), `硬限 ${hard} 不应低于软限 ${soft}`);
 });
 
 test("fd limit: a target at or below the current limit leaves it alone", () => {

@@ -4,7 +4,7 @@
 # 管理员 knot-admin 不由 Backend 拉起。脚本给它写本机令牌，并登记每天 09:00 的巡查。
 # Internal Personal Agent 在同步前签发账户。已有授权码不换。
 set -euo pipefail
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH="${HOME}/.npm-global/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/site-config.sh

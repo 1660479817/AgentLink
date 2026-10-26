@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isLoopbackHost, isPrivateIPv4, listAdminHosts } from "./adminHosts.js";
+import { isLoopbackHost, isPrivateIPv4, isVirtualIface, listAdminHosts } from "./adminHosts.js";
 
 const interfaces = {
   lo0: [{ address: "127.0.0.1", family: "IPv4", internal: true }],
@@ -66,5 +66,42 @@ test("出口域名是 IP 时不会把它当成内网管理地址", () => {
       env: {},
     }),
     ["http://10.0.0.7:8080", "http://172.20.1.2:8080"]
+  );
+});
+
+test("虚拟网卡名识别：docker0 / br- / veth 等", () => {
+  assert.equal(isVirtualIface("docker0"), true);
+  assert.equal(isVirtualIface("br-abc123"), true);
+  assert.equal(isVirtualIface("veth0abc"), true);
+  assert.equal(isVirtualIface("eno1"), false);
+  assert.equal(isVirtualIface("enp2s0"), false);
+});
+
+test("跳过 docker0，避免管理链接落到 172.17.0.1", () => {
+  const withDocker = {
+    lo: [{ address: "127.0.0.1", family: "IPv4", internal: true }],
+    eno1: [{ address: "192.168.3.22", family: "IPv4", internal: false }],
+    docker0: [{ address: "172.17.0.1", family: "IPv4", internal: false }],
+  };
+  assert.deepEqual(listAdminHosts({ bindHost: "0.0.0.0", port: 8080, interfaces: withDocker, env: {} }), [
+    "http://192.168.3.22:8080",
+  ]);
+});
+
+test("出口就是唯一局域网地址时仍用它（不被 docker 网桥顶替）", () => {
+  const withDocker = {
+    lo: [{ address: "127.0.0.1", family: "IPv4", internal: true }],
+    eno1: [{ address: "192.168.3.22", family: "IPv4", internal: false }],
+    docker0: [{ address: "172.17.0.1", family: "IPv4", internal: false }],
+  };
+  assert.deepEqual(
+    listAdminHosts({
+      bindHost: "0.0.0.0",
+      port: 8080,
+      publicOrigin: "http://192.168.3.22:8080",
+      interfaces: withDocker,
+      env: {},
+    }),
+    ["http://192.168.3.22:8080"]
   );
 });

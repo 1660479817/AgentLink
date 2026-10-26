@@ -25,7 +25,7 @@
 #
 # 部署、探活、失败回滚都只在目标机上动；B 机不保存任何站点数据。
 set -euo pipefail
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH="${HOME}/.npm-global/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP="$(cd "$SCRIPT_DIR/../.." && pwd -P)"

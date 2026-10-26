@@ -25,5 +25,8 @@
     "migrate": "node backend/scripts/migrate.js",
     "dev:platform": "npm run dev -w knot-platform",
     "dev:web": "npm run dev -w web"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
   }
 }

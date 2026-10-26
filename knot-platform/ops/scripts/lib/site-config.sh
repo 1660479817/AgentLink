@@ -35,12 +35,16 @@
 # 兼容 macOS 自带的 bash 3.2：不用关联数组、不用 mapfile、不用 ${var,,}。
 
 KNOT_APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
-if [[ -z "${KNOT_DEPLOY_ROOT:-}" ]]; then
-  if [[ "$(basename "$(dirname "$KNOT_APP_DIR")")" == "releases" ]]; then
-    KNOT_DEPLOY_ROOT="$(dirname "$(dirname "$KNOT_APP_DIR")")"
-  else
-    KNOT_DEPLOY_ROOT="$KNOT_APP_DIR"
-  fi
+# 调用方已 export KNOT_DEPLOY_ROOT（例如 deploy-site.sh --deploy-root）时锁定，
+# 不要再被 site.env 里的 KNOT_DEPLOY_DIR 改写。
+KNOT_DEPLOY_ROOT_LOCKED=0
+if [[ -n "${KNOT_DEPLOY_ROOT:-}" ]]; then
+  KNOT_DEPLOY_ROOT_LOCKED=1
+elif [[ "$(basename "$(dirname "$KNOT_APP_DIR")")" == "releases" ]]; then
+  KNOT_DEPLOY_ROOT="$(dirname "$(dirname "$KNOT_APP_DIR")")"
+  KNOT_DEPLOY_ROOT_LOCKED=1
+else
+  KNOT_DEPLOY_ROOT="$KNOT_APP_DIR"
 fi
 KNOT_RELEASES_DIR="$KNOT_DEPLOY_ROOT/releases"
 KNOT_SITES_DIR="$KNOT_DEPLOY_ROOT/sites"
@@ -124,8 +128,36 @@ EOF
   source "$KNOT_SITE_ENV"
   set +a
 
+  # 源码树跑运维脚本、部署根另置（KNOT_DEPLOY_DIR）时：配置与 platform.env 在部署根，
+  # 不在仓库的 sites/。否则 local-login 等会读到模板里那份没有 DATABASE_URL 的 platform.env。
+  # 已在 releases/ 下跑、或调用方显式传了 KNOT_DEPLOY_ROOT 时不要改。
+  # 注意：knot_expand_path 定义在本函数之后，这里内联 ~ 展开。
+  if [[ "${KNOT_DEPLOY_ROOT_LOCKED:-0}" != 1 && -n "${KNOT_DEPLOY_DIR:-}" ]]; then
+    local deploy_root="$KNOT_DEPLOY_DIR"
+    case "$deploy_root" in
+      "~") deploy_root="$HOME" ;;
+      "~/"*) deploy_root="$HOME/${deploy_root#\~/}" ;;
+    esac
+    if [[ -n "$deploy_root" && "$deploy_root" != "$KNOT_DEPLOY_ROOT" && -d "$deploy_root/sites" ]]; then
+      KNOT_DEPLOY_ROOT="$deploy_root"
+      KNOT_RELEASES_DIR="$KNOT_DEPLOY_ROOT/releases"
+      KNOT_SITES_DIR="$KNOT_DEPLOY_ROOT/sites"
+      KNOT_SITE_DIR="$KNOT_SITES_DIR/$KNOT_SITE"
+      KNOT_SITE_ENV="$KNOT_SITE_DIR/site.env"
+      KNOT_PLATFORM_ENV="${KNOT_ENV:-$KNOT_SITE_DIR/platform.env}"
+      KNOT_XKNOT_ENV="${KNOT_XKNOT_ENV:-$KNOT_SITE_DIR/xknot.env}"
+      if [[ -f "$KNOT_SITE_ENV" ]]; then
+        set -a
+        # shellcheck source=/dev/null
+        source "$KNOT_SITE_ENV"
+        set +a
+      fi
+    fi
+  fi
+
   export KNOT_SITE KNOT_SITE_DIR KNOT_SITE_ENV
   export KNOT_PLATFORM_ENV KNOT_XKNOT_ENV
+  export KNOT_DEPLOY_ROOT KNOT_RELEASES_DIR KNOT_SITES_DIR
 }
 
 knot_resolve_site

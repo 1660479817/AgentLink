@@ -12,7 +12,7 @@
 # 默认邮箱是 KNOT_ADMIN_EMAIL，所以造出来的是管理员；用 --email 指定别人就是普通账户。
 # 可重复执行：账户已存在就只续一个会话。
 set -euo pipefail
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH="${HOME}/.npm-global/bin:/usr/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -82,7 +82,10 @@ esac
 # 显示名不能为空，也不能和已有账户重名；取邮箱前缀，重了就用整串补上。
 NAME="${EMAIL%%@*}"
 
-"$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+DB_URL="${DATABASE_URL:-${KNOT_DATABASE_URL:-}}"
+[[ -n "$DB_URL" ]] || knot_fail "缺少 DATABASE_URL。先部署一次，或确认 ${KNOT_PLATFORM_ENV} 里有连接串。"
+
+"$PSQL" "$DB_URL" -v ON_ERROR_STOP=1 \
   -v email="$EMAIL" -v name="$NAME" -v sid="$SID" -v days="$DAYS" \
   -v admin_email="${KNOT_ADMIN_EMAIL:-}" <<'SQL' >/dev/null
 -- 主理人邮箱建的是 owner（一个站点只有一个），其余邮箱建外部账号。

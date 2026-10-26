@@ -51,7 +51,11 @@ function tarball(entries) {
   const parts = [];
   for (const entry of entries) {
     const data = body(entry.content);
-    parts.push(header({ ...entry, size: entry.type === "0" ? data.length : 0 }), data);
+    // 没写 type 时：目录名以 / 结尾用 "5"，其余当普通文件 "0"（旧写法 type==="0" 才算 size，
+    // 未写 type 的文件会变成 size=0，GNU tar 读完会非零退出）。
+    const type = entry.type ?? (entry.name.endsWith("/") ? "5" : "0");
+    const size = type === "0" ? data.length : 0;
+    parts.push(header({ ...entry, type, size }), data);
   }
   parts.push(Buffer.alloc(1024));
   const file = path.join(dir, "pkg.tar.gz");

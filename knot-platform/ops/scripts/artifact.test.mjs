@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -68,6 +68,11 @@ test("the newest artifact wins over the alphabetically last one", async () => {
   const older = path.join(dir, "a-old.tar.gz");
   const newer = path.join(dir, "z-new.tar.gz");
   writeFileSync(older, "old");
+  // 部分文件系统（常见于 Linux）mtime 分辨率只有 1ms～1s，连续写可能同戳。
+  const olderTime = new Date(Date.now() - 2000);
+  const newerTime = new Date();
+  utimesSync(older, olderTime, olderTime);
   writeFileSync(newer, "new");
+  utimesSync(newer, newerTime, newerTime);
   assert.equal(latestArtifact(dir), newer);
 });

@@ -37,6 +37,12 @@ function isWildcardHost(host) {
   return value === "0.0.0.0" || value === "::" || value === "*" || value === "";
 }
 
+// Docker / CNI / libvirt 虚拟网卡上的地址（如 docker0 的 172.17.0.1）
+// 局域网里的设备到不了，不能当管理后台链接。
+export function isVirtualIface(name) {
+  return /^(docker\d*|br-|veth|cni|flannel|virbr|tun|tap|nerdctl|podman)/i.test(String(name || ""));
+}
+
 // 越常见的家用网段越靠前，人多半就在那一个上面。
 function rank(address) {
   const nums = octets(address);
@@ -77,18 +83,28 @@ export function listAdminHosts({
   })();
 
   const found = new Set();
-  for (const group of Object.values(interfaces || {})) {
+  let publicHostOnRealNic = false;
+  for (const [name, group] of Object.entries(interfaces || {})) {
+    if (isVirtualIface(name)) continue;
     for (const info of Array.isArray(group) ? group : []) {
       const address = String(info?.address || "");
       if (info?.family && info.family !== "IPv4" && info.family !== 4) continue;
       if (info?.internal) continue;
       if (!isPrivateIPv4(address)) continue;
-      if (address === publicHost) continue;
+      // 出口地址先跳过：公网入口上的 /admin 会 404。若跳完后一个候选都没有，
+      // 而它其实就在本机实体网卡上（局域网直出），再把它加回来。
+      if (address === publicHost) {
+        publicHostOnRealNic = true;
+        continue;
+      }
       found.add(address);
     }
   }
 
-  const addresses = [...found].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  let addresses = [...found].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  if (!addresses.length && publicHostOnRealNic) {
+    addresses = [publicHost];
+  }
   if (!addresses.length) return [`http://127.0.0.1:${listenPort}`];
   return addresses.map((address) => `http://${address}:${listenPort}`);
 }

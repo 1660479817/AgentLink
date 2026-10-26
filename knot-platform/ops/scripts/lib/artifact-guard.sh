@@ -54,19 +54,19 @@ knot_check_tar_members() {
     return 1
   }
 
-  local names details
-  names="$(tar -tzf "$tarball" 2>/dev/null)" || {
-    echo "读不出发布包成员：${tarball}" >&2
+  # GNU tar 遇到绝对路径或 `..` 段会告警并以非零退出（仍把名单打到 stdout）；
+  # bsdtar（macOS）通常是 0。名单能读到就继续做成员检查，不要把「危险包」误判成「读不出」。
+  local names details tar_rc=0
+  names="$(tar -tzf "$tarball" 2>/dev/null)" || tar_rc=$?
+  details="$(tar -tvzf "$tarball" 2>/dev/null)" || true
+  if [[ -z "$names" ]]; then
+    if [[ "$tar_rc" -ne 0 ]]; then
+      echo "读不出发布包成员：${tarball}" >&2
+    else
+      echo "发布包是空的：${tarball}" >&2
+    fi
     return 1
-  }
-  details="$(tar -tvzf "$tarball" 2>/dev/null)" || {
-    echo "读不出发布包成员：${tarball}" >&2
-    return 1
-  }
-  [[ -n "$names" ]] || {
-    echo "发布包是空的：${tarball}" >&2
-    return 1
-  }
+  fi
 
   # 名字清单与详细清单是同一次读取的两个视图，顺序一致，按行号对齐。
   # 名称里可能有空格，所以 read -r 读整行，不做字段拆分。
