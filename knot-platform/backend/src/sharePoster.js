@@ -6,7 +6,7 @@ import QRCode from "qrcode";
 import sharp from "sharp";
 import { keyEntry, resolve } from "@knot/config";
 import { isMarkdown, toRuns } from "@knot/markdown";
-import { LAYOUT_RULES, planPhotoBoxes } from "@knot/photo-layout";
+import { LAYOUT_VERSION, POSTER_LAYOUT_RULES, planPhotoBoxes } from "@knot/photo-layout";
 import { isAudioUpload, uploadName, visibleVerdict } from "./information.js";
 import { loadBootstrapConfig } from "./config.js";
 import { profileFilePath, readProfileSync } from "./profile.js";
@@ -69,13 +69,6 @@ const INNER = WIDTH - PAD * 2;
 // 长图的成本不在 sharp 的单边上限（32767px），在解码内存和出海链路：
 // 1080×6144 = 660 万像素，约 0.7MB、一秒画完；再长的帖子截到省略号，二维码指向原文。
 export const MAX_HEIGHT = 6144;
-// 预览图最高占 3 倍内容宽，超出的竖图按顶部裁切，不让一张图吃掉整张海报。
-// 只给「拿不到图片尺寸」的老记录兜底：有尺寸时走下面的拼图，裁多少由算法决定。
-export const MAX_PREVIEW_HEIGHT = INNER * 3;
-// 拼图的预算比卡片宽：卡片上 4:5 封顶（太高会把一屏挤满），
-// 这张图本身就是要竖着看的，所以放到 3 倍内容宽，和旧版单图的上限一致。
-// 切行还是同一份算法，多图拼法就是卡片上看到的那一种。
-export const POSTER_PHOTO_RULES = { ...LAYOUT_RULES, maxRow: 3, maxCard: 3 };
 const PHOTO_GAP = 2;
 // 分享图是给人看一眼就存的，不是印刷品。90 档压出来两兆多，出海链路要传几十秒；
 // 75 档加渐进式约省三分之一字节，手机上放大也看不出差别，所以画质让一步。
@@ -442,8 +435,9 @@ export function shareHead(row) {
 export function shareMetaKey(card) {
   const head = card?.head || {};
   const site = shareSite();
-  // 版本号是编码参数的版本：换画质、换宽度、换拼图规则都要抬一档，旧图才会按新参数重画一次。
-  const payload = ["6", site.page, site.name, site.line, head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0), head.avatarKey || ""].join("\u0001");
+  // 键里有三段会变的东西：这张海报的画法（画质、宽度、页脚排布）、排版包自己的版本
+  // （改规则只抬那边的号）、以及落进图里的文字与头像。任一段变了，旧图就不再命中。
+  const payload = [`6.${LAYOUT_VERSION}`, site.page, site.name, site.line, head.author || "", head.posted || "", head.actor || "", head.category || "", String(head.price ?? 0), head.avatarKey || ""].join("\u0001");
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
 
@@ -551,6 +545,9 @@ async function fitLine(text, width, size, weight = "") {
   return `${trimmed}…`;
 }
 
+// 单图预览走的是同一张排版表：把这张图当成「一组只有一张的图」，框就由求解器给。
+// 自己再乘一次比例、再夹一次上下限，等于养第二套算法——两张图的边界一旦对不齐，
+// 同一张照片会在「有尺寸」和「没尺寸」两条路上画出不同的高度。
 async function fittedPreview(preview) {
   if (!preview) return null;
   try {
@@ -558,9 +555,10 @@ async function fittedPreview(preview) {
     const srcW = meta.width || 0;
     const srcH = meta.height || 0;
     if (!srcW || !srcH) return null;
-    const natural = Math.round((srcH / srcW) * INNER);
-    if (natural < 1) return null;
-    return { x: PAD, width: INNER, height: Math.min(natural, MAX_PREVIEW_HEIGHT) };
+    const plan = posterPhotos([{ file: preview, width: srcW, height: srcH }], 0);
+    const box = plan?.boxes?.[0];
+    if (!box || box.height < 1) return null;
+    return { x: box.x, width: box.width, height: box.height, vertical: box.vertical };
   } catch {
     return null;
   }
@@ -568,7 +566,7 @@ async function fittedPreview(preview) {
 
 // 一组图按卡片的拼法排进海报：切几行、每格多宽多高全由 @knot/photo-layout 给出，
 // 这里只把「内容宽的倍数」乘成像素并加上左边距。返回的是坐标表，贴图在 renderSharePoster 里做。
-export function posterPhotos(photos, top = 0, rules = POSTER_PHOTO_RULES) {
+export function posterPhotos(photos, top = 0, rules = POSTER_LAYOUT_RULES) {
   const usable = (photos || []).filter((photo) => photo && photo.file && photo.width > 0 && photo.height > 0);
   if (!usable.length) return null;
   const plan = planPhotoBoxes(usable, { width: INNER, gap: PHOTO_GAP, x: PAD, y: top, rules });
@@ -779,10 +777,10 @@ export async function renderSharePoster(content) {
   }
   if (layout.previewBox && content.preview) {
     const box = layout.previewBox;
-    // 只有超长竖图被 MAX_PREVIEW_HEIGHT 截过，此时保留图片顶部。
+    // 框由排版表给出，裁的方向也由它给：竖着裁的保留开头，横着裁的居中。
     const layer = await sharp(content.preview)
       .rotate()
-      .resize(box.width, box.height, { fit: "cover", position: "top" })
+      .resize(box.width, box.height, { fit: "cover", position: box.vertical ? "top" : "centre" })
       .png()
       .toBuffer();
     composites.push({ input: layer, left: box.x, top: box.y });
