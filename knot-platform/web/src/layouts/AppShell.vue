@@ -11,6 +11,7 @@ import SiteOwnerDialog from "../components/SiteOwnerDialog.vue";
 import XknotMark from "../components/XknotMark.vue";
 import { BackIcon, BellIcon, ClockIcon, CoinIcon, FriendsIcon, HelpIcon, SearchIcon, StarIcon, UserIcon } from "../icons/index.js";
 import { t } from "../i18n/index.js";
+import { canonicalUrl, pageTitle } from "../head.js";
 import { listSponsors } from "../api.js";
 import { hasDraft, runningEntry, startReleaseWatch } from "../release.js";
 import { startPolling } from "../polling.js";
@@ -114,22 +115,22 @@ function reloadPage() {
 
 // 浏览器标签与搜索结果里的标题跟路由走，别停留在默认的 Knot。
 // 只写站点名会把入口静态页给 /discover 写的标题统一盖掉，每页都只剩站点名。
-const PAGE_TITLE_KEYS = {
-  discover: "discover.pageTitle",
-  store: "store.title",
-  economy: "economy.title",
-  mine: "mine.title",
-  submissions: "submissions.title",
-  notifications: "notifications.title",
-  friends: "friends.title",
-  stars: "stars.title",
-};
-
+//
+// canonical 一起更新：SPA 内跳转不重新取 HTML，head 不动的话，从首页点进
+// /discover 之后页面仍然声明自己就是首页，服务端那份独立的 canonical 等于白写。
 watchEffect(() => {
   if (typeof document === "undefined") return;
   const name = siteName.value;
-  const key = PAGE_TITLE_KEYS[route.name];
-  document.title = key ? `${name} · ${t(key)}` : name;
+  document.title = pageTitle({ routeName: route.name, siteName: name, t });
+
+  const href = canonicalUrl(window.location.origin, route.path);
+  let link = document.querySelector('link[rel="canonical"]');
+  if (!link) {
+    link = document.createElement("link");
+    link.setAttribute("rel", "canonical");
+    document.head.appendChild(link);
+  }
+  link.setAttribute("href", href);
 });
 
 watch(
