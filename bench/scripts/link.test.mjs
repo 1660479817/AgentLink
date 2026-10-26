@@ -155,10 +155,10 @@ test("上行：端点把请求体读完才回，字节与速率都算真数", as
 
 test("上行：端点读完前就回 413，记成「拒收」，不说成带宽", async (t) => {
   const server = createServer((req, res) => {
-    // 不读请求体，立刻拒收并断连：模拟 client_max_body_size 太小。
-    res.statusCode = 413;
+    // 不读请求体就回 413：请求体一定写不完，判定与内核缓冲能装多少无关。
+    req.pause();
+    res.writeHead(413, { connection: "close" });
     res.end("too large");
-    req.destroy();
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {
@@ -167,10 +167,11 @@ test("上行：端点读完前就回 413，记成「拒收」，不说成带宽"
   });
   const { port } = server.address();
 
+  // 8MB 远超本机 socket 缓冲：客户端会在写完之前收到回绝。
   const result = await measureUpload(`http://127.0.0.1:${port}/api/health`, {
     streams: 1,
-    bytesTarget: 1024 * 1024,
-    size: 1024 * 1024,
+    bytesTarget: 8 * 1024 * 1024,
+    size: 8 * 1024 * 1024,
     timeoutMs: 3000,
     deadlineMs: 3000,
   });
