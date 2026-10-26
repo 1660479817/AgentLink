@@ -85,6 +85,18 @@ export function createNoticeText(translate, currentLocale) {
         });
       case "intel_removed":
         return data.platformClosed ? translate("notifications.body.removedByPlatform") : item.body || "";
+      case "agent_review_stalled": {
+        // 主理人看到的版本：几次、最后一次错在哪、其余功能没受影响。
+        // 次数坏了就退回库里那句原文，不拼一个「undefined 次」。
+        if (data.attempts == null || !Number.isFinite(Number(data.attempts))) return item.body || "";
+        const parts = [translate("notifications.body.reviewStalled", { attempts: data.attempts })];
+        if (data.code) {
+          const label = message(`notifications.review.${data.code}`) || translate("notifications.review.other");
+          parts.push(translate("notifications.body.reviewStalledCode", { label, code: data.code }));
+        }
+        parts.push(translate("notifications.body.reviewStalledTail"));
+        return sentences(parts);
+      }
       default:
         return item?.body || "";
     }

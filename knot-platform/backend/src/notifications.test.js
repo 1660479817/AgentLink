@@ -29,6 +29,7 @@ function dbPool(handler) {
 test("notices split into platform actions and social activity", () => {
   assert.equal(noticeGroup("warning"), "system");
   assert.equal(noticeGroup("intel_removed"), "system");
+  assert.equal(noticeGroup("agent_review_stalled"), "system");
   assert.equal(noticeGroup("points_granted"), "system");
   assert.equal(noticeGroup("mention"), "social");
   assert.equal(noticeGroup("store_sold"), "social");

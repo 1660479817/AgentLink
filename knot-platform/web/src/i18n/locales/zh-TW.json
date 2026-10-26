@@ -228,6 +228,7 @@
     "kinds": {
       "intel_rejected": "資訊已撤銷",
       "intel_review_error": "審核異常",
+      "agent_review_stalled": "審核已停止",
       "intel_removed": "貼文已刪除",
       "warning": "平台警告",
       "mention": "有人@了你",
@@ -248,6 +249,9 @@
       "level": "現在是 {level}。",
       "reviewError": "{label}（{code}）。",
       "reviewTail": "這則記錄仍然可見，稍後會再試。",
+      "reviewStalled": "資料評審員連續 {attempts} 次沒有完成審核。",
+      "reviewStalledCode": "最後一次失敗：{label}（{code}）。",
+      "reviewStalledTail": "站點其他功能不受影響；請到管理後台的「智能體」一欄確認 OpenClaw 是否在運行。",
       "tip": "{giver} 打賞了你 {amount} 積分。",
       "tipSomeone": "有人",
       "removedByPlatform": "平台關閉。",

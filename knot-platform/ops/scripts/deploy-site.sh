@@ -552,6 +552,9 @@ case "$RUNTIME" in
     fi
     # 每月 1 日 04:45 只出回收报告，不删。要真删得人工加 --apply。
     knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.gc.plist" com.knot.gc
+    # 旁路探测：每五分钟记一次 OpenClaw 宿主状态。没装 OpenClaw 时它只是把
+    # unknown 写进 var/run，页面上那一块照实说「未知」，绝不显示成错误。
+    knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.openclaw-probe.plist" com.knot.openclaw-probe
     # 清掉残留的 com.knot.edge-tunnel job 与 plist，避免它反复去执行不存在的脚本。
     knot_bootout_launchd com.knot.edge-tunnel
     rm -f "$HOME/Library/LaunchAgents/com.knot.edge-tunnel.plist"
@@ -578,8 +581,13 @@ case "$RUNTIME" in
     fi
     knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-gc.service" knot-gc.service
     knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-gc.timer" knot-gc.timer
+    knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-openclaw-probe.service" knot-openclaw-probe.service
+    knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-openclaw-probe.timer" knot-openclaw-probe.timer
     knot_systemctl daemon-reload
     knot_systemctl enable --now knot-gc.timer
+    knot_systemctl enable --now knot-openclaw-probe.timer
+    # 先跑一次，页面不必等第一个五分钟。跑不起来就算了：旁路探测失败不是部署失败。
+    knot_systemctl start knot-openclaw-probe.service || true
     ;;
   *) ;;
 esac
@@ -671,16 +679,31 @@ else
 fi
 
 # ---- 9. OpenClaw（可选） ----
+# 旁路体检：只报告，不进退出码。这里再兜一次 || true——读这段代码的人
+# 不该需要先知道被调用方是守规矩的。
+openclaw_report() {
+  chmod +x "$KNOT_APP_DIR/ops/scripts/openclaw-check.sh" 2>/dev/null || true
+  "$KNOT_APP_DIR/ops/scripts/openclaw-check.sh" || true
+}
+
 openclaw_mode="$(printf '%s' "$KNOT_OPENCLAW" | tr '[:upper:]' '[:lower:]')"
 case "$openclaw_mode" in
   0 | false | no | off)
     echo "==> KNOT_OPENCLAW=0，跳过 OpenClaw"
+    # 明确关掉也要留下「这是有人关的」这条事实。没有它，运行时无法把
+    # 「按配置关闭」和「探测从没跑过」分开，页面上就永远只是一个 unknown。
+    mkdir -p "$KNOT_DEPLOY_ROOT/var/run" 2>/dev/null || true
+    printf '{"state":"off","checkedAt":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      >"$KNOT_DEPLOY_ROOT/var/run/openclaw-status.json" 2>/dev/null || true
+    # 和探测写出的一样只给主人读：校验和看和它同一份约定，不靠 umask 定。
+    chmod 600 "$KNOT_DEPLOY_ROOT/var/run/openclaw-status.json" 2>/dev/null || true
     ;;
   auto | "")
     if command -v openclaw >/dev/null 2>&1; then
       echo "==> openclaw"
       chmod +x "$KNOT_APP_DIR/ops/scripts/ensure-openclaw.sh"
       OPENCLAW_ENABLE_PROCESS=1 "$KNOT_APP_DIR/ops/scripts/ensure-openclaw.sh"
+      openclaw_report
     else
       echo "==> 未安装 openclaw，跳过（KNOT_OPENCLAW=auto）"
     fi
@@ -689,6 +712,7 @@ case "$openclaw_mode" in
     echo "==> openclaw"
     chmod +x "$KNOT_APP_DIR/ops/scripts/ensure-openclaw.sh"
     OPENCLAW_ENABLE_PROCESS=1 "$KNOT_APP_DIR/ops/scripts/ensure-openclaw.sh"
+    openclaw_report
     ;;
 esac
 

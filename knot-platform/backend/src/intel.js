@@ -9,7 +9,7 @@ import { resolveVideo } from "./videoPoster.js";
 import { assertFriends, directMentions, FRIEND_COLUMNS, mentionList } from "./friends.js";
 import { recordNotification } from "./notifications.js";
 import { archiveSources, ensurePacketZip, packetDownloadName, packetReadme } from "./packetZip.js";
-import { speakerAccount } from "./account.js";
+import { ownerId, speakerAccount } from "./account.js";
 import { applyPointsOrdered, serviceFee, economyConfig, itemPrice, sameWallet, PLATFORM_ACCOUNT_ID } from "./points.js";
 import { compact, scoreCompact, uniqueGrams } from "./search.js";
 import { cacheGet, cacheSet, searchCacheKey } from "./searchCache.js";
@@ -311,6 +311,36 @@ async function countReviewFailure(pool, id) {
 }
 
 // 停止重试时得让作者知道：记录停在 pending，从提交页面上看不出「不会再试了」。
+// 作者那条之外再给主理人一条：作者能做的只有等，真正能去查 OpenClaw 的是主理人。
+// 这条是旁路：查不到主理人、或者压根没写进去，都不影响作者那条，也不影响重试逻辑。
+export async function notifyOwnerReviewStalled(pool, id, attempts, { code = "" } = {}) {
+  const owner = await ownerId(pool);
+  if (!owner) return false;
+  // 水印去重：重启恢复会接着从 10 次往上加，没有水印就会每天给主人重复一条。
+  // 先认领再发通知：认领不到说明这条记录已经按这个次数报过了。
+  const claimed = await pool.query(
+    `UPDATE intel
+     SET detail = COALESCE(detail, '{}'::jsonb) || jsonb_build_object('reviewGaveUpNotified', $2::int)
+     WHERE id = $1
+       AND COALESCE(CASE WHEN detail->>'reviewGaveUpNotified' ~ '^[0-9]+$'
+                         THEN (detail->>'reviewGaveUpNotified')::int ELSE 0 END, 0) < $2
+     RETURNING account_id`,
+    [id, attempts]
+  );
+  const author = claimed.rows[0]?.account_id;
+  if (!author || author === owner) return false;
+  await recordNotification(pool, {
+    userId: owner,
+    kind: "agent_review_stalled",
+    title: "数据评审员已停止重试",
+    body: `数据评审员连续 ${attempts} 次没有完成一条记录的审核${code ? `（${code}）` : ""}，已经不再重试。站点其他功能不受影响；请到管理后台的「智能体」一栏确认 OpenClaw 是否在运行。`,
+    href: null,
+    intelId: id,
+    data: { code: code || null, attempts },
+  });
+  return true;
+}
+
 async function notifyReviewGaveUp(pool, id, attempts) {
   const { rows } = await pool.query(`SELECT account_id, detail FROM intel WHERE id = $1`, [id]);
   const intel = rows[0];
@@ -324,6 +354,12 @@ async function notifyReviewGaveUp(pool, id, attempts) {
     href: "/mine/submissions",
     data: { code, attempts, gaveUp: true },
   });
+  try {
+    await notifyOwnerReviewStalled(pool, id, attempts, { code });
+  } catch (error) {
+    // 作者已经收到通知了；主人那条写不进去只是少一条旁路告警，不能把这里变成审核故障。
+    console.error(error);
+  }
 }
 
 async function scheduleReviewRetry(pool, id) {

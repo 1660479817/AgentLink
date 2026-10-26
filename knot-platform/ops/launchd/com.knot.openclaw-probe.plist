@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.knot.openclaw-probe</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd 默认的 PATH 只有 /usr/bin:/bin，找不到 Homebrew 的 node。
+         与 run-knot-platform.sh 用同一份 PATH。 -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>KNOT_SITE</key>
+    <string>__KNOT_SITE__</string>
+    <key>KNOT_DEPLOY_ROOT</key>
+    <string>__KNOT_HOME__</string>
+  </dict>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>node</string>
+    <string>__KNOT_CURRENT__/ops/openclaw/probe.mjs</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__KNOT_HOME__</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- 五分钟一次。刻意写死在这里而不是做成配置键：现有的 gc 单元同样把
+       04:45 写死，探测节奏是同一类运维缺省值。 -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>StandardOutPath</key>
+  <string>__KNOT_HOME__/var/log/knot-openclaw-probe.log</string>
+  <key>StandardErrorPath</key>
+  <string>__KNOT_HOME__/var/log/knot-openclaw-probe.err.log</string>
+</dict>
+</plist>

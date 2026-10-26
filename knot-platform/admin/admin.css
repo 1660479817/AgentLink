@@ -1826,6 +1826,11 @@ textarea:focus {
   color: var(--ok);
 }
 
+.state-pill.is-warn {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .compact-list {
   display: grid;
   gap: 8px;

@@ -71,6 +71,24 @@ test("review failures name the failure and keep the record explanation", () => {
   );
 });
 
+test("a stalled review tells the owner how often and what last failed", () => {
+  const en = notice("en");
+  assert.equal(
+    en.noticeBody({ kind: "agent_review_stalled", body: "旧正文", data: { attempts: 10, code: "agent_timeout" } }),
+    "The review agent gave up after 10 attempts. Last failure: the review agent timed out (agent_timeout). The rest of the site keeps working. Check the agents block in the admin console."
+  );
+  // 没有错误码时少一句，不补一个空括号。
+  assert.equal(
+    en.noticeBody({ kind: "agent_review_stalled", body: "旧正文", data: { attempts: 3, code: null } }),
+    "The review agent gave up after 3 attempts. The rest of the site keeps working. Check the agents block in the admin console."
+  );
+  // 次数不是数字：退回库里的原文，不拼出「undefined 次」。
+  assert.equal(
+    en.noticeBody({ kind: "agent_review_stalled", body: "旧正文", data: { attempts: "十次" } }),
+    "旧正文"
+  );
+});
+
 test("a record written before data existed shows its stored text", () => {
   assert.equal(notice("en").noticeBody({ kind: "points_granted", body: "到账 100。活动奖励" }), "到账 100。活动奖励");
   assert.equal(

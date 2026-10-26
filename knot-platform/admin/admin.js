@@ -35,6 +35,7 @@ const state = {
   view: "overview",
   system: null,
   economy: null,
+  agentHealth: null,
   accounts: [],
   quota: null,
   selectedUser: null,
@@ -575,7 +576,7 @@ function setView(name) {
 
 /* 概览 */
 
-function stateRow(title, hint, on, text) {
+function stateRow(title, hint, on, text, kind = "") {
   return el(
     "div",
     { class: "state-row" },
@@ -586,7 +587,7 @@ function stateRow(title, hint, on, text) {
       el("span", { class: "state-hint", text: hint })
     ),
     el("span", {
-      class: `state-pill${on ? " is-on" : ""}`,
+      class: `state-pill${on ? " is-on" : ""}${kind ? ` ${kind}` : ""}`,
       text: text ?? (on ? t("overview.on") : t("overview.off")),
     })
   );
@@ -651,6 +652,86 @@ function renderOverview() {
   setText("ov-searches", fmtInt(economy.attention?.searches));
   renderSystemFacts();
   renderOverviewPatrol();
+  // 单独发起：状态慢或者坏，不能拖住上面这几个数。
+  void loadAgentHealth();
+}
+
+/* 旁路：OpenClaw 宿主、评审员、管理员 */
+
+// 旁路的沉默不等于站点的故障。读不到就画成 unknown，配上说清原因的一行，
+// 绝不画成一个红色错误——那会教主人忽略这一块。
+function agentRow(name, title, hint) {
+  const label = t(`agents.${name}`);
+  return stateRow(title, hint, name === "ok", label, name === "warn" ? "is-warn" : "");
+}
+
+function openclawRow(openclaw) {
+  const source = openclaw || { state: "unknown" };
+  if (source.state === "off") return agentRow("off", t("agents.openclaw"), t("agents.offHint"));
+  if (source.state === "unknown") {
+    return agentRow("unknown", t("agents.openclaw"), t("agents.reason", { reason: source.reason || "unknown" }));
+  }
+  return agentRow(source.state === "ok" ? "ok" : "warn", t("agents.openclaw"), t("agents.gatewayHint", {
+    version: source.version || "—",
+    port: source.gateway?.port ?? "—",
+  }));
+}
+
+function reviewerRow(review) {
+  if (!review || review.ok === false) {
+    return agentRow("unknown", t("agents.reviewer"), t("agents.unavailable"));
+  }
+  const pending = review.pending?.count;
+  const oldest = review.pending?.oldestMinutes;
+  // 刚提交几分钟的积压是正常的：只有老化到一刻钟、或者重试已经放弃，才值得标黄。
+  const stale = typeof oldest === "number" && oldest >= 15;
+  const name = review.gaveUp > 0 || stale || !review.lastSuccessAt ? "warn" : "ok";
+  const parts = [
+    t("agents.reviewHint", { when: fmtDate(review.lastSuccessAt), pending: fmtInt(pending) }),
+  ];
+  if (stale) parts.push(t("agents.oldest", { minutes: fmtInt(oldest) }));
+  if (review.gaveUp > 0) parts.push(t("agents.gaveUp", { count: fmtInt(review.gaveUp) }));
+  return agentRow(name, t("agents.reviewer"), parts.join(" · "));
+}
+
+function patrolRow(patrol) {
+  if (!patrol || patrol.ok === false) {
+    return agentRow("unknown", t("agents.admin"), t("agents.unavailable"));
+  }
+  // 每天 09:00 一次：超过 36 小时没有记录，说明它连一天都没跑完。
+  const at = patrol.lastAt ? Date.parse(patrol.lastAt) : Number.NaN;
+  const stale = !Number.isFinite(at) || Date.now() - at > 36 * 60 * 60 * 1000;
+  return agentRow(stale ? "warn" : "ok", t("agents.admin"), t("agents.patrolHint", {
+    when: fmtDate(patrol.lastAt),
+    today: fmtInt(patrol.today),
+  }));
+}
+
+function renderAgentHealth() {
+  const list = byId("ov-agents");
+  if (!list) return;
+  const data = state.agentHealth;
+  if (!data) {
+    list.replaceChildren(el("p", { class: "muted small", text: t("agents.unavailable") }));
+    return;
+  }
+  list.replaceChildren(
+    openclawRow(data.openclaw),
+    reviewerRow(data.review),
+    patrolRow(data.patrol)
+  );
+}
+
+async function loadAgentHealth() {
+  // 这个端点坏掉不该在概览上弹 toast：它本来就是「有多少先说多少」，
+  // 所以自己兜住，失败就把这一块画成「状态读不到」。
+  try {
+    state.agentHealth = await api("/status");
+  } catch (error) {
+    if (handleAuth(error)) return;
+    state.agentHealth = null;
+  }
+  renderAgentHealth();
 }
 
 async function loadOverview() {

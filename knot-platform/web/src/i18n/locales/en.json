@@ -228,6 +228,7 @@
     "kinds": {
       "intel_rejected": "Info withdrawn",
       "intel_review_error": "Review problem",
+      "agent_review_stalled": "Reviews stopped",
       "intel_removed": "Post deleted",
       "warning": "Platform warning",
       "mention": "Someone mentioned you",
@@ -248,6 +249,9 @@
       "level": "Now level {level}.",
       "reviewError": "{label} ({code}).",
       "reviewTail": "This post stays visible and will be reviewed again later.",
+      "reviewStalled": "The review agent gave up after {attempts} attempts.",
+      "reviewStalledCode": "Last failure: {label} ({code}).",
+      "reviewStalledTail": "The rest of the site keeps working. Check the agents block in the admin console.",
       "tip": "{giver} tipped you {amount} points.",
       "tipSomeone": "Someone",
       "removedByPlatform": "Closed by the platform.",
