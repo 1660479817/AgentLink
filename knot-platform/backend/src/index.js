@@ -230,6 +230,13 @@ if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
     render.send(res, file, "discover");
   });
 
+  // 首页必须自己发：express.static 会把构建产物里那份原样交出去，站名就还是 "Knot"。
+  // 其余真实文件（/assets、favicon 之类）仍然交给 static，这里只接管这两个入口。
+  app.get(["/", "/index.html"], (_req, res) => {
+    res.set("Cache-Control", "no-cache");
+    render.send(res, path.join(dir, "index.html"), "index");
+  });
+
   app.use(
     express.static(dir, {
       setHeaders(res, filePath) {
