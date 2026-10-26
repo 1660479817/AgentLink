@@ -85,6 +85,7 @@ export default {
   "agents.reason": "探测没有读数（{reason}）",
   "agents.gatewayHint": "版本 {version}，网关在 {port} 端口",
   "agents.reviewHint": "最后成功终审 {when}，积压 {pending}",
+  "agents.latency": "终审耗时 p50 {p50} 秒、p95 {p95} 秒（{settled} 条已落地，{timed} 条可计时）",
   "agents.oldest": "最久 {minutes} 分钟",
   "agents.gaveUp": "{count} 条已放弃重试",
   "agents.patrolHint": "最近巡查 {when}，今日 {today}",

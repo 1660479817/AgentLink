@@ -689,6 +689,16 @@ function reviewerRow(review) {
   const parts = [
     t("agents.reviewHint", { when: fmtDate(review.lastSuccessAt), pending: fmtInt(pending) }),
   ];
+  // 耗时只覆盖「终审真的落地过」的那批：一条都没落地时不摆 0，免得读成「审得很快」。
+  const latency = review.latencySeconds;
+  if (latency && typeof latency.timed === "number" && latency.timed > 0) {
+    parts.push(t("agents.latency", {
+      p50: fmtInt(latency.p50),
+      p95: fmtInt(latency.p95),
+      timed: fmtInt(latency.timed),
+      settled: fmtInt(latency.settled),
+    }));
+  }
   if (stale) parts.push(t("agents.oldest", { minutes: fmtInt(oldest) }));
   if (review.gaveUp > 0) parts.push(t("agents.gaveUp", { count: fmtInt(review.gaveUp) }));
   return agentRow(name, t("agents.reviewer"), parts.join(" · "));

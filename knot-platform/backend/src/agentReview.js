@@ -13,7 +13,13 @@ const WINDOW_DAYS = 30;
 const MAX_ATTEMPTS = 10;
 const CACHE_MS = 30_000;
 
-// 一条查询取完审核的六个数。FILTER 让空表也返回一行 null，形状因此稳定。
+// 一条查询取完审核的几个数。FILTER 让空表也返回一行 null，形状因此稳定。
+//
+// 耗时只算「终审真的落地过」的行：判词变化会把 updated_at 推到终审那一刻，没被推过的
+// 行（0.8.1 之前的历史记录、以及没配评审员时直接通过的记录）与 created_at 相同，
+// 算进去就是一堆 0，把中位数和 p95 都压在 0 上，这个数就再也不可能提示「终审卡住了」。
+// 所以百分位取 updated_at > created_at 的子集，另给 settled / timed 两个计数，
+// 让读的人知道这个数覆盖了多少条、还有多少条根本没法计时。
 const REVIEW_SQL = `
   SELECT
     max(i.updated_at) FILTER (WHERE i.verdict IN ('passed','rejected')) AS last_success_at,
@@ -24,10 +30,14 @@ const REVIEW_SQL = `
         AND CASE WHEN i.detail->>'reviewAttempts' ~ '^[0-9]+$'
                  THEN (i.detail->>'reviewAttempts')::int ELSE 0 END >= $2
     )::int                                                               AS gave_up,
+    count(*) FILTER (WHERE i.verdict IN ('passed','rejected'))::int       AS settled,
+    count(*) FILTER (
+      WHERE i.verdict IN ('passed','rejected') AND i.updated_at > i.created_at
+    )::int                                                               AS timed,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (i.updated_at - i.created_at)))
-      FILTER (WHERE i.verdict IN ('passed','rejected'))                   AS p50,
+      FILTER (WHERE i.verdict IN ('passed','rejected') AND i.updated_at > i.created_at) AS p50,
     percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (i.updated_at - i.created_at)))
-      FILTER (WHERE i.verdict IN ('passed','rejected'))                   AS p95
+      FILTER (WHERE i.verdict IN ('passed','rejected') AND i.updated_at > i.created_at) AS p95
   FROM intel i
   WHERE i.created_at > now() - make_interval(days => $1)
 `;
@@ -113,7 +123,7 @@ function emptyReview(days, maxAttempts) {
     lastSuccessAt: null,
     pending: { count: null, oldestMinutes: null },
     gaveUp: null,
-    latencySeconds: { p50: null, p95: null },
+    latencySeconds: { p50: null, p95: null, settled: null, timed: null },
     errors24h: [],
   };
 }
@@ -135,7 +145,12 @@ async function loadReview(pool, days, maxAttempts, now) {
         oldestMinutes: minutesSince(row.pending_oldest, now),
       },
       gaveUp: Number(row.gave_up) || 0,
-      latencySeconds: { p50: seconds(row.p50), p95: seconds(row.p95) },
+      latencySeconds: {
+        p50: seconds(row.p50),
+        p95: seconds(row.p95),
+        settled: Number(row.settled) || 0,
+        timed: Number(row.timed) || 0,
+      },
       errors24h: (errors?.rows || []).map((entry) => ({
         code: String(entry.code || ""),
         count: Number(entry.n) || 0,

@@ -85,6 +85,7 @@ export default {
   "agents.reason": "No reading from the probe ({reason})",
   "agents.gatewayHint": "Version {version}, gateway on port {port}",
   "agents.reviewHint": "Last successful review {when}, {pending} waiting",
+  "agents.latency": "Review {p50}s at p50, {p95}s at p95 ({timed} of {settled} timed)",
   "agents.oldest": "oldest {minutes} min",
   "agents.gaveUp": "{count} gave up retrying",
   "agents.patrolHint": "Last patrol {when}, {today} today",

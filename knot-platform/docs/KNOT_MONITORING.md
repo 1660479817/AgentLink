@@ -88,10 +88,16 @@ SELECT
       AND CASE WHEN i.detail->>'reviewAttempts' ~ '^[0-9]+$'
                THEN (i.detail->>'reviewAttempts')::int ELSE 0 END >= $2
   )::int                                                               AS gave_up,
+  count(*) FILTER (WHERE i.verdict IN ('passed','rejected'))::int       AS settled,
+  count(*) FILTER (
+    WHERE i.verdict IN ('passed','rejected') AND i.updated_at > i.created_at
+  )::int                                                               AS timed,
   percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (i.updated_at - i.created_at)))
-    FILTER (WHERE i.verdict IN ('passed','rejected'))                   AS p50,
+    FILTER (WHERE i.verdict IN ('passed','rejected')
+              AND i.updated_at > i.created_at)                         AS p50,
   percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (i.updated_at - i.created_at)))
-    FILTER (WHERE i.verdict IN ('passed','rejected'))                   AS p95
+    FILTER (WHERE i.verdict IN ('passed','rejected')
+              AND i.updated_at > i.created_at)                         AS p95
 FROM intel i
 WHERE i.created_at > now() - make_interval(days => $1)
 ```
@@ -107,6 +113,14 @@ Three details that are load-bearing:
   down a read-only endpoint. The `CASE` makes it 0 instead.
 - **No `FILTER` means no row.** An empty table returns one row of nulls, not zero rows, so
   the shape is stable.
+- **Latency only counts verdicts that actually landed.** A verdict that lands moves
+  `updated_at` to that moment, so `updated_at - created_at` is publish-to-verdict time.
+  Rows that never moved it — records settled before 0.8.1, and sites that pass everything
+  because no reviewer is configured — would all read as 0s, dragging p50 and p95 to zero
+  where they can no longer flag a stalled reviewer. The percentiles therefore take only
+  `updated_at > created_at`, and `settled` / `timed` report how many records the window
+  holds and how many of them could be timed at all. `timed: 0` means "nothing to measure
+  yet", which is not the same claim as `p50: 0`.
 
 A second query for the 24-hour failure histogram, also windowed:
 
@@ -206,7 +220,7 @@ auth code, no new middleware, no change to `index.js`.
     "lastSuccessAt": "2026-10-26T03:18:00.000Z",
     "pending": { "count": 2, "oldestMinutes": 47 },
     "gaveUp": 0,
-    "latencySeconds": { "p50": 8.1, "p95": 41.7 },
+    "latencySeconds": { "p50": 8.1, "p95": 41.7, "settled": 40, "timed": 39 },
     "errors24h": [{ "code": "agent_timeout", "count": 3 }]
   },
   "patrol": { "ok": true, "lastAt": "2026-10-26T01:00:00.000Z", "today": 1 },
