@@ -98,3 +98,17 @@ test("账户态页面在两层都标了 noindex，公开页面都没有", () => 
     assert.equal(hit.noindex, false, `nginx 把公开页面 ${route} 标成了 noindex`);
   }
 });
+
+test("两层的 /discover.html 都指回 /discover，只有一份可索引地址", () => {
+  // static 投放由 nginx 回 301，proxy 投放（伙伴站）由 Backend 回 301。
+  // 少一层，同一个页面就有两个都能打开的地址，canonical 归一之前先被抓两遍。
+  const nginx = read("ops/entry/site.conf.template");
+  assert.match(nginx, /location = \/discover\.html \{\s*return 301 \/discover;/);
+
+  const backend = read("backend/src/index.js");
+  assert.match(
+    backend,
+    /app\.get\("\/discover\.html",[\s\S]{0,120}res\.redirect\(301, "\/discover"\)/,
+    "Backend 没有把 /discover.html 指回 /discover：proxy 投放的站点会两个地址都能打开",
+  );
+});

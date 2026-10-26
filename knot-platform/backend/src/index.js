@@ -195,6 +195,13 @@ if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
 
   // /discover 有自己的静态壳（canonical 指向 /discover）。没有这份文件时宁可 404，
   // 也不要回 index.html：那样地址是 /discover，canonical 却指着首页。
+  //
+  // `.html` 直链只留一份可索引地址，和 static 投放的入口同一个规则：否则同一页有两个
+  // 地址都能打开，爬虫按 canonical 归一之前先把两条都抓一遍。
+  app.get("/discover.html", (_req, res) => {
+    res.redirect(301, "/discover");
+  });
+
   app.get(["/discover", "/discover/"], (_req, res, next) => {
     const file = path.join(dir, "discover.html");
     if (!fs.existsSync(file)) return next();
