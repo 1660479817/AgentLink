@@ -1,5 +1,6 @@
 import { createHash, randomInt } from "node:crypto";
 import nodemailer from "nodemailer";
+import { DEFAULT_SITE_LOCALE, parseLocale } from "@knot/locale";
 import { NAME_MAX } from "./account.js";
 import { consumeInvite, findUsableInvite, normalizeInviteCode, recordInviteRedemption } from "./invites.js";
 import { signupGrant } from "./points.js";
@@ -201,7 +202,7 @@ export async function requestLoginKey(pool, email, options = {}) {
     [email, hashLoginKey(key), inviteId]
   );
   try {
-    await sendLoginKey(email, key);
+    await sendLoginKey(email, key, options.site);
   } catch (err) {
     await pool.query(`DELETE FROM login_keys WHERE id = $1`, [inserted.rows[0].id]);
     const code = err.code === "mail_unavailable" ? "mail_unavailable" : "mail_failed";
@@ -432,16 +433,114 @@ function digitBoxes(key) {
     .join("");
 }
 
-export function loginKeyMessage(key) {
+// 登录密钥信的文案。语种跟着站点档案走（登录前不知道是谁，只可能是站点默认），
+// 站点名与地址是变量，其余是常量。代发只收纯文本，所以 text 必须自己站得住：
+// 站点名、地址、有效期、忽略提示一项都不能只在 html 里。
+const LOGIN_MAIL = {
+  "zh-CN": {
+    subject: (site) => `${site} 登录密钥`,
+    hello: "你好，",
+    intro: (site) => `感谢使用 ${site}。用下面的登录密钥确认邮箱，登录和注册都用这一把密钥。`,
+    ttl: "十分钟内有效，用过即废。",
+    ttlText: "十分钟内有效，只能用一次。登录和注册用的是同一把。",
+    siteLine: (site, url) => `站点：${site}${url ? `  ${url}` : ""}`,
+    ignore: "如果不是你本人操作，请忽略这封邮件。",
+    ignoreText: "如果不是你本人操作，请忽略这封邮件，不要把上面的数字告诉任何人。",
+    help: "需要帮助？回复这封邮件联系我们。",
+    relay: (site) => `本邮件由 XKnot 联邦代 ${site} 发出。`,
+  },
+  "zh-TW": {
+    subject: (site) => `${site} 登入金鑰`,
+    hello: "你好，",
+    intro: (site) => `感謝使用 ${site}。用下面的登入金鑰確認電子郵件，登入和註冊都用這一把金鑰。`,
+    ttl: "十分鐘內有效，用過即廢。",
+    ttlText: "十分鐘內有效，只能用一次。登入和註冊用的是同一把。",
+    siteLine: (site, url) => `站點：${site}${url ? `  ${url}` : ""}`,
+    ignore: "如果不是你本人操作，請忽略這封郵件。",
+    ignoreText: "如果不是你本人操作，請忽略這封郵件，不要把上面的數字告訴任何人。",
+    help: "需要協助？回覆這封郵件與我們聯絡。",
+    relay: (site) => `本郵件由 XKnot 聯邦代 ${site} 發出。`,
+  },
+  en: {
+    subject: (site) => `Your ${site} sign-in key`,
+    hello: "Hello,",
+    intro: (site) =>
+      `Thanks for using ${site}. Confirm your email with the sign-in key below; the same key covers sign-in and sign-up.`,
+    ttl: "Valid for ten minutes, single use.",
+    ttlText: "Valid for ten minutes, single use. The same key covers sign-in and sign-up.",
+    siteLine: (site, url) => `Site: ${site}${url ? `  ${url}` : ""}`,
+    ignore: "If you did not request this, ignore this email.",
+    ignoreText: "If you did not request this, ignore this message and do not share the number with anyone.",
+    help: "Need help? Reply to this email.",
+    relay: (site) => `This message was sent by the XKnot federation on behalf of ${site}.`,
+  },
+};
+
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
+// 站点名来自主理人填的档案，进 HTML 前必须转义，否则一个档案就能往信里塞标签。
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+}
+
+// 只把收件人真能打开的地址写进信里。本机地址（127.0.0.1、localhost）和单段主机名
+// 点不开，写进去只会让人以为这封是测试信，索性整行省掉。
+function publicSiteUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (url.protocol !== "https:" && url.protocol !== "http:") return "";
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    if (!host.includes(".") || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0") return "";
+    return url.origin;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 把站点档案与对外地址收成信里要用的三项。
+ * 地址只认配置（KNOT_PUBLIC_ORIGIN），不取请求的 Host：Host 可被伪造，
+ * 等于让实例往信里写一个攻击者控制的域名。
+ */
+export function loginMailSite(site = {}, origin = "") {
+  const source = site || {};
   return {
-    subject: "Knot 登录密钥",
-    text: `登录密钥：${key}\n\n六位数字，十分钟内有效。登录和注册用的是同一把密钥。\n\n如果不是你本人操作，请忽略这封邮件。`,
-    html: `<!doctype html>
-<html lang="zh-CN">
+    name: typeof source.name === "string" && source.name.trim() ? source.name.trim() : "Knot",
+    locale: parseLocale(source.locale) || DEFAULT_SITE_LOCALE,
+    url: publicSiteUrl(origin || source.url),
+  };
+}
+
+function loginKeyText(copy, { key, name, url, relayed }) {
+  const lines = [copy.subject(name), "", key, "", copy.ttlText, "", copy.siteLine(name, url)];
+  if (relayed) lines.push(copy.relay(name));
+  lines.push("", copy.ignoreText);
+  return lines.join("\n");
+}
+
+function loginKeyHtml(copy, { key, name, url, relayed, locale }) {
+  const footer = [
+    `<p style="margin:0 0 8px;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#65676B;">${escapeHtml(
+      copy.siteLine(name, url)
+    )}</p>`,
+    `<p style="margin:0 0 8px;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#8A8D91;">${escapeHtml(
+      copy.ignore
+    )}</p>`,
+    `<p style="margin:0;font-family:${EMAIL_FONT};font-size:12px;line-height:1.6;color:#B0B3B8;">${escapeHtml(copy.help)}</p>`,
+  ];
+  if (relayed) {
+    footer.push(
+      `<p style="margin:8px 0 0;font-family:${EMAIL_FONT};font-size:12px;line-height:1.6;color:#B0B3B8;">${escapeHtml(
+        copy.relay(name)
+      )}</p>`
+    );
+  }
+  return `<!doctype html>
+<html lang="${locale}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Knot 登录密钥</title>
+    <title>${escapeHtml(copy.subject(name))}</title>
   </head>
   <body style="margin:0;padding:0;background:#F0F2F5;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F0F2F5;">
@@ -450,31 +549,30 @@ export function loginKeyMessage(key) {
           <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;">
             <tr>
               <td align="center" style="padding:0 0 24px;">
-                <span style="font-family:${EMAIL_FONT};font-size:24px;font-weight:700;color:#0866FF;letter-spacing:0.5px;">Knot</span>
+                <span style="font-family:${EMAIL_FONT};font-size:24px;font-weight:700;color:#0866FF;letter-spacing:0.5px;">${escapeHtml(
+                  name
+                )}</span>
               </td>
             </tr>
             <tr>
               <td style="background:#FFFFFF;border:1px solid #E4E6EB;border-radius:12px;padding:40px 40px 32px;">
-                <p style="margin:0 0 16px;font-family:${EMAIL_FONT};font-size:22px;font-weight:700;color:#050505;">你好，</p>
+                <p style="margin:0 0 16px;font-family:${EMAIL_FONT};font-size:22px;font-weight:700;color:#050505;">${escapeHtml(
+                  copy.hello
+                )}</p>
                 <p style="margin:0 0 32px;font-family:${EMAIL_FONT};font-size:15px;line-height:1.6;color:#65676B;">
-                  感谢使用 Knot。用下面的登录密钥确认邮箱，登录和注册都用这一把密钥。
+                  ${escapeHtml(copy.intro(name))}
                 </p>
                 <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
                   <tr>${digitBoxes(key)}</tr>
                 </table>
                 <p style="margin:0;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#65676B;text-align:center;">
-                  六位数字，十分钟内有效，用过即废。
+                  ${escapeHtml(copy.ttl)}
                 </p>
               </td>
             </tr>
             <tr>
               <td align="center" style="padding:24px 16px 0;">
-                <p style="margin:0 0 8px;font-family:${EMAIL_FONT};font-size:13px;line-height:1.6;color:#8A8D91;">
-                  如果不是你本人操作，请忽略这封邮件。
-                </p>
-                <p style="margin:0;font-family:${EMAIL_FONT};font-size:12px;line-height:1.6;color:#B0B3B8;">
-                  需要帮助？回复这封邮件联系我们。
-                </p>
+                ${footer.join("\n                ")}
               </td>
             </tr>
           </table>
@@ -482,18 +580,34 @@ export function loginKeyMessage(key) {
       </tr>
     </table>
   </body>
-</html>`,
+</html>`;
+}
+
+/**
+ * 一封登录密钥信。两个通道共用这一份：端侧 SMTP 发 text + html，
+ * 联邦代发只把 subject 与 text 交出去（html 到 relayTransport 就被丢掉）。
+ * 所以加变量时先加进 text，html 只做增强。
+ */
+export function loginKeyMessage(key, site = {}, { relayed = false } = {}) {
+  const { name, locale, url } = loginMailSite(site);
+  const copy = LOGIN_MAIL[locale];
+  const vars = { key, name, url, relayed, locale };
+  return {
+    subject: copy.subject(name),
+    text: loginKeyText(copy, vars),
+    html: loginKeyHtml(copy, vars),
   };
 }
 
-export async function sendLoginKey(email, key) {
-  const mail = relayTransport() || mailTransport();
+export async function sendLoginKey(email, key, site = {}) {
+  const relay = relayTransport();
+  const mail = relay || mailTransport();
   if (!mail) {
     const error = new Error("mail_unavailable");
     error.code = "mail_unavailable";
     throw error;
   }
-  const message = loginKeyMessage(key);
+  const message = loginKeyMessage(key, site, { relayed: Boolean(relay) });
   await mail.transport.sendMail({
     from: mail.from,
     to: email,

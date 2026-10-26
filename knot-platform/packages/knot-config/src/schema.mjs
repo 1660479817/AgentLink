@@ -593,7 +593,7 @@ const PLATFORM_KEYS = [
     group: "mail",
     type: "string",
     default: "",
-    desc: "SMTP 主机。未配置时登录接口返回 mail_unavailable，登录密钥寄不出去。",
+    desc: "SMTP 主机。既没配 SMTP 又没配 XKNOT_HUB_RELAY_TOKEN 时，登录接口返回 mail_unavailable，登录密钥寄不出去。",
     example: "smtp.example.com",
   },
   { key: "SMTP_PORT", group: "mail", type: "port", default: 587, desc: "SMTP 端口。" },
@@ -852,7 +852,7 @@ const XKNOT_KEYS = [
     default: "",
     secret: true,
     pattern: /^xkr_[A-Za-z0-9_-]{8,}$/,
-    desc: "中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。",
+    desc: "中枢签发的委托发信凭据。只存在于 xknot.env；不进邮件、不进版本库、不进发布包。配上之后登录密钥与通知都走中枢代发（纯文本），不再用本机 SMTP。",
   },
   {
     key: "XKNOT_ISSUED_URL",

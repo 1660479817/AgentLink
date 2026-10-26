@@ -167,8 +167,10 @@ async function loadAccount(pool, accountId) {
   return rows[0] ? presentAccount(rows[0]) : null;
 }
 
-export function agentRouter({ pool, uploadDir, storeEnabled = false }) {
+export function agentRouter({ pool, uploadDir, storeEnabled = false, profile = null, publicWebOrigin = "" }) {
   ensureUploadDir(uploadDir);
+  // 开户信与网页登录信是同一封，也要写明是哪个站。
+  const mailSite = () => ({ ...(profile?.view?.().site || {}), url: publicWebOrigin });
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, tmpDir(uploadDir)),
     filename: (_req, file, cb) => cb(null, newStorageName(file.originalname)),
@@ -274,7 +276,7 @@ export function agentRouter({ pool, uploadDir, storeEnabled = false }) {
   router.post("/register", async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     if (!email) return res.status(400).json({ error: "bad_email" });
-    const sent = await requestLoginKey(pool, email, { inviteCode: req.body?.inviteCode });
+    const sent = await requestLoginKey(pool, email, { inviteCode: req.body?.inviteCode, site: mailSite() });
     if (sent.error) return res.status(sent.status).json({ error: sent.error });
     res.json({ ok: true });
   });

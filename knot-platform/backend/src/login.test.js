@@ -57,6 +57,56 @@ test("the login key email carries the key as HTML and plain text", () => {
   }
 });
 
+// 收件人可能在不同实例上各有账号，主题和正文都必须写明是哪个站。
+test("登录密钥信写明站点名与地址", () => {
+  const site = { name: "zhoujj", url: "https://zhoujj.xknot.si", locale: "zh-CN" };
+  const message = loginKeyMessage("048291", site);
+  assert.equal(message.subject, "zhoujj 登录密钥");
+  assert.match(message.text, /站点：zhoujj {2}https:\/\/zhoujj\.xknot\.si/);
+  assert.match(message.html, />zhoujj<\/span>/);
+  assert.match(message.html, /站点：zhoujj/);
+});
+
+test("本机地址不写进信里：收件人点不开", () => {
+  for (const origin of ["http://127.0.0.1:8080", "http://localhost:8080", "http://knot:8080"]) {
+    const message = loginKeyMessage("048291", { name: "本机", url: origin });
+    assert.doesNotMatch(message.text, /127\.0\.0\.1|localhost|knot:8080/);
+    assert.match(message.text, /站点：本机/);
+  }
+});
+
+test("站点名进 HTML 前要转义", () => {
+  const message = loginKeyMessage("048291", { name: '<img src=x onerror="alert(1)">' });
+  assert.doesNotMatch(message.html, /<img src=x/);
+  assert.match(message.html, /&lt;img src=x/);
+});
+
+test("登录密钥信跟着站点语种走", () => {
+  const en = loginKeyMessage("048291", { name: "Studio", url: "https://studio.xknot.si", locale: "en" });
+  assert.equal(en.subject, "Your Studio sign-in key");
+  assert.match(en.text, /Valid for ten minutes/);
+  assert.match(en.text, /Site: Studio/);
+  assert.equal(/你好/.test(en.html), false);
+
+  const tw = loginKeyMessage("048291", { name: "工作室", locale: "zh-TW" });
+  assert.equal(tw.subject, "工作室 登入金鑰");
+  assert.match(tw.text, /十分鐘內有效/);
+
+  // 档案里写错的语种当作没写，回落到站点默认。
+  const fallback = loginKeyMessage("048291", { name: "站点", locale: "ja" });
+  assert.equal(fallback.subject, "站点 登录密钥");
+});
+
+test("联邦代发时正文加一行代发声明，否则不加", () => {
+  const site = { name: "zhoujj", url: "https://zhoujj.xknot.si" };
+  const relayed = loginKeyMessage("048291", site, { relayed: true });
+  assert.match(relayed.text, /本邮件由 XKnot 联邦代 zhoujj 发出。/);
+  assert.match(relayed.html, /本邮件由 XKnot 联邦代 zhoujj 发出。/);
+  const direct = loginKeyMessage("048291", site);
+  assert.doesNotMatch(direct.text, /联邦代/);
+  assert.doesNotMatch(direct.html, /联邦代/);
+});
+
 test("委托发信：配了凭据就走联邦，不碰 SMTP", async () => {
   const previous = {
     url: process.env.XKNOT_HUB_RELAY_URL,
@@ -74,7 +124,7 @@ test("委托发信：配了凭据就走联邦，不碰 SMTP", async () => {
     return { ok: true, json: async () => ({ ok: true }) };
   };
   try {
-    await sendLoginKey("lin@example.com", "048291");
+    await sendLoginKey("lin@example.com", "048291", { name: "zhoujj", url: "https://zhoujj.xknot.si" });
   } finally {
     globalThis.fetch = originalFetch;
     for (const [key, value] of [
@@ -92,7 +142,11 @@ test("委托发信：配了凭据就走联邦，不碰 SMTP", async () => {
   assert.equal(calls[0].init.headers.authorization, "Bearer xkr_wang_test");
   const body = JSON.parse(calls[0].init.body);
   assert.equal(body.to, "lin@example.com");
+  assert.equal(body.subject, "zhoujj 登录密钥");
   assert.match(body.text, /048291/);
+  assert.match(body.text, /站点：zhoujj {2}https:\/\/zhoujj\.xknot\.si/);
+  // 代发只收纯文本：HTML 不出实例，所以正文必须自带代发声明。
+  assert.match(body.text, /本邮件由 XKnot 联邦代 zhoujj 发出。/);
   assert.equal(body.html, undefined);
 });
 

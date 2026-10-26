@@ -129,10 +129,24 @@ async function withUploads(pool, rows) {
   return rows.map((row) => ({ ...row, attachments: byId.get(row.id) || [] }));
 }
 
-export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, agentDoc, handoff = null, adminHosts = [], storeEnabled = false }) {
+export function webRouter({
+  pool,
+  sessionCookieName,
+  uploadDir,
+  profile,
+  board,
+  agentDoc,
+  handoff = null,
+  adminHosts = [],
+  storeEnabled = false,
+  publicWebOrigin = "",
+}) {
   // 站点身份只用于展示：顶栏名称和分享文案。系统开关仍在 session.site。
   // v2 起是十项扁平字段，填什么就显示什么，不再按语种取；`locale` 是站点默认界面语言。
   ensureUploadDir(uploadDir);
+
+  // 登录密钥信里要写明是哪个站。名字与语种取自档案，地址取配置里的对外地址。
+  const mailSite = () => ({ ...(profile?.view?.().site || {}), url: publicWebOrigin });
 
   // Agent 指引住在联邦中枢，不随实例发版。地址由 Backend 给出，WebUI 不写死：
   // 本地联调、镜像站或多中枢部署时，改 KNOT_HUB_ORIGIN 一处就够。
@@ -186,7 +200,7 @@ export function webRouter({ pool, sessionCookieName, uploadDir, profile, board, 
   router.post("/login", async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     if (!email) return res.status(400).json({ error: "bad_email" });
-    const sent = await requestLoginKey(pool, email, { inviteCode: req.body?.inviteCode });
+    const sent = await requestLoginKey(pool, email, { inviteCode: req.body?.inviteCode, site: mailSite() });
     if (sent.error) return res.status(sent.status).json({ error: sent.error });
     res.json({ ok: true });
   });
