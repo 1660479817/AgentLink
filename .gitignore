@@ -48,3 +48,6 @@ xknot.si/e2e/test-results/
 
 # 编辑器与 Agent 规则只在本机用，不进仓库
 .cursor/
+
+# 中文对照稿与中文版 README 只留本机，不上传 GitHub
+*_CN.md
