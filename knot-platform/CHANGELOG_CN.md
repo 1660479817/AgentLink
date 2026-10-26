@@ -40,6 +40,8 @@ Knot 平台与 WebUI 的产品版本。每个版本记这里。`/api/health` 的
 
 - **微信内置浏览器不再打开一片空白。** WebView 拒绝模块脚本、解析现代包时报错，或隧道中途丢掉一次请求，以前都会留下一个空的 `#app`，没有任何出路。内联首帧、`nomodule` 包、`no-store` 的 HTML 与重试入口分别覆盖这三种情况；页面现在总能显示一点可读内容，并给出重新加载。
 
+- **发布不再删掉旧首页引用的 chunk。** 入口的静态安装用 `rsync --delete`，每次发布都会清掉上一版的 `/assets`。还攥着旧 `index.html` 的地方——WebView 离线缓存、没关的标签页、中间代理——随后的请求指向已不存在的文件名，而重新加载取回的仍是同一份旧 HTML，救不回来。`ops/scripts/lib/entry-assets.sh` 改用 rsync 的 `protect` 规则，`/assets` 下已有的文件不再被 `--delete` 删掉，之后裁掉超过保留期（默认 7 天，`KNOT_ENTRY_ASSET_KEEP_DAYS=0` 关闭）的，当前 `index.html` 仍引用的一律保留。同一处改用 `rsync -c`：默认的「大小 + mtime」判定会把同一秒内生成、长度相同的两份 `index.html` 当成没变，装上去的还是指向新一版并不存在的 chunk 名的旧页面。
+
 - **挂载之后崩掉，不再剩一片空白。** `app.mount()` 会先清空 `#app`，而首帧兜底就写在里面：首屏渲染抛一次错，屏幕上唯一的内容和重试入口一起被抹掉。`web/src/boot.js` 在挂载之前留一份兜底快照，首帧渲染完成前出现的错误把它放回去——`app.config.errorHandler`、`window.error` 与 `unhandledrejection` 都走这一条，挂载成功之后的错误仍交给页面自己处理。恢复出来的那一屏会写出错误类型（`页面没有加载出来（TypeError）。`）并请用户截图，只在某台手机上复现的问题因此不必连远程调试也能定位。挂载成功会在 `<html>` 上打 `data-knot-ready`，内联计时器只认这个标记；6 秒仍没有标记，就把兜底换成「换网络重试，或用系统浏览器打开」。
 
 - **legacy 包现在真的能被需要它的内核解析。** `@vitejs/plugin-legacy` 只把语法转译到 `targets` 的下限，而 `chrome >= 61` 让 `async` 与对象展开原样留在 `nomodule` 包里——偏偏这就是不支持 `type="module"` 的 WebView 唯一会执行的包。那批内核拿到的是语法错误，两套产物同时失效。下限改为 `chrome >= 53` / `safari >= 10` / `ios >= 10`，并且 `web/scripts/check-legacy.mjs` 会按每个包声称支持的语法级别解析全部产物，挂在 `npm run build:web` 上：下限再被调高，失败在构建，而不是在用户手机上。
