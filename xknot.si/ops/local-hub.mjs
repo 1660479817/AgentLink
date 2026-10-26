@@ -181,14 +181,19 @@ async function serveStatic(req, res, { distDir, pathname, dataFile }) {
     if (page && (await statFile(page))) relative = `${pathname}.html`;
   }
 
-  // 目录形式：/en/ 取 /en/index.html；/en 先补斜杠。
-  if (relative === pathname && /^\/[A-Za-z-]+\/?$/.test(pathname) && !path.extname(pathname) && pathname !== "/") {
-    if (!pathname.endsWith("/")) {
-      applyHeaders(res, SECURITY_HEADERS);
-      res.writeHead(301, { location: `${pathname}/` });
-      return res.end();
+  // 目录形式：/en/ 与 /en/instances/ 取目录下的 index.html；少写尾斜杠的目录先 301。
+  // 线上 nginx 由 try_files $uri $uri/ 做同一件事，这里按目录里是否真有 index.html 判断。
+  if (relative === pathname && !path.extname(pathname) && pathname !== "/") {
+    if (pathname.endsWith("/")) {
+      relative = path.posix.join(pathname, "index.html");
+    } else {
+      const dirIndex = resolveInside(distDir, path.posix.join(pathname, "index.html"));
+      if (dirIndex && (await statFile(dirIndex))) {
+        applyHeaders(res, SECURITY_HEADERS);
+        res.writeHead(301, { location: `${pathname}/` });
+        return res.end();
+      }
     }
-    relative = path.posix.join(pathname, "index.html");
   } else if (pathname.endsWith("/")) {
     relative = path.posix.join(pathname, "index.html");
   }
