@@ -159,8 +159,7 @@ if [[ "$SERVE" == "static" ]]; then
     -e "ssh ${SSH_OPTS[*]}" \
     "$KNOT_APP_DIR/web/dist/" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/web/"
 
-  # 静态根的安装规则（保住旧 /assets、按时间裁剪）随包一起送过去，在入口主机上 source。
-  # 它必须用真的 rsync 与真的目录验证，写在远端 heredoc 里就测不了。
+  # 静态根的安装与裁剪规则随包送到入口主机上 source：单独成文件才跑得了真实目录的测试。
   scp "${SSH_OPTS[@]}" "$SCRIPT_DIR/lib/entry-assets.sh" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/entry-assets.sh"
 
   # 构建产物只有 SPA 空壳：首页标题、介绍、OG 都靠 JS 之后才有。
@@ -228,9 +227,8 @@ keep_days="${11:-}"
 
 if [ "$serve" = "static" ]; then
   echo "    安装静态根 ${web_root}"
-  # 安装与裁剪的规则在 entry-assets.sh 里：`rsync --delete` 会把上一版的 /assets
-  # 一并删掉，而 WebView 的离线缓存、没关的老标签页与中间代理可能还攥着一份旧 HTML，
-  # 它引用的 chunk 名在新一版里已经不存在——那种页面连「重新加载」都救不回来。
+  # 安装与裁剪的规则在 entry-assets.sh 里：它保住上一版的 /assets，
+  # 让还拿着旧 index.html 的地方（WebView 离线层、没关的标签页、代理）仍取得到自己那一版。
   # shellcheck source=/dev/null
   . "$stage/entry-assets.sh"
   knot_install_static "$stage/web" "$web_root"

@@ -69,29 +69,27 @@
       </div>
     </div>
     <script>
-      // 模块脚本在旧内核里可能整段不执行，Vue 永远不会挂载。#app 里的静态内容因此
-      // 就是兜底页面。这里的计时器只负责两件事：把「正在进入」换成一句能照做的提示，
-      // 提供重试入口。它是普通脚本，不依赖 ES module，自己报错也不影响页面显示。
+      // 模块脚本可能整段不执行，Vue 就不会挂载。#app 里的静态内容因此就是兜底页面；
+      // 这个计时器只把它换成一句可照做的提示，并露出重试入口。普通脚本，不依赖
+      // ES module，自己报错也不影响页面显示。
       //
-      // 6 秒：正常首屏一秒内就挂上了，等不到这一步；等到了，多半是内核跑不动这个包。
-      // 那种情况下真正管用的是「换一个浏览器打开」，不是「检查网络」——同一台手机上
-      // 系统浏览器的内核比微信内置的新得多。
+      // 6 秒：正常首屏一秒内就挂上，等不到这一步；等到了，多半是内核跑不动这个包，
+      // 那时管用的是换浏览器打开，不是检查网络——同一台手机的系统浏览器内核更新。
       (function () {
         var SLOW = 6000;
-        // 「挂上了没有」只认 boot.js 打在 <html> 上的标记：首页、登录门、信息流
-        // 三种首屏的根节点各不相同，按 class 找迟早会把正常页面判成失败。
+        // 只认 boot.js 打在 <html> 上的标记：三种首屏的根节点各不相同，按 class 找会误伤。
         function mounted() {
           return document.documentElement.hasAttribute("data-knot-ready");
         }
         var timer = setTimeout(function () {
           var boot = document.querySelector("[data-knot-boot]");
-          // 守卫已经把具体错误写在提示行了，不要拿一句通用文案盖掉它。
+          // 守卫已经把具体错误写在提示行，别用通用文案盖掉。
           if (!boot || boot.classList.contains("is-failed")) return;
           if (mounted()) return;
           boot.classList.add("is-failed");
           var line = boot.querySelector("[data-knot-line]");
           if (line) line.textContent = "页面还没有加载出来。";
-          // 计时器分不清「包没下载下来」和「内核跑不动这个包」，所以两种都提一句：
+          // 计时器分不清「包没下载下来」和「内核跑不动这个包」，两种都提一句：
           // 前者换网络就好，后者只有换内核（用系统浏览器打开）才有用。
           var hint = boot.querySelector("[data-knot-hint]");
           if (hint) hint.textContent = "换网络重试一次；仍然这样，点右上角「…」用浏览器打开。";

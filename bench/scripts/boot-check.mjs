@@ -116,7 +116,8 @@ function report(name, ok, detail = "") {
 
   report("接口全挂：页面仍有可见文字（不是白屏）", state.visible > 0, state.text);
   report("接口全挂：脚本没有崩在首屏", state.ready || state.boot, JSON.stringify({ ready: state.ready, boot: state.boot }));
-  report("接口全挂：未捕获错误（供诊断）", true, errors.join(" | ").slice(0, 200) || "无");
+  // 首屏接口失败时的未捕获错误只作为线索打印，不参与判定：页面能显示兜底就算通过。
+  if (errors.length) console.log(`      未捕获错误：${errors.join(" | ").slice(0, 200)}`);
   await page.close();
 }
 

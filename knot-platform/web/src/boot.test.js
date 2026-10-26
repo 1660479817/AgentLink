@@ -1,8 +1,7 @@
 // 首屏兜底守卫。
 //
-// 这一条是「微信里打开一片空白」的回归测试。Vue 的 mount 会清空 #app，
-// 兜底页面正写在里面；挂载之后再出错，屏幕上就什么都不剩。守卫要在挂载之前
-// 留快照，出错时放回去。
+// Vue 的 mount 会清空 #app，兜底页面写在里面。守卫要在挂载之前留快照、
+// 出错时放回去，挂载成功之后不再接管。
 
 import assert from "node:assert/strict";
 import test from "node:test";
