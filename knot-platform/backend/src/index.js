@@ -25,6 +25,8 @@ import { loadSystemPolicy, publicBoardEnabled } from "./system.js";
 import { federationStatus } from "./federation.js";
 import { hubOriginOf } from "./xknotJoin.js";
 import { startTunnelAgent } from "./tunnel.js";
+import { createHtmlRenderer } from "./pageHtml.js";
+import { renderRobots, renderSitemap } from "../../ops/scripts/entry-html.mjs";
 import { pollIntervalMs, startXknotPoller } from "./xknotPoller.js";
 
 // 产品版本跟着本包的 package.json 走，别在这里另写一份。
@@ -193,6 +195,25 @@ if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
   const dir = path.resolve(bootstrap.staticWebDir);
   app.use("/assets", express.static(path.join(dir, "assets"), { immutable: true, maxAge: "1y" }));
 
+  // static 投放由入口在推的时候把站点自述写进 HTML（ops/scripts/entry-html.mjs）。
+  // proxy 投放没有那一步：页面由这里发出，同一个渲染函数在请求时补上，站名、简介、
+  // canonical 才不会停留在构建产物里的通用值。两档用一份实现，规则不会分叉。
+  const render = createHtmlRenderer({ dir, profile, origin: bootstrap.publicWebOrigin });
+
+  // robots.txt 与 sitemap.xml 也是同一件事：static 入口由 push-entry 生成，
+  // 反代投放没有任何一步会写它们，于是那些站点等于没有 robots 和站点地图。
+  // 站点地图里必须是绝对地址，所以没配公开地址时宁可不发，也不写一个相对的 loc。
+  for (const [route, type, renderText] of [
+    ["/robots.txt", "text/plain; charset=utf-8", renderRobots],
+    ["/sitemap.xml", "application/xml; charset=utf-8", renderSitemap],
+  ]) {
+    app.get(route, (_req, res, next) => {
+      if (fs.existsSync(path.join(dir, route.slice(1)))) return next();
+      if (!render.origin) return next();
+      res.type(type).send(renderText(render.origin));
+    });
+  }
+
   // /discover 有自己的静态壳（canonical 指向 /discover）。没有这份文件时宁可 404，
   // 也不要回 index.html：那样地址是 /discover，canonical 却指着首页。
   //
@@ -206,7 +227,7 @@ if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
     const file = path.join(dir, "discover.html");
     if (!fs.existsSync(file)) return next();
     res.set("Cache-Control", "no-cache");
-    res.sendFile(file);
+    render.send(res, file, "discover");
   });
 
   app.use(
@@ -227,7 +248,7 @@ if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
       return;
     }
     res.set("Cache-Control", "no-cache");
-    res.sendFile(path.join(dir, "index.html"));
+    render.send(res, path.join(dir, "index.html"), "index");
   });
 }
 
