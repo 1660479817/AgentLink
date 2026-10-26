@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -606,6 +606,89 @@ test("a review that blows up still lands the transcript it already wrote into th
   }
   assert.equal(updates.length, 1);
   assert.match(String(updates[0][1]), /正文/);
+});
+
+// 终审落地要动 `updated_at`：管理端的审核快照用 max(updated_at) 当「最后一次成功」，
+// 用 updated_at - created_at 算 p50/p95。终审只改 verdict 不改时间时，这两个数永远
+// 停在发布时间上（p50/p95 恒为 0），「终审卡了多久」就再也看不出来。
+function pendingJudgePool(id, updates) {
+  const row = {
+    id,
+    account_id: AUTHOR,
+    actor: "person",
+    body: "正文",
+    videos: [],
+    links: {},
+    content_hash: "h",
+    detail: null,
+    verdict: "pending",
+    reject_reason: null,
+    category: "",
+    price: 0,
+    is_public: true,
+    kind: "post",
+    weight: 0,
+    created_at: "2026-10-16T00:00:00.000Z",
+    updated_at: "2026-10-16T00:00:00.000Z",
+    origin_id: null,
+    version: 1,
+  };
+  return {
+    async query(sql, params) {
+      if (sql.startsWith("SELECT id, account_id, body, videos, links, verdict")) return { rows: [row] };
+      if (sql.startsWith("SELECT id, account_id, actor, body")) return { rows: [row] };
+      if (sql.includes("FROM intel_files")) return { rows: [] };
+      if (sql.startsWith("UPDATE intel SET verdict")) {
+        updates.push({ sql, params });
+        return { rows: [{ id }] };
+      }
+      if (sql.startsWith("SELECT id, body, videos, detail")) return { rows: [{ id, body: "正文", videos: [], detail: null }] };
+      return { rows: [] };
+    },
+  };
+}
+
+test("a verdict that lands moves updated_at, so the review snapshot can time it", async () => {
+  const id = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  const updates = [];
+  const before = process.env.OPENCLAW_INTEL_AGENT;
+  delete process.env.OPENCLAW_INTEL_AGENT;
+  try {
+    await judgeIntel(pendingJudgePool(id, updates), id);
+  } finally {
+    if (before === undefined) delete process.env.OPENCLAW_INTEL_AGENT;
+    else process.env.OPENCLAW_INTEL_AGENT = before;
+  }
+  assert.equal(updates.length, 1);
+  assert.match(updates[0].sql, /verdict = 'passed'/);
+  assert.match(updates[0].sql, /updated_at = now\(\)/);
+});
+
+test("a revoked verdict moves updated_at too", async () => {
+  const id = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  const updates = [];
+  const dir = await mkdtemp(path.join(os.tmpdir(), "knot-fake-openclaw-"));
+  const bin = path.join(dir, "openclaw");
+  await writeFile(
+    bin,
+    `#!/bin/sh\nprintf '%s' '{"ok":true,"final":"{\\"verdict\\":\\"revoke\\",\\"reason\\":\\"含有欺诈内容。\\",\\"note\\":\\"\\",\\"category\\":\\"\\",\\"language\\":\\"\\",\\"topics\\":[]}"}'\n`,
+    { mode: 0o755 }
+  );
+  const before = { agent: process.env.OPENCLAW_INTEL_AGENT, bin: process.env.OPENCLAW_BIN };
+  process.env.OPENCLAW_INTEL_AGENT = "knot-intel";
+  process.env.OPENCLAW_BIN = bin;
+  try {
+    await judgeIntel(pendingJudgePool(id, updates), id);
+  } finally {
+    if (before.agent === undefined) delete process.env.OPENCLAW_INTEL_AGENT;
+    else process.env.OPENCLAW_INTEL_AGENT = before.agent;
+    if (before.bin === undefined) delete process.env.OPENCLAW_BIN;
+    else process.env.OPENCLAW_BIN = before.bin;
+    await rm(dir, { recursive: true, force: true });
+  }
+  assert.equal(updates.length, 1);
+  assert.match(updates[0].sql, /verdict = 'rejected'/);
+  assert.match(updates[0].sql, /updated_at = now\(\)/);
 });
 
 // 重试要安全：Agent 超时重发同一条，平台该把原来那条还给它，而不是报错或再发一条。

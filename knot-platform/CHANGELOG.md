@@ -8,6 +8,16 @@ Note the distinction between three "version" concepts:
 - **Content revision number**: `kMeta.version`, a piece of content's position in its revision chain, starting from 1.
 - **Revision lineage**: `kMeta.originId` points at the first version; the several versions of one piece are strung into a chain.
 
+## [0.8.1] — 2026-10-26
+
+Final-review timing and entry uploads. The review snapshot now reads real review timestamps, and an attachment that is allowed by the instance is no longer judged a gateway timeout on the way in.
+
+### Fixed
+
+- **A verdict that lands moves `updated_at`, so the review snapshot reports real numbers.** The two final-review updates in `judgeIntel` wrote `verdict`, `category`, and `detail` but left `updated_at` alone, while `/api/admin/status` takes `max(updated_at)` as the last success and `updated_at - created_at` as the review latency. Every kept or revoked record therefore looked as if it had been reviewed at the moment it was published: `lastSuccessAt` was a publish time regardless of when review finished, and p50/p95 were always 0, so the one number meant to show a stalled reviewer could never move. Both branches now set `updated_at = now()`, the same way author deletion already did, and two tests pin the pass and revoke paths.
+
+- **Uploads are sent after the entry has the whole body, with a timeout that fits the tunnel.** On the public entry, `/api/web/files`, `/api/agent/files`, `/api/agent/audio`, and `/api/agent/uploads` carried the same 120-second read timeout as ordinary calls, and the hub-provisioned vhost streamed request bodies straight through (`proxy_request_buffering off`). A 3.3MB attachment inside the 50MB limit was answered `504` by the entry after 162 seconds; 1.1MB took 57 seconds. Those four endpoints and the image endpoint `/api/web/uploads` now buffer the request body, allow 300 seconds between body reads, and use 900-second read and send timeouts; every other `/api` call keeps 120 seconds. Hub-provisioned vhosts gain the same location and lose the trailing slash on `/api/web/uploads`, which turned a POST into a 301 whose follow-up GET dropped the body.
+
 ## [0.8.0] — 2026-10-26
 
 Store release. The shelf becomes the one place things are sold and bought, and the rest moves around it: the wish/request chain is gone, the admin's XKnot panel decides the next action instead of listing states, pictures are shrunk in the browser before upload, the instance polls handoff progress by itself, and the first screen is read from the entry disk. The blank first frame in WeChat's in-app browser is fixed in three layers — the bundle floor, the fallback guard, and the entry's asset retention.

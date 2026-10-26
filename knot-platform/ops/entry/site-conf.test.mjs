@@ -120,6 +120,28 @@ test("入口的上传代理 location 不带尾斜杠：POST 不能被 301 改写
   }
 });
 
+// 上传是唯一会在入口上停留几分钟的请求：慢链路上 3.3MB 曾按实例的 120s 读超时
+// 判成 504，而实例本身允许 50MB。入口先把请求体收完再回源，并给上传放宽超时，
+// 其余 /api 仍按 120s 收，不让一个挂死的接口占住连接五分钟。
+test("上传端点放宽回源超时并先收完请求体", () => {
+  for (const flag of ["1", ""]) {
+    const text = render({ KNOT_ENTRY_STATIC: flag });
+    const upload = text.match(/location \^~ \/api\/web\/uploads \{[\s\S]*?\n    \}/)[0];
+    assert.match(upload, /proxy_request_buffering on;/);
+    assert.match(upload, /client_body_timeout 300s;/);
+    assert.match(upload, /proxy_read_timeout 900s;/);
+    assert.match(upload, /proxy_send_timeout 900s;/);
+
+    const files = text.match(/location ~ "\^\/api\/\(web\/files\|agent\/\(files\|audio\|uploads\)\)\$" \{[\s\S]*?\n    \}/)[0];
+    assert.match(files, /proxy_request_buffering on;/);
+    assert.match(files, /proxy_read_timeout 900s;/);
+  }
+  // 普通接口保持原样：上传以外的请求不值得为一个慢接口等 15 分钟。
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  const api = text.match(/location \/api\/ \{[\s\S]*?\n    \}/)[0];
+  assert.match(api, /proxy_read_timeout 120s;/);
+});
+
 test("两种投放都保留管理接口、管理后台 404 与 ACME 目录", () => {
   for (const flag of ["1", ""]) {
     const text = render({ KNOT_ENTRY_STATIC: flag });

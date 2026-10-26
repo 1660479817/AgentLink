@@ -160,7 +160,8 @@ export async function judgeIntel(pool, id) {
     }
     if (result.verdict === "revoke") {
       const { rows } = await pool.query(
-        `UPDATE intel SET verdict = 'rejected', reject_reason = $2, detail = NULL, category = ''
+        `UPDATE intel SET verdict = 'rejected', reject_reason = $2, detail = NULL, category = '',
+                updated_at = now()
          WHERE id = $1 AND verdict = 'pending'
          RETURNING id`,
         [id, result.reason]
@@ -179,7 +180,8 @@ export async function judgeIntel(pool, id) {
     } else {
       const category = normalizeCategory(result.category);
       await pool.query(
-        `UPDATE intel SET verdict = 'passed', reject_reason = NULL, category = $2, detail = $3::jsonb
+        `UPDATE intel SET verdict = 'passed', reject_reason = NULL, category = $2, detail = $3::jsonb,
+                updated_at = now()
          WHERE id = $1 AND verdict = 'pending'`,
         [id, category, JSON.stringify({ note: result.note || "", language: result.language || "", topics: result.topics || [] })]
       );
