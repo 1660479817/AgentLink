@@ -159,6 +159,10 @@ if [[ "$SERVE" == "static" ]]; then
     -e "ssh ${SSH_OPTS[*]}" \
     "$KNOT_APP_DIR/web/dist/" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/web/"
 
+  # 静态根的安装规则（保住旧 /assets、按时间裁剪）随包一起送过去，在入口主机上 source。
+  # 它必须用真的 rsync 与真的目录验证，写在远端 heredoc 里就测不了。
+  scp "${SSH_OPTS[@]}" "$SCRIPT_DIR/lib/entry-assets.sh" "$KNOT_ENTRY_SSH:$REMOTE_STAGE/entry-assets.sh"
+
   # 构建产物只有 SPA 空壳：首页标题、介绍、OG 都靠 JS 之后才有。
   # 推到入口时补一份静态化的首页，搜索与分享预览才读得到；顺带生成 robots 与 sitemap。
   # proxy 投放不在这里做：那种入口的页面由 Backend 发，改了本地文件也送不出去。
@@ -202,7 +206,8 @@ shq() {
 REMOTE_ARGS=()
 for value in "$SERVE" "$REMOTE_STAGE" "$WEB_ROOT" "$CONF" "$LOG_CONF" "$CACHE_CONF" \
   "${KNOT_ENTRY_WEB_OWNER:-}" "${KNOT_ENTRY_ACCESS_LOG:-/var/log/nginx/knot-access.log}" \
-  "${KNOT_ENTRY_RELOAD_CMD:-sudo systemctl reload nginx}" "$REALIP_CONF"; do
+  "${KNOT_ENTRY_RELOAD_CMD:-sudo systemctl reload nginx}" "$REALIP_CONF" \
+  "${KNOT_ENTRY_ASSET_KEEP_DAYS:-}"; do
   REMOTE_ARGS+=("$(shq "$value")")
 done
 
@@ -218,11 +223,18 @@ owner="$7"
 access_log="$8"
 reload_cmd="$9"
 realip_conf="${10}"
+# 留空表示用 entry-assets.sh 里的默认保留天数；0 表示不裁剪。
+keep_days="${11:-}"
 
 if [ "$serve" = "static" ]; then
   echo "    安装静态根 ${web_root}"
-  sudo mkdir -p "$web_root"
-  sudo rsync -a --delete --exclude .well-known --exclude /discover.json --exclude /media/ "$stage/web/" "$web_root/"
+  # 安装与裁剪的规则在 entry-assets.sh 里：`rsync --delete` 会把上一版的 /assets
+  # 一并删掉，而 WebView 的离线缓存、没关的老标签页与中间代理可能还攥着一份旧 HTML，
+  # 它引用的 chunk 名在新一版里已经不存在——那种页面连「重新加载」都救不回来。
+  # shellcheck source=/dev/null
+  . "$stage/entry-assets.sh"
+  knot_install_static "$stage/web" "$web_root"
+  knot_prune_assets "$web_root" ${keep_days:+"$keep_days"}
   if [ -n "$owner" ]; then sudo chown -R "$owner" "$web_root"; fi
 else
   echo "    整站回源，不推静态文件"

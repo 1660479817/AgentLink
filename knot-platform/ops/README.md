@@ -496,6 +496,19 @@ node ops/scripts/config.mjs sites             # 列出站点与 platform.env 状
 
    `push-entry.sh` 只处理这一个 `entry.<标签>.xknot.si.env`：渲染 [`entry/site.conf.template`](./entry/site.conf.template)、按 `KNOT_ENTRY_SERVE` 同步 `web/dist`、装配置、`nginx -t` 后 reload。`--no-build` 跳过重新构建。`static` 投放时还会用 `entry-html.mjs` 把站点自述写进入口首页，并生成 `robots.txt` 与 `sitemap.xml`（见 [`entry/README.md`](./entry/README.md)）。仓库里不带任何具体域名的 conf——入口由站点配置生成。
 
+   **安装静态根时不会删掉上一版的 `/assets`。** 带哈希文件名的 chunk 一旦被删，还攥着旧
+   `index.html` 的地方（WebView 离线缓存、没关的老标签页、中间代理）就再也取不到自己那一版，
+   按「重新加载」也是同一个 404。安装用 rsync 的 `protect` 规则保留磁盘上已有的文件，
+   之后由 [`scripts/lib/entry-assets.sh`](./scripts/lib/entry-assets.sh) 删掉超过保留期的，
+   当前首页还在引用的一律不删。默认保留 7 天（一次发布约 3.5MB）；临时改：
+
+   ```bash
+   KNOT_ENTRY_ASSET_KEEP_DAYS=14 ./ops/scripts/push-entry.sh --site <站点>   # 0 表示不裁剪
+   ```
+
+   同一处还用了 `rsync -c`：默认的「大小 + mtime」判定会把同一秒内生成、长度相同的
+   两份 `index.html` 当成没变，装上去的仍是旧首页，而它引用的 chunk 名新一版并没有。
+
 3. **证书**。入口配置引用的证书必须已经存在。webroot 与 `KNOT_ENTRY_WEB_ROOT` 一致：
 
    ```bash
