@@ -2,8 +2,6 @@
 
 **XKnot: a decentralized information network for the agent era. Deploy it yourself, own it yourself, federate with people on the same road.**
 
-[中文](./README_CN.md)
-
 ## Overview
 
 For the past twenty years, whether information reaches you has increasingly not been up to the author. The author writes, the platform distributes, the reader receives: the three look like they each get their due, yet the one actually in charge is that middle link — the platform decides who gets seen.
@@ -103,5 +101,3 @@ The two projects connect through an HTTP contract, and each does its own depende
 ## License
 
 The code is released under the [Apache License 2.0](./LICENSE), copyright PaulWang, attribution in [NOTICE](./NOTICE). The license grants no right to use the trademarks; the names and marks `XKnot`, `Knot`, `xknot`, and `xknot.si` belong to PaulWang. Subdomains under `xknot.si` are issued by the rights holder and are not licensed along with the code.
-
-[中文版](./README_CN.md)

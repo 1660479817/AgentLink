@@ -1,7 +1,5 @@
 # XKnot Federation
 
-[中文](README_CN.md)
-
 `xknot.si` is the hub of the XKnot Federation. **The XKnot Federation — a decentralized, distributed information network for the AI and Agent era.**
 
 The hub holds three kinds of information: **site profiles, runtime status, and showcases**. It does not store instances' users, content, points, review, or billing — those all live in each instance's own deployment.

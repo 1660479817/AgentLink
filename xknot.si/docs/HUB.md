@@ -18,7 +18,7 @@
 | 数据快照 | 构建步骤 | 合并清单（签发区）、档案副本（自述区）、探测、活动数据与橱窗，写 `dist/data/hub.json` |
 | 抓取入口 | 构建步骤 | `ops/build-seo.mjs` 写 `dist/robots.txt`、`dist/sitemap.xml`，并按快照生成三份无脚本的 `<locale>/instances/` 目录页；首页 `<noscript>` 里补同一份目录摘要 |
 | 橱窗拉取 | 构建步骤 | 构建时拉取 `cardsUrl`，写 `var/cards/{id}.json` |
-| Agent 指引 | 构建步骤 | 仓库根 `docs/KNOT_HELP.md`（英文正文，唯一发布的源文件）渲染成 `dist/knot-help.html`，并原样复制成 `dist/knot-help.md`；同目录 `docs/KNOT_HELP_CN.md` 只作中文对照，不进构建 |
+| Agent 指引 | 构建步骤 | 仓库根 `docs/KNOT_HELP.md`（英文正文，唯一发布的源文件）渲染成 `dist/knot-help.html`，并原样复制成 `dist/knot-help.md` |
 
 门户本身仍然是静态文件，所有实例数据在构建时写入。数据侧唯一的写入口是加入申请：它不写 `instances.json`，提交即通过并落一条 `approved` 记录；随后由常驻 worker 把条目写进清单并接通，快照自动重算。申请接口不能改变任何已上线的条目。
 

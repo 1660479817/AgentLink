@@ -290,5 +290,3 @@ That script is layer 0: a few sequential curls, medians, answering "does it work
 ## License
 
 The code is released under the [Apache License 2.0](./LICENSE), copyright PaulWang, attribution in [NOTICE](./NOTICE). The license grants no right to use the trademarks; the names and marks `XKnot`, `Knot`, `xknot`, and `xknot.si` belong to PaulWang. Subdomains under `xknot.si` are issued by the rights holder and are not licensed along with the code.
-
-[中文版](./README_CN.md)
