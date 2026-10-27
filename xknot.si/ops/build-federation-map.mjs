@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { placePoints } from "../web/src/lib/placement.js";
 import { LAND_PATH, WORLD, centroidOf, project } from "../web/src/lib/world.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,8 @@ const C = {
   landEdge: "rgba(16,61,122,0.06)",
   link: "rgba(232,112,28,0.42)",
   peer: "rgba(31,168,110,0.4)",
+  spoke: "rgba(16,61,122,0.3)",
+  anchor: "rgba(16,61,122,0.5)",
   ink: "#0a1322",
   muted: "#475569",
   dim: "#64748b",
@@ -48,6 +51,10 @@ const W = WORLD.width + PAD_X * 2;
 const H = WORLD.height + PAD_TOP + PAD_BOTTOM;
 
 const STATUS_LABEL = { up: "在线", degraded: "延迟", down: "不可达", unknown: "未知" };
+
+// 状态 → 色值。C 里按色名登记（ok/warn/bad），探测结果是 up/degraded/down，
+// 这里做一次映射：直接拿 C[status] 取不到东西，所有点会静默变成灰色。
+const STATUS_COLOR = { up: C.ok, degraded: C.warn, down: C.bad, unknown: C.unknown };
 
 function readJson(rel) {
   return JSON.parse(readFileSync(path.join(root, rel), "utf8"));
@@ -89,29 +96,9 @@ const realIds = new Set((manifest.instances || []).map((item) => item?.id));
 const realNames = nodes.filter((node) => realIds.has(node.id)).map((node) => node.name || node.id);
 const sampleCount = nodes.filter((node) => !realIds.has(node.id)).length;
 
-// 同一片区域可能有多个节点，挤在一起就上下错开，和组件里的 spread 一致。
-function spread(points) {
-  const placed = [];
-  const minY = 10;
-  const maxY = WORLD.height - 10;
-  for (const point of points) {
-    let next = { ...point };
-    let tryIndex = 0;
-    while (
-      placed.some((other) => Math.hypot(other.x - next.x, other.y - next.y) < 30) &&
-      tryIndex < 8
-    ) {
-      const step = 17 * (tryIndex + 1);
-      const direction = tryIndex % 2 === 0 ? -1 : 1;
-      next = { ...point, y: Math.min(maxY, Math.max(minY, point.y + direction * step)) };
-      tryIndex += 1;
-    }
-    placed.push(next);
-  }
-  return placed;
-}
-
-const placed = spread(
+// 同一片区域可能有多个节点：落点排布和组件一样交给 lib/placement.js，
+// 同点簇向外散开、各带一条引线指回真实坐标，不在这里另写一套。
+const placement = placePoints(
   nodes
     .map((node) => {
       const center = centroidOf(node.regions);
@@ -120,6 +107,10 @@ const placed = spread(
     })
     .filter(Boolean)
 );
+
+const placed = placement.points;
+const spokes = placement.spokes;
+const anchors = placement.anchors;
 
 // 中枢不落经纬度，悬在地图上方；所有节点朝它连弧。
 const HUB = { x: WORLD.width / 2, y: -8 };
@@ -194,10 +185,11 @@ const lines = placed
 
 const pins = placed
   .map((point) => {
-    const color = C[point.status] || C.unknown;
+    const color = STATUS_COLOR[point.status] || C.unknown;
     const x = q1(point.x);
     const y = q1(point.y);
-    const flip = point.x > WORLD.width * 0.78;
+    // 同簇散开的点按「朝簇外」定左右，否则右侧那个点的字会压到左边的点上。
+    const flip = point.origin ? point.x < point.origin.x : point.x > WORLD.width * 0.78;
     const labelX = flip ? x - 10 : x + 10;
     const anchor = flip ? "end" : "start";
     return `<g class="pin">
@@ -210,9 +202,28 @@ const pins = placed
 
 const logo = readFileSync(logoPath).toString("base64");
 
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="XKnot 联邦：各实例汇入 xknot.si 中枢，实例之间另有直连">
-  <title>XKnot 联邦</title>
-  <desc>一张等距圆柱投影的世界地图。每个实例朝上方的 xknot.si 中枢连一条橙色虚线，表示按清单登记、由中枢探测与展示；实例之间的绿色实线表示协议直连、可就地交换数据。点的颜色表示探测到的状态。</desc>
+// 没有同点簇时整块不写：空 <g> 留在生成物里只会让 diff 多几行空白。
+const spreadBlock = spokes.length
+  ? `
+    <g class="spreads">
+      ${spokes
+        .map(
+          (spoke) =>
+            `<line x1="${q1(spoke.x1)}" y1="${q1(spoke.y1)}" x2="${q1(spoke.x2)}" y2="${q1(spoke.y2)}" stroke="${C.spoke}" stroke-width="1"/>`
+        )
+        .join("\n      ")}
+      ${anchors
+        .map(
+          (anchor) =>
+            `<circle cx="${q1(anchor.x)}" cy="${q1(anchor.y)}" r="2.6" fill="none" stroke="${C.anchor}" stroke-width="1"/>`
+        )
+        .join("\n      ")}
+    </g>`
+  : "";
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="XKnot 联邦：各实例汇入 xknot.si 中枢，实例之间另有直连 · XKnot Federation: instances feed into the xknot.si hub, with direct peer links between instances">
+  <title>XKnot 联邦 · XKnot Federation</title>
+  <desc>一张等距圆柱投影的世界地图。每个实例朝上方的 xknot.si 中枢连一条橙色虚线，表示按清单登记、由中枢探测与展示；实例之间的绿色实线表示协议直连、可就地交换数据。点的颜色表示探测到的状态。同一处有多个实例时，点向外散开，用细引线指回真实位置。 · An equirectangular world map. Each instance connects to the xknot.si hub above with an orange dashed line, meaning it is listed, probed and shown by the hub; green solid lines between instances mean protocol-level direct exchange. Dot color shows the probed status. When several instances share one place, they fan out around it and thin leader lines point back to the true spot.</desc>
   <defs>
     <pattern id="land-dots" width="11" height="11" patternUnits="userSpaceOnUse">
       <circle cx="2.4" cy="2.4" r="1.55" fill="${C.land}"/>
@@ -238,7 +249,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
     <g class="links">
     ${lines}
-    </g>
+    </g>${spreadBlock}
   </g>
 
   <g transform="${WORLD_AT}">
@@ -255,13 +266,14 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <g transform="translate(${PAD_X} ${H - 34})">
     <g class="legend">
-      <circle cx="4" cy="-4" r="3.6" fill="${C.ok}"/><text x="14" y="0" class="legend-text">在线 ${placed.filter((p) => p.status === "up").length}</text>
-      <circle cx="84" cy="-4" r="3.6" fill="${C.warn}"/><text x="94" y="0" class="legend-text">延迟 ${placed.filter((p) => p.status === "degraded").length}</text>
-      <circle cx="164" cy="-4" r="3.6" fill="${C.bad}"/><text x="174" y="0" class="legend-text">不可达 ${placed.filter((p) => p.status === "down").length}</text>
-      <line x1="256" y1="-4" x2="282" y2="-4" stroke="${C.link}" stroke-width="1" stroke-dasharray="10 5"/><text x="290" y="0" class="legend-text">登记与探测</text>
-      <line x1="396" y1="-4" x2="422" y2="-4" stroke="${C.peer}" stroke-width="1"/><text x="430" y="0" class="legend-text">实例直连</text>
+      <circle cx="4" cy="-4" r="3.6" fill="${C.ok}"/><text x="14" y="0" class="legend-text">在线 Online ${placed.filter((p) => p.status === "up").length}</text>
+      <circle cx="120" cy="-4" r="3.6" fill="${C.warn}"/><text x="130" y="0" class="legend-text">延迟 Degraded ${placed.filter((p) => p.status === "degraded").length}</text>
+      <circle cx="240" cy="-4" r="3.6" fill="${C.bad}"/><text x="250" y="0" class="legend-text">不可达 Down ${placed.filter((p) => p.status === "down").length}</text>
+      <line x1="380" y1="-4" x2="406" y2="-4" stroke="${C.link}" stroke-width="1" stroke-dasharray="10 5"/><text x="414" y="0" class="legend-text">登记与探测 Registry &amp; probe</text>
+      <line x1="590" y1="-4" x2="616" y2="-4" stroke="${C.peer}" stroke-width="1"/><text x="624" y="0" class="legend-text">实例直连 Peer link</text>
     </g>
-    <text x="0" y="22" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。${esc(placed.length)} 个实例中，${esc(realNames.length ? realNames.join("、") : "暂无")} 为真实实例${sampleCount ? `，其余 ${sampleCount} 个来自样例清单` : ""}。</text>
+    <text x="0" y="14" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。同一处有多个实例时，点向外散开、用细引线指回真实位置。${esc(placed.length)} 个实例中，${esc(realNames.length ? realNames.join("、") : "暂无")} 为真实实例${sampleCount ? `，其余 ${sampleCount} 个来自样例清单` : ""}。</text>
+    <text x="0" y="30" class="foot">Note: green peer links are protocol-level direct exchange, not yet enabled (target form). Instances that share one place fan out and are tied back by thin leader lines. Of ${esc(placed.length)} instances, ${esc(realNames.length ? realNames.join(", ") : "none")} are real${sampleCount ? `; ${sampleCount} are samples` : ""}.</text>
   </g>
 
   <style>

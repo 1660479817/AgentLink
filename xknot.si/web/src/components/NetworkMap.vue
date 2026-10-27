@@ -3,10 +3,15 @@
 // 为什么不是环形图：环上的位置只跟清单顺序有关，看起来像「一圈站点」，
 // 看不出联邦在哪些时区、哪些大陆。这里位置由经纬度决定，
 // 相邻的实例之间连一条弧，读出来才是一张网，而不是一份列表。
+//
+// 位置只到国家（见 lib/world.js 的 COUNTRY_AT），所以同一个出口出来的
+// 几个实例会算出同一个坐标。落点排布交给 lib/placement.js：同点簇向外散开，
+// 再用引线指回真实位置，而不是原地上下排成一列。
 
 <script setup>
 import { computed } from "vue";
 
+import { placePoints } from "../lib/placement.js";
 import { centroidOf, LAND_PATH, project, WORLD } from "../lib/world.js";
 import BrandMark from "./BrandMark.vue";
 
@@ -36,47 +41,22 @@ const GRATICULE = (() => {
 
 const EQUATOR = project(0, 0).y.toFixed(1);
 
-// 同一片区域可能有多个实例（比如欧洲两个）。挤在一起就上下错开，
-// 让每个点都点得到，而不是叠成一个。
-function spread(points) {
-  const placed = [];
-  const minY = 10;
-  const maxY = VIEW.height - 10;
-  for (const point of points) {
-    let next = { ...point };
-    let tryIndex = 0;
-    while (placed.some((other) => Math.hypot(other.x - next.x, other.y - next.y) < 30) && tryIndex < 8) {
-      const step = 17 * (tryIndex + 1);
-      const direction = tryIndex % 2 === 0 ? -1 : 1;
-      next = {
-        ...point,
-        y: Math.min(maxY, Math.max(minY, point.y + direction * step)),
-      };
-      tryIndex += 1;
-    }
-    placed.push(next);
-  }
-  return placed;
-}
-
-const placed = computed(() => {
+// 落点排布见 lib/placement.js：同点簇向外散开，锚点是真实坐标。
+const placement = computed(() => {
   const points = [];
-  const orphans = [];
   for (const item of props.items) {
     const center = centroidOf(item.regions);
-    if (!center) {
-      orphans.push(item);
-      continue;
-    }
+    if (!center) continue;
     const point = project(center.lon, center.lat);
-    if (!point) {
-      orphans.push(item);
-      continue;
-    }
+    if (!point) continue;
     points.push({ ...item, x: point.x, y: point.y });
   }
-  return spread(points);
+  return placePoints(points, VIEW);
 });
+
+const placed = computed(() => placement.value.points);
+const spokes = computed(() => placement.value.spokes);
+const anchors = computed(() => placement.value.anchors);
 
 const unplaced = computed(() => {
   const out = [];
@@ -193,6 +173,12 @@ function place(point) {
 }
 
 // 标签默认在点的外侧：下半张图朝上、上半张图朝下，靠边的改左右对齐。
+// 同簇散开的点按「朝簇外」定左右：一律按画布边距翻，右侧那个点会把字压到左边的点上。
+function tagFlip(point) {
+  if (point.origin) return point.x < point.origin.x;
+  return point.x > VIEW.width * 0.78;
+}
+
 function tipClass(point) {
   return [
     point.y > VIEW.height * 0.42 ? "above" : "below",
@@ -272,6 +258,31 @@ function activate(id) {
             />
           </g>
         </g>
+
+        <!-- 同一个落点的实例：散开的点各有一条引线指回真实坐标，
+             锚点本身留一个小空心圈，读起来是「这四个都在这一处」，
+             而不是四个地方。 -->
+        <g class="spreads">
+          <line
+            v-for="spoke in spokes"
+            :key="spoke.id"
+            class="spoke"
+            :x1="spoke.x1"
+            :y1="spoke.y1"
+            :x2="spoke.x2"
+            :y2="spoke.y2"
+            vector-effect="non-scaling-stroke"
+          />
+          <circle
+            v-for="anchor in anchors"
+            :key="`${anchor.x}:${anchor.y}`"
+            class="anchor"
+            :cx="anchor.x"
+            :cy="anchor.y"
+            r="2.6"
+            vector-effect="non-scaling-stroke"
+          />
+        </g>
       </svg>
 
       <!-- 联邦中枢：悬在地图上方的徽标，标识由 BrandMark 按三档取图。 -->
@@ -297,7 +308,7 @@ function activate(id) {
         @click="activate(point.id)"
       >
         <span class="dot" aria-hidden="true"><span class="halo" /></span>
-        <span class="tag" :class="{ flip: point.x > VIEW.width * 0.78 }" aria-hidden="true">
+        <span class="tag" :class="{ flip: tagFlip(point) }" aria-hidden="true">
           {{ point.name }}
         </span>
         <span class="tip" :class="tipClass(point)" aria-hidden="true">
@@ -432,6 +443,19 @@ function activate(id) {
 /* 两端有一头没应答，这条交换路径此刻也只是理论上的 */
 .peer.down {
   opacity: 0.4;
+}
+
+/* 同一落点的簇：引线指回真实坐标，锚点留一个空心圈。
+   比直连更淡 —— 它说的不是「两台机器之间有链路」，只是「这几个点在同一处」。 */
+.spoke {
+  stroke: var(--map-spoke);
+  stroke-width: 1;
+}
+
+.anchor {
+  fill: none;
+  stroke: var(--map-anchor);
+  stroke-width: 1;
 }
 
 /* 链路：半透明橙色长划线，从每个实例拉到联邦中枢。
