@@ -144,6 +144,26 @@ export function relayUrl(env = process.env) {
   return `${origin}/api/federation/mail`;
 }
 
+// 中枢在 502 的正文里给两样东西：`smtp`（收信端的数字码加增强状态码，
+// 例如 `421 4.7.28`）和 `transient`（值不值得等）。4xx 的时候还带
+// `Retry-After`，那是收信端自己要的间隔。只读这几项，不读正文里的原话。
+async function relayFailureOf(response) {
+  let body = {};
+  try {
+    body = await response.json();
+  } catch {
+    // 网关的错误页不是 JSON：只剩状态码可用。
+  }
+  const header = Number(response.headers?.get?.("retry-after"));
+  const hint = {
+    hubError: typeof body?.error === "string" ? body.error : null,
+    smtp: typeof body?.smtp === "string" ? body.smtp : null,
+    transient: body?.transient === true,
+    retryAfter: Number.isFinite(header) && header > 0 ? Math.round(header) : null,
+  };
+  return hint;
+}
+
 function relaySender(env = process.env) {
   const url = relayUrl(env);
   const token = String(env.XKNOT_HUB_RELAY_TOKEN || "").trim();
@@ -168,14 +188,32 @@ function relaySender(env = process.env) {
         throw error;
       }
       if (!response.ok) {
+        // 只报 `relay_502` 等于把 421 的「慢一点」和 550 的「地址没了」压成同一句话，
+        // 运维在日志里分不出来，也就没法判断该等还是该改收件人。
         const error = new Error(`relay_${response.status}`);
         error.code = "relay_failed";
         error.status = response.status;
+        Object.assign(error, await relayFailureOf(response));
         throw error;
       }
       return response.json();
     },
   };
+}
+
+// 一条能写进日志的判定：通道、收信端的码、要不要等。不带收件地址、不带正文。
+function describeMailError(error) {
+  const code = Number(error?.responseCode);
+  const enhanced = /(?:^|\s)([245]\.\d{1,3}\.\d{1,3})(?:\s|$)/.exec(String(error?.response || ""))?.[1];
+  const fromSmtp = Number.isInteger(code) && code >= 100 && code <= 599 ? (enhanced ? `${code} ${enhanced}` : String(code)) : "";
+  const smtp = String(error?.smtp || "").trim() || fromSmtp;
+  return [
+    error?.code || error?.message || "mail_failed",
+    smtp,
+    error?.retryAfter ? `retry-after ${error.retryAfter}s` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /**
@@ -445,7 +483,14 @@ export async function sendFeedback({ kind, accountEmail, userId, body, site = ""
   const mail = smtpSender();
   if (!mail || !to || !FEEDBACK_LABEL[kind]) throw mailUnavailable();
   const message = feedbackMessage({ kind, accountEmail, userId, body, site });
-  await mail.send({ to, replyTo: accountEmail, subject: message.subject, text: message.text });
+  try {
+    await mail.send({ to, replyTo: accountEmail, subject: message.subject, text: message.text });
+  } catch (error) {
+    // 这一条只走本机 SMTP，失败时页面上只说「没寄出」；判定得留在日志里，
+    // 否则 421 的流控和 550 的地址错在运维眼里是同一件事。
+    console.error(`[mail] 建议与投诉没有寄出（${describeMailError(error)}）`);
+    throw error;
+  }
 }
 
 const EMAIL_FONT = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'PingFang SC','Microsoft YaHei',sans-serif`;
@@ -659,12 +704,23 @@ export async function sendLoginKey(email, key, site = {}) {
       return;
     } catch (error) {
       smtp = smtpSender();
-      if (!smtp) throw error;
+      if (!smtp) {
+        // 只剩这一条路：把收信端的判定打出来，不然运维只看到一句
+        // 「登录接口 503」，不知道是 421 让我们慢一点还是 550 地址被拒。
+        console.error(`[mail] 委托发信失败，且没有本机 SMTP 可回退（${describeMailError(error)}）`);
+        throw error;
+      }
       // 只记通道与错误码：收件地址和密钥都不该进日志。
-      console.warn(`[mail] 委托发信失败（${error.code || "relay_failed"}），改走本机 SMTP`);
+      console.warn(`[mail] 委托发信失败（${describeMailError(error)}），改走本机 SMTP`);
     }
   }
   smtp = smtp || smtpSender();
   if (!smtp) throw mailUnavailable();
-  await smtp.send({ to: email, ...loginKeyMessage(key, site) });
+  try {
+    await smtp.send({ to: email, ...loginKeyMessage(key, site) });
+  } catch (error) {
+    // 两条路都没寄出去：这里记下本机 SMTP 的判定，也一样不带地址。
+    console.error(`[mail] 本机 SMTP 也没有寄出（${describeMailError(error)}）`);
+    throw error;
+  }
 }

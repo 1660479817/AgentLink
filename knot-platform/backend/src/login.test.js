@@ -323,6 +323,134 @@ test("没有本机 SMTP 时委托失败就是失败，不吞错", async () => {
   }
 });
 
+// 中枢在 502 里已经给足了判定：`smtp` 是收信端的码，`transient` 要不要等，
+// `Retry-After` 等多久。不读这几项，421 的流控和 550 的地址错在实例侧
+// 都是同一句 `relay_502`，运维分不出来。
+function failingRelay({ status = 502, body = {}, retryAfter } = {}) {
+  return async () => ({
+    ok: false,
+    status,
+    headers: { get: (name) => (name.toLowerCase() === "retry-after" ? retryAfter ?? null : null) },
+    json: async () => body,
+  });
+}
+
+test("委托失败时把中枢给的判定带出来，不压成一句 relay_502", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = failingRelay({
+    body: { error: "smtp_failed", transient: true, smtp: "421 4.7.28" },
+    retryAfter: "300",
+  });
+  try {
+    await withMailEnv(
+      {
+        XKNOT_HUB_RELAY_URL: "https://xknot.test/api/federation/mail",
+        XKNOT_HUB_RELAY_TOKEN: "xkr_wang_test",
+      },
+      async () => {
+        await assert.rejects(
+          () => sendLoginKey("lin@example.com", "048291"),
+          (error) => {
+            assert.equal(error.code, "relay_failed");
+            assert.equal(error.status, 502);
+            assert.equal(error.hubError, "smtp_failed");
+            assert.equal(error.smtp, "421 4.7.28");
+            assert.equal(error.transient, true);
+            assert.equal(error.retryAfter, 300);
+            return true;
+          }
+        );
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("永久失败不带 transient，也没有 Retry-After", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = failingRelay({ body: { error: "smtp_failed", smtp: "550 5.1.1" } });
+  try {
+    await withMailEnv(
+      {
+        XKNOT_HUB_RELAY_URL: "https://xknot.test/api/federation/mail",
+        XKNOT_HUB_RELAY_TOKEN: "xkr_wang_test",
+      },
+      async () => {
+        await assert.rejects(
+          () => sendLoginKey("lin@example.com", "048291"),
+          (error) => {
+            assert.equal(error.smtp, "550 5.1.1");
+            assert.equal(error.transient, false);
+            assert.equal(error.retryAfter, null);
+            return true;
+          }
+        );
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("中枢的错误页不是 JSON 时，只剩状态码可用，不抛解析错", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 504,
+    headers: { get: () => null },
+    json: async () => {
+      throw new SyntaxError("Unexpected token <");
+    },
+  });
+  try {
+    await withMailEnv(
+      {
+        XKNOT_HUB_RELAY_URL: "https://xknot.test/api/federation/mail",
+        XKNOT_HUB_RELAY_TOKEN: "xkr_wang_test",
+      },
+      async () => {
+        await assert.rejects(
+          () => sendLoginKey("lin@example.com", "048291"),
+          (error) => error.code === "relay_failed" && error.status === 504 && error.smtp === null
+        );
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("回退到本机 SMTP 时日志带上收信端的码，且不出现地址", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = failingRelay({
+    body: { error: "smtp_failed", transient: true, smtp: "421 4.7.28" },
+    retryAfter: "300",
+  });
+  const sent = [];
+  fakeSmtp(t, sent);
+  const warn = t.mock.method(console, "warn", () => {});
+  try {
+    await withMailEnv(
+      {
+        XKNOT_HUB_RELAY_URL: "https://xknot.test/api/federation/mail",
+        XKNOT_HUB_RELAY_TOKEN: "xkr_wang_test",
+        SMTP_HOST: "smtp.example.com",
+        MAIL_FROM: "knot@example.com",
+      },
+      () => sendLoginKey("lin@example.com", "048291")
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  // 中枢那边被流控时，本机 SMTP 是另一条出口，这一封照常寄出去了。
+  assert.equal(sent.length, 1);
+  const line = String(warn.mock.calls[0]?.arguments[0]);
+  assert.match(line, /421 4\.7\.28/);
+  assert.match(line, /retry-after 300s/);
+  assert.doesNotMatch(line, /lin@example\.com|048291/);
+});
+
 test("一样都没配时说清楚是 mail_unavailable", async () => {
   await withMailEnv({}, async () => {
     await assert.rejects(
