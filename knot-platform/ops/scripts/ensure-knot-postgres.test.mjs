@@ -112,6 +112,17 @@ test("ensure-knot-postgres 起库后用 socket 连得上（socket 目录不是�
     // 再跑一次：幂等，不重建、不报错。
     const second = runEnsure(root);
     assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+
+    // 旧站点的 site.env 里没有 KNOT_PG_SOCKET_DIR：默认必须落到 /tmp，
+    // 也就是 PostgreSQL 自己的默认，不能悄悄退回「拿数据目录当 socket 目录」。
+    const siteEnv = path.join(root, "sites", "demo", "site.env");
+    const withoutKey = readFileSync(siteEnv, "utf8")
+      .split("\n")
+      .filter((line) => !line.startsWith("KNOT_PG_SOCKET_DIR="))
+      .join("\n");
+    await writeFile(siteEnv, withoutKey);
+    const third = runEnsure(root);
+    assert.equal(third.status, 0, `${third.stdout}\n${third.stderr}`);
   } finally {
     stopCluster(pgdata);
   }
