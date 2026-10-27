@@ -216,3 +216,45 @@ test("端口上是别人的库时拒绝改口令、建库", { skip }, async () =
     stopCluster(configured);
   }
 });
+
+test("库已初始化但处于停止状态时，脚本把它起来而不是重建（重启机器后的情形）", { skip }, async () => {
+  // launchd 的 com.knot.<实例>.postgres 就是本脚本，RunAtLoad；机器重启后它拿到的
+  // 状态是「数据目录在、进程没了」。这条路径必须只是起来，不能当成「端口空着就
+  // 初始化」把库重建一遍——那等于每次重启机器都清空站点数据。
+  const port = await freePort();
+  const socketDir = await mkdtemp(path.join(tmpdir(), "knot-pgsock-"));
+  const { root } = await siteRoot({ port, socketDir });
+  const pgdata = path.join(root, "pgdata");
+  const pw = () => readFileSync(path.join(root, "sites", "demo", "pg-knot-password"), "utf8").trim();
+
+  // 用 socket 连：这一条同时是「-h 要的是 socket 目录」的回归。
+  const query = (sql) =>
+    execFileSync(
+      path.join(BIN, "psql"),
+      ["-h", socketDir, "-p", String(port), "-U", "knot", "-d", "knot", "-qAt", "-c", sql],
+      { env: { ...process.env, PGPASSWORD: pw() }, encoding: "utf8" }
+    ).trim();
+
+  try {
+    const first = runEnsure(root);
+    assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
+    query("CREATE TABLE boot_probe(marker text); INSERT INTO boot_probe VALUES ('before-restart')");
+
+    // 停掉：与机器重启后的状态一致，数据目录还在，进程与服务端 socket 都没了。
+    stopCluster(pgdata);
+    const down = spawnSync(path.join(BIN, "pg_isready"), ["-h", socketDir, "-p", String(port)], {
+      encoding: "utf8",
+    });
+    assert.notEqual(down.status, 0, "库没停下来，这条用例就没在测冷启动");
+    assert.ok(!existsSync(path.join(socketDir, `.s.PGSQL.${port}`)), "停机后 socket 还在，状态不真实");
+
+    const second = runEnsure(root);
+    assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+    assert.ok(existsSync(path.join(socketDir, `.s.PGSQL.${port}`)), "起来了但 socket 不在配置的目录里");
+
+    // 数据必须还在：重建过的话这里会报 relation 不存在。
+    assert.equal(query("SELECT marker FROM boot_probe"), "before-restart", "库被重建了，数据丢了");
+  } finally {
+    stopCluster(pgdata);
+  }
+});
