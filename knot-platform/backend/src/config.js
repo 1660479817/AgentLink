@@ -42,6 +42,7 @@ export function loadBootstrapConfig(env = process.env) {
     // 自述区所在文件；没有部署目录时（单测、本地直跑）为 null，改用内存里的空档案。
     profileFile: profileFilePath(env, agentEnvDir),
     // Knot Store 是一个可关的模块：关掉时页面与网页、Agent 的商店接口一起消失。
-    storeEnabled: truthy(resolved("KNOT_STORE_ENABLED", {}, ctx)),
+    // 必须读运行时 env：空 source 会永远落到 schema 默认值 0，导致 KNOT_STORE_ENABLED=1 无效。
+    storeEnabled: truthy(resolved("KNOT_STORE_ENABLED", env, ctx)),
   };
 }

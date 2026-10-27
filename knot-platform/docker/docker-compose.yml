@@ -1,0 +1,73 @@
+# Knot 本机 Docker 部署（Linux 适配，非上游官方形态）。
+# App 使用 host 网络：局域网可访问；可挂载宿主机 OpenClaw。
+#
+#   cd /home/perfxlab/AgentLink/knot-platform/docker
+#   docker compose up -d --build
+
+name: knot
+
+services:
+  db:
+    image: docker.m.daocloud.io/library/postgres:16
+    container_name: knot-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: knot
+      POSTGRES_PASSWORD: knot
+      POSTGRES_DB: knot
+    ports:
+      - "5433:5432"
+    volumes:
+      # 复用本机已有数据卷，避免空库把账号/帖子冲掉
+      - knot-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knot -d knot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: ${KNOT_RELEASE_DIR:-/home/perfxlab/knot/site/current}
+      dockerfile: /home/perfxlab/AgentLink/knot-platform/docker/Dockerfile
+    image: knot-platform:local
+    container_name: knot-app
+    restart: unless-stopped
+    # 与宿主机 OpenClaw Gateway 共用 PID/IPC，避免 ~/.openclaw SQLite 锁跨命名空间失败。
+    network_mode: host
+    pid: host
+    ipc: host
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - /home/perfxlab/knot/site/sites/local/platform.env
+    environment:
+      DATABASE_URL: postgres://knot:knot@127.0.0.1:5433/knot
+      BIND_HOST: "0.0.0.0"
+      PORT: "8080"
+      PUBLIC_WEB_ORIGIN: http://192.168.3.22:8080
+      KNOT_ADMIN_ORIGIN: http://192.168.3.22:8080
+      STATIC_WEB_DIR: /app/web/dist
+      UPLOAD_DIR: /data/uploads
+      KNOT_AGENT_ENV_DIR: /data/sites/local/agents
+      KNOT_PROFILE_FILE: /data/sites/local/profile.json
+      KNOT_STORE_ENABLED: "1"
+      HOME: /home/node
+      # bin 里的 openclaw 是指向宿主机绝对路径的 symlink，容器内会断；直接用包入口。
+      OPENCLAW_BIN: /opt/openclaw/lib/node_modules/openclaw/openclaw.mjs
+      PATH: /opt/openclaw/bin:/usr/local/bin:/usr/bin:/bin
+      # 容器内临时文件与宿主机 Gateway 可见同一路径，减少 Process 落盘冲突。
+      TMPDIR: /tmp
+    volumes:
+      - /home/perfxlab/knot/site/var/uploads:/data/uploads
+      - /home/perfxlab/knot/site/sites:/data/sites
+      - /home/perfxlab/.openclaw:/home/node/.openclaw
+      - /home/perfxlab/.npm-global:/opt/openclaw:ro
+      - /tmp:/tmp
+    user: "1000:1000"
+
+volumes:
+  knot-pgdata:
+    external: true
+    name: 0ae894864a01c4d20e796dbd86b4a2744f769969ec11e1fb7d147bfefbd79522
