@@ -585,6 +585,8 @@ npm test -w knot-platform               # 只跑 Backend
 
 入口 502 时先跑它：`curl https://<子域>/api/health` 打不通而本机 `127.0.0.1:<KNOT_PORT>/api/health` 正常，几乎都是隧道没起来——入口 nginx 把请求交给入口主机的回环端口，隧道断了就没人监听。再看实例主机上的 `launchctl list | grep entry-tunnel`（Linux 是 `systemctl status knot-entry-tunnel`）与 `var/log/entry-tunnel.err.log`：私钥那一行会直接写出解析后的路径和它来自哪个 `KNOT_TUNNEL_KEY`，不再留给 ssh 一句 `Identity file ... not accessible`。`deploy-site.sh` 在 `KNOT_TUNNEL=1` 且私钥解析不到时也会直接停下，不会「部署成功、入口 502」。
 
+验收也一律直连。`push-deploy.sh` 的健康检查、`deploy-site.sh` 与 `rollback.sh` 的探活全都带 `--noproxy '*'`，因为验收不过会触发自动回滚：本机代理抖一次，一个好好的新版本就会被判成坏的、切回上一版，而回滚之后用的还是同一个 curl，于是再报一句「回滚后仍不可达」——两句都是假话。`KNOT_DEPLOY_VERIFY_URL` 允许写公网入口，那种配法更慢、更容易被代理拖住，所以更不能例外。`ops/scripts/proxy-bypass.test.mjs` 盯着这条规则，新写一个漏了 `--noproxy` 的 curl 会让 `npm test` 变红。
+
 部署前后量访问速度，用同一套数字对比两种投放（本机、入口静态、入口反代）：
 
 ```bash
@@ -592,7 +594,7 @@ npm test -w knot-platform               # 只跑 Backend
   http://127.0.0.1:8080/ https://wang.xknot.si/ https://wang.xknot.si/api/health
 ```
 
-每个地址打 N 次，去掉第一次（连接与 TLS 还没复用），报 `ttfb` 与 `total` 的中位数。默认不走系统代理，免得本机代理把数字算进去；要测代理链路加 `--proxy`。
+每个地址打 N 次，去掉第一次（连接与 TLS 还没复用），报 `ttfb` 与 `total` 的中位数。默认不走系统代理，免得本机代理把数字算进去；要测代理链路加 `--proxy`。两个地址回答两个不同的问题：回环是实例本身，公网是入口加隧道再加跨境这一段；并排放着看可以，但别把公网的数字当成实例的数字去排查后端。
 
 部署前也可以只查配置，不连数据库：
 

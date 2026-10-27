@@ -244,7 +244,9 @@ if [[ "$DRY_RUN" == 1 ]]; then
 else
   for _ in $(seq 1 15); do
     if ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "curl -sf http://127.0.0.1:5181/api/health >/dev/null"; then
-      curl -sf "https://xknot.si/api/health" >/dev/null 2>&1 \
+      # 直连：这一跳只回答「公网地址通不通」。走本机代理时测的是代理，
+      # 代理抖动会被读成「公网没连上」，而这台机器本来就不需要它。
+      curl -sf --noproxy '*' "https://xknot.si/api/health" >/dev/null 2>&1 \
         && echo "OK: https://xknot.si/api/health" \
         || echo "OK: 接口已起；公网地址这次没连上，检查 DNS 与证书。"
       ssh "${SSH_OPTS[@]}" "$XKNOT_HUB_SSH" "systemctl is-enabled xknot-health.timer" >/dev/null 2>&1 \

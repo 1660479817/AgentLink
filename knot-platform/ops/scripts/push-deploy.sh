@@ -162,7 +162,7 @@ if [[ "$LOCAL_DEPLOY" == 1 ]]; then
   echo "==> verify $VERIFY_URL"
   verified=0
   for _ in $(seq 1 30); do
-    if curl -sf "$VERIFY_URL" >/dev/null 2>&1; then
+    if curl -sf --noproxy '*' "$VERIFY_URL" >/dev/null 2>&1; then
       verified=1
       break
     fi
@@ -171,7 +171,7 @@ if [[ "$LOCAL_DEPLOY" == 1 ]]; then
   if [[ "$verified" != 1 ]]; then
     knot_fail "健康检查没有通过：${VERIFY_URL}。看 $DEPLOY_DIR/var/log/ 里的日志。"
   fi
-  curl -sf -o /dev/null -w "web %{http_code}\n" "http://127.0.0.1:$KNOT_PORT/"
+  curl -sf --noproxy '*' -o /dev/null -w "web %{http_code}\n" "http://127.0.0.1:$KNOT_PORT/"
 
   echo "OK: $KNOT_PUBLIC_ORIGIN"
   echo "    $REL_NAME"
@@ -310,10 +310,13 @@ if [[ -z "$VERIFY_URL" ]]; then
   VERIFY_URL="http://${KNOT_DEPLOY_SSH#*@}:$KNOT_PORT/api/health"
 fi
 
+# 验收一律直连，不看本机代理设置：这一步不过会自动回滚，代理一次抖动就会被读成
+# 「新版本坏了」，代价是白回滚一次线上版本。KNOT_DEPLOY_VERIFY_URL 允许指向公网
+# 入口，那条路经过代理更慢更不稳，正是最容易误判的一种配法。
 echo "==> verify $VERIFY_URL"
 verified=0
 for _ in $(seq 1 30); do
-  if curl -sf "$VERIFY_URL" >/dev/null 2>&1; then
+  if curl -sf --noproxy '*' "$VERIFY_URL" >/dev/null 2>&1; then
     verified=1
     break
   fi
@@ -333,7 +336,7 @@ target="$3"
 KNOT_DEPLOY_ROOT="$deploy_dir" "$deploy_dir/current/ops/scripts/rollback.sh" --site "$site" --to "$target"
 REMOTE
     for _ in $(seq 1 15); do
-      if curl -sf "$VERIFY_URL" >/dev/null 2>&1; then
+      if curl -sf --noproxy '*' "$VERIFY_URL" >/dev/null 2>&1; then
         knot_fail "新版本 ${REL_NAME} 没有通过健康检查，已回滚到 ${PREV_NAME}（现在可达）。看 $DEPLOY_DIR/var/log/。"
       fi
       sleep 1
@@ -342,7 +345,7 @@ REMOTE
   fi
   knot_fail "健康检查没有通过：$VERIFY_URL"
 fi
-curl -sf -o /dev/null -w "web %{http_code}\n" "http://${KNOT_DEPLOY_SSH#*@}:$KNOT_PORT/"
+curl -sf --noproxy '*' -o /dev/null -w "web %{http_code}\n" "http://${KNOT_DEPLOY_SSH#*@}:$KNOT_PORT/"
 echo "OK: $KNOT_PUBLIC_ORIGIN"
 echo "    $REL_NAME"
 echo "    实例主机 http://${KNOT_DEPLOY_SSH#*@}:$KNOT_PORT"

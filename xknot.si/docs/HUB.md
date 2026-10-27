@@ -568,6 +568,8 @@ XKNOT_HUB_SSH=user@host ./xknot.si/ops/deploy-api.sh
 
 它同步 `server/`、`admin/`、`docs/` 和清单校验依赖，安装 nginx 配置与 systemd unit，`nginx -t` 后重启接口并 reload nginx。静态站与接口分开部署，互不覆盖。
 
+最后那一步会从执行部署的机器上直连 `https://xknot.si/api/health`，确认公网这一跳也通。这一跳不走本机代理（`--noproxy '*'`）：开发机上挂着代理时，代理抖一下就会打印「公网地址这次没连上」，把一次成功的部署说成半失败。`ops/proxy-bypass.test.mjs` 盯着这条规则。
+
 ### 7.4 更新流程
 
 清单或文案变更：

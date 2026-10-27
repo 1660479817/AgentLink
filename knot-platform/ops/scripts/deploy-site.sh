@@ -600,7 +600,7 @@ healthy=0
 PUBLIC_UNREACHABLE=0
 BODY=""
 for _ in $(seq 1 30); do
-  BODY="$(curl -sf "http://127.0.0.1:$KNOT_PORT/api/health" 2>/dev/null || true)"
+  BODY="$(curl -sf --noproxy '*' "http://127.0.0.1:$KNOT_PORT/api/health" 2>/dev/null || true)"
   if [[ -n "$BODY" ]]; then
     healthy=1
     break
@@ -670,7 +670,7 @@ else
     RESCUE_DONE=1
     ln -sfn "$PREV_TARGET" "$KNOT_DEPLOY_ROOT/current"
     restart_backend
-    if curl -sf "http://127.0.0.1:$KNOT_PORT/api/health" >/dev/null 2>&1; then
+    if curl -sf --noproxy '*' "http://127.0.0.1:$KNOT_PORT/api/health" >/dev/null 2>&1; then
       knot_fail "新版本 $REL_NAME 未通过探活，已回滚到 ${PREV_TARGET}。看 var/log/knot-platform.err.log。"
     fi
     knot_fail "新版本未通过探活，回滚后仍不通。看 var/log/knot-platform.err.log。"

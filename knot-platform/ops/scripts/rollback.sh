@@ -174,7 +174,7 @@ wait_healthy() {
   local bound="${1:-30}"
   local _
   for _ in $(seq 1 "$bound"); do
-    if curl -sf "http://127.0.0.1:$KNOT_PORT/api/health" >/dev/null 2>&1; then
+    if curl -sf --noproxy '*' "http://127.0.0.1:$KNOT_PORT/api/health" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
