@@ -193,6 +193,8 @@ KNOT_DATABASE_URL="${KNOT_DATABASE_URL:-${DATABASE_URL:-}}"
 KNOT_PGPORT="${KNOT_PGPORT:-5433}"
 KNOT_PGDATA="${KNOT_PGDATA:-$HOME/knot/pgdata}"
 KNOT_PGLOG="${KNOT_PGLOG:-$HOME/knot/pg.log}"
+# psql -h 传路径时指的是 socket 目录，不是数据目录；默认与 PostgreSQL 自身一致。
+KNOT_PG_SOCKET_DIR="${KNOT_PG_SOCKET_DIR:-/tmp}"
 # Homebrew 在 Apple Silicon 装到 /opt/homebrew，Intel 在 /usr/local。
 KNOT_PG_BIN="${KNOT_PG_BIN:-/opt/homebrew/opt/postgresql@16/bin}"
 KNOT_UPLOAD_DIR="${KNOT_UPLOAD_DIR:-$KNOT_DEPLOY_ROOT/var/uploads}"

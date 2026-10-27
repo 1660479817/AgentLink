@@ -170,8 +170,17 @@ EOF
 }
 
 # ---- 数据库 ----
+# 端口上坐着谁。pg_isready 只回答「这个端口是不是 Postgres」，被别的程序占着时
+# 它只说 no response；等到 pg_ctl 才报 could not bind，报错点离原因很远。
+knot_port_holder() {
+  local port="$1"
+  command -v lsof >/dev/null 2>&1 || return 0
+  # pipefail 下 lsof 没匹配到也算失败，会让调用方的赋值在 set -e 里把脚本带走。
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1" (pid "$2")"}' || true
+}
+
 knot_check_pg_local() {
-  local bin_dir="${KNOT_PG_BIN:-}" missing="" tool
+  local bin_dir="${KNOT_PG_BIN:-}" missing="" tool port="${KNOT_PGPORT:-5433}"
   if [[ -z "$bin_dir" ]]; then
     knot_pf_row fail "数据库" "KNOT_PG_BIN 是空的" \
       "在 site.env 里写 KNOT_PG_BIN=/opt/homebrew/opt/postgresql@16/bin"
@@ -186,9 +195,25 @@ knot_check_pg_local() {
     return 1
   fi
   # 首次部署时库还没起是正常的：建库与启动在第 3 步。这里只区分「工具齐」与「已就绪」。
-  if "$bin_dir/pg_isready" -h 127.0.0.1 -p "${KNOT_PGPORT:-5433}" >/dev/null 2>&1; then
-    knot_pf_row ok "数据库" "本机 Postgres 已在 127.0.0.1:${KNOT_PGPORT:-5433}"
+  if "$bin_dir/pg_isready" -h 127.0.0.1 -p "$port" >/dev/null 2>&1; then
+    # psql -h 传路径时指的是 socket 目录，不是数据目录。库已经在跑却找不到 socket，
+    # 说明 socket 建在别处（旧脚本、手工起的库）：连得上，但要让人知道目录对不上。
+    local sock="${KNOT_PG_SOCKET_DIR:-/tmp}"
+    if [[ -S "$sock/.s.PGSQL.$port" ]]; then
+      knot_pf_row ok "数据库" "本机 Postgres 已在 127.0.0.1:${port}（socket ${sock}）"
+    else
+      knot_pf_row warn "数据库" "本机 Postgres 已在 127.0.0.1:${port}，但 ${sock} 下没有 .s.PGSQL.${port}" \
+        "socket 建在别处时，把 site.env 的 KNOT_PG_SOCKET_DIR 指过去（部署会先按实际目录连）"
+    fi
   else
+    local holder
+    holder="$(knot_port_holder "$port")"
+    if [[ -n "$holder" ]]; then
+      # 端口被别的程序占着：pg_ctl 会 bind 失败，而那条报错看不出是端口问题。
+      knot_pf_row fail "数据库" "端口 ${port} 已被 ${holder} 占用，本机 Postgres 起不来" \
+        "改 site.env 的 KNOT_PGPORT（数据库端口，不是 KNOT_PORT）为没人用的端口"
+      return 1
+    fi
     knot_pf_row ok "数据库" "本机 Postgres ${bin_dir}（还没起，部署时会 initdb 并启动）"
   fi
 }

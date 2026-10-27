@@ -204,6 +204,13 @@ const SITE_KEYS = [
     desc: "本机 Postgres 日志文件。",
   },
   {
+    key: "KNOT_PG_SOCKET_DIR",
+    group: "platform",
+    type: "path",
+    default: "/tmp",
+    desc: "本机 Postgres 的 Unix socket 目录。psql -h 传路径时指的是 socket 目录，不是数据目录（数据目录里没有 .s.PGSQL.<端口>）。默认值就是 PostgreSQL 自己的默认 /tmp；只有把库起在别的 socket 目录时才需要改。",
+  },
+  {
     key: "KNOT_PG_BIN",
     group: "platform",
     type: "path",

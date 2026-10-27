@@ -67,6 +67,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_PGPORT` | `5433` |  | 本机 Postgres 端口。和系统默认的 5432 错开。 |
 | `KNOT_PGDATA` | `$HOME/knot/pgdata` |  | 本机 Postgres 数据目录。 |
 | `KNOT_PGLOG` | `$HOME/knot/pg.log` |  | 本机 Postgres 日志文件。 |
+| `KNOT_PG_SOCKET_DIR` | `/tmp` |  | 本机 Postgres 的 Unix socket 目录。psql -h 传路径时指的是 socket 目录，不是数据目录（数据目录里没有 .s.PGSQL.<端口>）。默认值就是 PostgreSQL 自己的默认 /tmp；只有把库起在别的 socket 目录时才需要改。 |
 | `KNOT_PG_BIN` | `/opt/homebrew/opt/postgresql@16/bin` |  | PostgreSQL 16 的 bin 目录。Apple Silicon Homebrew 是 /opt/homebrew，Intel 改成 /usr/local/opt/postgresql@16/bin。 |
 | `KNOT_UPLOAD_DIR` | 见说明 |  | 上传目录。留空用 <部署根目录>/var/uploads；放在发布包外，升级和回滚都不动它。 |
 | `KNOT_BACKUP_DIR` | （空） |  | 备份目录。留空是还没决定（公网站点会提醒）；写 `null` 表示明确不备份，不再提醒；两者都不装备份任务。填目录后 deploy-site.sh 装每天 04:15 的备份任务（LaunchAgent）。 |

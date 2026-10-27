@@ -102,6 +102,7 @@ WebUI 顶栏左上角是固定的 `XKnot` 标识（`web/public/logos/xknot-mark.
 | 实例主机 | `KNOT_PGPORT` | `5433` | 本机 PostgreSQL 端口 |
 | 实例主机 | `KNOT_PGDATA` | `$HOME/knot/pgdata` | 数据目录 |
 | 实例主机 | `KNOT_PGLOG` | `$HOME/knot/pg.log` | 日志文件 |
+| 实例主机 | `KNOT_PG_SOCKET_DIR` | `/tmp` | Unix socket 目录（`psql -h` 指的是目录，不是数据目录） |
 | 实例主机 | `KNOT_PG_BIN` | `/opt/homebrew/opt/postgresql@16/bin` | Intel Homebrew 改 `/usr/local/opt/postgresql@16/bin` |
 | 实例主机 | `KNOT_UPLOAD_DIR` | `<部署根>/var/uploads` | 上传目录，在发布包外，升级和回滚都不动 |
 | 实例主机 | `KNOT_BACKUP_DIR` | 空（还没决定；公网站点会提醒） | 填目录装每天 04:15 的备份任务；写 `null` 表示明确不备份 |
@@ -472,9 +473,18 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 ./ops/scripts/push-deploy.sh --site bot00 --bootstrap    # 远程部署时同一个开关
 ```
 
-`--bootstrap` 调 [`bootstrap-host.sh`](./scripts/bootstrap-host.sh)，只装两个 keg-only 的 brew 包（`node@22`、`postgresql@16`），装完按同一套规则复检。它**不**起 `brew services`、不 `initdb`、不建库、不改端口与数据目录——那些归部署脚本，回滚时也只回滚那一步，不动系统包。单独跑时默认只打印计划，加 `--yes` 才动手。
+`--bootstrap` 调 [`bootstrap-host.sh`](./scripts/bootstrap-host.sh)，只装两个 keg-only 的 brew 包（`node@22`、`postgresql@16`），装完按同一套规则复检。它**不**起 `brew services`、**不**对我们用的库 `initdb`、不建库、不改端口与数据目录——那些归部署脚本，回滚时也只回滚那一步，不动系统包。单独跑时默认只打印计划，加 `--yes` 才动手。
+
+`postgresql@16` 这个 formula 自己在安装时会往 `/opt/homebrew/var/postgresql@16` 初始化一个默认集群，那不是我们的库：`KNOT_PGDATA`（默认 `$HOME/knot/pgdata`）才是，端口也是 `KNOT_PGPORT`。那个默认集群没人起、也没人连，留着不影响部署；不想留可以 `rm -rf` 掉，但不要 `brew services start postgresql@16`，那会占住 5432 并让人以为库已经就位。
 
 `external` 模式一个包都不装：接的是已有库，装本机 Postgres 只会多一个占着端口的实例。
+
+本机库这一步有两类只在真机上才暴露的失败，`deploy-site.sh` 的门禁和 `ensure-knot-postgres.sh` 都会先拦：
+
+- **端口被别的程序占着**（比如站点端口 8080 上有个无关的 node）。`pg_isready` 只会说 `no response`，再往下 `pg_ctl` 才报 `could not bind`，报错点离原因很远。门禁直接说「端口 N 已被 X 占用」，并指出要改的是 `KNOT_PGPORT`（数据库端口），不是 `KNOT_PORT`（站点端口）。
+- **socket 目录与数据目录是两个概念**。`psql -h` 传一个路径时，那个路径是 **socket 目录**，不是数据目录：socket 在 `<socket 目录>/.s.PGSQL.<端口>`，数据目录里没有它。`ensure-knot-postgres.sh` 起库时用 `-k <socket 目录>`、连库时用 `-h <socket 目录>`，两边用同一个值（`KNOT_PG_SOCKET_DIR`，默认 `/tmp`，即 PostgreSQL 自己的默认）。库是旧脚本或手工起的、socket 建在别处时，脚本会问服务端 `SHOW unix_socket_directories` 并按实际目录连，不必停库重建。
+
+`ensure-knot-postgres.sh` 是幂等的，`deploy-site.sh` 每次都调它：只在「端口没响应」时才调，会漏掉上一次半途失败留下的状态（库起来了、`knot` 角色却还没口令），下一次部署走到 `createdb` 才报认证失败。
 
 ### 3.9.2 没有服务管理器（`--runtime none`）
 

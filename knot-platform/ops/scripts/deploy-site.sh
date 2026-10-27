@@ -369,6 +369,11 @@ if [[ "$DRY_RUN" == 1 ]]; then
   echo "  装到      $REL_DIR"
   echo "  当前版本  ${PREV_TARGET:-(未安装)}"
   echo "  运行时    $RUNTIME"
+  if [[ "$KNOT_DB_MODE" == "external" ]]; then
+    echo "  数据库    external（$([[ -n "$KNOT_DATABASE_URL" ]] && echo "KNOT_DATABASE_URL 已配置" || echo "缺 KNOT_DATABASE_URL")）"
+  else
+    echo "  数据库    local 127.0.0.1:${KNOT_PGPORT}（socket ${KNOT_PG_SOCKET_DIR}，数据目录 ${KNOT_PGDATA}）"
+  fi
   echo "  数据目录  $KNOT_UPLOAD_DIR"
   echo "  配置      $KNOT_PLATFORM_ENV"
   echo "  接入      $([[ -f "$KNOT_XKNOT_ENV" ]] && echo "$KNOT_XKNOT_ENV" || echo "未接入 XKnot（可选）")"
@@ -447,13 +452,13 @@ if [[ "$KNOT_DB_MODE" == "external" ]]; then
 elif [[ -n "$KNOT_DATABASE_URL" ]]; then
   DATABASE_URL="$KNOT_DATABASE_URL"
 else
-  if "$KNOT_PG_BIN/pg_isready" -h 127.0.0.1 -p "$KNOT_PGPORT" >/dev/null 2>&1; then
-    echo "==> postgres already on $KNOT_PGPORT"
-  else
-    echo "==> ensure local postgres ($KNOT_PGDATA)"
-    KNOT_PGPORT="$KNOT_PGPORT" KNOT_PGDATA="$KNOT_PGDATA" KNOT_PGLOG="$KNOT_PGLOG" KNOT_PG_BIN="$KNOT_PG_BIN" \
-      "$VENV_SCRIPTS/ensure-knot-postgres.sh"
-  fi
+  # 每次都跑：这个脚本是幂等的（已初始化、已启动都跳过对应步骤）。
+  # 只在「端口没响应」时才跑，会漏掉上一次半途失败留下的状态——库起来了、
+  # knot 角色却还没口令，下一次部署走到 createdb 才报「认证失败」。
+  echo "==> ensure local postgres ($KNOT_PGDATA)"
+  KNOT_PGPORT="$KNOT_PGPORT" KNOT_PGDATA="$KNOT_PGDATA" KNOT_PGLOG="$KNOT_PGLOG" \
+    KNOT_PG_BIN="$KNOT_PG_BIN" KNOT_PG_SOCKET_DIR="$KNOT_PG_SOCKET_DIR" \
+    "$VENV_SCRIPTS/ensure-knot-postgres.sh"
   # 端口上已经有库时也要确保 knot 这个库存在；已存在就忽略。
   # 新建的库是 scram 认证，口令在站点目录的 pg-knot-password（0600）；
   # 已存在的库可能是 trust，没有这个文件，照旧不带口令。

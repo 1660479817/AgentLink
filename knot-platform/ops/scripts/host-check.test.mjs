@@ -9,7 +9,7 @@
 //      一次 read 会把剩下的行吃掉，表现成「脚本跑到一半就没了」。
 
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -110,4 +110,64 @@ test("bootstrap 默认只打印计划，且不碰服务、数据目录与端口"
   assert.doesNotMatch(code, /^\s*(?:\S*\/)?createdb\b/m);
   // 不读 stdin：它可以被 deploy-site.sh 在目标机上就地调用。
   assert.doesNotMatch(code, /^\s*read\s/m);
+});
+
+// 库这一步有两个只在真机上才暴露的坑，都放在门禁里先拦：
+//   * 端口被别的程序占着（bot00 上 8080 被无关 node 占着），pg_isready 只说 no response，
+//     再往下 pg_ctl 才报 could not bind，报错点离原因很远；
+//   * psql -h 传路径时指的是 socket 目录，不是数据目录（见 ensure-knot-postgres.sh）。
+function pgBinDir() {
+  for (const dir of [
+    process.env.KNOT_PG_BIN,
+    "/opt/homebrew/opt/postgresql@16/bin",
+    "/opt/homebrew/opt/postgresql@15/bin",
+    "/opt/homebrew/opt/postgresql@14/bin",
+    "/usr/local/opt/postgresql@16/bin",
+    "/usr/local/opt/postgresql@14/bin",
+  ]) {
+    if (dir && existsSync(path.join(dir, "initdb"))) return dir;
+  }
+  return "";
+}
+
+test("端口被别的程序占着时门禁直接拦下，并指向 KNOT_PGPORT", async () => {
+  const bin = pgBinDir();
+  if (!bin) return; // 没有 PostgreSQL 的机器上跳过，不让 npm test 变红。
+
+  const net = await import("node:net");
+  const server = net.createServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  const script = [
+    `source "${APP}/ops/scripts/lib/host-check.sh"`,
+    "knot_pf_begin",
+    'knot_check_pg_local || echo "BLOCKED"',
+    'knot_pf_finish "数据库" || echo "GATE-FAIL"',
+  ].join("\n");
+
+  let output = "";
+  try {
+    output = execFileSync("bash", ["-c", script], {
+      encoding: "utf8",
+      env: { ...process.env, KNOT_PG_BIN: bin, KNOT_PGPORT: String(port), KNOT_PG_SOCKET_DIR: "/tmp" },
+    });
+  } catch (error) {
+    output = String(error.stdout || "");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+
+  assert.match(output, /BLOCKED/);
+  assert.match(output, /GATE-FAIL/);
+  assert.match(output, new RegExp(`端口 ${port} 已被`));
+  // 该改的是数据库端口，不是站点端口：这句写错会让人去改 KNOT_PORT。
+  assert.match(output, /KNOT_PGPORT/);
+});
+
+test("socket 目录与数据目录是两个概念：门禁按 socket 目录判断", () => {
+  // 库已经在跑却找不到 socket 时只该 warn（部署会按实际目录连），不该 fail。
+  assert.match(HOST_CHECK, /-S "\$sock\/\.s\.PGSQL\.\$port"/);
+  assert.match(HOST_CHECK, /KNOT_PG_SOCKET_DIR:-\/tmp/);
+  assert.doesNotMatch(HOST_CHECK, /pg_isready[^\n]*-h "\$KNOT_PGDATA"/);
 });
