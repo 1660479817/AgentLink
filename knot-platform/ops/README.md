@@ -266,10 +266,10 @@ Knot Backend → 公开快照 → 入口主机 WebUI 目录
 
 | 项 | 要求 |
 | --- | --- |
-| 平台 | macOS（`uname -s` 是 `Darwin`）。实例主机只支持 macOS + launchd；别的平台要 fork，见 3.9。 |
+| 平台 | macOS（`uname -s` 是 `Darwin`）。实例主机只支持 macOS + launchd；别的平台要 fork，见 3.10。 |
 | Node.js | 22+。发布包自带生产依赖，但运行时仍要有 `node`；部署时把解析出的绝对路径记进 `platform.env` 的 `KNOT_NODE_BIN`，launchd 启动时按它执行。 |
 | 数据库 | Homebrew `postgresql@16`（`KNOT_DB_MODE=local`），或任意 PostgreSQL 16（`KNOT_DB_MODE=external` + `KNOT_DATABASE_URL`）。 |
-| 服务管理 | launchd（`--runtime none` 时改为后台进程，见 3.9.2）。 |
+| 服务管理 | launchd（`--runtime none` 时改为后台进程，见 3.10.2）。 |
 | 不需要 | git、npm 构建工具、vite、源码目录。目标机不跑 `npm ci`，不跑 `vite build`。 |
 
 ### 3.2 目录布局
@@ -417,13 +417,13 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 
 动手前先预检 OpenClaw 环境（只提醒、不阻断）：没装 `openclaw`、版本低于 `KNOT_OPENCLAW_MIN_VERSION`（缺省 `2026.10.1`）、`~/.openclaw/openclaw.json` 里没有带模型清单的 provider 或没有凭据，都会打印警告。
 
-1. 过主机门禁：平台、基础工具、Node 22+、数据库。缺什么就在这一步停下，并给一行能照做的命令；加 `--bootstrap` 才让它装 Node 22+ 与 `postgresql@16`（见 3.9.1）；
+1. 过主机门禁：平台、基础工具、Node 22+、数据库。缺什么就在这一步停下，并给一行能照做的命令；加 `--bootstrap` 才让它装 Node 22+ 与 `postgresql@16`（见 3.10.1）；
 2. 校验 `sites/<站点>/site.env`（类型、必填、跨键矛盾）；
 3. 解到 `releases/<发布包名>/`，原子替换；
 4. 按 `KNOT_DB_MODE` 启动本机 Postgres（或使用外部 `KNOT_DATABASE_URL`）；
 5. 停 Backend，跑迁移（带 checksum 校验，历史迁移被改过会停下），搬迁旧上传目录；
 6. 切换 `current`，把站点取值写进 `sites/<站点>/platform.env`（含 `KNOT_NODE_BIN`：这台机器上 node 的绝对路径）；
-7. 装服务：`com.knot.<实例>.postgres`、`com.knot.<实例>.platform`、`com.knot.<实例>.gc`，配置了 `KNOT_BACKUP_DIR` 时装 `com.knot.<实例>.backup`，开启入口和隧道时装 `com.knot.<实例>.entry-tunnel`；`--runtime none` 时改用独立会话在后台起 Backend（见 3.9.2），pid 写 `var/run/backend.pid`；
+7. 装服务：`com.knot.<实例>.postgres`、`com.knot.<实例>.platform`、`com.knot.<实例>.gc`，配置了 `KNOT_BACKUP_DIR` 时装 `com.knot.<实例>.backup`，开启入口和隧道时装 `com.knot.<实例>.entry-tunnel`；`--runtime none` 时改用独立会话在后台起 Backend（见 3.10.2），pid 写 `var/run/backend.pid`；
 8. `KNOT_OPENCLAW` 为 `auto` 时，只有已安装 `openclaw` 才同步智能体；
 9. 探活 `http://127.0.0.1:<KNOT_PORT>/api/health`，并核对正在运行的 `release`（老版本没有这个字段时比 `version`）；
 10. 确保第一个内部 Agent `<主理人显示名> 的 Agent` 存在，并在全新库（还没有任何内容）时用它的令牌发出第一声问候 `Hello, World. Hello, Agent.`（失败只警告，不阻断部署）；
@@ -441,7 +441,28 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 
 它只改 `current`、重启、探活。迁移是向前的：新版本执行过的迁移不会撤销，旧代码可能读不懂新表。回滚前先看一眼 `migrate.js --status`。用 `--runtime none` 装的站点没有服务管理器，回滚脚本看到 `var/run/backend.pid` 就按同一套方式停旧起新（同样另起会话）。
 
-### 3.9 支持范围与 fork 接缝
+### 3.9 卸载执行器
+
+```bash
+./ops/scripts/uninstall-site.sh --site <站点> --dry-run   # 只列计划，什么也不改
+./ops/scripts/uninstall-site.sh --site <站点> --yes       # 真卸载
+```
+
+它做的事情只有一件：把归这个部署根管的常驻单元停掉、把 plist 摘掉。摘完这个站点不再自己启动，也不再连隧道；`current` 还在，`var/run/backend.pid` 那种手工起的进程一并停掉。
+
+**数据一律不动，这一条没有开关。** 具体是：
+
+- 数据库进程不停。停库要落检查点、要碰数据目录，而「不动」比「干净地停」更重要；真要停，用脚本最后打印的那条 `pg_ctl ... -m fast stop` 人工做。
+- 数据目录、上传目录、`sites/`、`releases/`、`artifacts/`、日志、隧道私钥、接入件，全部原样保留。
+- 脚本里没有 `rm -rf`，也不删部署根下任何路径。删的只有 `~/Library/LaunchAgents/<标签>.plist`，每条路径先过一遍形状校验；`HOME` 为空或不是绝对路径时直接退出，不去猜一个目录删。
+
+归属规则和部署时收旧单元用的是同一条：引用本部署根 `current` 的 `com.knot.*.plist` 才归本部署根管。所以改名前的旧标签（`com.knot.platform`）一并摘掉，同一台机器上别的实例的单元不碰。**标签属于本实例、内容却指向别处**时不删，只打一条警告——删掉它等于替另一个部署根卸载。
+
+卸载前后各数一遍数据区（文件数与总字节数），对不上就报错并以非零退出。这是只读的自证，用来证明「没动过」，不是兜底。
+
+想再上线用 `deploy-site.sh` 装回去即可；数据还在原处，不需要恢复备份。
+
+### 3.10 支持范围与 fork 接缝
 
 `main` 分支的实例主机**只支持 macOS + launchd**。这是有意划的边界：一套发布层只服务一种服务管理器，脚本、文档和测试就都能落到实处；两套并行时最先坏的是「只在另一平台上才跑到」的那些分支。
 
@@ -461,7 +482,7 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 
 两边只通过 HTTP 契约连接，fork 出去的发布层不需要改 Backend 的接口。
 
-### 3.9.1 主机门禁与 bootstrap
+### 3.10.1 主机门禁与 bootstrap
 
 任何写操作之前，`deploy-site.sh` 先过两道门禁（`doctor.sh` 复用同一份判定）：
 
@@ -490,7 +511,7 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 
 `ensure-knot-postgres.sh` 是幂等的，`deploy-site.sh` 每次都调它：只在「端口没响应」时才调，会漏掉上一次半途失败留下的状态（库起来了、`knot` 角色却还没口令），下一次部署走到 `createdb` 才报认证失败。
 
-### 3.9.2 没有服务管理器（`--runtime none`）
+### 3.10.2 没有服务管理器（`--runtime none`）
 
 容器、CI 冒烟、临时机器上不需要常驻服务时：
 
@@ -502,7 +523,7 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 
 这个后台进程是**另起一个会话**的（macOS 没有 `setsid(1)`，用 `perl` 的 `fork` + `POSIX::setsid`），不是只套一层 `nohup`。区别在于收尾方式：`nohup` 只挡 `SIGHUP`，而部署脚本被 CI、后台 shell 或终端复用器收掉时，收到的是发给整个**进程组**的 `SIGTERM`/`SIGKILL`，同组的孩子一样会跟着消失——现象是「部署报成功，过一会儿进程没了」。新会话换了会话和进程组，pid 文件里记的是 Backend 本身的 pid，不是启动器的 pid。
 
-### 3.10 多站点
+### 3.11 多站点
 
 一个站点一个目录，用 `--site` 选择；不写时，只有 `sites/` 下恰好一个站点才会自动选中。
 
