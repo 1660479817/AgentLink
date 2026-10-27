@@ -15,6 +15,7 @@ import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { launchdLabel } from "./launchd.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -218,14 +219,14 @@ export async function restartTunnel({ exec = execFileAsync } = {}) {
 
 function tunnelUnitCommand() {
   const uid = process.getuid?.() ?? 501;
-  return ["launchctl", ["kickstart", "-k", `gui/${uid}/com.knot.entry-tunnel`]];
+  return ["launchctl", ["kickstart", "-k", `gui/${uid}/${tunnelLabel()}`]];
 }
 
 /** 隧道有没有常驻单元。只探测，不动进程：要的是能在回包之前说真话。 */
 export async function tunnelUnitInstalled({ exec = execFileAsync } = {}) {
   const uid = process.getuid?.() ?? 501;
   try {
-    await exec("launchctl", ["print", `gui/${uid}/com.knot.entry-tunnel`]);
+    await exec("launchctl", ["print", `gui/${uid}/${tunnelLabel()}`]);
     return true;
   } catch {
     return false;
@@ -246,7 +247,18 @@ export function scheduleTunnelRestart({ delayMs = 700, restart = startTunnelAgen
   return timer;
 }
 
-const PLIST_LABEL = "com.knot.entry-tunnel";
+const TUNNEL_ROLE = "entry-tunnel";
+
+/**
+ * 隧道单元的标签。部署环境里 KNOT_DEPLOY_ROOT 一定在（plist 与部署脚本都会给），
+ * 开发机上按 cwd 反推部署根，保证两条路径算出同一个名字。
+ */
+function tunnelLabel(cwd = process.cwd()) {
+  return launchdLabel(TUNNEL_ROLE, {
+    KNOT_INSTANCE: process.env.KNOT_INSTANCE,
+    KNOT_DEPLOY_ROOT: process.env.KNOT_DEPLOY_ROOT || deployRootOf(cwd),
+  });
+}
 
 /**
  * 从 Backend 的 cwd 反推部署根。
@@ -267,11 +279,12 @@ export function deployRootOf(cwd = process.cwd()) {
   return path.resolve(String(cwd), "..");
 }
 
-export function renderAgentPlist(template, { site, home, current }) {
+export function renderAgentPlist(template, { site, home, current, label }) {
   return String(template)
     .replaceAll("__KNOT_SITE__", site)
     .replaceAll("__KNOT_HOME__", home)
-    .replaceAll("__KNOT_CURRENT__", current);
+    .replaceAll("__KNOT_CURRENT__", current)
+    .replaceAll("__KNOT_LABEL__", label);
 }
 
 /**
@@ -290,8 +303,9 @@ export async function startTunnelAgent({
 
   if (!site) return restarted;
 
-  const root = deployRootOf(cwd);
-  const template = path.join(root, "current", "ops", "launchd", `${PLIST_LABEL}.plist`);
+  const root = String(process.env.KNOT_DEPLOY_ROOT || "").trim() || deployRootOf(cwd);
+  const label = tunnelLabel(cwd);
+  const template = path.join(root, "current", "ops", "launchd", `${TUNNEL_ROLE}.plist`);
   let source;
   try {
     source = await readFile(template, "utf8");
@@ -303,16 +317,17 @@ export async function startTunnelAgent({
     site,
     home: root,
     current: path.join(root, "current"),
+    label,
   });
-  const target = path.join(os.homedir(), "Library", "LaunchAgents", `${PLIST_LABEL}.plist`);
+  const target = path.join(os.homedir(), "Library", "LaunchAgents", `${label}.plist`);
   const uid = process.getuid?.() ?? 501;
   try {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, plist, { mode: 0o644 });
-    await exec("launchctl", ["bootout", `gui/${uid}/${PLIST_LABEL}`]).catch(() => {});
+    await exec("launchctl", ["bootout", `gui/${uid}/${label}`]).catch(() => {});
     await exec("launchctl", ["bootstrap", `gui/${uid}`, target]);
-    await exec("launchctl", ["kickstart", "-k", `gui/${uid}/${PLIST_LABEL}`]);
-    return { ok: true, command: `launchctl kickstart -k gui/${uid}/${PLIST_LABEL}`, installed: true };
+    await exec("launchctl", ["kickstart", "-k", `gui/${uid}/${label}`]);
+    return { ok: true, command: `launchctl kickstart -k gui/${uid}/${label}`, installed: true };
   } catch {
     return { ...restarted, command: `launchctl bootstrap gui/${uid} ${target}` };
   }

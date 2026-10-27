@@ -62,6 +62,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 
 | 变量 | 默认 | 必填 | 说明 |
 | --- | --- | --- | --- |
+| `KNOT_INSTANCE` | （空） |  | 本实例的短名。同一台机器上跑多个实例时，只有实例名不同，常驻单元标签（com.knot.<实例>.platform）才互不覆盖。留空取部署根目录名，例如 ~/knot/wang 得到 wang。 |
 | `KNOT_DB_MODE` | `local` |  | local 用本机 Homebrew Postgres；external 用 KNOT_DATABASE_URL，不启动本机库。 |
 | `KNOT_DATABASE_URL` | （空） |  | KNOT_DB_MODE=external 时的连接串。可能含密码，按密钥对待。 |
 | `KNOT_PGPORT` | `5433` |  | 本机 Postgres 端口。和系统默认的 5432 错开。 |

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.knot.postgres</string>
+  <string>__KNOT_LABEL__</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>KNOT_SITE</key>
@@ -13,17 +13,22 @@
   </dict>
   <key>ProgramArguments</key>
   <array>
-    <string>__KNOT_CURRENT__/ops/scripts/ensure-knot-postgres.sh</string>
+    <string>__KNOT_CURRENT__/ops/scripts/backup-knot.sh</string>
   </array>
   <key>WorkingDirectory</key>
   <string>__KNOT_HOME__</string>
   <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
   <false/>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>4</integer>
+    <key>Minute</key>
+    <integer>15</integer>
+  </dict>
   <key>StandardOutPath</key>
-  <string>__KNOT_HOME__/var/log/knot-postgres.log</string>
+  <string>__KNOT_HOME__/var/log/knot-backup.log</string>
   <key>StandardErrorPath</key>
-  <string>__KNOT_HOME__/var/log/knot-postgres.err.log</string>
+  <string>__KNOT_HOME__/var/log/knot-backup.err.log</string>
 </dict>
 </plist>

@@ -15,7 +15,7 @@
 #   ./ops/scripts/backup-knot.sh                 # 全量
 #   ./ops/scripts/backup-knot.sh --config-only   # 只收配置和智能体状态，不碰数据库
 #
-# 定时执行：ops/launchd/com.knot.backup.plist（每天 04:15）。
+# 定时执行：ops/launchd/backup.plist 装出来的 com.knot.<实例>.backup（每天 04:15）。
 set -euo pipefail
 
 CONFIG_ONLY=0

@@ -34,12 +34,14 @@ stop_backend() {
     done
     rm -f "$PID_FILE"
   else
-    launchctl bootout "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
+    launchctl bootout "gui/$UID_NUM/$(knot_label platform)" 2>/dev/null || true
   fi
 }
 
 restart_backend() {
-  if [[ ! -f "$HOME/Library/LaunchAgents/com.knot.platform.plist" ]]; then
+  local unit
+  unit="$(knot_label platform)"
+  if [[ ! -f "$HOME/Library/LaunchAgents/$unit.plist" ]]; then
     # 没有服务管理器（deploy-site.sh --runtime none）：后台起一份，pid 记在 var/run。
     mkdir -p "$KNOT_DEPLOY_ROOT/var/log" "$KNOT_DEPLOY_ROOT/var/run"
     env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" \
@@ -47,8 +49,8 @@ restart_backend() {
       nohup "$KNOT_DEPLOY_ROOT/current/ops/scripts/run-knot-platform.sh" >>"$KNOT_DEPLOY_ROOT/var/log/knot-platform.log" 2>&1 &
     echo $! >"$PID_FILE"
   else
-    launchctl bootstrap "gui/$UID_NUM" "$HOME/Library/LaunchAgents/com.knot.platform.plist" 2>/dev/null || true
-    launchctl kickstart -k "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
+    launchctl bootstrap "gui/$UID_NUM" "$HOME/Library/LaunchAgents/$unit.plist" 2>/dev/null || true
+    launchctl kickstart -k "gui/$UID_NUM/$unit" 2>/dev/null || true
   fi
 }
 

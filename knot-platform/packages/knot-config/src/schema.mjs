@@ -166,6 +166,15 @@ const SITE_KEYS = [
 
   // ---- 实例主机 ----
   {
+    key: "KNOT_INSTANCE",
+    group: "platform",
+    type: "string",
+    default: "",
+    pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
+    desc: "本实例的短名。同一台机器上跑多个实例时，只有实例名不同，常驻单元标签（com.knot.<实例>.platform）才互不覆盖。留空取部署根目录名，例如 ~/knot/wang 得到 wang。",
+    example: "wang",
+  },
+  {
     key: "KNOT_DB_MODE",
     group: "platform",
     type: "enum",

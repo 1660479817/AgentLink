@@ -147,14 +147,23 @@ test("write: values that would not boot the backend are refused", async () => {
 
 test("restart: no unit means a command to run, not a silent success", async () => {
   const exec = async () => {
-    throw new Error("Could not find service com.knot.platform");
+    throw new Error("Could not find service com.knot.wang.platform");
   };
-  const unit = await backendUnit({ exec });
-  assert.equal(unit.installed, false);
-  const result = await restartBackend({ exec });
-  assert.equal(result.ok, false);
   // 实例主机只支持 macOS：没有单元时给的也是 launchctl 命令，而不是别的平台的。
-  assert.match(result.command, /launchctl kickstart -k gui\/\d+\/com\.knot\.platform/);
+  // 标签带实例名，否则同一台机器上的两个实例会互相顶掉。
+  // 环境要在调用之前设：命令字符串是那会儿算出来的。
+  const previous = process.env.KNOT_DEPLOY_ROOT;
+  process.env.KNOT_DEPLOY_ROOT = "/Users/me/knot/wang";
+  try {
+    const unit = await backendUnit({ exec });
+    assert.equal(unit.installed, false);
+    const result = await restartBackend({ exec });
+    assert.equal(result.ok, false);
+    assert.match(result.command, /launchctl kickstart -k gui\/\d+\/com\.knot\.wang\.platform/);
+  } finally {
+    if (previous === undefined) delete process.env.KNOT_DEPLOY_ROOT;
+    else process.env.KNOT_DEPLOY_ROOT = previous;
+  }
 });
 
 test("restart: an installed unit is restarted once, and only once", async () => {
@@ -162,11 +171,18 @@ test("restart: an installed unit is restarted once, and only once", async () => 
   const exec = async (cmd, args) => {
     calls.push(`${cmd} ${args.join(" ")}`);
   };
-  const unit = await backendUnit({ exec });
-  assert.equal(unit.installed, true);
-  const result = await restartBackend({ exec });
-  assert.equal(result.ok, true);
-  assert.match(result.command, /launchctl kickstart -k gui\/\d+\/com\.knot\.platform/);
+  const previous = process.env.KNOT_DEPLOY_ROOT;
+  process.env.KNOT_DEPLOY_ROOT = "/Users/me/knot/wang";
+  try {
+    const unit = await backendUnit({ exec });
+    assert.equal(unit.installed, true);
+    const result = await restartBackend({ exec });
+    assert.equal(result.ok, true);
+    assert.match(result.command, /launchctl kickstart -k gui\/\d+\/com\.knot\.wang\.platform/);
+  } finally {
+    if (previous === undefined) delete process.env.KNOT_DEPLOY_ROOT;
+    else process.env.KNOT_DEPLOY_ROOT = previous;
+  }
   // 探测一次 + 重启一次：重启本身只该发一次。
   const restarts = calls.filter((line) => line.includes("kickstart -k"));
   assert.equal(restarts.length, 1);

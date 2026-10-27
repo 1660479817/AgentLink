@@ -278,11 +278,14 @@ if ! knot_check_site_port; then
   exit 1
 fi
 
+# 本实例可能有的常驻单元。停服务时整组都保留，只收掉引用本部署根的旧标签单元。
+INSTANCE_ROLES="platform postgres backup gc entry-tunnel openclaw-probe"
+
 # 启停就这一个入口：迁移失败回滚和正常启动都走它。
 restart_backend() {
   case "$RUNTIME" in
     launchd)
-      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.platform.plist" com.knot.platform
+      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/platform.plist" "$(knot_label platform)"
       ;;
     *)
       # 没有服务管理器时自己拉起后台进程：KNOT_SITE 决定读哪份 platform.env，
@@ -488,7 +491,16 @@ export DATABASE_URL
 
 # ---- 4. 停服务 → 换目录（同名重装）→ 迁移 ----
 case "$RUNTIME" in
-  launchd) knot_bootout_launchd com.knot.platform ;;
+  launchd)
+    # 先收掉引用本部署根的旧标签单元：它们 KeepAlive，会在新单元起来时抢同一个端口。
+    # 本实例这一组（下面这六种角色）留着，迁移和后面的安装还要用它们。
+    INSTANCE_KEEP=""
+    for _role in $INSTANCE_ROLES; do
+      INSTANCE_KEEP="${INSTANCE_KEEP} $(knot_label "$_role")"
+    done
+    knot_prune_launchd $INSTANCE_KEEP
+    knot_bootout_launchd "$(knot_label platform)"
+    ;;
   *) ;;
 esac
 SERVICE_STOPPED=1
@@ -577,36 +589,33 @@ case "$RUNTIME" in
   launchd)
     echo "==> install LaunchAgents"
     if [[ "$KNOT_DB_MODE" == "local" ]]; then
-      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.postgres.plist" com.knot.postgres
+      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/postgres.plist" "$(knot_label postgres)"
     else
-      knot_bootout_launchd com.knot.postgres
+      knot_bootout_launchd "$(knot_label postgres)"
     fi
     chmod +x "$VENV_SCRIPTS/backup-knot.sh" "$VENV_SCRIPTS/audit-knot-storage.sh" "$VENV_SCRIPTS/gc-knot-storage.sh"
     if [[ -n "$KNOT_BACKUP_DIR" ]]; then
-      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.backup.plist" com.knot.backup
+      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/backup.plist" "$(knot_label backup)"
     elif [[ "$BACKUP_OFF_EXPLICIT" == 1 ]]; then
       echo "==> KNOT_BACKUP_DIR=null：已明确关闭备份，不装备份 LaunchAgent"
-      knot_bootout_launchd com.knot.backup
+      knot_bootout_launchd "$(knot_label backup)"
     else
       echo "==> KNOT_BACKUP_DIR 未配置，不装备份 LaunchAgent"
-      knot_bootout_launchd com.knot.backup
+      knot_bootout_launchd "$(knot_label backup)"
     fi
     # 每月 1 日 04:45 只出回收报告，不删。要真删得人工加 --apply。
-    knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.gc.plist" com.knot.gc
+    knot_install_launchd "$KNOT_APP_DIR/ops/launchd/gc.plist" "$(knot_label gc)"
     # 旁路探测：每五分钟记一次 OpenClaw 宿主状态。没装 OpenClaw 时它只是把
     # unknown 写进 var/run，页面上那一块照实说「未知」，绝不显示成错误。
-    knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.openclaw-probe.plist" com.knot.openclaw-probe
-    # 清掉残留的 com.knot.edge-tunnel job 与 plist，避免它反复去执行不存在的脚本。
-    knot_bootout_launchd com.knot.edge-tunnel
-    rm -f "$HOME/Library/LaunchAgents/com.knot.edge-tunnel.plist"
+    knot_install_launchd "$KNOT_APP_DIR/ops/launchd/openclaw-probe.plist" "$(knot_label openclaw-probe)"
     # 隧道单元：手写 site.env 的，或中枢自动接通写的 tunnel.env，任一成立就装。
     # 后者是「接入 xknot.si」的常态：site.env 仍是 local（不推入口 conf），
     # 账号与端口在 tunnel.env 里，连出去这件事归中枢管。
     if [[ -f "${KNOT_SITE_DIR:-}/tunnel.env" ]] || { knot_enabled KNOT_ENTRY_ENABLED && knot_enabled KNOT_TUNNEL; }; then
       echo "==> install entry tunnel LaunchAgent"
-      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.entry-tunnel.plist" com.knot.entry-tunnel
+      knot_install_launchd "$KNOT_APP_DIR/ops/launchd/entry-tunnel.plist" "$(knot_label entry-tunnel)"
     else
-      knot_bootout_launchd com.knot.entry-tunnel
+      knot_bootout_launchd "$(knot_label entry-tunnel)"
     fi
     ;;
   *) ;;
@@ -710,7 +719,7 @@ openclaw_report() {
 # 这里立刻跑一次，部署完控制台就有读数，而不是空着一块等人以为坏了。
 openclaw_probe_now() {
   case "${RUNTIME:-}" in
-    launchd) launchctl kickstart -k "gui/$(id -u)/com.knot.openclaw-probe" >/dev/null 2>&1 || true ;;
+    launchd) launchctl kickstart -k "gui/$(id -u)/$(knot_label openclaw-probe)" >/dev/null 2>&1 || true ;;
     *) ;;
   esac
 }

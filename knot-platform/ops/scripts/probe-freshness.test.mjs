@@ -44,8 +44,8 @@ test("openclaw 同步之后立刻补一次探测，不等定时器", () => {
     "deploy-site.sh 里没有 openclaw_probe_now",
   );
   assert.ok(
-    text.some((line) => /launchctl kickstart[^\n]*com\.knot\.openclaw-probe/.test(line)),
-    "openclaw_probe_now 没有在 launchd 上拉起探针",
+    text.some((line) => /launchctl kickstart[^\n]*\$\(knot_label openclaw-probe\)/.test(line)),
+    "openclaw_probe_now 没有在 launchd 上拉起探针（标签要走 knot_label，写死会撞上别的实例）",
   );
 
   // 每个装了 openclaw 的分支都要补这一下；漏一个就等于那台机器回到空等五分钟。

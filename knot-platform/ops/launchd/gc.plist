@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.knot.platform</string>
+  <string>__KNOT_LABEL__</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>KNOT_SITE</key>
@@ -13,17 +13,24 @@
   </dict>
   <key>ProgramArguments</key>
   <array>
-    <string>__KNOT_CURRENT__/ops/scripts/run-knot-platform.sh</string>
+    <string>__KNOT_CURRENT__/ops/scripts/gc-knot-storage.sh</string>
   </array>
   <key>WorkingDirectory</key>
   <string>__KNOT_HOME__</string>
   <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
+  <false/>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Day</key>
+    <integer>1</integer>
+    <key>Hour</key>
+    <integer>4</integer>
+    <key>Minute</key>
+    <integer>45</integer>
+  </dict>
   <key>StandardOutPath</key>
-  <string>__KNOT_HOME__/var/log/knot-platform.log</string>
+  <string>__KNOT_HOME__/var/log/knot-gc.log</string>
   <key>StandardErrorPath</key>
-  <string>__KNOT_HOME__/var/log/knot-platform.err.log</string>
+  <string>__KNOT_HOME__/var/log/knot-gc.err.log</string>
 </dict>
 </plist>

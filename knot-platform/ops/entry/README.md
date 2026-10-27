@@ -175,7 +175,7 @@ ssh -N -i ~/.ssh/knot-entry \
   knot-tunnel-<id>@<entry host>
 ```
 
-macOS keeps it resident with [`../launchd/com.knot.entry-tunnel.plist`](../launchd/com.knot.entry-tunnel.plist); other systems use systemd or equivalent. The key is auto-reconnect on drop.
+macOS keeps it resident with [`../launchd/entry-tunnel.plist`](../launchd/entry-tunnel.plist); other systems use systemd or equivalent. The key is auto-reconnect on drop.
 
 ### Don't let a system-level VPN take over this tunnel
 

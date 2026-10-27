@@ -187,8 +187,8 @@ chmod 600 "$JOIN_ENV"
 
 echo
 echo "接入已写入。重启 Backend 让它生效："
-if launchctl print "gui/$(id -u)/com.knot.platform" >/dev/null 2>&1; then
-  echo "  launchctl kickstart -k gui/$(id -u)/com.knot.platform"
+if launchctl print "gui/$(id -u)/$(knot_label platform)" >/dev/null 2>&1; then
+  echo "  launchctl kickstart -k gui/$(id -u)/$(knot_label platform)"
 else
   # 没有常驻服务时不要为了改配置重跑整次部署。
   echo "  KNOT_SITE=$KNOT_SITE ./ops/scripts/run-knot-platform.sh"

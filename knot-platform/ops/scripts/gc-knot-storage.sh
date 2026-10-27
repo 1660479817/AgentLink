@@ -3,7 +3,7 @@
 #
 # 手动执行：
 #   cd <仓库目录> && ./ops/scripts/gc-knot-storage.sh
-# 定时执行由 ops/launchd/com.knot.gc.plist 负责（每月 1 日 04:45）。
+# 定时执行由 ops/launchd/gc.plist 装出来的 com.knot.<实例>.gc 负责（每月 1 日 04:45）。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 

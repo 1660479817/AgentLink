@@ -327,28 +327,59 @@ knot_sed_value() {
   printf '%s' "${1:-}" | sed -e 's/[\\&|]/\\&/g'
 }
 
+# ---- 常驻单元标签 ----
+# launchd 的标签在用户命名空间里唯一，不按目录分。同一台机器上跑两个实例时，
+# 同名标签会把前一个实例的单元 bootout 掉、换成自己的路径——部署 B 之后 A 停了，
+# 而且 A 的站点看起来一直正常，直到重启机器才发现它根本没在跑。
+# 所以标签带上实例名：com.knot.<实例>.<角色>。
+#
+# 实例名缺省取部署根目录名（~/knot/wang -> wang）；站点或机器上要更明确的名字时，
+# 用 KNOT_INSTANCE 覆盖。同一个部署根只允许一个实例，这是标签唯一的约束。
+knot_instance() {
+  local name="${KNOT_INSTANCE:-}"
+  [[ -n "$name" ]] || name="$(basename "${KNOT_DEPLOY_ROOT:-}")"
+  case "$name" in
+    "" | .* | *[!A-Za-z0-9._-]*)
+      knot_fail "实例名只能用字母、数字、点、下划线和短横线：${name:-<空>}。它缺省取自部署根目录名，可以在 site.env 里用 KNOT_INSTANCE 指定。"
+      ;;
+  esac
+  printf '%s' "$name"
+}
+
+# knot_label <角色>：platform、entry-tunnel、postgres、backup、gc、openclaw-probe
+knot_label() {
+  local instance
+  # 不能写成 printf '...' "$(knot_instance)"：命令替换里的 exit 只结束那个子 shell，
+  # 校验失败会退化成「标签里少一段」而不是一个明确的错误。
+  instance="$(knot_instance)" || return 1
+  printf 'com.knot.%s.%s' "$instance" "$1"
+}
+
 # 装一个 LaunchAgent。
 # plist 模板里的占位符：
 #   __KNOT_HOME__         部署根（放 sites/、var/、releases/）
 #   __KNOT_CURRENT__      代码入口 current，跟着发布包走；回滚只改这个软链
 #   __KNOT_DEPLOY_ROOT__  部署根，给脚本自己读配置用
 #   __KNOT_SITE__         站点名
+#   __KNOT_LABEL__        单元标签，由 knot_label 按实例算出来
 knot_install_launchd() {
   local src="$1"
   local label="$2"
   local domain="gui/$(id -u)"
   local dest="$HOME/Library/LaunchAgents/$label.plist"
   local attempt=1
-  local home_value current_value root_value site_value
+  local home_value current_value root_value site_value label_value
   home_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT")"
   current_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT/current")"
   root_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT")"
   site_value="$(knot_sed_value "$KNOT_SITE")"
+  label_value="$(knot_sed_value "$label")"
   mkdir -p "$(dirname "$dest")" "$KNOT_DEPLOY_ROOT/var/log"
   sed -e "s|__KNOT_HOME__|$home_value|g" \
     -e "s|__KNOT_CURRENT__|$current_value|g" \
     -e "s|__KNOT_DEPLOY_ROOT__|$root_value|g" \
-    -e "s|__KNOT_SITE__|$site_value|g" "$src" >"$dest"
+    -e "s|__KNOT_SITE__|$site_value|g" \
+    -e "s|__KNOT_LABEL__|$label_value|g" "$src" >"$dest"
   # 先记下旧进程：bootout 是异步的，函数返回时它可能还活着、还占着端口。
   # launchctl print 在标签没加载时返回非零，这里必须吞掉：脚本是 set -e + pipefail，
   # 一次探测失败就会让整个安装过程在这里静默中断（部署停在 "start backend"）。
@@ -382,6 +413,44 @@ knot_install_launchd() {
 knot_bootout_launchd() {
   local label="$1"
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+}
+
+# 收掉本该由本部署根管的其它单元。
+#
+# 标签带实例名以后，同一个部署根以前装的那组单元（不带实例名的旧标签、手工装的
+# 某个角色）还留在 ~/Library/LaunchAgents：它们 RunAtLoad 且 KeepAlive，机器重启
+# 后会一起起来，和现在这组抢同一个端口，谁先 listen 谁赢。部署时把它们收掉。
+#
+# 归属不看标签名字，看 plist 里引用的路径：引用本部署根 current 的 job 就归本部署根管。
+# 一个部署根只有一个实例，所以这条判断不会误伤别的实例。
+# 用法：knot_prune_launchd <要保留的标签...>
+knot_prune_launchd() {
+  local keep=" $* "
+  local plist label text pid waited
+  for plist in "$HOME/Library/LaunchAgents"/com.knot.*.plist; do
+    [[ -f "$plist" ]] || continue
+    label="$(basename "$plist" .plist)"
+    case "$keep" in *" $label "*) continue ;; esac
+    # 手工改过或二进制 plist：plutil 读不出来就退回原文匹配，宁可多认一个也不漏。
+    text="$(plutil -convert xml1 -o - "$plist" 2>/dev/null || cat "$plist" 2>/dev/null || true)"
+    case "$text" in
+      *"$KNOT_DEPLOY_ROOT/current/"*) ;;
+      *) continue ;;
+    esac
+    echo "==> 收掉归本部署根的旧单元 $label"
+    # 先记 pid 再 bootout：紧接着就要起新进程，它得先把端口让出来，
+    # 否则新进程 listen 直接 EADDRINUSE，探活等不到它，部署被误判成失败。
+    pid="$(launchctl print "gui/$(id -u)/$label" 2>/dev/null | awk '/pid = /{print $3; exit}' || true)"
+    knot_bootout_launchd "$label"
+    waited=0
+    if [[ -n "$pid" ]]; then
+      while kill -0 "$pid" 2>/dev/null && (( waited < 100 )); do
+        sleep 0.1
+        waited=$((waited + 1))
+      done
+    fi
+    rm -f "$plist"
+  done
 }
 
 # 读某个公网入口文件里的一个键。

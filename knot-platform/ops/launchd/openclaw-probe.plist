@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.knot.openclaw-probe</string>
+  <string>__KNOT_LABEL__</string>
   <key>EnvironmentVariables</key>
   <dict>
     <!-- launchd 默认的 PATH 只有 /usr/bin:/bin，找不到 Homebrew 的 node。

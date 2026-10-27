@@ -43,8 +43,21 @@ test("LaunchAgent 模板里的占位符都有对应的替换", () => {
   assert.deepEqual(missing, []);
 });
 
+test("每个模板的 Label 都是占位符，没有写死的标签", () => {
+  // 写死标签的话，同一台机器上的第二个实例会把它换成自己的路径：
+  // 前一个实例的站点看着正常，直到重启机器才发现它没在跑。
+  const offenders = [];
+  for (const file of unitFiles()) {
+    const text = readFileSync(file.path, "utf8");
+    if (!/<key>Label<\/key>\s*<string>__KNOT_LABEL__<\/string>/.test(text)) {
+      offenders.push(file.name);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
 test("主进程的 LaunchAgent 从 current 启动，日志写在部署根下", () => {
-  const text = readFileSync(`${UNIT_DIR}com.knot.platform.plist`, "utf8");
+  const text = readFileSync(`${UNIT_DIR}platform.plist`, "utf8");
   // current 是软链：回滚只切链接，plist 不用重写。
   assert.match(text, /<string>__KNOT_CURRENT__\/ops\/scripts\/run-knot-platform\.sh<\/string>/);
   // 服务跑起来不靠登录 shell 的 PATH：node 的绝对路径由 platform.env 的
@@ -54,7 +67,7 @@ test("主进程的 LaunchAgent 从 current 启动，日志写在部署根下", (
 });
 
 test("备份每天 04:15 跑一次，且不在加载时立刻跑", () => {
-  const text = readFileSync(`${UNIT_DIR}com.knot.backup.plist`, "utf8");
+  const text = readFileSync(`${UNIT_DIR}backup.plist`, "utf8");
   // RunAtLoad=true 会在每次部署（kickstart/bootstrap）时插一次备份，把「每天一次」
   // 变成「每次部署一次」，备份目录很快被同一天的几份挤满。
   assert.match(text, /<key>RunAtLoad<\/key>\s*<false\/>/);

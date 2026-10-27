@@ -399,7 +399,7 @@ stays the bash plumbing.
 
 ### 6.2 Units, with a fixed interval
 
-`ops/launchd/com.knot.openclaw-probe.plist` uses `StartInterval` 300 and mirrors the
+`ops/launchd/openclaw-probe.plist` uses `StartInterval` 300 and mirrors the
 existing gc agent, down to the `EnvironmentVariables` block carrying `KNOT_SITE` and
 `KNOT_DEPLOY_ROOT`. It is the only form `main` ships: the instance host is macOS + launchd.
 

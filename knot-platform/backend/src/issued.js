@@ -13,6 +13,7 @@ import { statSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { checkJoin, parseEnv, renderJoinFile } from "@knot/config";
+import { launchdLabel } from "./launchd.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -141,9 +142,10 @@ function sameKeys(left, right) {
  */
 export async function backendUnit({ exec = execFileAsync } = {}) {
   const uid = process.getuid?.() ?? 501;
-  const command = `launchctl kickstart -k gui/${uid}/com.knot.platform`;
+  const label = launchdLabel("platform");
+  const command = `launchctl kickstart -k gui/${uid}/${label}`;
   try {
-    await exec("launchctl", ["print", `gui/${uid}/com.knot.platform`]);
+    await exec("launchctl", ["print", `gui/${uid}/${label}`]);
     return { installed: true, command };
   } catch {
     // 没有单元：开发机、或 deploy-site.sh --runtime none。

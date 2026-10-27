@@ -245,5 +245,5 @@ ensure_line OPENCLAW_INTEL_AGENT knot-intel
 ensure_line OPENCLAW_BIN openclaw
 ensure_line OPENCLAW_PROCESS_TIMEOUT 120
 uid="$(id -u)"
-launchctl kickstart -k "gui/$uid/com.knot.platform" 2>/dev/null || true
+launchctl kickstart -k "gui/$uid/$(knot_label platform)" 2>/dev/null || true
 echo "OK: Knot Backend 拉起 knot-intel。管理员 knot-admin 接受指令，并在每天 09:00 巡查。"

@@ -142,7 +142,7 @@ WebUI 顶栏左上角是固定的 `XKnot` 标识（`web/public/logos/xknot-mark.
 
 `KNOT_ENTRY_HOST`、`KNOT_TUNNEL_USER` 由上面几项推出来，不用手写。
 
-接入 XKnot 之后，`/admin` 的 XKnot 栏会接管隧道这一组：实例自己生成 `sites/<站点>/tunnel_ed25519`（私钥 `600`，只在站点目录里），把公钥交到案例页，拿到中枢给的入口主机、账号与端口后写进 `sites/<站点>/tunnel.env`（整份文件由界面维护，`# >>> XKnot 自动接通` 段内是账号、私钥文件名与两个端口），再重启 `com.knot.entry-tunnel`。**这一步不需要人打开页面**：Backend 按 `KNOT_XKNOT_POLL_SECONDS` 自己轮询 `progress`，拿到 `handoff` 就写同一份 `tunnel.env` 并重启隧道；管理页里那一次是手动补拉，两条路径共用同一组函数，内容一样时不会白重启。
+接入 XKnot 之后，`/admin` 的 XKnot 栏会接管隧道这一组：实例自己生成 `sites/<站点>/tunnel_ed25519`（私钥 `600`，只在站点目录里），把公钥交到案例页，拿到中枢给的入口主机、账号与端口后写进 `sites/<站点>/tunnel.env`（整份文件由界面维护，`# >>> XKnot 自动接通` 段内是账号、私钥文件名与两个端口），再重启 `com.knot.<实例>.entry-tunnel`。**这一步不需要人打开页面**：Backend 按 `KNOT_XKNOT_POLL_SECONDS` 自己轮询 `progress`，拿到 `handoff` 就写同一份 `tunnel.env` 并重启隧道；管理页里那一次是手动补拉，两条路径共用同一组函数，内容一样时不会白重启。
 
 托管段里的 `KNOT_TUNNEL_KEY` 只写文件名 `tunnel_ed25519`，不写绝对路径：密钥和这份配置同住一个站点目录，站点目录换位置（仓库 ↔ 部署根、换机器、复制一份调试）时隧道仍读自己旁边那把。`run-entry-tunnel.sh`、`deploy-site.sh` 与 `doctor.sh` 都用 `knot_tunnel_key_path()` 按站点目录拼绝对路径；密钥不在时直接报出是哪个 `KNOT_TUNNEL_KEY` 指的它，不再留给 ssh 一句 `Identity file ... not accessible`；`KNOT_TUNNEL=1` 而私钥解析不到时 `deploy-site.sh` 直接失败，不再「部署成功、入口 502」。写绝对路径的旧文件仍然能跑，但 `doctor.sh` 会提示它会在站点目录搬家时失效。
 
@@ -201,7 +201,7 @@ XKNOT_ISSUED_STATUS=active
 - 四行 `XKNOT_ISSUED_*` 是中枢签发区的镜像：照抄清单，缺项就留空。这一侧不校验取值，也不补默认值——档位与状态的词表属于中枢，抄一份到这里，中枢改词表时就会把自己挡在启动之外。
 - 委托发信只要有 `XKNOT_HUB_RELAY_TOKEN` 就能用：发信地址按 `XKNOT_HUB_ORIGIN` 推导。写了 `XKNOT_HUB_RELAY_URL` 却没有凭据会被拒绝，也不会拿旧文件里的凭据来凑。
 - 部署键、实例运行时键混进来直接报错，不会悄悄写到别处。当前契约之外的键（改名前或已废弃的）也整份拒绝、原文件不动：写进去没有任何一方会读，要新键就让中枢用当前版本重签，这一侧不做键名转换。
-- 写入后重启 Backend 才生效：`launchctl kickstart -k gui/$(id -u)/com.knot.platform`。
+- 写入后重启 Backend 才生效：`launchctl kickstart -k gui/$(id -u)/com.knot.<实例>.platform`。
 - `0.3` 之前委托发信凭据写在 `platform.env`。`deploy-site.sh` 下次生成时会把它迁到 `xknot.env` 再从 `platform.env` 删掉，并打一行警告。
 
 `XKNOT_INSTANCE_ID` 也决定 `/api/health` 里的 `instance` 字段，中枢拿它与清单 id 核对。
@@ -292,7 +292,9 @@ Knot Backend → 公开快照 → 入口主机 WebUI 目录
 
 `current` 是唯一的切换点：回滚只改这个符号链接再重启。`sites/` 和 `var/` 在发布包外面，所以换版本不会碰配置和数据。日志、上传目录、`STATIC_WEB_DIR` 都写成经 `current` 的稳定路径。
 
-**一个部署根只放一个站点。** `--site` 只区分配置目录，运行槽位不是按站点分的：`current`、`releases/`、`deployed.json`、`var/run/backend.pid` 与 LaunchAgent 的 label（`com.knot.platform`）都在部署根这一层共用。两个站点共用一个部署根时，后部署的那个会把 `current` 切走，先部署的站点重启后跑的是别人的代码；`KNOT_DEPLOY_KEEP` 的清理也只认得自己那一份，另一个站点的活动版本会被当成旧包删掉。同一台机器要跑两个站点，就给每个站点一个 `KNOT_DEPLOY_DIR`。
+**一个部署根只放一个站点。** `--site` 只区分配置目录，运行槽位不是按站点分的：`current`、`releases/`、`deployed.json`、`var/run/backend.pid` 都在部署根这一层共用。两个站点共用一个部署根时，后部署的那个会把 `current` 切走，先部署的站点重启后跑的是别人的代码；`KNOT_DEPLOY_KEEP` 的清理也只认得自己那一份，另一个站点的活动版本会被当成旧包删掉。同一台机器要跑两个站点，就给每个站点一个 `KNOT_DEPLOY_DIR`。
+
+**同一台机器可以跑多个实例，只要部署根不同。** launchd 的标签在用户命名空间里唯一，不按目录分，所以标签一律带实例名：`com.knot.<实例>.platform`（另有 `.postgres`、`.backup`、`.gc`、`.entry-tunnel`、`.openclaw-probe`）。实例名缺省取部署根目录名（`~/knot/wang` 得到 `wang`），部署根改名或想换个短名时用 `KNOT_INSTANCE` 指定。部署结束时 `deploy-site.sh` 会收掉引用本部署根的其它 unit（改名前装的那组也在内），别的实例与别的程序一律不动。
 
 ### 3.3 构建（开发机）
 
@@ -354,7 +356,7 @@ node ops/scripts/config.mjs check --site local
 
 ```bash
 ./ops/scripts/push-deploy.sh --site local --runtime none   # 后台起，pid 写 var/run/backend.pid
-launchctl bootout gui/$(id -u)/com.knot.platform           # 装成 launchd 后想停掉
+launchctl bootout gui/$(id -u)/com.knot.<实例>.platform           # 装成 launchd 后想停掉
 ```
 
 `--runtime none` 手动重启时要带上站点名，部署根下有多个站点时它选不出来：
@@ -421,7 +423,7 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 4. 按 `KNOT_DB_MODE` 启动本机 Postgres（或使用外部 `KNOT_DATABASE_URL`）；
 5. 停 Backend，跑迁移（带 checksum 校验，历史迁移被改过会停下），搬迁旧上传目录；
 6. 切换 `current`，把站点取值写进 `sites/<站点>/platform.env`（含 `KNOT_NODE_BIN`：这台机器上 node 的绝对路径）；
-7. 装服务：`com.knot.postgres`、`com.knot.platform`、`com.knot.gc`，配置了 `KNOT_BACKUP_DIR` 时装 `com.knot.backup`，开启入口和隧道时装 `com.knot.entry-tunnel`；`--runtime none` 时改用独立会话在后台起 Backend（见 3.9.2），pid 写 `var/run/backend.pid`；
+7. 装服务：`com.knot.<实例>.postgres`、`com.knot.<实例>.platform`、`com.knot.<实例>.gc`，配置了 `KNOT_BACKUP_DIR` 时装 `com.knot.<实例>.backup`，开启入口和隧道时装 `com.knot.<实例>.entry-tunnel`；`--runtime none` 时改用独立会话在后台起 Backend（见 3.9.2），pid 写 `var/run/backend.pid`；
 8. `KNOT_OPENCLAW` 为 `auto` 时，只有已安装 `openclaw` 才同步智能体；
 9. 探活 `http://127.0.0.1:<KNOT_PORT>/api/health`，并核对正在运行的 `release`（老版本没有这个字段时比 `version`）；
 10. 确保第一个内部 Agent `<主理人显示名> 的 Agent` 存在，并在全新库（还没有任何内容）时用它的令牌发出第一声问候 `Hello, World. Hello, Agent.`（失败只警告，不阻断部署）；
@@ -576,7 +578,7 @@ node ops/scripts/config.mjs sites             # 列出站点与 platform.env 状
 
 **同机每个子域要有独立的隧道账号和回环端口**，不能共用（`Match` 首条匹配生效，`PermitListen` 只允许一个端口）。账号与端口分配见 [`xknot.si/federation.json`](../../xknot.si/federation.json) 每个成员的 `tunnel.account` 与 `tunnel.port`；签发交接流程见 [`xknot.si/docs/HANDOFF.md`](../../xknot.si/docs/HANDOFF.md)。
 
-实例主机开启 `KNOT_ENTRY_ENABLED=1` 后，`deploy-site.sh` 会装 `com.knot.entry-tunnel`，并由 Backend 在公开内容变化后调用 `push-discover.sh` 推送 `/discover.json`。推页面用的 `KNOT_ENTRY_SSH_KEY` 和实例主机推快照用的 `KNOT_ENTRY_PUSH_KEY` 可以不是同一把。手动补推：
+实例主机开启 `KNOT_ENTRY_ENABLED=1` 后，`deploy-site.sh` 会装 `com.knot.<实例>.entry-tunnel`，并由 Backend 在公开内容变化后调用 `push-discover.sh` 推送 `/discover.json`。推页面用的 `KNOT_ENTRY_SSH_KEY` 和实例主机推快照用的 `KNOT_ENTRY_PUSH_KEY` 可以不是同一把。手动补推：
 
 ```bash
 ./ops/scripts/push-discover.sh <board 目录>
@@ -634,7 +636,7 @@ npm test -w knot-platform               # 只跑 Backend
 ./ops/scripts/doctor.sh --site local --deploy-root ~/knot/cpswang # 在开发机上查本机实例
 ```
 
-它查五项：隧道私钥（按站点目录解析后是否存在、读不读得到）、本机 `/api/health`、`/api/web/information`（真读一次库，不只看进程）、常驻单元（`com.knot.platform`，接了隧道再加 `com.knot.entry-tunnel`）、公网 `KNOT_PUBLIC_ORIGIN/api/health`。任何一项不过就以非零退出，可以直接放进发布后的验收或定时任务。公网那一跳默认不走系统代理，免得开发机上的代理把「站点坏了」误报成真的。
+它查五项：隧道私钥（按站点目录解析后是否存在、读不读得到）、本机 `/api/health`、`/api/web/information`（真读一次库，不只看进程）、常驻单元（`com.knot.<实例>.platform`，接了隧道再加 `com.knot.<实例>.entry-tunnel`）、公网 `KNOT_PUBLIC_ORIGIN/api/health`。任何一项不过就以非零退出，可以直接放进发布后的验收或定时任务。公网那一跳默认不走系统代理，免得开发机上的代理把「站点坏了」误报成真的。
 
 入口 502 时先跑它：`curl https://<子域>/api/health` 打不通而本机 `127.0.0.1:<KNOT_PORT>/api/health` 正常，几乎都是隧道没起来——入口 nginx 把请求交给入口主机的回环端口，隧道断了就没人监听。再看实例主机上的 `launchctl list | grep entry-tunnel` 与 `var/log/entry-tunnel.err.log`：私钥那一行会直接写出解析后的路径和它来自哪个 `KNOT_TUNNEL_KEY`，不再留给 ssh 一句 `Identity file ... not accessible`。`deploy-site.sh` 在 `KNOT_TUNNEL=1` 且私钥解析不到时也会直接停下，不会「部署成功、入口 502」。
 
@@ -760,11 +762,11 @@ node backend/scripts/gc-uploads.mjs --apply
 
 `platform.env` 和凭据沿用源文件的 `600`，目录沿用 `700`；快照根目录本身是 `700`。没变的文件用硬链接复用，所以加了 `sites/` 和 `agents/` 之后每天的增量仍然很小。
 
-`deploy-site.sh` 只在 `KNOT_BACKUP_DIR` 是真目录时安装备份任务（LaunchAgent `com.knot.backup`），每天 04:15 执行一次；改回空或 `null` 后重新部署会把它卸掉。另装每月 1 日 04:45 的 `gc-knot-storage.sh`（LaunchAgent `com.knot.gc`），只写报告到 `var/log/knot-gc.log`，不删文件；要真删得人工执行 `--apply`。
+`deploy-site.sh` 只在 `KNOT_BACKUP_DIR` 是真目录时安装备份任务（LaunchAgent `com.knot.<实例>.backup`），每天 04:15 执行一次；改回空或 `null` 后重新部署会把它卸掉。另装每月 1 日 04:45 的 `gc-knot-storage.sh`（LaunchAgent `com.knot.<实例>.gc`），只写报告到 `var/log/knot-gc.log`，不删文件；要真删得人工执行 `--apply`。
 
 `KNOT_BACKUP_DIR` 默认在同一块盘上。这只防误删和改坏，不防整机或整盘丢失；要防后者，把 `KNOT_BACKUP_DIR` 指到外挂盘或另一台机器，或者定期把 `latest/` 同步出去。
 
-恢复：先 `launchctl bootout gui/$(id -u)/com.knot.platform` 停 Backend，`pg_restore -d "$DATABASE_URL" --clean --if-exists knot.dump`，再把快照里的 `uploads/` 同步回 `UPLOAD_DIR`，最后重新启动 Backend。
+恢复：先 `launchctl bootout gui/$(id -u)/com.knot.<实例>.platform` 停 Backend，`pg_restore -d "$DATABASE_URL" --clean --if-exists knot.dump`，再把快照里的 `uploads/` 同步回 `UPLOAD_DIR`，最后重新启动 Backend。
 
 换机器或重装时，配置也要一起放回去，否则库恢复了邮件登录和智能体仍然不可用：
 

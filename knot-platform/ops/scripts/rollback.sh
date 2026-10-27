@@ -120,10 +120,12 @@ ln -sfn "releases/$TARGET_NAME" "$CURRENT_LINK"
 # pid，而真正在跑的服务没被重启——current 换了，进程还是旧的。
 restart_backend() {
   local pid_file="$KNOT_DEPLOY_ROOT/var/run/backend.pid"
-  if [[ -f "$HOME/Library/LaunchAgents/com.knot.platform.plist" ]]; then
+  local unit
+  unit="$(knot_label platform)"
+  if [[ -f "$HOME/Library/LaunchAgents/$unit.plist" ]]; then
     local uid_num
     uid_num="$(id -u)"
-    launchctl kickstart -k "gui/$uid_num/com.knot.platform" 2>/dev/null || true
+    launchctl kickstart -k "gui/$uid_num/$unit" 2>/dev/null || true
     return 0
   fi
   if [[ -f "$pid_file" ]]; then
@@ -132,7 +134,7 @@ restart_backend() {
   fi
   local uid_num
   uid_num="$(id -u)"
-  launchctl kickstart -k "gui/$uid_num/com.knot.platform" 2>/dev/null || true
+  launchctl kickstart -k "gui/$uid_num/$unit" 2>/dev/null || true
 }
 
 # 没有服务管理器时（deploy-site.sh --runtime none）由部署根下的 pid 文件管进程。

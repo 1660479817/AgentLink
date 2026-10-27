@@ -11,7 +11,7 @@
 #   隧道私钥   KNOT_TUNNEL=1 时，按站点目录解析出的私钥在不在、读不读得到
 #   本机后端   http://127.0.0.1:<KNOT_PORT>/api/health
 #   数据库     /api/web/information（真读一次库，不只看进程在不在）
-#   常驻单元   com.knot.platform，接了隧道再加 com.knot.entry-tunnel
+#   常驻单元   com.knot.<实例>.platform，接了隧道再加 com.knot.<实例>.entry-tunnel
 #   公网入口   <KNOT_PUBLIC_ORIGIN>/api/health，也就是「别人能不能打开」
 #
 # 入口 502 那类故障，坏在隧道私钥或常驻单元上：入口 nginx 把请求交给回环端口，
@@ -198,9 +198,9 @@ unit_state() {
   printf '%s' "$out" | awk '/state = /{print $3; exit; }'
 }
 
-UNITS="com.knot.platform"
+UNITS="$(knot_label platform)"
 if knot_enabled KNOT_TUNNEL; then
-  UNITS="${UNITS} com.knot.entry-tunnel"
+  UNITS="${UNITS} $(knot_label entry-tunnel)"
 fi
 
 UNIT_MSG=""

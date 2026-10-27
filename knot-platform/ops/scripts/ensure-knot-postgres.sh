@@ -2,7 +2,7 @@
 # macOS：用户目录 Postgres，不依赖 Colima / brew services。
 # 端口、数据目录、日志位置、socket 目录和 PostgreSQL bin 目录来自 sites/<站点>/site.env。
 #
-# com.knot.postgres 直接执行本脚本，所以这里自己读站点配置；
+# com.knot.<实例>.postgres 直接执行本脚本，所以这里自己读站点配置；
 # 不能只靠 deploy-site.sh 传进来的进程环境。
 #
 # 幂等：库已初始化的重建、库已启动的再启动、口令每次都对齐、knot 库缺了就建。

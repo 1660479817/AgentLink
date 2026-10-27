@@ -187,13 +187,21 @@ test("managed block: the key is a bare name, so the site dir can move", () => {
 });
 
 test("restart: a missing unit is reported with the command to run", async () => {
-  const result = await restartTunnel({
-    exec: async () => {
-      throw new Error("Could not find service com.knot.entry-tunnel");
-    },
-  });
-  assert.equal(result.ok, false);
-  assert.match(result.command, /launchctl kickstart -k gui\/\d+\/com\.knot\.entry-tunnel/);
+  // 标签带实例名：同一台机器上的两个实例不能共用同一个单元。
+  const previous = process.env.KNOT_DEPLOY_ROOT;
+  process.env.KNOT_DEPLOY_ROOT = "/Users/me/knot/wang";
+  try {
+    const result = await restartTunnel({
+      exec: async () => {
+        throw new Error("Could not find service com.knot.wang.entry-tunnel");
+      },
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.command, /launchctl kickstart -k gui\/\d+\/com\.knot\.wang\.entry-tunnel/);
+  } finally {
+    if (previous === undefined) delete process.env.KNOT_DEPLOY_ROOT;
+    else process.env.KNOT_DEPLOY_ROOT = previous;
+  }
 });
 
 test("restart: a successful kickstart says so", async () => {
@@ -208,8 +216,15 @@ test("restart: the probe answers before anything is restarted", async () => {
     calls.push(`${cmd} ${args.join(" ")}`);
     return {};
   };
-  assert.equal(await tunnelUnitInstalled({ exec }), true);
-  assert.match(calls[0], /^launchctl print gui\/\d+\/com\.knot\.entry-tunnel$/);
+  const previous = process.env.KNOT_DEPLOY_ROOT;
+  process.env.KNOT_DEPLOY_ROOT = "/Users/me/knot/wang";
+  try {
+    assert.equal(await tunnelUnitInstalled({ exec }), true);
+    assert.match(calls[0], /^launchctl print gui\/\d+\/com\.knot\.wang\.entry-tunnel$/);
+  } finally {
+    if (previous === undefined) delete process.env.KNOT_DEPLOY_ROOT;
+    else process.env.KNOT_DEPLOY_ROOT = previous;
+  }
 
   const missing = await tunnelUnitInstalled({
     exec: async () => {
@@ -230,12 +245,19 @@ test("restart: a scheduled restart runs after the response, not during it", asyn
 
 test("agent plist: template placeholders are all filled", () => {
   const text = renderAgentPlist(
-    "<string>__KNOT_SITE__</string><string>__KNOT_HOME__</string><string>__KNOT_CURRENT__/ops/run.sh</string>",
-    { site: "local", home: "/Users/me/knot", current: "/Users/me/knot/current" }
+    "<string>__KNOT_SITE__</string><string>__KNOT_HOME__</string><string>__KNOT_CURRENT__/ops/run.sh</string><string>__KNOT_LABEL__</string>",
+    {
+      site: "local",
+      home: "/Users/me/knot",
+      current: "/Users/me/knot/current",
+      label: "com.knot.wang.entry-tunnel",
+    },
   );
   assert.equal(text.includes("__KNOT_"), false);
   assert.match(text, /<string>local<\/string>/);
   assert.match(text, /\/Users\/me\/knot\/current\/ops\/run\.sh/);
+  // 标签必须落在 plist 里：launchd 按它 bootstrap，写错了就是「装了但没加载」。
+  assert.match(text, /<string>com\.knot\.wang\.entry-tunnel<\/string>/);
 });
 
 test("agent: no template and no unit reports the command instead of pretending", async () => {
