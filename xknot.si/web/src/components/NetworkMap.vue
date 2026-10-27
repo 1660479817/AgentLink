@@ -12,6 +12,7 @@
 import { computed } from "vue";
 
 import { placePoints } from "../lib/placement.js";
+import { hueOf } from "../lib/hue.js";
 import { centroidOf, LAND_PATH, project, WORLD } from "../lib/world.js";
 import BrandMark from "./BrandMark.vue";
 
@@ -169,15 +170,13 @@ function place(point) {
   return {
     left: `${((point.x / VIEW.width) * 100).toFixed(2)}%`,
     top: `${((point.y / VIEW.height) * 100).toFixed(2)}%`,
+    // 正常时点用站点自己的色相（与卡片徽记同一套哈希），异常时下面几条 CSS 规则
+    // 会把它换成红/黄：颜色先回答「谁」，出问题时再回答「怎么了」。
+    "--pin-hue": String(hueOf(point.id)),
   };
 }
 
-// 标签默认在点的外侧：下半张图朝上、上半张图朝下，靠边的改左右对齐。
-// 同簇散开的点按「朝簇外」定左右：一律按画布边距翻，右侧那个点会把字压到左边的点上。
-function tagFlip(point) {
-  if (point.origin) return point.x < point.origin.x;
-  return point.x > VIEW.width * 0.78;
-}
+// 与 NodeCard.vue 的徽记同源：同一个站在任何语种、任何快照下都是同一个色相。
 
 function tipClass(point) {
   return [
@@ -308,9 +307,6 @@ function activate(id) {
         @click="activate(point.id)"
       >
         <span class="dot" aria-hidden="true"><span class="halo" /></span>
-        <span class="tag" :class="{ flip: tagFlip(point) }" aria-hidden="true">
-          {{ point.name }}
-        </span>
         <span class="tip" :class="tipClass(point)" aria-hidden="true">
           <span class="tip-name">{{ point.name }}</span>
           <span class="tip-meta">{{ point.groupLabel }} · {{ point.localTime }}</span>
@@ -613,8 +609,14 @@ function activate(id) {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* 正常时用站点自己的色相：颜色先回答「谁」，一眼能把同簇的几台分开。
+   异常时不靠颜色区分身份，直接切到状态色——「点变红」这条验收保持不变。 */
 .pin.up {
-  color: var(--ok);
+  color: hsl(var(--pin-hue, 200) 62% 40%);
+}
+/* 深色底上 40% 的亮度发闷，抬到 62% 才和两边的状态色一样亮。 */
+:root[data-theme="dark"] .pin.up {
+  color: hsl(var(--pin-hue, 200) 68% 62%);
 }
 .pin.degraded {
   color: var(--warn);
@@ -628,38 +630,6 @@ function activate(id) {
 
 .pin.muted {
   opacity: 0.32;
-}
-
-/* 点名常驻：宽屏上让地图自己说得出「哪几个站」，不用靠悬停 */
-.tag {
-  display: none;
-  position: absolute;
-  left: 26px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  white-space: nowrap;
-  pointer-events: none;
-  /* 字压在点阵陆地上，用底色描一圈才读得清 */
-  text-shadow:
-    0 0 3px var(--surface),
-    0 0 2px var(--surface),
-    0 0 1px var(--surface);
-}
-
-.tag.flip {
-  left: auto;
-  right: 26px;
-}
-
-/* 图够宽才点名：窄屏点挨得近，标签会打架 */
-@container (min-width: 620px) {
-  .tag {
-    display: block;
-  }
 }
 
 .dot {
@@ -913,7 +883,7 @@ function activate(id) {
   }
 }
 
-/* 手机上点会挨得近：收小命中区，标签留在点上方 */
+/* 手机上点会挨得近：收小命中区，站名留在悬停/点击出的提示里 */
 @media (max-width: 640px) {
   .pin {
     width: 30px;

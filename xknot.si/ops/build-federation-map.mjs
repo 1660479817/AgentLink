@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { placePoints } from "../web/src/lib/placement.js";
+import { hueOf } from "../web/src/lib/hue.js";
 import { LAND_PATH, WORLD, centroidOf, project } from "../web/src/lib/world.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -185,7 +186,8 @@ const lines = placed
 
 const pins = placed
   .map((point) => {
-    const color = STATUS_COLOR[point.status] || C.unknown;
+    // 与门户同一套规则：正常时用站点自己的色相，异常时用状态色。
+    const color = point.status === "up" ? `hsl(${hueOf(point.id)} 62% 40%)` : STATUS_COLOR[point.status] || C.unknown;
     const x = q1(point.x);
     const y = q1(point.y);
     // 同簇散开的点按「朝簇外」定左右，否则右侧那个点的字会压到左边的点上。

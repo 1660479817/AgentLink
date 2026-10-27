@@ -6,6 +6,7 @@ import FlameIcon from "../icons/FlameIcon.vue";
 import { cardState, hotCard } from "../lib/cards.js";
 import { dayShift, localTime, utcOffset } from "../lib/clock.js";
 import { formatWhen } from "../lib/i18n.js";
+import { hueOf } from "../lib/hue.js";
 import { statsHighlights } from "../lib/stats.js";
 
 const props = defineProps({
@@ -80,9 +81,7 @@ const initial = computed(() => (props.item.name || "?").trim().slice(0, 1).toUpp
 const logoFailed = ref(false);
 const logo = computed(() => (props.item.logo && !logoFailed.value ? props.item.logo : null));
 const nodeStyle = computed(() => {
-  let hash = 0;
-  for (const char of String(props.item.id || "")) hash = (hash * 31 + char.codePointAt(0)) % 360;
-  return { "--node-color": `hsl(${hash} 58% 45%)` };
+  return { "--node-color": `hsl(${hueOf(props.item.id)} 58% 45%)` };
 });
 
 // 橱窗取第一条没过期的。卡片语言由伙伴决定，页面不翻译正文。

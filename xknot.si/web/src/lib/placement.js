@@ -22,12 +22,8 @@ export const RING = { base: 16, gap: 2, margin: 1.02 };
 
 // 两个不同落点靠得太近时（比如香港与西贡）也要让开：点本身只有 9 个单位，
 // 但命中区 40 个单位，25 以内的两点在窄屏上会读成一处。
+// 同一个圈上的相邻点用同一个值：站名已改成悬停才显示，让位只剩命中区这一个约束。
 export const MIN_GAP = 26;
-
-// 同一个圈上相邻两点的弦长要求。它比 MIN_GAP 大，是因为宽屏上站名常驻在点右侧
-// （`.tag` 从 26px 处开始，长约 50–80px）：只是不压住点还不够，得让名字也读得开。
-// 站名改成悬停才显示的话，这个值可以直接降到 MIN_GAP，单圈容量随之翻几倍。
-export const FAN_GAP = 44;
 
 /**
  * 一个锚点上摆 count 个点时需要的半径。
@@ -35,9 +31,22 @@ export const FAN_GAP = 44;
  * 单人簇不需要圆，返回 0（调用方原样保留坐标）。乘 margin 是为了让相邻弦长
  * 比要求的间距略大一点：正好相等时松弛每轮只能推 0，会一直在边界上磨。
  */
-export function ringRadius(count, gap = FAN_GAP) {
+export function ringRadius(count) {
   if (!Number.isFinite(count) || count < 2) return 0;
-  return Math.max(RING.base, (gap * RING.margin) / (2 * Math.sin(Math.PI / count)));
+  return Math.max(RING.base, (MIN_GAP * RING.margin) / (2 * Math.sin(Math.PI / count)));
+}
+
+// 起排角由锚点哈希决定：同一处永远是同一个角（刷新不跳），但各处不一样，
+// 不会所有簇都从正上方开始、看着像同一套模子刻的。
+function startAngle(group, count) {
+  const step = (2 * Math.PI) / count;
+  // 减 π/2 再偏半格：正上方那一格正好压在朝中枢的弧线上，看着像多了一个点。
+  const base = -Math.PI / 2 + step / 2;
+  // 哈希偏移限定在 (0, step)：这样任何一格都不会正好落在正上方（解见下方注释）。
+  // 偏移取 step/2 时第 0 格正好在上方，所以哈希值映射到 (0, step) 的开区间两端。
+  const mixed = Math.sin(group.x * 12.9898 + group.y * 78.233) * 43758.5453;
+  const unit = mixed - Math.floor(mixed);
+  return base + step * (0.02 + 0.96 * unit);
 }
 
 // 让位用迭代松弛，不是扫一遍。半径按上式随数量长大，正常情况下第一轮就排得开；
@@ -178,7 +187,7 @@ export function placePoints(points, { width = WORLD.width, height = WORLD.height
       y: clamp(group.y, EDGE + radius, height - EDGE - radius),
     };
     // 从正上方再偏半格起排：正上方那一格正好压在朝中枢的弧线上，看着像多了一个点。
-    const start = -Math.PI / 2 + Math.PI / count;
+    const start = startAngle(group, count);
 
     group.members.forEach((point, index) => {
       const angle = start + (index * 2 * Math.PI) / count;
