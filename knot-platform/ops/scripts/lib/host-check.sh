@@ -187,7 +187,8 @@ knot_port_holder() {
   lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1" (pid "$2")"}' || true
 }
 
-knot_check_pg_local() {  local bin_dir="${KNOT_PG_BIN:-}" missing="" tool port="${KNOT_PGPORT:-5433}"
+knot_check_pg_local() {
+  local bin_dir="${KNOT_PG_BIN:-}" missing="" tool port="${KNOT_PGPORT:-5433}"
   if [[ -z "$bin_dir" ]]; then
     knot_pf_row fail "数据库" "KNOT_PG_BIN 是空的" \
       "在 site.env 里写 KNOT_PG_BIN=/opt/homebrew/opt/postgresql@16/bin"
@@ -241,13 +242,22 @@ knot_check_site_port() {
     return 0
   fi
   pid="$(printf '%s' "$holder" | sed -n 's/.*pid \([0-9]*\)).*/\1/p')"
-  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
-  root="$(cd "${KNOT_DEPLOY_ROOT:-.}" 2>/dev/null && pwd -P)"
+  # 两个 pipefail 陷阱：lsof 没匹配到也是非零，赋值会被 set -e 带走；
+  # 首次部署时部署根还不存在（它在门禁之后才 mkdir），直接 cd 会静默退出。
+  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1 || true)"
+  root=""
+  [[ -n "${KNOT_DEPLOY_ROOT:-}" && -d "$KNOT_DEPLOY_ROOT" ]] && root="$(cd "$KNOT_DEPLOY_ROOT" && pwd -P)"
   if [[ -n "$cwd" && -n "$root" && ( "$cwd" == "$root" || "$cwd" == "$root"/* ) ]]; then
     knot_pf_row ok "端口" "127.0.0.1:${port} 上是这个站点的 Backend（${holder}），部署时会被替换"
     return 0
   fi
-  # 不是本站点的进程：它不会因为这次部署退出，Backend 一定绑不上。
+  if [[ -z "$cwd" ]]; then
+    # 看不出占用者是谁（别的用户的进程、权限不足）：只提示，不拿它拦住一次正常的升级。
+    knot_pf_row warn "端口" "127.0.0.1:${port} 已被 ${holder} 占用，看不出它的工作目录" \
+      "它若不属于本站点，部署会在起 Backend 时绑不上端口：先确认，再决定是否改 KNOT_PORT"
+    return 0
+  fi
+  # 占用者是清楚的、又不是本站点的进程：它不会因为这次部署退出，Backend 一定绑不上。
   knot_pf_row fail "端口" "127.0.0.1:${port} 已被 ${holder} 占用，不是这个站点的进程" \
     "在 site.env 里把 KNOT_PORT 改成没人用的端口，或先停掉它（lsof -nP -iTCP:${port} -sTCP:LISTEN）"
   return 1

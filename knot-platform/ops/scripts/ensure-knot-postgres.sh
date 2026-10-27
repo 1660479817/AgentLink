@@ -68,8 +68,10 @@ socket_from_postmaster() {
   [[ -f "$PGD/postmaster.pid" ]] || return 0
   pid="$(head -n 1 "$PGD/postmaster.pid" 2>/dev/null || true)"
   [[ -n "$pid" ]] || return 0
+  # ps 也可能失败（postmaster.pid 是上一次崩溃留下的）：pipefail 下这会让整个赋值
+  # 非零，在 set -e 里把脚本带走——而这里本来只是在拼一句诊断。
   ps -o command= -p "$pid" 2>/dev/null |
-    sed -n 's/.*[[:space:]]-k[[:space:]]\([^[:space:]]*\).*/\1/p' | head -n 1
+    sed -n 's/.*[[:space:]]-k[[:space:]]\([^[:space:]]*\).*/\1/p' | head -n 1 || true
 }
 
 mkdir -p "$(dirname "$PGD")" "$(dirname "$LOG")" "$SOCK"

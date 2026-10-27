@@ -217,6 +217,41 @@ test("站点端口：别的程序占着时门禁直接停，本站点自己的 B
   }
 });
 
+test("首次部署：部署根还不存在时端口门禁不能自己把脚本带走", async () => {
+  // 门禁跑在任何 mkdir 之前，所以 $KNOT_DEPLOY_ROOT 指向的目录通常还不存在。
+  // 那时 cd 会失败：既不能静默退出，也不能把「根不存在」当成「占用者是本站点的」。
+  const net = await import("node:net");
+  const server = net.createServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const output = execFileSync(
+      "bash",
+      [
+        "-c",
+        [
+          "set -euo pipefail",
+          `source "${APP}/ops/scripts/lib/host-check.sh"`,
+          "knot_pf_begin",
+          `KNOT_PORT=${port} knot_check_site_port || echo GATE-FAIL`,
+          'echo REACHED',
+        ].join("\n"),
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, KNOT_DEPLOY_ROOT: path.join(os.tmpdir(), "knot-does-not-exist-xyz") },
+      }
+    );
+    // 脚本必须跑到最后一行，且把占用者判成外来的（cwd 可读、不在任何部署根下）。
+    assert.match(output, /REACHED/);
+    assert.match(output, /GATE-FAIL/);
+    assert.match(output, /FAIL\s+端口/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("端口门禁插在数据库之后、停服务之前", () => {
   const db = DEPLOY.indexOf('knot_gate "数据库"');
   const port = DEPLOY.indexOf("knot_check_site_port");
