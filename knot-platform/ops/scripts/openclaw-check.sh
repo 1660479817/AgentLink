@@ -45,7 +45,7 @@ else
   version="$(openclaw --version 2>/dev/null | grep -oE '[0-9]{4}\.[0-9]+\.[0-9]+' | head -1 || true)"
   if [[ -z "$version" ]]; then
     row warn "version" "openclaw --version 的输出无法解析"
-  elif node -e '
+  elif "${KNOT_NODE_BIN:-node}" -e '
     const toParts = (value) => value.split(".").map(Number);
     const left = toParts(process.argv[1]);
     const right = toParts(process.argv[2]);
@@ -66,7 +66,7 @@ fi
 if [[ ! -f "$STATE_DIR/openclaw.json" ]]; then
   row warn "model" "没有 openclaw.json，模型尚未配置"
 else
-  model_state="$(node -e '
+  model_state="$("${KNOT_NODE_BIN:-node}" -e '
     const fs = require("node:fs");
     let state = "unreadable";
     try {
@@ -112,7 +112,7 @@ else
       missing="${missing}${missing:+ }${agent_id}"
       missing_count=$((missing_count + 1))
     fi
-  done < <(node "$APPLY" ids 2>/dev/null || true; node "$APPLY" internal-ids 2>/dev/null || true)
+  done < <("${KNOT_NODE_BIN:-node}" "$APPLY" ids 2>/dev/null || true; "${KNOT_NODE_BIN:-node}" "$APPLY" internal-ids 2>/dev/null || true)
   if [[ "$missing_count" == 0 ]]; then
     row ok "agents" "名单里的 Agent 都已注册"
   else

@@ -173,7 +173,8 @@ export async function readOpenclawStatus({ file, now = Date.now(), maxAgeMs = 3 
 
 No schema key, no generated-file churn. `KNOT_DEPLOY_ROOT` is already set by
 `run-knot-platform.sh` (it exports every `KNOT_*`) and by the launchd plist; the
-`KNOT_AGENT_ENV_DIR` fallback covers systemd, where `platform.env` carries it.
+`KNOT_AGENT_ENV_DIR` fallback covers a `--runtime none` install, where nothing but
+`platform.env` is injected.
 
 Resolution order, and what each outcome means:
 
@@ -398,10 +399,9 @@ stays the bash plumbing.
 
 ### 6.2 Units, with a fixed interval
 
-`ops/launchd/com.knot.openclaw-probe.plist` uses `StartInterval` 300;
-`ops/systemd/knot-openclaw-probe.{service,timer}` uses `OnUnitActiveSec=300`. Both mirror
-the existing gc units, down to the `EnvironmentVariables` block carrying `KNOT_SITE` and
-`KNOT_DEPLOY_ROOT`.
+`ops/launchd/com.knot.openclaw-probe.plist` uses `StartInterval` 300 and mirrors the
+existing gc agent, down to the `EnvironmentVariables` block carrying `KNOT_SITE` and
+`KNOT_DEPLOY_ROOT`. It is the only form `main` ships: the instance host is macOS + launchd.
 
 No placeholder is introduced: every placeholder used already exists in
 `site-config.sh`'s substitution list, and `unit-placeholders.test.mjs` enforces that.
@@ -410,9 +410,8 @@ A fixed interval, not a configuration key, because the existing gc timer already
 `04:45` in the unit. A probe cadence is an ops default of the same kind, and adding a key
 would mean regenerating `CONFIG.md` and both template files for no gain.
 
-On systemd the unit sets `Environment=OPENCLAW_STATE_DIR=%h/.openclaw`, which is the
-service user's home by systemd's own definition. On macOS the launchd agent inherits the
-user's `HOME`. Neither requires a value we would have to guess at deploy time.
+The launchd agent inherits the login user's `HOME`, so `OPENCLAW_STATE_DIR` never has to
+be guessed at deploy time.
 
 ### 6.3 What the status file may contain
 

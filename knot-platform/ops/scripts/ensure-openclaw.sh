@@ -11,6 +11,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/site-config.sh"
 knot_source_platform_env
 APPLY="$KNOT_APP_DIR/ops/openclaw/apply-config.mjs"
+# platform.env 里的 KNOT_NODE_BIN 是部署时解析出的绝对路径；没有就用 PATH 里的 node。
+NODE="${KNOT_NODE_BIN:-node}"
+# brew 的 npm 与 node 在同一个 bin 目录。非登录 shell（launchd、ssh 直接跑脚本）的 PATH
+# 里没有 /opt/homebrew/bin：这时 command -v npm 找不到，可是 node 就在手边。
+NPM="npm"
+if [[ -x "$(dirname "$NODE")/npm" ]]; then
+  NPM="$(dirname "$NODE")/npm"
+fi
 ENV_FILE="$KNOT_PLATFORM_ENV"
 if [[ -z "${KNOT_AGENT_ENV_DIR:-}" ]]; then
   export KNOT_AGENT_ENV_DIR="$KNOT_SITE_DIR/agents"
@@ -28,20 +36,24 @@ source "$SCRIPT_DIR/lib/lock.sh"
 knot_lock "$KNOT_SITE_DIR/.ensure-openclaw.lock" "OpenClaw 同步" || exit 1
 trap knot_unlock EXIT
 
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  echo "需要 Node.js 和 npm（建议 Node 22+，OpenClaw 源码要求 24+）" >&2
+if ! command -v "$NODE" >/dev/null 2>&1; then
+  echo "需要 Node.js 22+（OpenClaw 源码要求 24+），找不到 ${NODE}。" >&2
   exit 1
 fi
-echo "==> node $(node -v), npm $(npm -v)"
+if ! command -v "$NPM" >/dev/null 2>&1; then
+  echo "需要 npm（应和 node 一起装），找不到 ${NPM}。" >&2
+  exit 1
+fi
+echo "==> node $("$NODE" -v), npm $("$NPM" -v)"
 
 if ! command -v openclaw >/dev/null 2>&1; then
   echo "==> install openclaw"
-  npm_major="$(npm -v | cut -d. -f1)"
-  npm_minor="$(npm -v | cut -d. -f2)"
+  npm_major="$("$NPM" -v | cut -d. -f1)"
+  npm_minor="$("$NPM" -v | cut -d. -f2)"
   if [[ "$npm_major" -gt 11 ]] || [[ "$npm_major" -eq 11 && "$npm_minor" -ge 16 ]]; then
-    npm install -g openclaw@latest --allow-scripts=openclaw
+    "$NPM" install -g openclaw@latest --allow-scripts=openclaw
   else
-    npm install -g openclaw@latest
+    "$NPM" install -g openclaw@latest
   fi
 fi
 echo "==> openclaw $(openclaw --version)"
@@ -59,7 +71,7 @@ if ! openclaw gateway health --port "$PORT" >/dev/null 2>&1; then
 fi
 
 echo "==> snapshot routing"
-node "$APPLY" snapshot
+"$NODE" "$APPLY" snapshot
 
 # 下线与上线走同一条路：manifest 里已经删掉的平台 Agent，本机这条 entry 与它的工作区
 # 由这里收掉。否则删掉代码之后，那台机器上还留着一个没有任何技能、却仍被 Gateway 认得的
@@ -68,33 +80,33 @@ while IFS= read -r retired_id; do
   [[ -z "$retired_id" ]] && continue
   echo "==> delete retired agent $retired_id"
   openclaw agents delete "$retired_id" --force >/dev/null || echo "warn: $retired_id 没能删除，请手工确认"
-done < <(node "$APPLY" retired-ids)
+done < <("$NODE" "$APPLY" retired-ids)
 
 while IFS= read -r agent_id; do
   [[ -z "$agent_id" ]] && continue
   workspace="$STATE_DIR/workspace-$agent_id"
   echo "==> seed prompts $agent_id"
-  node "$APPLY" seed "$agent_id"
+  "$NODE" "$APPLY" seed "$agent_id"
   if openclaw agents list 2>/dev/null | grep -q -w "$agent_id"; then
     echo "==> agent $agent_id already registered"
   else
     echo "==> add agent $agent_id"
     openclaw agents add "$agent_id" --workspace "$workspace" --non-interactive
   fi
-done < <(node "$APPLY" ids; node "$APPLY" internal-ids)
+done < <("$NODE" "$APPLY" ids; "$NODE" "$APPLY" internal-ids)
 
 if [[ -f "$ENV_FILE" ]]; then
   while IFS= read -r agent_id; do
     [[ -z "$agent_id" ]] && continue
     echo "==> ensure internal agent $agent_id"
     "$KNOT_APP_DIR/ops/scripts/ensure-internal-agent.sh" "$agent_id"
-  done < <(node "$APPLY" internal-ids)
+  done < <("$NODE" "$APPLY" internal-ids)
 else
   echo "没有 ${ENV_FILE}，Internal Personal Agent 账户这次不签发。"
 fi
 
 echo "==> sync prompts and skills"
-node "$APPLY" sync
+"$NODE" "$APPLY" sync
 
 echo "==> restart gateway"
 openclaw gateway restart
@@ -148,7 +160,7 @@ PATROL_MESSAGE="执行每日巡查。读工作区的 AGENTS.md、ORDERS.md 和�
 ensure_admin_cron() {
   local json id message
   json="$(openclaw cron list --all --json 2>/dev/null || printf '%s\n' '{"jobs":[]}')"
-  id="$(printf '%s' "$json" | node -e '
+  id="$(printf '%s' "$json" | "$NODE" -e '
     let raw = "";
     process.stdin.on("data", (chunk) => { raw += chunk; });
     process.stdin.on("end", () => {
@@ -168,7 +180,7 @@ ensure_admin_cron() {
       --timeout-seconds 300
     return 0
   fi
-  message="$(printf '%s' "$json" | node -e '
+  message="$(printf '%s' "$json" | "$NODE" -e '
     let raw = "";
     process.stdin.on("data", (chunk) => { raw += chunk; });
     process.stdin.on("end", () => {
@@ -194,12 +206,12 @@ ensure_admin_cron
 # 记下这次同步的意图：哪些 Agent 该在、各自看哪些技能、巡查任务叫什么。
 # 运行时拿它和本机实际注册的比，才能区分「掉了」和「故意下线」。
 # 写不进去只提示——这是旁路的记录，不该影响这次同步的结果。
-node "$APPLY" sync-report --port "$PORT" --patrol knot-admin-patrol \
+"$NODE" "$APPLY" sync-report --port "$PORT" --patrol knot-admin-patrol \
   || echo "warn: 同步状态文件没写成，运行时会把 OpenClaw 显示成 unknown"
 
 # 给 main 放一份说明：部署根在哪、哪些命令可以只读地跑、哪些文件不许碰。
 # 可见地跑，日志里能看出写了什么、跳过了什么；失败只是少一份说明。
-node "$APPLY" main-brief --port "$PORT" \
+"$NODE" "$APPLY" main-brief --port "$PORT" \
   || echo "warn: main 的说明没写成，旁路不受影响"
 
 # 能走到这里说明 OpenClaw 是开着的：把 KNOT_OPENCLAW=0 那次留下的 off 清掉，

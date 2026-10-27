@@ -45,6 +45,9 @@ done
 
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
+# platform.env 里有部署时解析出的 node 绝对路径：造会话不依赖调用者 PATH。
+knot_source_platform_env
+NODE_BIN="${KNOT_NODE_BIN:-node}"
 
 if [[ ! -f "$KNOT_PLATFORM_ENV" ]]; then
   echo "缺少 ${KNOT_PLATFORM_ENV}。先跑 ./ops/scripts/push-deploy.sh --site ${KNOT_SITE}。" >&2
@@ -67,7 +70,7 @@ PSQL="psql"
 [[ -x "${KNOT_PG_BIN:-}/psql" ]] && PSQL="$KNOT_PG_BIN/psql"
 command -v "$PSQL" >/dev/null 2>&1 || knot_fail "找不到 psql。装 postgresql 或把 KNOT_PG_BIN 指向它的 bin 目录。"
 
-SID="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))')"
+SID="$("$NODE_BIN" -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("hex"))')"
 DAYS="${KNOT_SESSION_TTL_DAYS:-30}"
 # 这个值经 psql -v 文本替换拼进 SQL（make_interval(days => :days)），
 # 带 `)` 或 `;` 就能改语句。来源是 platform.env，风险低但机制成立：

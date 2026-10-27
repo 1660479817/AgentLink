@@ -30,7 +30,7 @@ test("状态文件的位置只从进程已有的值推，推不出来就是 null
     statusFilePath({ KNOT_DEPLOY_ROOT: "/srv/knot" }),
     path.join("/srv/knot", "var", "run", "openclaw-status.json")
   );
-  // systemd 那条路：platform.env 里带着授权码目录，上三级就是部署根。
+  // --runtime none 那条路：platform.env 里带着授权码目录，上三级就是部署根。
   assert.equal(
     statusFilePath({ KNOT_AGENT_ENV_DIR: "/srv/knot/sites/bot01/agents" }),
     path.join("/srv/knot", "var", "run", "openclaw-status.json")

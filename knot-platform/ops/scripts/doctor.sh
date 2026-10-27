@@ -5,7 +5,9 @@
 #   ./ops/scripts/doctor.sh --site bot01
 #   ./ops/scripts/doctor.sh --site local --no-public
 #
-# 查五项，任何一项不过就以非零退出：
+# 先查主机（平台、Node），再查站点，任何一项不过就以非零退出：
+#   平台      必须是 macOS（实例主机只支持 macOS + launchd）
+#   Node      22+，并且记进 platform.env 的绝对路径可用
 #   隧道私钥   KNOT_TUNNEL=1 时，按站点目录解析出的私钥在不在、读不读得到
 #   本机后端   http://127.0.0.1:<KNOT_PORT>/api/health
 #   数据库     /api/web/information（真读一次库，不只看进程在不在）
@@ -115,6 +117,16 @@ if [[ "$KNOT_DEPLOY_ROOT" == "$KNOT_APP_DIR" ]]; then
   row warn "部署根" "读的是源码目录，不是已安装的实例；查实例请加 --deploy-root <部署根>"
 fi
 
+# ---- 0. 主机 ----
+# 和 deploy-site.sh 用同一份判定：这台机器是不是还能跑 Knot。
+# 常见情形是换了 node 版本或删了 brew 包，服务起不来只报「node: command not found」。
+# shellcheck source=lib/host-check.sh
+source "$SCRIPT_DIR/lib/host-check.sh"
+knot_pf_begin
+knot_check_host_platform || true
+knot_check_node || true
+knot_pf_finish "主机" || FAILED=1
+
 # ---- 1. 隧道私钥 ----
 # 解析函数在 lib/site-config.sh 里；0.6.0 之前的发布包没有它，这里补一份同样的
 # 解析，让 doctor 在旧实例上也能用。升级之后走库里的那一份，不再用这里的备份逻辑。
@@ -179,29 +191,16 @@ fi
 
 # ---- 4. 常驻单元 ----
 unit_state() {
-  # unit_state <标签或 unit 名>；打印 running / loaded / missing
+  # unit_state <LaunchAgent 标签>；打印 running / loaded / missing
   local name="$1"
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    local out
-    out="$(launchctl print "gui/$(id -u)/${name}" 2>/dev/null)" || { echo missing; return; }
-    printf '%s' "$out" | awk '/state = /{print $3; exit; }'
-  else
-    if ! systemctl cat "${name}" >/dev/null 2>&1; then
-      echo missing
-      return
-    fi
-    systemctl is-active "${name}" 2>/dev/null || echo inactive
-  fi
+  local out
+  out="$(launchctl print "gui/$(id -u)/${name}" 2>/dev/null)" || { echo missing; return; }
+  printf '%s' "$out" | awk '/state = /{print $3; exit; }'
 }
 
 UNITS="com.knot.platform"
-[[ "$(uname -s)" == "Darwin" ]] || UNITS="knot-platform"
 if knot_enabled KNOT_TUNNEL; then
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    UNITS="${UNITS} com.knot.entry-tunnel"
-  else
-    UNITS="${UNITS} knot-entry-tunnel"
-  fi
+  UNITS="${UNITS} com.knot.entry-tunnel"
 fi
 
 UNIT_MSG=""

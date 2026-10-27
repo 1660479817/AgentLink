@@ -27,4 +27,7 @@ fi
 source "$SCRIPT_DIR/lib/fd-limit.sh"
 knot_raise_fd_limit
 cd "$KNOT_APP_DIR/backend"
-exec node src/index.js
+# KNOT_NODE_BIN 由部署脚本写进 platform.env。launchd 不跑登录 shell，PATH 里常常
+# 只有 /usr/bin:/bin:/usr/sbin:/sbin：brew 装在 /opt/homebrew，nvm/volta 装在 home 下，
+# 都找不到。老版本的 platform.env 没有这个键时退回 PATH 里的 node。
+exec "${KNOT_NODE_BIN:-node}" src/index.js

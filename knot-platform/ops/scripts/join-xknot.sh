@@ -73,6 +73,7 @@ done
 [[ -n "$SITE_ARG" ]] && export KNOT_SITE="$SITE_ARG"
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
+knot_source_platform_env
 
 JOIN_ENV="$KNOT_XKNOT_ENV"
 
@@ -104,12 +105,7 @@ print_status() {
   if [[ -z "$relay" && -n "$token" && -n "$origin" ]]; then
     relay="${origin%/}/api/federation/mail（按中枢地址推导）"
   fi
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    perms="$(stat -f '%Lp' "$JOIN_ENV" 2>/dev/null || echo '?')"
-  else
-    # GNU stat 的 -f 是「文件系统状态」而且照样返回 0，不能拿它兜底。
-    perms="$(stat -c '%a' "$JOIN_ENV" 2>/dev/null || echo '?')"
-  fi
+  perms="$(stat -f '%Lp' "$JOIN_ENV" 2>/dev/null || echo '?')"
   echo "状态      已接入"
   echo "实例 id   ${id:-（缺）}"
   echo "中枢      ${origin:-（缺）}"
@@ -118,7 +114,7 @@ print_status() {
   [[ -n "$issued" ]] && echo "签发日    $issued"
   echo "权限      $perms$([[ "$perms" == "600" ]] || echo '（应为 600）')"
   echo
-  node "$KNOT_APP_DIR/ops/scripts/config.mjs" check --xknot --site "$KNOT_SITE" || true
+  "${KNOT_NODE_BIN:-node}" "$KNOT_APP_DIR/ops/scripts/config.mjs" check --xknot --site "$KNOT_SITE" || true
 }
 
 if (( STATUS )); then
@@ -175,7 +171,7 @@ if (( DRY_RUN )); then
   # 走不到下面那行 rm）。
   TMP_DRYRUN="$(mktemp "${TMPDIR:-/tmp}/xknot-dryrun.XXXXXX")"
   chmod 600 "$TMP_DRYRUN"
-  node "$KNOT_APP_DIR/ops/scripts/config.mjs" join --site "$KNOT_SITE" --in "$PAYLOAD" --out "$TMP_DRYRUN"
+  "${KNOT_NODE_BIN:-node}" "$KNOT_APP_DIR/ops/scripts/config.mjs" join --site "$KNOT_SITE" --in "$PAYLOAD" --out "$TMP_DRYRUN"
   rm -f "$TMP_DRYRUN"
   TMP_DRYRUN=""
   exit 0
@@ -186,22 +182,15 @@ fi
 if [[ -f "$JOIN_ENV" ]]; then
   chmod 600 "$JOIN_ENV" 2>/dev/null || true
 fi
-node "$KNOT_APP_DIR/ops/scripts/config.mjs" join --site "$KNOT_SITE" --in "$PAYLOAD" --out "$JOIN_ENV"
+"${KNOT_NODE_BIN:-node}" "$KNOT_APP_DIR/ops/scripts/config.mjs" join --site "$KNOT_SITE" --in "$PAYLOAD" --out "$JOIN_ENV"
 chmod 600 "$JOIN_ENV"
 
 echo
 echo "接入已写入。重启 Backend 让它生效："
-case "$(uname -s)" in
-  Darwin)
-    if launchctl print "gui/$(id -u)/com.knot.platform" >/dev/null 2>&1; then
-      echo "  launchctl kickstart -k gui/$(id -u)/com.knot.platform"
-    else
-      # 没有常驻服务时不要为了改配置重跑整次部署。
-      echo "  KNOT_SITE=$KNOT_SITE ./ops/scripts/run-knot-platform.sh"
-    fi
-    ;;
-  *)
-    echo "  sudo systemctl restart knot-backend"
-    ;;
-esac
+if launchctl print "gui/$(id -u)/com.knot.platform" >/dev/null 2>&1; then
+  echo "  launchctl kickstart -k gui/$(id -u)/com.knot.platform"
+else
+  # 没有常驻服务时不要为了改配置重跑整次部署。
+  echo "  KNOT_SITE=$KNOT_SITE ./ops/scripts/run-knot-platform.sh"
+fi
 echo "确认：./ops/scripts/join-xknot.sh --site $KNOT_SITE --status"

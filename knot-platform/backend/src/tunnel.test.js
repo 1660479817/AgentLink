@@ -188,17 +188,16 @@ test("managed block: the key is a bare name, so the site dir can move", () => {
 
 test("restart: a missing unit is reported with the command to run", async () => {
   const result = await restartTunnel({
-    platform: "linux",
     exec: async () => {
-      throw new Error("Unit knot-entry-tunnel.service not found.");
+      throw new Error("Could not find service com.knot.entry-tunnel");
     },
   });
   assert.equal(result.ok, false);
-  assert.match(result.command, /systemctl restart knot-entry-tunnel/);
+  assert.match(result.command, /launchctl kickstart -k gui\/\d+\/com\.knot\.entry-tunnel/);
 });
 
 test("restart: a successful kickstart says so", async () => {
-  const result = await restartTunnel({ platform: "linux", exec: async () => ({}) });
+  const result = await restartTunnel({ exec: async () => ({}) });
   assert.equal(result.ok, true);
 });
 
@@ -209,13 +208,12 @@ test("restart: the probe answers before anything is restarted", async () => {
     calls.push(`${cmd} ${args.join(" ")}`);
     return {};
   };
-  assert.equal(await tunnelUnitInstalled({ platform: "linux", exec }), true);
-  assert.deepEqual(calls, ["systemctl cat knot-entry-tunnel"]);
+  assert.equal(await tunnelUnitInstalled({ exec }), true);
+  assert.match(calls[0], /^launchctl print gui\/\d+\/com\.knot\.entry-tunnel$/);
 
   const missing = await tunnelUnitInstalled({
-    platform: "linux",
     exec: async () => {
-      throw new Error("Unit not found.");
+      throw new Error("Could not find service");
     },
   });
   assert.equal(missing, false);

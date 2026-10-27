@@ -225,7 +225,7 @@ const SITE_KEYS = [
     group: "platform",
     type: "path",
     default: "",
-    desc: "备份目录。留空是还没决定（公网站点会提醒）；写 `null` 表示明确不备份，不再提醒；两者都不装备份任务。填目录后 deploy-site.sh 装每天 04:15 的备份任务（launchd 或 systemd timer）。",
+    desc: "备份目录。留空是还没决定（公网站点会提醒）；写 `null` 表示明确不备份，不再提醒；两者都不装备份任务。填目录后 deploy-site.sh 装每天 04:15 的备份任务（LaunchAgent）。",
   },
   {
     key: "KNOT_BACKUP_KEEP",
@@ -319,22 +319,6 @@ const SITE_KEYS = [
     scope: ["dev"],
     derive: (env, ctx) => `${ctx.root}/artifacts`,
     desc: "开发机上构建产物（发布包和校验和）的输出目录。留空用 <knot-platform>/artifacts。",
-  },
-  {
-    key: "KNOT_SYSTEMD_DIR",
-    group: "platform",
-    type: "path",
-    default: "/etc/systemd/system",
-    scope: ["platform"],
-    desc: "Linux 实例主机上 systemd unit 的安装目录。",
-  },
-  {
-    key: "KNOT_SERVICE_USER",
-    group: "platform",
-    type: "string",
-    default: "knot",
-    scope: ["platform"],
-    desc: "Linux 实例主机上跑 Knot Backend 的系统账号。需对该读的目录有权限。",
   },
 
   // ---- 公网入口 ----
@@ -482,7 +466,7 @@ const SITE_KEYS = [
     type: "string",
     default: "sudo systemctl reload nginx",
     scope: ["entry"],
-    desc: "改完 nginx 配置后的 reload 命令。非 systemd 的机器改成自己的。",
+    desc: "改完 nginx 配置后的 reload 命令。入口主机不是 systemd（例如 OpenBSD、launchd）时改成自己的。",
   },
 
   // ---- 回源隧道 ----
@@ -561,6 +545,14 @@ const PLATFORM_KEYS = [
     default: "",
     computed: true,
     desc: "由部署脚本写入：<knot-platform>/web/dist。",
+  },
+  {
+    key: "KNOT_NODE_BIN",
+    group: "platform",
+    type: "path",
+    default: "",
+    computed: true,
+    desc: "由部署脚本写入：这台机器上 Node 22+ 的绝对路径。launchd 不跑登录 shell，PATH 里常常没有 /opt/homebrew/bin；服务启动脚本按它找 node，不去猜 PATH。换 node 版本后重新部署一次即可。",
   },
   {
     key: "KNOT_AGENT_ENV_DIR",
@@ -1156,6 +1148,10 @@ export function checkSite(env) {
       errors.push(`${key} 是公网入口项，写在 sites/<站点>/entry.<标签>.xknot.si.env，不要写进 site.env。`);
       continue;
     }
+    if (RETIRED_KEYS.has(key)) {
+      warnings.push(`${key} 已经删除（Linux 实例主机专用的项，main 只支持 macOS + launchd），这一行可以删掉。`);
+      continue;
+    }
     warnings.push(`${key} 不在 packages/knot-config/src/schema.mjs 里，可能拼错了，或者已经废弃。`);
   }
   return { errors, warnings };
@@ -1219,6 +1215,10 @@ export function checkEntryFile(env, { file = "" } = {}) {
       errors.push(`${key} 是 XKnot 接入项，写在 sites/<站点>/xknot.env，不要写进公网入口文件。`);
       continue;
     }
+    if (RETIRED_KEYS.has(key)) {
+      warnings.push(`${key} 已经删除（Linux 实例主机专用的项，main 只支持 macOS + launchd），这一行可以删掉。`);
+      continue;
+    }
     warnings.push(`${key} 不在 packages/knot-config/src/schema.mjs 里，可能拼错了，或者已经废弃。`);
   }
 
@@ -1234,6 +1234,13 @@ export const FORBIDDEN_PLATFORM_KEYS = [
   "KNOT_ENTRY_KEY",
 ];
 
+// 已经删掉的键：main 只保留 macOS + launchd，Linux 实例主机连同它的两个配置项一起
+// 从这个仓库移走。旧机器的 platform.env 里可能还留着，部署时静默清掉并说一句；
+// site.env 是运维手写的，不代改，只在 check 里说清「这一行已经没用，可以删掉」。
+// 与 FORBIDDEN_PLATFORM_KEYS 分开：那张表是「从来不该写在这里」，这张是「写过、后来删了」。
+export const RETIRED_PLATFORM_KEYS = ["KNOT_SYSTEMD_DIR", "KNOT_SERVICE_USER"];
+const RETIRED_KEYS = new Set(RETIRED_PLATFORM_KEYS);
+
 // 实例运行时文件校验：类型、未知键、跨机泄露、权限。
 export function checkPlatform(text, { mode = null } = {}) {
   const env = parseEnv(text);
@@ -1248,7 +1255,11 @@ export function checkPlatform(text, { mode = null } = {}) {
       continue;
     }
     if (!known.has(key)) {
-      warnings.push(`${key} 不在实例运行时配置的登记表里，可能拼错了，或者已经废弃。`);
+      if (RETIRED_KEYS.has(key)) {
+        warnings.push(`${key} 已经删除（Linux 实例主机专用的项），这一行可以删掉；下次部署会从这份文件里清掉。`);
+      } else {
+        warnings.push(`${key} 不在实例运行时配置的登记表里，可能拼错了，或者已经废弃。`);
+      }
       continue;
     }
     const entry = runtimeEntry(key);
@@ -1575,7 +1586,7 @@ export function renderDocs() {
     "| 边界 | 位置 | 放什么 | 能不能进版本库 |",
     "| --- | --- | --- | --- |",
     "| 代码 | `backend/` `web/` `packages/` | 真正的默认行为 | 进 |",
-    "| 部署 | `ops/` | 脚本、模板、LaunchAgent、systemd unit。不写站点取值 | 进 |",
+    "| 部署 | `ops/` | 脚本、模板、LaunchAgent。不写站点取值 | 进 |",
     "| 配置 | `sites/<站点>/` | 站点档案、拓扑、密钥 | 不进（`sites/_template/` 除外） |",
     "",
     "环境变量只覆盖代码里的默认值。一个键要么在 `packages/knot-config/src/schema.mjs` 里登记，要么就别读。",

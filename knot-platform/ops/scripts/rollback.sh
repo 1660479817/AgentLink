@@ -48,6 +48,10 @@ done
 
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
+# platform.env 里有部署时记下的 KNOT_NODE_BIN：回滚脚本也要用它读 JSON，
+# 不能依赖调用者 PATH 里恰好有 node（ssh 非登录 shell、launchd 都没有）。
+knot_source_platform_env
+NODE_BIN="${KNOT_NODE_BIN:-node}"
 
 CURRENT_LINK="$KNOT_DEPLOY_ROOT/current"
 CURRENT_TARGET="$(readlink "$CURRENT_LINK" 2>/dev/null || true)"
@@ -88,7 +92,7 @@ else
   # deployed.json 里记着这次部署之前的版本，优先用它。
   PREV=""
   if [[ -f "$KNOT_DEPLOY_ROOT/deployed.json" ]]; then
-    PREV="$(node -e 'try { process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).previous || "")) } catch {}' "$KNOT_DEPLOY_ROOT/deployed.json")"
+    PREV="$("$NODE_BIN" -e 'try { process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).previous || "")) } catch {}' "$KNOT_DEPLOY_ROOT/deployed.json")"
   fi
   TARGET_NAME="${PREV#releases/}"
   if [[ -z "$TARGET_NAME" ]]; then
@@ -111,9 +115,9 @@ fi
 # KNOT_DISCOVER_PUSH_CMD 都写成经 current 的路径，换链接就跟着换了版本。
 ln -sfn "releases/$TARGET_NAME" "$CURRENT_LINK"
 
-# 用哪种运行时，先看装过什么（LaunchAgent / systemd unit 是明确的证据），
-# 最后才按 var/run 里的 pid 文件推断。反过来做的话，残留的 pid 文件会让脚本
-# 去 kill 一个不存在的 pid，而真正在跑的服务没被重启——current 换了，进程还是旧的。
+# 用哪种运行时，先看装过什么（LaunchAgent 是明确的证据），最后才按 var/run
+# 里的 pid 文件推断。反过来做的话，残留的 pid 文件会让脚本去 kill 一个不存在的
+# pid，而真正在跑的服务没被重启——current 换了，进程还是旧的。
 restart_backend() {
   local pid_file="$KNOT_DEPLOY_ROOT/var/run/backend.pid"
   if [[ -f "$HOME/Library/LaunchAgents/com.knot.platform.plist" ]]; then
@@ -122,25 +126,13 @@ restart_backend() {
     launchctl kickstart -k "gui/$uid_num/com.knot.platform" 2>/dev/null || true
     return 0
   fi
-  if [[ -f "$KNOT_SYSTEMD_DIR/knot-backend.service" ]]; then
-    if [[ "$(id -u)" == "0" ]]; then systemctl restart knot-backend; else sudo systemctl restart knot-backend; fi
-    return 0
-  fi
   if [[ -f "$pid_file" ]]; then
     restart_manual
     return 0
   fi
-  case "$(uname -s)" in
-    Darwin)
-      local uid_num
-      uid_num="$(id -u)"
-      launchctl kickstart -k "gui/$uid_num/com.knot.platform" 2>/dev/null || true
-      ;;
-    Linux)
-      if [[ "$(id -u)" == "0" ]]; then systemctl restart knot-backend; else sudo systemctl restart knot-backend; fi
-      ;;
-    *) ;;
-  esac
+  local uid_num
+  uid_num="$(id -u)"
+  launchctl kickstart -k "gui/$uid_num/com.knot.platform" 2>/dev/null || true
 }
 
 # 没有服务管理器时（deploy-site.sh --runtime none）由部署根下的 pid 文件管进程。
@@ -201,9 +193,9 @@ REL_VERSION=""
 REL_COMMIT=""
 REL_PLATFORM=""
 if [[ -f "$BUILD_INFO" ]]; then
-  REL_VERSION="$(node -e 'try { process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version || "")) } catch {}' "$BUILD_INFO")"
-  REL_COMMIT="$(node -e 'try { process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).commit || "")) } catch {}' "$BUILD_INFO")"
-  REL_PLATFORM="$(node -e 'try { process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).platform || "")) } catch {}' "$BUILD_INFO")"
+  REL_VERSION="$("$NODE_BIN" -e 'try { process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version || "")) } catch {}' "$BUILD_INFO")"
+  REL_COMMIT="$("$NODE_BIN" -e 'try { process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).commit || "")) } catch {}' "$BUILD_INFO")"
+  REL_PLATFORM="$("$NODE_BIN" -e 'try { process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).platform || "")) } catch {}' "$BUILD_INFO")"
 fi
 cat >"$KNOT_DEPLOY_ROOT/deployed.json" <<JSON
 {

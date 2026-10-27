@@ -21,7 +21,7 @@ node ops/scripts/config.mjs docs --write               # 重新生成本文
 | 边界 | 位置 | 放什么 | 能不能进版本库 |
 | --- | --- | --- | --- |
 | 代码 | `backend/` `web/` `packages/` | 真正的默认行为 | 进 |
-| 部署 | `ops/` | 脚本、模板、LaunchAgent、systemd unit。不写站点取值 | 进 |
+| 部署 | `ops/` | 脚本、模板、LaunchAgent。不写站点取值 | 进 |
 | 配置 | `sites/<站点>/` | 站点档案、拓扑、密钥 | 不进（`sites/_template/` 除外） |
 
 环境变量只覆盖代码里的默认值。一个键要么在 `packages/knot-config/src/schema.mjs` 里登记，要么就别读。
@@ -69,13 +69,11 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_PGLOG` | `$HOME/knot/pg.log` |  | 本机 Postgres 日志文件。 |
 | `KNOT_PG_BIN` | `/opt/homebrew/opt/postgresql@16/bin` |  | PostgreSQL 16 的 bin 目录。Apple Silicon Homebrew 是 /opt/homebrew，Intel 改成 /usr/local/opt/postgresql@16/bin。 |
 | `KNOT_UPLOAD_DIR` | 见说明 |  | 上传目录。留空用 <部署根目录>/var/uploads；放在发布包外，升级和回滚都不动它。 |
-| `KNOT_BACKUP_DIR` | （空） |  | 备份目录。留空是还没决定（公网站点会提醒）；写 `null` 表示明确不备份，不再提醒；两者都不装备份任务。填目录后 deploy-site.sh 装每天 04:15 的备份任务（launchd 或 systemd timer）。 |
+| `KNOT_BACKUP_DIR` | （空） |  | 备份目录。留空是还没决定（公网站点会提醒）；写 `null` 表示明确不备份，不再提醒；两者都不装备份任务。填目录后 deploy-site.sh 装每天 04:15 的备份任务（LaunchAgent）。 |
 | `KNOT_BACKUP_KEEP` | `7` |  | 保留最近几份备份。 |
 | `KNOT_BACKUP_SITES` | `1` |  | 1 表示备份也收 sites/<站点>/：platform.env（SMTP 密码、管理令牌）、agents/（智能体凭据）。只备份数据库的话，换台机器邮件登录和智能体就都没了。 |
 | `KNOT_BACKUP_OPENCLAW` | `auto` |  | OpenClaw 状态目录的备份。auto 表示 $HOME/.openclaw 存在就收；1 必须收；0 跳过。只收配置、凭据和 agent 工作区，不含 cache/browser/npm。 |
 | `KNOT_OPENCLAW` | `auto` |  | auto 表示装了 openclaw 才同步；1 必须同步；0 跳过。 |
-| `KNOT_SYSTEMD_DIR` | `/etc/systemd/system` |  | Linux 实例主机上 systemd unit 的安装目录。 |
-| `KNOT_SERVICE_USER` | `knot` |  | Linux 实例主机上跑 Knot Backend 的系统账号。需对该读的目录有权限。 |
 
 ### 从开发机发布
 
@@ -108,7 +106,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | `KNOT_ENTRY_SSL` | `1` |  | 1 监听 443 并配证书；0 只监听 80，证书还没签好时用。 |
 | `KNOT_ENTRY_CERT` | 见说明 |  | 证书链。留空由 KNOT_DOMAIN 推导。 |
 | `KNOT_ENTRY_KEY` | 见说明 |  | 证书私钥。留空由 KNOT_DOMAIN 推导。 |
-| `KNOT_ENTRY_RELOAD_CMD` | `sudo systemctl reload nginx` |  | 改完 nginx 配置后的 reload 命令。非 systemd 的机器改成自己的。 |
+| `KNOT_ENTRY_RELOAD_CMD` | `sudo systemctl reload nginx` |  | 改完 nginx 配置后的 reload 命令。入口主机不是 systemd（例如 OpenBSD、launchd）时改成自己的。 |
 
 ### 回源隧道
 
@@ -134,6 +132,7 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | --- | --- | --- |
 | `DATABASE_URL` | （空） | 由部署脚本写入：local 模式是 postgres://knot@127.0.0.1:<KNOT_PGPORT>/knot，external 模式取 KNOT_DATABASE_URL。 |
 | `STATIC_WEB_DIR` | （空） | 由部署脚本写入：<knot-platform>/web/dist。 |
+| `KNOT_NODE_BIN` | （空） | 由部署脚本写入：这台机器上 Node 22+ 的绝对路径。launchd 不跑登录 shell，PATH 里常常没有 /opt/homebrew/bin；服务启动脚本按它找 node，不去猜 PATH。换 node 版本后重新部署一次即可。 |
 | `KNOT_AGENT_ENV_DIR` | （空） | 由部署脚本写入：<knot-platform>/sites/<站点>/agents。智能体的账号文件放这里。 |
 | `KNOT_PROFILE_FILE` | （空） | 由部署脚本写入：<knot-platform>/sites/<站点>/profile.json。站点档案（自述区）在这里，主理人在 /admin 里编辑。 |
 

@@ -199,8 +199,6 @@ KNOT_UPLOAD_DIR="${KNOT_UPLOAD_DIR:-$KNOT_DEPLOY_ROOT/var/uploads}"
 KNOT_BACKUP_DIR="${KNOT_BACKUP_DIR:-}"
 KNOT_BACKUP_KEEP="${KNOT_BACKUP_KEEP:-7}"
 KNOT_OPENCLAW="${KNOT_OPENCLAW:-auto}"
-KNOT_SYSTEMD_DIR="${KNOT_SYSTEMD_DIR:-/etc/systemd/system}"
-KNOT_SERVICE_USER="${KNOT_SERVICE_USER:-knot}"
 
 # ---- 远程发布 ----
 KNOT_DEPLOY_SSH="${KNOT_DEPLOY_SSH:-}"
@@ -384,45 +382,6 @@ knot_bootout_launchd() {
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
 }
 
-# 渲染一个 systemd unit 并装到 KNOT_SYSTEMD_DIR。Linux 实例主机用。
-knot_install_systemd_unit() {
-  local src="$1"
-  local name="$2"
-  local tmp
-  local home_value current_value root_value site_value user_value env_value xknot_value upload_value
-  home_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT")"
-  current_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT/current")"
-  root_value="$(knot_sed_value "$KNOT_DEPLOY_ROOT")"
-  site_value="$(knot_sed_value "$KNOT_SITE")"
-  user_value="$(knot_sed_value "$KNOT_SERVICE_USER")"
-  env_value="$(knot_sed_value "$KNOT_PLATFORM_ENV")"
-  xknot_value="$(knot_sed_value "$KNOT_XKNOT_ENV")"
-  upload_value="$(knot_sed_value "$KNOT_UPLOAD_DIR")"
-  tmp="$(mktemp "${TMPDIR:-/tmp}/knot-unit.XXXXXX")"
-  sed -e "s|__KNOT_HOME__|$home_value|g" \
-    -e "s|__KNOT_CURRENT__|$current_value|g" \
-    -e "s|__KNOT_DEPLOY_ROOT__|$root_value|g" \
-    -e "s|__KNOT_SITE__|$site_value|g" \
-    -e "s|__KNOT_USER__|$user_value|g" \
-    -e "s|__KNOT_ENV_FILE__|$env_value|g" \
-    -e "s|__KNOT_XKNOT_ENV__|$xknot_value|g" \
-    -e "s|__KNOT_UPLOAD_DIR__|$upload_value|g" "$src" >"$tmp"
-  if [[ -w "$KNOT_SYSTEMD_DIR" ]]; then
-    install -m 644 "$tmp" "$KNOT_SYSTEMD_DIR/$name"
-  else
-    sudo install -m 644 "$tmp" "$KNOT_SYSTEMD_DIR/$name"
-  fi
-  rm -f "$tmp"
-}
-
-knot_systemctl() {
-  if [[ "$(id -u)" == "0" ]]; then
-    systemctl "$@"
-  else
-    sudo systemctl "$@"
-  fi
-}
-
 # 读某个公网入口文件里的一个键。
 #
 # 入口文件是叠加层：同一个键在 site.env 里有、入口里也有时，入口的赢。
@@ -484,6 +443,9 @@ knot_require_entry_paths() {
 # 收尾时对整个进程组发 SIGTERM/SIGKILL，同组的孩子一样会被带走，
 # 于是「部署成功、进程随后消失」。这里新开一个会话，组和会话都换掉。
 #
+# macOS 没有 setsid(1)，用 perl 的 fork + POSIX::setsid；两个都不可用时退回
+# nohup，至少把进程起来（挡不住进程组被收，部署输出里会说清）。
+#
 # 用法：knot_start_detached <pid 文件> <日志文件> <命令...>
 # 返回后 pid 文件里是进程本身的 pid（不是启动器的 pid）。
 knot_start_detached() {
@@ -491,15 +453,8 @@ knot_start_detached() {
   shift 2
   mkdir -p "$(dirname "$pid_file")" "$(dirname "$log_file")"
 
-  if command -v setsid >/dev/null 2>&1; then
-    # util-linux 的 setsid：必要时自己 fork，$1 拿 pid 文件，其余是命令。
-    setsid bash -c 'echo $$ >"$1"; shift; exec "$@"' _ "$pid_file" "$@" \
-      >>"$log_file" 2>&1 </dev/null &
-    return 0
-  fi
-
   if command -v perl >/dev/null 2>&1; then
-    # macOS 没有 setsid。fork 之后在子进程里 setsid，再把真实 pid 写下来。
+    # fork 之后在子进程里 setsid，再把真实 pid 写下来。
     perl -MPOSIX -e '
       my ($pidfile, @cmd) = @ARGV;
       exit 0 if fork();

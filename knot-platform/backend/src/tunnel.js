@@ -202,36 +202,30 @@ export async function managedBlockPresent({ file, read = readFile } = {}) {
 /**
  * 让隧道进程用上新配置。装了常驻单元就重启它；没有单元时不假装成功，
  * 把命令交给调用方显示，人照着跑一次即可。
+ *
+ * main 只支持 macOS + launchd：隧道也是实例主机上的 LaunchAgent。
  */
-export async function restartTunnel({ exec = execFileAsync, platform = process.platform } = {}) {
-  const attempts = tunnelUnitAttempts(platform);
-  for (const [cmd, args] of attempts) {
-    try {
-      await exec(cmd, args);
-      return { ok: true, command: `${cmd} ${args.join(" ")}` };
-    } catch {
-      // 没装单元是正常情况（开发机、只部署了 Backend）：继续试下一步。
-    }
+export async function restartTunnel({ exec = execFileAsync } = {}) {
+  const [cmd, args] = tunnelUnitCommand();
+  try {
+    await exec(cmd, args);
+    return { ok: true, command: `${cmd} ${args.join(" ")}` };
+  } catch {
+    // 没装单元是正常情况（开发机、只部署了 Backend）：把命令交回去。
+    return { ok: false, command: `${cmd} ${args.join(" ")}` };
   }
-  return { ok: false, command: attempts[0] ? `${attempts[0][0]} ${attempts[0][1].join(" ")}` : "" };
 }
 
-function tunnelUnitAttempts(platform = process.platform) {
+function tunnelUnitCommand() {
   const uid = process.getuid?.() ?? 501;
-  return platform === "darwin"
-    ? [["launchctl", ["kickstart", "-k", `gui/${uid}/com.knot.entry-tunnel`]]]
-    : [["systemctl", ["restart", "knot-entry-tunnel"]]];
+  return ["launchctl", ["kickstart", "-k", `gui/${uid}/com.knot.entry-tunnel`]];
 }
 
 /** 隧道有没有常驻单元。只探测，不动进程：要的是能在回包之前说真话。 */
-export async function tunnelUnitInstalled({ exec = execFileAsync, platform = process.platform } = {}) {
+export async function tunnelUnitInstalled({ exec = execFileAsync } = {}) {
   const uid = process.getuid?.() ?? 501;
-  const probe =
-    platform === "darwin"
-      ? ["launchctl", ["print", `gui/${uid}/com.knot.entry-tunnel`]]
-      : ["systemctl", ["cat", "knot-entry-tunnel"]];
   try {
-    await exec(probe[0], probe[1]);
+    await exec("launchctl", ["print", `gui/${uid}/com.knot.entry-tunnel`]);
     return true;
   } catch {
     return false;
@@ -284,18 +278,17 @@ export function renderAgentPlist(template, { site, home, current }) {
  * 部署时没装隧道单元（例如填写申请那一刻站点还没接通），这里补装一次：
  * 只写用户自己的 LaunchAgent，不动系统目录；已装过就直接重启。
  *
- * 拿不到模板或不在 macOS 时返回 ok:false 与一条可复制的启动命令。
+ * 拿不到模板时返回 ok:false 与一条可复制的启动命令。
  */
 export async function startTunnelAgent({
   cwd = process.cwd(),
   site = process.env.KNOT_SITE || "",
   exec = execFileAsync,
-  platform = process.platform,
 } = {}) {
-  const restarted = await restartTunnel({ exec, platform });
+  const restarted = await restartTunnel({ exec });
   if (restarted.ok) return restarted;
 
-  if (platform !== "darwin" || !site) return restarted;
+  if (!site) return restarted;
 
   const root = deployRootOf(cwd);
   const template = path.join(root, "current", "ops", "launchd", `${PLIST_LABEL}.plist`);

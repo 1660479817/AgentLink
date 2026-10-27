@@ -15,7 +15,7 @@
 #   ./ops/scripts/backup-knot.sh                 # 全量
 #   ./ops/scripts/backup-knot.sh --config-only   # 只收配置和智能体状态，不碰数据库
 #
-# 定时执行：macOS 用 ops/launchd/com.knot.backup.plist，Linux 用 ops/systemd/knot-backup.timer。
+# 定时执行：ops/launchd/com.knot.backup.plist（每天 04:15）。
 set -euo pipefail
 
 CONFIG_ONLY=0

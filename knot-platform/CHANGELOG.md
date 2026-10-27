@@ -8,6 +8,30 @@ Note the distinction between three "version" concepts:
 - **Content revision number**: `kMeta.version`, a piece of content's position in its revision chain, starting from 1.
 - **Revision lineage**: `kMeta.originId` points at the first version; the several versions of one piece are strung into a chain.
 
+## [0.9.0] — 2026-10-27
+
+The instance host is macOS only, and deployment starts with a gate instead of a surprise. A machine that cannot run Knot is now told so before anything is unpacked, stopped, or switched; node is resolved to an absolute path so launchd does not have to guess a `PATH`; and Linux + systemd leaves `main` rather than being carried along untested.
+
+### Added
+
+- **A preflight gate runs before any write.** `deploy-site.sh` checks the platform (`Darwin`), the basic tools (`tar`, `rsync`, `curl`, `mktemp`), Node 22+, and the database before it verifies the artifact, stops the service, or touches `releases/`. A `local` database check requires `initdb`, `pg_ctl`, `pg_isready`, `psql`, and `createdb` under `KNOT_PG_BIN`; an `external` one connects once and runs `SELECT 1` through the package's own `pg` client, so the target needs no `psql`. Each failing row prints what is missing plus one command that fixes it, then the script exits non-zero. `--dry-run` runs the same gate. `doctor.sh` reuses the same checks for platform and Node, so a machine that drifts after installation is reported the same way.
+
+- **`ops/scripts/bootstrap-host.sh` installs what the gate asks for, and only with `--yes`.** It installs `node@22` and `postgresql@16` as keg-only Homebrew formulae, re-runs the same gate afterwards, and stops there: no `brew services`, no `initdb`, no `createdb`, no port or data-directory choices, no `site.env` edits, no LaunchAgents. Without `--yes` it prints the plan. `deploy-site.sh --bootstrap` and `push-deploy.sh --bootstrap` call it when the gate fails, from the release package already unpacked on the target, and re-check after it returns. An `external` database installs nothing.
+
+- **`KNOT_NODE_BIN` records where node actually is.** The deploy resolves the highest Node 22+ among the login `PATH`, Homebrew's `node`/`node@22`, and nvm/volta/fnm/`~/.local` locations, and writes the absolute path into the instance's `platform.env`. `run-knot-platform.sh` execs `${KNOT_NODE_BIN:-node}`, so a launchd job — which inherits neither a login shell nor `/opt/homebrew/bin` — starts with the node that was verified instead of `node: command not found`. `rollback.sh`, `local-login.sh`, `join-xknot.sh`, `ensure-first-agent.sh`, and the OpenClaw scripts read the same value. Switching node versions means one more deploy.
+
+### Changed
+
+- **Remote deploys are verified on the target's loopback, not from the deploying machine.** An instance binds `127.0.0.1` by default, so a health check from the other machine could fail on a good release and trigger an automatic rollback. `push-deploy.sh` now runs the probe over ssh against `127.0.0.1:<KNOT_PORT>` and only uses `KNOT_DEPLOY_VERIFY_URL` when it is set (typically the public entry).
+
+- **The artifact's platform is compared with the target's before it is uploaded.** `push-deploy.sh` asks the target for `uname -s`/`uname -m`, maps that to `darwin-arm64`/`darwin-x64`, and refuses a mismatch up front instead of failing on native modules after the transfer. The deployment layer documents its two supported shapes: build and install on the instance host, or build on another macOS machine and install over ssh.
+
+- **`KNOT_ENTRY_RELOAD_CMD` still defaults to `systemctl reload nginx`,** because the public entry host is a Linux box with nginx; only the instance host is macOS-only. The wording now says so.
+
+### Removed
+
+- **Linux + systemd as an instance-host runtime.** `ops/systemd/`, the `uname`-based runtime switch and `--runtime systemd`, `KNOT_SYSTEMD_DIR`, `KNOT_SERVICE_USER`, and the `systemctl` restart paths in `issued.js` / `tunnel.js` are gone. A stale `platform.env` that still carries the two retired keys is cleaned on the next deploy with one line of explanation, and the placeholders test now covers the launchd templates alone. Supporting another platform is a fork of the deployment layer: `ops/README.md` and `ops/README_CN.md` list the four seams.
+
 ## [0.8.1] — 2026-10-26
 
 Final-review timing and entry uploads. The review snapshot now reads real review timestamps, and an attachment that is allowed by the instance is no longer judged a gateway timeout on the way in.

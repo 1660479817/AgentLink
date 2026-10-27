@@ -21,7 +21,6 @@ knot_source_platform_env
 
 UPLOAD_DIR="${UPLOAD_DIR:-$KNOT_DEPLOY_ROOT/var/uploads}"
 UID_NUM="$(id -u)"
-SYSTEMD_UNIT="$KNOT_SYSTEMD_DIR/knot-backend.service"
 PID_FILE="$KNOT_DEPLOY_ROOT/var/run/backend.pid"
 
 stop_backend() {
@@ -34,26 +33,22 @@ stop_backend() {
       sleep 0.1
     done
     rm -f "$PID_FILE"
-  elif [[ "$(uname -s)" == "Darwin" ]]; then
+  else
     launchctl bootout "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
-  elif [[ -f "$SYSTEMD_UNIT" ]]; then
-    if [[ "$(id -u)" == "0" ]]; then systemctl stop knot-backend 2>/dev/null || true; else sudo systemctl stop knot-backend 2>/dev/null || true; fi
   fi
 }
 
 restart_backend() {
-  if [[ ! -f "$HOME/Library/LaunchAgents/com.knot.platform.plist" && ! -f "$SYSTEMD_UNIT" ]]; then
+  if [[ ! -f "$HOME/Library/LaunchAgents/com.knot.platform.plist" ]]; then
     # 没有服务管理器（deploy-site.sh --runtime none）：后台起一份，pid 记在 var/run。
     mkdir -p "$KNOT_DEPLOY_ROOT/var/log" "$KNOT_DEPLOY_ROOT/var/run"
     env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" \
       KNOT_SITE="$KNOT_SITE" KNOT_DEPLOY_ROOT="$KNOT_DEPLOY_ROOT" \
       nohup "$KNOT_DEPLOY_ROOT/current/ops/scripts/run-knot-platform.sh" >>"$KNOT_DEPLOY_ROOT/var/log/knot-platform.log" 2>&1 &
     echo $! >"$PID_FILE"
-  elif [[ "$(uname -s)" == "Darwin" ]]; then
+  else
     launchctl bootstrap "gui/$UID_NUM" "$HOME/Library/LaunchAgents/com.knot.platform.plist" 2>/dev/null || true
     launchctl kickstart -k "gui/$UID_NUM/com.knot.platform" 2>/dev/null || true
-  elif [[ -f "$SYSTEMD_UNIT" ]]; then
-    if [[ "$(id -u)" == "0" ]]; then systemctl restart knot-backend; else sudo systemctl restart knot-backend; fi
   fi
 }
 
@@ -305,7 +300,7 @@ SQL
 
 echo "==> migrate"
 cd "$KNOT_APP_DIR"
-node "$KNOT_APP_DIR/backend/scripts/migrate.js" --reset
+"${KNOT_NODE_BIN:-node}" "$KNOT_APP_DIR/backend/scripts/migrate.js" --reset
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 -- 先人后 Agent：Agent 的 owner_id 指向已经存在的账号。

@@ -3,14 +3,14 @@ import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-// 单元文件是模板，占位符漏填会原样写进系统的 service 文件：systemd 读到
-// ReadWritePaths=-__KNOT_UPLOAD_DIR__ 这种值不会报错，只是那条路径不存在，
-// 后端在 ProtectSystem=full 下写不了上传目录，等到有人上传才暴露。
-// 这里把「单元里出现的占位符」和「site-config.sh 会替换的占位符」对一遍。
+// 单元文件是模板，占位符漏填会原样写进 launchd 读的 plist：launchd 不会因为
+// ProgramArguments 里是 __KNOT_CURRENT__/ops/... 就报错，它只是拉不起进程，
+// 表现成「部署成功、服务起不来」，日志目录里什么也没有。
+// 这里把「模板里出现的占位符」和「site-config.sh 会替换的占位符」对一遍。
+//
+// main 只支持 macOS：模板只有 launchd/ 一份。systemd 是 fork 的事，不在这里。
 
-const UNIT_DIRS = ["systemd", "launchd"].map((name) =>
-  fileURLToPath(new URL(`../${name}/`, import.meta.url)),
-);
+const UNIT_DIR = fileURLToPath(new URL("../launchd/", import.meta.url));
 const SITE_CONFIG = readFileSync(
   fileURLToPath(new URL("./lib/site-config.sh", import.meta.url)),
   "utf8",
@@ -19,14 +19,9 @@ const SITE_CONFIG = readFileSync(
 const PLACEHOLDER = /__KNOT_[A-Z_]+__/g;
 
 function unitFiles() {
-  const files = [];
-  for (const dir of UNIT_DIRS) {
-    for (const name of readdirSync(dir)) {
-      if (!name.endsWith(".service") && !name.endsWith(".timer") && !name.endsWith(".plist")) continue;
-      files.push({ name, path: `${dir}${name}` });
-    }
-  }
-  return files;
+  return readdirSync(UNIT_DIR)
+    .filter((name) => name.endsWith(".plist"))
+    .map((name) => ({ name, path: `${UNIT_DIR}${name}` }));
 }
 
 function substituted() {
@@ -35,9 +30,9 @@ function substituted() {
   return names;
 }
 
-test("单元模板里的占位符都有对应的替换", () => {
+test("LaunchAgent 模板里的占位符都有对应的替换", () => {
   const known = substituted();
-  assert.ok(known.size >= 7);
+  assert.ok(known.size >= 3, `site-config.sh 里只找到 ${known.size} 个占位符替换`);
   const missing = [];
   for (const file of unitFiles()) {
     const text = readFileSync(file.path, "utf8");
@@ -48,19 +43,21 @@ test("单元模板里的占位符都有对应的替换", () => {
   assert.deepEqual(missing, []);
 });
 
-test("后端单元放开了上传目录，并把新文件的权限收紧", () => {
-  const text = readFileSync(fileURLToPath(new URL("../systemd/knot-backend.service", import.meta.url)), "utf8");
-  // UPLOAD_DIR 可以配到 var/ 之外：只放开 __KNOT_HOME__/var 时，上传会直接失败。
-  assert.match(text, /^ReadWritePaths=-__KNOT_UPLOAD_DIR__$/m);
-  // 上传原件不该对同机其他用户可读。
-  assert.match(text, /^UMask=0077$/m);
+test("主进程的 LaunchAgent 从 current 启动，日志写在部署根下", () => {
+  const text = readFileSync(`${UNIT_DIR}com.knot.platform.plist`, "utf8");
+  // current 是软链：回滚只切链接，plist 不用重写。
+  assert.match(text, /<string>__KNOT_CURRENT__\/ops\/scripts\/run-knot-platform\.sh<\/string>/);
+  // 服务跑起来不靠登录 shell 的 PATH：node 的绝对路径由 platform.env 的
+  // KNOT_NODE_BIN 给出，plist 只需要指到脚本。
+  assert.match(text, /<key>StandardErrorPath<\/key>\s*<string>__KNOT_HOME__\/var\/log\/knot-platform\.err\.log<\/string>/);
+  assert.match(text, /<key>KeepAlive<\/key>\s*<true\/>/);
 });
 
-test("备份单元卡住会超时，失败会留下可查的错误", () => {
-  const text = readFileSync(fileURLToPath(new URL("../systemd/knot-backup.service", import.meta.url)), "utf8");
-  // 没有上限的 oneshot 会一直 active，之后的每日触发被 systemd 忽略，备份静默停摆。
-  assert.match(text, /^TimeoutStartSec=\d+[hm]?$/m);
-  assert.match(text, /^OnFailure=knot-backup-alert\.service$/m);
-  const alert = readFileSync(fileURLToPath(new URL("../systemd/knot-backup-alert.service", import.meta.url)), "utf8");
-  assert.match(alert, /^ExecStart=\/usr\/bin\/logger /m);
+test("备份每天 04:15 跑一次，且不在加载时立刻跑", () => {
+  const text = readFileSync(`${UNIT_DIR}com.knot.backup.plist`, "utf8");
+  // RunAtLoad=true 会在每次部署（kickstart/bootstrap）时插一次备份，把「每天一次」
+  // 变成「每次部署一次」，备份目录很快被同一天的几份挤满。
+  assert.match(text, /<key>RunAtLoad<\/key>\s*<false\/>/);
+  assert.match(text, /<key>StartCalendarInterval<\/key>/);
+  assert.match(text, /__KNOT_CURRENT__\/ops\/scripts\/backup-knot\.sh/);
 });

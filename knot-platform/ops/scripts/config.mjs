@@ -23,6 +23,7 @@ import { invokedDirectly } from "./lib/main-module.mjs";
 import {
   KEYS,
   FORBIDDEN_PLATFORM_KEYS,
+  RETIRED_PLATFORM_KEYS,
   checkEntryFile,
   checkJoin,
   checkPlatform,
@@ -383,6 +384,9 @@ function computedValue(key, env, ctx) {
     }
     case "STATIC_WEB_DIR":
       return path.join(ctx.root, "web/dist");
+    case "KNOT_NODE_BIN":
+      // 部署脚本已经解析好（含主版本检查）再传进来；这里只落盘。
+      return isBlank(process.env.KNOT_NODE_BIN) ? "" : String(process.env.KNOT_NODE_BIN).trim();
     case "KNOT_AGENT_ENV_DIR":
       return path.join(ctx.deployRoot || ctx.root, "sites", ctx.site, "agents");
     case "KNOT_PROFILE_FILE":
@@ -410,6 +414,7 @@ function cmdEnv(argv) {
   }
   const ctx = { root, deployRoot, home, expand: true, site: paths.name };
 
+  const existing = parseEnv(readText(outPath));
   const always = {};
   for (const entry of KEYS) {
     if (entry.file === "site" && entry.runtime) {
@@ -419,8 +424,13 @@ function cmdEnv(argv) {
       always[entry.key] = computedValue(entry.key, env, ctx);
     }
   }
+  // 手动跑 `config.mjs env` 时没人传 KNOT_NODE_BIN（部署脚本会传）：别把已经验过的
+  // 绝对路径清成空。run-knot-platform.sh 会退回 PATH 里的 node，而 launchd 下没有
+  // /opt/homebrew/bin，表现就是「改了个无关配置，服务起不来了」。
+  if (isBlank(process.env.KNOT_NODE_BIN) && !isBlank(existing.KNOT_NODE_BIN)) {
+    always.KNOT_NODE_BIN = String(existing.KNOT_NODE_BIN).trim();
+  }
 
-  const existing = parseEnv(readText(outPath));
   const seeds = {};
   for (const entry of KEYS) {
     if (entry.file !== "platform" || entry.computed) continue;
@@ -436,6 +446,14 @@ function cmdEnv(argv) {
     base = cleaned.text;
     if (cleaned.removed.length) {
       console.error(`警告：从运行时配置里移除了不属于实例主机的键：${cleaned.removed.join("、")}`);
+    }
+    // 已经删掉的键（现在是 Linux 实例主机那一组）：旧机器的文件里还留着，清掉。
+    const retired = removeEnvKeys(base, RETIRED_PLATFORM_KEYS);
+    base = retired.text;
+    if (retired.removed.length) {
+      console.error(
+        `警告：从运行时配置里移除了已删除的键：${retired.removed.join("、")}（main 只支持 macOS + launchd，这两个键只在 fork 里才有意义）。`
+      );
     }
     // 0.3 之前委托发信凭据写在 platform.env；现在归 xknot.env。迁移一次，别把凭据留成孤儿。
     const joinKeys = KEYS.filter((entry) => entry.file === "xknot").map((entry) => entry.key);

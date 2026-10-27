@@ -47,10 +47,6 @@ test("openclaw 同步之后立刻补一次探测，不等定时器", () => {
     text.some((line) => /launchctl kickstart[^\n]*com\.knot\.openclaw-probe/.test(line)),
     "openclaw_probe_now 没有在 launchd 上拉起探针",
   );
-  assert.ok(
-    text.some((line) => /systemctl start knot-openclaw-probe\.service/.test(line)),
-    "openclaw_probe_now 没有在 systemd 上拉起探针",
-  );
 
   // 每个装了 openclaw 的分支都要补这一下；漏一个就等于那台机器回到空等五分钟。
   const ensure = text.filter((line) => /OPENCLAW_ENABLE_PROCESS=1 .*ensure-openclaw\.sh/.test(line)).length;

@@ -13,4 +13,4 @@ if [[ -z "${KNOT_AGENT_ENV_DIR:-}" ]]; then
   export KNOT_AGENT_ENV_DIR="$KNOT_SITE_DIR/agents"
 fi
 
-exec node "$KNOT_APP_DIR/backend/scripts/ensure-first-agent.mjs"
+exec "${KNOT_NODE_BIN:-node}" "$KNOT_APP_DIR/backend/scripts/ensure-first-agent.mjs"

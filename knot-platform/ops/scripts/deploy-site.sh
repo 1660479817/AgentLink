@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# 在一个已经装好 Node.js 的实例主机上安装一份**已经构建好的** Knot 发布包。
+# 在一台 macOS 实例主机上安装一份**已经构建好的** Knot 发布包。
 #
 # 这里不做构建：不跑 npm ci，不跑 vite build。构建在开发机做（ops/scripts/build.sh），
 # 产物是一个 tar.gz，解包后就是一个可运行的代码目录。
+#
+# 动手之前先过主机门禁（平台、基础工具、Node 22+、数据库）：缺什么就停下并给一行
+# 能照做的命令，不等到停完服务、切完 current 才失败。门禁只检查、不装包；加
+# --bootstrap 才让它调 ops/scripts/bootstrap-host.sh 装 Node 22+ 与 postgresql@16
+# （只装 brew 包：不建库、不改端口、不装系统服务），装完复检一次。
 #
 # 目录布局（部署根 = KNOT_DEPLOY_DIR）：
 #   sites/<站点>/       配置，升级不动
@@ -18,10 +23,11 @@
 #   ./ops/scripts/deploy-site.sh --site wang --dry-run          # 只检查，不动手
 #   ./ops/scripts/deploy-site.sh --site local --artifact <tar.gz> --deploy-root "$PWD"
 #                                                                # local：目标就是本机
-#   ./ops/scripts/deploy-site.sh --site wang --runtime systemd  # Linux 实例主机
-#   ./ops/scripts/deploy-site.sh --site wang --runtime none     # 没有服务管理器时后台起
+#   ./ops/scripts/deploy-site.sh --site wang --runtime none     # 不装成开机自启，后台起
+#   ./ops/scripts/deploy-site.sh --site wang --bootstrap        # 门禁不过时先补 Node/Postgres
 #
 # 从开发机一步完成构建、传输和部署用 ./ops/scripts/push-deploy.sh。
+# 实例主机只支持 macOS + launchd（main 分支）；别的平台要 fork 发布层。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -34,6 +40,7 @@ RUNTIME_ARG=""
 DRY_RUN=0
 NO_ROLLBACK=0
 ALLOW_PLATFORM_MISMATCH=0
+BOOTSTRAP=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --site)
@@ -52,12 +59,16 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --runtime)
-      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--runtime 后面要跟 launchd / systemd / none" >&2; exit 2; }
+      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--runtime 后面要跟 launchd / none" >&2; exit 2; }
       RUNTIME_ARG="$2"
       shift 2
       ;;
     --dry-run)
       DRY_RUN=1
+      shift
+      ;;
+    --bootstrap)
+      BOOTSTRAP=1
       shift
       ;;
     --no-auto-rollback)
@@ -93,6 +104,46 @@ if [[ -f "${KNOT_SITE_DIR:-}/tunnel.env" ]]; then
   set +a
 fi
 CONFIG_ARGS=(--site "$KNOT_SITE")
+
+# ---- 0. 主机门禁 ----
+# 先看平台、基础工具和 node：下面校验发布包本身就要用 node，缺了连报错都不可靠。
+# 这一步只读，不装任何东西；所以 --dry-run 也照跑。
+# shellcheck source=lib/host-check.sh
+source "$SCRIPT_DIR/lib/host-check.sh"
+KNOT_PF_BOOTSTRAP_HINT=1
+
+knot_host_checks() {
+  knot_check_host_platform
+  knot_check_tools
+  knot_check_node
+}
+
+# 门禁 + 可选的补装：--bootstrap 才动系统包，而且只动 Node 与 postgresql@16。
+# 装完必须复检：brew 退出码 0 不等于这个版本能用（见 bootstrap-host.sh）。
+knot_gate() {
+  local title="$1"
+  shift
+  knot_pf_begin
+  "$@"
+  knot_pf_finish "$title" && return 0
+  if [[ "$BOOTSTRAP" != 1 ]]; then
+    return 1
+  fi
+  if [[ "$DRY_RUN" == 1 ]]; then
+    echo
+    echo "dry-run：加 --bootstrap 会先装 Node 22+ / postgresql@16，再复检一次。"
+    return 1
+  fi
+  echo
+  echo "==> bootstrap host（只装 brew 包：不建库、不改端口、不装系统服务）"
+  "$SCRIPT_DIR/bootstrap-host.sh" --site "$KNOT_SITE" --deploy-root "$KNOT_DEPLOY_ROOT" --yes || return 1
+  knot_pf_begin
+  "$@"
+  knot_pf_finish "$title"
+}
+
+echo "==> check host"
+knot_gate "主机" knot_host_checks || exit 1
 
 # ---- 0. 发布包 ----
 # 允许 --artifact 指 tar.gz：解到暂存区，再把代码目录切过去。
@@ -141,8 +192,7 @@ if [[ -n "$ARTIFACT_ARG" ]]; then
     KNOT_APP_DIR="$(cd "$ARTIFACT_ARG" && pwd -P)"
     export KNOT_APP_DIR
   else
-    command -v node >/dev/null 2>&1 || knot_fail "需要 node 来校验发布包。"
-    node "$SCRIPT_DIR/artifact.mjs" verify "$ARTIFACT_ARG" >/dev/null ||
+    "$KNOT_NODE_BIN" "$SCRIPT_DIR/artifact.mjs" verify "$ARTIFACT_ARG" >/dev/null ||
       knot_fail "发布包校验失败：$ARTIFACT_ARG"
     # 校验和只证明「包没被改过」，不证明「包里的路径没往外走」。解包写的是系统目录，
     # 所以先看成员名单：绝对路径、`..` 段、指向包外的链接一律拒绝（S16-01）。
@@ -163,15 +213,11 @@ fi
 或者一步到位：    ./ops/scripts/push-deploy.sh --site $KNOT_SITE
 从 tar.gz 安装：  ./ops/scripts/deploy-site.sh --site $KNOT_SITE --artifact <tar.gz>"
 
-command -v node >/dev/null 2>&1 || knot_fail "需要 Node.js 22+。发布包里已经带生产依赖，但运行时仍要有 node。"
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[[ "$NODE_MAJOR" -ge 22 ]] || knot_fail "Node.js 版本太低（$(node -v)），需要 22+。"
-
 # ---- 0.5 OpenClaw 环境预检（只提醒，不阻断） ----
-node "$KNOT_APP_DIR/ops/scripts/check-openclaw-env.mjs" || true
+"$KNOT_NODE_BIN" "$KNOT_APP_DIR/ops/scripts/check-openclaw-env.mjs" || true
 
 MANIFEST="$KNOT_APP_DIR/BUILD.json"
-REL_NAME="$(node "$SCRIPT_DIR/artifact.mjs" field release "$MANIFEST")"
+REL_NAME="$("$KNOT_NODE_BIN" "$SCRIPT_DIR/artifact.mjs" field release "$MANIFEST")"
 
 # REL_NAME 来自 BUILD.json，会直接拼进路径，还参与 rm -rf。发布包是外部输入
 # （可以从别处拷来的 tar.gz），所以按不可信字符串处理：只允许字母、数字和 . _ + -，
@@ -185,10 +231,10 @@ case "$REL_NAME" in
 esac
 [[ "${#REL_NAME}" -le 120 ]] || knot_fail "release 名字太长（${#REL_NAME} 字符，上限 120）：${REL_NAME}"
 
-REL_VERSION="$(node "$SCRIPT_DIR/artifact.mjs" field version "$MANIFEST")"
-REL_COMMIT="$(node "$SCRIPT_DIR/artifact.mjs" field commit "$MANIFEST")"
-REL_PLATFORM="$(node "$SCRIPT_DIR/artifact.mjs" field platform "$MANIFEST")"
-HOST_PLATFORM="$(node "$SCRIPT_DIR/artifact.mjs" platform)"
+REL_VERSION="$("$KNOT_NODE_BIN" "$SCRIPT_DIR/artifact.mjs" field version "$MANIFEST")"
+REL_COMMIT="$("$KNOT_NODE_BIN" "$SCRIPT_DIR/artifact.mjs" field commit "$MANIFEST")"
+REL_PLATFORM="$("$KNOT_NODE_BIN" "$SCRIPT_DIR/artifact.mjs" field platform "$MANIFEST")"
+HOST_PLATFORM="$("$KNOT_NODE_BIN" "$SCRIPT_DIR/artifact.mjs" platform)"
 if [[ "$REL_PLATFORM" != "$HOST_PLATFORM" && "$ALLOW_PLATFORM_MISMATCH" != 1 ]]; then
   knot_fail "发布包是 ${REL_PLATFORM}，这台机器是 ${HOST_PLATFORM}。
    原生模块（如 sharp）不能跨平台。请在这台机器同平台的环境里重新构建。
@@ -199,7 +245,7 @@ fi
 # 而 --no-modules 打出来的包名与默认包完全一样，只在 BUILD.json 的 modules
 # 字段上有差别；这个字段不读的话，解包后 node_modules 是空的，一路走到探活
 # 才失败，报错看起来像「后端起不来」。
-REL_MODULES="$(node "$SCRIPT_DIR/artifact.mjs" field modules "$MANIFEST")"
+REL_MODULES="$("$KNOT_NODE_BIN" "$SCRIPT_DIR/artifact.mjs" field modules "$MANIFEST")"
 if [[ "$REL_MODULES" != "true" ]]; then
   knot_fail "这个发布包不带 node_modules（BUILD.json 里 modules=${REL_MODULES:-false}）。
 目标机不跑 npm ci，装上去起不来。用不带 --no-modules 的 ./ops/scripts/build.sh 重新打包。"
@@ -207,47 +253,27 @@ fi
 
 # ---- 1. 站点配置 ----
 echo "==> check sites/$KNOT_SITE/site.env"
-node "$SCRIPT_DIR/config.mjs" check "${CONFIG_ARGS[@]}"
+"$KNOT_NODE_BIN" "$SCRIPT_DIR/config.mjs" check "${CONFIG_ARGS[@]}"
 
-RUNTIME="${RUNTIME_ARG:-}"
-if [[ -z "$RUNTIME" ]]; then
-  case "$(uname -s)" in
-    Darwin) RUNTIME=launchd ;;
-    Linux) RUNTIME=systemd ;;
-    *) RUNTIME=none ;;
-  esac
-fi
+# main 只支持 macOS + launchd。--runtime none 留着给“装了但不想常驻”和临时机器，
+# 它不是第二种平台；非 Darwin 在主机门禁那一步就已经停下了。
+RUNTIME="${RUNTIME_ARG:-launchd}"
 case "$RUNTIME" in
-  launchd | systemd | none) ;;
-  *) knot_fail "--runtime 只能是 launchd、systemd 或 none。" ;;
+  launchd | none) ;;
+  *) knot_fail "--runtime 只能是 launchd 或 none（实例主机只支持 macOS + launchd）。" ;;
 esac
 
-if [[ "$RUNTIME" == "systemd" && "$KNOT_DB_MODE" == "local" ]]; then
-  knot_fail "KNOT_DB_MODE=local 只支持 macOS + Homebrew Postgres。
-Linux 实例主机请用 KNOT_DB_MODE=external 接已有数据库。"
-fi
-if [[ "$RUNTIME" == "launchd" ]] && [[ "$KNOT_DB_MODE" == "local" && ! -x "$KNOT_PG_BIN/pg_ctl" ]]; then
-  knot_fail "缺少 postgresql@16：brew install postgresql@16（或把 KNOT_PG_BIN 指向它的 bin 目录）。也可用 KNOT_DB_MODE=external 接已有数据库。"
-fi
-if [[ "$RUNTIME" == "systemd" ]]; then
-  if ! id "$KNOT_SERVICE_USER" >/dev/null 2>&1; then
-    knot_warn "系统账号 $KNOT_SERVICE_USER 不存在。systemd 会起不来：先 useradd，或把 KNOT_SERVICE_USER 改成部署账号。"
-  elif [[ "$(id -un)" != "$KNOT_SERVICE_USER" ]]; then
-    knot_warn "当前是 $(id -un)，服务要跑成 ${KNOT_SERVICE_USER}。确认它能读 ${KNOT_DEPLOY_ROOT}、能写 $KNOT_DEPLOY_ROOT/var。"
-  fi
-fi
+# ---- 1.5 数据库就绪（门禁）----
+# 只读：本机库看 bin 齐不齐，外部库真连一次、把失败翻译成一句话。
+# 建库与起库仍在第 3 步；这里拦的是「等停完服务、切完 current 才发现库连不上」。
+echo "==> check database"
+knot_gate "数据库" knot_check_database || exit 1
 
 # 启停就这一个入口：迁移失败回滚和正常启动都走它。
 restart_backend() {
   case "$RUNTIME" in
     launchd)
       knot_install_launchd "$KNOT_APP_DIR/ops/launchd/com.knot.platform.plist" com.knot.platform
-      ;;
-    systemd)
-      knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-backend.service" knot-backend.service
-      knot_systemctl daemon-reload
-      knot_systemctl enable knot-backend >/dev/null 2>&1 || true
-      knot_systemctl restart knot-backend
       ;;
     *)
       # 没有服务管理器时自己拉起后台进程：KNOT_SITE 决定读哪份 platform.env，
@@ -269,7 +295,7 @@ restart_backend() {
         rm -f "$MANUAL_PID_FILE"
       fi
       echo "==> start backend in background (pid → var/run/backend.pid)"
-      # 用干净环境启动，和 launchd/systemd 一样只认 platform.env，不要继承部署脚本导出的 site 键。
+      # 用干净环境启动，和 launchd 一样只认 platform.env，不要继承部署脚本导出的 site 键。
       # 新开会话：部署脚本退出后它要还在。
       knot_start_detached "$MANUAL_PID_FILE" "$MANUAL_LOG_DIR/knot-platform.log" \
         env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" \
@@ -449,7 +475,6 @@ export DATABASE_URL
 # ---- 4. 停服务 → 换目录（同名重装）→ 迁移 ----
 case "$RUNTIME" in
   launchd) knot_bootout_launchd com.knot.platform ;;
-  systemd) knot_systemctl stop knot-backend 2>/dev/null || true ;;
   *) ;;
 esac
 SERVICE_STOPPED=1
@@ -489,7 +514,7 @@ echo "==> migrate"
 migrated=0
 MIGRATE_LOG="$(mktemp "${TMPDIR:-/tmp}/knot-migrate.XXXXXX")"
 for _ in $(seq 1 5); do
-  if DATABASE_URL="$DATABASE_URL" node "$KNOT_APP_DIR/backend/scripts/migrate.js" >"$MIGRATE_LOG" 2>&1; then
+  if DATABASE_URL="$DATABASE_URL" "$KNOT_NODE_BIN" "$KNOT_APP_DIR/backend/scripts/migrate.js" >"$MIGRATE_LOG" 2>&1; then
     migrated=1
     break
   fi
@@ -521,12 +546,14 @@ ln -sfn "releases/$REL_NAME" "$KNOT_DEPLOY_ROOT/current"
 # 值从哪里来、哪些键会被写，全在 packages/knot-config/src/schema.mjs 里定义。
 # 已有的注释和运维改过的邮件、价格键都会保留，只更新部署相关的值。
 echo "==> write $APP_ENV"
-export KNOT_BACKUP_DIR KNOT_UPLOAD_DIR DATABASE_URL
-node "$KNOT_APP_DIR/ops/scripts/config.mjs" env "${CONFIG_ARGS[@]}" \
+# KNOT_NODE_BIN 一起交给 config.mjs：服务的启动脚本按它找 node，不去猜 PATH
+# （launchd 不跑登录 shell，PATH 里常常没有 /opt/homebrew/bin）。
+export KNOT_BACKUP_DIR KNOT_UPLOAD_DIR DATABASE_URL KNOT_NODE_BIN
+"$KNOT_NODE_BIN" "$KNOT_APP_DIR/ops/scripts/config.mjs" env "${CONFIG_ARGS[@]}" \
   --out "$APP_ENV" --root "$KNOT_DEPLOY_ROOT/current" --deploy-root "$KNOT_DEPLOY_ROOT"
-node "$KNOT_APP_DIR/ops/scripts/config.mjs" check --platform --site "$KNOT_SITE"
+"$KNOT_NODE_BIN" "$KNOT_APP_DIR/ops/scripts/config.mjs" check --platform --site "$KNOT_SITE"
 # 接入文件可选；存在就一并校验，缺失只提示不报错。
-node "$KNOT_APP_DIR/ops/scripts/config.mjs" check --xknot --site "$KNOT_SITE"
+"$KNOT_NODE_BIN" "$KNOT_APP_DIR/ops/scripts/config.mjs" check --xknot --site "$KNOT_SITE"
 if [[ -f "$KNOT_XKNOT_ENV" ]]; then
   chmod 600 "$KNOT_XKNOT_ENV"
 fi
@@ -568,27 +595,6 @@ case "$RUNTIME" in
       knot_bootout_launchd com.knot.entry-tunnel
     fi
     ;;
-  systemd)
-    echo "==> install systemd units"
-    knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-backend.service" knot-backend.service
-    if [[ -n "$KNOT_BACKUP_DIR" ]]; then
-      # 告警单元要先装上：knot-backup.service 的 OnFailure= 指向它，
-      # 缺了它失败时 systemd 只会再报一条「unit not found」。
-      knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-backup-alert.service" knot-backup-alert.service
-      knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-backup.service" knot-backup.service
-      knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-backup.timer" knot-backup.timer
-      knot_systemctl enable --now knot-backup.timer
-    fi
-    knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-gc.service" knot-gc.service
-    knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-gc.timer" knot-gc.timer
-    knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-openclaw-probe.service" knot-openclaw-probe.service
-    knot_install_systemd_unit "$KNOT_APP_DIR/ops/systemd/knot-openclaw-probe.timer" knot-openclaw-probe.timer
-    knot_systemctl daemon-reload
-    knot_systemctl enable --now knot-gc.timer
-    knot_systemctl enable --now knot-openclaw-probe.timer
-    # 先跑一次，页面不必等第一个五分钟。跑不起来就算了：旁路探测失败不是部署失败。
-    knot_systemctl start knot-openclaw-probe.service || true
-    ;;
   *) ;;
 esac
 
@@ -609,9 +615,9 @@ for _ in $(seq 1 30); do
 done
 
 if [[ "$healthy" == 1 ]]; then
-  RUNNING_VERSION="$(node -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).version || "")) } catch {}' "$BODY")"
-  RUNNING_RELEASE="$(node -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).release || "")) } catch {}' "$BODY")"
-  RUNNING_COMMIT="$(node -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).commit || "")) } catch {}' "$BODY")"
+  RUNNING_VERSION="$("$KNOT_NODE_BIN" -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).version || "")) } catch {}' "$BODY")"
+  RUNNING_RELEASE="$("$KNOT_NODE_BIN" -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).release || "")) } catch {}' "$BODY")"
+  RUNNING_COMMIT="$("$KNOT_NODE_BIN" -e 'try { process.stdout.write(String(JSON.parse(process.argv[1]).commit || "")) } catch {}' "$BODY")"
   # 发布包名以 BUILD.json 为准；老版本没有 release 字段时退回比版本号。
   # 端口上答话的不是本次装的这一份，就说明旧进程还占着端口、新进程没起来；
   # 这种情况必须判失败，否则「部署成功」而线上跑的是旧代码。
@@ -691,7 +697,6 @@ openclaw_report() {
 openclaw_probe_now() {
   case "${RUNTIME:-}" in
     launchd) launchctl kickstart -k "gui/$(id -u)/com.knot.openclaw-probe" >/dev/null 2>&1 || true ;;
-    systemd) knot_systemctl start knot-openclaw-probe.service >/dev/null 2>&1 || true ;;
     *) ;;
   esac
 }

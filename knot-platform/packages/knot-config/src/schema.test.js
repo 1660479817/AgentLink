@@ -497,6 +497,28 @@ test("unknown keys are still caught when the file is written", () => {
   assert.ok(result.warnings.some((message) => message.includes("KNOT_SITE_NAM")));
 });
 
+// 0.9.0 把 Linux 实例主机连同它的两个配置项一起移出 main。旧机器上还在的文件要
+// 说清「这一行已经没用」，而不是和拼错的键一样只报一句「不在登记表里」。
+test("retired keys say they are gone instead of looking like a typo", () => {
+  const platform = checkPlatform("KNOT_SYSTEMD_DIR=/etc/systemd/system\nDATABASE_URL=postgres://knot@127.0.0.1:5433/knot\n");
+  assert.deepEqual(platform.errors, []);
+  assert.ok(platform.warnings.some((message) => message.includes("KNOT_SYSTEMD_DIR") && message.includes("已经删除")));
+  assert.ok(!platform.warnings.some((message) => message.includes("可能拼错了")));
+
+  const site = checkSite({
+    KNOT_ADMIN_EMAIL: "admin@example.com",
+    KNOT_BACKUP_DIR: "/backups",
+    KNOT_SERVICE_USER: "knot",
+  });
+  assert.deepEqual(site.errors, []);
+  assert.ok(site.warnings.some((message) => message.includes("KNOT_SERVICE_USER") && message.includes("已经删除")));
+  assert.ok(!site.warnings.some((message) => message.includes("可能拼错了")));
+
+  const entry = checkEntryFile({ KNOT_DOMAIN: "wang.xknot.si", KNOT_ENTRY_WEB_ROOT: "/var/www/wang", KNOT_SYSTEMD_DIR: "/etc/systemd/system" }, {});
+  assert.deepEqual(entry.errors, []);
+  assert.ok(entry.warnings.some((message) => message.includes("KNOT_SYSTEMD_DIR") && message.includes("已经删除")));
+});
+
 // ---- XKnot 接入与部署分开 ----
 
 test("a join file needs an instance id and a token for relay", () => {

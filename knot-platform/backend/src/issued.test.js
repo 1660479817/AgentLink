@@ -147,13 +147,14 @@ test("write: values that would not boot the backend are refused", async () => {
 
 test("restart: no unit means a command to run, not a silent success", async () => {
   const exec = async () => {
-    throw new Error("Unit knot-backend.service not found.");
+    throw new Error("Could not find service com.knot.platform");
   };
-  const unit = await backendUnit({ platform: "linux", exec });
+  const unit = await backendUnit({ exec });
   assert.equal(unit.installed, false);
-  const result = await restartBackend({ platform: "linux", exec });
+  const result = await restartBackend({ exec });
   assert.equal(result.ok, false);
-  assert.match(result.command, /systemctl restart knot-backend/);
+  // 实例主机只支持 macOS：没有单元时给的也是 launchctl 命令，而不是别的平台的。
+  assert.match(result.command, /launchctl kickstart -k gui\/\d+\/com\.knot\.platform/);
 });
 
 test("restart: an installed unit is restarted once, and only once", async () => {
@@ -161,10 +162,12 @@ test("restart: an installed unit is restarted once, and only once", async () => 
   const exec = async (cmd, args) => {
     calls.push(`${cmd} ${args.join(" ")}`);
   };
-  const unit = await backendUnit({ platform: "linux", exec });
+  const unit = await backendUnit({ exec });
   assert.equal(unit.installed, true);
-  const result = await restartBackend({ platform: "linux", exec });
+  const result = await restartBackend({ exec });
   assert.equal(result.ok, true);
-  // 探测可能问两次（先看单元在不在，重启前再确认），但重启本身只发一次。
-  assert.equal(calls.filter((line) => line === "sudo systemctl restart knot-backend").length, 1);
+  assert.match(result.command, /launchctl kickstart -k gui\/\d+\/com\.knot\.platform/);
+  // 探测一次 + 重启一次：重启本身只该发一次。
+  const restarts = calls.filter((line) => line.includes("kickstart -k"));
+  assert.equal(restarts.length, 1);
 });

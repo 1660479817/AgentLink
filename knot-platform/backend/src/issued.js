@@ -137,46 +137,26 @@ function sameKeys(left, right) {
  * 找 Backend 自己的常驻单元。
  *
  * 找到了才谈重启；没找到（开发机 npm run dev）就只给命令，不动别人手里的进程。
+ * main 只支持 macOS + launchd，所以这里只有一条候选：别的平台的实例主机是 fork 的事。
  */
-export async function backendUnit({ exec = execFileAsync, platform = process.platform } = {}) {
+export async function backendUnit({ exec = execFileAsync } = {}) {
   const uid = process.getuid?.() ?? 501;
-  const candidates =
-    platform === "darwin"
-      ? [
-          {
-            probe: ["launchctl", ["print", `gui/${uid}/com.knot.platform`]],
-            command: `launchctl kickstart -k gui/${uid}/com.knot.platform`,
-          },
-        ]
-      : [
-          {
-            probe: ["systemctl", ["cat", "knot-backend"]],
-            command: "sudo systemctl restart knot-backend",
-          },
-        ];
-  for (const candidate of candidates) {
-    try {
-      await exec(candidate.probe[0], candidate.probe[1]);
-      return { installed: true, command: candidate.command };
-    } catch {
-      // 下一种；都不成立就是没有单元。
-    }
+  const command = `launchctl kickstart -k gui/${uid}/com.knot.platform`;
+  try {
+    await exec("launchctl", ["print", `gui/${uid}/com.knot.platform`]);
+    return { installed: true, command };
+  } catch {
+    // 没有单元：开发机、或 deploy-site.sh --runtime none。
+    return { installed: false, command };
   }
-  return {
-    installed: false,
-    command:
-      platform === "darwin"
-        ? `launchctl kickstart -k gui/${uid}/com.knot.platform`
-        : "sudo systemctl restart knot-backend",
-  };
 }
 
 /**
  * 重启 Backend 让接入件生效。
  * 只用于「必须有结果」的场合；请求内调用请用 scheduleRestart，否则回包会被自己掐断。
  */
-export async function restartBackend({ exec = execFileAsync, platform = process.platform } = {}) {
-  const unit = await backendUnit({ exec, platform });
+export async function restartBackend({ exec = execFileAsync } = {}) {
+  const unit = await backendUnit({ exec });
   if (!unit.installed) return { ok: false, command: unit.command };
   const args = unit.command.split(" ").slice(1);
   try {

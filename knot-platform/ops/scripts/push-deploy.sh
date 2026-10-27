@@ -10,11 +10,20 @@
 #   ./ops/scripts/push-deploy.sh --site wang --entry        # 装完再推 xknot.si 子域入口
 #   ./ops/scripts/push-deploy.sh --site wang --no-build    # 用本地最新的发布包
 #   ./ops/scripts/push-deploy.sh --site wang --artifact artifacts/knot-0.2.0-abc1234-darwin-arm64.tar.gz
+#   ./ops/scripts/push-deploy.sh --site wang --bootstrap   # 先让目标机补 Node/Postgres，再部署
 #   ./ops/scripts/push-deploy.sh --site wang --dry-run     # 只检查，不动目标机
 #   ./ops/scripts/push-deploy.sh --site local --runtime none # local，且不装成开机自启
 #
 # KNOT_DEPLOY_SSH 留空表示目标就是这台机器：构建、解包、装服务、探活都在本地做完，
 # 不 ssh、不 scp。部署根取 KNOT_DEPLOY_DIR（和仓库分开）；没配时才退回仓库本身。
+#
+# 两种常用形态，验收标准就是这两条：
+#   A. 在 macOS 实例主机上跑（KNOT_DEPLOY_SSH 为空）：本机构建 + 本机安装。
+#   B. 在另一台机器上跑，经 ssh 让 A 机安装：构建在 B，探活回到 A 的回环地址上做。
+#      —— B 必须与 A 同平台同架构（原生模块不跨平台）；B 不是 macOS 时，把一台
+#      macOS 上打好的包用 --artifact 传进来，别在这台机器上构建。
+#
+# 部署、探活、失败回滚都只在目标机上动；B 机不保存任何站点数据。
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -28,6 +37,7 @@ SKIP_TEST=0
 PUSH_ENTRY=0
 DRY_RUN=0
 RUNTIME_ARG=""
+BOOTSTRAP=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --site)
@@ -56,11 +66,15 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=1
       shift
       ;;
+    --bootstrap)
+      BOOTSTRAP=1
+      shift
+      ;;
     --runtime)
-      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--runtime 后面要跟 launchd / systemd / none" >&2; exit 2; }
+      [[ $# -ge 2 && -n "${2:-}" ]] || { echo "--runtime 后面要跟 launchd / none" >&2; exit 2; }
       case "$2" in
-        launchd | systemd | none) RUNTIME_ARG="$2" ;;
-        *) echo "--runtime 只接受 launchd / systemd / none，现在是 $2" >&2; exit 2 ;;
+        launchd | none) RUNTIME_ARG="$2" ;;
+        *) echo "--runtime 只接受 launchd / none，现在是 $2（实例主机只支持 macOS + launchd）" >&2; exit 2 ;;
       esac
       shift 2
       ;;
@@ -137,7 +151,8 @@ if [[ "$LOCAL_DEPLOY" == 1 ]]; then
     echo "  部署根  $DEPLOY_DIR"
     echo "  装到    $DEPLOY_DIR/releases/$REL_NAME"
     echo "  探活    $VERIFY_URL"
-    echo "  运行时  ${RUNTIME_ARG:-（按 uname 选）}"
+    echo "  运行时  ${RUNTIME_ARG:-launchd}"
+    [[ "$BOOTSTRAP" == 1 ]] && echo "  引导    --bootstrap：门禁不过时先装 Node 22+ / postgresql@16"
     exit 0
   fi
 
@@ -157,6 +172,9 @@ if [[ "$LOCAL_DEPLOY" == 1 ]]; then
   fi
   DEPLOY_ARGS=(--site "$KNOT_SITE" --deploy-root "$DEPLOY_DIR" --artifact "$ARTIFACT")
   [[ -n "$RUNTIME_ARG" ]] && DEPLOY_ARGS+=(--runtime "$RUNTIME_ARG")
+  # 补装交给目标机上的 deploy-site.sh：它就在发布包目录里跑，能拿到同一份
+  # host-check 与 bootstrap-host.sh，不用把脚本管道喂过去。
+  [[ "$BOOTSTRAP" == 1 ]] && DEPLOY_ARGS+=(--bootstrap)
   "$SCRIPT_DIR/deploy-site.sh" "${DEPLOY_ARGS[@]}"
 
   echo "==> verify $VERIFY_URL"
@@ -239,6 +257,24 @@ readlink "$1/current" 2>/dev/null || true
 REMOTE
 )"
 
+# 目标机的平台标签。构建在 B、安装在 A：原生模块（如 sharp）不跨平台，
+# 包名里的平台标签必须和 A 对得上，否则等 tar 传完 100MB 才在解包后失败。
+read -r TARGET_SYS TARGET_ARCH <<<"$("${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" 'uname -s; uname -m' | tail -n 2 | tr '\n' ' ')"
+case "${TARGET_SYS}/${TARGET_ARCH}" in
+  Darwin/arm64 | Darwin/aarch64) TARGET_PLATFORM="darwin-arm64" ;;
+  Darwin/x86_64) TARGET_PLATFORM="darwin-x64" ;;
+  *)
+    knot_fail "目标机是 ${TARGET_SYS:-?}/${TARGET_ARCH:-?}：实例主机只支持 macOS（main 分支）。
+要支持别的平台是 fork 的事，见 ops/README「支持范围与 fork 接缝」。"
+    ;;
+esac
+if [[ "$TARGET_PLATFORM" != "$PLATFORM" ]]; then
+  knot_fail "发布包是 ${PLATFORM}，目标机是 ${TARGET_PLATFORM}。
+在这台机器（$(uname -s)/$(uname -m)）上构建的包只能在同平台同架构的实例主机上用：
+  1. 到一台 macOS ${TARGET_ARCH} 上构建，再用 --no-build 或 --artifact 传这个包；
+  2. 或者直接在那台机器上跑 push-deploy.sh（KNOT_DEPLOY_SSH 留空）。"
+fi
+
 echo "==> $REL_NAME  $PLATFORM"
 echo "    → $KNOT_DEPLOY_SSH:$DEPLOY_DIR"
 
@@ -247,6 +283,9 @@ if [[ "$DRY_RUN" == 1 ]]; then
   echo "dry-run：本地检查通过，没有改动目标机。"
   echo "  发布包  $ARTIFACT"
   echo "  目标    $KNOT_DEPLOY_SSH:$DEPLOY_DIR/releases/$REL_NAME"
+  echo "  平台    ${TARGET_PLATFORM}（目标机）"
+  echo "  运行时  ${RUNTIME_ARG:-launchd}"
+  [[ "$BOOTSTRAP" == 1 ]] && echo "  引导    --bootstrap：门禁不过时先装 Node 22+ / postgresql@16"
   exit 0
 fi
 
@@ -278,7 +317,7 @@ echo "==> remote install"
 # 就能在实例主机上跳出引号、以部署用户执行任意命令，紧接着还是 rm -rf。
 # 解包目录也改成 mktemp：同一主机并发部署时不再共用 .incoming/<名字>。
 "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- \
-  "$DEPLOY_DIR" "$REL_NAME" "$ARTIFACT_BASE" "$KNOT_SITE" "${RUNTIME_ARG:-}" <<'REMOTE'
+  "$DEPLOY_DIR" "$REL_NAME" "$ARTIFACT_BASE" "$KNOT_SITE" "${RUNTIME_ARG:-}" "$BOOTSTRAP" <<'REMOTE'
 set -eu
 deploy_dir="$1"
 rel_name="$2"
@@ -287,6 +326,7 @@ site="$4"
 # 没带 --runtime 时 ${RUNTIME_ARG:-} 展开成空串，ssh 拼远程命令时末尾空参数会被丢
 # 掉，$5 直接 unbound。用 ${5:-} 把「没传」和「传了空串」都按空处理。
 runtime="${5:-}"
+bootstrap="${6:-0}"
 
 case "$rel_name" in
   "" | */* | *..*) echo "发布包名不合法：${rel_name}" >&2; exit 2 ;;
@@ -295,20 +335,37 @@ incoming="$(mktemp -d "${deploy_dir}/.incoming/knot-XXXXXX")"
 trap 'rm -rf "$incoming"' EXIT
 # --no-same-owner：包里的 uid/gid 不该落到部署机上；成员路径已在本地校验过。
 tar -xzf "${deploy_dir}/artifacts/${artifact}" -C "$incoming" --no-same-owner
-if [ -n "$runtime" ]; then
-  KNOT_DEPLOY_ROOT="$deploy_dir" "${incoming}/${rel_name}/ops/scripts/deploy-site.sh" \
-    --site "$site" --deploy-root "$deploy_dir" --runtime "$runtime"
-else
-  KNOT_DEPLOY_ROOT="$deploy_dir" "${incoming}/${rel_name}/ops/scripts/deploy-site.sh" \
-    --site "$site" --deploy-root "$deploy_dir"
-fi
+args=(--site "$site" --deploy-root "$deploy_dir")
+[ -n "$runtime" ] && args+=(--runtime "$runtime")
+# 补装由目标机上的 deploy-site.sh 自己调 bootstrap-host.sh：脚本就在刚解开的
+# 发布包里，不靠管道喂过去（管道执行时 $0 是 bash，找不到 lib/）。
+[ "$bootstrap" = "1" ] && args+=(--bootstrap)
+KNOT_DEPLOY_ROOT="$deploy_dir" "${incoming}/${rel_name}/ops/scripts/deploy-site.sh" "${args[@]}"
 REMOTE
 
 # ---- 6. 验收 ----
+# 实例默认只监听 127.0.0.1：从 B 直连 A 的 KNOT_PORT 会连不上，那样一次成功的
+# 部署会被读成「新版坏了」并自动回滚。所以没配 KNOT_DEPLOY_VERIFY_URL 时，探活
+# 回到目标机的回环地址上做。只有显式配了地址（通常是公网入口）才从 B 验。
 VERIFY_URL="$KNOT_DEPLOY_VERIFY_URL"
-if [[ -z "$VERIFY_URL" ]]; then
-  VERIFY_URL="http://${KNOT_DEPLOY_SSH#*@}:$KNOT_PORT/api/health"
+VERIFY_ON_TARGET="$([[ -n "$VERIFY_URL" ]] && echo 0 || echo 1)"
+if [[ "$VERIFY_ON_TARGET" == 1 ]]; then
+  VERIFY_URL="http://127.0.0.1:$KNOT_PORT/api/health（在目标机上）"
 fi
+
+# 远端 curl 的退出码与正文一起交回：只看正文分不清 404 和「连不上」。
+remote_code() {
+  "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" \
+    "curl -sf --noproxy '*' -o /dev/null -w '%{http_code}' 'http://127.0.0.1:$KNOT_PORT$1'" 2>/dev/null | tail -n 1
+}
+
+verify_ok() {
+  if [[ "$VERIFY_ON_TARGET" == 1 ]]; then
+    [[ "$(remote_code /api/health)" == "200" ]]
+  else
+    curl -sf --noproxy '*' "$VERIFY_URL" >/dev/null 2>&1
+  fi
+}
 
 # 验收一律直连，不看本机代理设置：这一步不过会自动回滚，代理一次抖动就会被读成
 # 「新版本坏了」，代价是白回滚一次线上版本。KNOT_DEPLOY_VERIFY_URL 允许指向公网
@@ -316,7 +373,7 @@ fi
 echo "==> verify $VERIFY_URL"
 verified=0
 for _ in $(seq 1 30); do
-  if curl -sf --noproxy '*' "$VERIFY_URL" >/dev/null 2>&1; then
+  if verify_ok; then
     verified=1
     break
   fi
@@ -336,7 +393,7 @@ target="$3"
 KNOT_DEPLOY_ROOT="$deploy_dir" "$deploy_dir/current/ops/scripts/rollback.sh" --site "$site" --to "$target"
 REMOTE
     for _ in $(seq 1 15); do
-      if curl -sf --noproxy '*' "$VERIFY_URL" >/dev/null 2>&1; then
+      if verify_ok; then
         knot_fail "新版本 ${REL_NAME} 没有通过健康检查，已回滚到 ${PREV_NAME}（现在可达）。看 $DEPLOY_DIR/var/log/。"
       fi
       sleep 1
@@ -345,10 +402,10 @@ REMOTE
   fi
   knot_fail "健康检查没有通过：$VERIFY_URL"
 fi
-curl -sf --noproxy '*' -o /dev/null -w "web %{http_code}\n" "http://${KNOT_DEPLOY_SSH#*@}:$KNOT_PORT/"
+echo "web $(remote_code /)"
 echo "OK: $KNOT_PUBLIC_ORIGIN"
 echo "    $REL_NAME"
-echo "    实例主机 http://${KNOT_DEPLOY_SSH#*@}:$KNOT_PORT"
+echo "    实例主机 ${KNOT_DEPLOY_SSH#*@} 上的 127.0.0.1:${KNOT_PORT}（在本机验，不经内网直连）"
 if ! knot_enabled KNOT_ENTRY_ENABLED; then
   echo "    KNOT_ENTRY_ENABLED=0：这次没有推公网入口。"
 elif [[ "$PUSH_ENTRY" != 1 ]]; then
