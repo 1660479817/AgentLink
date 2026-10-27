@@ -179,3 +179,40 @@ test("脚本不再把数据目录当 socket 目录传给 psql", () => {
   assert.match(text, /-k \$SOCK/);
   assert.match(text, /-h "\$1"/);
 });
+
+test("端口上是别人的库时拒绝改口令、建库", { skip }, async () => {
+  // 「端口通」不等于「这是我们的库」：同一个端口上可能是 brew 的默认实例或别人的集群。
+  // 脚本下一步就要对它 ALTER USER / createdb，所以在那里必须比对数据目录。
+  const port = await freePort();
+  const { root } = await siteRoot({ port, socketDir: "/tmp" });
+  const configured = path.join(root, "pgdata"); // 配置指向这里，但端口上是另一个集群
+  const real = path.join(root, "someone-else");
+
+  try {
+    execFileSync(path.join(BIN, "initdb"), ["-D", real, "-U", "knot", "--auth-local=trust", "--auth-host=trust"], {
+      stdio: "pipe",
+    });
+    execFileSync(
+      path.join(BIN, "pg_ctl"),
+      ["-D", real, "-l", path.join(root, "pg.log"), "-o", `-p ${port} -h 127.0.0.1 -k /tmp`, "start"],
+      { stdio: "pipe" }
+    );
+
+    const result = runEnsure(root);
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stderr, /不是这个站点的/);
+    assert.match(result.stderr, /KNOT_PGPORT/);
+
+    // 关键：别人的库里没有被动过——口令仍为空（trust 建库），也没有 knot 库。
+    const roles = execFileSync(
+      path.join(BIN, "psql"),
+      ["-h", "/tmp", "-p", String(port), "-U", "knot", "-d", "postgres", "-qAt", "-c",
+        "SELECT count(*) FROM pg_database WHERE datname = 'knot'"],
+      { encoding: "utf8" }
+    ).trim();
+    assert.equal(roles, "0", "别人的库上被建了 knot 库");
+  } finally {
+    stopCluster(real);
+    stopCluster(configured);
+  }
+});

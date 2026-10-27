@@ -125,7 +125,27 @@ if ! SOCK_USED="$(resolve_socket_dir)"; then
   exit 1
 fi
 
-# 每次启动都对一遍：口令文件被改过、库被重建过、上一次在设口令前就退出过，都靠这一步同步。
+# 端口上坐着的必须是我们的库。下面就要对它改口令、建库，而同一个端口上可能是别人的
+# 集群、brew 的默认实例，或者一个换了数据目录的旧实例：光「端口通」不足以说明是它。
+#
+# 比较前两边都归一化成物理路径：服务端报的是它启动时拿到的路径（/tmp/pgdata），这边
+# cd + pwd -P 得到的是 /private/tmp/pgdata，直接比字符串会永远不等。
+same_dir() {
+  local a b
+  a="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  b="$(cd "$2" 2>/dev/null && pwd -P)" || return 1
+  [[ "$a" == "$b" ]]
+}
+
+ACTUAL_DIR="$(PGPASSWORD="$PG_PW" "$BIN/psql" -h "$SOCK_USED" -p "$PORT" -U knot -d postgres -qAt \
+  -c 'SHOW data_directory' 2>/dev/null | head -n 1 || true)"
+if [[ -n "$ACTUAL_DIR" ]] && ! same_dir "$ACTUAL_DIR" "$PGD"; then
+  echo "端口 ${PORT} 上的库不是这个站点的：它的数据目录是 ${ACTUAL_DIR}，配置的是 ${PGD}。" >&2
+  echo "  要么把 KNOT_PGPORT 换成没人用的端口，要么把 KNOT_PGDATA 指过去。这里不做任何改动。" >&2
+  exit 1
+fi
+
+# 每次启动都对一遍口令：口令文件被改过、库被重建过、上一次在设口令前就退出过，都靠这一步同步。
 #
 # 走 stdin 而不是 -c：psql 只对从 stdin 或 -f 读进来的语句做变量替换，`-c "…:'pw'"`
 # 会把 :'pw' 原样发给服务端，报 syntax error at or near ":"——新装的库因此从来没有
