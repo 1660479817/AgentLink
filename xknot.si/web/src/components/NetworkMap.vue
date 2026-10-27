@@ -55,8 +55,17 @@ const placement = computed(() => {
   return placePoints(points, VIEW);
 });
 
-const placed = computed(() => placement.value.points);
-const spokes = computed(() => placement.value.spokes);
+// 每个点带上自己的色相：点、引线、朝中枢的弧、实例间直连都用它。
+// 一处算、四处用，颜色才对得上——同一个站在哪儿都是同一个色。
+const placed = computed(() =>
+  placement.value.points.map((point) => ({ ...point, hue: hueOf(point.id) }))
+);
+
+const spokes = computed(() => {
+  const hues = new Map(placed.value.map((point) => [point.id, point.hue]));
+  return placement.value.spokes.map((spoke) => ({ ...spoke, hue: hues.get(spoke.id) ?? 210 }));
+});
+
 const anchors = computed(() => placement.value.anchors);
 
 const unplaced = computed(() => {
@@ -74,15 +83,43 @@ const HUB = { x: VIEW.width / 2, y: -8 };
 
 // 每个实例一条弧线飞向联邦中枢。弧线朝中轴外侧鼓一点，
 // 十根线才不会在中心下方挤成一根柱子。
+//
+// 弧线的颜色跟着站点走：出站那一头就是那个点的颜色，到了中枢一侧收成中枢的橙。
+// 十几根线都汇在一个点上，只靠颜色才分得清哪根属于哪个点。
 const links = computed(() =>
-  placed.value.map((point, index) => ({
-    id: point.id,
-    status: point.status,
-    d: fanArc(point),
-    // 延迟错开，避免十根线上的光点同时起步。
-    delay: `${(-(index * 0.9)).toFixed(1)}s`,
-  }))
+  placed.value.map((point, index) => {
+    // down / unknown 不参与这套配色：线本来就是淡的，再染色等于把它说成很强。
+    const tinted = point.status === "up" || point.status === "degraded";
+    return {
+      id: point.id,
+      status: point.status,
+      d: fanArc(point),
+      // 延迟错开，避免十根线上的光点同时起步。
+      delay: `${(-(index * 0.9)).toFixed(1)}s`,
+      hue: point.hue,
+      gradient: tinted
+        ? { id: arcGradientId(point.id), x1: point.x, y1: point.y, x2: HUB.x, y2: HUB.y }
+        : null,
+    };
+  })
 );
+
+// 站点 id 里有连字符、下划线，还有可能来自清单的任意字符：做进 url(#…) 之前
+// 只留安全字符，否则一个点号就能让整条引用失效。
+function safeId(id) {
+  return String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function arcGradientId(id) {
+  return `arc-${safeId(id)}`;
+}
+
+function peerGradientId(key) {
+  return `peer-${safeId(key).replace(/:/g, "_")}`;
+}
+
+// 只有染色的那几条需要渐变；down / unknown 走纯 CSS 的淡线。
+const arcGradients = computed(() => links.value.filter((link) => link.gradient));
 
 function fanArc(point) {
   const dx = HUB.x - point.x;
@@ -135,8 +172,18 @@ const mesh = computed(() => {
         b: to.id,
         // 两头有一头没应答，这条交换路径此刻也只是理论上的。
         status: from.status === "down" || to.status === "down" ? "down" : "up",
-        // 直连画直线：朝中心的橙线是弯的，形状上就把两套语义分开了。
+        // 直连画直线：朝中心的弧是弯的，形状上就把两套语义分开了。
         d: `M${from.x.toFixed(1)} ${from.y.toFixed(1)}L${to.x.toFixed(1)} ${to.y.toFixed(1)}`,
+        // 两端各取一头站点的颜色：线在谁那一端，就是谁的颜色。
+        gradient: {
+          id: peerGradientId(key),
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
+          hueA: from.hue,
+          hueB: to.hue,
+        },
       });
     }
   });
@@ -172,7 +219,7 @@ function place(point) {
     top: `${((point.y / VIEW.height) * 100).toFixed(2)}%`,
     // 正常时点用站点自己的色相（与卡片徽记同一套哈希），异常时下面几条 CSS 规则
     // 会把它换成红/黄：颜色先回答「谁」，出问题时再回答「怎么了」。
-    "--pin-hue": String(hueOf(point.id)),
+    "--pin-hue": String(point.hue),
   };
 }
 
@@ -218,6 +265,34 @@ function activate(id) {
           <pattern id="xk-land-dots" width="11" height="11" patternUnits="userSpaceOnUse">
             <circle class="land-dot" cx="2.4" cy="2.4" r="1.55" />
           </pattern>
+          <!-- 弧线的渐变：出站那一头是站点自己的颜色，到中枢一侧收成中枢的橙。 -->
+          <linearGradient
+            v-for="link in arcGradients"
+            :id="link.gradient.id"
+            :key="`g-${link.id}`"
+            gradientUnits="userSpaceOnUse"
+            :x1="link.gradient.x1"
+            :y1="link.gradient.y1"
+            :x2="link.gradient.x2"
+            :y2="link.gradient.y2"
+          >
+            <stop offset="0" class="arc-from" :style="{ '--pin-hue': link.hue }" />
+            <stop offset="1" class="arc-to" />
+          </linearGradient>
+          <!-- 直连的渐变：两端各是一个站点的颜色。 -->
+          <linearGradient
+            v-for="peer in mesh"
+            :id="peer.gradient.id"
+            :key="`pg-${peer.id}`"
+            gradientUnits="userSpaceOnUse"
+            :x1="peer.gradient.x1"
+            :y1="peer.gradient.y1"
+            :x2="peer.gradient.x2"
+            :y2="peer.gradient.y2"
+          >
+            <stop offset="0" class="mesh-stop" :style="{ '--pin-hue': peer.gradient.hueA }" />
+            <stop offset="1" class="mesh-stop" :style="{ '--pin-hue': peer.gradient.hueB }" />
+          </linearGradient>
         </defs>
 
         <path class="graticule" :d="GRATICULE" />
@@ -235,6 +310,7 @@ function activate(id) {
             class="peer"
             :class="[peer.status, { active: activeId === peer.a || activeId === peer.b }]"
             :d="peer.d"
+            :style="{ stroke: `url(#${peer.gradient.id})` }"
             vector-effect="non-scaling-stroke"
           />
         </g>
@@ -245,6 +321,7 @@ function activate(id) {
               class="link"
               :class="[link.status, { active: activeId === link.id }]"
               :d="link.d"
+              :style="link.gradient ? { stroke: `url(#${link.gradient.id})` } : null"
               vector-effect="non-scaling-stroke"
             />
             <path
@@ -266,6 +343,7 @@ function activate(id) {
             v-for="spoke in spokes"
             :key="spoke.id"
             class="spoke"
+            :style="{ '--pin-hue': spoke.hue }"
             :x1="spoke.x1"
             :y1="spoke.y1"
             :x2="spoke.x2"
@@ -424,7 +502,8 @@ function activate(id) {
   stroke-width: 1;
 }
 
-/* 实例之间：浅绿细实线，直的。橙线弯着朝中心，绿线点对点，形状即语义。 */
+/* 实例之间：细实线，直的。弧线弯着朝中心，直连点对点，形状即语义。
+   颜色取自两端的站点：线在谁那一端就是谁的颜色，与点对得上。 */
 .peer {
   fill: none;
   stroke: var(--map-peer);
@@ -432,8 +511,9 @@ function activate(id) {
 }
 
 .peer.active {
-  stroke: var(--map-peer-active);
-  stroke-width: 1.4;
+  stroke-width: 1.6;
+  /* 渐变定义在 <defs> 里，不能用祖先选择器提亮，只能在元素上整体提一点。 */
+  filter: brightness(1.22) saturate(1.1);
 }
 
 /* 两端有一头没应答，这条交换路径此刻也只是理论上的 */
@@ -441,11 +521,28 @@ function activate(id) {
   opacity: 0.4;
 }
 
+/* 渐变的两个端点色：站点色相 + 与原来同级的透明度。
+   透明度写在 stop 上，整条线的浓淡就和改造前一致。 */
+.mesh-stop {
+  stop-color: hsl(var(--pin-hue, 210) 62% 40%);
+  stop-opacity: 0.4;
+}
+
+:root[data-theme="dark"] .mesh-stop {
+  stop-color: hsl(var(--pin-hue, 210) 68% 62%);
+  stop-opacity: 0.26;
+}
+
 /* 同一落点的簇：引线指回真实坐标，锚点留一个空心圈。
-   比直连更淡 —— 它说的不是「两台机器之间有链路」，只是「这几个点在同一处」。 */
+   比直连更淡 —— 它说的不是「两台机器之间有链路」，只是「这几个点在同一处」。
+   颜色跟着点走，一眼看得出这根线属于哪个点。 */
 .spoke {
-  stroke: var(--map-spoke);
+  stroke: hsl(var(--pin-hue, 210) 62% 40% / 0.42);
   stroke-width: 1;
+}
+
+:root[data-theme="dark"] .spoke {
+  stroke: hsl(var(--pin-hue, 210) 68% 62% / 0.34);
 }
 
 .anchor {
@@ -454,22 +551,41 @@ function activate(id) {
   stroke-width: 1;
 }
 
-/* 链路：半透明橙色长划线，从每个实例拉到联邦中枢。
-   颜色本身带 alpha，不靠整条 path 压不透明度，虚线才不会糊成一团。 */
+/* 链路：长划线，从每个实例拉到联邦中枢。
+   颜色本身带 alpha，不靠整条 path 压不透明度，虚线才不会糊成一团。
+   染色的那几条用渐变（站点色 → 中枢橙），down / unknown 走下面这条淡线。 */
 .link {
   fill: none;
   stroke: var(--map-link-line);
-  stroke-width: 1;
+  stroke-width: 1.2;
   stroke-dasharray: 10 5;
 }
 
+.arc-from {
+  stop-color: hsl(var(--pin-hue, 210) 62% 40%);
+  stop-opacity: 0.85;
+}
+
+.arc-to {
+  stop-color: var(--map-link);
+  stop-opacity: 0.55;
+}
+
+:root[data-theme="dark"] .arc-from {
+  stop-color: hsl(var(--pin-hue, 210) 68% 62%);
+  stop-opacity: 0.75;
+}
+
+:root[data-theme="dark"] .arc-to {
+  stop-color: var(--map-link);
+  stop-opacity: 0.5;
+}
+
 .link.active {
-  stroke: var(--map-link-line-active);
   stroke-width: 1.4;
   stroke-dasharray: 12 4;
 }
 
-/* 不可达的站线也留着，只是更淡：网还在，只是那一刻没应答 */
 .link.down {
   stroke: var(--map-link-line);
   opacity: 0.45;
@@ -770,7 +886,16 @@ function activate(id) {
 }
 
 .legend li.up .legend-dot {
-  background: var(--ok);
+  /* 正常的点各用自己站点的色相，图例就用一圈色环代表「不是一个颜色」。 */
+  background: conic-gradient(
+    hsl(0 62% 45%),
+    hsl(60 62% 45%),
+    hsl(120 62% 45%),
+    hsl(180 62% 45%),
+    hsl(240 62% 45%),
+    hsl(300 62% 45%),
+    hsl(360 62% 45%)
+  );
 }
 .legend li.degraded .legend-dot {
   background: var(--warn);
@@ -813,8 +938,11 @@ function activate(id) {
 
 .peer-swatch {
   width: 14px;
-  height: 0;
-  border-top: 1px solid var(--map-peer-active);
+  height: 2px;
+  border-radius: 1px;
+  /* 直连的颜色取自两端站点，图例只给一段两端不同色的线段。 */
+  background: linear-gradient(90deg, hsl(160 62% 42%), hsl(280 62% 42%));
+  flex: none;
 }
 
 /* 没有固定区域的实例（例如只做跳转的 root）：放到脚注，不硬塞到地图上 */

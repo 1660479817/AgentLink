@@ -34,6 +34,7 @@ const C = {
   land: "rgba(16,61,122,0.15)",
   landEdge: "rgba(16,61,122,0.06)",
   link: "rgba(232,112,28,0.42)",
+  linkInk: "#e8701c",
   peer: "rgba(31,168,110,0.4)",
   spoke: "rgba(16,61,122,0.3)",
   anchor: "rgba(16,61,122,0.5)",
@@ -151,7 +152,11 @@ const peers = [];
       const key = `${low}:${high}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      peers.push(`M${placed[low].x.toFixed(1)} ${placed[low].y.toFixed(1)}L${placed[high].x.toFixed(1)} ${placed[high].y.toFixed(1)}`);
+      peers.push({
+        id: `${low}-${high}`,
+        from: placed[low],
+        to: placed[high],
+      });
     }
   });
 }
@@ -175,10 +180,49 @@ const WORLD_AT = `translate(${PAD_X} ${PAD_TOP})`;
 const HUB_X = PAD_X + HUB.x;
 const HUB_Y = PAD_TOP + HUB.y;
 
+// 与门户同一套规则：正常时用站点自己的色相，异常时用状态色。
+// 点、引线、朝中枢的弧线都取这一个值，图里才对得上。
+const nodeColor = (point) =>
+  point.status === "up"
+    ? `hsl(${hueOf(point.id)} 62% 40%)`
+    : STATUS_COLOR[point.status] || C.unknown;
+
+const gradId = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
+
+// 直连的渐变：两端各是一个站点的颜色。
+const peerGradients = peers
+  .map(
+    (peer) => `<linearGradient id="peer-${peer.id}" gradientUnits="userSpaceOnUse" x1="${q1(peer.from.x)}" y1="${q1(peer.from.y)}" x2="${q1(peer.to.x)}" y2="${q1(peer.to.y)}">
+      <stop offset="0" stop-color="${nodeColor(peer.from)}" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="${nodeColor(peer.to)}" stop-opacity="0.4"/>
+    </linearGradient>`
+  )
+  .join("\n    ");
+
+const peerLines = peers
+  .map(
+    (peer) =>
+      `<path d="M${peer.from.x.toFixed(1)} ${peer.from.y.toFixed(1)}L${peer.to.x.toFixed(1)} ${peer.to.y.toFixed(1)}" fill="none" stroke="url(#peer-${peer.id})" stroke-width="1"/>`
+  )
+  .join("\n      ");
+
+
+// 弧线的渐变：出站那一头是站点色，到中枢一侧收成中枢的橙。
+const arcGradients = placed
+  .filter((point) => point.status === "up" || point.status === "degraded")
+  .map(
+    (point) => `<linearGradient id="arc-${gradId(point.id)}" gradientUnits="userSpaceOnUse" x1="${q1(point.x)}" y1="${q1(point.y)}" x2="${q1(HUB.x)}" y2="${q1(HUB.y)}">
+      <stop offset="0" stop-color="${nodeColor(point)}" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="${C.linkInk}" stop-opacity="0.5"/>
+    </linearGradient>`
+  )
+  .join("\n    ");
+
 // 线走在字下面：先画底图与连线，再写文字。
 const lines = placed
   .map((point) => {
-    const color = point.status === "down" ? C.bad : C.link;
+    const tinted = point.status === "up" || point.status === "degraded";
+    const color = tinted ? `url(#arc-${gradId(point.id)})` : point.status === "down" ? C.bad : C.link;
     const opacity = point.status === "down" ? 0.45 : 1;
     return `<path d="${fanArc(point)}" fill="none" stroke="${color}" stroke-opacity="${opacity}" stroke-width="1" stroke-dasharray="10 5"/>`;
   })
@@ -186,8 +230,7 @@ const lines = placed
 
 const pins = placed
   .map((point) => {
-    // 与门户同一套规则：正常时用站点自己的色相，异常时用状态色。
-    const color = point.status === "up" ? `hsl(${hueOf(point.id)} 62% 40%)` : STATUS_COLOR[point.status] || C.unknown;
+    const color = nodeColor(point);
     const x = q1(point.x);
     const y = q1(point.y);
     // 同簇散开的点按「朝簇外」定左右，否则右侧那个点的字会压到左边的点上。
@@ -204,15 +247,18 @@ const pins = placed
 
 const logo = readFileSync(logoPath).toString("base64");
 
+const byId = new Map(placed.map((point) => [point.id, point]));
+
 // 没有同点簇时整块不写：空 <g> 留在生成物里只会让 diff 多几行空白。
 const spreadBlock = spokes.length
   ? `
     <g class="spreads">
       ${spokes
-        .map(
-          (spoke) =>
-            `<line x1="${q1(spoke.x1)}" y1="${q1(spoke.y1)}" x2="${q1(spoke.x2)}" y2="${q1(spoke.y2)}" stroke="${C.spoke}" stroke-width="1"/>`
-        )
+        .map((spoke) => {
+          const owner = byId.get(spoke.id);
+          const color = owner ? nodeColor(owner) : C.unknown;
+          return `<line x1="${q1(spoke.x1)}" y1="${q1(spoke.y1)}" x2="${q1(spoke.x2)}" y2="${q1(spoke.y2)}" stroke="${color}" stroke-opacity="0.42" stroke-width="1"/>`;
+        })
         .join("\n      ")}
       ${anchors
         .map(
@@ -225,7 +271,7 @@ const spreadBlock = spokes.length
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="XKnot 联邦：各实例汇入 xknot.si 中枢，实例之间另有直连 · XKnot Federation: instances feed into the xknot.si hub, with direct peer links between instances">
   <title>XKnot 联邦 · XKnot Federation</title>
-  <desc>一张等距圆柱投影的世界地图。每个实例朝上方的 xknot.si 中枢连一条橙色虚线，表示按清单登记、由中枢探测与展示；实例之间的绿色实线表示协议直连、可就地交换数据。点的颜色表示探测到的状态。同一处有多个实例时，点向外散开，用细引线指回真实位置。 · An equirectangular world map. Each instance connects to the xknot.si hub above with an orange dashed line, meaning it is listed, probed and shown by the hub; green solid lines between instances mean protocol-level direct exchange. Dot color shows the probed status. When several instances share one place, they fan out around it and thin leader lines point back to the true spot.</desc>
+  <desc>一张等距圆柱投影的世界地图。每个实例朝上方的 xknot.si 中枢连一条虚线，表示按清单登记、由中枢探测与展示；虚线在实例那一端取该实例的颜色，到中枢一侧收成中枢的橙。实例之间的实线表示协议直连、可就地交换数据，两端各取一个实例的颜色。正常实例用自己站点的色相，异常时改用状态色。同一处有多个实例时，点向外散开，用同色细引线指回真实位置。 · An equirectangular world map. Each instance connects to the xknot.si hub above with a dashed line, meaning it is listed, probed and shown by the hub; the line takes the instance's own colour at the instance end and fades into the hub's orange. Solid lines between instances mean protocol-level direct exchange, tinted by the instance at each end. Healthy instances use their own hue; abnormal ones switch to the status colour. When several instances share one place, they fan out around it and thin same-colour leader lines point back to the true spot.</desc>
   <defs>
     <pattern id="land-dots" width="11" height="11" patternUnits="userSpaceOnUse">
       <circle cx="2.4" cy="2.4" r="1.55" fill="${C.land}"/>
@@ -233,6 +279,25 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
     <clipPath id="world-clip">
       <rect x="0" y="0" width="${WORLD.width}" height="${WORLD.height}"/>
     </clipPath>
+    ${arcGradients}
+    ${peerGradients}
+    <!-- 图例：正常的点各用自己站点的色相，所以用一圈色环代表「不是一个颜色」。 -->
+    <linearGradient id="legend-hues" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="hsl(0 62% 45%)"/>
+      <stop offset="0.2" stop-color="hsl(72 62% 45%)"/>
+      <stop offset="0.4" stop-color="hsl(144 62% 45%)"/>
+      <stop offset="0.6" stop-color="hsl(216 62% 45%)"/>
+      <stop offset="0.8" stop-color="hsl(288 62% 45%)"/>
+      <stop offset="1" stop-color="hsl(360 62% 45%)"/>
+    </linearGradient>
+    <linearGradient id="legend-arc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="hsl(216 62% 40%)" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="${C.linkInk}" stop-opacity="0.5"/>
+    </linearGradient>
+    <linearGradient id="legend-peer" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="hsl(160 62% 40%)" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="hsl(288 62% 40%)" stop-opacity="0.5"/>
+    </linearGradient>
   </defs>
 
   <rect width="${W}" height="${H}" fill="#ffffff"/>
@@ -246,7 +311,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
     </g>
 
     <g class="peers">
-      ${peers.map((d) => `<path d="${d}" fill="none" stroke="${C.peer}" stroke-width="1"/>`).join("\n      ")}
+      ${peerLines}
     </g>
 
     <g class="links">
@@ -268,14 +333,14 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <g transform="translate(${PAD_X} ${H - 34})">
     <g class="legend">
-      <circle cx="4" cy="-4" r="3.6" fill="${C.ok}"/><text x="14" y="0" class="legend-text">在线 Online ${placed.filter((p) => p.status === "up").length}</text>
+      <circle cx="4" cy="-4" r="3.6" fill="url(#legend-hues)"/><text x="14" y="0" class="legend-text">在线 Online ${placed.filter((p) => p.status === "up").length}</text>
       <circle cx="120" cy="-4" r="3.6" fill="${C.warn}"/><text x="130" y="0" class="legend-text">延迟 Degraded ${placed.filter((p) => p.status === "degraded").length}</text>
       <circle cx="240" cy="-4" r="3.6" fill="${C.bad}"/><text x="250" y="0" class="legend-text">不可达 Down ${placed.filter((p) => p.status === "down").length}</text>
-      <line x1="380" y1="-4" x2="406" y2="-4" stroke="${C.link}" stroke-width="1" stroke-dasharray="10 5"/><text x="414" y="0" class="legend-text">登记与探测 Registry &amp; probe</text>
-      <line x1="590" y1="-4" x2="616" y2="-4" stroke="${C.peer}" stroke-width="1"/><text x="624" y="0" class="legend-text">实例直连 Peer link</text>
+      <line x1="380" y1="-4" x2="406" y2="-4" stroke="url(#legend-arc)" stroke-width="1" stroke-dasharray="10 5"/><text x="414" y="0" class="legend-text">登记与探测 Registry &amp; probe</text>
+      <line x1="590" y1="-4" x2="616" y2="-4" stroke="url(#legend-peer)" stroke-width="1"/><text x="624" y="0" class="legend-text">实例直连 Peer link</text>
     </g>
-    <text x="0" y="14" class="foot">说明：绿色直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。同一处有多个实例时，点向外散开、用细引线指回真实位置。${esc(placed.length)} 个实例中，${esc(realNames.length ? realNames.join("、") : "暂无")} 为真实实例${sampleCount ? `，其余 ${sampleCount} 个来自样例清单` : ""}。</text>
-    <text x="0" y="30" class="foot">Note: green peer links are protocol-level direct exchange, not yet enabled (target form). Instances that share one place fan out and are tied back by thin leader lines. Of ${esc(placed.length)} instances, ${esc(realNames.length ? realNames.join(", ") : "none")} are real${sampleCount ? `; ${sampleCount} are samples` : ""}.</text>
+    <text x="0" y="14" class="foot">说明：实例直连表示协议层直接交换，当前版本尚未启用，图上是目标形态。连线在实例那一端取该实例的颜色，颜色即身份。同一处有多个实例时，点向外散开、用同色细引线指回真实位置。${esc(placed.length)} 个实例中，${esc(realNames.length ? realNames.join("、") : "暂无")} 为真实实例${sampleCount ? `，其余 ${sampleCount} 个来自样例清单` : ""}。</text>
+    <text x="0" y="30" class="foot">Note: peer links are protocol-level direct exchange, not yet enabled (target form). Each link takes the colour of the instance at its end, so colour itself identifies the site. Instances that share one place fan out and are tied back by thin same-colour leader lines. Of ${esc(placed.length)} instances, ${esc(realNames.length ? realNames.join(", ") : "none")} are real${sampleCount ? `; ${sampleCount} are samples` : ""}.</text>
   </g>
 
   <style>

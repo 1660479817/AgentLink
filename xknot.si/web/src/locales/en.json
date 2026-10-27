@@ -126,7 +126,7 @@
   "map": {
     "label": "Federation map: {total} instances, {online} reachable, {peers} planned instance-to-instance links",
     "hint": "Select an instance to jump to its entry",
-    "peer": "Green: planned direct links between instances; today reads still go through the hub",
+    "peer": "Thin links are planned direct links between instances, tinted by both ends; today reads still go through the hub",
     "title": "Global instances",
     "global": "No fixed region",
     "hub": "Federation hub"
