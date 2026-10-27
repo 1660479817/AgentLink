@@ -343,3 +343,28 @@ test("only finished review sessions are swept, and only when stale", () => {
   );
   assert.deepEqual(keys, ["agent:knot-intel:review-old-1-aaaa"]);
 });
+
+// 交回来的东西连宽松解析都救不回来时，错误必须是 agent_bad_json。
+// 顺手修掉的那个 bug：第二遍 JSON.parse 抛的是 SyntaxError，它的 message 会绕过修复回合，
+// 还会被当成失败码写进作者的通知——「审核没有完成（Unexpected token '}' …）」。
+test("a hopeless reply is a bad-json code, not the parser's own sentence", () => {
+  assert.throws(
+    () => parseIntelReply('{"verdict":"pass","note":}'),
+    (error) => error.message === "agent_bad_json" && !error.detail
+  );
+  assert.throws(() => parseIntelReply("这不是 JSON"), (error) => error.message === "agent_bad_json");
+});
+
+test("a reply that stays broken after the repair round still fails as bad JSON", async () => {
+  const { dir, bin } = await fakeOpenclaw(`
+process.stdout.write(JSON.stringify({ ok: true, final: '{"verdict":"pass","note":}' }));
+`);
+  try {
+    await assert.rejects(
+      () => withAgent(bin, () => runIntelAgent({ id: INTEL_ID, body: "正文" }, [], [])),
+      (error) => error.message === "agent_bad_json"
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

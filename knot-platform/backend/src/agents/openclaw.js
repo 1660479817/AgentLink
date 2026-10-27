@@ -21,13 +21,13 @@ import { topicMatchesLanguage } from "@knot/locale";
 import { attachmentExtract, saveReviewExtract, sectionHeading } from "../extracts.js";
 import { CATEGORIES } from "../categories.js";
 
-function agentId(name) {
-  const id = String(process.env[name] || "").trim();
+export function intelAgentId() {
+  const id = String(process.env.OPENCLAW_INTEL_AGENT || "").trim();
   return id || null;
 }
 
-export function intelAgentId() {
-  return agentId("OPENCLAW_INTEL_AGENT");
+function openclawBin() {
+  return process.env.OPENCLAW_BIN || "openclaw";
 }
 
 function cleanText(value) {
@@ -39,16 +39,54 @@ function clip(text, max) {
   return value.length > max ? value.slice(0, max) : value;
 }
 
-function readJsonObject(text) {
+// 取 JSON 对象的规则只有一套，三处调用各配一个「不像话怎么办」：
+// 评审员的答复可以包在 ```json 围栏里，信封不会；答复要宽松解析（note 里常有裸引号），
+// 信封必须严格（解析不了说明 OpenClaw 没按约定回话）。
+function jsonSlice(text, fenced = false) {
   const raw = String(text || "").trim();
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const body = fenced ? fenced[1] : raw;
+  const match = fenced ? raw.match(/```(?:json)?\s*([\s\S]*?)```/) : null;
+  const body = match ? match[1] : raw;
   const start = body.indexOf("{");
   const end = body.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("agent_bad_json");
-  const value = parseJsonLenient(body.slice(start, end + 1));
-  if (!value || typeof value !== "object") throw new Error("agent_bad_json");
-  return value;
+  return start < 0 || end <= start ? "" : body.slice(start, end + 1);
+}
+
+function parseStrict(slice) {
+  if (!slice) return null;
+  try {
+    const value = JSON.parse(slice);
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function tryJson(text, fenced = false) {
+  return parseStrict(jsonSlice(text, fenced));
+}
+
+function asObject(slice) {
+  try {
+    const value = parseJsonLenient(slice);
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+// 交给 intel.js 的 error.message 就是失败码，所以这里只能抛码，不能抛解析器的原话。
+// 宽松解析也救不回来时同样收成 agent_bad_json——否则一个语法错误会绕过修复回合，
+// 还会把 "Unexpected token ..." 当成码写进作者的通知。
+function jsonObjectOf(text, { fenced = false, code = "agent_bad_json", detail = "" } = {}) {
+  const slice = jsonSlice(text, fenced);
+  const value = parseStrict(slice) || asObject(slice);
+  if (value) return value;
+  throw failure(code, detail);
+}
+
+// 信封不走宽松解析：解析不了说明 OpenClaw 没按约定回话，原因要原样留给运维。
+function readEnvelope(text) {
+  return jsonObjectOf(text, { code: "agent_contract", detail: summarizeFailure(text) || "信封不是 JSON" });
 }
 
 // 先标准解析；失败后把字符串值内部的未转义双引号转义再解析一次，
@@ -144,7 +182,7 @@ function languageOf(value) {
 }
 
 export function parseIntelReply(text) {
-  const value = readJsonObject(text);
+  const value = jsonObjectOf(text, { fenced: true });
   const note = clip(value.note, 400);
   if (value.verdict === "revoke" || value.verdict === "reject") {
     const reason = cleanText(value.reason || value.reject?.reason);
@@ -376,25 +414,6 @@ function run(bin, args, timeoutMs) {
   });
 }
 
-function tryJson(text) {
-  const raw = String(text || "").trim();
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const value = JSON.parse(raw.slice(start, end + 1));
-    return value && typeof value === "object" ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function readEnvelope(text) {
-  const value = tryJson(text);
-  if (!value) throw failure("agent_contract", summarizeFailure(text) || "信封不是 JSON");
-  return value;
-}
-
 // 信封对、但里面是错的：先看信封自带的判断，再退回正文。
 function replyText(envelope) {
   const classified = classifyEnvelope(envelope);
@@ -616,6 +635,36 @@ async function askAgent({ bin, agent, sessionKey, message, timeoutSec }) {
   }
 }
 
+// 要一次答复：先在预算内问一次，交回的东西不像话时，只要还剩得下一个回合就再问一次，
+// 并把「上一次哪里不行」一起带过去。
+//
+// 修复回合刻意复用同一个会话键：上下文里有那条写坏的回复，模型才看得见自己错在哪。
+// 真正失败时由调用方清会话，重试换新键——这两件事不在这里做。
+async function askForReply({ bin, agent, sessionKey, message, budgets, deadline }) {
+  const left = () => Math.floor((deadline - Date.now()) / 1000);
+  const turnSec = Math.max(15, Math.min(budgets.turnSec, left()));
+  const first = await askAgent({ bin, agent, sessionKey, message, timeoutSec: turnSec });
+  try {
+    return { reply: parseIntelReply(first.text), repaired: false, model: first.model, usage: first.usage };
+  } catch (error) {
+    // 只有「答复里没有 JSON」值得再问一次；超时、模型拒收、够不到 gateway 重问也一样。
+    if (error?.message !== "agent_bad_json" || left() < 20) throw error;
+    const second = await askAgent({
+      bin,
+      agent,
+      sessionKey,
+      message: repairMessage(first.text, error),
+      timeoutSec: Math.min(budgets.turnSec, left()),
+    });
+    return {
+      reply: parseIntelReply(second.text),
+      repaired: true,
+      model: second.model || first.model,
+      usage: second.usage || first.usage,
+    };
+  }
+}
+
 // ---- 会话清理 ----
 // 每条记录一个会话，评审完就不再有用了。留着它有三个代价：会话库一直长、
 // 已撤销内容的正文留在里面、下一次重启恢复要多扫几百条。这里攒一批再删一次，
@@ -635,7 +684,7 @@ function queueSessionPrune(agent, key) {
   pruneTimer.unref?.();
 }
 
-async function flushSessionPrunes(bin = process.env.OPENCLAW_BIN || "openclaw") {
+async function flushSessionPrunes(bin = openclawBin()) {
   if (!prunable.size) return 0;
   const keys = [...prunable];
   prunable.clear();
@@ -694,7 +743,7 @@ async function sweepStaleSessions(bin, agent) {
 export async function runIntelAgent(intel, imagePaths = [], attachments = [], options = {}) {
   const agent = intelAgentId();
   if (!agent) throw failure("intel_agent_unconfigured");
-  const bin = process.env.OPENCLAW_BIN || "openclaw";
+  const bin = openclawBin();
   const budgets = reviewBudgets();
   const attempt = Math.max(1, Number(options.attempt) || 1);
   const startedAt = Date.now();
@@ -732,34 +781,9 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = [], op
   const message = buildReviewPrompt(intel, { images: transcribed, files, imageFailures: failed, linked });
   const sessionKey = sessionKeyOf(intel.id, attempt);
 
-  let text = "";
-  let repaired = false;
-  let reply = null;
-  let meta = { model: "", usage: null };
+  let outcome;
   try {
-    const turnSec = Math.max(15, Math.min(budgets.turnSec, Math.floor((deadline - Date.now()) / 1000)));
-    const first = await askAgent({ bin, agent, sessionKey, message, timeoutSec: turnSec });
-    text = first.text;
-    meta = { model: first.model, usage: first.usage };
-    try {
-      reply = parseIntelReply(text);
-    } catch (error) {
-      if (error?.message !== "agent_bad_json") throw error;
-      // 预算还够就再问一次，只带原因和上一次的回复；不够就按坏 JSON 收尾。
-      const left = Math.floor((deadline - Date.now()) / 1000);
-      if (left < 20) throw error;
-      repaired = true;
-      const second = await askAgent({
-        bin,
-        agent,
-        sessionKey,
-        message: repairMessage(text, error),
-        timeoutSec: Math.min(budgets.turnSec, left),
-      });
-      text = second.text;
-      meta = { model: second.model || meta.model, usage: second.usage || meta.usage };
-      reply = parseIntelReply(text);
-    }
+    outcome = await askForReply({ bin, agent, sessionKey, message, budgets, deadline });
   } catch (error) {
     // 失败也要清会话：下一次重试用的是新键，这一个不会再用到。
     queueSessionPrune(agent, sessionKey);
@@ -768,13 +792,13 @@ export async function runIntelAgent(intel, imagePaths = [], attachments = [], op
   queueSessionPrune(agent, sessionKey);
 
   return {
-    ...reply,
+    ...outcome.reply,
     // 观测用的元数据挂在结果上，由 intel.js 决定落不落库。它们不参与判定。
     images: { total: images.length, transcribed: transcribed.length, failed: failed.length },
-    repaired,
+    repaired: outcome.repaired,
     attempt,
     elapsedMs: Date.now() - startedAt,
-    model: meta.model,
-    usage: meta.usage,
+    model: outcome.model,
+    usage: outcome.usage,
   };
 }
