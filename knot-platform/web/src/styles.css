@@ -4331,7 +4331,7 @@ body.is-lightbox {
 }
 
 .gate-auth {
-  margin: 0 0 1.35rem;
+  margin: 1.35rem 0 0;
 }
 
 .gate-delegate {
@@ -4417,23 +4417,6 @@ body.is-lightbox {
   text-decoration: underline;
 }
 
-.gate-enter {
-  margin-top: 1.15rem;
-}
-
-/* 访客入口放在登录卡上面，首屏就能看见。 */
-.gate-enter-top {
-  margin: 0 0 1.15rem;
-}
-
-.gate-guest-hint {
-  margin: 0.45rem 0 0;
-  text-align: center;
-  font-size: 0.9rem;
-  color: var(--color-muted);
-  line-height: 1.5;
-}
-
 .gate-offline {
   display: flex;
   align-items: center;
@@ -4448,69 +4431,82 @@ body.is-lightbox {
   flex: 1 1 14rem;
 }
 
-.gate-enter .btn {
-  width: 100%;
-  position: relative;
-  overflow: hidden;
+/* 访客的主方向：整张卡都是一个链接。卡片形状说明「这是另一处内容」，
+   不像通栏主按钮那样和登录卡里的提交键抢同一层视觉。 */
+.gate-door {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 64px;
+  margin: 1.35rem 0 0;
+  padding: 1rem 1.15rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-dim);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  color: var(--color-text);
+  text-decoration: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.gate-cta {
-  gap: 0.5rem;
+.gate-door:hover {
+  border-color: var(--color-accent);
 }
 
-.gate-cta-arrow {
-  width: 1.1rem;
-  height: 1.1rem;
+.gate-door:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.gate-door-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.gate-door-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.gate-door-hint {
+  font-size: 0.92rem;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.gate-door-arrow {
+  width: 1.35rem;
+  height: 1.35rem;
   flex: 0 0 auto;
-  animation: gate-arrow-nudge 2.4s ease-in-out infinite;
+  color: var(--color-accent);
+  transition: transform 160ms ease;
 }
 
-.gate-cta::after {
+.gate-door:hover .gate-door-arrow {
+  transform: translateX(3px);
+}
+
+/* 把登录卡标成「另一条路」，不和上面的入口并列成两个主操作。 */
+.gate-or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.15rem 0 0;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.gate-or::before,
+.gate-or::after {
   content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -40%;
-  width: 32%;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.34), transparent);
-  transform: skewX(-18deg);
-  animation: gate-shimmer 3.2s ease-in-out infinite;
-}
-
-.gate-cta:hover .gate-cta-arrow {
-  animation: gate-arrow-push 0.5s ease-out;
-}
-
-@keyframes gate-arrow-nudge {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  45% {
-    transform: translateX(4px);
-  }
-}
-
-@keyframes gate-arrow-push {
-  0% {
-    transform: translateX(0);
-  }
-  55% {
-    transform: translateX(6px);
-  }
-  100% {
-    transform: translateX(2px);
-  }
-}
-
-@keyframes gate-shimmer {
-  0%,
-  60% {
-    left: -40%;
-  }
-  100% {
-    left: 130%;
-  }
+  flex: 1;
+  height: 1px;
+  background: var(--color-border-dim);
 }
 
 @keyframes gate-float {
@@ -4524,8 +4520,6 @@ body.is-lightbox {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gate-cta-arrow,
-  .gate-cta::after,
   .gate-shot img {
     animation: none;
   }

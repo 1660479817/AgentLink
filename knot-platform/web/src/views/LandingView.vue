@@ -5,7 +5,7 @@ import AppButton from "../components/AppButton.vue";
 import AuthForm from "../components/AuthForm.vue";
 import SiteMark from "../components/SiteMark.vue";
 import { t } from "../i18n/index.js";
-import { CheckIcon, CopyIcon, QuoteIcon, SendIcon } from "../icons/index.js";
+import { ArrowRightIcon, CheckIcon, CopyIcon, QuoteIcon } from "../icons/index.js";
 import { copyText } from "../share.js";
 import { useSessionStore } from "../stores/session";
 
@@ -47,22 +47,7 @@ watch(
       <AppButton variant="secondary" @click="retrySession">{{ t("gate.retry") }}</AppButton>
     </section>
 
-    <!-- 站内浏览开着时，访客不用登录也能进。入口放在登录卡上面，
-         不让它沉到演示下面。 -->
-    <div v-if="session.canBrowse" class="gate-enter gate-enter-top">
-      <AppButton to="/discover" class="gate-cta">
-        <span>{{ t("gate.enter") }}</span>
-        <SendIcon class="gate-cta-arrow" aria-hidden="true" />
-      </AppButton>
-      <p class="gate-guest-hint">{{ t("gate.guestHint") }}</p>
-    </div>
-
-    <section class="card gate-auth" aria-labelledby="gate-auth-title">
-      <h2 id="gate-auth-title" class="page-title">{{ t("mine.authTitle") }}</h2>
-      <p class="post-body">{{ t("mine.authHint") }}</p>
-      <AuthForm />
-    </section>
-
+    <!-- 站名、定位放在最前面：从站外点进来的人先知道这是哪儿，再决定往哪走。 -->
     <header class="gate-hero">
       <div class="gate-identity">
         <SiteMark class="brand-mark gate-mark" />
@@ -71,6 +56,25 @@ watch(
       <h1 class="gate-lead">{{ t("gate.lead") }}</h1>
       <p class="gate-detail">{{ t("gate.detail") }}</p>
     </header>
+
+    <!-- 访客的主方向是「先看看」：整张卡是一个链接，标题说目的地，副句说代价。
+         站内浏览关着时不出现，留下的只有下面的登录卡。 -->
+    <template v-if="session.canBrowse">
+      <RouterLink class="gate-door" :to="{ name: 'discover' }">
+        <span class="gate-door-text">
+          <span class="gate-door-title">{{ t("gate.enterTitle") }}</span>
+          <span class="gate-door-hint">{{ t("gate.enterHint") }}</span>
+        </span>
+        <ArrowRightIcon class="gate-door-arrow" aria-hidden="true" />
+      </RouterLink>
+      <p class="gate-or" aria-hidden="true">{{ t("gate.or") }}</p>
+    </template>
+
+    <section class="card gate-auth" aria-labelledby="gate-auth-title">
+      <h2 id="gate-auth-title" class="page-title">{{ t("mine.authTitle") }}</h2>
+      <p class="post-body">{{ t("mine.authHint") }}</p>
+      <AuthForm />
+    </section>
 
     <figure class="gate-shot">
       <img

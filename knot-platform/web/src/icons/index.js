@@ -76,6 +76,10 @@ export const BackIcon = knotIcon([
 export const ChevronDownIcon = knotIcon([
   h("path", { d: "m6 9 6 6 6-6" }),
 ]);
+export const ArrowRightIcon = knotIcon([
+  h("path", { d: "M4 12h15" }),
+  h("path", { d: "m13 6 6 6-6 6" }),
+]);
 export const CheckIcon = knotIcon([
   h("path", { d: "M5 12.5 10 17.5 19 7" }),
 ]);
