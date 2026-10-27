@@ -265,6 +265,12 @@
     "review": {
       "agent_timeout": "the review agent timed out",
       "agent_failed": "the review agent did not finish",
+      "agent_unavailable": "the review agent could not be reached",
+      "agent_auth": "the review agent has no usable model credential",
+      "agent_rate_limited": "the model service is rate limiting",
+      "agent_model_missing": "the configured model does not exist",
+      "agent_model_rejected": "the model rejected the request",
+      "agent_contract": "the review agent answered off-contract",
       "agent_bad_json": "the review agent returned no usable result",
       "agent_empty": "the review agent returned nothing",
       "other": "the review did not finish"

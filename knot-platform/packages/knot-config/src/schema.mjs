@@ -794,7 +794,39 @@ const PLATFORM_KEYS = [
 
   // ---- 智能体 ----
   { key: "OPENCLAW_BIN", group: "agent", type: "string", default: "openclaw", desc: "openclaw 可执行文件。" },
-  { key: "OPENCLAW_PROCESS_TIMEOUT", group: "agent", type: "int", default: 120, min: 1, desc: "单次智能体调用的超时（秒）。" },
+  {
+    key: "OPENCLAW_PROCESS_TIMEOUT",
+    group: "agent",
+    type: "int",
+    default: 120,
+    min: 1,
+    desc: "终审这一回合的上限（秒），也是整条记录里给终审预留的时间。图片转写只能用总预算减去它的部分。",
+  },
+  {
+    key: "OPENCLAW_REVIEW_BUDGET",
+    group: "agent",
+    type: "int",
+    default: 240,
+    min: 30,
+    desc: "一条记录从开始到放弃的总预算（秒）：图片转写与终审共用这一份。",
+  },
+  {
+    key: "OPENCLAW_IMAGE_TIMEOUT",
+    group: "agent",
+    type: "int",
+    default: 75,
+    min: 5,
+    desc: "单张图片转写的上限（秒）。超时的那张跳过，不影响这一条的终审。",
+  },
+  {
+    key: "OPENCLAW_IMAGE_PARALLEL",
+    group: "agent",
+    type: "int",
+    default: 2,
+    min: 1,
+    max: 4,
+    desc: "同一条记录里同时转写几张图片。",
+  },
   { key: "OPENCLAW_INTEL_AGENT", group: "agent", type: "string", default: "knot-intel", desc: "情报智能体名。" },
 
   // ---- 管理令牌 ----

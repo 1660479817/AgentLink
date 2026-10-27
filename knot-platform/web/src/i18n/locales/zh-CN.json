@@ -265,6 +265,12 @@
     "review": {
       "agent_timeout": "数据评审员超时",
       "agent_failed": "数据评审员没有完成审核",
+      "agent_unavailable": "连不上数据评审员",
+      "agent_auth": "数据评审员的模型凭据不可用",
+      "agent_rate_limited": "模型服务限流",
+      "agent_model_missing": "配置里的模型不存在",
+      "agent_model_rejected": "模型拒收了这次请求",
+      "agent_contract": "数据评审员没有按约定回话",
       "agent_bad_json": "数据评审员没有交回可用结果",
       "agent_empty": "数据评审员没有交回内容",
       "other": "审核没有完成"

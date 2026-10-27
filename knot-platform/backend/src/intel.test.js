@@ -4,8 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { keyEntry } from "@knot/config";
+import { FAILURE_CODES } from "./agents/openclaw.js";
 import { saveReviewExtract } from "./extracts.js";
-import { compareByWeight, createIntel, deleteOwnPost, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, notifyOwnerReviewStalled, presentIntel, publicAuthor, reviewFailureText, searchPublicIntel } from "./intel.js";
+import { compareByWeight, createIntel, deleteOwnPost, judgeIntel, listPublicIntel, loadPublicIntel, noteReviewFailure, notifyOwnerReviewStalled, presentIntel, publicAuthor, reviewAttemptOf, reviewFailureText, reviewMetaOf, searchPublicIntel } from "./intel.js";
 import { clearSearchCache } from "./searchCache.js";
 import { imageUploadLimit, itemPrice, serviceFee, policyConfig } from "./points.js";
 
@@ -885,4 +886,62 @@ test("a missing record is judged as nothing, not an empty card", async () => {
     },
   };
   assert.equal(await judgeIntel(pool, "12121212-1212-4212-8212-121212121212"), null);
+});
+
+// 尝试次数是「换个新会话再试」的依据：同一序号两次一定撞上一个还在跑的回合。
+// 库里的值可能是任何东西，读坏了按 0 算——一条记录的计数不值得让评审停住。
+test("the attempt counter reads a broken value as zero", () => {
+  assert.equal(reviewAttemptOf(null), 0);
+  assert.equal(reviewAttemptOf({}), 0);
+  assert.equal(reviewAttemptOf({ reviewAttempts: "3" }), 3);
+  assert.equal(reviewAttemptOf({ reviewAttempts: 2 }), 2);
+  assert.equal(reviewAttemptOf({ reviewAttempts: "many" }), 0);
+  assert.equal(reviewAttemptOf({ reviewAttempts: -4 }), 0);
+});
+
+// 通过时留下的观测值。没有它们，事后只答得了「多久」，答不了
+// 「用哪个模型、几轮、几张图没转写、是不是靠修复回合救回来的」。
+test("a passing review keeps what it took", () => {
+  const meta = reviewMetaOf({
+    attempt: 2,
+    elapsedMs: 41_000,
+    repaired: true,
+    model: "qwen",
+    images: { total: 4, transcribed: 3, failed: 1 },
+    usage: { input: 9000, output: 40 },
+  });
+  assert.equal(meta.attempt, 2);
+  assert.equal(meta.ms, 41_000);
+  assert.equal(meta.repaired, true);
+  assert.deepEqual(meta.images, { total: 4, failed: 1 });
+  assert.deepEqual(meta.tokens, { input: 9000, output: 40 });
+});
+
+test("a review with no agent still writes a usable record of the attempt", async () => {
+  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const updates = [];
+  const before = process.env.OPENCLAW_INTEL_AGENT;
+  delete process.env.OPENCLAW_INTEL_AGENT;
+  try {
+    await judgeIntel(pendingJudgePool(id, updates), id);
+  } finally {
+    if (before === undefined) delete process.env.OPENCLAW_INTEL_AGENT;
+    else process.env.OPENCLAW_INTEL_AGENT = before;
+  }
+  const detail = JSON.parse(updates[0].params[2]);
+  assert.equal(detail.review.attempt, 1);
+  // 没跑智能体时 images 是 null，不是 0：这两种情况在观测上必须分得开。
+  assert.equal(detail.review.images, null);
+  assert.equal(detail.review.repaired, false);
+});
+
+// 码是给运维看的，人话是给作者看的。新增一个码却没有对应的一句话，作者收到的就是
+// 「审核没有完成」——和他什么都不知道是一样的。这条测试把两张表钉在一起。
+test("every failure code has its own sentence, not the generic one", () => {
+  for (const code of FAILURE_CODES) {
+    const text = reviewFailureText(new Error(code));
+    assert.match(text, new RegExp(code), `${code} 应该在通知里出现`);
+    assert.doesNotMatch(text, /^审核没有完成/, `${code} 不应该退到兜底文案`);
+  }
+  assert.match(reviewFailureText(new Error("没见过的码")), /^审核没有完成/);
 });

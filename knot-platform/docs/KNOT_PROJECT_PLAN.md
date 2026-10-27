@@ -84,7 +84,7 @@ Final review is done by the data reviewer after the record is already visible. I
 | `revoke` | writes `rejected`, writes the reason, notifies the author, and deletes this text. Title is "information revoked" |
 | No usable result | stays `pending`, still visible. The exception is written into the author's notifications, retried later |
 
-Only illegal content, fraud, privacy, or harassment is revoked. Uncertain means keep. Final review does not judge whether links and attachments open, and does not return `unreadable`. Attachments are read by the data reviewer running the workspace's `tools/read`; the Backend does not excerpt the text.
+Only illegal content, fraud, privacy, or harassment is revoked. Uncertain means keep. Final review does not judge whether links and attachments open, and does not return `unreadable`. Attachment text is extracted once by the Backend: the full text goes into search, the head and tail go into the prompt, and the middle is left to the data reviewer paging through the workspace's `tools/read`.
 
 Visibility scope:
 

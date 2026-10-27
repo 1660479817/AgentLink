@@ -31,7 +31,7 @@ The script puts these files into the workspace before registering the agent. If 
 
 | id | Agent | When it works | Returns |
 | --- | --- | --- | --- |
-| `knot-intel` | Data reviewer | After pre-review passes and the record is already visible. With images, the Backend transcribes them first and puts the transcription into the message. The attachment is the full file's local path; use the workspace's `tools/read` to read PDF, Word, Excel, PPT, and Markdown. Archives are not handed here and pre-review does not open them. Documents that can't be opened are rejected at pre-review and never reach here | `pass` with `category`, `language`, `topics`, or `revoke` with a reason. `topics` are written in the same language as the body; Backend drops tags whose language mismatches. With no usable result the record stays `pending`, still visible, retried later |
+| `knot-intel` | Data reviewer | After pre-review passes and the record is already visible. With images, the Backend transcribes them first and puts the transcription into the message. Attachment text is extracted by the Backend: the full text goes into search, the head and tail go into the prompt, and the middle is read by paging the workspace's `tools/read` for PDF, Word, Excel, PPT, and Markdown. Archives are not handed here and pre-review does not open them. Documents that can't be opened are rejected at pre-review and never reach here | `pass` with `category`, `language`, `topics`, or `revoke` with a reason. `topics` are written in the same language as the body; Backend drops tags whose language mismatches. With no usable result the record stays `pending`, still visible, retried later |
 | `knot-admin` | Administrator | The owner orders it in OpenClaw; every day 09:00 (Shanghai) patrols newly-stayed posts | runs `admin`, which calls the loopback `/api/admin`. The Backend deletes posts, writes warnings, manages accounts, issues internal agents and patrol records, and writes sponsor content |
 | `knot-actuary` | Actuary | When the owner asks about points; when the owner wants to set prices | runs `actuary economy` to read the three numbers — issued, circulating, platform. Runs `prices`, `propose`, `apply` to read/write the price table. Proposals are written only after the owner agrees. It never moves points |
 
@@ -59,7 +59,7 @@ The directory currently holds no accounts. The first internal agent is created b
 
 ## Skills
 
-Skills are in `ops/openclaw/skills/<name>/`. The list is in `manifest.json`. During sync, `SKILL.md` and the command scripts in the same directory (not the tests) are copied into the agent workspace's `skills/<name>/`, and the visible list is written as `agents.entries.<id>.skills`. In OpenClaw this entry is a replacement: only the written names are visible, `agents.defaults.skills` is not inherited, and files are not installed into `~/.openclaw/skills`. So `main` and Feishu conversations do not see these skills. The `tools/` in an agent directory is copied to the workspace's `tools/`, tests not copied. The data reviewer uses `tools/read` to read attachments.
+Skills are in `ops/openclaw/skills/<name>/`. The list is in `manifest.json`. During sync, `SKILL.md` and the command scripts in the same directory (not the tests) are copied into the agent workspace's `skills/<name>/`, and the visible list is written as `agents.entries.<id>.skills`. In OpenClaw this entry is a replacement: only the written names are visible, `agents.defaults.skills` is not inherited, and files are not installed into `~/.openclaw/skills`. So `main` and Feishu conversations do not see these skills. The `tools/` in an agent directory is copied to the workspace's `tools/`, tests not copied. The data reviewer uses `tools/read` to page through the middle of an attachment.
 
 | Scope | List | Skills | Who sees it |
 | --- | --- | --- | --- |
@@ -74,7 +74,11 @@ Files without an extension in a skill directory are commands (`skills/knot-admin
 
 ## Launching
 
-Knot Backend runs `openclaw agent --agent <id> --session-key <key> --message-file <file> --json --timeout <seconds>`. `knot-intel`'s session key is `intel-<id>`; the timeout is in `OPENCLAW_PROCESS_TIMEOUT`.
+Knot Backend runs `openclaw agent --agent <id> --session-key <key> --message-file <file> --json --timeout <seconds>`. `knot-intel` uses a fresh key per attempt, `review-<first 8 of id>-<attempt>-<random>`: reviewing one record needs no memory, and reusing a key either collides with a turn still running or drags the previous record into this one. Finished sessions are pruned in batches.
+
+The budget belongs to a record, not to a call. `OPENCLAW_REVIEW_BUDGET` caps the whole record and is shared by image transcription and final review; `OPENCLAW_PROCESS_TIMEOUT` caps the final turn and is also the time reserved for it, so images may only use what is left. `OPENCLAW_IMAGE_TIMEOUT` caps one image and `OPENCLAW_IMAGE_PARALLEL` sets how many run at once. An image that times out or fails is skipped and the record is still reviewed: four serial transcriptions can eat the entire budget, which is what the parallelism is for.
+
+On a non-zero exit the reason is almost always in the stdout envelope (on timeout `status` is `timeout` and `stderr` is empty), so failures are classified from the envelope: timeout, unreachable gateway, expired credential, rate limit, missing model, rejected request, off-contract envelope, empty body, unusable JSON. Retry policy follows from the class: credential and model-configuration failures never recover by retrying, and the author is told which class it was instead of "the review did not finish".
 
 The Backend parses the JSON and writes the database, points, and notifications itself. Agents do not touch the database and do not judge whether links open. Starring does not go through an agent. The administrator is not in this pipeline. It runs local commands; deletion, warnings, accounts, and patrol records are still written by the Backend.
 

@@ -90,7 +90,7 @@ async function attachmentFiles(pool, intelId) {
 
 async function loadIntel(pool, id) {
   const { rows } = await pool.query(
-    `SELECT id, account_id, body, videos, links, verdict, kind FROM intel WHERE id = $1`,
+    `SELECT id, account_id, body, videos, links, verdict, kind, detail FROM intel WHERE id = $1`,
     [id]
   );
   return rows[0] || null;
@@ -152,11 +152,14 @@ export async function judgeIntel(pool, id) {
   // 管理端的「重新终审」或并发重入会拿到一份残缺卡片。
   if (intel.verdict !== "pending") return loadPresentedIntel(pool, id);
   let result = { verdict: "pass", reason: "", note: "", category: "", language: "", topics: [] };
+  // 第几次尝试从库里的计数推出来，不靠进程内状态：重启恢复后它接着上一次的序号走，
+  // 于是每次尝试都有一个新的会话键，不会续用上一次的上下文。
+  const attempt = reviewAttemptOf(intel.detail) + 1;
   try {
     if (intelAgentId()) {
       const images = await imageFiles(pool, id);
       const attachments = await attachmentFiles(pool, id);
-      result = await runIntelAgent(intel, images, attachments);
+      result = await runIntelAgent(intel, images, attachments, { attempt });
     }
     if (result.verdict === "revoke") {
       const { rows } = await pool.query(
@@ -183,7 +186,16 @@ export async function judgeIntel(pool, id) {
         `UPDATE intel SET verdict = 'passed', reject_reason = NULL, category = $2, detail = $3::jsonb,
                 updated_at = now()
          WHERE id = $1 AND verdict = 'pending'`,
-        [id, category, JSON.stringify({ note: result.note || "", language: result.language || "", topics: result.topics || [] })]
+        [
+          id,
+          category,
+          JSON.stringify({
+            note: result.note || "",
+            language: result.language || "",
+            topics: result.topics || [],
+            review: reviewMetaOf(result),
+          }),
+        ]
       );
     }
   } finally {
@@ -231,9 +243,38 @@ export async function retagIntelTopics(pool, id) {
 const REVIEW_LABELS = {
   agent_timeout: "数据评审员超时",
   agent_failed: "数据评审员没有完成审核",
+  agent_unavailable: "连不上 OpenClaw",
+  agent_auth: "OpenClaw 的模型凭据不可用",
+  agent_rate_limited: "模型服务限流",
+  agent_model_missing: "配置里的模型不存在",
+  agent_model_rejected: "模型拒收了这次请求",
+  agent_contract: "OpenClaw 没有按约定回话",
   agent_bad_json: "数据评审员没有交回可用结果",
   agent_empty: "数据评审员没有交回内容",
 };
+
+// 库里记的尝试次数。写坏了（不是数字）按 0 算：一条记录的次数不值得让评审停住。
+export function reviewAttemptOf(detail) {
+  const value = detail && typeof detail === "object" ? detail.reviewAttempts : null;
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+// 通过时留在 detail.review 里的观测值。没有它们，事后只答得了「多久」，
+// 答不了「用哪个模型、几轮、几张图没转写、是不是靠修复回合救回来的」。
+export function reviewMetaOf(result) {
+  const images = result?.images && typeof result.images === "object" ? result.images : null;
+  const usage = result?.usage && typeof result.usage === "object" ? result.usage : null;
+  const meta = {
+    attempt: Number(result?.attempt) || 1,
+    ms: Number(result?.elapsedMs) || 0,
+    repaired: Boolean(result?.repaired),
+    model: String(result?.model || "").slice(0, 80),
+    images: images ? { total: Number(images.total) || 0, failed: Number(images.failed) || 0 } : null,
+  };
+  if (usage) meta.tokens = { input: Number(usage.input) || 0, output: Number(usage.output) || 0 };
+  return meta;
+}
 
 function reviewFailureCode(error) {
   const code = String(error?.message || "").replace(/\s+/g, " ").trim().slice(0, 120);
@@ -300,13 +341,18 @@ function enqueueReview(pool, id) {
 }
 
 // 记一次失败并返回累计次数。只数还在 pending 的行：期间被终审或删掉的返回 0。
+// 库里的值可能是任何东西（老版本写过、手改过），先按正则确认是数字再转 int：
+// 直接 `::int` 遇到一个非数字就让整条重试路径抛错，评审从此停在那一条上。
 async function countReviewFailure(pool, id) {
   const { rows } = await pool.query(
     `UPDATE intel
      SET detail = COALESCE(detail, '{}'::jsonb)
-       || jsonb_build_object('reviewAttempts', COALESCE((detail->>'reviewAttempts')::int, 0) + 1)
+       || jsonb_build_object('reviewAttempts',
+            CASE WHEN detail->>'reviewAttempts' ~ '^[0-9]+$'
+                 THEN (detail->>'reviewAttempts')::int ELSE 0 END + 1)
      WHERE id = $1 AND verdict = 'pending'
-     RETURNING COALESCE((detail->>'reviewAttempts')::int, 0) AS attempts`,
+     RETURNING CASE WHEN detail->>'reviewAttempts' ~ '^[0-9]+$'
+                    THEN (detail->>'reviewAttempts')::int ELSE 0 END AS attempts`,
     [id]
   );
   return Number(rows[0]?.attempts) || 0;
@@ -432,19 +478,26 @@ function pumpReviews(pool) {
 
 // 启动恢复：按 (created_at, id) 键集分页，一页 200 条。超时重跑的任务不会被这一页
 // 边界漏掉，单次查询也不会把全部待审行一次读回内存。
+//
+// 已经放弃的记录不再恢复。它们停在 10 次之后本来就不会再排重试，但每次重启仍然会把
+// 它们全部捞进队列、各白跑一遍智能体——重启越勤，白跑的越多，而结果不会变。
+const REVIEW_GAVE_UP_FILTER = `CASE WHEN detail->>'reviewAttempts' ~ '^[0-9]+$'
+                                   THEN (detail->>'reviewAttempts')::int ELSE 0 END < ${REVIEW_MAX_ATTEMPTS}`;
+
 export async function resumePendingReviews(pool) {
   let anchor = null;
   for (;;) {
     const { rows } = anchor
       ? await pool.query(
           `SELECT id, created_at FROM intel
-            WHERE verdict = 'pending' AND (created_at, id) > ($1::timestamptz, $2::uuid)
+            WHERE verdict = 'pending' AND ${REVIEW_GAVE_UP_FILTER}
+              AND (created_at, id) > ($1::timestamptz, $2::uuid)
             ORDER BY created_at ASC, id ASC
             LIMIT ${REVIEW_RESUME_BATCH}`,
           [anchor.created_at, anchor.id]
         )
       : await pool.query(
-          `SELECT id, created_at FROM intel WHERE verdict = 'pending'
+          `SELECT id, created_at FROM intel WHERE verdict = 'pending' AND ${REVIEW_GAVE_UP_FILTER}
             ORDER BY created_at ASC, id ASC
             LIMIT ${REVIEW_RESUME_BATCH}`
         );

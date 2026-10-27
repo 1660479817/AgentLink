@@ -214,7 +214,10 @@ Backend 启动时按同一份登记表校验环境：值不合法直接退出，
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `OPENCLAW_BIN` | `openclaw` | openclaw 可执行文件。 |
-| `OPENCLAW_PROCESS_TIMEOUT` | `120` | 单次智能体调用的超时（秒）。 |
+| `OPENCLAW_PROCESS_TIMEOUT` | `120` | 终审这一回合的上限（秒），也是整条记录里给终审预留的时间。图片转写只能用总预算减去它的部分。 |
+| `OPENCLAW_REVIEW_BUDGET` | `240` | 一条记录从开始到放弃的总预算（秒）：图片转写与终审共用这一份。 |
+| `OPENCLAW_IMAGE_TIMEOUT` | `75` | 单张图片转写的上限（秒）。超时的那张跳过，不影响这一条的终审。 |
+| `OPENCLAW_IMAGE_PARALLEL` | `2` | 同一条记录里同时转写几张图片。 |
 | `OPENCLAW_INTEL_AGENT` | `knot-intel` | 情报智能体名。 |
 
 ### 管理令牌
