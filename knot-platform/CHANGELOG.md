@@ -42,6 +42,8 @@ The instance host is macOS only, and deployment starts with a gate instead of a 
 
 - **A port held by something that is not PostgreSQL is reported before `pg_ctl` tries to bind it.** `pg_isready` answers `no response` for an unrelated listener, and the failure surfaced later as `could not bind`. The gate and the script now name the process holding the port, and point at `KNOT_PGPORT` (the database port) rather than `KNOT_PORT` (the site port).
 
+- **A site port held by another process is reported before the deploy gets that far.** A backend that cannot bind fails after `current` has been switched and migrations have run, and the deploy then rolls back. The read-only gate names the process holding `KNOT_PORT`; when the holder is this site's own previous backend it stays silent, so this is a warning rather than a stop.
+
 - **`bootstrap-host.sh` and the Homebrew formula are not the same `initdb`.** The `postgresql@16` formula initializes its own default cluster under `/opt/homebrew/var/postgresql@16` at install time. Nothing runs or connects to it — the instance uses `KNOT_PGDATA` on `KNOT_PGPORT` — but the docs now say so instead of leaving "the bootstrap does not initdb" to be read as "no cluster will appear".
 
 ### Removed

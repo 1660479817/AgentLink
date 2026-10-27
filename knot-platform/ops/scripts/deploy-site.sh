@@ -269,6 +269,11 @@ esac
 echo "==> check database"
 knot_gate "数据库" knot_check_database || exit 1
 
+# 站点端口被别的程序占着时，失败会拖到「换完 current、跑完迁移、起 Backend」才发生，
+# 然后自动回滚；在这个只读阶段先说一句便宜得多。占用者是本站点自己的 Backend 时
+# 只算 ok（launchd 会在部署中途把它换掉）。
+knot_gate "端口" knot_check_site_port || exit 1
+
 # 启停就这一个入口：迁移失败回滚和正常启动都走它。
 restart_backend() {
   case "$RUNTIME" in

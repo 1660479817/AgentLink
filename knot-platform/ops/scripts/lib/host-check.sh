@@ -42,7 +42,13 @@ knot_pf_row() {
       ;;
   esac
   if [[ -n "$fix" ]]; then
-    KNOT_PF_FIXES="${KNOT_PF_FIXES}${KNOT_PF_FIXES:+$'\n'}    ${fix}"
+    # warn 不拦部署，后面不会打印修复清单：那就当场跟着这一行说出来，
+    # 否则提示的「该改成什么」在门禁通过时直接丢掉。
+    if [[ "$mark" == "warn" ]]; then
+      printf '        %s\n' "$fix"
+    else
+      KNOT_PF_FIXES="${KNOT_PF_FIXES}${KNOT_PF_FIXES:+$'\n'}    ${fix}"
+    fi
   fi
 }
 
@@ -179,8 +185,7 @@ knot_port_holder() {
   lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1" (pid "$2")"}' || true
 }
 
-knot_check_pg_local() {
-  local bin_dir="${KNOT_PG_BIN:-}" missing="" tool port="${KNOT_PGPORT:-5433}"
+knot_check_pg_local() {  local bin_dir="${KNOT_PG_BIN:-}" missing="" tool port="${KNOT_PGPORT:-5433}"
   if [[ -z "$bin_dir" ]]; then
     knot_pf_row fail "数据库" "KNOT_PG_BIN 是空的" \
       "在 site.env 里写 KNOT_PG_BIN=/opt/homebrew/opt/postgresql@16/bin"
@@ -216,6 +221,31 @@ knot_check_pg_local() {
     fi
     knot_pf_row ok "数据库" "本机 Postgres ${bin_dir}（还没起，部署时会 initdb 并启动）"
   fi
+}
+
+# ---- 站点端口 ----
+# 端口被别的程序占着时，Backend 起来就 EADDRINUSE，部署在换完 current、跑完迁移之后
+# 才失败并回滚——代价比早说一句大得多。这里只提示不动手：占用者也可能就是本站点上一个
+# 版本的 Backend（launchd 会在部署中途把它换掉），所以不能一刀切成失败。
+knot_check_site_port() {
+  local port="${KNOT_PORT:-}" holder pid cwd
+  if [[ -z "$port" ]]; then
+    knot_pf_row warn "端口" "KNOT_PORT 是空的，Backend 会用默认端口" "在 site.env 里写 KNOT_PORT"
+    return 0
+  fi
+  holder="$(knot_port_holder "$port")"
+  if [[ -z "$holder" ]]; then
+    knot_pf_row ok "端口" "127.0.0.1:${port} 空闲"
+    return 0
+  fi
+  pid="$(printf '%s' "$holder" | sed -n 's/.*pid \([0-9]*\)).*/\1/p')"
+  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
+  if [[ -n "$cwd" && "$cwd" == "$(cd "${KNOT_DEPLOY_ROOT:-.}" && pwd -P)"/* ]]; then
+    knot_pf_row ok "端口" "127.0.0.1:${port} 上是这个站点的 Backend（${holder}），部署时会被替换"
+    return 0
+  fi
+  knot_pf_row warn "端口" "127.0.0.1:${port} 已被 ${holder} 占用，不是这个站点的进程" \
+    "部署会在启动 Backend 时失败并回滚：在 site.env 里改成别的 KNOT_PORT，或先停掉占用的进程"
 }
 
 knot_probe_database_url() {
