@@ -112,3 +112,21 @@ test("两层的 /discover.html 都指回 /discover，只有一份可索引地址
     "Backend 没有把 /discover.html 指回 /discover：proxy 投放的站点会两个地址都能打开",
   );
 });
+
+test("两层的 /i/<记录 id> 都指回深链", () => {
+  // 早先 Agent 自己拼出来的分享地址长这样；入口与 Backend 各补一条 301，
+  // static 与 proxy 两种投放才不会一个能开、一个 404。
+  const nginx = read("ops/entry/site.conf.template");
+  assert.match(
+    nginx,
+    /location ~ "\^\/i\/\(\[0-9a-fA-F-\]\{36\}\)\/\?\$" \{\s*return 301 \/discover\?post=\$1;/,
+    "nginx 没有把 /i/<记录 id> 指回深链",
+  );
+
+  const backend = read("backend/src/index.js");
+  assert.match(
+    backend,
+    /app\.get\("\/i\/:id",[\s\S]{0,240}recordPath\(req\.params\.id\)[\s\S]{0,240}res\.redirect\(301, target\)/,
+    "Backend 没有把 /i/<记录 id> 指回深链：proxy 投放与本机直连会 404",
+  );
+});

@@ -37,6 +37,7 @@ import { acceptAvatar, ensureUploadDir, newStorageName } from "../uploads.js";
 import { tmpDir } from "../storage.js";
 import { storeUploadedFile } from "../uploadStore.js";
 import { sendUploadError } from "./uploadError.js";
+import { withRecordUrl, withRecordUrls } from "../recordUrl.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_WAIT_MS = 60_000;
@@ -450,7 +451,7 @@ export function agentRouter({ pool, uploadDir, storeEnabled = false, profile = n
         revises: typeof req.body?.revises === "string" ? req.body.revises : null,
         mentions: req.body?.mentions,
       });
-      res.status(201).json({ intel });
+      res.status(201).json({ intel: withRecordUrl(intel, publicWebOrigin) });
     } catch (error) {
       agentFail(res, error);
     }
@@ -462,7 +463,7 @@ export function agentRouter({ pool, uploadDir, storeEnabled = false, profile = n
     if (!UUID.test(String(req.params.id || ""))) return res.status(404).json({ error: "not_found" });
     try {
       const result = await downloadPacket(pool, access.userId, req.params.id, uploadDir);
-      res.json({ intel: result.intel });
+      res.json({ intel: withRecordUrl(result.intel, publicWebOrigin) });
     } catch (error) {
       agentFail(res, error);
     }
@@ -581,7 +582,7 @@ export function agentRouter({ pool, uploadDir, storeEnabled = false, profile = n
     const anchor = before && UUID.test(before) ? before : null;
     const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
     const rows = await listPublicIntel(pool, 30, access.userId, author || null, anchor, filters);
-    const information = await presentIntelRows(pool, rows);
+    const information = withRecordUrls(await presentIntelRows(pool, rows), publicWebOrigin);
     if (!author) return res.json({ information });
     res.json({ information, author: await publicAuthor(pool, author) });
   });
@@ -601,7 +602,7 @@ export function agentRouter({ pool, uploadDir, storeEnabled = false, profile = n
     if (!q) return res.json({ information: [] });
     const filters = { category: req.query.category, topic: req.query.topic, source: req.query.source, since: req.query.since };
     const rows = await searchPublicIntel(pool, q, access.userId, filters);
-    res.json({ information: await presentIntelRows(pool, rows) });
+    res.json({ information: withRecordUrls(await presentIntelRows(pool, rows), publicWebOrigin) });
   });
 
   router.get("/intel/:id", async (req, res) => {
@@ -611,7 +612,7 @@ export function agentRouter({ pool, uploadDir, storeEnabled = false, profile = n
     if (!UUID.test(id)) return res.status(404).json({ error: "not_found" });
     const intel = await loadPublicIntel(pool, access.userId, id);
     if (!intel) return res.status(404).json({ error: "not_found" });
-    res.json({ intel });
+    res.json({ intel: withRecordUrl(intel, publicWebOrigin) });
   });
 
   // 删除自己的一条 post/fastpost：记录留在库里，只记为 removed 并取消公开。

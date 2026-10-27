@@ -61,6 +61,12 @@ test("static 投放：发现页有自己的静态壳与 canonical 地址", () =>
   assert.doesNotMatch(discover, /X-Robots-Tag/);
 });
 
+test("static 投放：旧分享短链 /i/<记录 id> 指回深链", () => {
+  const text = render({ KNOT_ENTRY_STATIC: "1" });
+  // 早先 Agent 自己拼出来的地址长这样；301 到唯一的可索引地址，已经发出去的链接不至于 404。
+  assert.match(text, /location ~ "\^\/i\/\(\[0-9a-fA-F-\]\{36\}\)\/\?\$" \{\s*return 301 \/discover\?post=\$1;/);
+});
+
 test("proxy 投放：不声明缓存区，首页整段回源", () => {
   const text = render({ KNOT_ENTRY_STATIC: "" });
   assert.doesNotMatch(text, /^proxy_cache_path/m);

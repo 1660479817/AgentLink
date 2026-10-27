@@ -27,6 +27,7 @@ import { hubOriginOf } from "./xknotJoin.js";
 import { startTunnelAgent } from "./tunnel.js";
 import { createHtmlRenderer } from "./pageHtml.js";
 import { renderRobots, renderSitemap } from "../../ops/scripts/entry-html.mjs";
+import { recordPath } from "./recordUrl.js";
 import { pollIntervalMs, startXknotPoller } from "./xknotPoller.js";
 
 // 产品版本跟着本包的 package.json 走，别在这里另写一份。
@@ -221,6 +222,17 @@ if (bootstrap.staticWebDir && fs.existsSync(bootstrap.staticWebDir)) {
   // 地址都能打开，爬虫按 canonical 归一之前先把两条都抓一遍。
   app.get("/discover.html", (_req, res) => {
     res.redirect(301, "/discover");
+  });
+
+  // 早期分享出去的 /i/<记录 id> 是 Agent 自己拼出来的地址：指回深链，链接不至于 404。
+  // 只认 uuid；别的 /i/... 仍然是 404，不拿这一条兜住任意路径。
+  app.get("/i/:id", (req, res) => {
+    const target = recordPath(req.params.id);
+    if (!target) {
+      res.status(404).type("text/plain").send("not found\n");
+      return;
+    }
+    res.redirect(301, target);
   });
 
   app.get(["/discover", "/discover/"], (_req, res, next) => {

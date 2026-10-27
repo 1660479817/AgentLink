@@ -266,6 +266,13 @@ server {
         proxy_read_timeout 30s;
     }
 
+    # 早期分享出去的 /i/<记录 id> 是 Agent 自己拼出来的地址：指回深链，链接不至于 404。
+    # 和 /discover.html 一样只留一个可索引地址；正则里的 {36} 必须放在引号里，
+    # 否则 nginx 会把 { 当成块起点。
+    location ~ "^/i/([0-9a-fA-F-]{36})/?$" {
+        return 301 /discover?post=$1;
+    }
+
     # 静态文件：存在就发，不存在就是 404。SPA 路由已经在上面逐条列出，
     # 这里不再拿 index.html 兜底——那正是软 404 的来源。
     # 反代位置不写这两个头，交给 Backend，免得同一个值出现两行。
