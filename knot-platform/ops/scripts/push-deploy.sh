@@ -90,6 +90,8 @@ done
 source "$SCRIPT_DIR/lib/site-config.sh"
 # shellcheck source=lib/artifact-guard.sh
 source "$SCRIPT_DIR/lib/artifact-guard.sh"
+# shellcheck source=lib/ssh-args.sh
+source "$SCRIPT_DIR/lib/ssh-args.sh"
 
 knot_require KNOT_PUBLIC_ORIGIN "在 sites/$KNOT_SITE/site.env 里写 KNOT_PUBLIC_ORIGIN。"
 
@@ -251,7 +253,7 @@ esac
 
 # 部署前的版本：健康检查失败时用它把远端切回去。取值走位置参数，
 # 不拼进远端 shell 文本。
-PREV_REMOTE="$("${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- "$DEPLOY_DIR" <<'REMOTE' | tail -n 1
+PREV_REMOTE="$("${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- "$(knot_shq "$DEPLOY_DIR")" <<'REMOTE' | tail -n 1
 set -eu
 readlink "$1/current" 2>/dev/null || true
 REMOTE
@@ -316,17 +318,33 @@ echo "==> remote install"
 # 远端脚本固定走 stdin，值全部用位置参数传：发布包名来自文件名，含一个单引号
 # 就能在实例主机上跳出引号、以部署用户执行任意命令，紧接着还是 rm -rf。
 # 解包目录也改成 mktemp：同一主机并发部署时不再共用 .incoming/<名字>。
-"${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- \
-  "$DEPLOY_DIR" "$REL_NAME" "$ARTIFACT_BASE" "$KNOT_SITE" "${RUNTIME_ARG:-}" "$BOOTSTRAP" <<'REMOTE'
+#
+# 每个值都过一道 knot_shq（见 lib/ssh-args.sh）：ssh 只用空格把 argv 拼成一条
+# 命令串，远端 shell 重新拆词。不引号的话，没带 --runtime 时的空串会整个消失，
+# 后面的值逐位前移——`--bootstrap` 掉进 --runtime 的位置，看起来像开关没生效。
+REMOTE_ARGS=()
+for value in "$DEPLOY_DIR" "$REL_NAME" "$ARTIFACT_BASE" "$KNOT_SITE" "${RUNTIME_ARG:-}" "$BOOTSTRAP"; do
+  REMOTE_ARGS+=("$(knot_shq "$value")")
+done
+"${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- "${REMOTE_ARGS[@]}" <<'REMOTE'
 set -eu
 deploy_dir="$1"
 rel_name="$2"
 artifact="$3"
 site="$4"
-# 没带 --runtime 时 ${RUNTIME_ARG:-} 展开成空串，ssh 拼远程命令时末尾空参数会被丢
-# 掉，$5 直接 unbound。用 ${5:-} 把「没传」和「传了空串」都按空处理。
+# 空串是「没带 --runtime」，由 deploy-site.sh 按默认 launchd 处理。
 runtime="${5:-}"
 bootstrap="${6:-0}"
+# 不是 launchd / none 就说明位置参数又错位了：说清是哪种错位，别让 deploy-site.sh
+# 报一句「--runtime 只能是 launchd 或 none」然后让人去猜为什么。
+case "$runtime" in
+  "" | launchd | none) ;;
+  *)
+    echo "远程部署参数错位：第 5 个参数应是 launchd / none / 空，实际收到 '${runtime}'。" >&2
+    echo "这通常是 ssh 把某个空参数吃掉、后面的值逐位前移造成的，见 push-deploy.sh 里 knot_shq 那段说明。" >&2
+    exit 2
+    ;;
+esac
 
 case "$rel_name" in
   "" | */* | *..*) echo "发布包名不合法：${rel_name}" >&2; exit 2 ;;
@@ -385,7 +403,8 @@ if [[ "$verified" != 1 ]]; then
   PREV_NAME="${PREV_REMOTE#releases/}"
   if [[ -n "$PREV_NAME" && "$PREV_NAME" != "$REL_NAME" ]]; then
     echo "==> 健康检查没过，远端回滚到 ${PREV_NAME}" >&2
-    "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- "$DEPLOY_DIR" "$KNOT_SITE" "$PREV_NAME" <<'REMOTE' || true
+    "${RUN_SSH[@]}" "$KNOT_DEPLOY_SSH" bash -s -- \
+      "$(knot_shq "$DEPLOY_DIR")" "$(knot_shq "$KNOT_SITE")" "$(knot_shq "$PREV_NAME")" <<'REMOTE' || true
 set -eu
 deploy_dir="$1"
 site="$2"

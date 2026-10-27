@@ -28,6 +28,10 @@ The instance host is macOS only, and deployment starts with a gate instead of a 
 
 - **`KNOT_ENTRY_RELOAD_CMD` still defaults to `systemctl reload nginx`,** because the public entry host is a Linux box with nginx; only the instance host is macOS-only. The wording now says so.
 
+### Fixed
+
+- **An empty value keeps its slot when it is passed to the remote host.** `push-deploy.sh` hands the release name, site, runtime, and bootstrap flag to the target's `deploy-site.sh` as positional arguments, and ssh joins argv with spaces while the remote shell splits it again. An empty `--runtime` therefore vanished, `--bootstrap` moved up one slot, was read as `--runtime 1`, and the deploy stopped before doing the bootstrap it was asked for; the workaround was to pass `--runtime launchd` by hand. Every value now goes through `knot_shq` (`ops/scripts/lib/ssh-args.sh`), which quotes it so an empty string stays an empty argument and a path with spaces stays one argument. The remote side also rejects a runtime that is neither `launchd`, `none`, nor empty, and says the arguments were shifted instead of relaying the confusing error from `deploy-site.sh`. `push-entry.sh` uses the same helper, which also fixes a value that contains a single quote (`'it''s'` used to arrive as `it\'\'\'s`).
+
 ### Removed
 
 - **Linux + systemd as an instance-host runtime.** `ops/systemd/`, the `uname`-based runtime switch and `--runtime systemd`, `KNOT_SYSTEMD_DIR`, `KNOT_SERVICE_USER`, and the `systemctl` restart paths in `issued.js` / `tunnel.js` are gone. A stale `platform.env` that still carries the two retired keys is cleaned on the next deploy with one line of explanation, and the placeholders test now covers the launchd templates alone. Supporting another platform is a fork of the deployment layer: `ops/README.md` and `ops/README_CN.md` list the four seams.

@@ -37,6 +37,8 @@ done
 
 # shellcheck source=lib/site-config.sh
 source "$SCRIPT_DIR/lib/site-config.sh"
+# shellcheck source=lib/ssh-args.sh
+source "$SCRIPT_DIR/lib/ssh-args.sh"
 
 knot_enabled KNOT_ENTRY_ENABLED || knot_fail "当前站点 KNOT_ENTRY_ENABLED=0，是 local 部署，没有 xknot.si 子域入口可推。"
 knot_require KNOT_ENTRY_SSH "在 sites/$KNOT_SITE/site.env 里写 KNOT_ENTRY_SSH=user@entry-host。"
@@ -198,17 +200,14 @@ echo "==> entry ${HOST}（${SERVE}）"
 # site.conf、log、cache 三份一起测，避免 log_format 重复这类错误漏到下一次。
 #
 # ssh 会把命令行参数用空格拼成一行，交给远端 shell 重新拆词。任何一个值带空格
-# （reload 命令必然带），远端就会多拆出几个参数，后面的逐位错开。所以每个值
-# 都自己带引号，让远端拆词时把它们还原成一个参数。
-shq() {
-  printf "'%s'" "${1//\'/\'\\\'\'}"
-}
+# （reload 命令必然带）就会多拆出几个参数，空串则整个消失，后面的逐位错开。
+# 每个值都过一道 knot_shq（lib/ssh-args.sh），让远端拆词后仍是一个参数。
 REMOTE_ARGS=()
 for value in "$SERVE" "$REMOTE_STAGE" "$WEB_ROOT" "$CONF" "$LOG_CONF" "$CACHE_CONF" \
   "${KNOT_ENTRY_WEB_OWNER:-}" "${KNOT_ENTRY_ACCESS_LOG:-/var/log/nginx/knot-access.log}" \
   "${KNOT_ENTRY_RELOAD_CMD:-sudo systemctl reload nginx}" "$REALIP_CONF" \
   "${KNOT_ENTRY_ASSET_KEEP_DAYS:-}"; do
-  REMOTE_ARGS+=("$(shq "$value")")
+  REMOTE_ARGS+=("$(knot_shq "$value")")
 done
 
 ssh "${SSH_OPTS[@]}" "$KNOT_ENTRY_SSH" bash -s -- "${REMOTE_ARGS[@]}" <<'REMOTE'
