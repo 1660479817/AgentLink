@@ -482,7 +482,7 @@ KNOT_DEPLOY_ROOT=~/knot/knot-platform \
 本机库这一步有两类只在真机上才暴露的失败，`deploy-site.sh` 的门禁和 `ensure-knot-postgres.sh` 都会先拦：
 
 - **端口被别的程序占着**（比如站点端口 8080 上有个无关的 node）。`pg_isready` 只会说 `no response`，再往下 `pg_ctl` 才报 `could not bind`，报错点离原因很远。门禁直接说「端口 N 已被 X 占用」，并指出要改的是 `KNOT_PGPORT`（数据库端口），不是 `KNOT_PORT`（站点端口）。
-- **站点端口（`KNOT_PORT`）被别的程序占着**。`EADDRINUSE` 要等到换完 `current`、跑完迁移、起 Backend 时才出现，然后自动回滚；现在只读门禁就会提示占用者与进程。占用者是本站点上一个版本的 Backend 时只算 `ok`（部署中途会被换掉），所以这条只提示、不拦。
+- **站点端口（`KNOT_PORT`）被别的程序占着**。`EADDRINUSE` 要等到换完 `current`、跑完迁移、起 Backend 时才出现，然后自动回滚；现在只读门禁就停下，点名占用者与进程，并指出该改的是 `KNOT_PORT`。占用者是本站点自己的 Backend（工作目录在这个部署根下）时算 `ok`：launchd 会在部署中途把它换掉，那是正常重装。这一项不走 `--bootstrap`，装包解决不了端口冲突。
 
 - **socket 目录与数据目录是两个概念**。`psql -h` 传一个路径时，那个路径是 **socket 目录**，不是数据目录：socket 在 `<socket 目录>/.s.PGSQL.<端口>`，数据目录里没有它。`ensure-knot-postgres.sh` 起库时用 `-k <socket 目录>`、连库时用 `-h <socket 目录>`，两边用同一个值（`KNOT_PG_SOCKET_DIR`，默认 `/tmp`，即 PostgreSQL 自己的默认）。库是旧脚本或手工起的、socket 建在别处时，脚本会问服务端 `SHOW unix_socket_directories` 并按实际目录连，不必停库重建。
 

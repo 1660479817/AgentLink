@@ -53,13 +53,15 @@ knot_pf_row() {
 }
 
 # 有任何 FAIL 就以非零返回；WARN 不拦。
+# 第二个参数覆盖 bootstrap 提示：端口冲突这类失败装包解决不了，给那行只会误导。
 knot_pf_finish() {
   local title="${1:-主机}"
+  local hint="${2:-$KNOT_PF_BOOTSTRAP_HINT}"
   (( KNOT_PF_FAILED == 0 )) && return 0
   echo
   echo "${title}还没准备好，先补齐下面这些："
   printf '%s\n' "$KNOT_PF_FIXES"
-  if [[ "$KNOT_PF_BOOTSTRAP_HINT" == "1" ]]; then
+  if [[ "$hint" == "1" ]]; then
     echo
     echo "  也可以让脚本装（只装 Node 与 postgresql@16，不建库、不改端口、不装系统服务）："
     echo "    ./ops/scripts/bootstrap-host.sh --site ${KNOT_SITE:-<站点>} --plan   # 先看它要做什么"
@@ -224,14 +226,14 @@ knot_check_pg_local() {  local bin_dir="${KNOT_PG_BIN:-}" missing="" tool port="
 }
 
 # ---- 站点端口 ----
-# 端口被别的程序占着时，Backend 起来就 EADDRINUSE，部署在换完 current、跑完迁移之后
-# 才失败并回滚——代价比早说一句大得多。这里只提示不动手：占用者也可能就是本站点上一个
-# 版本的 Backend（launchd 会在部署中途把它换掉），所以不能一刀切成失败。
+# 端口被别的程序占着时，Backend 起来就 EADDRINUSE，而那时 current 已经换过、迁移也跑完了，
+# 部署只会回滚一次。这里在只读阶段就停下。占用者是本站点自己的 Backend（cwd 在本部署根下）
+# 时算 ok：launchd 会在部署中途把它换掉，这是正常重装。
 knot_check_site_port() {
-  local port="${KNOT_PORT:-}" holder pid cwd
+  local port="${KNOT_PORT:-}" holder pid cwd root
   if [[ -z "$port" ]]; then
-    knot_pf_row warn "端口" "KNOT_PORT 是空的，Backend 会用默认端口" "在 site.env 里写 KNOT_PORT"
-    return 0
+    knot_pf_row fail "端口" "KNOT_PORT 是空的，Backend 不知道听哪个端口" "在 site.env 里写 KNOT_PORT"
+    return 1
   fi
   holder="$(knot_port_holder "$port")"
   if [[ -z "$holder" ]]; then
@@ -240,12 +242,15 @@ knot_check_site_port() {
   fi
   pid="$(printf '%s' "$holder" | sed -n 's/.*pid \([0-9]*\)).*/\1/p')"
   cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
-  if [[ -n "$cwd" && "$cwd" == "$(cd "${KNOT_DEPLOY_ROOT:-.}" && pwd -P)"/* ]]; then
+  root="$(cd "${KNOT_DEPLOY_ROOT:-.}" 2>/dev/null && pwd -P)"
+  if [[ -n "$cwd" && -n "$root" && ( "$cwd" == "$root" || "$cwd" == "$root"/* ) ]]; then
     knot_pf_row ok "端口" "127.0.0.1:${port} 上是这个站点的 Backend（${holder}），部署时会被替换"
     return 0
   fi
-  knot_pf_row warn "端口" "127.0.0.1:${port} 已被 ${holder} 占用，不是这个站点的进程" \
-    "部署会在启动 Backend 时失败并回滚：在 site.env 里改成别的 KNOT_PORT，或先停掉占用的进程"
+  # 不是本站点的进程：它不会因为这次部署退出，Backend 一定绑不上。
+  knot_pf_row fail "端口" "127.0.0.1:${port} 已被 ${holder} 占用，不是这个站点的进程" \
+    "在 site.env 里把 KNOT_PORT 改成没人用的端口，或先停掉它（lsof -nP -iTCP:${port} -sTCP:LISTEN）"
+  return 1
 }
 
 knot_probe_database_url() {

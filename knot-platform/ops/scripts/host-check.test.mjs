@@ -172,35 +172,46 @@ test("socket 目录与数据目录是两个概念：门禁按 socket 目录判�
   assert.doesNotMatch(HOST_CHECK, /pg_isready[^\n]*-h "\$KNOT_PGDATA"/);
 });
 
-test("站点端口：别的程序占着时 warn（不是 fail），本站点自己的 Backend 算 ok", async () => {
+test("站点端口：别的程序占着时门禁直接停，本站点自己的 Backend 算 ok", async () => {
   const net = await import("node:net");
   const server = net.createServer();
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address();
 
-  const run = (extra) =>
-    execFileSync(
-      "bash",
-      [
-        "-c",
+  const run = (extra) => {
+    try {
+      return execFileSync(
+        "bash",
         [
-          `source "${APP}/ops/scripts/lib/host-check.sh"`,
-          "knot_pf_begin",
-          `KNOT_PORT=${port} knot_check_site_port`,
-          "knot_pf_finish 端口 || echo GATE-FAIL",
-        ].join("\n"),
-      ],
-      { encoding: "utf8", env: { ...process.env, ...extra } }
-    );
+          "-c",
+          [
+            `source "${APP}/ops/scripts/lib/host-check.sh"`,
+            "knot_pf_begin",
+            `KNOT_PORT=${port} knot_check_site_port || echo GATE-FAIL`,
+            "knot_pf_finish 端口 || true",
+          ].join("\n"),
+        ],
+        { encoding: "utf8", env: { ...process.env, ...extra } }
+      );
+    } catch (error) {
+      return String(error.stdout || "");
+    }
+  };
+
   try {
-    // 占用者是 node（测试进程本身），不是这个站点 releases/ 下的 Backend：只提示。
-    const output = run({ KNOT_DEPLOY_ROOT: os.tmpdir() });
-    assert.match(output, /warn\s+端口/);
-    assert.match(output, new RegExp(`127\\.0\\.0\\.1:${port}`));
-    // warn 不拦部署：闸门不该因为端口提示就退出。
-    assert.doesNotMatch(output, /GATE-FAIL/);
-    // 提示里要给的是站点端口这个键，不是数据库端口。
-    assert.match(output, /KNOT_PORT/);
+    // 占用者是测试进程自己，cwd 不在这个部署根下：部署一定绑不上，门禁当场停。
+    const foreign = run({ KNOT_DEPLOY_ROOT: os.tmpdir() });
+    assert.match(foreign, /FAIL\s+端口/);
+    assert.match(foreign, /GATE-FAIL/);
+    assert.match(foreign, new RegExp(`127\\.0\\.0\\.1:${port}`));
+    // 要改的是站点端口这个键，不是数据库端口。
+    assert.match(foreign, /KNOT_PORT/);
+
+    // 同一个端口的占用者如果就在本部署根下，就是这个站点自己的 Backend：重装时会被换掉。
+    const own = run({ KNOT_DEPLOY_ROOT: APP });
+    assert.match(own, /ok\s+端口/);
+    assert.match(own, /部署时会被替换/);
+    assert.doesNotMatch(own, /GATE-FAIL/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -208,8 +219,9 @@ test("站点端口：别的程序占着时 warn（不是 fail），本站点自�
 
 test("端口门禁插在数据库之后、停服务之前", () => {
   const db = DEPLOY.indexOf('knot_gate "数据库"');
-  const port = DEPLOY.indexOf('knot_gate "端口"');
+  const port = DEPLOY.indexOf("knot_check_site_port");
   const stop = DEPLOY.indexOf("# ---- 4. 停服务");
+  assert.ok(db > 0 && port > 0, "缺数据库门禁或端口门禁");
   assert.ok(port > db, "端口门禁要在数据库门禁之后");
   assert.ok(port < stop, "端口门禁必须在停服务之前");
 });
