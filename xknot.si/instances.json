@@ -1,6 +1,6 @@
 {
-  "version": 6,
-  "updatedAt": "2026-10-23",
+  "version": 8,
+  "updatedAt": "2026-10-27",
   "instances": [
     {
       "id": "wang",
@@ -20,6 +20,13 @@
       "id": "zhoujj",
       "url": "https://zhoujj.xknot.si",
       "since": "2026-10-23",
+      "tier": "free",
+      "status": "active"
+    },
+    {
+      "id": "csperfxlab",
+      "url": "https://csperfxlab.xknot.si",
+      "since": "2026-10-27",
       "tier": "free",
       "status": "active"
     }

@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updatedAt": "2026-10-23",
+  "updatedAt": "2026-10-27",
   "hub": "xknot.si",
   "members": [
     {
@@ -43,6 +43,20 @@
       "listed": true,
       "since": "2026-10-23",
       "note": "子域与隧道已接通（`/api/health` 返回 200），2026-10-23 收录。",
+      "mode": "subdomain"
+    },
+    {
+      "id": "csperfxlab",
+      "host": "csperfxlab.xknot.si",
+      "role": "partner",
+      "standing": "regular",
+      "tunnel": {
+        "account": "knot-tunnel-csperfxlab",
+        "port": 18092
+      },
+      "listed": true,
+      "since": "2026-10-27",
+      "note": "子域与隧道已登记，等待接通验收。",
       "mode": "subdomain"
     }
   ]
