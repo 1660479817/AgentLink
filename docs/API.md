@@ -10,6 +10,7 @@
 | 联邦契约 | `xknot.si` | [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) | 中枢与实例的 L1 档案、L2 状态与活动数据、L3 橱窗约定 |
 | 委托发信 | `xknot.si` | [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) 第 7 节 | `POST /api/federation/mail`：实例用 Bearer 凭据委托中枢的 SMTP 发一封纯文本通知；`GET` 查额度 |
 | 中枢接口 | `xknot.si` | [`xknot.si/server/app.mjs`](../xknot.si/server/app.mjs) | 加入申请（提交即通过）、管理员会话与清单条目；对公网只开放申请 |
+| 接入计费 | `xknot.si` | [`xknot.si/docs/BILLING.md`](../xknot.si/docs/BILLING.md) | 付费接入订阅：`/api/member/billing/*`、`/api/billing/webhook`、`/api/admin/billing`；收款边界、权益与状态机见正文（规划，未实现） |
 | 接入件 | `xknot.si` | [`xknot.si/docs/FEDERATION.md`](../xknot.si/docs/FEDERATION.md) 第 7.4 节 | 中枢签发给实例的 env 文件：实例 id、中枢地址、签发日期、委托发信凭据；实例存成什么文件名由自己决定 |
 | 部署配置 | `knot-platform` | [`knot-platform/docs/CONFIG.md`](../knot-platform/docs/CONFIG.md) | 站点与平台环境变量；键的类型与默认值以 `packages/knot-config/src/schema.mjs` 为准 |
 

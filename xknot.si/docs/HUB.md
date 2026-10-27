@@ -70,6 +70,7 @@ xknot.si/
 │   ├── E2E.md             本地部署形态、测试分层与覆盖矩阵
 │   ├── HANDOFF.md         子域签发到实例接通的交付单
 │   ├── PARTNER-MAIL.md    发给伙伴的邮件模板与发信规范
+│   ├── BILLING.md         计费：付费接入订阅的权益与收款边界（规划）
 │   ├── federation.svg     架构图
 │   └── handoff-flow.svg   交接示意图（配 HANDOFF.md）
 ├── ops/

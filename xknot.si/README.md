@@ -156,6 +156,7 @@ The console is at `http://127.0.0.1:5180/admin/`; after login, start with the ov
 | [docs/JOIN.md](docs/JOIN.md) | joining: application flow and access shape (issued subdomain + entry tunnel) |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | listing handoff sheet: steps from issuance to connection, and acceptance |
 | [docs/PARTNER-MAIL.md](docs/PARTNER-MAIL.md) | mail templates and sending rules for partners |
+| [docs/BILLING.md](docs/BILLING.md) | billing: what the paid access subscription entitles, and who charges whom (plan, not implemented) |
 | [docs/federation.svg](docs/federation.svg) | architecture diagram |
 | [instances.json](instances.json) | instance manifest: issued-zone fields |
 | [federation.json](federation.json) | federation roster: membership identity, access mode, tunnel account and port |
