@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MIN_GAP, placePoints, RING } from "./placement.js";
+import { MIN_GAP, placePoints, RING, ringRadius } from "./placement.js";
 import { WORLD } from "./world.js";
 
 const at = (x, y, id = `${x},${y}`) => ({ id, x, y });
@@ -22,7 +22,7 @@ test("points sharing one coordinate fan out around it instead of stacking", () =
   assert.equal(spokes.length, 4);
   assert.deepEqual(anchors, [{ x: 760, y: 130, count: 4 }]);
 
-  const radius = Math.min(RING.max, RING.base + RING.step * 3);
+  const radius = ringRadius(4);
   for (const point of points) {
     assert.deepEqual(point.origin, { x: 760, y: 130 });
     const distance = Math.hypot(point.x - 760, point.y - 130);
@@ -33,7 +33,7 @@ test("points sharing one coordinate fan out around it instead of stacking", () =
   for (let i = 0; i < points.length; i += 1) {
     for (let j = i + 1; j < points.length; j += 1) {
       const gap = Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y);
-      assert.ok(gap > 30, `${points[i].id}/${points[j].id} only ${gap} apart`);
+      assert.ok(gap >= MIN_GAP, `${points[i].id}/${points[j].id} only ${gap} apart`);
     }
   }
 });
@@ -110,9 +110,9 @@ test("placement is stable: same input, same output, whatever the clock says", ()
 });
 
 test("a crowded cluster still ends up with every pair at least MIN_GAP apart", () => {
-  // 半径封顶在 70 之后，圆周相邻弦长 2·70·sin(π/n) 在 n=17 就掉破 MIN_GAP：
-  // 单遍推挤在这里会留下重叠，迭代松弛要一直推到排得开为止。
-  for (const count of [4, 10, 14, 16, 17, 20, 24]) {
+  // 半径不再封顶，容量由「弦长 ≥ FAN_GAP」与画布尺寸共同决定：画布高 379、
+  // 边距各 8，圆最多 181.5 半径，一圈最多 25 个。这里在容量之内验证排得开。
+  for (const count of [4, 10, 16, 20, 25]) {
     const input = Array.from({ length: count }, (_, index) => at(480, 190, `p${index}`));
     const { points } = placePoints(input);
     let min = Infinity;
@@ -131,9 +131,40 @@ test("relaxation never returns a worse layout than the one it started from", () 
   const { points } = placePoints(input);
   const anchor = { x: 480, y: 190 };
   // 每个点都还在锚点附近一圈之内，没有被甩到画布别处。
+  const reach = ringRadius(3) + MIN_GAP * 3;
   for (const point of points) {
     const distance = Math.hypot(point.x - anchor.x, point.y - anchor.y);
-    assert.ok(distance < RING.max + MIN_GAP * 3, `${point.id} drifted ${distance} from the anchor`);
+    assert.ok(distance < reach, `${point.id} drifted ${distance} from the anchor`);
+  }
+});
+
+test("the ring grows with the count, so capacity is not capped by a constant", () => {
+  // 圆周长与半径是同一个变量的两面：相邻弦长要 ≥ MIN_GAP，反解出来半径就该是
+  // MIN_GAP·margin / (2·sin(π/n))，点多了圈自动变大。
+  for (const count of [2, 3, 4, 8, 16, 32, 44]) {
+    assert.ok(ringRadius(count) >= (MIN_GAP * RING.margin) / (2 * Math.sin(Math.PI / count)) - 1e-9);
+  }
+  assert.equal(ringRadius(1), 0);
+});
+
+test("a cluster pinned on the canvas edge keeps the full circle", () => {
+  // 南极（底边）、图瓦卢（右边）这类锚点本来就在画布边缘：按真实锚点画圆会被切掉
+  // 一半，切掉的那半挤成一条线。圈心往里收，位置由引线指回真实锚点。
+  const edges = [[480, 379, "AQ"], [955, 246, "TV"], [8, 379, "corner"]];
+  for (const [x, y, id] of edges) {
+    for (const count of [4, 12]) {
+      const input = Array.from({ length: count }, (_, index) => at(x, y, `${id}${index}`));
+      const { points } = placePoints(input);
+      for (let i = 0; i < points.length; i += 1) {
+        assert.ok(points[i].x >= 8 - 1e-6 && points[i].x <= WORLD.width - 8 + 1e-6, "x off canvas");
+        assert.ok(points[i].y >= 8 - 1e-6 && points[i].y <= WORLD.height - 8 + 1e-6, "y off canvas");
+        for (let j = 0; j < i; j += 1) {
+          const gap = Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y);
+          assert.ok(gap >= MIN_GAP - 1e-6, `${id} ${count}: ${i}/${j} only ${gap} apart`);
+        }
+        assert.deepEqual(points[i].origin, { x, y });
+      }
+    }
   }
 });
 

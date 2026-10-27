@@ -12,19 +12,37 @@
 
 import { WORLD } from "./world.js";
 
-// base/step/max 决定散开半径：成员越多圈越大，到 max 就不再长。
-// gap 是「同一个落点」的容差：国家中心点的坐标是查表来的，同一国家必然完全相同；
-// 留余量是为了将来位置细化到城市、两个点只差零点几个单位时也还能算作一处。
-export const RING = { base: 16, step: 7, max: 70, gap: 2 };
+// 散开半径不是拍的，是解出来的：圆周上相邻两点要至少 MIN_GAP，
+// 弦长 2·r·sin(π/n) ≥ MIN_GAP 反解出 r ≥ MIN_GAP / (2·sin(π/n))。
+// 所以「半径」和「能容纳几个」本来就是同一个变量的两面：要更多点，圈就自动更大。
+// base 只是下限，让两三个点不至于挤在锚点上；gap 是「同一个落点」的容差：
+// 国家中心点的坐标是查表来的，同一国家必然完全相同；留余量是为了将来位置细化
+// 到城市、两个点只差零点几个单位时也还能算作一处。
+export const RING = { base: 16, gap: 2, margin: 1.02 };
 
 // 两个不同落点靠得太近时（比如香港与西贡）也要让开：点本身只有 9 个单位，
-// 但站名常驻、命中区 40 个单位，25 以内的两点在窄屏上会读成一处。
+// 但命中区 40 个单位，25 以内的两点在窄屏上会读成一处。
 export const MIN_GAP = 26;
 
-// 让位用迭代松弛，不是扫一遍。半径封顶后圆周越来越挤：相邻弦长 2·r·sin(π/n)，
-// r 到 70 时 n 超过 16 就掉到 MIN_GAP 以下。单遍扫描只推一次，推开 i 之后
-// 新位置可能又压上更早的 k，越往后越解不干净（实测同一锚点 20 个点剩 9.84）。
-// 轮数按最坏情况取：差一点点越线的那种最难收（17 个点相邻弦长 25.8，每轮只推
+// 同一个圈上相邻两点的弦长要求。它比 MIN_GAP 大，是因为宽屏上站名常驻在点右侧
+// （`.tag` 从 26px 处开始，长约 50–80px）：只是不压住点还不够，得让名字也读得开。
+// 站名改成悬停才显示的话，这个值可以直接降到 MIN_GAP，单圈容量随之翻几倍。
+export const FAN_GAP = 44;
+
+/**
+ * 一个锚点上摆 count 个点时需要的半径。
+ *
+ * 单人簇不需要圆，返回 0（调用方原样保留坐标）。乘 margin 是为了让相邻弦长
+ * 比要求的间距略大一点：正好相等时松弛每轮只能推 0，会一直在边界上磨。
+ */
+export function ringRadius(count, gap = FAN_GAP) {
+  if (!Number.isFinite(count) || count < 2) return 0;
+  return Math.max(RING.base, (gap * RING.margin) / (2 * Math.sin(Math.PI / count)));
+}
+
+// 让位用迭代松弛，不是扫一遍。半径按上式随数量长大，正常情况下第一轮就排得开；
+// 但贴边的锚点会被 clamp 压回画布，圈被压扁，相邻点又挤到一起，所以要能反复推。
+// 轮数按最坏情况取：差一点点越线的那种最难收（十七个点相邻弦长 25.8，每轮只推
 // 0.2），实测要 54 轮；再多也是同一个量级，取 64 留余量。
 export const RELAX_ROUNDS = 64;
 
@@ -150,7 +168,15 @@ export function placePoints(points, { width = WORLD.width, height = WORLD.height
       continue;
     }
 
-    const radius = Math.min(RING.max, RING.base + RING.step * (count - 1));
+    // 半径由容纳数量反解，不再封顶：点多了圈就大，这是同一个变量的两面。
+    const radius = ringRadius(count);
+    // 圈心按半径往里收，保证整圆都在画布内。位置偏到边上的国家（南极、图瓦卢）
+    // 如果按真实锚点画圆，一半的弧会被画布切掉，切掉的那半就挤成一条线；
+    // 圈心内移之后圆是完整的，真实位置由引线指出来。
+    const center = {
+      x: clamp(group.x, EDGE + radius, width - EDGE - radius),
+      y: clamp(group.y, EDGE + radius, height - EDGE - radius),
+    };
     // 从正上方再偏半格起排：正上方那一格正好压在朝中枢的弧线上，看着像多了一个点。
     const start = -Math.PI / 2 + Math.PI / count;
 
@@ -158,8 +184,8 @@ export function placePoints(points, { width = WORLD.width, height = WORLD.height
       const angle = start + (index * 2 * Math.PI) / count;
       placed.push({
         ...point,
-        x: clamp(group.x + Math.cos(angle) * radius, EDGE, width - EDGE),
-        y: clamp(group.y + Math.sin(angle) * radius, EDGE, height - EDGE),
+        x: clamp(center.x + Math.cos(angle) * radius, EDGE, width - EDGE),
+        y: clamp(center.y + Math.sin(angle) * radius, EDGE, height - EDGE),
         origin: { x: group.x, y: group.y },
       });
     });
