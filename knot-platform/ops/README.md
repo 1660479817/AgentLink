@@ -738,6 +738,37 @@ curl -s -H "Cookie: $COOKIE" "$BASE/api/web/submissions"
 
 管理员 `posts` 里这条应是 `removed`、`submissions` 里同一条 `verdict` 也是 `removed`，且信息流里不再出现，就算通过。
 
+带图片的记录多一步：先把图传到 `/api/web/uploads`，再把返回的 id 放进 `imageIds`。图片转写与终审共用一条记录的预算，所以这条也顺带验证了图片那一段。
+
+```bash
+curl -s -X POST "$BASE/api/web/uploads" -H "Cookie: $COOKIE" -F file=@test.png
+curl -s -X POST "$BASE/api/web/intel" \
+  -H "Cookie: $COOKIE" -H 'Content-Type: application/json' \
+  -d '{"body":"端到端测试（带图），用完即删。","imageIds":["<上传 id>"],"public":false}'
+```
+
+### 5.1 复现终审的超时与降级
+
+改动终审之前，先能自己造出这两种情况，否则「修好了」没有反证。三个数都在 `platform.env` 里，改完要重启平台单元才生效：
+
+| 键 | 作用 |
+| --- | --- |
+| `OPENCLAW_REVIEW_BUDGET` | 一条记录的总预算（秒），图片转写与终审共用 |
+| `OPENCLAW_PROCESS_TIMEOUT` | 终审这一回合的上限，同时也是给它预留的时间 |
+| `OPENCLAW_IMAGE_TIMEOUT` | 单张图片转写的上限 |
+
+超时：把 `OPENCLAW_PROCESS_TIMEOUT` 压到 15、`OPENCLAW_REVIEW_BUDGET` 压到 40，提交一条普通记录。这条记录会停在 `pending`，`detail.reviewError` 是 `agent_timeout`，作者的「审核异常」通知里写着卡在哪一段。把两个数改回去再重启，重试会自动接上，`detail.review.attempt` 是 2。
+
+图片降级：把 `OPENCLAW_IMAGE_TIMEOUT` 压到 5，提交一条带图的记录。这条仍然通过，`detail.review.images.failed` 是 1——一张图转写不出来只是少一段旁证，不该让整条记录失败。
+
+查一条记录到底花了多少：
+
+```sql
+SELECT category, detail->'review' FROM intel WHERE id = '<id>';
+```
+
+`detail.review` 里有 `attempt`、`ms`、`model`、`images`、`repaired`（是不是靠修复回合救回来的）和 `tokens`。改完配置记得还原，并把平台单元重启一次。
+
 ## 6. 存储、巡检与备份
 
 文件在 `UPLOAD_DIR`（部署脚本会写绝对路径），库只记 `uploads` 行。每人上传上限由 `KNOT_UPLOAD_QUOTA_BYTES` 决定，`0` 表示不限，未配置时 1 GiB。
