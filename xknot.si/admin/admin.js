@@ -139,6 +139,9 @@ const state = {
   applicationsBusy: false,
   // 总览里点开的实例。只展开这一行，不跳站点。
   instanceOpen: null,
+  // 展开那一行的入口流量。按实例只留一份：关闭面板就丢掉，重新点开会重新取，
+  // 免得拿几小时前的缓存冒充当前值。status: idle / loading / ready / error。
+  traffic: { id: null, status: "idle", data: null, error: "" },
   // 正在编辑的实例配置。草稿在 state 里，保存失败重绘时不丢用户输入。
   editing: null,
   manifest: null,
@@ -149,6 +152,8 @@ const state = {
 // 每次读取带一个序号。晚到的旧响应直接丢掉，避免它把刚点开的分类又重绘回去。
 let overviewSeq = 0;
 let applicationsSeq = 0;
+// 流量面板同理：点开 A 又马上点开 B 时，A 的响应不能画到 B 的面板上。
+let trafficSeq = 0;
 
 function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
@@ -278,9 +283,212 @@ const STANDING_LABEL = {
   regular: "常规席位",
 };
 
+// 收起面板、切视图、退出或会话失效时都走这里：展开状态与已取的流量一起清掉，
+// 下一个登录的人（或下一次展开）不会看到上一个人取回的面板数据。
+function closeInstancePanel() {
+  state.instanceOpen = null;
+  state.traffic = { id: null, status: "idle", data: null, error: "" };
+}
+
 function toggleInstance(id) {
-  state.instanceOpen = state.instanceOpen === id ? null : id;
+  const opening = state.instanceOpen !== id;
+  state.instanceOpen = opening ? id : null;
+  // 收起时把面板数据一起丢掉：下次展开重新取，界面上不会留着上一次的结果。
+  state.traffic = opening
+    ? { id, status: "loading", data: null, error: "" }
+    : { id: null, status: "idle", data: null, error: "" };
   render();
+  if (opening) loadTraffic(id);
+}
+
+// 单实例的入口流量。失败时只影响这一块，实例配置照常显示。
+async function loadTraffic(id) {
+  const seq = ++trafficSeq;
+  let next;
+  try {
+    const data = await api(`/api/admin/instances/${encodeURIComponent(id)}/traffic`);
+    next = { id, status: "ready", data, error: "" };
+  } catch (error) {
+    next = {
+      id,
+      status: "error",
+      data: null,
+      error:
+        error.status === 401
+          ? "会话已过期，重新登录后再看。"
+          : error.status === 404
+            ? "清单里没有这个实例，刷新总览试试。"
+            : "读取失败：接口可能没起来，或 var/traffic 读不到。",
+    };
+  }
+  // 面板已经关掉、或者换到别的实例，这次响应就作废。
+  if (seq !== trafficSeq || state.instanceOpen !== id) return;
+  state.traffic = next;
+  render();
+}
+
+// 请求量柱状图：只表达每天之间的相对高低，不标绝对刻度——绝对值在下面的明细里。
+//
+// 用 SVG 的 height 属性而不是内联样式：控制台的 CSP 是 style-src 'self'，
+// 内联 style 属性会被整条丢弃，柱子会塌成 0 高。
+const TRAFFIC_CHART_HEIGHT = 64;
+
+function renderTrafficBars(days) {
+  const shown = days.slice(0, 14).reverse();
+  const peak = Math.max(...shown.map((day) => day.requests), 1);
+  // 图上只放最近 14 天（再多柱子就挤得看不清），而上面的合计可能跨 30 天，
+  // 所以这里把范围写出来，别让人以为柱子覆盖的就是合计那一段。
+  return el("div", {}, [
+    el(
+      "p",
+      { class: "traffic-list-title" },
+      shown.length < days.length
+        ? `近 ${shown.length} 天每日请求量（合计覆盖 ${days.length} 天）`
+        : `近 ${shown.length} 天每日请求量`
+    ),
+    el(
+      "div",
+      {
+        class: "traffic-bars",
+        role: "img",
+        "aria-label": `${shown.length} 天请求量趋势：最高 ${peak} 次`,
+      },
+      shown.map((day) => {
+        const height = Math.max(2, Math.round((day.requests / peak) * TRAFFIC_CHART_HEIGHT));
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", `0 0 10 ${TRAFFIC_CHART_HEIGHT}`);
+        svg.setAttribute("preserveAspectRatio", "none");
+        svg.setAttribute("class", "traffic-bar-svg");
+        svg.setAttribute("aria-hidden", "true");
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", "0");
+        rect.setAttribute("y", String(TRAFFIC_CHART_HEIGHT - height));
+        rect.setAttribute("width", "10");
+        rect.setAttribute("height", String(height));
+        svg.append(rect);
+        return el(
+          "div",
+          {
+            class: "traffic-bar",
+            title: `${day.date}：${day.requests} 次请求 · ${formatBytes(day.bytes)}`,
+          },
+          [svg, el("em", { class: "traffic-bar-label" }, day.date.slice(5))]
+        );
+      })
+    ),
+  ]);
+}
+
+function renderTrafficList(title, entries) {
+  return el("div", {}, [
+    el("p", { class: "traffic-list-title" }, title),
+    entries.length
+      ? el(
+          "ol",
+          { class: "traffic-top" },
+          entries.map((entry) =>
+            el("li", {}, [
+              el("span", { class: "traffic-top-key" }, entry.key),
+              el("span", { class: "traffic-top-count" }, `${entry.requests}`),
+            ])
+          )
+        )
+      : el("p", { class: "traffic-empty" }, "没有记录"),
+  ]);
+}
+
+function renderTraffic(row) {
+  const header = el("div", { class: "traffic-head" }, [
+    el("h3", { class: "traffic-title" }, "入口流量"),
+    el("span", { class: "cfg-missing" }, "入口 nginx 观测 · 不含实例站内行为 · 每小时重算一次"),
+  ]);
+  const wrap = (children) => el("section", { class: "traffic" }, [header, ...children]);
+  const traffic = state.traffic;
+  if (!traffic || traffic.id !== row.id) return null;
+
+  if (traffic.status === "loading") {
+    return wrap([el("p", { class: "traffic-empty" }, "正在读取…")]);
+  }
+  if (traffic.status === "error") {
+    return wrap([
+      el("p", { class: "traffic-empty" }, traffic.error),
+      el("button", { type: "button", class: "btn", onclick: () => loadTraffic(row.id) }, "重试"),
+    ]);
+  }
+
+  const days = Array.isArray(traffic.data?.days) ? traffic.data.days : [];
+  if (!days.length) {
+    return wrap([
+      el(
+        "p",
+        { class: "traffic-empty" },
+        "还没有采集到：确认入口装了 knot-log.conf，且 xknot-traffic.timer 在跑。"
+      ),
+    ]);
+  }
+
+  const totals = traffic.data.totals;
+  const latest = days[0];
+  const pct = (value) => `${Math.round((Number(value) || 0) * 100)}%`;
+  const millis = (value) => (value == null ? "—" : `${value} ms`);
+
+  const metric = (term, value) => el("div", { class: "traffic-row" }, [el("dt", {}, term), el("dd", {}, value)]);
+
+  const statusText = ["2xx", "3xx", "4xx", "5xx", "1xx", "other"]
+    .filter((key) => key === "2xx" || latest.status[key])
+    .map((key) => `${key} ${latest.status[key]}`)
+    .join(" · ");
+  const cache = latest.cache;
+  const cacheText = `命中 ${cache.hit} · 未命中 ${cache.miss} · 绕过 ${cache.bypass}${
+    cache.none ? ` · 无标记 ${cache.none}` : ""
+  }`;
+
+  return wrap([
+    el("p", { class: "traffic-sum" }, [
+      totals
+        ? `近 ${totals.days} 天合计 ${totals.requests} 次 · ${formatBytes(totals.bytes)}`
+        : `最近一天 ${latest.requests} 次 · ${formatBytes(latest.bytes)}`,
+      el(
+        "span",
+        { class: "cfg-missing" },
+        `　最近采集 ${traffic.data.updatedAt ? formatWhen(traffic.data.updatedAt) : "—"}`
+      ),
+    ]),
+    renderTrafficBars(days),
+    el("dl", { class: "traffic-grid" }, [
+      metric("当日请求", `${latest.date} · ${latest.requests} 次 · ${formatBytes(latest.bytes)}`),
+      metric(
+        "日访客（近似）",
+        el("span", {}, [
+          `${latest.uniqueApprox}`,
+          el("span", { class: "cfg-missing" }, "　同日 IP+UA 去重，跨天不合并"),
+        ])
+      ),
+      metric(
+        "爬虫占比",
+        el("span", {}, [
+          pct(latest.botShare),
+          el("span", { class: "cfg-missing" }, "　按 UA 粗分，空 UA 计入"),
+        ])
+      ),
+      metric(
+        "响应耗时",
+        `p50 ${millis(latest.latency.p50)} · p95 ${millis(latest.latency.p95)} · 最大 ${millis(latest.latency.max)}`
+      ),
+      metric(
+        "回源",
+        latest.upstream.requests
+          ? `${latest.upstream.requests} 次 · p95 ${millis(latest.upstream.p95)}`
+          : "全部由入口直出"
+      ),
+      metric("状态码", statusText),
+      metric("缓存", cacheText),
+    ]),
+    el("div", { class: "traffic-lists" }, [
+      renderTrafficList("访问最多的路径", latest.topPaths.slice(0, 6)),
+      renderTrafficList("来源主机", latest.topReferers.slice(0, 6)),
+    ]),
+  ]);
 }
 
 // 点开实例看到的是这个账号的配置：名册里的身份与隧道，加上清单里的对外地址。
@@ -383,6 +591,7 @@ function renderInstanceConfig(row, id) {
       line("活动统计", config.statsUrl ? link(config.statsUrl) : "未接入"),
     ]),
     config.note ? el("p", { class: "cfg-note" }, config.note) : null,
+    renderTraffic(row),
   ]);
 }
 
@@ -556,7 +765,11 @@ function renderInstanceForm(row, config, id) {
           });
           state.editing = null;
           state.instanceOpen = row.id;
+          // 保存后这一行仍是展开的：配置重读过，流量面板也要重新取一次，
+          // 否则要么停在编辑前的旧值，要么因为状态被清过而整块不渲染。
+          state.traffic = { id: row.id, status: "loading", data: null, error: "" };
           await loadOverview();
+          loadTraffic(row.id);
         } catch (error) {
           const fields = error.data && Array.isArray(error.data.fields) ? error.data.fields : null;
           state.editing.errors =
@@ -724,7 +937,7 @@ function renderTop() {
           state.overview = null;
           state.selected = null;
           state.editing = null;
-          state.instanceOpen = null;
+          closeInstancePanel();
           render();
         },
       }, "退出"),
@@ -854,7 +1067,7 @@ function renderOverview() {
           " · ",
           `申请库 ${formatBytes(ov.runtime.dbBytes)}`,
           inst.trafficNodes
-            ? ` · 昨日 ${inst.trafficRequests} 次请求 / ${formatBytes(inst.trafficBytes)}`
+            ? ` · 各站最近一日合计 ${inst.trafficRequests} 次请求 / ${formatBytes(inst.trafficBytes)}`
             : null,
         ]),
       ]),
@@ -958,7 +1171,7 @@ function switchView(view) {
   state.error = "";
   // 离开总览时丢掉未保存的草稿，避免下次点开看到上一次的改动。
   state.editing = null;
-  state.instanceOpen = null;
+  closeInstancePanel();
   render();
   if (view === "overview") loadOverview();
   else loadApplications();
@@ -969,7 +1182,7 @@ function openApplications(status) {
   state.selected = null;
   state.manifest = null;
   state.editing = null;
-  state.instanceOpen = null;
+  closeInstancePanel();
   state.view = "applications";
   state.error = "";
   render();
@@ -1180,6 +1393,7 @@ async function loadOverview() {
       state.admin = null;
       state.overview = null;
       state.editing = null;
+      closeInstancePanel();
       return;
     }
     state.overviewError = "总览加载失败，请检查接口是否在运行。";
@@ -1217,6 +1431,7 @@ async function loadApplications() {
     if (error.status === 401) {
       state.admin = null;
       state.editing = null;
+      closeInstancePanel();
       return;
     }
     // 失败要把失败本身渲染出来（renderApplications 读 applicationsError），

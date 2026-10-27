@@ -187,6 +187,26 @@ function loadStatus() {
   }
 }
 
+// 单个实例近 30 天的入口流量：ops/traffic.mjs 每小时写一份 var/traffic/{id}.json。
+// 按文件 mtime/size 缓存，聚合跑完下一次展开就能看到新的一天。id 先过白名单正则，
+// 不拿请求里的字符串去拼路径。没有这份文件就是没采集过，不编一份空数据。
+const trafficDir = path.join(dataDir, "traffic");
+const trafficCache = new Map();
+function loadTraffic(id) {
+  if (!/^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/.test(String(id || ""))) return null;
+  const cached = trafficCache.get(id);
+  try {
+    const stat = statSync(path.join(trafficDir, `${id}.json`));
+    const key = `${stat.mtimeMs}:${stat.size}`;
+    if (cached && cached.key === key) return cached.value;
+    const parsed = JSON.parse(readFileSync(path.join(trafficDir, `${id}.json`), "utf8"));
+    trafficCache.set(id, { key, value: parsed });
+    return parsed;
+  } catch {
+    return cached?.value || null;
+  }
+}
+
 const relayEnabled =
   process.env.XKNOT_RELAY_ENABLED == null
     ? Boolean(mailer)
@@ -210,6 +230,7 @@ const { handle } = createApp({
     healthProvider: loadHealth,
     locationsProvider: loadLocations,
     statusProvider: loadStatus,
+    trafficProvider: loadTraffic,
     // 控制台改配置要写回这两份文件；写之前会整份校验，见 server/edit.mjs。
     instancesFile,
     federationFile,

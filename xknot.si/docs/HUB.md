@@ -736,6 +736,7 @@ M3：加入申请
 | `POST /api/admin/logout` | 会话 | 删除当前会话 |
 | `GET /api/admin/session` | 会话 | 当前管理员 |
 | `GET /api/admin/overview` | 会话 | 总览汇总：实例与逐个账号的配置、探测、申请记录、24 小时发信与最近事件；每个实例带 `location`（观测位置，`{ country, at, source }` 或 `null`），与自述的 `regions` 并排 |
+| `GET /api/admin/instances/:id/traffic` | 会话 | 单实例的入口流量：近 30 天的日聚合（请求、字节、状态码、缓存、延迟、回源、日去重访客、爬虫占比、Top 路径与来源主机）；清单里没有的 id 返回 404；`days` 为空表示还没采集 |
 | `POST /api/admin/instances/:id/config` | 会话 | 改实例配置：`{ instance, member }` 两份补丁，整份校验通过后原子写回 `instances.json` 与 `federation.json`；不合法返回 400 + `fields[]` |
 | `GET /api/admin/applications?status=` | 会话 | 列表与各状态计数（`approved` / `withdrawn` / `rejected` / `expired`） |
 | `POST /api/admin/applications/:id/notify` | 会话 | 补发伙伴事件（`event` 取自 PARTNER-MAIL.md）；`partner.handoff` 除外，它没有链接可补，返回 409 `use_handoff` |
@@ -917,7 +918,13 @@ node ops/traffic.mjs --log ./fixtures/access.log --out ./var/traffic
 
 生产由 `xknot-traffic.timer` 每小时跑一次；日志不存在时安静跳过，不写空结果。服务用户要读得到 `/var/log/nginx/knot-access.log`；日志是 `0640 root:adm` 时把用户加进 `adm` 组。
 
-流量只进控制台（实例行的「昨日 N 次 · X」与展开后的「入口流量」），不进 `dist/data/hub.json`，也不进成员入口。对外公开某个站点的流量需要站点主理人同意，先不做。
+流量只进控制台，不进 `dist/data/hub.json`，也不进成员入口：
+
+- 实例行显示最近一天（`status.json` 里的 `traffic`）：`N 次 · X`。
+- 展开后的「入口流量」面板按 `GET /api/admin/instances/:id/traffic` 现取：近 14 天请求量柱状图、当日明细（请求、字节、日去重访客、爬虫占比、延迟、回源、状态码、缓存）与 Top 路径 / 来源主机。接口最多回 30 天，与 `var/traffic` 的保留期一致。
+- 「日访客」只在同一天内按 IP+UA 去重，跨天不合并；「爬虫」按 UA 粗分。两个数都是观测的近似值，不当成精确的独立访客。
+
+对外公开某个站点的流量需要站点主理人同意，先不做。
 
 ### 11.3 运维
 

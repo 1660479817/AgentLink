@@ -832,6 +832,149 @@ a {
   overflow-wrap: anywhere;
 }
 
+/* 展开实例后的入口流量面板。柱子只表示当天之间的相对高低，绝对值在下方明细里。 */
+.traffic {
+  margin-top: 0.9rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.traffic-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.6rem;
+  margin-bottom: 0.45rem;
+}
+
+.traffic-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.traffic-sum {
+  margin: 0 0 0.35rem;
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.traffic-empty {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+
+.traffic .btn {
+  margin-top: 0.4rem;
+}
+
+.traffic-bars {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.2rem;
+  margin: 0.15rem 0 0.55rem;
+}
+
+.traffic-bar {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+/* 绘图区高度写死：SVG 的 height 属性按这个坐标系算，换高度要一起改
+   admin.js 的 TRAFFIC_CHART_HEIGHT。 */
+.traffic-bar-svg {
+  display: block;
+  width: 100%;
+  height: 64px;
+}
+
+.traffic-bar-svg rect {
+  fill: var(--line-strong);
+}
+
+/* 最近一天用强调色：柱子从左到右是旧到新，最后一个是当天。 */
+.traffic-bar:last-child .traffic-bar-svg rect {
+  fill: var(--accent);
+}
+
+.traffic-bar-label {
+  font-family: var(--mono);
+  font-size: 0.54rem;
+  font-style: normal;
+  color: var(--dim);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.traffic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.25rem 1.4rem;
+  margin: 0 0 0.5rem;
+}
+
+.traffic-row {
+  display: grid;
+  grid-template-columns: 6.6rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.1rem 0;
+  border-bottom: 1px dotted var(--line);
+}
+
+.traffic-row dt {
+  font-size: 0.7rem;
+  color: var(--dim);
+}
+
+.traffic-row dd {
+  margin: 0;
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.traffic-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.3rem 1.4rem;
+}
+
+.traffic-list-title {
+  margin: 0 0 0.15rem;
+  font-size: 0.7rem;
+  color: var(--dim);
+}
+
+.traffic-top {
+  margin: 0;
+  padding-left: 1.05rem;
+  font-size: 0.72rem;
+}
+
+.traffic-top li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.04rem 0;
+}
+
+.traffic-top-key {
+  font-family: var(--mono);
+  font-size: 0.67rem;
+  overflow-wrap: anywhere;
+}
+
+.traffic-top-count {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.67rem;
+  color: var(--dim);
+}
+
 .cfg-head {
   display: flex;
   align-items: center;
@@ -1180,6 +1323,23 @@ a {
 
   .cfg-row {
     grid-template-columns: 4.6rem minmax(0, 1fr);
+  }
+
+  /* 窄屏上 14 根柱子的日期标签会挤在一起：只留最后一天（当天）。 */
+  .traffic-bar-label {
+    visibility: hidden;
+  }
+
+  .traffic-bar:last-child .traffic-bar-label {
+    visibility: visible;
+  }
+
+  .traffic-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .traffic-row {
+    grid-template-columns: 5.6rem minmax(0, 1fr);
   }
 
   .top {

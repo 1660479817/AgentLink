@@ -30,6 +30,7 @@ import {
 } from "./pages.mjs";
 import { RELAY_LIMITS, domainOf, relayMessage, validateRelayRequest } from "./relay.mjs";
 import { ipHash, normalizeUsername } from "./store.mjs";
+import { summarizeTraffic } from "./traffic-view.mjs";
 import { LIMITS, normalizePublicKey, validateApplication } from "./validate.mjs";
 
 const BODY_LIMIT = 16 * 1024;
@@ -342,6 +343,9 @@ export function createApp({ store, config }) {
     typeof config.locationsProvider === "function" ? config.locationsProvider : () => null;
   // 节点状态文档：ops/node-status.mjs 合成的健康 + 隧道 + 位置 + 流量。
   const statusProvider = typeof config.statusProvider === "function" ? config.statusProvider : () => null;
+  // 单个实例近 30 天的入口流量：读 ops/traffic.mjs 写下的日聚合。
+  // 与 status.json 里那一行不同，这里给的是每天的趋势与当日明细。
+  const trafficProvider = typeof config.trafficProvider === "function" ? config.trafficProvider : () => null;
   const federationProvider =
     typeof config.federationProvider === "function" ? config.federationProvider : () => null;
   const settings = {
@@ -402,6 +406,17 @@ export function createApp({ store, config }) {
   function readStatus() {
     try {
       const value = statusProvider();
+      return value && typeof value === "object" ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 入口流量的日聚合。读不到就是没采过：接口回一个没有天的结构，控制台显示提示，
+  // 不用 0 冒充「今天没人访问」。
+  function readTraffic(id) {
+    try {
+      const value = trafficProvider(id);
       return value && typeof value === "object" ? value : null;
     } catch {
       return null;
@@ -1494,6 +1509,25 @@ export function createApp({ store, config }) {
 
       store.recordEvent("instance.updated", instanceConfig[1], admin.username);
       return send(res, 200, { ok: true });
+    }
+
+    // 展开实例时看入口流量：近 30 天的日聚合，加上每天的状态码、缓存、延迟与 Top 列表。
+    // 只读；清单里没有的 id 回 404，不拿文件名去拼任意路径。
+    const instanceTraffic = /^\/api\/admin\/instances\/([a-z0-9][a-z0-9-]{0,30}[a-z0-9])\/traffic$/.exec(route);
+    if (instanceTraffic && method === "GET") {
+      const id = instanceTraffic[1];
+      const instance = findInstance(id);
+      if (!instance) return send(res, 404, { error: "not_found" });
+      const view = summarizeTraffic(readTraffic(id));
+      return send(res, 200, {
+        id,
+        // 以日志里记录的 host 为准：它才是流量真正落在哪个子域上，
+        // 清单地址变了（或带端口）也不至于对不上聚合文件。
+        host: view?.host || hostOf(instance.url) || "",
+        updatedAt: view?.updatedAt || null,
+        days: view?.days || [],
+        totals: view?.totals || null,
+      });
     }
 
     if (route === "/api/admin/applications" && method === "GET") {

@@ -47,6 +47,7 @@ async function start(t, options = {}) {
       cardsDir: options.cardsDir || null,
       locationsProvider: options.locationsProvider || (() => options.locations || null),
       statusProvider: options.statusProvider || (() => options.status || null),
+      trafficProvider: options.trafficProvider || ((id) => options.traffic?.[id] || null),
     },
   });
   const server = createServer((req, res) => {
@@ -1362,6 +1363,68 @@ test("api: overview reads tunnel and traffic from the node status document", asy
   assert.equal(data.instances.trafficRequests, 12);
   assert.equal(data.instances.trafficBytes, 3456);
   assert.equal(data.instances.tunnelsDown, 1);
+});
+
+// 展开实例时读的是 var/traffic/{id}.json，不是 status.json 里那一行合计。
+// 这条盯住三件事：要登录、清单里没有的 id 不拼路径、响应只含白名单字段。
+test("api: instance traffic returns the daily aggregate behind the panel", async (t) => {
+  const traffic = {
+    alpha: {
+      id: "alpha",
+      host: "alpha.xknot.si",
+      updatedAt: "2026-10-26T11:00:00.000Z",
+      days: [
+        {
+          date: "2026-10-26",
+          requests: 120,
+          bytes: 4096,
+          status: { "2xx": 100, "3xx": 10, "4xx": 8, "5xx": 2 },
+          cache: { hit: 40, miss: 30, bypass: 20, none: 30 },
+          latency: { p50: 90, p95: 400, max: 1200, samples: 120 },
+          upstream: { requests: 60, p95: 380, max: 1100 },
+          uniqueApprox: 17,
+          botShare: 0.25,
+          topPaths: [{ path: "/index.html", requests: 30 }],
+          topReferers: [{ host: "xknot.si", requests: 12 }],
+          ip: "203.0.113.9",
+        },
+      ],
+    },
+  };
+  const { call, store } = await start(t, {
+    instances: [{ id: "alpha", url: "https://alpha.xknot.si", tier: "free", status: "active" }],
+    traffic,
+  });
+
+  const anonymous = await call("/api/admin/instances/alpha/traffic");
+  assert.equal(anonymous.status, 401);
+
+  const cookie = await loginAs(call, store);
+  const missing = await call("/api/admin/instances/nosuch/traffic", { cookie });
+  assert.equal(missing.status, 404);
+
+  const response = await call("/api/admin/instances/alpha/traffic", { cookie });
+  assert.equal(response.status, 200);
+  assert.equal(response.data.id, "alpha");
+  assert.equal(response.data.host, "alpha.xknot.si");
+  assert.equal(response.data.updatedAt, "2026-10-26T11:00:00.000Z");
+  assert.equal(response.data.totals.days, 1);
+  assert.equal(response.data.totals.requests, 120);
+  assert.equal(response.data.days[0].latency.p95, 400);
+  assert.deepEqual(response.data.days[0].topReferers, [{ key: "xknot.si", requests: 12 }]);
+  // 聚合文件里就算多写了地址，接口也不转发。
+  assert.equal("ip" in response.data.days[0], false);
+});
+
+test("api: an instance without a traffic file answers with an empty list", async (t) => {
+  const { call, store } = await start(t, {
+    instances: [{ id: "alpha", url: "https://alpha.xknot.si", tier: "free", status: "active" }],
+  });
+  const cookie = await loginAs(call, store);
+  const response = await call("/api/admin/instances/alpha/traffic", { cookie });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.data.days, []);
+  assert.equal(response.data.totals, null, "没采过就不写 0 冒充数据");
 });
 
 // 公钥最后会被逐字写进入口主机的 authorized_keys。只认一行是硬要求：
