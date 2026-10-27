@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { run } from "./check-health.mjs";
 import { refreshStatus } from "./node-status.mjs";
 import { readProfiles } from "./profiles.mjs";
-import { mailConfigFromEnv, sendMail } from "../server/mail.mjs";
+import { mailConfigFromEnv, mailErrorCode, sendMail } from "../server/mail.mjs";
 import { ALERT_LABELS, buildMail } from "../server/notify.mjs";
 import { invokedDirectly } from "./lib/main-module.mjs";
 
@@ -163,7 +163,10 @@ export async function watch(options = {}) {
       sent.push({ id: notice.id, kind: notice.kind, to: message.to, event: route.event });
     } catch (error) {
       // 状态已经写下，这一封不会重发；下一档（7 天 / 30 天）仍会照常提醒。
-      log(`! ${notice.id} ${notice.kind}: 发信失败 - ${error.message}`);
+      // 收信端的原话要打出来：`421 4.7.28 ... Bulk Email Senders Guidelines`
+      // 与「地址不存在」是两种完全不同的处置。
+      const reason = [mailErrorCode(error), error.replyText].filter(Boolean).join(" ");
+      log(`! ${notice.id} ${notice.kind}: 发信失败 - ${error.message}${reason ? `（${reason}）` : ""}`);
     }
   }
 

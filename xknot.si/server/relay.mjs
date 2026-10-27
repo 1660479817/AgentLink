@@ -122,13 +122,16 @@ export function validateRelayRequest(payload, { instance, from } = {}) {
 }
 
 /** 组装成 mail.mjs 认识的消息；发信人恒为中枢，实例只体现在自定义头上。 */
-export function relayMessage(value, { instance } = {}) {
+export function relayMessage(value, { instance, messageId } = {}) {
   return {
     to: value.to,
     subject: value.subject,
     text: value.text,
     replyTo: value.replyTo || undefined,
     headers: [`X-XKnot-Instance: ${instance?.id || "unknown"}`],
+    // 实例看不到这一封的 Message-ID（它只发主题与正文），所以退信回写与
+    // relay_log 对账只能在中央这一层做。
+    messageId,
   };
 }
 

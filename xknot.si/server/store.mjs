@@ -69,6 +69,10 @@ create index if not exists claim_tokens_application on claim_tokens(application_
 
 -- 发信日志：不存正文、不存完整地址。状态迁移类事件靠 (event, case_id, state_version)
 -- 唯一索引去重；运营类事件 state_version 为 NULL，SQLite 视作互不相等，可以补发。
+--
+-- message_id 只存 @ 前面那一段（不含域名，因为域名恒为发信地址的域）。
+-- 收信端之后退信时，退信报告里带的是完整 Message-ID；这是把一封退信对回
+-- 是哪一件事的唯一依据——收件地址在这张表里只有哈希，对不上。
 create table if not exists notify_log (
   seq          integer primary key autoincrement,
   at           text not null,
@@ -79,6 +83,7 @@ create table if not exists notify_log (
   to_domain    text,
   to_hash      text,
   template_version text,
+  message_id   text,
   status       text not null,
   error        text
 );
@@ -144,6 +149,7 @@ create table if not exists relay_log (
   to_hash      text,
   subject_len  integer,
   idem_key     text,
+  message_id   text,
   status       text not null,
   error        text
 );
@@ -317,6 +323,23 @@ const MIGRATIONS = [
            and used_at is not null
            and id in (select detail from events where kind = 'claim.revoked')
       `);
+    },
+  },
+  {
+    version: 4,
+    name: "record the message id of every delivery",
+    up(db) {
+      // 退信是异步的：SMTP 先回 250，收信端之后再退。要把那封退信对回是哪一件事，
+      // 只能靠 Message-ID——收件地址在这两张表里都只有哈希，对不上。
+      // 新列之前的记录留空，历史退信仍然只能靠时间与收件域名人工猜。
+      for (const table of ["notify_log", "relay_log"]) {
+        const columns = new Set(db.prepare(`pragma table_info(${table})`).all().map((row) => row.name));
+        if (!columns.has("message_id")) db.exec(`alter table ${table} add column message_id text`);
+      }
+      // 索引必须在这里建，不能写进 SCHEMA：SCHEMA 在迁移之前执行，老库的
+      // notify_log 还没有这一列，一条 create index 就会让整个库打不开。
+      db.exec("create index if not exists notify_message on notify_log(message_id)");
+      db.exec("create index if not exists relay_log_message on relay_log(message_id)");
     },
   },
 ];
@@ -909,8 +932,9 @@ export function openStore(file) {
     // 「已发过」只认成功或还在途。上一次发送失败、或被限流（status 是 failed /
     // throttled）时，同一幂等键必须能再发一次：SMTP 抖动一次就让这封信永久发不出去，
     // 比偶尔重复一封更糟。重试复用原来那一行，日志里仍是一条事件。
-    beginNotify({ event: name, caseId = null, stateVersion = null, locale = null, toDomain = null, toHash = null, templateVersion = null }) {
+    beginNotify({ event: name, caseId = null, stateVersion = null, locale = null, toDomain = null, toHash = null, templateVersion = null, messageId = null }) {
       const at = nowIso();
+      const mid = messageId ? String(messageId).slice(0, 64) : null;
       const key = [
         String(name),
         caseId ? String(caseId) : null,
@@ -919,8 +943,8 @@ export function openStore(file) {
       try {
         const result = db
           .prepare(
-            `insert into notify_log (at, event, case_id, state_version, locale, to_domain, to_hash, template_version, status, error)
-             values (?, ?, ?, ?, ?, ?, ?, ?, 'pending', null)`
+            `insert into notify_log (at, event, case_id, state_version, locale, to_domain, to_hash, template_version, message_id, status, error)
+             values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', null)`
           )
           .run(
             at,
@@ -930,7 +954,8 @@ export function openStore(file) {
             locale ? String(locale).slice(0, 12) : null,
             toDomain ? String(toDomain).slice(0, 253) : null,
             toHash ? String(toHash).slice(0, 32) : null,
-            templateVersion ? String(templateVersion) : null
+            templateVersion ? String(templateVersion) : null,
+            mid
           );
         return { id: Number(result.lastInsertRowid), at };
       } catch (error) {
@@ -946,10 +971,12 @@ export function openStore(file) {
         );
         if (!row) return { duplicate: true };
         if (row.status !== "failed" && row.status !== "throttled") return { duplicate: true };
+        // 重发是一次新的投递，Message-ID 必须跟着换：旧的那一封可能已经被收下
+        // 又在之后退回，退信要对到这一封，不能对到上一次的号。
         db.prepare(
           `update notify_log
               set at = ?, locale = ?, to_domain = ?, to_hash = ?, template_version = ?,
-                  status = 'pending', error = null
+                  message_id = ?, status = 'pending', error = null
             where seq = ?`
         ).run(
           at,
@@ -957,6 +984,7 @@ export function openStore(file) {
           toDomain ? String(toDomain).slice(0, 253) : null,
           toHash ? String(toHash).slice(0, 32) : null,
           templateVersion ? String(templateVersion) : null,
+          mid,
           Number(row.seq)
         );
         return { id: Number(row.seq), at, retried: true };
@@ -989,14 +1017,68 @@ export function openStore(file) {
         locale: row.locale,
         toDomain: row.to_domain,
         templateVersion: row.template_version,
+        messageId: row.message_id,
         status: row.status,
         error: row.error,
       }));
     },
 
+    // 收信端事后退信：SMTP 会话里是 250，这里才是它真正的结局。
+    //
+    // 只改 sent / accepted 的行：还在 pending 或已经 failed 的不该被一封对不上号的
+    // 退信改写成 bounced——那是把一次成功的记录凭空变成失败。
+    //
+    // 返回改到的条数，调用方据此判断这条 Message-ID 是否认得。
+    recordBounce(messageId, { detail = null } = {}) {
+      const mid = String(messageId || "").trim();
+      if (!mid) return { notified: 0, relayed: 0 };
+      const note = detail ? `bounced: ${String(detail).slice(0, 100)}` : "bounced";
+      const notified = Number(
+        db
+          .prepare(
+            `update notify_log set status = 'bounced', error = ?
+              where message_id = ? and status in ('sent', 'accepted')`
+          )
+          .run(note, mid).changes
+      ) || 0;
+      const relayed = Number(
+        db
+          .prepare(
+            `update relay_log set status = 'bounced', error = ?
+              where message_id = ? and status in ('sent', 'accepted')`
+          )
+          .run(note, mid).changes
+      ) || 0;
+      return { notified, relayed };
+    },
+
+    findNotifyByMessageId(messageId) {
+      const mid = String(messageId || "").trim();
+      if (!mid) return null;
+      const row = get("select * from notify_log where message_id = ? order by seq desc limit 1", mid);
+      return row ? { seq: Number(row.seq), event: row.event, caseId: row.case_id, status: row.status } : null;
+    },
+
     pruneNotifyLog(days = 90) {
       const cutoff = new Date(Date.now() - Math.max(1, Number(days) || 90) * 86400000).toISOString();
       const result = db.prepare("delete from notify_log where at < ?").run(cutoff);
+      return Number(result.changes) || 0;
+    },
+
+    // 进程在发信途中退出会留下一行 pending。发信有退避重试，正常最长也就 36 分钟，
+    // 所以按 2 小时收：短了会把还在重试的那封判死，长了这封信的幂等键一直占着，
+    // 同一事件再也发不出去。
+    //
+    // 回收成 failed，不 delete：failed 允许同一幂等键再发一次（见 beginNotify），
+    // 而删行连「这件事已经发生过」都抹掉了，运营再也看不出漏过一封信。
+    pruneStaleNotifyPending(minutes = 120) {
+      const cutoff = new Date(Date.now() - Math.max(1, Number(minutes) || 120) * 60000).toISOString();
+      const result = db
+        .prepare(
+          `update notify_log set status = 'failed', error = coalesce(error, 'stale_pending')
+            where status = 'pending' and at < ?`
+        )
+        .run(cutoff);
       return Number(result.changes) || 0;
     },
 
@@ -1264,6 +1346,7 @@ export function openStore(file) {
       toHash = null,
       subjectLength = null,
       idemKey = null,
+      messageId = null,
     }) {
       const capped = Math.min(Math.max(Number(limit) || 50, 1), 5000);
       db.exec("begin immediate");
@@ -1307,8 +1390,8 @@ export function openStore(file) {
         const at = nowIso();
         const result = db
           .prepare(
-            `insert into relay_log (at, instance_id, token_id, to_domain, to_hash, subject_len, idem_key, status, error)
-             values (?, ?, ?, ?, ?, ?, ?, 'pending', null)`
+            `insert into relay_log (at, instance_id, token_id, to_domain, to_hash, subject_len, idem_key, message_id, status, error)
+             values (?, ?, ?, ?, ?, ?, ?, ?, 'pending', null)`
           )
           .run(
             at,
@@ -1317,7 +1400,8 @@ export function openStore(file) {
             toDomain ? String(toDomain).slice(0, 253) : null,
             toHash ? String(toHash).slice(0, 32) : null,
             Number.isInteger(subjectLength) ? subjectLength : null,
-            idemKey ? String(idemKey).slice(0, 64) : null
+            idemKey ? String(idemKey).slice(0, 64) : null,
+            messageId ? String(messageId).slice(0, 64) : null
           );
         db.exec("commit");
         return { id: Number(result.lastInsertRowid), at };
@@ -1341,7 +1425,7 @@ export function openStore(file) {
 
     listRelayLog(limit = 50) {
       return all(
-        "select seq, at, instance_id, to_domain, subject_len, status, error from relay_log order by seq desc limit ?",
+        "select seq, at, instance_id, to_domain, subject_len, message_id, status, error from relay_log order by seq desc limit ?",
         Math.min(Math.max(Number(limit) || 50, 1), 500)
       ).map((row) => ({
         seq: Number(row.seq),
@@ -1349,6 +1433,7 @@ export function openStore(file) {
         instanceId: row.instance_id,
         toDomain: row.to_domain,
         subjectLength: row.subject_len,
+        messageId: row.message_id,
         status: row.status,
         error: row.error,
       }));

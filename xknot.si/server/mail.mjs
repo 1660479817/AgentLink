@@ -74,18 +74,32 @@ function sanitizeHeader(header) {
   return `${name}: ${value}`;
 }
 
-export function buildMessage({ from, to, subject, text, replyTo, headers = [], date = new Date() }) {
+const MESSAGE_ID_TOKEN_RE = /^[A-Za-z0-9._-]{8,64}$/;
+
+// 重试同一封信时必须复用同一个 Message-ID：收信端按它去重，换一个就等于
+// 告诉对方「这是另一封信」，同一条通知会投两遍。只认一个裸 token，域名由
+// 发信地址补——不让调用方拼出 `>` 或者换行。
+function messageIdOf(token, domain) {
+  const value = String(token ?? "").trim();
+  if (!MESSAGE_ID_TOKEN_RE.test(value)) return null;
+  return `<${value}@${domain}>`;
+}
+
+export function buildMessage({ from, to, subject, text, replyTo, headers = [], date = new Date(), messageId }) {
   const sender = parseMailbox(from);
   const recipient = parseMailbox(to);
   if (!sender) throw new Error("invalid_from");
   if (!recipient) throw new Error("invalid_to");
+
+  const domain = sender.address.split("@")[1];
+  const id = messageIdOf(messageId, domain) || `<${randomBytes(12).toString("hex")}@${domain}>`;
 
   const lines = [
     `From: ${sender.header}`,
     `To: ${recipient.header}`,
     `Subject: ${encodeHeader(subject)}`,
     `Date: ${date.toUTCString()}`,
-    `Message-ID: <${randomBytes(12).toString("hex")}@${sender.address.split("@")[1]}>`,
+    `Message-ID: ${id}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
@@ -243,17 +257,76 @@ function createChannel(socket) {
   };
 }
 
+// 服务端的原话里常常带着收件地址（`550 5.1.1 <lin@example.com>: user unknown`）。
+// 我们要那句话做判断，但地址只留前后缀：发信记录和日志都不该多存一个完整地址。
+function scrubAddresses(text) {
+  return String(text).replace(/[^\s<>@,;:"()[\]]+@[^\s<>@,;:"()[\]]+/g, (address) => {
+    const at = address.indexOf("@");
+    return `${address.slice(0, 1)}***${address.slice(at)}`;
+  });
+}
+
+// RFC 3463 的增强状态码，例如 `4.7.28`。收信端把它写在应答正文最前面，
+// 数字码（421）只说「稍后」还是「别再试」，具体原因在这一段里。
+function enhancedStatusOf(lines) {
+  for (const line of lines) {
+    const match = /^\s*([245]\.\d{1,3}\.\d{1,3})(?:\s|$)/.exec(String(line));
+    if (match) return match[1];
+  }
+  return null;
+}
+
+// 应答正文压成一行，给运维读：保留「review our Bulk Email Senders Guidelines」
+// 这类只有服务端才知道的原因，丢掉换行和续行缩进。
+function replyTextOf(lines) {
+  const text = lines
+    .map((line) => String(line).trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ");
+  return scrubAddresses(text).slice(0, 200);
+}
+
 function replyError(stage, reply) {
+  const enhanced = enhancedStatusOf(reply.lines);
+  const text = replyTextOf(reply.lines);
   const error = new Error(`smtp_${stage}_${reply.code}`);
   error.code = `smtp_${stage}`;
   error.responseCode = reply.code;
+  // RFC 5321 只看首位数字：4xx 是「现在不行，过一会儿再来」，5xx 是「这封信寄不出去」。
+  error.transient = reply.code >= 400 && reply.code < 500;
+  if (enhanced) error.enhancedStatus = enhanced;
+  if (text) error.replyText = text;
   return error;
 }
 
-async function command(channel, line, expected) {
+// 写进 notify_log / relay_log 的错误摘要：数字码加增强状态码，例如 `421 4.7.28`。
+// 只放码不放原话——原话里有收件地址，而这张表按约定不存完整地址。
+export function mailErrorCode(error) {
+  if (!error) return "send_failed";
+  const code = Number(error.responseCode);
+  if (!Number.isInteger(code) || code < 100 || code > 599) {
+    return String(error.code || error.message || "send_failed").slice(0, 120);
+  }
+  return `${code}${error.enhancedStatus ? ` ${error.enhancedStatus}` : ""}`.slice(0, 120);
+}
+
+/**
+ * 值不值得重试。4xx 是收信端明确说「慢一点」，超时和连接被掐是我们没拿到
+ * 定论——三者都按可重试处理，其余（5xx、地址非法、TLS 没通）重试只是浪费。
+ */
+export function isTransientMailError(error) {
+  if (!error) return false;
+  if (error.transient === true) return true;
+  return error.message === "smtp_timeout" || error.message === "smtp_closed";
+}
+
+// stage 分开记：`smtp_rcpt_to_421` 和 `smtp_data_421` 对运维是两件事，
+// 前者说明收件人被拒，后者说明整封信被拒。
+async function command(channel, line, expected, stage = "command") {
   channel.send(line);
   const reply = await channel.next();
-  if (!expected.includes(reply.code)) throw replyError("command", reply);
+  if (!expected.includes(reply.code)) throw replyError(stage, reply);
   return reply;
 }
 
@@ -276,16 +349,16 @@ async function authenticate(channel, user, pass, capabilities) {
   const mechanisms = authMechanisms(capabilities);
 
   if (mechanisms.includes("LOGIN")) {
-    await command(channel, "AUTH LOGIN", [334]);
-    await command(channel, Buffer.from(user, "utf8").toString("base64"), [334]);
-    const reply = await command(channel, Buffer.from(pass, "utf8").toString("base64"), [235, 503]);
+    await command(channel, "AUTH LOGIN", [334], "auth");
+    await command(channel, Buffer.from(user, "utf8").toString("base64"), [334], "auth");
+    const reply = await command(channel, Buffer.from(pass, "utf8").toString("base64"), [235, 503], "auth");
     if (reply.code === 503) throw replyError("auth", reply);
     return;
   }
 
   if (mechanisms.includes("PLAIN")) {
     const token = Buffer.from(`\0${user}\0${pass}`, "utf8").toString("base64");
-    const reply = await command(channel, `AUTH PLAIN ${token}`, [235, 503]);
+    const reply = await command(channel, `AUTH PLAIN ${token}`, [235, 503], "auth");
     if (reply.code === 503) throw replyError("auth", reply);
     return;
   }
@@ -294,7 +367,7 @@ async function authenticate(channel, user, pass, capabilities) {
 }
 
 async function hello(channel, name) {
-  const reply = await command(channel, `EHLO ${name}`, [250]);
+  const reply = await command(channel, `EHLO ${name}`, [250], "ehlo");
   return capabilitiesOf(reply);
 }
 
@@ -330,6 +403,8 @@ async function deliver(config, message) {
     text: message.text,
     replyTo: message.replyTo,
     headers: message.headers,
+    // 重试时由调用方给同一个 token；没给就每次新生成一个。
+    messageId: message.messageId,
   });
 
   let socket = config.secure
@@ -356,7 +431,7 @@ async function deliver(config, message) {
 
     if (!config.secure) {
       if (capabilities.includes("STARTTLS")) {
-        await command(channel, "STARTTLS", [220]);
+        await command(channel, "STARTTLS", [220], "starttls");
         channel.detach();
         socket = await upgradeToTls(socket, config.host);
         // STARTTLS 之后服务器不再发 220 问候，直接 EHLO。
@@ -369,9 +444,9 @@ async function deliver(config, message) {
 
     await authenticate(channel, config.user, config.pass, capabilities);
 
-    await command(channel, `MAIL FROM:<${built.envelopeFrom}>`, [250]);
-    await command(channel, `RCPT TO:<${built.envelopeTo}>`, [250, 251]);
-    await command(channel, "DATA", [354]);
+    await command(channel, `MAIL FROM:<${built.envelopeFrom}>`, [250], "mail_from");
+    await command(channel, `RCPT TO:<${built.envelopeTo}>`, [250, 251], "rcpt_to");
+    await command(channel, "DATA", [354], "data_command");
 
     const payload = built.data.replace(/(^|\r\n)\./g, "$1..");
     channel.send(`${payload}${CRLF}.`);

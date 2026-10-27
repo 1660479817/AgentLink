@@ -168,7 +168,7 @@ Automation does not replace these:
 - **Real partner probes**: the SSRF guard and timeouts of `check-health.mjs`, `fetch-cards.mjs`, `fetch-stats.mjs` against the public internet are verified only in real builds; end-to-end uses `--offline`/`fixtures`.
 - **TLS, DNS, certificates**: the real effect of Cloudflare, Certbot, HSTS.
 - **nginx and systemd**: config syntax (`nginx -t`), boot autostart, log rotation, backup and rollback (`ops/README-deploy-aws.md`).
-- **Real SMTP**: the provider's AUTH, STARTTLS, bounce handling; the local sink only verifies protocol and business rules.
+- **Real SMTP**: the provider's AUTH, STARTTLS, and the asynchronous bounces it raises after accepting a message. The local sink only verifies protocol and business rules; the `4xx` retry path is covered at unit level (`server/mail.test.mjs` replays a `421 4.7.28` reply), but whether the provider actually recovers on our schedule is only visible in production.
 - **Browser matrix**: automation runs only Chromium; Safari/Firefox `Intl.DisplayNames`, `container-type`, `datalist` behavior still needs spot checks.
 - **Large data volumes**: map and directory performance at thousands of instances.
 

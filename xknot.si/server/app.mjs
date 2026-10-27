@@ -16,6 +16,7 @@ import { updateInstanceConfig } from "./edit.mjs";
 import { checkLabel, suggestLabels, SUBDOMAIN_MIN } from "../ops/subdomain.mjs";
 import { checkManifestEntry, toManifestEntry } from "./manifest.mjs";
 import { memberCodeMail } from "./member-mail.mjs";
+import { isTransientMailError, mailErrorCode } from "./mail.mjs";
 import { probeEnabled, probeTargetOf } from "../ops/probe-target.mjs";
 import {
   ALL_EVENTS,
@@ -39,6 +40,26 @@ const COOKIE = "xknot_admin";
 const MEMBER_COOKIE = "xknot_member";
 const MEMBER_CODE_TTL = 10; // 分钟
 const MEMBER_SESSION_DAYS = 30;
+
+// 发信失败后的退避重试间隔。只重试瞬时的失败（SMTP 4xx、超时、连接被掐）；
+// 5xx 与地址非法是永久失败，再试一遍只是把同一条错误多记几遍。
+//
+// 三次机会就是为「收信端让我们慢一点」准备的：共享发信 IP 被打到流控时
+// 收信端回 421，那时立刻重试只会延长封禁，隔一阵再来才是对的。
+const MAIL_RETRY_DELAYS = [60_000, 300_000, 1_800_000];
+
+// 委托发信遇到瞬时失败时回给实例的 Retry-After（秒）。实例侧是同步等一次
+// HTTP 响应，它自己决定要不要按这个间隔再发；不给这个头，它只会立刻重试。
+const RELAY_TRANSIENT_RETRY_SECONDS = 300;
+
+// 测试要能把它压到 0：默认那三档加起来是 36 分钟，等不起。
+function normalizeRetryDelays(value) {
+  if (!Array.isArray(value)) return MAIL_RETRY_DELAYS;
+  return value
+    .map((ms) => Number(ms))
+    .filter((ms) => Number.isFinite(ms) && ms >= 0)
+    .map((ms) => Math.min(ms, 6 * 3600_000));
+}
 
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
@@ -311,6 +332,7 @@ export function createApp({ store, config }) {
   // 没有这一行时按「开」算——老部署升级上来行为不变。
   const mailSwitchOff = () => store.getSetting("mail")?.value === "off";
   const mailOpen = () => Boolean(mailer) && !mailSwitchOff();
+  const mailRetryDelays = normalizeRetryDelays(config.mailRetryDelays);
   const adminEmail = String(config.adminEmail || "").trim();
   const origin = String(config.origin || "https://xknot.si").replace(/\/+$/, "");
   const supportUrl = String(config.supportUrl || "").trim();
@@ -802,6 +824,9 @@ export function createApp({ store, config }) {
         replyTo,
       });
       if (!message || !message.to) return null;
+      // Message-ID 先定下来再占位：它要进 notify_log，退信才能对回这一件事。
+      // 之后的每次重试都用这一个（收信端按它去重，换一个就等于另一封信）。
+      message.messageId = randomBytes(12).toString("hex");
       reserved = store.beginNotify({
         event: eventName,
         caseId: application?.id || null,
@@ -810,6 +835,7 @@ export function createApp({ store, config }) {
         toDomain: domainOf(message.to),
         toHash: createHash("sha256").update(message.to.toLowerCase()).digest("hex").slice(0, 16),
         templateVersion: message.templateVersion || TEMPLATE_VERSION,
+        messageId: message.messageId,
       });
     } catch (error) {
       // beginNotify 也会抛（锁、磁盘）。它在申请单落库之后才跑，抛出去就是 500，
@@ -832,15 +858,63 @@ export function createApp({ store, config }) {
       }
     }
 
-    Promise.resolve()
-      .then(() => mailer.send(message))
-      .then(() => store.finishNotify(reserved.id, { status: "sent" }))
-      .catch((error) => {
-        store.finishNotify(reserved.id, { status: "failed", error: error?.message || "send_failed" });
-        console.error("mail failed:", eventName, error.message);
-      });
-
+    // 同一封信的所有重试用同一个 Message-ID：收信端按它去重。重试时换一个
+    // 新 ID，等于告诉对方这是另一封信，同一条通知会真的投两遍。
+    deliverWithRetry(message, reserved, eventName);
     return { id: reserved.id, message };
+  }
+
+  // 发一封信并在瞬时失败时退避重试。
+  //
+  // 重试期间那一行 notify_log 一直是 pending：幂等键继续占着，同一事件不会被
+  // 另一个触发路径当成「可以再发」而寄出第二封。收尾只有三种结果——sent、
+  // failed、skipped；pending 不许留到最后，进程中途退出留下的那些由
+  // store.pruneStaleNotifyPending 收回。
+  function deliverWithRetry(message, reserved, eventName) {
+    let settled = false;
+    function settle(status, error = null) {
+      if (settled) return;
+      settled = true;
+      try {
+        store.finishNotify(reserved.id, { status, error });
+      } catch (failure) {
+        // 库已经关了（进程退出或测试收尾）：重试链没必要继续，也改不动这条记录。
+        console.error("notify log update failed:", failure.message);
+      }
+    }
+
+    function attempt(index) {
+      // 重试途中总闸被关掉：停在这里，别把一封信送出去。
+      if (!mailOpen()) {
+        settle("skipped", "mail_switch_off");
+        return Promise.resolve();
+      }
+      return Promise.resolve()
+        .then(() => mailer.send(message))
+        .then(() => settle("sent"))
+        .catch((error) => {
+          const wait = mailRetryDelays[index];
+          if (isTransientMailError(error) && wait !== undefined) {
+            // 只记码与原因：收件地址和正文都不进日志。
+            console.warn(
+              `mail retry in ${Math.round(wait / 1000)}s:`,
+              eventName,
+              error.message,
+              mailErrorCode(error),
+              error.replyText || ""
+            );
+            const timer = setTimeout(() => {
+              attempt(index + 1).catch(() => {});
+            }, wait);
+            timer.unref?.();
+            return;
+          }
+          settle("failed", mailErrorCode(error));
+          console.error("mail failed:", eventName, error.message, mailErrorCode(error), error.replyText || "");
+        });
+    }
+
+    return attempt(0);
   }
 
   // 提交即通过：一封信把回执与结果一起说清，另发一封给运营方。
@@ -951,6 +1025,8 @@ export function createApp({ store, config }) {
       toHash: createHash("sha256").update(value.to.toLowerCase()).digest("hex").slice(0, 16),
       subjectLength: [...value.subject].length,
       idemKey: value.idempotencyKey,
+      // 退信之后要对回是哪一封：实例只交主题与正文，Message-ID 由这里生成。
+      messageId: randomBytes(12).toString("hex"),
     };
 
     // 先在同一事务里占额度/占幂等键，再 await 发信。检查和写入之间不能有
@@ -979,11 +1055,22 @@ export function createApp({ store, config }) {
     }
 
     try {
-      await relayMailer.send(relayMessage(value, { instance }));
+      await relayMailer.send(relayMessage(value, { instance, messageId: meta.messageId }));
     } catch (error) {
-      store.finishRelay(reserved.id, { status: "failed", error: error.code || error.message });
-      console.error("relay failed:", instance.id, error.message);
-      return send(res, 502, { error: "smtp_failed" });
+      const smtp = mailErrorCode(error);
+      store.finishRelay(reserved.id, { status: "failed", error: smtp });
+      console.error("relay failed:", instance.id, error.message, smtp, error.replyText || "");
+      // 4xx 是收信端说「慢一点」。实例拿这个头决定等多久，别立刻用同一个
+      // 幂等键撞回来——那只会让流控一直续着。
+      if (isTransientMailError(error)) {
+        return send(
+          res,
+          502,
+          { error: "smtp_failed", transient: true, smtp },
+          { "retry-after": String(RELAY_TRANSIENT_RETRY_SECONDS) }
+        );
+      }
+      return send(res, 502, { error: "smtp_failed", smtp });
     }
 
     store.finishRelay(reserved.id, { status: "accepted" });

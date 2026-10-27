@@ -452,3 +452,40 @@ test("notify: partner.handoff cannot be resent without a link", async (t) => {
   assert.equal(result.code, 1);
   assert.match(result.stderr, /handoff/);
 });
+// 退信闭环：中枢收不到退信（MX 指向阿里云），只能由人把控制台里的
+// Message-ID 抄回来。抄错不能猜，猜错就是把一封送到了的信标成退回。
+test("bounce: a message id from the provider closes the loop, a wrong one does not", async (t) => {
+  const { cli, env } = await fixture(t);
+
+  const store = openStore(path.join(env.XKNOT_DATA_DIR, "xknot.db"));
+  const row = store.beginNotify({
+    event: "partner.approved",
+    caseId: "XK-2026-M5CMKG",
+    stateVersion: 0,
+    messageId: "0123456789abcdef01234567",
+  });
+  store.finishNotify(row.id, { status: "sent" });
+  store.close();
+
+  // 退信报告里是带尖括号和域的整段，命令行两种写法都要认。
+  const closed = await cli(["bounce", "<0123456789abcdef01234567@xknot.si>", "--note", "5.1.1 user unknown"]);
+  assert.equal(closed.code, 0, closed.stderr);
+  assert.match(closed.stdout, /已标记退回/);
+
+  const reopened = openStore(path.join(env.XKNOT_DATA_DIR, "xknot.db"));
+  t.after(() => reopened.close());
+  const [bounced] = reopened.listNotifyLog(10, "XK-2026-M5CMKG");
+  assert.equal(bounced.status, "bounced");
+  assert.match(bounced.error, /5\.1\.1/);
+
+  // 同一个号再抄一遍：已经没有可改的行，要明确说，不能静默成功。
+  const again = await cli(["bounce", "0123456789abcdef01234567"]);
+  assert.equal(again.code, 1);
+});
+
+test("bounce: an unknown message id is refused instead of guessed", async (t) => {
+  const { cli } = await fixture(t);
+  const result = await cli(["bounce", "<deadbeefdeadbeefdeadbeef@xknot.si>"]);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /没有这个 Message-ID/);
+});

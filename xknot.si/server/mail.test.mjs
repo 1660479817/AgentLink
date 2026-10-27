@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import test from "node:test";
 
-import { buildMessage, createMailer, mailConfigFromEnv, parseMailbox } from "./mail.mjs";
+import {
+  buildMessage,
+  createMailer,
+  isTransientMailError,
+  mailConfigFromEnv,
+  mailErrorCode,
+  parseMailbox,
+} from "./mail.mjs";
 
 function decodeSubject(value) {
   const match = /^=\?UTF-8\?B\?([^?]+)\?=$/.exec(value.trim());
@@ -23,7 +30,8 @@ function splitMessage(data) {
 }
 
 // 一个只认 LOGIN 的假 SMTP：够验证命令顺序、认证和 DATA 内容。
-function fakeSmtp(t) {
+// dotReply / rcptReply 让测试替换某一步的应答，用来复现收信端的 4xx / 5xx。
+function fakeSmtp(t, { dotReply = "250 2.0.0 queued\r\n", rcptReply = "250 2.1.5 ok\r\n" } = {}) {
   const seen = { mailFrom: null, rcptTo: [], data: null, authUser: null, authPass: null };
   const server = net.createServer((socket) => {
     socket.setEncoding("utf8");
@@ -45,7 +53,7 @@ function fakeSmtp(t) {
             inData = false;
             seen.data = body;
             body = "";
-            socket.write("250 2.0.0 queued\r\n");
+            socket.write(dotReply);
           } else {
             body += `${line}\r\n`;
           }
@@ -75,7 +83,7 @@ function fakeSmtp(t) {
           socket.write("250 2.1.0 ok\r\n");
         } else if (/^RCPT TO:/i.test(line)) {
           seen.rcptTo.push(line.slice(line.indexOf(":") + 1).trim());
-          socket.write("250 2.1.5 ok\r\n");
+          socket.write(rcptReply);
         } else if (/^DATA$/i.test(line)) {
           inData = true;
           socket.write("354 send it\r\n");
@@ -192,4 +200,99 @@ test("mail: plaintext is refused unless explicitly allowed", { timeout: 5000 }, 
     from: "a@b.c",
   });
   await assert.rejects(() => mailer.send({ to: "d@e.f", subject: "s", text: "t" }), /smtp_tls_required/);
+});
+
+function openMailer(port) {
+  return createMailer({
+    host: "127.0.0.1",
+    port,
+    secure: false,
+    allowInsecure: true,
+    user: "",
+    pass: "",
+    from: "notify@mail.xknot.si",
+  });
+}
+
+// 收信端说「慢一点」时，那句话是运维唯一的线索：421 只说「稍后」，
+// 原因在 4.7.28 和它后面那句里。丢掉就等于把 550 和 421 混成同一个「失败了」。
+test("mail: a 4xx keeps the server's words, the enhanced status and the transient flag", { timeout: 5000 }, async (t) => {
+  const { port } = await fakeSmtp(t, {
+    dotReply: "421 4.7.28 review our Bulk Email Senders Guidelines. d9443c01a7336 - gsmtp\r\n",
+  });
+  await assert.rejects(
+    () => openMailer(port).send({ to: "lin@example.com", subject: "s", text: "t" }),
+    (error) => {
+      assert.equal(error.code, "smtp_data");
+      assert.equal(error.responseCode, 421);
+      assert.equal(error.enhancedStatus, "4.7.28");
+      assert.equal(error.transient, true);
+      assert.match(error.replyText, /Bulk Email Senders Guidelines/);
+      // 写进发信记录的是码，短且可聚合。
+      assert.equal(mailErrorCode(error), "421 4.7.28");
+      assert.equal(isTransientMailError(error), true);
+      return true;
+    }
+  );
+});
+
+test("mail: a 5xx is permanent, and the recipient address is masked in the kept text", { timeout: 5000 }, async (t) => {
+  const { port } = await fakeSmtp(t, {
+    dotReply: "550 5.1.1 <lin@example.com>: Recipient address rejected: User unknown\r\n",
+  });
+  await assert.rejects(
+    () => openMailer(port).send({ to: "lin@example.com", subject: "s", text: "t" }),
+    (error) => {
+      assert.equal(error.responseCode, 550);
+      assert.equal(error.enhancedStatus, "5.1.1");
+      assert.equal(error.transient, false);
+      assert.equal(isTransientMailError(error), false);
+      assert.equal(mailErrorCode(error), "550 5.1.1");
+      // 发信记录不存完整地址，保留下来的原话也不能带一个。
+      assert.match(error.replyText, /l\*\*\*@example\.com/);
+      assert.ok(!error.replyText.includes("lin@example.com"));
+      return true;
+    }
+  );
+});
+
+test("mail: a rejection at RCPT TO names that stage, not a generic command", { timeout: 5000 }, async (t) => {
+  const { port } = await fakeSmtp(t, { rcptReply: "452 4.2.2 mailbox full\r\n" });
+  await assert.rejects(
+    () => openMailer(port).send({ to: "lin@example.com", subject: "s", text: "t" }),
+    (error) => {
+      assert.equal(error.code, "smtp_rcpt_to");
+      assert.equal(mailErrorCode(error), "452 4.2.2");
+      return true;
+    }
+  );
+});
+
+test("mail: a reply with no number falls back to the error code, not a made-up one", () => {
+  assert.equal(mailErrorCode(null), "send_failed");
+  assert.equal(mailErrorCode(new Error("smtp_timeout")), "smtp_timeout");
+  assert.equal(isTransientMailError(new Error("smtp_timeout")), true);
+  assert.equal(isTransientMailError(new Error("smtp_auth_unsupported")), false);
+});
+
+// 重试同一封信要复用同一个 Message-ID：收信端按它去重，换一个就等于
+// 告诉对方这是另一封信，同一条通知会真的投两遍。
+test("mail: a retry keeps the message id, and a malformed one is refused", () => {
+  const header = (data) => /^Message-ID: (.*)$/m.exec(data)[1];
+
+  const first = buildMessage({ from: "notify@mail.xknot.si", to: "a@b.c", subject: "s", text: "t", messageId: "0123456789abcdef" });
+  const again = buildMessage({ from: "notify@mail.xknot.si", to: "a@b.c", subject: "s", text: "t", messageId: "0123456789abcdef" });
+  assert.equal(header(first.data), "<0123456789abcdef@mail.xknot.si>");
+  assert.equal(header(again.data), header(first.data));
+
+  // 域名由发信地址补，调用方拼不出第二个域、`>` 或换行。
+  const injected = buildMessage({
+    from: "notify@mail.xknot.si",
+    to: "a@b.c",
+    subject: "s",
+    text: "t",
+    messageId: "0123456789abcdef@evil.test>\r\nBcc: x@y.z",
+  });
+  assert.ok(!injected.data.includes("Bcc:"));
+  assert.match(header(injected.data), /^<[0-9a-f]{24}@mail\.xknot\.si>$/);
 });

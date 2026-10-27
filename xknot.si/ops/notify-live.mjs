@@ -6,11 +6,15 @@
 // 三条约束：
 //  1. 没有 SMTP 配置只返回 skipped，不抛错：信是通知，不该让验收失败；
 //  2. 用 notify_log 去重（事件 + 申请号唯一），systemd 重启不会补发第二封；
-//  3. 投递失败标 failed 但不重试：一封信发两次比晚一天更糟，留给人工补发。
+//  3. 投递失败标 failed，本次进程不重试。这不是「永远不发」：下面的去重只看
+//     sent 与 pending，failed 的行下一轮 timer 会重新进到这里再发一次。
+//     进程内不退避是有意的——这是个定时任务，await 36 分钟的退避会让下一轮
+//     timer 叠上来，还占着 SSH 和 systemd 的时限。
 
-import { createHash } from "node:crypto";
 
-import { mailConfigFromEnv, sendMail } from "../server/mail.mjs";
+import { createHash, randomBytes } from "node:crypto";
+
+import { mailConfigFromEnv, mailErrorCode, sendMail } from "../server/mail.mjs";
 import { buildMail } from "../server/notify.mjs";
 import { domainOf } from "../server/relay.mjs";
 
@@ -43,6 +47,9 @@ export async function notifyLive({
   });
   if (!message?.to) return { skipped: "no_recipient" };
 
+  // Message-ID 要进 notify_log：收信端事后退信时，这是唯一能对回这件事件的线索。
+  message.messageId = randomBytes(12).toString("hex");
+
   // 固定用 1：让唯一索引也真的起到二次保险的作用。
   const reserved = store.beginNotify({
     event: "partner.live",
@@ -52,6 +59,7 @@ export async function notifyLive({
     toDomain: domainOf(message.to),
     toHash: createHash("sha256").update(message.to.toLowerCase()).digest("hex").slice(0, 16),
     templateVersion: message.templateVersion,
+    messageId: message.messageId,
   });
   if (reserved.duplicate) return { skipped: "already_sent" };
 
@@ -61,11 +69,13 @@ export async function notifyLive({
       subject: message.subject,
       text: message.text,
       replyTo: message.replyTo,
+      messageId: message.messageId,
     });
     store.finishNotify(reserved.id, { status: "sent" });
     return { sent: true, id: reserved.id };
   } catch (error) {
-    store.finishNotify(reserved.id, { status: "failed", error: error.message });
-    return { failed: error.message };
+    // 记码不记原话：这张表不存完整地址，原话在进程日志里另有一行。
+    store.finishNotify(reserved.id, { status: "failed", error: mailErrorCode(error) });
+    return { failed: mailErrorCode(error) };
   }
 }

@@ -76,9 +76,22 @@ submit ──▶ approved ──▶ withdrawn
 |----|------|
 | Idempotency key | `{event}:{caseId}:{stateVersion}`, unique index in the DB |
 | Repeated trigger | the second time with the same key is skipped, not resent |
-| 5xx | no retry, record `failed`, alert the operator |
-| Timeout / 4xx | at most 3 tries, backoff 1 / 5 / 30 minutes |
+| Transient failure | SMTP `4xx`, timeout, connection dropped: at most 3 tries, backoff 1 / 5 / 30 minutes |
+| Permanent failure | SMTP `5xx`, invalid address, rejected content: no retry, record `failed` |
+| While retrying | the row stays `pending` and keeps the idempotency key, so no second path can send the same event |
+| Master switch turned off mid-retry | stop, record `skipped` with `mail_switch_off` |
+| Stale `pending` | reclaimed as `failed` / `stale_pending` after 2 hours, so the event can be sent again |
 | State rollback | the same event is not resent when state rolls back and re-advances (the key has a version; whether to bump is up to the implementation) |
+
+Retrying is the only thing the hub can do about a rate limit on the receiving side. A
+`421` at the wrong time is not the hub's reputation problem and there is nothing to fix
+in the message; it is the sending IP being throttled, often because of other tenants on
+the same shared pool. Sending again immediately only extends the block, which is why the
+delays are minutes and not seconds.
+
+A `5xx` is the opposite: the same message will be refused again. Recording `failed` and
+leaving it to `admin-cli notify` is deliberate — an automatic retry would just be the same
+rejection logged three times.
 
 ### 1.4 Rate limiting
 
@@ -93,9 +106,36 @@ The per-address cap leaves headroom for "one real partner going through submit �
 
 ### 1.5 Records
 
-New `notify_log`: event, case id, recipient domain, address hash, template version, locale, result, error code, time. **No body, no full address, no full subject.**
+New `notify_log`: event, case id, recipient domain, address hash, template version, message id, locale, result, error code, time. **No body, no full address, no full subject.**
 
 Kept 90 days, cleaned daily.
+
+`error` holds the SMTP verdict as a code, never the server's sentence: `421 4.7.28`,
+`550 5.1.1`, `smtp_timeout`. The number alone does not say why, and the enhanced status
+code (`4.7.28`) is the part that does — the free-text reason behind it is kept out because
+it often quotes the recipient address, which this table must not hold. That sentence is
+printed in the process log instead, with the local part masked.
+
+### 1.6 Bounces
+
+A `250` from the SMTP session is acceptance, not delivery. The receiving side can reject
+the message afterwards, and the hub never sees that: `xknot.si`'s MX points at the mail
+provider, so the bounce report lands in the provider's console rather than in a mailbox
+this process reads.
+
+What makes the loop closable at all is `message_id`. Every delivery records it (the part
+before the `@`; the domain is always the sender's), and it is the only field that ties a
+bounce report back to a row — the recipient address is stored as a hash and cannot be
+matched. Ingestion is manual and deliberately so:
+
+```
+npm run admin -- bounce '<Message-ID>' --note '5.1.1 user unknown'
+```
+
+That flips the row from `sent` to `bounced`. It only touches `sent` / `accepted`, and an
+unknown id is refused rather than guessed: marking a delivered message as bounced would
+send the operator to resend a second copy. Rows written before this field existed have no
+id and can only be matched by time and recipient domain.
 
 ### 1.6 Links
 

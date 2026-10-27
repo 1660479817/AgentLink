@@ -48,6 +48,9 @@ async function start(t, options = {}) {
       locationsProvider: options.locationsProvider || (() => options.locations || null),
       statusProvider: options.statusProvider || (() => options.status || null),
       trafficProvider: options.trafficProvider || ((id) => options.traffic?.[id] || null),
+      // 默认不重试：默认那三档加起来 36 分钟，绝大多数用例只关心「这封信发出去了
+      // 没有」。重试的行为由专门的用例用 0 延迟验证。
+      mailRetryDelays: options.mailRetryDelays ?? [],
     },
   });
   const server = createServer((req, res) => {
@@ -457,6 +460,80 @@ test("api: a broken mailer never fails the submission", async (t) => {
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(result.status, 201);
   assert.equal(store.listApplications({ status: "approved" }).length, 1);
+});
+
+// 收信端回 4xx（例如阿里云共享 IP 被流控时 Gmail 的 421 4.7.28）不是终点：
+// 按文档承诺退避重试，最后成功就记 sent。
+test("api: a transient mail failure is retried and ends as sent", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const attempts = [];
+  const mailer = {
+    async send(message) {
+      attempts.push(message.to);
+      if (attempts.length === 1) {
+        const error = new Error("smtp_data_421");
+        error.code = "smtp_data";
+        error.responseCode = 421;
+        error.enhancedStatus = "4.7.28";
+        error.transient = true;
+        error.replyText = "4.7.28 review our Bulk Email Senders Guidelines - gsmtp";
+        throw error;
+      }
+    },
+  };
+  const { call, store } = await start(t, { mailer, mailRetryDelays: [0] });
+  await call("/api/applications", { method: "POST", body: valid });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(attempts.length, 2, "第一次失败后按退避再发一次");
+  const log = store.listNotifyLog(10);
+  assert.equal(log.length, 1, "重试不新增发信记录，还是同一件事");
+  assert.equal(log[0].status, "sent");
+});
+
+test("api: a permanent mail failure records the server code and is not retried", async (t) => {
+  t.mock.method(console, "error", () => {});
+  let attempts = 0;
+  const mailer = {
+    async send() {
+      attempts += 1;
+      const error = new Error("smtp_data_550");
+      error.code = "smtp_data";
+      error.responseCode = 550;
+      error.enhancedStatus = "5.1.1";
+      error.transient = false;
+      throw error;
+    },
+  };
+  const { call, store } = await start(t, { mailer, mailRetryDelays: [0, 0, 0] });
+  await call("/api/applications", { method: "POST", body: valid });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(attempts, 1, "5xx 是地址或内容被拒，重试只是多记一遍同样的错");
+  const row = store.listNotifyLog(10)[0];
+  assert.equal(row.status, "failed");
+  assert.equal(row.error, "550 5.1.1");
+});
+
+test("api: turning the mail switch off mid-retry settles the row instead of leaving it pending", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const mailer = {
+    async send() {
+      const error = new Error("smtp_data_451");
+      error.code = "smtp_data";
+      error.responseCode = 451;
+      error.transient = true;
+      throw error;
+    },
+  };
+  const { call, store } = await start(t, { mailer, mailRetryDelays: [40] });
+  await call("/api/applications", { method: "POST", body: valid });
+  store.setSetting("mail", "off", "paul");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  const row = store.listNotifyLog(10)[0];
+  assert.equal(row.status, "skipped");
+  assert.equal(row.error, "mail_switch_off");
 });
 
 test("api: approval no longer needs a review step", async (t) => {

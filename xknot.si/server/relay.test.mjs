@@ -376,11 +376,44 @@ test("relay api: an SMTP failure is reported and logged without the body", async
 
   assert.equal(result.status, 502);
   assert.equal(result.data.error, "smtp_failed");
+  // 没有应答数字码的失败不该被当成瞬时的：这类多半是配置或认证问题。
+  assert.equal(result.data.transient, undefined);
+  assert.equal(result.headers.get("retry-after"), null);
   const log = store.listRelayLog();
   assert.equal(log.length, 1);
   assert.equal(log[0].status, "failed");
+  assert.equal(log[0].error, "smtp_command");
   assert.equal(log[0].toDomain, "example.com");
   assert.ok(!JSON.stringify(log).includes("验证你的邮箱"));
+});
+
+// 收信端回 4xx 时，实例必须知道「等多久再来」；不给这一项，它会立刻用同一个
+// 幂等键撞回来，正好把流控续上。
+test("relay api: a 4xx answer carries the smtp code and a retry-after", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const throttled = {
+    from: "notify@mail.xknot.si",
+    async send() {
+      const error = new Error("smtp_data_421");
+      error.code = "smtp_data";
+      error.responseCode = 421;
+      error.enhancedStatus = "4.7.28";
+      error.transient = true;
+      error.replyText = "4.7.28 review our Bulk Email Senders Guidelines - gsmtp";
+      throw error;
+    },
+  };
+  const { store, call } = await start(t, { mailer: throttled });
+  const token = issue(store);
+  const result = await call("/api/federation/mail", { method: "POST", body: message, token });
+
+  assert.equal(result.status, 502);
+  assert.equal(result.data.error, "smtp_failed");
+  assert.equal(result.data.transient, true);
+  assert.equal(result.data.smtp, "421 4.7.28");
+  assert.equal(result.headers.get("retry-after"), "300");
+  // 记的是码不是原话：原话里可能有地址，而这张表只存域名与哈希。
+  assert.equal(store.listRelayLog()[0].error, "421 4.7.28");
 });
 
 test("relay api: disabled relay answers 503", async (t) => {

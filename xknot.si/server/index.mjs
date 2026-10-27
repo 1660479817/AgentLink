@@ -90,8 +90,18 @@ function pruneNotifyLog() {
   }
 }
 pruneNotifyLog();
+// 发信重试最长 36 分钟，2 小时之后的 pending 一定没人管了；每分钟扫一次够用。
+function pruneStaleNotifyPending() {
+  try {
+    store.pruneStaleNotifyPending(120);
+  } catch (error) {
+    console.error("notify pending prune failed:", error.message);
+  }
+}
+pruneStaleNotifyPending();
 setInterval(pruneRelayLog, 6 * 3600_000).unref();
 setInterval(pruneStaleRelayPending, 60_000).unref();
+setInterval(pruneStaleNotifyPending, 60_000).unref();
 setInterval(pruneNotifyLog, 24 * 3600_000).unref();
 
 // 委托发信要判断实例是否在册、是否 active，以及回信域名，统一读清单文件。

@@ -55,7 +55,7 @@ import { fileURLToPath } from "node:url";
 
 import { withFileLock } from "./file-lock.mjs";
 import { loadEnvFile } from "./env-file.mjs";
-import { createMailer, mailConfigFromEnv } from "./mail.mjs";
+import { createMailer, mailConfigFromEnv, isTransientMailError, mailErrorCode } from "./mail.mjs";
 import { checkManifestEntry, suggestId, toManifestEntry, toRosterMember } from "./manifest.mjs";
 import { validateRoster } from "../ops/validate-federation.mjs";
 import { TIERS } from "../ops/profile-schema.mjs";
@@ -187,8 +187,13 @@ async function sendEvent(eventName, application, extra = {}, { dedupeVersion = n
     console.log(`已发送 ${eventName} → ${message.to}  《${message.subject}》`);
     return message;
   } catch (error) {
-    store.finishNotify(reserved.id, { status: "failed", error: error.message });
-    return fail(`发送失败：${error.message}`);
+    // 记码不记原话：原话里可能带着收件地址，而这张表按约定不存完整地址。
+    store.finishNotify(reserved.id, { status: "failed", error: mailErrorCode(error) });
+    // 收信端的原话只有这里能看见，原样打给人看——这正是判断「等一会儿再来」
+    // 还是「地址没了」的唯一依据。
+    const reason = error.replyText ? `（${error.replyText}）` : "";
+    const hint = isTransientMailError(error) ? "这是瞬时失败，过一阵重跑同一条命令即可。" : "";
+    return fail(`发送失败：${mailErrorCode(error)} ${error.message}${reason}${hint ? `\n${hint}` : ""}`);
   }
 }
 
@@ -742,12 +747,46 @@ async function main(argv) {
       return;
     }
     for (const row of rows) {
+      // Message-ID 摆在最后：它是退信对账时唯一要抄回去的东西。
       console.log(
         `#${String(row.seq).padEnd(6)} ${row.at.slice(0, 19)}  ${(row.caseId || "—").padEnd(14)} ${row.event.padEnd(
           30
-        )} ${row.status.padEnd(9)} ${row.toDomain || "—"}${row.error ? `  ${row.error}` : ""}`
+        )} ${row.status.padEnd(9)} ${row.toDomain || "—"}${row.error ? `  ${row.error}` : ""}${
+          row.messageId ? `  id=${row.messageId}` : ""
+        }`
       );
     }
+    console.log("");
+    console.log("补发退信：bounce <Message-ID> [--note 原因]");
+    return;
+  }
+
+  if (command === "bounce") {
+    // 退信只在阿里云邮件推送控制台的退信记录里看得到，中枢收不到：xknot.si 的 MX
+    // 指向阿里云，这个域不设收款箱。所以闭环靠人把那一行的 Message-ID 抄回来。
+    //
+    // 只改 sent / accepted 的行。对不上号就明确说「没找到」，不猜：
+    // 猜错等于把一封送到了的信标成退回，运营会照着它去重发第二封。
+    const raw = rest[0];
+    if (!raw) return fail("用法：bounce <Message-ID> [--note 原因]");
+    // 退信报告里是 `<id@domain>` 整段；库里有 @ 前面那一段，两种写法都收。
+    const messageId = String(raw).trim().replace(/^<|>$/g, "").split("@")[0];
+    if (!messageId) return fail("这不是一个 Message-ID。");
+
+    const known = store.findNotifyByMessageId(messageId);
+    const result = store.recordBounce(messageId, { detail: flag(rest, "note") });
+    if (!result.notified && !result.relayed) {
+      return fail(
+        known
+          ? `这条 Message-ID 对应的记录状态是 ${known.status}，不是已发送，没有改。`
+          : `库里没有这个 Message-ID（${messageId}）：要么是 2026-10-27 之前发的老信，` +
+            `要么这个号抄错了。先在阿里云控制台核对退信记录里的 Message-ID 整段。`
+      );
+    }
+    console.log(
+      `已标记退回：伙伴/内部信 ${result.notified} 条，委托发信 ${result.relayed} 条` +
+        (known ? `（${known.event} ${known.caseId || "—"}）` : "")
+    );
     return;
   }
 
