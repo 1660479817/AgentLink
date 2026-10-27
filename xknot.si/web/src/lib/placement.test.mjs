@@ -109,6 +109,34 @@ test("placement is stable: same input, same output, whatever the clock says", ()
   assert.deepEqual(first.points.map((point) => point.id), ["a", "b", "d", "c"]);
 });
 
+test("a crowded cluster still ends up with every pair at least MIN_GAP apart", () => {
+  // 半径封顶在 70 之后，圆周相邻弦长 2·70·sin(π/n) 在 n=17 就掉破 MIN_GAP：
+  // 单遍推挤在这里会留下重叠，迭代松弛要一直推到排得开为止。
+  for (const count of [4, 10, 14, 16, 17, 20, 24]) {
+    const input = Array.from({ length: count }, (_, index) => at(480, 190, `p${index}`));
+    const { points } = placePoints(input);
+    let min = Infinity;
+    for (let i = 0; i < points.length; i += 1) {
+      for (let j = 0; j < i; j += 1) {
+        min = Math.min(min, Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y));
+      }
+    }
+    assert.ok(min >= MIN_GAP - 1e-6, `${count} points: closest pair only ${min} apart`);
+  }
+});
+
+test("relaxation never returns a worse layout than the one it started from", () => {
+  // 松弛在拥挤时可能来回摆；收尾回滚到分数最好的一轮，所以推挤不会把点搅乱。
+  const input = [at(480, 190, "a"), at(480, 190, "b"), at(480, 190, "c")];
+  const { points } = placePoints(input);
+  const anchor = { x: 480, y: 190 };
+  // 每个点都还在锚点附近一圈之内，没有被甩到画布别处。
+  for (const point of points) {
+    const distance = Math.hypot(point.x - anchor.x, point.y - anchor.y);
+    assert.ok(distance < RING.max + MIN_GAP * 3, `${point.id} drifted ${distance} from the anchor`);
+  }
+});
+
 test("points without a coordinate are dropped, not pinned at the origin", () => {
   const { points } = placePoints([{ id: "x", x: NaN, y: 10 }, { id: "y" }]);
   assert.deepEqual(points, []);
