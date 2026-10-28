@@ -9,6 +9,7 @@ RUN apt-get update \
     fontconfig \
     fonts-dejavu-core \
     fonts-noto-core \
+    openssh-client \
   && fc-cache -f \
   && rm -rf /var/lib/apt/lists/*
 

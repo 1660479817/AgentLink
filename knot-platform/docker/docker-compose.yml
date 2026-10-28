@@ -42,12 +42,17 @@ services:
         condition: service_healthy
     env_file:
       - /home/perfxlab/knot/site/sites/local/platform.env
+      # 联邦接入件：协议写好后由 Backend/管理页生成；未接入时可缺省。
+      - path: /home/perfxlab/knot/site/sites/local/xknot.env
+        required: false
     environment:
+      # 显式钉住接入件路径，便于 federationStatus 读盘上的 stored 视图。
+      KNOT_XKNOT_ENV: /data/sites/local/xknot.env
       DATABASE_URL: postgres://knot:knot@127.0.0.1:5433/knot
       BIND_HOST: "0.0.0.0"
       PORT: "8080"
-      PUBLIC_WEB_ORIGIN: http://192.168.3.22:8080
-      KNOT_ADMIN_ORIGIN: http://192.168.3.22:8080
+      PUBLIC_WEB_ORIGIN: https://csperfxlab.xknot.si
+      KNOT_ADMIN_ORIGIN: https://csperfxlab.xknot.si
       STATIC_WEB_DIR: /app/web/dist
       UPLOAD_DIR: /data/uploads
       KNOT_AGENT_ENV_DIR: /data/sites/local/agents

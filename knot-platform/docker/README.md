@@ -18,6 +18,8 @@ sudo systemctl disable knot-backend
 
 OpenClaw Gateway 仍跑在宿主机。`app` 与宿主机共用 PID/IPC 命名空间，并挂载 `~/.npm-global`、`~/.openclaw`，否则终审 CLI 会因 SQLite 锁跨命名空间而 `agent_failed`。
 
+镜像含 `openssh-client`（联邦交钥用 `ssh-keygen`）。反向隧道不在容器内跑：用宿主机 user unit `knot-entry-tunnel.service`（`run-entry-tunnel.sh`）。`xknot.env` 经 compose `env_file` 注入进程，写入或更新后需 `docker compose up -d --force-recreate app`。
+
 ## 启动
 
 ```bash
